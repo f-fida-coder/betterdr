@@ -818,14 +818,36 @@ body::after {
 }
 
 
+/* Hide mobile elements on desktop */
+.mobile-only,
 .mobile-login-trigger,
-.mobile-login-buttons {
+.mobile-login-buttons,
+.mobile-header-container {
   display: none !important;
 }
 
 @media (max-width: 768px) {
+  /* Show mobile elements on mobile */
+  .mobile-only,
+  .mobile-login-trigger,
+  .mobile-login-buttons,
+  .mobile-header-container {
+    display: flex !important;
+  }
+
+  .mobile-header-container {
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+  }
+
+  /* Hide desktop elements on mobile */
   .login-section.desktop-only {
-    display: none;
+    display: none !important;
+  }
+
+  .desktop-only {
+    display: none !important;
   }
 
   .mobile-login-trigger {
