@@ -1,0 +1,88 @@
+
+.tutorials-container {
+    padding: 30px;
+    background: #f4f6f8;
+    min-height: 100vh;
+}
+
+.tutorials-header {
+    text-align: center;
+    margin-bottom: 40px;
+    color: #333;
+}
+
+.tutorials-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 25px;
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.tutorial-card {
+    background: white;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
+    transition: all 0.3s;
+    cursor: pointer;
+    border: 1px solid #e1e1e1;
+}
+
+.tutorial-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 12px 20px rgba(0, 0, 0, 0.1);
+    border-color: #00703c;
+}
+
+.tutorial-img-placeholder {
+    height: 160px;
+    background: #e9ecef;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 50px;
+    color: #cad2d9;
+}
+
+.tutorial-content {
+    padding: 20px;
+}
+
+.tutorial-tags {
+    margin-bottom: 10px;
+}
+
+.tag {
+    background: #111;
+    color: white;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    display: inline-block;
+}
+
+.tutorial-card h3 {
+    margin: 0 0 10px 0;
+    font-size: 18px;
+    color: #222;
+}
+
+.tutorial-card p {
+    font-size: 13px;
+    color: #666;
+    margin-bottom: 20px;
+    line-height: 1.5;
+}
+
+.read-btn {
+    color: #00703c;
+    font-weight: 700;
+    font-size: 13px;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}

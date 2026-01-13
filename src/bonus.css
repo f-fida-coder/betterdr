@@ -1,0 +1,341 @@
+
+:root {
+    --cashier-bg: #0d0e12;
+    --cashier-card-bg: #16181d;
+    --cashier-accent: #00ff88;
+    --cashier-accent-glow: rgba(0, 255, 136, 0.3);
+    --cashier-border: rgba(255, 255, 255, 0.08);
+    --cashier-text-main: #ffffff;
+    --cashier-text-dim: #94a3b8;
+    --cashier-gold: #fbbf24;
+}
+
+.bonus-view-container {
+    padding: 0;
+    background: var(--cashier-bg);
+    min-height: 100vh;
+    font-family: 'Outfit', sans-serif;
+    color: var(--cashier-text-main);
+    width: 100%;
+}
+
+.bonus-card {
+    background: var(--cashier-card-bg);
+    border-radius: 0;
+    box-shadow: none;
+    overflow: hidden;
+    width: 100%;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    min-height: calc(100vh - 72px);
+    border: none;
+    position: relative;
+}
+
+.bonus-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--cashier-accent), transparent);
+    opacity: 0.5;
+}
+
+
+.bonus-tabs {
+    display: flex;
+    background: linear-gradient(135deg, rgba(0, 0, 0, 0.4), rgba(0, 255, 136, 0.05));
+    border-bottom: 2px solid var(--cashier-border);
+    padding: 20px 40px;
+    gap: 15px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    align-items: center;
+    backdrop-filter: blur(10px);
+}
+
+.bonus-tabs::-webkit-scrollbar {
+    display: none;
+    
+}
+
+.bonus-tab-ite4px 28px;
+    cursor: pointer;
+    font-weight: 700;
+    color: var(--cashier-text-dim);
+    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    border-radius: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    white-space: nowrap;
+    border: 2px solid transparent;
+    position: relative
+    border: 1px solid transparent;
+}
+
+.bonus-tab-item:hover {8);
+    border-color: rgba(255, 255, 255, 0.2);
+    transform: translateY(-3px);
+}
+
+.bonus-tab-item.active {
+    color: var(--cashier-accent);
+    background: linear-gradient(135deg, rgba(0, 255, 136, 0.15), rgba(0, 255, 136, 0.08));
+    border-color: var(--cashier-accent);
+    box-shadow: 0 8px 30px rgba(0, 255, 136, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.1
+    border-color: rgba(0, 255, 136, 0.2);
+    box-shadow: 0 0 20px rgba(0, 255, 136, 0.05);
+}
+
+.tab-icon-small {
+    font-size: 18px;
+}
+
+50px 60px;
+    flex: 1;
+    background: linear-gradient(135deg, rgba(0, 0, 0, 0.2), rgba(0, 255, 136, 0.02));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%
+    flex: 1;
+    background: radial-gradient(circle att, minmax(280px, 1fr));
+    gap: 32px;
+    width: 100%;
+    max-width: 1600px;
+    margin: 0 auto
+
+
+.deposit-methods-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 24px;
+}
+
+.deposit-method-card {
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.05), rgba(0, 255, 136, 0.02));
+    border: 2px solid var(--cashier-border);
+    border-radius: 24px;
+    padding: 40px 35px;
+    position: relative;
+    transition: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: space-around;
+    text-align: center;
+    overflow: hidden;
+    min-height: 340px;
+    backdrop-filter: blur(10px);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+.deposit-method-card::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, transparent, rgba(255, 255, 255, 0.05), transparent);
+    transform: translateX(-100%);
+    transition: transform 0.6s;
+}
+
+.deposit-method-card:hover {
+    transform: translateY(-15px) scale(1.03);
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.08), rgba(0, 255, 136, 0.05));
+    border-color: var(--cashier-accent);
+    box-shadow: 0 25px 50px rgba(0, 0, 0, 0.5), 0 0 30px var(--cashier-accent-glow), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.deposit-method-card:hover::after {
+    transform: translateX(100%);
+}
+
+.method-icon {
+    font-size: 56px;
+    margin-bottom: 20px;
+    height: 80px;
+    display: flex;
+    align-items: center;
+.method-icon {
+    font-size: 64px;
+    margin-bottom: 25px;
+    height: 90px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    filter: drop-shadow(0 0 20px rgba(255, 255, 255, 0.15));
+    transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.deposit-method-card:hover .method-icon {
+    transform: scale(1.15) rotate(8deg);
+    filter: drop-shadow(0 0 30px rgba(0, 255, 136, 0.4));
+}
+
+.method-info {20px;
+    color: #fff;
+    margin-bottom: 10px;
+    letter-spacing: 0.8px;
+    line-height: 1.3
+
+.method-name {
+    font-weight: 800;
+    font-size: 18px;
+    color: #fff;
+    margin-bottom: 8px;
+    letter-spacing: 0.5px;
+}
+
+.method-status {
+    font-size: 10px;
+    font-weight: 800;
+    color: var(--cashier-accent);
+    background: rgba(0, 255, 136, 0.1);
+    padding: 4px 12px;
+    border-radius: 20px;
+    display: i6px 0;
+    border: none;
+    border-radius: 14px;
+    background: linear-gradient(135deg, #1f2937, #111827);
+    color: #fff;
+    font-weight: 800;
+    text-transform: uppercase;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+    letter-spacing: 2px;
+    border: 2px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
+    position: relative;
+    overflow: hidden;
+}
+
+.method-select-btn::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+    transition: left 0.5s;
+}
+
+.method-select-btn:hover::before {
+    left: 100%;
+}
+
+.method-select-btn:hover {
+    background: linear-gradient(135deg, var(--cashier-accent), #00cc6a);
+    color: #000;
+    border-color: transparent;
+    box-shadow: 0 15px 35px var(--cashier-accent-glow), 0 0 40px rgba(0, 255, 136, 0.3);
+    transform: translateY(-3px
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+}
+
+.method-select-btn:hover {
+    background: linear-gradient(135deg, var(--cashier-accent), #00cc6a);
+    color: #000;
+    border-color: transparent;
+    box-shadow: 0 10px 20px var(--cashier-accent-glow);
+}
+
+
+.safe-secure-seal {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--cashier-text-dim);
+    border: 1px solid var(--cashier-border);
+    background: rgba(0, 0, 0, 0.1);
+    border-radius: 30px;
+    padding: 60px;
+    text-align: center;
+}
+
+.seal-icon {
+    font-size: 72px;
+    margin-bottom: 25px;
+    color: var(--cashier-accent);
+    filter: drop-shadow(0 0 20px var(--cashier-accent-glow));
+}
+
+.seal-label {
+    font-size: 20px;
+    font-weight: 900;
+    letter-spacing: 3px;
+    color: #fff;
+    text-transform: uppercase;
+    margin-bottom: 5px;
+}
+
+.seal-subtext {
+    color: var(--cashier-text-dim);
+    font-size: 14px;
+    margin-top: 15px;
+    font-weight: 500;
+}
+
+
+@media (max-width: 1200px) {
+    .bonus-content {
+        padding: 40px 30px;
+    }
+
+    .deposit-methods-grid {
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: 24px;
+    }
+}
+
+@media (max-width: 768px) {
+    .bonus-view-container {
+        padding: 0;
+    }
+
+    .bonus-card {
+        border-radius: 0;
+        min-height: 100vh;
+    }
+
+    .bonus-tabs {
+        padding: 15px 20px;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+
+    .bonus-tab-item {
+        padding: 12px 20px;
+        font-size: 12px;
+    }
+
+    .bonus-content {
+        padding: 30px 20px;
+    }
+
+    .deposit-methods-grid {
+        grid-template-columns: 1fr;
+        gap: 20px;
+    }
+
+    .deposit-method-card {
+        min-height: 300px;
+        padding: 30px 25px;
+    }
+
+    .method-icon {
+        font-size: 52px;
+        margin-bottom: 20px;
+    }
+}

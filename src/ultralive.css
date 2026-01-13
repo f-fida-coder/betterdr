@@ -1,0 +1,253 @@
+
+.ultra-live-wrapper {
+    background: #000000;
+    min-height: calc(100vh - 72px);
+    font-family: 'Inter', sans-serif;
+    color: #fff;
+    display: flex;
+    overflow: hidden;
+    height: calc(100vh - 72px);
+}
+
+
+.ultra-sidebar {
+    width: 260px;
+    background: #111;
+    border-right: 1px solid #222;
+    display: flex;
+    flex-direction: column;
+}
+
+.ultra-subnav {
+    display: flex;
+    background: #1a1a1a;
+    border-bottom: 1px solid #333;
+}
+
+.ultra-subnav-item {
+    flex: 1;
+    padding: 15px 5px;
+    text-align: center;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    text-transform: uppercase;
+    color: #777;
+    transition: all 0.2s;
+}
+
+.ultra-subnav-item.active {
+    color: #fff;
+    background: #222;
+    border-bottom: 2px solid #00703c;
+}
+
+.ultra-sport-header {
+    background: #151515;
+    padding: 12px 15px;
+    color: #cfaa56;
+    font-size: 12px;
+    font-weight: 800;
+    text-transform: uppercase;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid #222;
+}
+
+.ultra-league-group {
+    border-bottom: 1px solid #222;
+}
+
+.ultra-league-header {
+    background: #0d0d0d;
+    padding: 8px 15px;
+    font-size: 10px;
+    font-weight: 700;
+    color: #555;
+    text-transform: uppercase;
+}
+
+.ultra-sidebar-match {
+    padding: 12px 15px;
+    cursor: pointer;
+    transition: background 0.1s;
+    border-left: 3px solid transparent;
+}
+
+.ultra-sidebar-match:hover {
+    background: #1a1a1a;
+}
+
+.ultra-sidebar-match.active {
+    background: #1a1a1a;
+    border-left-color: #00703c;
+}
+
+.ultra-sidebar-match-teams {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    margin-bottom: 4px;
+    color: #ccc;
+}
+
+.ultra-sidebar-match-score {
+    color: #cfaa56;
+    font-weight: 700;
+}
+
+
+.ultra-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: #080808;
+    overflow-y: auto;
+}
+
+.ultra-video-area {
+    background: #000;
+    height: 400px;
+    
+    width: 100%;
+    position: relative;
+    border-bottom: 1px solid #222;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.ultra-markets-container {
+    flex: 1;
+    padding: 20px;
+    background: #0f1012;
+}
+
+.ultra-market-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #333;
+}
+
+.ultra-market-header h2 {
+    font-size: 18px;
+    color: white;
+    margin: 0;
+}
+
+.ultra-market-section {
+    background: #1a1a1a;
+    border-radius: 8px;
+    margin-bottom: 15px;
+    overflow: hidden;
+    border: 1px solid #2a2a2a;
+}
+
+.ultra-market-title {
+    padding: 10px 15px;
+    background: #222;
+    font-size: 12px;
+    font-weight: 700;
+    color: #ccc;
+    text-transform: uppercase;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.ultra-market-rows {
+    padding: 10px;
+}
+
+.ultra-market-row {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 5px;
+}
+
+.ultra-odds-box {
+    flex: 1;
+    background: #111;
+    border: 1px solid #333;
+    border-radius: 4px;
+    padding: 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.ultra-odds-box:hover {
+    border-color: #00703c;
+    background: #0a2e1d;
+}
+
+.ultra-odds-label {
+    font-size: 12px;
+    color: #bbb;
+}
+
+.ultra-odds-val {
+    color: #cfaa56;
+    font-weight: 700;
+    font-size: 13px;
+}
+
+
+.ultra-right-panel {
+    width: 300px;
+    background: #111;
+    border-left: 1px solid #222;
+    display: flex;
+    flex-direction: column;
+}
+
+.ultra-tracker {
+    height: 250px;
+    background: #181818;
+    border-bottom: 1px solid #333;
+    position: relative;
+}
+
+.ultra-court-graphic {
+    position: absolute;
+    top: 30px;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: linear-gradient(to bottom, #111, #080808);
+}
+
+.ultra-slip-header {
+    display: flex;
+    background: #222;
+}
+
+.ultra-slip-tab {
+    flex: 1;
+    text-align: center;
+    padding: 12px;
+    font-size: 12px;
+    font-weight: 700;
+    color: #777;
+    cursor: pointer;
+    text-transform: uppercase;
+}
+
+.ultra-slip-tab.active {
+    background: #111;
+    color: white;
+    border-top: 2px solid #00703c;
+}
+
+.ultra-slip-body {
+    padding: 20px;
+    text-align: center;
+    color: #666;
+    font-size: 13px;
+}

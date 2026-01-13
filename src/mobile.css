@@ -1,0 +1,149 @@
+
+@media (max-width: 768px) {
+  
+  .prime-layout {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  
+  .prime-sidebar {
+    order: 1;
+    width: 100%;
+    display: flex;
+    gap: 8px;
+    padding: 8px 10px;
+    overflow-x: auto;
+    box-sizing: border-box;
+    background: transparent;
+  }
+  .prime-sidebar .prime-sidebar-item {
+    min-width: 140px;
+    flex: 0 0 auto;
+    padding: 8px 10px;
+  }
+
+  
+  .prime-main {
+    order: 2;
+    width: 100%;
+    padding: 8px 10px;
+    box-sizing: border-box;
+  }
+
+  
+  .prime-match-row {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 8px 6px;
+  }
+
+  .prime-header-row { display: none; }
+
+  .prime-match-teams {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .prime-team { display: flex; justify-content: space-between; align-items: center; }
+  .prime-score { font-weight: 800; margin-left: 8px; }
+  .prime-time-info { font-size: 12px; color: #94a3b8; }
+
+  
+  .prime-odds-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+    align-items: stretch;
+  }
+
+  .prime-odd-btn {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding: 8px;
+    background: rgba(255,255,255,0.03);
+    border-radius: 6px;
+    font-size: 13px;
+    min-height: 44px;
+  }
+  .prime-odd-val { font-weight: 700; margin-top: 4px; }
+
+  
+  .prime-odd-btn.disabled { opacity: 0.45; pointer-events: none; }
+
+  
+  .prime-right-panel {
+    order: 3;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 10px;
+    background: linear-gradient(180deg, rgba(16,16,16,0.9), rgba(10,10,10,0.95));
+    border-top: 1px solid rgba(255,255,255,0.03);
+    position: relative;
+    max-height: 40vh;
+    overflow-y: auto;
+  }
+  .prime-slip-tabs { display: flex; gap: 8px; margin-bottom: 10px; }
+  .prime-slip-tab { flex: 1 1 auto; text-align: center; padding: 8px; border-radius: 6px; background: rgba(255,255,255,0.02); }
+  .prime-slip-tab.active { background: rgba(207,170,86,0.12); }
+
+  
+  .prime-tools-bar { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
+  .prime-tools-bar > div { font-size: 13px; }
+
+  
+  img, svg { max-width: 100%; height: auto; }
+
+  
+  body { -webkit-overflow-scrolling: touch; }
+}
+
+
+@media (max-width: 420px) {
+  .prime-sidebar { padding: 6px 8px; gap: 6px; }
+  .prime-sidebar .prime-sidebar-item { min-width: 120px; padding: 6px 8px; font-size: 13px; }
+
+  .prime-main { padding: 6px 8px; }
+  .prime-tools-bar > div { font-size: 12px; }
+
+  
+  .prime-odds-grid { grid-template-columns: repeat(2, 1fr); }
+  .prime-odd-btn { min-height: 40px; padding: 6px; font-size: 12px; }
+
+  
+  .prime-match-group { padding: 6px 0; }
+  .prime-match-header { display: flex; justify-content: space-between; align-items: center; font-size: 13px; padding: 6px 0; }
+
+  
+  .prime-score { font-size: 14px; }
+  .prime-time-info { font-size: 11px; }
+}
+
+
+@media (max-width: 768px) {
+  
+  .prime-sidebar-search { flex: 0 0 auto; width: 100%; }
+  .prime-sidebar-input { width: 100%; padding: 8px 10px; border-radius: 8px; box-sizing: border-box; }
+
+  
+  .prime-badge { background: rgba(207,170,86,0.14); color: #cfaa56; padding: 4px 8px; border-radius: 12px; font-size: 12px; margin-left: 8px; }
+
+  
+  .prime-markets-header { display: none; }
+
+  
+  .prime-match-group { border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 8px; margin-bottom: 8px; }
+
+  
+  .prime-odd-btn span { word-break: break-word; }
+
+  
+  .prime-odd-btn { min-height: 48px; }
+
+  
+  .prime-right-panel { max-height: 50vh; }
+}

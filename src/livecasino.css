@@ -1,0 +1,272 @@
+
+.live-casino-wrapper {
+    background: #0f172a;
+    
+    min-height: calc(100vh - 72px);
+    padding: 0;
+    font-family: 'Inter', sans-serif;
+    color: white;
+}
+
+
+.live-hero {
+    height: 400px;
+    background: linear-gradient(to right, rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0.2)), url('https://images.unsplash.com/photo-1596838132731-3301c3fd4317?ixlib=rb-4.0.3&auto=format&fit=crop&w=1200&q=80');
+    
+    background-size: cover;
+    background-position: center;
+    position: relative;
+    display: flex;
+    align-items: center;
+    padding: 0 50px;
+    margin-bottom: -50px;
+    
+}
+
+.live-hero-content {
+    max-width: 600px;
+    z-index: 2;
+}
+
+.live-hero-badge {
+    background: #cfaa56;
+    color: #000;
+    padding: 5px 12px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+    display: inline-block;
+    margin-bottom: 20px;
+    letter-spacing: 1px;
+}
+
+.live-hero h1 {
+    font-size: 48px;
+    font-weight: 800;
+    line-height: 1.1;
+    margin-bottom: 20px;
+    text-transform: uppercase;
+    text-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
+}
+
+.live-hero p {
+    font-size: 16px;
+    color: #ddd;
+    margin-bottom: 30px;
+    line-height: 1.6;
+}
+
+.play-action-btn {
+    background: #00703c;
+    color: white;
+    padding: 15px 40px;
+    border: none;
+    border-radius: 30px;
+    font-weight: 800;
+    font-size: 14px;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    transition: all 0.3s;
+    box-shadow: 0 4px 15px rgba(0, 112, 60, 0.4);
+}
+
+.play-action-btn:hover {
+    background: #008a4b;
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(0, 112, 60, 0.6);
+}
+
+
+.live-lobby-container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 20px 40px;
+    position: relative;
+    z-index: 5;
+}
+
+
+.live-category-bar {
+    display: flex;
+    gap: 15px;
+    margin-bottom: 40px;
+    overflow-x: auto;
+    padding-bottom: 10px;
+}
+
+.live-cat-btn {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #aaa;
+    padding: 12px 24px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 700;
+    text-transform: uppercase;
+    font-size: 13px;
+    transition: all 0.2s;
+    white-space: nowrap;
+    backdrop-filter: blur(10px);
+}
+
+.live-cat-btn:hover,
+.live-cat-btn.active {
+    background: white;
+    color: #111;
+    border-color: white;
+    box-shadow: 0 5px 15px rgba(255, 255, 255, 0.1);
+}
+
+
+.live-section-title {
+    font-size: 20px;
+    font-weight: 700;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: #fff;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.live-section-title span {
+    color: #cfaa56;
+    
+}
+
+.tables-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 30px;
+    margin-bottom: 60px;
+}
+
+.live-table-card {
+    background: #1e293b;
+    border-radius: 12px;
+    overflow: hidden;
+    position: relative;
+    transition: all 0.3s ease;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.live-table-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 15px 30px rgba(0, 0, 0, 0.3);
+    border-color: #cfaa56;
+}
+
+.table-preview {
+    height: 180px;
+    background-size: cover;
+    background-position: center;
+    position: relative;
+}
+
+.table-preview::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(to top, #1e293b 0%, transparent 60%);
+}
+
+.live-badge {
+    position: absolute;
+    top: 15px;
+    right: 15px;
+    background: #ef4444;
+    color: white;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 800;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.live-badge::before {
+    content: '';
+    display: block;
+    width: 6px;
+    height: 6px;
+    background: white;
+    border-radius: 50%;
+}
+
+.dealer-name {
+    position: absolute;
+    bottom: 15px;
+    left: 15px;
+    font-weight: 700;
+    font-size: 14px;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.8);
+}
+
+.table-info {
+    padding: 20px;
+}
+
+.table-name {
+    font-size: 16px;
+    font-weight: 700;
+    margin-bottom: 8px;
+    color: white;
+}
+
+.table-limits {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: #94a3b8;
+    margin-bottom: 15px;
+    font-weight: 500;
+}
+
+.seat-status {
+    display: flex;
+    gap: 5px;
+    margin-bottom: 20px;
+}
+
+.seat-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #334155;
+}
+
+.seat-dot.occupied {
+    background: #ef4444;
+}
+
+.seat-dot.open {
+    background: #22c55e;
+    box-shadow: 0 0 5px #22c55e;
+}
+
+.join-table-btn {
+    width: 100%;
+    padding: 12px;
+    background: transparent;
+    border: 1px solid #cfaa56;
+    color: #cfaa56;
+    border-radius: 6px;
+    font-weight: 700;
+    font-size: 12px;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.join-table-btn:hover {
+    background: #cfaa56;
+    color: #000;
+}
