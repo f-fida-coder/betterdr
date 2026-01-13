@@ -24,8 +24,8 @@
     backdrop-filter: blur(10px);
     position: sticky;
     top: 0;
-    z-ind20px;
-    align-items: center100;
+    z-index: 20;
+    align-items: center;
 }
 
 .casino-nav-items {
@@ -68,7 +68,8 @@
     border-color: rgba(255, 215, 0, 0.2);
     transform: translateY(-3px);
 }
-rgba(0, 0, 0, 0.3);
+
+.casino-search {
     border: 2px solid rgba(255, 215, 0, 0.2);
     border-radius: 30px;
     padding: 10px 20px;
@@ -212,7 +213,7 @@ rgba(0, 0, 0, 0.3);
     transform: scale(1);
 }
 
-.casino-card-20px;
+.casino-card-details {
     background: linear-gradient(135deg, rgba(37, 37, 37, 0.9), rgba(20, 20, 20, 0.9));
     flex-grow: 1;
     display: flex;

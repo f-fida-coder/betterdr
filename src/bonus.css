@@ -62,7 +62,8 @@
     
 }
 
-.bonus-tab-ite4px 28px;
+.bonus-tab-item {
+    padding: 12px 28px;
     cursor: pointer;
     font-weight: 700;
     color: var(--cashier-text-dim);
@@ -77,11 +78,12 @@
     letter-spacing: 1.2px;
     white-space: nowrap;
     border: 2px solid transparent;
-    position: relative
-    border: 1px solid transparent;
+    position: relative;
 }
 
-.bonus-tab-item:hover {8);
+.bonus-tab-item:hover {
+    color: var(--cashier-text-main);
+    background: rgba(255, 255, 255, 0.1);
     border-color: rgba(255, 255, 255, 0.2);
     transform: translateY(-3px);
 }
@@ -90,7 +92,7 @@
     color: var(--cashier-accent);
     background: linear-gradient(135deg, rgba(0, 255, 136, 0.15), rgba(0, 255, 136, 0.08));
     border-color: var(--cashier-accent);
-    box-shadow: 0 8px 30px rgba(0, 255, 136, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.1
+    box-shadow: 0 8px 30px rgba(0, 255, 136, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.1);
     border-color: rgba(0, 255, 136, 0.2);
     box-shadow: 0 0 20px rgba(0, 255, 136, 0.05);
 }
@@ -99,19 +101,15 @@
     font-size: 18px;
 }
 
-50px 60px;
+.bonus-content {
+    padding: 50px 60px;
     flex: 1;
     background: linear-gradient(135deg, rgba(0, 0, 0, 0.2), rgba(0, 255, 136, 0.02));
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 100%
-    flex: 1;
-    background: radial-gradient(circle att, minmax(280px, 1fr));
-    gap: 32px;
     width: 100%;
-    max-width: 1600px;
-    margin: 0 auto
+}
 
 
 .deposit-methods-grid {
@@ -159,12 +157,6 @@
 }
 
 .method-icon {
-    font-size: 56px;
-    margin-bottom: 20px;
-    height: 80px;
-    display: flex;
-    align-items: center;
-.method-icon {
     font-size: 64px;
     margin-bottom: 25px;
     height: 90px;
@@ -180,11 +172,16 @@
     filter: drop-shadow(0 0 30px rgba(0, 255, 136, 0.4));
 }
 
-.method-info {20px;
+.method-info {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--cashier-text-dim);
+    margin-bottom: 20px;
     color: #fff;
     margin-bottom: 10px;
     letter-spacing: 0.8px;
-    line-height: 1.3
+    line-height: 1.3;
+}
 
 .method-name {
     font-weight: 800;
@@ -201,7 +198,12 @@
     background: rgba(0, 255, 136, 0.1);
     padding: 4px 12px;
     border-radius: 20px;
-    display: i6px 0;
+    display: inline-block;
+}
+
+.method-select-btn {
+    padding: 12px 16px;
+    margin-top: 16px;
     border: none;
     border-radius: 14px;
     background: linear-gradient(135deg, #1f2937, #111827);
@@ -238,15 +240,7 @@
     color: #000;
     border-color: transparent;
     box-shadow: 0 15px 35px var(--cashier-accent-glow), 0 0 40px rgba(0, 255, 136, 0.3);
-    transform: translateY(-3px
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
-}
-
-.method-select-btn:hover {
-    background: linear-gradient(135deg, var(--cashier-accent), #00cc6a);
-    color: #000;
-    border-color: transparent;
-    box-shadow: 0 10px 20px var(--cashier-accent-glow);
+    transform: translateY(-3px);
 }
 
 

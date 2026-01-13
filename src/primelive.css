@@ -1,4 +1,3 @@
-
 .prime-live-wrapper {
     background: linear-gradient(135deg, #0a0f1a, #0f172a);
     min-height: calc(100vh - 72px);
@@ -14,34 +13,13 @@
     overflow: hidden;
 }
 
-/* ===== ENHANCED SIDEBAR ===== */
-
 .prime-sidebar {
     background: linear-gradient(180deg, #1e293b, #0f172a);
     border-right: 2px solid rgba(51, 65, 85, 0.5);
     overflow-y: auto;
-    backdrop-filter: blur(10px);
     display: flex;
     flex-direction: column;
     padding-top: 0;
-}
-
-.prime-sidebar::-webkit-scrollbar {
-    width: 6px;
-}
-
-.prime-sidebar::-webkit-scrollbar-track {
-    background: transparent;
-}
-
-.prime-sidebar::-webkit-scrollbar-thumb {
-    background: rgba(0, 255, 136, 0.3);
-    border-radius: 3px;
-    transition: background 0.3s;
-}
-
-.prime-sidebar::-webkit-scrollbar-thumb:hover {
-    background: rgba(0, 255, 136, 0.6);
 }
 
 .prime-sidebar-search {
@@ -49,8 +27,6 @@
     border-bottom: 2px solid rgba(51, 65, 85, 0.5);
     position: sticky;
     top: 0;
-    background: linear-gradient(180deg, #1e293b, rgba(30, 41, 59, 0.9));
-    backdrop-filter: blur(10px);
     z-index: 10;
 }
 
@@ -63,7 +39,7 @@
     color: #e2e8f0;
     font-size: 13px;
     font-weight: 600;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: all 0.3s;
 }
 
 .prime-sidebar-input::placeholder {
@@ -74,26 +50,9 @@
     outline: none;
     border-color: #00703c;
     background: rgba(15, 23, 42, 1);
-    box-shadow: 0 0 15px rgba(0, 112, 60, 0.3), inset 0 1px 2px rgba(0, 255, 136, 0.1);
+    box-shadow: 0 0 15px rgba(0, 112, 60, 0.3);
 }
 
-/* Sports Category Header */
-.prime-sidebar-category {
-    padding: 15px 15px 5px;
-    font-size: 10px;
-    color: #64748b;
-    text-transform: uppercase;
-    font-weight: 800;
-    letter-spacing: 1px;
-    background: rgba(0, 0, 0, 0.2);
-    margin-top: 10px;
-}
-
-.prime-sidebar-category:first-of-type {
-    margin-top: 0;
-}
-
-/* Sidebar Items */
 .prime-sidebar-item {
     padding: 14px 15px;
     display: flex;
@@ -103,64 +62,35 @@
     border-bottom: 1px solid rgba(255, 255, 255, 0.03);
     font-size: 13px;
     font-weight: 600;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: all 0.3s;
     color: #94a3b8;
-    position: relative;
 }
 
-.prime-sidebar-item::before {
-    content: '';
-    position: absolute;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    width: 4px;
-    background: #00703c;
-    transform: scaleY(0);
-    transition: transform 0.3s;
-}
-255, 136, 0.15);
-    color: #00ff88;
-    padding: 4px 10px;
-    border-radius: 12px;
-    font-size: 11px;
-    font-weight: 700;
-    border: 1px solid rgba(0, 255, 136, 0.3);
-    letter-spacing: 0.5
+.prime-sidebar-item:hover {
+    background: rgba(51, 65, 85, 0.4);
+    color: white;
     padding-left: 20px;
 }
 
-.prime-sidebar-item:hover::before {
-    transform: scaleY(1);
-}
-
 .prime-sidebar-item.active {
-    background: rgba(0, 112, 60, 0.2);
+    background: linear-gradient(90deg, rgba(0, 112, 60, 0.3), rgba(0, 112, 60, 0.1));
     color: #00ff88;
     font-weight: 700;
     padding-left: 20px;
     border-left: 4px solid #00703c;
 }
 
-.prime-sidebar-item.active::before {
-    display: nonehover {
-    background: #334155;
-    color: white;
-}
-
-.prime-sidebar-item.active {
-    background: #00703c;
-    color: white;
-    font-weight: 700;
-}
-
 .prime-badge {
-    background: rgba(0, 0, 0, 0.3);
-    padding: 2px 6px;
-    border-radius: 10px;
+    background: linear-gradient(135deg, rgba(0, 255, 136, 0.2), rgba(0, 255, 136, 0.1));
+    color: #00ff88;
+    padding: 4px 10px;
+    border-radius: 12px;
     font-size: 11px;
+    font-weight: 700;
+    border: 1px solid rgba(0, 255, 136, 0.3);
+    min-width: 30px;
+    text-align: center;
 }
-
 
 .prime-main {
     background: linear-gradient(135deg, #0f172a, #1a253a);
@@ -178,17 +108,18 @@
     justify-content: space-between;
     align-items: center;
     font-size: 12px;
-    backdrop-filter: blur(10px);
-    sticky: top;
+    position: sticky;
+    top: 0;
+    z-index: 5;
 }
-0;
-    border-bottom: 2px solid rgba(51, 65, 85, 0.5)
-    margin-bottom: 2px;
-    border-bottom: 1px solid #334155;
+
+.prime-match-group {
+    margin-bottom: 0;
+    border-bottom: 2px solid rgba(51, 65, 85, 0.5);
 }
 
 .prime-match-header {
-    background: linear-gradient(90deg, rgba(36, 48, 64, 0.6), rgba(30, 41, 59, 0.6));
+    background: linear-gradient(90deg, rgba(36, 48, 64, 0.8), rgba(30, 41, 59, 0.6));
     padding: 15px 30px;
     font-size: 13px;
     font-weight: 800;
@@ -197,51 +128,72 @@
     align-items: center;
     color: #ffd700;
     text-transform: uppercase;
-    letter-spacing: 1px;
+    letter-spacing: 1.2px;
     border-left: 4px solid #ffd700;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.prime-match-header:hover {
+    background: linear-gradient(90deg, rgba(51, 65, 85, 0.9), rgba(30, 41, 59, 0.7));
 }
 
 .prime-header-row {
     display: grid;
     grid-template-columns: 4fr 3fr;
     padding: 12px 30px;
-    background: rgba(21, 30, 46, 0.8);
+    background: rgba(21, 30, 46, 0.9);
     font-size: 11px;
     color: #94a3b8;
     text-transform: uppercase;
     font-weight: 800;
-    letter-spacing: 1px;
+    letter-spacing: 1.2px;
     border-bottom: 1px solid rgba(51, 65, 85, 0.3);
 }
 
 .prime-markets-header {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    
     text-align: center;
     gap: 10px;
 }
 
 .prime-match-row {
-    display: grilinear-gradient(90deg, rgba(15, 23, 42, 0.8), rgba(30, 41, 59, 0.4));
+    display: grid;
+    grid-template-columns: 4fr 3fr;
+    background: linear-gradient(90deg, rgba(15, 23, 42, 0.6), rgba(30, 41, 59, 0.3));
     border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: all 0.3s;
+    position: relative;
+}
+
+.prime-match-row::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    background: transparent;
+    transition: background 0.3s;
 }
 
 .prime-match-row:hover {
-    background: linear-gradient(90deg, rgba(30, 41, 59, 0.9), rgba(51, 65, 85, 0.5));
-    border-left: 4px solid #00ff88
-.prime-match-row:hover {
-    background: #1e293b;
-}5px 30px;
+    background: linear-gradient(90deg, rgba(30, 41, 59, 0.95), rgba(51, 65, 85, 0.5));
+    border-bottom: 1px solid rgba(0, 255, 136, 0.2);
+}
+
+.prime-match-row:hover::before {
+    background: linear-gradient(180deg, #00ff88, #00703c);
+}
+
+.prime-match-teams {
+    padding: 15px 30px;
     display: flex;
     flex-direction: column;
     justify-content: center;
     gap: 8px;
-    border-right: 2px solid rgba(51, 65, 85, 0.5)
-    justify-content: center;
-    gap: 6px;
-    border-right: 1px solid #334155;
+    border-right: 2px solid rgba(51, 65, 85, 0.5);
 }
 
 .prime-team {
@@ -250,25 +202,34 @@
     font-weight: 600;
     font-size: 14px;
     color: #e2e8f0;
+    align-items: center;
+    transition: all 0.2s;
+}
+
+.prime-match-row:hover .prime-team {
+    color: #00ff88;
 }
 
 .prime-score {
     color: #cfaa56;
-    
     font-family: 'JetBrains Mono', monospace;
     font-weight: 700;
+    font-size: 16px;
+    min-width: 50px;
+    text-align: right;
+    padding-left: 10px;
 }
 
 .prime-time-info {
     font-size: 11px;
     color: #00703c;
-    
     font-weight: 700;
     margin-top: 5px;
     display: flex;
     align-items: center;
     gap: 5px;
     text-transform: uppercase;
+    letter-spacing: 0.5px;
 }
 
 .prime-odds-grid {
@@ -289,9 +250,13 @@
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    transition: all 0.3s;
     min-height: 56px;
     position: relative;
+    overflow: hidden;
+    font-weight: 600;
+}
+
 .prime-odd-btn::before {
     content: '';
     position: absolute;
@@ -337,7 +302,6 @@
     color: #00ff88;
 }
 
-/* Disabled odds buttons */
 .prime-odd-btn.disabled {
     opacity: 0.3;
     cursor: not-allowed;
@@ -349,14 +313,12 @@
     grid-row: 1 / span 2;
     height: 100%;
 }
-/* ===== RIGHT PANEL (BET SLIP) ===== */
 
 .prime-right-panel {
     background: linear-gradient(180deg, #1e293b, #0f172a);
     border-left: 2px solid rgba(51, 65, 85, 0.5);
     display: flex;
     flex-direction: column;
-    backdrop-filter: blur(10px);
     min-width: 0;
 }
 
@@ -376,7 +338,7 @@
     color: #64748b;
     text-transform: uppercase;
     letter-spacing: 1px;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: all 0.3s;
     position: relative;
     border: none;
     background: transparent;
@@ -391,7 +353,7 @@
     height: 3px;
     background: linear-gradient(90deg, #cfaa56, #ffd700);
     transform: scaleX(0);
-    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    transition: transform 0.3s;
 }
 
 .prime-slip-tab:hover {
@@ -405,7 +367,6 @@
 .prime-slip-tab.active {
     background: rgba(30, 41, 59, 0.9);
     color: #cfaa56;
-    border-top: none;
 }
 
 .prime-slip-tab.active::after {
@@ -422,39 +383,27 @@
     overflow-y: auto;
 }
 
-.prime-slip-content::-webkit-scrollbar {
-    width: 4px;
-}
-
-.prime-slip-content::-webkit-scrollbar-track {
-    background: transparent;
-}
-
-.prime-slip-content::-webkit-scrollbar-thumb {
-    background: rgba(207, 170, 86, 0.2);
-    border-radius: 2px;
-}
-
-.prime-slip-content::-webkit-scrollbar-thumb:hover {
-    background: rgba(207, 170, 86, 0.4);
-}
-
-.prime-slip-tab.active::after {
-    transform: scaleX(1);
-}
-
-.prime-slip-content {
-    flex: 1;
-    padding: 25px;
-    color: #64748b;
-    font-size: 13px;
-    text-align: center;
-    line-height: 1.6;
-}
-
 @media (max-width: 1400px) {
     .prime-layout {
+        grid-template-columns: 260px 1fr;
+    }
+}
+
+@media (max-width: 1200px) {
+    .prime-layout {
         grid-template-columns: 240px 1fr;
+    }
+
+    .prime-match-header {
+        padding: 12px 20px;
+    }
+
+    .prime-match-teams {
+        padding: 12px 20px;
+    }
+
+    .prime-tools-bar {
+        padding: 12px 20px;
     }
 }
 
@@ -507,6 +456,7 @@
         border-right: none;
         border-bottom: 1px solid rgba(51, 65, 85, 0.3);
     }
+
     .prime-odd-btn {
         min-height: 48px;
     }
