@@ -2013,9 +2013,11 @@ body.dashboard-mode {
     }
 
     .mobile-header-container {
-        display: block;
+        display: flex !important;
+        align-items: center;
+        justify-content: flex-end;
         width: 100%;
-        
+        gap: 10px;
         font-family: 'Outfit', sans-serif;
     }
 
