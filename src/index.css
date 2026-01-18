@@ -13,6 +13,12 @@
   --accent-red: #ff3c3c;
 }
 
+html {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
 * {
   margin: 0;
   padding: 0;
@@ -25,6 +31,10 @@ body {
   color: var(--text-main);
   overflow-x: hidden;
   min-height: 100vh;
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
 }
 
 
@@ -86,6 +96,10 @@ body::after {
   position: sticky;
   top: 0;
   z-index: 1000;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow-x: hidden;
 }
 
 .logo img {
@@ -827,6 +841,20 @@ body::after {
 }
 
 @media (max-width: 768px) {
+  /* Header fixes */
+  .main-header {
+    padding: 12px 15px;
+    width: 100%;
+    overflow-x: hidden;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .logo img {
+    height: 60px;
+  }
+
   /* Show mobile elements on mobile */
   .mobile-only,
   .mobile-login-trigger,
@@ -836,9 +864,12 @@ body::after {
   }
 
   .mobile-header-container {
+    display: flex;
     align-items: center;
     justify-content: flex-end;
     gap: 10px;
+    flex-wrap: wrap;
+    width: auto;
   }
 
   /* Hide desktop elements on mobile */
@@ -850,72 +881,168 @@ body::after {
     display: none !important;
   }
 
+  .mobile-login-btn {
+    background: #444;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
+  .mobile-join-btn {
+    background: #444;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
   .mobile-login-trigger {
     display: block !important;
     font-weight: bold;
-    color: #00ff66;
-    border: 1px solid #00ff66;
-    padding: 8px 15px;
+    color: white;
+    border: none;
+    padding: 8px 12px;
     border-radius: 4px;
     cursor: pointer;
     font-size: 12px;
+    background: #444;
+    white-space: nowrap;
   }
 
   .mobile-login-buttons {
     display: flex !important;
     align-items: center;
+    gap: 8px;
   }
 
   .mobile-login-dropdown {
-    position: absolute;
-    top: 70px;
-    
+    position: fixed;
+    top: 72px;
+    left: 0;
     right: 0;
     width: 100%;
-    background: rgba(0, 0, 0, 0.95);
-    padding: 20px;
+    max-width: 100%;
+    background: rgba(0, 0, 0, 0.98);
+    padding: 20px 15px;
     display: flex;
     flex-direction: column;
     gap: 10px;
     z-index: 1000;
     border-bottom: 2px solid #00ff66;
     backdrop-filter: blur(10px);
+    box-sizing: border-box;
+    overflow-x: hidden;
   }
 
   .mobile-input {
     padding: 12px;
-    border-radius: 4px;
-    border: 1px solid #444;
-    background: #222;
+    border-radius: 6px;
+    border: 1px solid #555;
+    background: #2a2a2a;
     color: white;
-    font-size: 16px;
+    font-size: 14px;
+    width: 100%;
+    box-sizing: border-box;
   }
 
   .mobile-btn {
     width: 100%;
     padding: 12px;
     margin: 0 !important;
+    box-sizing: border-box;
   }
 
   .mobile-btn.register {
-    background: transparent;
-    border: 1px solid #00ff66;
-    color: #00ff66;
+    background: #444;
+    border: 1px solid #666;
+    color: white;
+  }
+
+  /* Hero section mobile */
+  .hero-container {
+    width: 100%;
+    padding: 15px 15px 0;
+    max-width: 100%;
+    margin: 0;
+    overflow-x: hidden;
   }
 
   .hero-section {
-    height: 300px;
+    height: 280px;
+    border-radius: 12px;
+    width: 100%;
   }
 
   .hero-text h1 {
-    font-size: 28px;
+    font-size: 22px;
   }
 
+  .hero-text {
+    padding: 20px;
+  }
+
+  /* Promo cards mobile */
+  .promo-flex-row {
+    display: flex;
+    gap: 12px;
+    margin-top: 15px;
+    height: 180px;
+    padding: 0 15px;
+    width: 100%;
+    box-sizing: border-box;
+    overflow-x: hidden;
+  }
+
+  .promo-card {
+    flex: 1;
+    border-radius: 12px;
+    min-width: 0;
+  }
+
+  .promo-text h3 {
+    font-size: 16px;
+  }
+
+  .promo-text p {
+    font-size: 12px;
+  }
+
+  /* League nav mobile */
   .league-icons {
     gap: 20px;
     overflow-x: auto;
     padding: 10px;
     justify-content: flex-start;
+    width: 100%;
+  }
+
+  .league-nav {
+    padding: 12px 0;
+  }
+
+  /* Content wrapper mobile */
+  .content-wrapper {
+    max-width: 100%;
+    margin: 20px auto;
+    padding: 0 15px;
+  }
+
+  /* General mobile spacing fixes */
+  body {
+    overflow-x: hidden;
+  }
+
+  html {
+    overflow-x: hidden;
   }
 }
 
