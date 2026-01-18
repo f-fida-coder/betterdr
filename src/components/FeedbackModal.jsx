@@ -35,18 +35,19 @@ const FeedbackModal = ({ isOpen, onClose }) => {
             left: 0,
             right: 0,
             bottom: 0,
-            width: '100%',
-            minHeight: '100vh',
-            height: '100%',
-            backgroundColor: 'rgba(0, 0, 0, 0.75)',
+            width: '100vw',
+            height: '100vh',
+            backgroundColor: 'rgba(0, 0, 0, 0.8)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             zIndex: 99999,
             backdropFilter: 'blur(5px)',
+            WebkitBackdropFilter: 'blur(5px)',
             padding: window.innerWidth <= 768 ? '20px' : '0',
             boxSizing: 'border-box',
-            overflow: 'auto'
+            overflow: 'auto',
+            inset: 0
         }} onClick={onClose}>
             <div className="feedback-modal-content" style={{
                 background: '#1a1a1a',

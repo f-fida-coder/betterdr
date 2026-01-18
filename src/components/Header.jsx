@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import RegisterModal from './RegisterModal';
 
 const Header = ({ onLogin, isLoggedIn }) => {
@@ -171,7 +172,10 @@ const Header = ({ onLogin, isLoggedIn }) => {
                 )
             }
 
-            {showRegisterModal && <RegisterModal onClose={() => setShowRegisterModal(false)} />}
+            {showRegisterModal && createPortal(
+                <RegisterModal onClose={() => setShowRegisterModal(false)} />,
+                document.body
+            )}
         </header >
     );
 };

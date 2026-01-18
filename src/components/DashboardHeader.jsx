@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import ScoreboardSidebar from './ScoreboardSidebar';
 import SettingsModal from './SettingsModal';
 import PersonalizeSidebar from './PersonalizeSidebar';
@@ -534,7 +535,10 @@ const DashboardHeader = ({ username, onViewChange, activeBetMode = 'straight', o
 
             {showScoreboard && <ScoreboardSidebar onClose={() => setShowScoreboard(false)} />}
 
-            {showSettingsModal && <SettingsModal onClose={() => setShowSettingsModal(false)} />}
+            {showSettingsModal && createPortal(
+                <SettingsModal onClose={() => setShowSettingsModal(false)} />,
+                document.body
+            )}
 
             {showPersonalizeSidebar && <PersonalizeSidebar onClose={() => setShowPersonalizeSidebar(false)} />}
         </>

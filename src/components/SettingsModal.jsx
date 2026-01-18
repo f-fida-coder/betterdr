@@ -8,10 +8,9 @@ const SettingsModal = ({ onClose }) => {
             position: 'fixed',
             top: 0,
             left: 0,
-            width: '100%',
-            minHeight: '100vh',
-            height: '100%',
-            background: 'rgba(0,0,0,0.75)',
+            width: '100vw',
+            height: '100vh',
+            background: 'rgba(0,0,0,0.8)',
             zIndex: 99999,
             display: 'flex',
             alignItems: 'center',
@@ -20,19 +19,23 @@ const SettingsModal = ({ onClose }) => {
             padding: isMobile ? '20px' : '0',
             boxSizing: 'border-box',
             overflow: 'auto',
-            backdropFilter: 'blur(2px)'
+            backdropFilter: 'blur(4px)',
+            WebkitBackdropFilter: 'blur(4px)',
+            inset: 0
         }}>
             <div style={{
                 background: 'white',
                 width: isMobile ? '100%' : '400px',
                 maxWidth: '100%',
                 borderRadius: '8px',
-                boxShadow: '0 25px 80px rgba(0,0,0,0.8)',
+                boxShadow: '0 30px 100px rgba(0,0,0,0.9)',
                 display: 'flex',
                 flexDirection: 'column',
                 maxHeight: isMobile ? '85vh' : 'auto',
                 animation: 'fadeIn 0.4s ease-out',
-                margin: 'auto'
+                margin: 'auto',
+                marginTop: isMobile ? '0' : 'auto',
+                marginBottom: isMobile ? '0' : 'auto'
             }}>
                 <div style={{
                     padding: isMobile ? '15px 15px' : '15px 20px',
