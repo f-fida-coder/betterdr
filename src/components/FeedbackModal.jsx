@@ -35,29 +35,34 @@ const FeedbackModal = ({ isOpen, onClose }) => {
             left: 0,
             right: 0,
             bottom: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.85)',
+            width: '100%',
+            minHeight: '100vh',
+            height: '100%',
+            backgroundColor: 'rgba(0, 0, 0, 0.75)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            zIndex: 9999,
+            zIndex: 99999,
             backdropFilter: 'blur(5px)',
             padding: window.innerWidth <= 768 ? '20px' : '0',
             boxSizing: 'border-box',
-            overflowY: 'auto'
+            overflow: 'auto'
         }} onClick={onClose}>
             <div className="feedback-modal-content" style={{
                 background: '#1a1a1a',
-                width: '100%',
-                maxWidth: window.innerWidth <= 768 ? '100%' : '450px',
+                width: window.innerWidth <= 768 ? '100%' : '450px',
+                maxWidth: '100%',
                 borderRadius: '16px',
                 padding: window.innerWidth <= 768 ? '25px' : '30px',
                 position: 'relative',
-                boxShadow: '0 20px 50px rgba(0,0,0,0.5)',
+                boxShadow: '0 25px 80px rgba(0,0,0,0.8)',
                 border: '1px solid #333',
                 color: 'white',
                 fontFamily: 'Inter, sans-serif',
-                maxHeight: window.innerWidth <= 768 ? '90vh' : 'auto',
-                overflowY: 'auto'
+                maxHeight: window.innerWidth <= 768 ? '85vh' : 'auto',
+                overflowY: 'auto',
+                animation: 'fadeIn 0.4s ease-out',
+                margin: 'auto'
             }} onClick={e => e.stopPropagation()}>
 
                 <button onClick={onClose} style={{

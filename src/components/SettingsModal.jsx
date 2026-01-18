@@ -9,27 +9,30 @@ const SettingsModal = ({ onClose }) => {
             top: 0,
             left: 0,
             width: '100%',
+            minHeight: '100vh',
             height: '100%',
-            background: 'rgba(0,0,0,0.7)',
-            zIndex: 3000,
+            background: 'rgba(0,0,0,0.75)',
+            zIndex: 99999,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
             padding: isMobile ? '20px' : '0',
             boxSizing: 'border-box',
-            overflowY: 'auto'
+            overflow: 'auto',
+            backdropFilter: 'blur(2px)'
         }}>
             <div style={{
                 background: 'white',
-                width: '100%',
-                maxWidth: isMobile ? '100%' : '400px',
+                width: isMobile ? '100%' : '400px',
+                maxWidth: '100%',
                 borderRadius: '8px',
-                boxShadow: '0 20px 60px rgba(0,0,0,0.7)',
+                boxShadow: '0 25px 80px rgba(0,0,0,0.8)',
                 display: 'flex',
                 flexDirection: 'column',
-                maxHeight: isMobile ? '90vh' : 'auto',
-                animation: 'fadeIn 0.3s ease-out'
+                maxHeight: isMobile ? '85vh' : 'auto',
+                animation: 'fadeIn 0.4s ease-out',
+                margin: 'auto'
             }}>
                 <div style={{
                     padding: isMobile ? '15px 15px' : '15px 20px',
