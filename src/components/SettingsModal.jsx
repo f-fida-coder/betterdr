@@ -1,6 +1,8 @@
 import React from 'react';
 
 const SettingsModal = ({ onClose }) => {
+    const isMobile = window.innerWidth <= 768;
+    
     return (
         <div style={{
             position: 'fixed',
@@ -8,36 +10,42 @@ const SettingsModal = ({ onClose }) => {
             left: 0,
             width: '100%',
             height: '100%',
-            background: 'rgba(0,0,0,0.5)',             zIndex: 3000,
+            background: 'rgba(0,0,0,0.7)',
+            zIndex: 3000,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
+            fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+            padding: isMobile ? '20px' : '0',
+            boxSizing: 'border-box',
+            overflowY: 'auto'
         }}>
             <div style={{
                 background: 'white',
-                width: '400px',
-                borderRadius: '4px',
-                boxShadow: '0 5px 15px rgba(0,0,0,0.3)',
+                width: '100%',
+                maxWidth: isMobile ? '100%' : '400px',
+                borderRadius: '8px',
+                boxShadow: '0 20px 60px rgba(0,0,0,0.7)',
                 display: 'flex',
                 flexDirection: 'column',
-                maxHeight: '90vh'
+                maxHeight: isMobile ? '90vh' : 'auto',
+                animation: 'fadeIn 0.3s ease-out'
             }}>
                 <div style={{
-                    padding: '15px 20px',
+                    padding: isMobile ? '15px 15px' : '15px 20px',
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'center',
                     borderBottom: '1px solid #eee'
                 }}>
-                    <h3 style={{ margin: 0, color: '#333', fontSize: '18px', fontWeight: 'bold' }}>My Account</h3>
+                    <h3 style={{ margin: 0, color: '#333', fontSize: isMobile ? '18px' : '18px', fontWeight: 'bold' }}>My Account</h3>
                     <span
                         onClick={onClose}
-                        style={{ cursor: 'pointer', fontSize: '18px', color: '#999' }}
+                        style={{ cursor: 'pointer', fontSize: '24px', color: '#999', lineHeight: '1' }}
                     >×</span>
                 </div>
 
-                <div style={{ overflowY: 'auto', padding: '15px' }}>
+                <div style={{ overflowY: 'auto', padding: isMobile ? '12px' : '15px' }}>
 
                     <div style={{ border: '1px solid #ddd', borderRadius: '4px', marginBottom: '15px' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 15px', borderBottom: '1px solid #eee' }}>
@@ -134,6 +142,13 @@ const SettingsModal = ({ onClose }) => {
                     </button>
                 </div>
             </div>
+
+            <style>{`
+                @keyframes fadeIn {
+                    from { opacity: 0; transform: translateY(-20px); }
+                    to { opacity: 1; transform: translateY(0); }
+                }
+            `}</style>
         </div>
     );
 };

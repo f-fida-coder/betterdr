@@ -40,19 +40,24 @@ const FeedbackModal = ({ isOpen, onClose }) => {
             alignItems: 'center',
             justifyContent: 'center',
             zIndex: 9999,
-            backdropFilter: 'blur(5px)'
+            backdropFilter: 'blur(5px)',
+            padding: window.innerWidth <= 768 ? '20px' : '0',
+            boxSizing: 'border-box',
+            overflowY: 'auto'
         }} onClick={onClose}>
             <div className="feedback-modal-content" style={{
                 background: '#1a1a1a',
                 width: '100%',
-                maxWidth: '450px',
+                maxWidth: window.innerWidth <= 768 ? '100%' : '450px',
                 borderRadius: '16px',
-                padding: '30px',
+                padding: window.innerWidth <= 768 ? '25px' : '30px',
                 position: 'relative',
                 boxShadow: '0 20px 50px rgba(0,0,0,0.5)',
                 border: '1px solid #333',
                 color: 'white',
-                fontFamily: 'Inter, sans-serif'
+                fontFamily: 'Inter, sans-serif',
+                maxHeight: window.innerWidth <= 768 ? '90vh' : 'auto',
+                overflowY: 'auto'
             }} onClick={e => e.stopPropagation()}>
 
                 <button onClick={onClose} style={{

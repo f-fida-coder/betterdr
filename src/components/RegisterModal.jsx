@@ -10,29 +10,29 @@ const RegisterModal = ({ onClose }) => {
             left: 0,
             width: '100%',
             height: '100%',
-            background: 'rgba(0,0,0,0.6)',
+            background: 'rgba(0,0,0,0.7)',
             zIndex: 4000,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             fontFamily: 'Arial, sans-serif',
-            padding: isMobile ? '10px' : '0',
+            padding: isMobile ? '20px' : '0',
             boxSizing: 'border-box',
             overflowY: 'auto'
         }}>
             <div style={{
                 background: 'white',
                 width: '100%',
-                maxWidth: isMobile ? 'calc(100% - 20px)' : '500px',
+                maxWidth: isMobile ? '100%' : '500px',
                 height: isMobile ? 'auto' : '460px',
-                maxHeight: isMobile ? '85vh' : 'auto',
-                borderRadius: '8px',
-                boxShadow: '0 20px 50px rgba(0,0,0,0.5)',
+                maxHeight: isMobile ? '90vh' : 'none',
+                borderRadius: '12px',
+                boxShadow: '0 20px 60px rgba(0,0,0,0.7)',
                 display: 'flex',
                 flexDirection: 'column',
                 position: 'relative',
-                animation: 'fadeIn 0.2s ease-out',
-                margin: isMobile ? 'auto 0' : '0'
+                animation: 'fadeIn 0.3s ease-out',
+                alignSelf: isMobile ? 'auto' : 'center'
             }}>
                 <div style={{
                     padding: isMobile ? '15px 15px 0 15px' : '20px 20px 0 20px',
