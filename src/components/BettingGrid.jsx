@@ -1,53 +1,61 @@
 import React from 'react';
 
-const matches = [
-    {
-        id: 1,
-        team1: 'L.A. LAKERS',
-        team2: 'G.S. WARRIORS',
-        score1: 112,
-        score2: 108,
-        status: 'Q4 2:30',
-        isLive: true,
-        spread: { label: '-5.5', val1: '-110', val2: '-110' },
-        money: { val1: '-220', val2: '+180' },
-        total: { label: '228.5', val1: '-110', val2: '-110' }
-    },
-    {
-        id: 2,
-        team1: 'BOSTON CELTICS',
-        team2: 'MIAMI HEAT',
-        score1: 98,
-        score2: 95,
-        status: 'Q3 8:15',
-        isLive: true,
-        spread: { label: '-3.5', val1: '-105', val2: '-115' },
-        money: { val1: '-160', val2: '+140' },
-        total: { label: '215.5', val1: '-110', val2: '-110' }
-    },
-    {
-        id: 3,
-        team1: 'DALLAS MAVERICKS',
-        team2: 'PHOENIX SUNS',
-        time: 'Today 8:00 PM',
-        isLive: false,
-        spread: { label: '-2.5', val1: '-110', val2: '-110' },
-        money: { val1: '-135', val2: '+115' },
-        total: { label: '224.5', val1: '-110', val2: '-110' }
-    },
-    {
-        id: 4,
-        team1: 'DENVER NUGGETS',
-        team2: 'L.A. CLIPPERS',
-        time: 'Today 10:30 PM',
-        isLive: false,
-        spread: { label: '-4.0', val1: '-110', val2: '-110' },
-        money: { val1: '-175', val2: '+150' },
-        total: { label: '220.0', val1: '-110', val2: '-110' }
-    }
-];
+
+
 
 const BettingGrid = () => {
+    const [matches, setMatches] = React.useState([]);
+
+    React.useEffect(() => {
+        const fetchMatches = async () => {
+            try {
+                const response = await fetch('http://localhost:5000/api/matches');
+                const data = await response.json();
+
+                // Map backend data to frontend structure
+                const formattedMatches = data.map(match => {
+                    const lineKey = match.odds ? Object.keys(match.odds)[0] : null;
+                    const lines = lineKey ? match.odds[lineKey] : {};
+                    const startTime = new Date(match.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+                    return {
+                        id: match.id,
+                        team1: match.homeTeam,
+                        team2: match.awayTeam,
+                        score1: match.score?.score_home || 0,
+                        score2: match.score?.score_away || 0,
+                        time: startTime, // Add time field for JSX
+                        status: match.status === 'live' ? (match.score?.period ? `Q${match.score.period}` : 'LIVE') : 'PRE-GAME',
+                        isLive: match.status === 'live',
+                        spread: {
+                            label: lines.spread?.point || '-',
+                            val1: lines.spread?.home || '-',
+                            val2: lines.spread?.away || '-'
+                        },
+                        money: {
+                            val1: lines.moneyline?.home || '-',
+                            val2: lines.moneyline?.away || '-'
+                        },
+                        total: {
+                            label: lines.total?.total || '-',
+                            val1: lines.total?.over || '-',
+                            val2: lines.total?.under || '-'
+                        }
+                    };
+                });
+
+                setMatches(formattedMatches);
+            } catch (error) {
+                console.error('Error fetching matches:', error);
+            }
+        };
+
+        fetchMatches();
+
+        // Optional: Set up polling
+        const interval = setInterval(fetchMatches, 60000);
+        return () => clearInterval(interval);
+    }, []);
     return (
         <div className="betting-grid">
             {matches.map(match => (

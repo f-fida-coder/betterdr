@@ -1,13 +1,31 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 function CustomerAdminView() {
-  const [customers] = useState([
-    { id: 1, name: 'John Doe', email: 'john@example.com', status: 'active', balance: '$1,250.00', joined: '2024-06-15' },
-    { id: 2, name: 'Jane Smith', email: 'jane@example.com', status: 'active', balance: '$2,500.00', joined: '2024-07-20' },
-    { id: 3, name: 'Bob Johnson', email: 'bob@example.com', status: 'suspended', balance: '$500.00', joined: '2024-05-10' },
-    { id: 4, name: 'Alice Williams', email: 'alice@example.com', status: 'active', balance: '$3,200.00', joined: '2024-08-05' },
-    { id: 5, name: 'Charlie Brown', email: 'charlie@example.com', status: 'inactive', balance: '$0.00', joined: '2024-04-15' },
-  ]);
+  const [customers, setCustomers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    const fetchUsers = async () => {
+      try {
+        setLoading(true);
+        const response = await fetch('http://localhost:5000/api/admin/users');
+        if (!response.ok) {
+          throw new Error('Failed to fetch users');
+        }
+        const data = await response.json();
+        setCustomers(data);
+        setError('');
+      } catch (err) {
+        console.error('Error fetching users:', err);
+        setError('Failed to load users: ' + err.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchUsers();
+  }, []);
 
   return (
     <div className="admin-view">
@@ -16,36 +34,48 @@ function CustomerAdminView() {
         <button className="btn-primary">Add New Customer</button>
       </div>
       <div className="view-content">
-        <div className="table-container">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Email</th>
-                <th>Status</th>
-                <th>Balance</th>
-                <th>Joined</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {customers.map(customer => (
-                <tr key={customer.id}>
-                  <td>{customer.name}</td>
-                  <td>{customer.email}</td>
-                  <td><span className={`badge ${customer.status}`}>{customer.status}</span></td>
-                  <td>{customer.balance}</td>
-                  <td>{customer.joined}</td>
-                  <td>
-                    <button className="btn-small">Edit</button>
-                    <button className="btn-small">View</button>
-                    <button className="btn-small btn-danger">Suspend</button>
-                  </td>
+        {loading && <div style={{padding: '20px', textAlign: 'center'}}>Loading users...</div>}
+        {error && <div style={{padding: '20px', color: 'red', textAlign: 'center'}}>{error}</div>}
+        {!loading && !error && (
+          <div className="table-container">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Username</th>
+                  <th>Email</th>
+                  <th>Status</th>
+                  <th>Balance</th>
+                  <th>Role</th>
+                  <th>Joined</th>
+                  <th>Action</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {customers.length === 0 ? (
+                  <tr>
+                    <td colSpan="7" style={{textAlign: 'center', padding: '20px'}}>No users found</td>
+                  </tr>
+                ) : (
+                  customers.map(customer => (
+                    <tr key={customer.id}>
+                      <td>{customer.username}</td>
+                      <td>{customer.email}</td>
+                      <td><span className={`badge ${customer.status}`}>{customer.status}</span></td>
+                      <td>${parseFloat(customer.balance).toFixed(2)}</td>
+                      <td><span className={`badge ${customer.role}`}>{customer.role}</span></td>
+                      <td>{new Date(customer.createdAt).toLocaleDateString()}</td>
+                      <td>
+                        <button className="btn-small">Edit</button>
+                        <button className="btn-small">View</button>
+                        <button className="btn-small btn-danger">Suspend</button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );

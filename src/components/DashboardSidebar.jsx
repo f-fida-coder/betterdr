@@ -97,7 +97,7 @@ const SidebarItem = ({
     );
 };
 
-const DashboardSidebar = ({ selectedSports = [], onToggleSport, betMode = 'straight', isOpen = false, onCloseSidebar, onOpenFeedback }) => {
+const DashboardSidebar = ({ selectedSports = [], onToggleSport, betMode = 'straight', isOpen = false, onCloseSidebar, onOpenFeedback, isMobileSportsSelectionMode = false }) => {
         const [expandedIds, setExpandedIds] = useState(new Set(['football', 'nfl', 'ncaa-football']));
 
     const toggleExpand = (id) => {
@@ -122,7 +122,7 @@ const DashboardSidebar = ({ selectedSports = [], onToggleSport, betMode = 'strai
         : sportsData;
 
     return (
-        <aside className={`dash-sidebar ${isOpen ? 'open' : ''}`}>
+        <aside className={`dash-sidebar ${isOpen ? 'open' : ''} ${isMobileSportsSelectionMode ? 'mobile-sports-selection-mode' : ''}`}>
             <div className="search-container desktop-search">
                 <i className="fa-solid fa-magnifying-glass search-icon"></i>
                 <input

@@ -34,7 +34,7 @@ function SportsBookLinksView() {
                   <td><span className={`badge ${link.status}`}>{link.status}</span></td>
                   <td>{link.lastSync}</td>
                   <td>
-                    <button className="btn-small">Edit</button>
+                    <button className="btn-small">Edit</button>‌‌
                     <button className="btn-small">Test</button>
                     <button className="btn-small">View</button>
                   </td>

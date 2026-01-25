@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { loginUser, getBalance } from './api';
 import Header from './components/Header';
 import LeagueNav from './components/LeagueNav';
 import Hero from './components/Hero';
@@ -13,6 +14,7 @@ import PropsView from './components/PropsView';
 import RulesView from './components/RulesView';
 import BonusView from './components/BonusView';
 import MobileGridMenu from './components/MobileGridMenu';
+import MobileContentView from './components/MobileContentView';
 import PromoCard from './components/PromoCard';
 import AdminPanel from './components/AdminPanel';
 import './index.css';
@@ -27,16 +29,76 @@ function App() {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [showPromo, setShowPromo] = useState(false);
   const [isAdminMode, setIsAdminMode] = useState(false);
+  const [isMobileSportsSelectionMode, setIsMobileSportsSelectionMode] = useState(false);
 
-  const handleLogin = (user) => {
-    setIsLoggedIn(true);
-    document.body.classList.add('dashboard-mode');
+  const [user, setUser] = useState(null); // Store full user object
+  const [token, setToken] = useState(localStorage.getItem('token') || null);
+
+  // Initial Load - Check for token (simplified)
+  useEffect(() => {
+    if (token) {
+      setIsLoggedIn(true);
+      document.body.classList.add('dashboard-mode');
+      fetchUserData(token);
+    }
+  }, [token]);
+
+  const fetchUserData = async (authToken) => {
+    try {
+      const balanceData = await getBalance(authToken);
+      // Assuming we decode token for username or fetch /me endpoint. 
+      // For now, let's use the one from login response or a placeholder if just token exists
+      // Ideally we need a /api/auth/me endpoint.
+      setUser(prev => ({ ...prev, ...balanceData, username: prev?.username || 'User' }));
+    } catch (e) {
+      console.error('Failed to fetch user data', e);
+    }
+  };
+
+  const handleLogin = async (username, password) => {
+    try {
+      // DEMO MODE: Accept any username/password on frontend
+      // Create a demo user without calling backend
+      const token = 'demo_token_' + username + '_' + Date.now();
+      const demoUser = {
+        username: username,
+        balance: 5000,
+        email: `${username}@demo.com`,
+        token: token
+      };
+      
+      setToken(token);
+      localStorage.setItem('token', token);
+      setUser(demoUser);
+      setIsLoggedIn(true);
+      document.body.classList.add('dashboard-mode');
+    } catch (err) {
+      throw err;
+    }
+  };
+
+  const handleLogout = () => {
+    setToken(null);
+    setUser(null);
+    setIsLoggedIn(false);
+    localStorage.removeItem('token');
+    document.body.classList.remove('dashboard-mode');
+    handleHomeClick();
   };
 
   const handleViewChange = (view) => {
     setDashboardView(view);
     setMobileSidebarOpen(false);
     setShowPromo(false);
+  };
+
+  const handleHomeClick = () => {
+    // Reset to default dashboard view with no selected sports
+    setDashboardView('dashboard');
+    setSelectedSports([]);
+    setMobileSidebarOpen(false);
+    setShowPromo(false);
+    setIsMobileSportsSelectionMode(false);
   };
 
   const handleSportToggle = (id) => {
@@ -48,11 +110,15 @@ function App() {
       }
     });
     setShowPromo(false);
+    // Enter mobile sports selection mode when user selects a sport
+    setIsMobileSportsSelectionMode(true);
   };
 
   const handleContinue = () => {
     setShowPromo(false);
     setMobileSidebarOpen(false);
+    // Exit mobile sports selection mode and show content
+    setIsMobileSportsSelectionMode(false);
   };
 
   useEffect(() => {
@@ -64,7 +130,7 @@ function App() {
   return (
     <div className="app-container">
       {isAdminMode ? (
-        <AdminPanel 
+        <AdminPanel
           onExit={() => setIsAdminMode(false)}
         />
       ) : !isLoggedIn ? (
@@ -93,7 +159,10 @@ function App() {
       ) : (
         <div className="dashboard-layout">
           <DashboardHeader
-            username="WGT73476"
+            username={user?.username || 'Guest'}
+            balance={user?.balance || 0}
+            pendingBalance={user?.pendingBalance || 0}
+            onLogout={handleLogout}
             onViewChange={handleViewChange}
             activeBetMode={betMode}
             onBetModeChange={setBetMode}
@@ -101,9 +170,12 @@ function App() {
             onToggleSidebar={() => setMobileSidebarOpen(!mobileSidebarOpen)}
             selectedSports={selectedSports}
             onContinue={handleContinue}
+            isMobileSportsSelectionMode={isMobileSportsSelectionMode}
+            onHomeClick={handleHomeClick}
+            onAdminClick={() => setIsAdminMode(true)}
           />
 
-          <div className="dashboard-content-area" style={{ position: 'relative', marginTop: '0' }}>
+          <div className={`dashboard-content-area ${isMobileSportsSelectionMode ? 'mobile-sports-mode' : ''}`} style={{ position: 'relative', marginTop: '0' }}>
             {mobileSidebarOpen && (
               <MobileGridMenu
                 onClose={() => setMobileSidebarOpen(false)}
@@ -113,19 +185,38 @@ function App() {
 
             {dashboardView === 'dashboard' && (
               <>
-                <DashboardSidebar
-                  selectedSports={selectedSports}
-                  onToggleSport={handleSportToggle}
-                  betMode={betMode}
-                  isOpen={mobileSidebarOpen}
-                  onCloseSidebar={() => setMobileSidebarOpen(false)}
-                />
-                <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-                  {showPromo && <PromoCard />}
-                  <div style={{ flex: 1 }}>
-                    <DashboardMain selectedSports={selectedSports} />
-                  </div>
-                </div>
+                {isMobileSportsSelectionMode ? (
+                  // Mobile: Show only sidebar for sports selection
+                  <DashboardSidebar
+                    selectedSports={selectedSports}
+                    onToggleSport={handleSportToggle}
+                    betMode={betMode}
+                    isOpen={true}
+                    onCloseSidebar={() => setMobileSidebarOpen(false)}
+                    isMobileSportsSelectionMode={isMobileSportsSelectionMode}
+                  />
+                ) : selectedSports && selectedSports.length > 0 ? (
+                  // Mobile: Show content after Continue
+                  <MobileContentView selectedSports={selectedSports} />
+                ) : (
+                  // Desktop or default view
+                  <>
+                    <DashboardSidebar
+                      selectedSports={selectedSports}
+                      onToggleSport={handleSportToggle}
+                      betMode={betMode}
+                      isOpen={mobileSidebarOpen}
+                      onCloseSidebar={() => setMobileSidebarOpen(false)}
+                      isMobileSportsSelectionMode={isMobileSportsSelectionMode}
+                    />
+                    <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+                      {showPromo && <PromoCard />}
+                      <div style={{ flex: 1 }}>
+                        <DashboardMain selectedSports={selectedSports} />
+                      </div>
+                    </div>
+                  </>
+                )}
               </>
             )}
 
@@ -184,26 +275,6 @@ function App() {
               <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z" />
             </svg>
           </div>
-          
-          <button
-            onClick={() => setIsAdminMode(true)}
-            style={{
-              position: 'fixed',
-              top: '20px',
-              right: '20px',
-              padding: '8px 16px',
-              background: '#0d3b5c',
-              color: 'white',
-              border: 'none',
-              borderRadius: '4px',
-              cursor: 'pointer',
-              fontSize: '12px',
-              fontWeight: 'bold',
-              zIndex: 100
-            }}
-          >
-            Admin Panel
-          </button>
         </div>
       )}
     </div>

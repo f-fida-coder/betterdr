@@ -9,15 +9,21 @@ const Header = ({ onLogin, isLoggedIn }) => {
     const [showRegisterModal, setShowRegisterModal] = useState(false);
     const [showMobileLogin, setShowMobileLogin] = useState(false);
 
-    const handleLogin = () => {
+    const handleLogin = async () => {
         if (username && password) {
             setIsLoggingIn(true);
-            setTimeout(() => {
+            try {
+                // Frontend only login - accept any credentials
+                await onLogin(username, password);
+                setUsername('');
+                setPassword('');
+            } catch (error) {
+                alert(error.message);
+            } finally {
                 setIsLoggingIn(false);
-                onLogin(username);
-            }, 1000);
+            }
         } else {
-                        alert("Please enter username and password");
+            alert("Please enter username and password");
         }
     };
 
@@ -137,38 +143,147 @@ const Header = ({ onLogin, isLoggedIn }) => {
             </div>
 
             {
-                showMobileLogin && (
-                    <div className="mobile-login-dropdown">
-                        {!isLoggedIn ? (
-                            <>
-                                <input
-                                    type="text"
-                                    placeholder="Username"
-                                    value={username}
-                                    onChange={(e) => setUsername(e.target.value)}
-                                    className="mobile-input"
-                                />
-                                <input
-                                    type="password"
-                                    placeholder="Password"
-                                    value={password}
-                                    onChange={(e) => setPassword(e.target.value)}
-                                    className="mobile-input"
-                                />
-                                <button className="btn-login mobile-btn" onClick={handleLogin}>
-                                    {isLoggingIn ? '...' : 'SIGN IN'}
-                                </button>
-                                <button className="btn-login mobile-btn register" onClick={() => { setShowRegisterModal(true); setShowMobileLogin(false); }}>
-                                    REGISTER
-                                </button>
-                            </>
-                        ) : (
-                            <div style={{ textAlign: 'center', color: 'white' }}>
-                                <div style={{ marginBottom: '10px', fontWeight: 'bold' }}>WELCOME BACK</div>
-                                <button className="btn-login" style={{ width: '100%' }}>MY ACCOUNT</button>
+                showMobileLogin && createPortal(
+                    <div style={{
+                        position: 'fixed',
+                        top: 0,
+                        left: 0,
+                        width: '100vw',
+                        height: '100vh',
+                        background: 'rgba(0,0,0,0.8)',
+                        zIndex: 99998,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontFamily: 'Arial, sans-serif',
+                        padding: '20px',
+                        boxSizing: 'border-box',
+                        backdropFilter: 'blur(4px)',
+                        WebkitBackdropFilter: 'blur(4px)',
+                    }}>
+                        <div style={{
+                            background: 'white',
+                            width: '100%',
+                            maxWidth: '400px',
+                            borderRadius: '12px',
+                            boxShadow: '0 30px 100px rgba(0,0,0,0.9)',
+                            padding: '30px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '15px',
+                            animation: 'fadeIn 0.4s ease-out'
+                        }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                                <h2 style={{ margin: 0, color: '#000', fontSize: '22px', fontWeight: 'bold' }}>SIGN IN</h2>
+                                <span
+                                    onClick={() => setShowMobileLogin(false)}
+                                    style={{
+                                        cursor: 'pointer',
+                                        fontSize: '28px',
+                                        fontWeight: 'bold',
+                                        color: '#000',
+                                        lineHeight: '1'
+                                    }}
+                                >
+                                    ×
+                                </span>
                             </div>
-                        )}
-                    </div>
+
+                            {!isLoggedIn ? (
+                                <>
+                                    <input
+                                        type="text"
+                                        placeholder="Username"
+                                        value={username}
+                                        onChange={(e) => setUsername(e.target.value)}
+                                        style={{
+                                            width: '100%',
+                                            padding: '12px 15px',
+                                            borderRadius: '4px',
+                                            border: '1px solid #ccc',
+                                            fontSize: '16px',
+                                            color: '#333',
+                                            background: 'white',
+                                            boxSizing: 'border-box'
+                                        }}
+                                    />
+                                    <input
+                                        type="password"
+                                        placeholder="Password"
+                                        value={password}
+                                        onChange={(e) => setPassword(e.target.value)}
+                                        style={{
+                                            width: '100%',
+                                            padding: '12px 15px',
+                                            borderRadius: '4px',
+                                            border: '1px solid #ccc',
+                                            fontSize: '16px',
+                                            color: '#333',
+                                            background: 'white',
+                                            boxSizing: 'border-box'
+                                        }}
+                                    />
+                                    <button 
+                                        className="btn-login" 
+                                        onClick={handleLogin}
+                                        style={{
+                                            width: '100%',
+                                            padding: '12px',
+                                            background: '#dc3545',
+                                            color: 'white',
+                                            border: 'none',
+                                            borderRadius: '4px',
+                                            fontSize: '16px',
+                                            fontWeight: 'bold',
+                                            cursor: isLoggingIn ? 'not-allowed' : 'pointer',
+                                            opacity: isLoggingIn ? 0.7 : 1
+                                        }}
+                                    >
+                                        {isLoggingIn ? 'SIGNING IN...' : 'SIGN IN'}
+                                    </button>
+                                    <button 
+                                        className="btn-login register"
+                                        onClick={() => { setShowRegisterModal(true); setShowMobileLogin(false); }}
+                                        style={{
+                                            width: '100%',
+                                            padding: '12px',
+                                            background: '#28a745',
+                                            color: 'white',
+                                            border: 'none',
+                                            borderRadius: '4px',
+                                            fontSize: '16px',
+                                            fontWeight: 'bold',
+                                            cursor: 'pointer'
+                                        }}
+                                    >
+                                        REGISTER
+                                    </button>
+                                </>
+                            ) : (
+                                <div style={{ textAlign: 'center', color: '#000' }}>
+                                    <div style={{ marginBottom: '15px', fontWeight: 'bold', fontSize: '18px' }}>WELCOME BACK</div>
+                                    <button 
+                                        className="btn-login" 
+                                        onClick={() => setShowMobileLogin(false)}
+                                        style={{
+                                            width: '100%',
+                                            padding: '12px',
+                                            background: '#dc3545',
+                                            color: 'white',
+                                            border: 'none',
+                                            borderRadius: '4px',
+                                            fontSize: '16px',
+                                            fontWeight: 'bold',
+                                            cursor: 'pointer'
+                                        }}
+                                    >
+                                        MY ACCOUNT
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    </div>,
+                    document.body
                 )
             }
 

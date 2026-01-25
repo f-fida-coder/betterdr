@@ -4,7 +4,7 @@ import ScoreboardSidebar from './ScoreboardSidebar';
 import SettingsModal from './SettingsModal';
 import PersonalizeSidebar from './PersonalizeSidebar';
 
-const DashboardHeader = ({ username, onViewChange, activeBetMode = 'straight', onBetModeChange, currentView, onToggleSidebar, selectedSports = [], onContinue, onLogout }) => {
+const DashboardHeader = ({ username, balance, pendingBalance, onViewChange, activeBetMode = 'straight', onBetModeChange, currentView, onToggleSidebar, selectedSports = [], onContinue, onLogout, isMobileSportsSelectionMode = false, onHomeClick, onAdminClick }) => {
     const [showLiveMenu, setShowLiveMenu] = useState(false);
     const [showMoreMenu, setShowMoreMenu] = useState(false);
     const [showUserMenu, setShowUserMenu] = useState(false);
@@ -47,7 +47,12 @@ const DashboardHeader = ({ username, onViewChange, activeBetMode = 'straight', o
                         </div>
 
                         {currentView === 'bonus' || currentView === 'prime-live' || currentView === 'ultra-live' || currentView === 'live-casino' || currentView === 'casino' ? (
-                            <div className="icon-btn" onClick={() => onViewChange && onViewChange('dashboard')}>
+                            <div className="icon-btn" onClick={() => onHomeClick && onHomeClick()}>
+                                <i className="fa-solid fa-house"></i>
+                                <span>HOME</span>
+                            </div>
+                        ) : (hasSelection && !isMobileSportsSelectionMode) ? (
+                            <div className="icon-btn" onClick={() => onHomeClick && onHomeClick()}>
                                 <i className="fa-solid fa-house"></i>
                                 <span>HOME</span>
                             </div>
@@ -68,7 +73,7 @@ const DashboardHeader = ({ username, onViewChange, activeBetMode = 'straight', o
                     </div>
 
                     <div className="right-section">
-                        {(!hasSelection || currentView === 'bonus') ? (
+                        {(!hasSelection || currentView === 'bonus' || (hasSelection && !isMobileSportsSelectionMode)) ? (
                             <div className="balance-container">
                                 <div className="balance-amount">$ 0</div>
                                 <div className="balance-label">BALANCE</div>
@@ -111,6 +116,11 @@ const DashboardHeader = ({ username, onViewChange, activeBetMode = 'straight', o
                         <div className="usd-item" onClick={() => { setShowPersonalizeSidebar(true); setShowUserMenu(false); }}>
                             <div className="usd-icon"><i className="fa-solid fa-sliders"></i></div>
                             <div className="usd-text">PERSONALIZE</div>
+                            <div className="usd-right-icon"><i className="fa-solid fa-chevron-right"></i></div>
+                        </div>
+                        <div className="usd-item" onClick={() => { onAdminClick && onAdminClick(); setShowUserMenu(false); }}>
+                            <div className="usd-icon"><i className="fa-solid fa-shield"></i></div>
+                            <div className="usd-text">ADMIN PANEL</div>
                             <div className="usd-right-icon"><i className="fa-solid fa-chevron-right"></i></div>
                         </div>
                         <div className="usd-item signout" onClick={onLogout}>
@@ -271,16 +281,29 @@ const DashboardHeader = ({ username, onViewChange, activeBetMode = 'straight', o
                 <div className="dash-user-info">
                     <div className="dash-balance">
                         <span>BALANCE</span>
-                        <strong>$ 0</strong>
+                        <strong>$ {Number(balance || 0).toFixed(2)}</strong>
                     </div>
                     <div className="dash-balance">
                         <span>PENDING</span>
-                        <strong>$ 0</strong>
+                        <strong>$ {Number(pendingBalance || 0).toFixed(2)}</strong>
                     </div>
                     <div className="dash-balance">
                         <span>AVAILABLE</span>
-                        <strong>$ 0</strong>
+                        <strong>$ {Number((balance || 0)).toFixed(2)}</strong>
                     </div>
+                    
+                    <button
+                        onClick={onAdminClick}
+                        className="admin-button"
+                        title="Access Admin Panel"
+                    >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M12 2L2 7v10c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V7l-10-5z"></path>
+                            <path d="M10 17l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z"></path>
+                        </svg>
+                        ADMIN
+                    </button>
+                    
                     <div
                         style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', position: 'relative' }}
                         onClick={() => setShowUserMenu(!showUserMenu)}
@@ -337,24 +360,24 @@ const DashboardHeader = ({ username, onViewChange, activeBetMode = 'straight', o
                     <div className="dash-subheader mobile-subheader desktop-only" style={{ display: 'flex', borderBottom: '1px solid #ccc', height: 'auto', minHeight: '60px' }}>
 
 
-                            <div className="bet-type-bar">
-                                {[
-                                    { id: 'straight', label: 'STRAIGHT', icon: 'S' },
-                                    { id: 'parlay', label: 'PARLAY', icon: 'P' },
-                                    { id: 'teaser', label: 'TEASER', icon: 'T' },
-                                    { id: 'if-bet', label: 'IF BET', icon: 'I' },
-                                    { id: 'reverse', label: 'REVERSE', icon: 'R' }
-                                ].map((mode) => (
-                                    <div
-                                        key={mode.id}
-                                        className={`bet-type-item ${activeBetMode === mode.id ? 'active' : ''}`}
-                                        onClick={() => onBetModeChange && onBetModeChange(mode.id)}
-                                    >
-                                        <div className="bet-type-letter">{mode.icon}</div>
-                                        <div className="bet-type-label">{mode.label}</div>
-                                    </div>
-                                ))}
-                            </div>
+                        <div className="bet-type-bar">
+                            {[
+                                { id: 'straight', label: 'STRAIGHT', icon: 'S' },
+                                { id: 'parlay', label: 'PARLAY', icon: 'P' },
+                                { id: 'teaser', label: 'TEASER', icon: 'T' },
+                                { id: 'if-bet', label: 'IF BET', icon: 'I' },
+                                { id: 'reverse', label: 'REVERSE', icon: 'R' }
+                            ].map((mode) => (
+                                <div
+                                    key={mode.id}
+                                    className={`bet-type-item ${activeBetMode === mode.id ? 'active' : ''}`}
+                                    onClick={() => onBetModeChange && onBetModeChange(mode.id)}
+                                >
+                                    <div className="bet-type-letter">{mode.icon}</div>
+                                    <div className="bet-type-label">{mode.label}</div>
+                                </div>
+                            ))}
+                        </div>
 
                         <div className="bet-action-group">
                             <button className="action-btn refresh-btn" title="Refresh">
@@ -370,7 +393,7 @@ const DashboardHeader = ({ username, onViewChange, activeBetMode = 'straight', o
                 </>
             )}
 
-            {}
+            { }
 
 
 
@@ -462,7 +485,7 @@ const DashboardHeader = ({ username, onViewChange, activeBetMode = 'straight', o
                     background: 'rgba(0,0,0,0.7)',
                     zIndex: 2000,
                     display: 'flex',
-                    alignItems: 'center',                     justifyContent: 'center'
+                    alignItems: 'center', justifyContent: 'center'
                 }}>
                     <div style={{
                         background: 'white',
@@ -470,7 +493,8 @@ const DashboardHeader = ({ username, onViewChange, activeBetMode = 'straight', o
                         borderRadius: '4px',
                         overflow: 'hidden',
                         boxShadow: '0 5px 15px rgba(0,0,0,0.5)',
-                        marginBottom: '20vh'                     }}>
+                        marginBottom: '20vh'
+                    }}>
                         <div style={{
                             padding: '15px 20px',
                             display: 'flex',

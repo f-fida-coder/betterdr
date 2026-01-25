@@ -2958,6 +2958,89 @@ body.dashboard-mode {
         display: flex;
     }
 
+    /* Mobile Sports Selection Mode Styles */
+    .dash-sidebar.mobile-sports-selection-mode {
+        background: #ffffff;
+        transform: translateX(0) !important;
+        position: relative !important;
+        top: auto !important;
+        left: 0 !important;
+        width: 100% !important;
+        height: auto !important;
+        max-height: calc(100vh - 140px);
+        z-index: 10 !important;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        border-bottom: 2px solid #e0e0e0;
+        order: 1;
+        flex-shrink: 0;
+    }
+
+    .dashboard-content-area.mobile-sports-mode {
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+    }
+
+    .dashboard-content-area.mobile-sports-mode .dash-sidebar {
+        flex: 0 0 auto;
+    }
+
+    .dash-sidebar.mobile-sports-selection-mode .sidebar-content {
+        max-height: calc(100vh - 200px);
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+        padding-top: 10px;
+    }
+
+    .dash-sidebar.mobile-sports-selection-mode .desktop-search {
+        display: none !important;
+    }
+
+    .dash-sidebar.mobile-sports-selection-mode .sidebar-header {
+        display: none !important;
+    }
+
+    .dash-sidebar.mobile-sports-selection-mode .sidebar-mobile-info {
+        display: none !important;
+    }
+
+    .dash-sidebar.mobile-sports-selection-mode .mobile-only-section {
+        display: none !important;
+    }
+
+    .dash-sidebar.mobile-sports-selection-mode .mobile-only.feedback-btn-container {
+        display: none !important;
+    }
+
+    .dash-sidebar.mobile-sports-selection-mode .desktop-only {
+        display: none !important;
+    }
+
+    /* Mobile Content View Styles */
+    .mobile-content-view {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    .mobile-content-view-header {
+        padding: 15px 10px;
+        background-color: #ffffff;
+        border-bottom: 2px solid #e0e0e0;
+        margin-bottom: 10px;
+        border-radius: 4px;
+    }
+
+    .mobile-content-match {
+        background-color: #ffffff;
+        padding: 12px;
+        margin-bottom: 10px;
+        border-radius: 6px;
+        border: 1px solid #e0e0e0;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+
     .dash-nav-item {
         padding: 12px 15px;
         width: 100%;
@@ -3707,5 +3790,74 @@ body.dashboard-mode {
             right: 0;
             z-index: 1000;
         }
+    }
+}
+
+/* Admin Button Styles */
+.admin-button {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    background: linear-gradient(135deg, #1a5f7a 0%, #0d3b5c 100%);
+    color: white;
+    border: 2px solid #2a8fb5;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: bold;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    white-space: nowrap;
+    position: relative;
+    overflow: hidden;
+}
+
+.admin-button:hover {
+    background: linear-gradient(135deg, #2a8fb5 0%, #1a5f7a 100%);
+    box-shadow: 0 4px 16px rgba(13, 59, 92, 0.4);
+    transform: translateY(-2px);
+}
+
+.admin-button:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 6px rgba(13, 59, 92, 0.3);
+}
+
+.admin-button svg {
+    transition: transform 0.3s ease;
+}
+
+.admin-button:hover svg {
+    transform: rotate(12deg) scale(1.1);
+}
+
+/* Admin button animation */
+@keyframes adminPulse {
+    0% {
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    }
+    50% {
+        box-shadow: 0 4px 16px rgba(13, 59, 92, 0.4);
+    }
+    100% {
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    }
+}
+
+.admin-button.pulse {
+    animation: adminPulse 2s ease-in-out infinite;
+}
+
+@media (max-width: 768px) {
+    .admin-button {
+        padding: 6px 12px;
+        font-size: 11px;
+        gap: 6px;
+    }
+    
+    .admin-button svg {
+        width: 14px;
+        height: 14px;
     }
 }

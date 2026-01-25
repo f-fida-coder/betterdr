@@ -1,8 +1,48 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { registerUser } from '../api';
 
 const RegisterModal = ({ onClose }) => {
     const isMobile = window.innerWidth <= 768;
-    
+    const [formData, setFormData] = useState({
+        username: '',
+        email: '',
+        password: '',
+        confirmPassword: ''
+    });
+    const [error, setError] = useState('');
+    const [loading, setLoading] = useState(false);
+
+    const handleChange = (e) => {
+        setFormData({ ...formData, [e.target.name]: e.target.value });
+    };
+
+    const handleSubmit = async () => {
+        if (!formData.username || !formData.email || !formData.password) {
+            setError('Please fill all required fields');
+            return;
+        }
+        if (formData.password !== formData.confirmPassword) {
+            setError('Passwords do not match');
+            return;
+        }
+
+        setLoading(true);
+        setError('');
+        try {
+            await registerUser({
+                username: formData.username,
+                email: formData.email,
+                password: formData.password
+            });
+            alert('Registration successful! Please login.');
+            onClose();
+        } catch (err) {
+            setError(err.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
     return (
         <div style={{
             position: 'fixed',
@@ -66,23 +106,13 @@ const RegisterModal = ({ onClose }) => {
                         In accordance with Michigan law the company can no longer take players who are physically in the state of Michigan. Any client that resides in Michigan with a balance will be given a full refund.
                     </p>
 
+                    {error && <p style={{ color: 'red', fontSize: '12px', textAlign: 'center' }}>{error}</p>}
+
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                        <input type="text" placeholder="First name*" style={inputStyle} />
-                        <input type="text" placeholder="Last name*" style={inputStyle} />
-                        <input type="email" placeholder="Email*" style={inputStyle} />
-                        <input type="email" placeholder="Confirm Email*" style={inputStyle} />
-                        <input type="password" placeholder="Password*" style={inputStyle} />
-
-                        <div style={{ fontSize: isMobile ? '10px' : '11px', color: '#333', marginTop: '-5px' }}>
-                            Minimum 4 characters - Maximum 10 characters<br />
-                            No special characters or symbols
-                        </div>
-
-                        <input type="password" placeholder="Confirm Password*" style={inputStyle} />
-
-                        <input type="tel" placeholder="Phone number (required)" style={inputStyle} />
-
-                        <input type="text" placeholder="Affiliate Code" style={inputStyle} />
+                        <input type="text" name="username" placeholder="Username*" style={inputStyle} onChange={handleChange} />
+                        <input type="email" name="email" placeholder="Email*" style={inputStyle} onChange={handleChange} />
+                        <input type="password" name="password" placeholder="Password*" style={inputStyle} onChange={handleChange} />
+                        <input type="password" name="confirmPassword" placeholder="Confirm Password*" style={inputStyle} onChange={handleChange} />
                     </div>
 
                     <div style={{ marginTop: '15px', display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -95,28 +125,7 @@ const RegisterModal = ({ onClose }) => {
                         By entering your number, you agree to receive mobile messages. Message frequency varies. Message and data rates may apply. View our Privacy Policy and SMS Terms (Reply STOP to unsubscribe).
                     </p>
 
-                    <div style={{
-                        marginTop: '15px',
-                        border: '1px solid #d3d3d3',
-                        background: '#f9f9f9',
-                        padding: isMobile ? '10px 12px' : '10px 15px',
-                        width: 'fit-content',
-                        borderRadius: '3px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: isMobile ? '10px' : '15px',
-                        minWidth: isMobile ? '180px' : '200px'
-                    }}>
-                        <div style={{ width: '20px', height: '20px', border: '2px solid #c1c1c1', borderRadius: '2px', flexShrink: 0 }}></div>
-                        <span style={{ fontSize: isMobile ? '12px' : '14px', color: '#000' }}>I'm not a robot</span>
-                        <div style={{ marginLeft: 'auto', display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0 }}>
-                            <img src="https://www.gstatic.com/recaptcha/api2/logo_48.png" alt="recaptcha" style={{ width: '20px', opacity: 0.5 }} />
-                            <span style={{ fontSize: '7px', color: '#999' }}>reCAPTCHA</span>
-                        </div>
-                    </div>
-
-                    {/* Submit Button */}
-                    <button style={{
+                    <button disabled={loading} onClick={handleSubmit} style={{
                         width: '100%',
                         padding: isMobile ? '12px' : '15px',
                         background: '#dc3545', // Red
@@ -126,10 +135,11 @@ const RegisterModal = ({ onClose }) => {
                         fontSize: isMobile ? '16px' : '18px',
                         fontWeight: 'bold',
                         marginTop: '20px',
-                        cursor: 'pointer',
-                        transition: 'all 0.3s ease'
+                        cursor: loading ? 'not-allowed' : 'pointer',
+                        transition: 'all 0.3s ease',
+                        opacity: loading ? 0.7 : 1
                     }}>
-                        SUBMIT
+                        {loading ? 'SUBMITTING...' : 'SUBMIT'}
                     </button>
 
                     {/* Already Registered */}

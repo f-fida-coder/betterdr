@@ -1,8 +1,26 @@
 import React, { useState } from 'react';
 import '../bonus.css';
+import { createDeposit } from '../api';
 
 const BonusView = () => {
     const [activeTab, setActiveTab] = useState('deposits');
+
+    const handleDeposit = async (methodName) => {
+        const token = localStorage.getItem('token');
+        if (!token) {
+            alert('Please login to deposit');
+            return;
+        }
+        const amount = prompt(`Enter amount to deposit via ${methodName}:`);
+        if (!amount || isNaN(amount)) return;
+
+        try {
+            const data = await createDeposit(parseFloat(amount), token);
+            alert(`Deposit Initiated! Client Secret: ${data.clientSecret.substring(0, 10)}...`);
+        } catch (e) {
+            alert(`Deposit Error: ${e.message}`);
+        }
+    };
 
     const tabs = [
         { id: 'deposits', label: 'Deposits', icon: 'fa-solid fa-arrow-down' },
@@ -51,7 +69,12 @@ const BonusView = () => {
                                             <div className="method-name">{method.name}</div>
                                             <div className="method-status">Fast Processing</div>
                                         </div>
-                                        <button className="method-select-btn">Deposit Now</button>
+                                        <button
+                                            className="method-select-btn"
+                                            onClick={() => handleDeposit(method.name)}
+                                        >
+                                            Deposit Now
+                                        </button>
                                     </div>
                                 ))}
                             </div>
@@ -89,7 +112,7 @@ const BonusView = () => {
                     )}
                 </div>
             </div>
-        </div>
+        </div >
     );
 };
 

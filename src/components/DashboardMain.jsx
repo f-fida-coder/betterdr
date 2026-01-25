@@ -5,7 +5,7 @@ import SportContentView from './SportContentView'; import { sportsData } from '.
 const DashboardMain = ({ selectedSports = [] }) => {
     const isDefault = selectedSports.length === 0;
 
-        const findItemById = (items, id) => {
+    const findItemById = (items, id) => {
         for (const item of items) {
             if (item.id === id) return item;
             if (item.children) {
@@ -16,10 +16,10 @@ const DashboardMain = ({ selectedSports = [] }) => {
         return null;
     };
 
-            const primaryId = selectedSports.length > 0 ? selectedSports[0] : null;
+    const primaryId = selectedSports.length > 0 ? selectedSports[0] : null;
     const selectedItem = primaryId ? findItemById(sportsData, primaryId) : null;
 
-        if (selectedItem && selectedItem.type === 'props-plus') {
+    if (selectedItem && selectedItem.type === 'props-plus') {
         return (
             <main className="dash-main" style={{ padding: '20px' }}>
                 <div style={{
@@ -48,7 +48,7 @@ const DashboardMain = ({ selectedSports = [] }) => {
         );
     }
 
-        const getSportSections = () => {
+    const getSportSections = () => {
         if (isDefault) {
             return [{ sportId: 'nfl', filter: null }];
         }
@@ -57,11 +57,11 @@ const DashboardMain = ({ selectedSports = [] }) => {
         const addedSports = new Set();
 
         selectedSports.forEach(id => {
-                        if (id === 'up-next' || id === 'featured' || id === 'commercial-live') {
+            if (id === 'up-next' || id === 'featured' || id === 'commercial-live') {
                 return;
             }
 
-                        if (id === 'football') {
+            if (id === 'football') {
                 if (!addedSports.has('nfl')) {
                     sections.push({ sportId: 'nfl', filter: null });
                     addedSports.add('nfl');
@@ -87,31 +87,31 @@ const DashboardMain = ({ selectedSports = [] }) => {
                     addedSports.add('epl');
                 }
             }
-                        else if (id === 'nfl' && !addedSports.has('nfl')) {
+            else if (id === 'nfl' && !addedSports.has('nfl')) {
                 sections.push({ sportId: 'nfl', filter: null });
                 addedSports.add('nfl');
             } else if (id.startsWith('nfl-') && (id.includes('half') || id.includes('quarter'))) {
-                                if (!addedSports.has('nfl')) {
+                if (!addedSports.has('nfl')) {
                     sections.push({ sportId: 'nfl', filter: id });
                     addedSports.add('nfl');
                 }
             }
-                        else if (id === 'nfl-1st-scoring' || id === 'nfl-1st-td-scorer' || id === 'nfl-anytime-td' || id === 'nfl-margin-victory' || id === 'nfl-player-props') {
-                                                                if (!addedSports.has('nfl')) {
+            else if (id === 'nfl-1st-scoring' || id === 'nfl-1st-td-scorer' || id === 'nfl-anytime-td' || id === 'nfl-margin-victory' || id === 'nfl-player-props') {
+                if (!addedSports.has('nfl')) {
                     sections.push({ sportId: 'nfl', filter: id });
                     addedSports.add('nfl');
                 }
             }
-                        else if (id === 'mlb' && !addedSports.has('mlb')) {
+            else if (id === 'mlb' && !addedSports.has('mlb')) {
                 sections.push({ sportId: 'mlb', filter: null });
                 addedSports.add('mlb');
             }
-                        else if (id === 'nba' && !addedSports.has('nba')) {
+            else if (id === 'nba' && !addedSports.has('nba')) {
                 sections.push({ sportId: 'nba', filter: null });
                 addedSports.add('nba');
             }
-                        else if (!id.includes('-') && id.length <= 6) {
-                                if (!addedSports.has(id)) {
+            else if (!id.includes('-') && id.length <= 6) {
+                if (!addedSports.has(id)) {
                     sections.push({ sportId: id, filter: null });
                     addedSports.add(id);
                 }
@@ -132,11 +132,11 @@ const DashboardMain = ({ selectedSports = [] }) => {
                         selectedItems={selectedSports}
                         filter={section.filter}
                     />
-                    <SportGenericView
+                    {/* <SportGenericView
                         sportId={section.sportId}
                         filter={section.filter}
                         selectedItems={selectedSports}
-                    />
+                    /> */}
                 </React.Fragment>
             ))}
 
