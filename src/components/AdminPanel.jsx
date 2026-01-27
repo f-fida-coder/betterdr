@@ -34,6 +34,25 @@ import '../admin.css';
 function AdminPanel({ onExit }) {
   const [adminView, setAdminView] = useState('dashboard');
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [role, setRole] = useState('admin');
+
+  React.useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      try {
+        const base64Url = token.split('.')[1];
+        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+        const jsonPayload = decodeURIComponent(atob(base64).split('').map(function (c) {
+          return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+        }).join(''));
+
+        const payload = JSON.parse(jsonPayload);
+        setRole(payload.role || 'admin');
+      } catch (e) {
+        console.error('Error decoding token:', e);
+      }
+    }
+  }, []);
 
   const handleViewChange = (view) => {
     setAdminView(view);
@@ -47,7 +66,7 @@ function AdminPanel({ onExit }) {
   };
 
   const renderView = () => {
-    switch(adminView) {
+    switch (adminView) {
       case 'weekly-figures':
         return <WeeklyFiguresView />;
       case 'pending':
@@ -57,7 +76,7 @@ function AdminPanel({ onExit }) {
       case 'game-admin':
         return <GameAdminView />;
       case 'customer-admin':
-        return <CustomerAdminView />;
+        return <CustomerAdminView onViewChange={handleViewChange} />;
       case 'cashier':
         return <CashierView />;
       case 'add-customer':
@@ -103,21 +122,22 @@ function AdminPanel({ onExit }) {
       case 'user-manual':
         return <UserManualView />;
       default:
-        return <AdminDashboard onMenuClick={handleViewChange} />;
+        return <AdminDashboard onMenuClick={handleViewChange} role={role} />;
     }
   };
 
   return (
     <div className="admin-panel">
-      <AdminHeader 
+      <AdminHeader
         onMenuToggle={() => setMobileSidebarOpen(!mobileSidebarOpen)}
         onLogout={handleLogout}
       />
       <div className="admin-container">
-        <AdminSidebar 
+        <AdminSidebar
           activeView={adminView}
           onViewChange={handleViewChange}
           isOpen={mobileSidebarOpen}
+          role={role}
         />
         <div className="admin-content">
           {renderView()}

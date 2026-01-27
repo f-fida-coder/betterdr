@@ -1,41 +1,77 @@
 import React from 'react';
 
 function AdminSidebar({ activeView, onViewChange, isOpen }) {
+  const [role, setRole] = React.useState('admin');
+  const [debugError, setDebugError] = React.useState(null);
+
+  React.useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      try {
+        const base64Url = token.split('.')[1];
+        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+        const jsonPayload = decodeURIComponent(atob(base64).split('').map(function (c) {
+          return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+        }).join(''));
+
+        const payload = JSON.parse(jsonPayload);
+        console.log("AdminSidebar detected role:", payload.role);
+        setRole(payload.role || 'admin');
+      } catch (e) {
+        console.error('Error decoding token:', e);
+        setDebugError(e.message);
+        setRole('admin');
+      }
+    } else {
+      setDebugError('No token found');
+      setRole('admin');
+    }
+  }, []);
+
   const menuItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: '🏠' },
-    { id: 'weekly-figures', label: 'Weekly Figures', icon: '📊' },
-    { id: 'pending', label: 'Pending', icon: '📋' },
-    { id: 'messaging', label: 'Messaging', icon: '✉️' },
-    { id: 'game-admin', label: 'Game Admin', icon: '🎮' },
-    { id: 'customer-admin', label: 'Customer Admin', icon: '👤' },
-    { id: 'cashier', label: 'Cashier', icon: '💰' },
-    { id: 'add-customer', label: 'Add Customer', icon: '➕' },
-    { id: 'third-party-limits', label: '3rd Party Limits', icon: '🔒' },
-    { id: 'props', label: 'Props / Betting', icon: '🎯' },
-    { id: 'agent-performance', label: 'Agent Performance', icon: '📈' },
-    { id: 'analysis', label: 'Analysis', icon: '📉' },
-    { id: 'ip-tracker', label: 'IP Tracker', icon: '🌐' },
-    { id: 'transactions-history', label: 'Transactions History', icon: '📑' },
-    { id: 'collections', label: 'Collections', icon: '📦' },
-    { id: 'deleted-wagers', label: 'Deleted Wagers', icon: '🗑️' },
-    { id: 'games-events', label: 'Games & Events', icon: '🏟️' },
-    { id: 'sportsbook-links', label: 'Sportsbook Links', icon: '🔗' },
-    { id: 'bet-ticker', label: 'Bet Ticker', icon: '⏱️' },
-    { id: 'ticketwriter', label: 'TicketWriter', icon: '✏️' },
-    { id: 'scores', label: 'Scores', icon: '🏆' },
-    { id: 'agent-admin', label: 'Agent Admin', icon: '👨‍💼' },
-    { id: 'billing', label: 'Billing', icon: '💳' },
-    { id: 'settings', label: 'Settings', icon: '⚙️' },
-    { id: 'rules', label: 'Rules', icon: '📋' },
-    { id: 'feedback', label: 'Feedback', icon: '💬' },
-    { id: 'faq', label: 'FAQ', icon: '❓' },
-    { id: 'user-manual', label: 'User Manual', icon: '📖' },
+    { id: 'dashboard', label: 'Dashboard', icon: '🏠', roles: ['admin', 'agent'] },
+    { id: 'weekly-figures', label: 'Weekly Figures', icon: '📊', roles: ['admin'] },
+    { id: 'pending', label: 'Pending', icon: '📋', roles: ['admin', 'agent'] },
+    { id: 'messaging', label: 'Messaging', icon: '✉️', roles: ['admin'] },
+    { id: 'game-admin', label: 'Game Admin', icon: '🎮', roles: ['admin'] },
+    { id: 'customer-admin', label: 'Customer Admin', icon: '👤', roles: ['admin', 'agent'] },
+    { id: 'cashier', label: 'Cashier', icon: '💰', roles: ['admin'] },
+    { id: 'add-customer', label: 'Add Customer', icon: '➕', roles: ['admin', 'agent'] },
+    { id: 'third-party-limits', label: '3rd Party Limits', icon: '🔒', roles: ['admin'] },
+    { id: 'props', label: 'Props / Betting', icon: '🎯', roles: ['admin'] },
+    { id: 'agent-performance', label: 'Agent Performance', icon: '📈', roles: ['admin'] },
+    { id: 'analysis', label: 'Analysis', icon: '📉', roles: ['admin'] },
+    { id: 'ip-tracker', label: 'IP Tracker', icon: '🌐', roles: ['admin'] },
+    { id: 'transactions-history', label: 'Transactions History', icon: '📑', roles: ['admin'] },
+    { id: 'collections', label: 'Collections', icon: '📦', roles: ['admin'] },
+    { id: 'deleted-wagers', label: 'Deleted Wagers', icon: '🗑️', roles: ['admin'] },
+    { id: 'games-events', label: 'Games & Events', icon: '🏟️', roles: ['admin'] },
+    { id: 'sportsbook-links', label: 'Sportsbook Links', icon: '🔗', roles: ['admin'] },
+    { id: 'bet-ticker', label: 'Bet Ticker', icon: '⏱️', roles: ['admin'] },
+    { id: 'ticketwriter', label: 'TicketWriter', icon: '✏️', roles: ['admin'] },
+    { id: 'scores', label: 'Scores', icon: '🏆', roles: ['admin'] },
+    { id: 'agent-admin', label: 'Agent Admin', icon: '👨‍💼', roles: ['admin'] },
+    { id: 'billing', label: 'Billing', icon: '💳', roles: ['admin'] },
+    { id: 'settings', label: 'Settings', icon: '⚙️', roles: ['admin'] },
+    { id: 'rules', label: 'Rules', icon: '📋', roles: ['admin'] },
+    { id: 'feedback', label: 'Feedback', icon: '💬', roles: ['admin'] },
+    { id: 'faq', label: 'FAQ', icon: '❓', roles: ['admin'] },
+    { id: 'user-manual', label: 'User Manual', icon: '📖', roles: ['admin', 'agent'] },
   ];
+
+  const filteredItems = menuItems.filter(item => item.roles && item.roles.includes(role));
 
   return (
     <aside className={`admin-sidebar ${isOpen ? 'open' : ''}`}>
       <nav className="sidebar-nav">
-        {menuItems.map(item => (
+        {filteredItems.length === 0 && (
+          <div style={{ color: 'white', padding: '10px', fontSize: '12px' }}>
+            No menu items.<br />
+            Role: {role}<br />
+            {debugError && <span>Error: {debugError}</span>}
+          </div>
+        )}
+        {filteredItems.map(item => (
           <button
             key={item.id}
             className={`nav-item ${activeView === item.id ? 'active' : ''}`}

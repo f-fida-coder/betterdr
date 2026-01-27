@@ -162,6 +162,7 @@
 /* Admin Container */
 .admin-container {
   display: flex;
+  flex-direction: row;
   flex: 1;
 }
 
@@ -172,6 +173,8 @@
   border-right: 1px solid #e0e0e0;
   overflow-y: auto;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  flex-shrink: 0;
+  min-height: calc(100vh - 100px);
 }
 
 .sidebar-nav {

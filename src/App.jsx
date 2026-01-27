@@ -57,19 +57,22 @@ function App() {
 
   const handleLogin = async (username, password) => {
     try {
-      // DEMO MODE: Accept any username/password on frontend
-      // Create a demo user without calling backend
-      const token = 'demo_token_' + username + '_' + Date.now();
-      const demoUser = {
-        username: username,
-        balance: 5000,
-        email: `${username}@demo.com`,
-        token: token
-      };
+      // Call real backend authentication
+      const result = await loginUser(username, password);
       
-      setToken(token);
-      localStorage.setItem('token', token);
-      setUser(demoUser);
+      // Store the token from the real backend
+      setToken(result.token);
+      localStorage.setItem('token', result.token);
+      
+      // Store user data from the backend response
+      setUser({
+        username: result.username,
+        email: result.email,
+        balance: result.balance,
+        id: result.id,
+        role: result.role
+      });
+      
       setIsLoggedIn(true);
       document.body.classList.add('dashboard-mode');
     } catch (err) {

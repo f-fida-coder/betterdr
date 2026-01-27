@@ -1,16 +1,168 @@
 const { User, Bet, Sequelize } = require('../models');
 const { Op } = require('sequelize');
+const bcrypt = require('bcrypt');
 
 // Get all users
 exports.getUsers = async (req, res) => {
     try {
         const users = await User.findAll({
-            attributes: ['id', 'username', 'email', 'balance', 'role', 'status', 'createdAt']
+            where: { role: 'user' },
+            include: [{
+                model: User,
+                as: 'agent',
+                attributes: ['id', 'username']
+            }],
+            attributes: ['id', 'username', 'email', 'balance', 'role', 'status', 'createdAt', 'agentId']
         });
         res.json(users);
     } catch (error) {
         console.error('Error fetching users:', error);
         res.status(500).json({ message: 'Server error' });
+    }
+};
+
+// Get all agents
+exports.getAgents = async (req, res) => {
+    try {
+        const agents = await User.findAll({
+            where: { role: 'agent' },
+            include: [{
+                model: User,
+                as: 'subUsers', // Get count of users under them? Or just list?
+                attributes: ['id']
+            }],
+            attributes: ['id', 'username', 'email', 'balance', 'role', 'status', 'createdAt']
+        });
+
+        // Transform to include user count
+        const agentsWithCount = agents.map(agent => ({
+            ...agent.toJSON(),
+            userCount: agent.subUsers ? agent.subUsers.length : 0
+        }));
+
+        res.json(agentsWithCount);
+    } catch (error) {
+        console.error('Error fetching agents:', error);
+        res.status(500).json({ message: 'Server error fetching agents' });
+    }
+};
+
+// Create new agent
+exports.createAgent = async (req, res) => {
+    try {
+        const { username, email, password, fullName } = req.body;
+
+        // Validation
+        if (!username || !email || !password) {
+            return res.status(400).json({ message: 'Username, email, and password are required' });
+        }
+
+        // Check if username already exists
+        const existingUser = await User.findOne({ where: { username } });
+        if (existingUser) {
+            return res.status(409).json({ message: 'Username already exists' });
+        }
+
+        // Check if email already exists
+        const existingEmail = await User.findOne({ where: { email } });
+        if (existingEmail) {
+            return res.status(409).json({ message: 'Email already exists' });
+        }
+
+        // Create agent
+        const newAgent = await User.create({
+            username,
+            email,
+            password,
+            fullName: fullName || username,
+            role: 'agent',
+            status: 'active',
+            balance: 0.00
+        });
+
+        res.status(201).json({
+            message: 'Agent created successfully',
+            agent: {
+                id: newAgent.id,
+                username: newAgent.username,
+                email: newAgent.email,
+                fullName: newAgent.fullName,
+                role: newAgent.role,
+                status: newAgent.status,
+                createdAt: newAgent.createdAt
+            }
+        });
+    } catch (error) {
+        console.error('Error creating agent:', error.message, error);
+        res.status(500).json({ message: 'Server error creating agent: ' + error.message });
+    }
+};
+
+// Create new user (by admin or agent)
+exports.createUser = async (req, res) => {
+    try {
+        const { username, email, password, fullName, agentId } = req.body;
+        const adminUser = req.user; // From auth middleware
+
+        // Validation
+        if (!username || !email || !password) {
+            return res.status(400).json({ message: 'Username, email, and password are required' });
+        }
+
+        // Check if username already exists
+        const existingUser = await User.findOne({ where: { username } });
+        if (existingUser) {
+            return res.status(409).json({ message: 'Username already exists' });
+        }
+
+        // Check if email already exists
+        const existingEmail = await User.findOne({ where: { email } });
+        if (existingEmail) {
+            return res.status(409).json({ message: 'Email already exists' });
+        }
+
+        // Validate Agent if provided
+        let assignedAgentId = null;
+        if (agentId) {
+            const agent = await User.findByPk(agentId);
+            if (!agent) {
+                return res.status(400).json({ message: 'Invalid Agent ID provided' });
+            }
+            if (agent.role !== 'agent') {
+                return res.status(400).json({ message: 'Selected user is not an agent' });
+            }
+            assignedAgentId = agentId;
+        }
+
+        // Create user
+        const newUser = await User.create({
+            username,
+            email,
+            password,
+            fullName: fullName || username,
+            role: 'user',
+            status: 'active',
+            balance: 0.00,
+            agentId: assignedAgentId
+        });
+
+        res.status(201).json({
+            message: 'User created successfully',
+            user: {
+                id: newUser.id,
+                username: newUser.username,
+                email: newUser.email,
+                fullName: newUser.fullName,
+                role: newUser.role,
+                status: newUser.status,
+                balance: newUser.balance,
+                agentId: newUser.agentId,
+                createdAt: newUser.createdAt
+            }
+        });
+    } catch (error) {
+        console.error('Error creating user:', error.message, error);
+        res.status(500).json({ message: 'Server error creating user: ' + error.message });
     }
 };
 

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
+import { getMyPlayers } from '../../api';
 
-function CustomerAdminView() {
+function CustomerAdminView({ onViewChange }) {
   const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -9,11 +10,30 @@ function CustomerAdminView() {
     const fetchUsers = async () => {
       try {
         setLoading(true);
-        const response = await fetch('http://localhost:5000/api/admin/users');
-        if (!response.ok) {
-          throw new Error('Failed to fetch users');
+        const token = localStorage.getItem('token');
+
+        let role = 'user';
+        try {
+          const payload = JSON.parse(atob(token.split('.')[1]));
+          role = payload.role;
+        } catch (unused) {
+          if (token && token.startsWith('demo_token')) role = 'admin';
         }
-        const data = await response.json();
+
+        let data = [];
+        if (role === 'agent') {
+          data = await getMyPlayers(token);
+        } else {
+          // Admin
+          const response = await fetch('http://localhost:5000/api/admin/users', {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          if (!response.ok) {
+            throw new Error('Failed to fetch users');
+          }
+          data = await response.json();
+        }
+
         setCustomers(data);
         setError('');
       } catch (err) {
@@ -31,11 +51,11 @@ function CustomerAdminView() {
     <div className="admin-view">
       <div className="view-header">
         <h2>Customer Administration</h2>
-        <button className="btn-primary">Add New Customer</button>
+        <button className="btn-primary" onClick={() => onViewChange && onViewChange('add-customer')}>Add New Customer</button>
       </div>
       <div className="view-content">
-        {loading && <div style={{padding: '20px', textAlign: 'center'}}>Loading users...</div>}
-        {error && <div style={{padding: '20px', color: 'red', textAlign: 'center'}}>{error}</div>}
+        {loading && <div style={{ padding: '20px', textAlign: 'center' }}>Loading users...</div>}
+        {error && <div style={{ padding: '20px', color: 'red', textAlign: 'center' }}>{error}</div>}
         {!loading && !error && (
           <div className="table-container">
             <table className="data-table">
@@ -53,7 +73,7 @@ function CustomerAdminView() {
               <tbody>
                 {customers.length === 0 ? (
                   <tr>
-                    <td colSpan="7" style={{textAlign: 'center', padding: '20px'}}>No users found</td>
+                    <td colSpan="7" style={{ textAlign: 'center', padding: '20px' }}>No users found</td>
                   </tr>
                 ) : (
                   customers.map(customer => (

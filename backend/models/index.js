@@ -22,4 +22,9 @@ Transaction.belongsTo(User, { foreignKey: 'userId' });
 Match.hasMany(Bet, { foreignKey: 'matchId' });
 Bet.belongsTo(Match, { foreignKey: 'matchId' });
 
+// User Hierarchy (Agents -> Users)
+User.belongsTo(User, { as: 'agent', foreignKey: 'agentId' });
+User.hasMany(User, { as: 'subUsers', foreignKey: 'agentId' });
+
+
 module.exports = db;

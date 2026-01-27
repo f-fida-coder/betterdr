@@ -25,6 +25,10 @@ const User = sequelize.define('User', {
         type: DataTypes.STRING,
         allowNull: false,
     },
+    fullName: {
+        type: DataTypes.STRING,
+        allowNull: true,
+    },
     balance: {
         type: DataTypes.DECIMAL(10, 2),
         defaultValue: 0.00,
@@ -41,7 +45,7 @@ const User = sequelize.define('User', {
         allowNull: false,
     },
     role: {
-        type: DataTypes.ENUM('user', 'admin'),
+        type: DataTypes.ENUM('user', 'agent', 'admin'),
         defaultValue: 'user',
         allowNull: false
     },
@@ -49,6 +53,14 @@ const User = sequelize.define('User', {
         type: DataTypes.ENUM('active', 'suspended'),
         defaultValue: 'active',
         allowNull: false
+    },
+    agentId: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        references: {
+            model: 'Users',
+            key: 'id'
+        }
     }
 }, {
     hooks: {

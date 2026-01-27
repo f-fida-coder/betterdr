@@ -29,15 +29,19 @@ const RegisterModal = ({ onClose }) => {
         setLoading(true);
         setError('');
         try {
-            await registerUser({
+            console.log('Registering user:', formData.username);
+            const result = await registerUser({
                 username: formData.username,
                 email: formData.email,
                 password: formData.password
             });
-            alert('Registration successful! Please login.');
+            console.log('Registration successful:', result);
+            alert('Registration successful! Please login with your credentials.');
+            setFormData({ username: '', email: '', password: '', confirmPassword: '' });
             onClose();
         } catch (err) {
-            setError(err.message);
+            console.error('Registration error:', err);
+            setError(err.message || 'Registration failed. Please try again.');
         } finally {
             setLoading(false);
         }

@@ -23,7 +23,9 @@ app.get('/', (req, res) => {
 app.use('/api/auth', require('./routes/authRoutes'));
 app.use('/api/wallet', require('./routes/walletRoutes'));
 app.use('/api/bets', require('./routes/betRoutes'));
+app.use('/api/bets', require('./routes/betRoutes'));
 app.use('/api/admin', require('./routes/adminRoutes'));
+app.use('/api/agent', require('./routes/agentRoutes'));
 app.use('/api/payments', require('./routes/paymentRoutes'));
 app.use('/api/matches', require('./routes/matchRoutes'));
 

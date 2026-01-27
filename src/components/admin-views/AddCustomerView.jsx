@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { getAgents, createUserByAdmin, createPlayerByAgent } from '../../api';
 
 function AddCustomerView() {
   const [formData, setFormData] = useState({
@@ -12,7 +13,35 @@ function AddCustomerView() {
     address: '',
     city: '',
     country: '',
+    agentId: '', // For admin to select agent
   });
+  const [role, setRole] = useState('user');
+  const [agents, setAgents] = useState([]);
+  const [loadingAgents, setLoadingAgents] = useState(false);
+
+  useEffect(() => {
+    const fetchRoleAndAgents = async () => {
+      const token = localStorage.getItem('token');
+      if (!token) return;
+
+      try {
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        const userRole = payload.role;
+        setRole(userRole);
+
+        if (userRole === 'admin') {
+          setLoadingAgents(true);
+          const agentList = await getAgents(token);
+          setAgents(agentList || []);
+          setLoadingAgents(false);
+        }
+      } catch (error) {
+        console.error('Error fetching role or agents:', error);
+        setLoadingAgents(false);
+      }
+    };
+    fetchRoleAndAgents();
+  }, []);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -22,22 +51,69 @@ function AddCustomerView() {
     }));
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    console.log('Adding customer:', formData);
-    alert('Customer added successfully!');
-    setFormData({
-      username: '',
-      email: '',
-      password: '',
-      confirmPassword: '',
-      firstName: '',
-      lastName: '',
-      phone: '',
-      address: '',
-      city: '',
-      country: '',
-    });
+
+    if (formData.password !== formData.confirmPassword) {
+      alert("Passwords do not match");
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        alert('ERROR: No token found! Please login first.');
+        return;
+      }
+
+      if (role === 'agent') {
+        console.log('Creating player via agent API');
+        await createPlayerByAgent({
+          username: formData.username,
+          email: formData.email,
+          password: formData.password,
+          firstName: formData.firstName,
+          lastName: formData.lastName,
+          phone: formData.phone,
+          address: formData.address,
+          city: formData.city,
+          country: formData.country,
+          fullName: `${formData.firstName} ${formData.lastName}`.trim()
+        }, token);
+      } else {
+        // Admin or fallback
+        console.log('Creating user via admin API');
+        await createUserByAdmin({
+          username: formData.username,
+          email: formData.email,
+          password: formData.password,
+          firstName: formData.firstName,
+          lastName: formData.lastName,
+          phone: formData.phone,
+          address: formData.address,
+          city: formData.city,
+          country: formData.country,
+          agentId: formData.agentId || null // Pass selected agent
+        }, token);
+      }
+
+      alert('Customer added successfully!');
+      setFormData({
+        username: '',
+        email: '',
+        password: '',
+        confirmPassword: '',
+        firstName: '',
+        lastName: '',
+        phone: '',
+        address: '',
+        city: '',
+        country: '',
+        agentId: '',
+      });
+    } catch (error) {
+      alert('Failed to add customer: ' + error.message);
+    }
   };
 
   return (
@@ -94,6 +170,27 @@ function AddCustomerView() {
                   placeholder="Confirm password"
                 />
               </div>
+
+              {role === 'admin' && (
+                <div className="form-group">
+                  <label>Assign to Agent (Optional):</label>
+                  <select
+                    name="agentId"
+                    value={formData.agentId}
+                    onChange={handleChange}
+                    className="form-control"
+                  >
+                    <option value="">-- Direct User (No Agent) --</option>
+                    {agents.map(agent => (
+                      <option key={agent.id} value={agent.id}>
+                        {agent.username} ({agent.userCount || 0} users)
+                      </option>
+                    ))}
+                  </select>
+                  {loadingAgents && <small>Loading agents...</small>}
+                </div>
+              )}
+
             </div>
 
             <div className="form-section">

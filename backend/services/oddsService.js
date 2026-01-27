@@ -3,9 +3,8 @@ const Match = require('../models/Match');
 const socketIo = require('../socket');
 
 // API Configuration
-const API_KEY = process.env.ODDS_API_KEY;
-const API_HOST = 'therundown-therundown-v1.p.rapidapi.com';
-const API_URL = 'https://therundown-therundown-v1.p.rapidapi.com/sports/3/events'; // 3 = MLB (example), can be dynamic
+const ODDS_API_KEY = process.env.ODDS_API_KEY;
+const ODDS_API_URL = 'https://api.the-odds-api.com/v4';
 
 /**
  * Service to fetch odds and update matches in the database.
@@ -16,28 +15,51 @@ class OddsService {
      * Fetch odds from API or Mock Data
      */
     async fetchOdds() {
-        if (!process.env.ODDS_API_KEY) {
+        if (!ODDS_API_KEY) {
             console.warn('⚠️  ODDS_API_KEY is missing in .env. Using MOCK DATA for sports odds.');
             return this.getMockData();
         }
 
-        console.log(`🌐 Fetching odds from API: ${API_URL}`);
+        console.log(`🌐 Fetching sports odds from API: ${ODDS_API_URL}`);
         try {
-            const response = await axios.get(API_URL, {
-                headers: {
-                    'X-RapidAPI-Key': process.env.ODDS_API_KEY,
-                    'X-RapidAPI-Host': API_HOST
-                },
+            // Fetch available sports first
+            const sportsResponse = await axios.get(`${ODDS_API_URL}/sports`, {
                 params: {
-                    include: 'scores'
+                    apiKey: ODDS_API_KEY
                 }
             });
-            return response.data;
+
+            const sports = sportsResponse.data;
+            console.log(`📊 Found ${sports.length} sports available`);
+
+            // Fetch odds for each active sport
+            const allOdds = [];
+            for (const sport of sports) {
+                if (!sport.active) continue;
+                
+                try {
+                    const oddsResponse = await axios.get(`${ODDS_API_URL}/sports/${sport.key}/events`, {
+                        params: {
+                            apiKey: ODDS_API_KEY,
+                            regions: 'us',
+                            markets: 'h2h,spreads,totals',
+                            oddsFormat: 'decimal'
+                        }
+                    });
+                    
+                    console.log(`  📈 ${sport.title}: ${oddsResponse.data.length} events`);
+                    allOdds.push(...oddsResponse.data.map(event => ({ ...event, sport: sport.key, sportTitle: sport.title })));
+                } catch (sportError) {
+                    console.error(`  ❌ Error fetching ${sport.title}:`, sportError.message);
+                }
+            }
+
+            return { events: allOdds };
         } catch (error) {
             console.error('❌ Error fetching odds from API:', error.message);
             if (error.response) {
                 console.error('   API Status:', error.response.status);
-                // console.error('   API Data:', error.response.data);
+                console.error('   API Error:', error.response.data?.message || error.response.data);
             }
             console.log('⚠️  Falling back to MOCK DATA due to API error.');
             return this.getMockData();
@@ -57,31 +79,32 @@ class OddsService {
             let updatedCount = 0;
 
             for (const event of events) {
-                const teams = event.teams || event.teams_normalized;
-                const homeTeam = teams.find(t => t.is_home);
-                const awayTeam = teams.find(t => !t.is_home);
+                // Extract teams from odds-api.com format
+                const homeTeam = event.home_team || 'Unknown Home';
+                const awayTeam = event.away_team || 'Unknown Away';
+                const sportName = event.sportTitle || event.sport || 'unknown';
 
-                // Construct safe defaults
-                const homeName = homeTeam ? homeTeam.name : 'Unknown Home';
-                const awayName = awayTeam ? awayTeam.name : 'Unknown Away';
-                const sportName = event.sport_id ? `sport_${event.sport_id}` : 'baseball'; // Simple mapping
-
-                // Prepare odds/score data
-                const oddsData = event.lines ? event.lines : {};
-                const scoreData = event.score ? event.score : {};
+                // Extract odds from the bookmakers data
+                let oddsData = {};
+                if (event.bookmakers && event.bookmakers.length > 0) {
+                    const mainBookmaker = event.bookmakers[0];
+                    oddsData = {
+                        bookmaker: mainBookmaker.title,
+                        markets: mainBookmaker.markets
+                    };
+                }
 
                 // Upsert match
                 const [match, created] = await Match.findOrCreate({
-                    where: { externalId: event.event_id || event.id },
+                    where: { externalId: event.id },
                     defaults: {
-                        externalId: event.event_id || event.id,
-                        homeTeam: homeName,
-                        awayTeam: awayName,
-                        startTime: event.event_date,
+                        externalId: event.id,
+                        homeTeam: homeTeam,
+                        awayTeam: awayTeam,
+                        startTime: event.commence_time,
                         sport: sportName,
-                        status: event.score ? 'live' : 'scheduled',
+                        status: 'scheduled',
                         odds: oddsData,
-                        score: scoreData,
                         lastUpdated: new Date()
                     }
                 });
@@ -89,8 +112,6 @@ class OddsService {
                 if (!created) {
                     // Update existing match
                     match.odds = oddsData;
-                    match.score = scoreData;
-                    match.status = event.score ? 'live' : match.status; // Simple status logic
                     match.lastUpdated = new Date();
                     await match.save();
 
