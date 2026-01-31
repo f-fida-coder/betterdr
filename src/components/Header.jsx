@@ -17,6 +17,7 @@ const Header = ({ onLogin, isLoggedIn }) => {
                 await onLogin(username, password);
                 setUsername('');
                 setPassword('');
+                setShowMobileLogin(false);
             } catch (error) {
                 alert(error.message);
             } finally {
@@ -24,6 +25,12 @@ const Header = ({ onLogin, isLoggedIn }) => {
             }
         } else {
             alert("Please enter username and password");
+        }
+    };
+
+    const handleKeyPress = (e) => {
+        if (e.key === 'Enter') {
+            handleLogin();
         }
     };
 
@@ -42,6 +49,7 @@ const Header = ({ onLogin, isLoggedIn }) => {
                                 id="loginId"
                                 value={username}
                                 onChange={(e) => setUsername(e.target.value)}
+                                onKeyPress={handleKeyPress}
                             />
                             <input
                                 type="password"
@@ -49,6 +57,7 @@ const Header = ({ onLogin, isLoggedIn }) => {
                                 id="password"
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
+                                onKeyPress={handleKeyPress}
                             />
                         </div>
                         <button
@@ -196,6 +205,7 @@ const Header = ({ onLogin, isLoggedIn }) => {
                                         placeholder="Username"
                                         value={username}
                                         onChange={(e) => setUsername(e.target.value)}
+                                        onKeyPress={handleKeyPress}
                                         style={{
                                             width: '100%',
                                             padding: '12px 15px',
@@ -212,6 +222,7 @@ const Header = ({ onLogin, isLoggedIn }) => {
                                         placeholder="Password"
                                         value={password}
                                         onChange={(e) => setPassword(e.target.value)}
+                                        onKeyPress={handleKeyPress}
                                         style={{
                                             width: '100%',
                                             padding: '12px 15px',
@@ -288,7 +299,10 @@ const Header = ({ onLogin, isLoggedIn }) => {
             }
 
             {showRegisterModal && createPortal(
-                <RegisterModal onClose={() => setShowRegisterModal(false)} />,
+                <RegisterModal 
+                    onClose={() => setShowRegisterModal(false)} 
+                    onOpenLogin={() => setShowMobileLogin(true)}
+                />,
                 document.body
             )}
         </header >

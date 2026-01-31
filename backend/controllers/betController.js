@@ -1,45 +1,49 @@
-const { sequelize, Bet, User, Match } = require('../models');
+const { Bet, User, Match } = require('../models');
+const mongoose = require('mongoose');
 
 // Place a Bet
 exports.placeBet = async (req, res) => {
-    const t = await sequelize.transaction();
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
     try {
-        const userId = req.user.id; // From authMiddleware
+        const userId = req.user._id; // From authMiddleware
         const { matchId, selection, odds, amount, type } = req.body;
 
         // 1. Validate inputs
         if (!matchId || !selection || !odds || !amount || !type) {
+            await session.abortTransaction();
             return res.status(400).json({ message: 'Missing required fields' });
         }
         if (amount <= 0) {
+            await session.abortTransaction();
             return res.status(400).json({ message: 'Bet amount must be positive' });
         }
 
         // 2. Fetch User and Match
-        // We lock the user row to prevent race conditions on balance
-        const user = await User.findByPk(userId, { transaction: t, lock: t.LOCK.UPDATE });
+        const user = await User.findById(userId).session(session);
         if (!user) {
-            await t.rollback();
+            await session.abortTransaction();
             return res.status(404).json({ message: 'User not found' });
         }
 
-        const match = await Match.findByPk(matchId, { transaction: t });
+        const match = await Match.findById(matchId).session(session);
         if (!match) {
-            await t.rollback();
+            await session.abortTransaction();
             return res.status(404).json({ message: 'Match not found' });
         }
 
-        if (match.status !== 'scheduled' && match.status !== 'live') { // Basic check
-            await t.rollback();
+        if (match.status !== 'scheduled' && match.status !== 'live') {
+            await session.abortTransaction();
             return res.status(400).json({ message: 'Match is not open for betting' });
         }
 
         // 3. Check Balance
         const betAmount = parseFloat(amount);
-        const currentBalance = parseFloat(user.balance);
+        const currentBalance = parseFloat(user.balance.toString());
 
         if (currentBalance < betAmount) {
-            await t.rollback();
+            await session.abortTransaction();
             return res.status(400).json({ message: 'Insufficient funds' });
         }
 
@@ -47,7 +51,7 @@ exports.placeBet = async (req, res) => {
         const potentialPayout = betAmount * parseFloat(odds);
 
         // 5. Create Bet Record
-        const bet = await Bet.create({
+        const bet = new Bet({
             userId,
             matchId,
             selection,
@@ -56,16 +60,16 @@ exports.placeBet = async (req, res) => {
             type,
             potentialPayout,
             status: 'pending'
-        }, { transaction: t });
+        });
+        await bet.save({ session });
 
         // 6. Update User Wallet
         // Deduct from main balance, add to pending
-        await user.update({
-            balance: currentBalance - betAmount,
-            pendingBalance: parseFloat(user.pendingBalance) + betAmount
-        }, { transaction: t });
+        user.balance = currentBalance - betAmount;
+        user.pendingBalance = parseFloat(user.pendingBalance.toString()) + betAmount;
+        await user.save({ session });
 
-        await t.commit();
+        await session.commitTransaction();
 
         res.status(201).json({
             message: 'Bet placed successfully',
@@ -75,30 +79,30 @@ exports.placeBet = async (req, res) => {
         });
 
     } catch (error) {
-        await t.rollback();
+        await session.abortTransaction();
         console.error('Place Bet Error:', error);
         res.status(500).json({ message: 'Server error placing bet' });
+    } finally {
+        await session.endSession();
     }
 };
 
 // Helper for settlement (to be called by Cron or manually for now)
 exports.settleMatch = async (req, res) => {
-    // This is a manual trigger endpoint for strictly testing Phase 3
-    const t = await sequelize.transaction();
-    try {
-        const { matchId, winner } = req.body; // Simulating a result: winner needs to match 'selection'
+    const session = await mongoose.startSession();
+    session.startTransaction();
 
-        const match = await Match.findByPk(matchId, { transaction: t });
+    try {
+        const { matchId, winner } = req.body;
+
+        const match = await Match.findById(matchId).session(session);
         if (!match) {
-            await t.rollback();
+            await session.abortTransaction();
             return res.status(404).json({ message: 'Match not found' });
         }
 
         // Find all pending bets for this match
-        const pendingBets = await Bet.findAll({
-            where: { matchId, status: 'pending' },
-            transaction: t
-        });
+        const pendingBets = await Bet.find({ matchId, status: 'pending' }).session(session);
 
         const results = {
             total: pendingBets.length,
@@ -107,54 +111,44 @@ exports.settleMatch = async (req, res) => {
         };
 
         for (const bet of pendingBets) {
-            const user = await User.findByPk(bet.userId, { transaction: t, lock: t.LOCK.UPDATE });
+            const user = await User.findById(bet.userId).session(session);
 
             if (bet.selection === winner) {
                 // WON
-                const payout = parseFloat(bet.potentialPayout);
-                const wager = parseFloat(bet.amount);
+                const payout = parseFloat(bet.potentialPayout.toString());
+                const wager = parseFloat(bet.amount.toString());
 
-                await bet.update({ status: 'won' }, { transaction: t });
+                bet.status = 'won';
+                await bet.save({ session });
 
-                // Return wager to balance (implied in payout calculation usually? 
-                // Standard: Payout = Stake * Decimal Odds. 
-                // So Payout INCLUDES the stake. 
-                // We deducted Stake from Balance.
-                // So we add Payout to Balance.
-                // We accept that Pending Balance decreases by Stake.
-
-                await user.update({
-                    balance: parseFloat(user.balance) + payout,
-                    pendingBalance: parseFloat(user.pendingBalance) - wager,
-                    totalWinnings: parseFloat(user.totalWinnings) + (payout - wager) // Net profit
-                }, { transaction: t });
+                user.balance = parseFloat(user.balance.toString()) + payout;
+                user.pendingBalance = parseFloat(user.pendingBalance.toString()) - wager;
+                user.totalWinnings = parseFloat(user.totalWinnings.toString()) + (payout - wager);
+                await user.save({ session });
 
                 results.won++;
             } else {
                 // LOST
-                const wager = parseFloat(bet.amount);
-                await bet.update({ status: 'lost' }, { transaction: t });
+                const wager = parseFloat(bet.amount.toString());
+                bet.status = 'lost';
+                await bet.save({ session });
 
-                // Just remove from pending. Money is already gone from Balance.
-                await user.update({
-                    pendingBalance: parseFloat(user.pendingBalance) - wager
-                }, { transaction: t });
+                user.pendingBalance = parseFloat(user.pendingBalance.toString()) - wager;
+                await user.save({ session });
 
                 results.lost++;
             }
         }
 
-        // Update match status?
-        // match.status = 'finished';
-        // await match.save({ transaction: t });
-
-        await t.commit();
+        await session.commitTransaction();
 
         res.json({ message: 'Settlement complete', results });
 
     } catch (error) {
-        await t.rollback();
+        await session.abortTransaction();
         console.error('Settlement Error:', error);
         res.status(500).json({ message: 'Error settling bets' });
+    } finally {
+        await session.endSession();
     }
 };

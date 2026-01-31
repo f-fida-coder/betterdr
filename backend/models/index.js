@@ -1,30 +1,22 @@
-const sequelize = require('../config/database');
+const mongoose = require('mongoose');
 const User = require('./User');
 const Bet = require('./Bet');
 const Transaction = require('./Transaction');
 const Match = require('./Match');
 
 const db = {
-    sequelize,
+    mongoose,
     User,
     Bet,
     Transaction,
     Match,
 };
 
-// Define relationships
-User.hasMany(Bet, { foreignKey: 'userId' });
-Bet.belongsTo(User, { foreignKey: 'userId' });
-
-User.hasMany(Transaction, { foreignKey: 'userId' });
-Transaction.belongsTo(User, { foreignKey: 'userId' });
-
-Match.hasMany(Bet, { foreignKey: 'matchId' });
-Bet.belongsTo(Match, { foreignKey: 'matchId' });
-
-// User Hierarchy (Agents -> Users)
-User.belongsTo(User, { as: 'agent', foreignKey: 'agentId' });
-User.hasMany(User, { as: 'subUsers', foreignKey: 'agentId' });
-
+// Note: Relationships are defined using refs in the schemas
+// Use .populate() when querying to fetch related data
+// Examples:
+// - User.find().populate('agentId') - Get user with agent details
+// - Bet.find().populate(['userId', 'matchId']) - Get bet with user and match
+// - Transaction.find().populate('userId') - Get transaction with user
 
 module.exports = db;

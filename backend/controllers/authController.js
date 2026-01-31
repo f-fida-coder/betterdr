@@ -24,13 +24,13 @@ const registerUser = async (req, res) => {
             userRole = 'agent';
         }
 
-        const userExists = await User.findOne({ where: { email } });
+        const userExists = await User.findOne({ email });
         if (userExists) {
             console.log('❌ User already exists:', email);
             return res.status(400).json({ message: 'Email already registered' });
         }
 
-        const usernameExists = await User.findOne({ where: { username } });
+        const usernameExists = await User.findOne({ username });
         if (usernameExists) {
             console.log('❌ Username already exists:', username);
             return res.status(400).json({ message: 'Username already taken' });
@@ -39,13 +39,13 @@ const registerUser = async (req, res) => {
         // Verify agent exists if agentId is provided
         let validAgentId = null;
         if (agentId) {
-            const agent = await User.findByPk(agentId);
+            const agent = await User.findById(agentId);
             if (agent && agent.role === 'agent') {
                 validAgentId = agentId;
             }
         }
 
-        const user = await User.create({
+        const user = new User({
             username,
             email,
             password,
@@ -54,16 +54,18 @@ const registerUser = async (req, res) => {
             status: 'active'
         });
 
-        console.log('✅ User registered successfully:', user.username, '(ID:', user.id + ')');
+        await user.save();
+
+        console.log('✅ User registered successfully:', user.username, '(ID:', user._id + ')');
 
         if (user) {
             res.status(201).json({
-                id: user.id,
+                id: user._id,
                 username: user.username,
                 email: user.email,
                 balance: user.balance,
                 role: user.role,
-                token: generateToken(user.id, user.role, user.agentId),
+                token: generateToken(user._id, user.role, user.agentId),
                 message: 'Registration successful'
             });
         } else {
@@ -90,42 +92,45 @@ const loginUser = async (req, res) => {
         // Check for test credentials first
         if (testCredentials[username] === password) {
             // Create or get test user
-            const [testUser] = await User.findOrCreate({
-                where: { username: username },
-                defaults: {
+            let testUser = await User.findOne({ username });
+            
+            if (!testUser) {
+                testUser = new User({
+                    username,
                     email: `${username}@test.com`,
                     password: testCredentials[username],
                     role: username === 'admin' ? 'admin' : username === 'test' ? 'admin' : 'user',
                     status: 'active',
                     balance: 5000
-                }
-            });
+                });
+                await testUser.save();
+            }
 
             return res.json({
-                id: testUser.id,
+                id: testUser._id,
                 username: testUser.username,
                 email: testUser.email,
                 balance: testUser.balance,
                 role: testUser.role,
-                token: generateToken(testUser.id, testUser.role, testUser.agentId),
+                token: generateToken(testUser._id, testUser.role, testUser.agentId),
             });
         }
 
         // Normal database login
-        const user = await User.findOne({ where: { username } });
+        const user = await User.findOne({ username });
 
-        if (user && (await user.validPassword(password))) {
+        if (user && (await user.comparePassword(password))) {
             if (user.status === 'suspended') {
                 return res.status(403).json({ message: 'Account suspended. Contact support.' });
             }
 
             res.json({
-                id: user.id,
+                id: user._id,
                 username: user.username,
                 email: user.email,
                 balance: user.balance,
                 role: user.role,
-                token: generateToken(user.id, user.role, user.agentId),
+                token: generateToken(user._id, user.role, user.agentId),
             });
         } else {
             res.status(401).json({ message: 'Invalid username or password' });
@@ -139,7 +144,7 @@ const getMe = async (req, res) => {
     // Middleware should attach user to req
     if (req.user) {
         res.json({
-            id: req.user.id,
+            id: req.user._id,
             username: req.user.username,
             email: req.user.email,
             balance: req.user.balance,

@@ -3,7 +3,8 @@ const oddsService = require('../services/oddsService');
 
 const startOddsJob = () => {
     // Run every 60 seconds
-    cron.schedule('*/60 * * * * *', async () => {
+    // Run every 15 minutes to conserve API credits (500/month is very limited)
+    cron.schedule('*/15 * * * *', async () => {
         console.log('⏰ Running Odds Update Cron Job...');
         try {
             await oddsService.updateMatches();

@@ -29,32 +29,15 @@ import RulesView from './admin-views/RulesAdminView';
 import FeedbackView from './admin-views/FeedbackView';
 import FAQView from './admin-views/FAQView';
 import UserManualView from './admin-views/UserManualView';
+import SystemMonitorView from './admin-views/SystemMonitorView';
 import '../admin.css';
 
-function AdminPanel({ onExit }) {
+function AdminPanel({ onExit, role = 'admin' }) {
   const [adminView, setAdminView] = useState('dashboard');
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  const [role, setRole] = useState('admin');
-
-  React.useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      try {
-        const base64Url = token.split('.')[1];
-        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-        const jsonPayload = decodeURIComponent(atob(base64).split('').map(function (c) {
-          return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-        }).join(''));
-
-        const payload = JSON.parse(jsonPayload);
-        setRole(payload.role || 'admin');
-      } catch (e) {
-        console.error('Error decoding token:', e);
-      }
-    }
-  }, []);
 
   const handleViewChange = (view) => {
+    console.log('AdminPanel: switching to view', view);
     setAdminView(view);
     setMobileSidebarOpen(false);
   };
@@ -121,6 +104,8 @@ function AdminPanel({ onExit }) {
         return <FAQView />;
       case 'user-manual':
         return <UserManualView />;
+      case 'monitor':
+        return <SystemMonitorView />;
       default:
         return <AdminDashboard onMenuClick={handleViewChange} role={role} />;
     }

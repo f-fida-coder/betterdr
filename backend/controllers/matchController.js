@@ -5,9 +5,7 @@ const Match = require('../models/Match');
 // @access  Public
 const getMatches = async (req, res) => {
     try {
-        const matches = await Match.findAll({
-            order: [['startTime', 'ASC']]
-        });
+        const matches = await Match.find().sort({ startTime: 1 });
         res.json(matches);
     } catch (error) {
         console.error('Error fetching matches:', error);
@@ -20,7 +18,7 @@ const getMatches = async (req, res) => {
 // @access  Public
 const getMatchById = async (req, res) => {
     try {
-        const match = await Match.findByPk(req.params.id);
+        const match = await Match.findById(req.params.id);
         if (match) {
             res.json(match);
         } else {

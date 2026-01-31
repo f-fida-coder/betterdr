@@ -1,15 +1,16 @@
-const { sequelize, Match } = require('./models');
+const { Match } = require('./models');
+const { connectDB, mongoose } = require('./config/database');
+require('dotenv').config();
 
 const seedMatch = async () => {
     try {
-        await sequelize.authenticate();
+        await connectDB();
         console.log('Database connected.');
-        await sequelize.sync(); // ensure tables exist
 
-        const match = await Match.create({
+        const match = new Match({
             homeTeam: 'Lakers',
             awayTeam: 'Warriors',
-            startTime: new Date(), // Now
+            startTime: new Date(),
             status: 'live',
             sport: 'basketball',
             odds: {
@@ -23,7 +24,8 @@ const seedMatch = async () => {
             }
         });
 
-        console.log('Match created with ID:', match.id);
+        await match.save();
+        console.log('Match created with ID:', match._id);
         process.exit(0);
     } catch (error) {
         console.error('Error seeding match:', error);

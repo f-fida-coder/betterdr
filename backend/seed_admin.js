@@ -1,27 +1,34 @@
-const { sequelize, User } = require('./models');
+const { User } = require('./models');
+const { connectDB } = require('./config/database');
+require('dotenv').config();
 
 const createAdmin = async () => {
     try {
-        await sequelize.authenticate();
-        await sequelize.sync({ alter: true });
+        await connectDB();
 
-        const adminUser = await User.create({
-            username: 'admin',
-            email: 'admin@example.com',
-            password: 'adminpassword', // Will be hashed by hook
+        const adminData = {
+            username: 'fida',
+            email: 'fida@example.com',
+            password: 'fida123',
             role: 'admin',
             status: 'active'
-        });
+        };
 
-        console.log('Admin user created:', adminUser.username);
+        let adminUser = await User.findOne({ username: 'fida' });
+
+        if (adminUser) {
+            console.log('Admin user fida already exists. Updating password...');
+            adminUser.password = 'fida123';
+            await adminUser.save();
+            console.log('Admin password updated.');
+        } else {
+            adminUser = new User(adminData);
+            await adminUser.save();
+            console.log('Admin user created:', adminUser.username);
+        }
         process.exit(0);
     } catch (error) {
-        if (error.name === 'SequelizeUniqueConstraintError') {
-            console.log('Admin already exists.');
-            // Optional: update to admin if exists
-        } else {
-            console.error('Error creating admin:', error);
-        }
+        console.error('Error creating admin:', error);
         process.exit(1);
     }
 };

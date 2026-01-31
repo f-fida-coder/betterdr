@@ -1,5 +1,6 @@
 import React from 'react';
 import { sportsData } from '../data/sportsData';
+import useMatches from '../hooks/useMatches';
 
 const MobileContentView = ({ selectedSports = [] }) => {
     const getSportName = (id) => {
@@ -33,48 +34,30 @@ const MobileContentView = ({ selectedSports = [] }) => {
         return sportMap[id] || id.replace('-', ' ').toUpperCase();
     };
 
-    const [matches, setMatches] = React.useState([]);
+    const rawMatches = useMatches();
     const primarySport = selectedSports && selectedSports.length > 0 ? selectedSports[0] : null;
     const sportName = primarySport ? getSportName(primarySport) : 'Selected Sport';
 
-    React.useEffect(() => {
-        const fetchMatches = async () => {
-            try {
-                const response = await fetch('http://localhost:5000/api/matches');
-                const data = await response.json();
+    const matches = React.useMemo(() => {
+        const formattedMatches = (rawMatches || []).map(match => {
+            const lineKey = match.odds ? Object.keys(match.odds)[0] : null;
+            const lines = lineKey ? match.odds[lineKey] : {};
 
-                // Map backend data to frontend structure
-                const formattedMatches = data.map(match => {
-                    const lineKey = match.odds ? Object.keys(match.odds)[0] : null;
-                    const lines = lineKey ? match.odds[lineKey] : {};
+            return {
+                id: match.id || match._id,
+                sport: match.sport || match.sportTitle || '',
+                team1: match.homeTeam || match.home_team || '',
+                team2: match.awayTeam || match.away_team || '',
+                odds: lines.moneyline?.home || '-110',
+                spread: lines.spread?.point || '-5.5',
+                isLive: match.status === 'live' || (match.score && match.score.event_status && match.score.event_status.includes('IN_PROGRESS'))
+            };
+        });
 
-                    return {
-                        id: match.id,
-                        sport: match.sport, // Store sport for filtering
-                        team1: match.homeTeam,
-                        team2: match.awayTeam,
-                        odds: lines.moneyline?.home || '-110',
-                        spread: lines.spread?.point || '-5.5',
-                        isLive: match.status === 'live'
-                    };
-                });
-
-                // Filter by sport if selected, otherwise show all or map sports
-                // For now, assuming backend might send 'baseball' or 'sport_3'. 
-                // We'll just show all if no sport selected, or filter if we can matches strings.
-                // Simple inclusion check or exact match appropriate for now.
-                const filtered = primarySport
-                    ? formattedMatches.filter(m => m.sport && m.sport.toLowerCase().includes(primarySport.toLowerCase()))
-                    : formattedMatches;
-
-                setMatches(filtered.length > 0 ? filtered : formattedMatches); // Fallback to all if filter empty
-            } catch (error) {
-                console.error('Error fetching matches:', error);
-            }
-        };
-
-        fetchMatches();
-    }, [primarySport]);
+        if (!primarySport) return formattedMatches;
+        const filtered = formattedMatches.filter(m => m.sport && m.sport.toLowerCase().includes(primarySport.toLowerCase()));
+        return filtered.length > 0 ? filtered : formattedMatches;
+    }, [rawMatches, primarySport]);
 
 
     return (

@@ -1,8 +1,9 @@
 const { User, Transaction } = require('../models');
+const mongoose = require('mongoose');
 
 const getBalance = async (req, res) => {
     try {
-        const user = await User.findByPk(req.user.id);
+        const user = await User.findById(req.user._id);
         if (user) {
             res.json({
                 balance: user.balance,
@@ -19,41 +20,45 @@ const getBalance = async (req, res) => {
 
 // For testing purposes - manual deposit
 const deposit = async (req, res) => {
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
     try {
         const { amount } = req.body;
-        const userId = req.user.id;
+        const userId = req.user._id;
 
         if (!amount || amount <= 0) {
+            await session.abortTransaction();
             return res.status(400).json({ message: 'Invalid amount' });
         }
 
-        const user = await User.findByPk(userId);
-
-        // Transaction transaction
-        const t = await user.sequelize.transaction();
+        const user = await User.findById(userId).session(session);
 
         try {
-            const newBalance = parseFloat(user.balance) + parseFloat(amount);
+            const newBalance = parseFloat(user.balance.toString()) + parseFloat(amount);
 
-            await user.update({ balance: newBalance }, { transaction: t });
+            user.balance = newBalance;
+            await user.save({ session });
 
-            await Transaction.create({
+            await Transaction.create([{
                 userId,
                 amount,
                 type: 'deposit',
                 description: 'Manual deposit'
-            }, { transaction: t });
+            }], { session });
 
-            await t.commit();
+            await session.commitTransaction();
 
             res.json({ message: 'Deposit successful', balance: newBalance });
         } catch (err) {
-            await t.rollback();
+            await session.abortTransaction();
             throw err;
         }
 
     } catch (error) {
         res.status(500).json({ message: 'Server error', error: error.message });
+    } finally {
+        await session.endSession();
     }
 }
 

@@ -1,52 +1,59 @@
-const { DataTypes } = require('sequelize');
-const sequelize = require('../config/database');
+const mongoose = require('mongoose');
 
-const Match = sequelize.define('Match', {
-    id: {
-        type: DataTypes.INTEGER,
-        autoIncrement: true,
-        primaryKey: true,
+const matchSchema = new mongoose.Schema(
+    {
+        externalId: {
+            type: String,
+            unique: true,
+            sparse: true,
+            default: null,
+        },
+        homeTeam: {
+            type: String,
+            required: true,
+        },
+        awayTeam: {
+            type: String,
+            required: true,
+        },
+        startTime: {
+            type: Date,
+            required: true,
+            index: true,
+        },
+        status: {
+            type: String,
+            enum: ['scheduled', 'live', 'finished', 'cancelled'],
+            default: 'scheduled',
+            index: true,
+        },
+        sport: {
+            type: String,
+            required: true,
+        },
+        odds: {
+            type: mongoose.Schema.Types.Mixed,
+            default: {},
+        },
+        score: {
+            type: mongoose.Schema.Types.Mixed,
+            default: {},
+        },
+        lastUpdated: {
+            type: Date,
+            default: null,
+        },
     },
-    externalId: {
-        type: DataTypes.STRING, // For mapping to external API IDs
-        unique: true,
-        allowNull: true
-    },
-    homeTeam: {
-        type: DataTypes.STRING,
-        allowNull: false,
-    },
-    awayTeam: {
-        type: DataTypes.STRING,
-        allowNull: false,
-    },
-    startTime: {
-        type: DataTypes.DATE,
-        allowNull: false,
-    },
-    status: {
-        type: DataTypes.ENUM('scheduled', 'live', 'finished', 'cancelled'),
-        defaultValue: 'scheduled',
-    },
-    sport: {
-        type: DataTypes.STRING,
-        allowNull: false, // e.g., 'soccer', 'basketball'
-    },
-    odds: {
-        type: DataTypes.JSONB, // Stores moneyline, spread, totals
-        allowNull: true,
-        defaultValue: {}
-    },
-    score: {
-        type: DataTypes.JSONB, // Stores live scores (home, away, period)
-        allowNull: true,
-        defaultValue: {}
-    },
-    lastUpdated: {
-        type: DataTypes.DATE,
-        allowNull: true
+    {
+        timestamps: true,
+        toJSON: { virtuals: true },
+        toObject: { virtuals: true }
     }
-    // Add more fields as needed (scores, etc.)
+);
+
+// Virtual field for id (alias of _id) to maintain compatibility
+matchSchema.virtual('id').get(function() {
+    return this._id.toString();
 });
 
-module.exports = Match;
+module.exports = mongoose.model('Match', matchSchema);

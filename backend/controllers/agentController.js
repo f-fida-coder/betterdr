@@ -1,11 +1,10 @@
 const { User, Bet } = require('../models');
-const { Op } = require('sequelize');
 
 // Create User (Agent specific)
 exports.createUser = async (req, res) => {
     try {
         const { username, email, password, fullName } = req.body;
-        const agentId = req.user.id; // From auth middleware
+        const agentId = req.user._id; // From auth middleware
 
         // Validation
         if (!username || !email || !password) {
@@ -13,19 +12,19 @@ exports.createUser = async (req, res) => {
         }
 
         // Check if username already exists
-        const existingUser = await User.findOne({ where: { username } });
+        const existingUser = await User.findOne({ username });
         if (existingUser) {
             return res.status(409).json({ message: 'Username already exists' });
         }
 
         // Check if email already exists
-        const existingEmail = await User.findOne({ where: { email } });
+        const existingEmail = await User.findOne({ email });
         if (existingEmail) {
             return res.status(409).json({ message: 'Email already exists' });
         }
 
         // Create user assigned to this agent
-        const newUser = await User.create({
+        const newUser = new User({
             username,
             email,
             password,
@@ -36,10 +35,12 @@ exports.createUser = async (req, res) => {
             agentId: agentId
         });
 
+        await newUser.save();
+
         res.status(201).json({
             message: 'User created successfully',
             user: {
-                id: newUser.id,
+                id: newUser._id,
                 username: newUser.username,
                 email: newUser.email,
                 role: newUser.role,
@@ -55,12 +56,9 @@ exports.createUser = async (req, res) => {
 // Get My Users
 exports.getMyUsers = async (req, res) => {
     try {
-        const agentId = req.user.id;
+        const agentId = req.user._id;
 
-        const users = await User.findAll({
-            where: { agentId: agentId },
-            attributes: ['id', 'username', 'email', 'balance', 'status', 'createdAt', 'totalWinnings']
-        });
+        const users = await User.find({ agentId }).select('username email balance status createdAt totalWinnings');
 
         res.json(users);
     } catch (error) {
@@ -72,17 +70,14 @@ exports.getMyUsers = async (req, res) => {
 // Get Agent Stats
 exports.getAgentStats = async (req, res) => {
     try {
-        const agentId = req.user.id;
+        const agentId = req.user._id;
 
         // 1. Total Users
-        const totalUsers = await User.count({ where: { agentId } });
+        const totalUsers = await User.countDocuments({ agentId });
 
         // 2. Get all users IDs for this agent
-        const myUsers = await User.findAll({
-            where: { agentId },
-            attributes: ['id']
-        });
-        const userIds = myUsers.map(u => u.id);
+        const myUsers = await User.find({ agentId }).select('_id');
+        const userIds = myUsers.map(u => u._id);
 
         if (userIds.length === 0) {
             return res.json({
@@ -94,19 +89,15 @@ exports.getAgentStats = async (req, res) => {
         }
 
         // 3. Get Bets for these users
-        const bets = await Bet.findAll({
-            where: {
-                userId: { [Op.in]: userIds }
-            }
-        });
+        const bets = await Bet.find({ userId: { $in: userIds } });
 
         let totalWagered = 0;
         let totalPayouts = 0;
 
         bets.forEach(bet => {
-            totalWagered += parseFloat(bet.amount);
+            totalWagered += parseFloat(bet.amount.toString());
             if (bet.status === 'won') {
-                totalPayouts += parseFloat(bet.potentialPayout);
+                totalPayouts += parseFloat(bet.potentialPayout.toString());
             }
         });
 

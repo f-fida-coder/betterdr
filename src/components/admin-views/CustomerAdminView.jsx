@@ -66,6 +66,7 @@ function CustomerAdminView({ onViewChange }) {
                   <th>Status</th>
                   <th>Balance</th>
                   <th>Role</th>
+                  <th>Agent</th>
                   <th>Joined</th>
                   <th>Action</th>
                 </tr>
@@ -73,7 +74,7 @@ function CustomerAdminView({ onViewChange }) {
               <tbody>
                 {customers.length === 0 ? (
                   <tr>
-                    <td colSpan="7" style={{ textAlign: 'center', padding: '20px' }}>No users found</td>
+                    <td colSpan="8" style={{ textAlign: 'center', padding: '20px' }}>No users found</td>
                   </tr>
                 ) : (
                   customers.map(customer => (
@@ -83,6 +84,9 @@ function CustomerAdminView({ onViewChange }) {
                       <td><span className={`badge ${customer.status}`}>{customer.status}</span></td>
                       <td>${parseFloat(customer.balance).toFixed(2)}</td>
                       <td><span className={`badge ${customer.role}`}>{customer.role}</span></td>
+                      <td style={{ fontWeight: 'bold', color: customer.agentId ? '#3498db' : '#999' }}>
+                        {customer.agentId ? (customer.agentId.username || 'Unknown') : 'Direct (Admin)'}
+                      </td>
                       <td>{new Date(customer.createdAt).toLocaleDateString()}</td>
                       <td>
                         <button className="btn-small">Edit</button>

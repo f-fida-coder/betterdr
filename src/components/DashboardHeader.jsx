@@ -4,7 +4,7 @@ import ScoreboardSidebar from './ScoreboardSidebar';
 import SettingsModal from './SettingsModal';
 import PersonalizeSidebar from './PersonalizeSidebar';
 
-const DashboardHeader = ({ username, balance, pendingBalance, onViewChange, activeBetMode = 'straight', onBetModeChange, currentView, onToggleSidebar, selectedSports = [], onContinue, onLogout, isMobileSportsSelectionMode = false, onHomeClick, onAdminClick }) => {
+const DashboardHeader = ({ username, balance, pendingBalance, onViewChange, activeBetMode = 'straight', onBetModeChange, currentView, onToggleSidebar, selectedSports = [], onContinue, onLogout, isMobileSportsSelectionMode = false, onHomeClick }) => {
     const [showLiveMenu, setShowLiveMenu] = useState(false);
     const [showMoreMenu, setShowMoreMenu] = useState(false);
     const [showUserMenu, setShowUserMenu] = useState(false);
@@ -116,11 +116,6 @@ const DashboardHeader = ({ username, balance, pendingBalance, onViewChange, acti
                         <div className="usd-item" onClick={() => { setShowPersonalizeSidebar(true); setShowUserMenu(false); }}>
                             <div className="usd-icon"><i className="fa-solid fa-sliders"></i></div>
                             <div className="usd-text">PERSONALIZE</div>
-                            <div className="usd-right-icon"><i className="fa-solid fa-chevron-right"></i></div>
-                        </div>
-                        <div className="usd-item" onClick={() => { onAdminClick && onAdminClick(); setShowUserMenu(false); }}>
-                            <div className="usd-icon"><i className="fa-solid fa-shield"></i></div>
-                            <div className="usd-text">ADMIN PANEL</div>
                             <div className="usd-right-icon"><i className="fa-solid fa-chevron-right"></i></div>
                         </div>
                         <div className="usd-item signout" onClick={onLogout}>
@@ -291,18 +286,6 @@ const DashboardHeader = ({ username, balance, pendingBalance, onViewChange, acti
                         <span>AVAILABLE</span>
                         <strong>$ {Number((balance || 0)).toFixed(2)}</strong>
                     </div>
-                    
-                    <button
-                        onClick={onAdminClick}
-                        className="admin-button"
-                        title="Access Admin Panel"
-                    >
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <path d="M12 2L2 7v10c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V7l-10-5z"></path>
-                            <path d="M10 17l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z"></path>
-                        </svg>
-                        ADMIN
-                    </button>
                     
                     <div
                         style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', position: 'relative' }}

@@ -1,5 +1,6 @@
 const Stripe = require('stripe');
 const { User, Transaction } = require('../models');
+const mongoose = require('mongoose');
 
 // Initialize Stripe directly
 const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
@@ -7,7 +8,7 @@ const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
 const createDepositIntent = async (req, res) => {
     try {
         const { amount } = req.body;
-        const userId = req.user.id;
+        const userId = req.user._id;
 
         if (!amount || amount <= 0) {
             return res.status(400).json({ message: 'Invalid amount' });
@@ -60,43 +61,49 @@ const handleWebhook = async (req, res) => {
 };
 
 const handleSuccessfulDeposit = async (paymentIntent) => {
-    const { userId, type } = paymentIntent.metadata;
-    const amount = paymentIntent.amount / 100; // Convert back to main currency unit
+    const session = await mongoose.startSession();
+    session.startTransaction();
 
-    if (type === 'deposit' && userId) {
-        try {
-            const user = await User.findByPk(userId);
+    try {
+        const { userId, type } = paymentIntent.metadata;
+        const amount = paymentIntent.amount / 100; // Convert back to main currency unit
+
+        if (type === 'deposit' && userId) {
+            const user = await User.findById(userId).session(session);
             if (!user) {
                 console.error(`User not found for deposit: ${userId}`);
+                await session.abortTransaction();
                 return;
             }
 
-            const t = await user.sequelize.transaction();
-
             try {
                 // Update user balance
-                const newBalance = parseFloat(user.balance) + parseFloat(amount);
-                await user.update({ balance: newBalance }, { transaction: t });
+                const newBalance = parseFloat(user.balance.toString()) + parseFloat(amount);
+                user.balance = newBalance;
+                await user.save({ session });
 
                 // Create Transaction record
-                await Transaction.create({
+                await Transaction.create([{
                     userId,
                     amount,
                     type: 'deposit',
                     status: 'completed',
                     stripePaymentId: paymentIntent.id,
                     description: 'Stripe Deposit'
-                }, { transaction: t });
+                }], { session });
 
-                await t.commit();
+                await session.commitTransaction();
                 console.log(`Deposit processed for user ${userId}: $${amount}`);
             } catch (err) {
-                await t.rollback();
+                await session.abortTransaction();
                 console.error('Error processing deposit transaction:', err);
             }
-        } catch (error) {
-            console.error('Error in handleSuccessfulDeposit:', error);
         }
+    } catch (error) {
+        console.error('Error in handleSuccessfulDeposit:', error);
+        await session.abortTransaction();
+    } finally {
+        await session.endSession();
     }
 };
 

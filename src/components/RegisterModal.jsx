@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { registerUser } from '../api';
 
-const RegisterModal = ({ onClose }) => {
+const RegisterModal = ({ onClose, onOpenLogin }) => {
     const isMobile = window.innerWidth <= 768;
     const [formData, setFormData] = useState({
         username: '',
@@ -14,6 +14,12 @@ const RegisterModal = ({ onClose }) => {
 
     const handleChange = (e) => {
         setFormData({ ...formData, [e.target.name]: e.target.value });
+    };
+
+    const handleKeyPress = (e) => {
+        if (e.key === 'Enter') {
+            handleSubmit();
+        }
     };
 
     const handleSubmit = async () => {
@@ -113,10 +119,10 @@ const RegisterModal = ({ onClose }) => {
                     {error && <p style={{ color: 'red', fontSize: '12px', textAlign: 'center' }}>{error}</p>}
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                        <input type="text" name="username" placeholder="Username*" style={inputStyle} onChange={handleChange} />
-                        <input type="email" name="email" placeholder="Email*" style={inputStyle} onChange={handleChange} />
-                        <input type="password" name="password" placeholder="Password*" style={inputStyle} onChange={handleChange} />
-                        <input type="password" name="confirmPassword" placeholder="Confirm Password*" style={inputStyle} onChange={handleChange} />
+                        <input type="text" name="username" placeholder="Username*" value={formData.username} style={inputStyle} onChange={handleChange} onKeyPress={handleKeyPress} />
+                        <input type="email" name="email" placeholder="Email*" value={formData.email} style={inputStyle} onChange={handleChange} onKeyPress={handleKeyPress} />
+                        <input type="password" name="password" placeholder="Password*" value={formData.password} style={inputStyle} onChange={handleChange} onKeyPress={handleKeyPress} />
+                        <input type="password" name="confirmPassword" placeholder="Confirm Password*" value={formData.confirmPassword} style={inputStyle} onChange={handleChange} onKeyPress={handleKeyPress} />
                     </div>
 
                     <div style={{ marginTop: '15px', display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -149,7 +155,19 @@ const RegisterModal = ({ onClose }) => {
                     {/* Already Registered */}
                     <div style={{ textAlign: 'center', marginTop: '15px', paddingBottom: '10px' }}>
                         <span style={{ fontSize: isMobile ? '12px' : '14px', fontWeight: 'bold' }}>Already registered </span>
-                        <a href="#" style={{ fontSize: isMobile ? '12px' : '14px', color: '#dc3545', textDecoration: 'underline', fontWeight: 'bold' }}>Sign in here</a>
+                        <a 
+                            href="#" 
+                            onClick={(e) => {
+                                e.preventDefault();
+                                onClose();
+                                if (onOpenLogin) {
+                                    setTimeout(() => onOpenLogin(), 100);
+                                }
+                            }}
+                            style={{ fontSize: isMobile ? '12px' : '14px', color: '#dc3545', textDecoration: 'underline', fontWeight: 'bold', cursor: 'pointer' }}
+                        >
+                            Sign in here
+                        </a>
                     </div>
                 </div>
             </div>

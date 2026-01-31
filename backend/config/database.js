@@ -1,17 +1,23 @@
-const { Sequelize } = require('sequelize');
+const mongoose = require('mongoose');
 const dotenv = require('dotenv');
 
 dotenv.config();
 
-const sequelize = new Sequelize(
-    process.env.DB_NAME || 'sports_betting',
-    process.env.DB_USER || 'postgres',
-    process.env.DB_PASSWORD || 'postgres',
-    {
-        host: process.env.DB_HOST || 'localhost',
-        dialect: 'postgres',
-        logging: false,
-    }
-);
+const mongoUri = process.env.MONGODB_URI || process.env.MONGO_URI || 'mongodb://localhost:27017/sports_betting';
 
-module.exports = sequelize;
+const connectDB = async () => {
+    try {
+        await mongoose.connect(mongoUri, {
+            useNewUrlParser: true,
+            useUnifiedTopology: true,
+        });
+        console.log('✅ MongoDB connected successfully');
+        console.log(`   URI: ${mongoUri.replace(/mongodb\+srv:\/\/.*:.*@/, 'mongodb+srv://***:***@')}`);
+        return mongoose.connection;
+    } catch (error) {
+        console.error('❌ MongoDB connection failed:', error.message);
+        throw error;
+    }
+};
+
+module.exports = { mongoose, connectDB };

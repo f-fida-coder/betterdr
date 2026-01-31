@@ -1,33 +1,49 @@
-const { DataTypes } = require('sequelize');
-const sequelize = require('../config/database');
+const mongoose = require('mongoose');
 
-const Transaction = sequelize.define('Transaction', {
-    id: {
-        type: DataTypes.INTEGER,
-        autoIncrement: true,
-        primaryKey: true,
+const transactionSchema = new mongoose.Schema(
+    {
+        userId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'User',
+            required: true,
+            index: true,
+        },
+        amount: {
+            type: mongoose.Decimal128,
+            required: true,
+            get: (value) => value ? value.toString() : '0.00',
+        },
+        type: {
+            type: String,
+            enum: ['deposit', 'withdrawal', 'bet_placed', 'bet_won', 'bet_refund'],
+            required: true,
+            index: true,
+        },
+        status: {
+            type: String,
+            enum: ['pending', 'completed', 'failed'],
+            default: 'completed',
+            index: true,
+        },
+        stripePaymentId: {
+            type: String,
+            default: null,
+        },
+        description: {
+            type: String,
+            default: null,
+        },
     },
-    amount: {
-        type: DataTypes.DECIMAL(10, 2),
-        allowNull: false,
-    },
-    type: {
-        type: DataTypes.ENUM('deposit', 'withdrawal', 'bet_placed', 'bet_won', 'bet_refund'),
-        allowNull: false,
-    },
-    status: {
-        type: DataTypes.ENUM('pending', 'completed', 'failed'),
-        defaultValue: 'completed',
-        allowNull: false,
-    },
-    stripePaymentId: {
-        type: DataTypes.STRING,
-        allowNull: true,
-    },
-    description: {
-        type: DataTypes.STRING,
-        allowNull: true,
-    },
+    {
+        timestamps: true,
+        toJSON: { virtuals: true },
+        toObject: { virtuals: true }
+    }
+);
+
+// Virtual field for id (alias of _id) to maintain compatibility
+transactionSchema.virtual('id').get(function() {
+    return this._id.toString();
 });
 
-module.exports = Transaction;
+module.exports = mongoose.model('Transaction', transactionSchema);

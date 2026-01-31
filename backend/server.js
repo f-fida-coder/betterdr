@@ -1,7 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
-const { sequelize } = require('./models');
+const { connectDB } = require('./config/database');
 
 dotenv.config();
 
@@ -28,6 +28,7 @@ app.use('/api/admin', require('./routes/adminRoutes'));
 app.use('/api/agent', require('./routes/agentRoutes'));
 app.use('/api/payments', require('./routes/paymentRoutes'));
 app.use('/api/matches', require('./routes/matchRoutes'));
+app.use('/api/debug', require('./routes/debugRoutes'));
 
 const http = require('http');
 const socketIo = require('./socket');
@@ -40,45 +41,22 @@ const startServer = async () => {
     try {
         console.log('\n📦 Starting Sports Betting Backend...\n');
 
-        // Step 1: Authenticate with database
-        console.log('🔗 Connecting to database...');
-        await sequelize.authenticate();
-        console.log(`✅ Database connected successfully.`);
-        console.log(`   Database: ${process.env.DB_NAME || 'sports_betting'}`);
-        console.log(`   Host: ${process.env.DB_HOST || 'localhost'}`);
-        console.log(`   User: ${process.env.DB_USER || 'postgres'}\n`);
+        // Step 1: Connect to MongoDB
+        console.log('🔗 Connecting to MongoDB...');
+        await connectDB();
+        console.log('');
 
-        // Step 2: Sync models (using { alter: true } to update tables without dropping)
-        console.log('📋 Syncing database models...');
-        const syncResult = await sequelize.sync({ alter: true });
-        console.log('✅ Database synced successfully.\n');
-
-        // Step 3: List tables
-        try {
-            const [tables] = await sequelize.query(`
-                SELECT table_name FROM information_schema.tables 
-                WHERE table_schema = 'public' ORDER BY table_name;
-            `);
-            if (tables.length > 0) {
-                console.log(`📊 Tables in database (${tables.length}):`);
-                tables.forEach(t => console.log(`   • ${t.table_name}`));
-                console.log();
-            }
-        } catch (err) {
-            // Silently fail if query doesn't work
-        }
-
-        // Step 4: Initialize Socket.io
+        // Step 2: Initialize Socket.io
         console.log('⚡ Initializing Socket.io...');
         const io = socketIo.init(server);
         console.log('✅ Socket.io initialized.\n');
 
-        // Step 5: Start Background Jobs
+        // Step 3: Start Background Jobs
         console.log('⏰ Starting background jobs...');
         startOddsJob();
         console.log('✅ Cron jobs started.\n');
 
-        // Step 6: Start server
+        // Step 4: Start server
         server.listen(PORT, () => {
             console.log('╔════════════════════════════════════════════╗');
             console.log('║    ✅ SERVER READY FOR CONNECTIONS!        ║');
@@ -86,11 +64,11 @@ const startServer = async () => {
             console.log('╚════════════════════════════════════════════╝\n');
         });
     } catch (error) {
-        console.error('❌ Unable to connect to the database:', error.message);
+        console.error('❌ Unable to connect to MongoDB:', error.message);
         console.log('\n📋 Common fixes:');
-        console.log('   1. Start PostgreSQL: brew services start postgresql');
-        console.log('   2. Check .env file for correct DB settings');
-        console.log('   3. Run setup script: npm run setup-db\n');
+        console.log('   1. Start MongoDB: mongod (or via MongoDB Compass)');
+        console.log('   2. Check .env file for MONGODB_URI');
+        console.log('   3. Default URI: mongodb://localhost:27017/sports_betting\n');
         process.exit(1);
     }
 };

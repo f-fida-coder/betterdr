@@ -1,64 +1,45 @@
 import React from 'react';
-
-
-
+import useMatches from '../hooks/useMatches';
 
 const BettingGrid = () => {
-    const [matches, setMatches] = React.useState([]);
+    const rawMatches = useMatches();
 
-    React.useEffect(() => {
-        const fetchMatches = async () => {
-            try {
-                const response = await fetch('http://localhost:5000/api/matches');
-                const data = await response.json();
+    const formatted = React.useMemo(() => {
+        return (rawMatches || []).map(match => {
+            const lineKey = match.odds ? Object.keys(match.odds)[0] : null;
+            const lines = lineKey ? match.odds[lineKey] : {};
+            const startTime = match.startTime ? new Date(match.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
 
-                // Map backend data to frontend structure
-                const formattedMatches = data.map(match => {
-                    const lineKey = match.odds ? Object.keys(match.odds)[0] : null;
-                    const lines = lineKey ? match.odds[lineKey] : {};
-                    const startTime = new Date(match.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            return {
+                id: match.id || match._id,
+                team1: match.homeTeam || match.home_team || 'Home',
+                team2: match.awayTeam || match.away_team || 'Away',
+                score1: match.score?.score_home || match.score?.score_home || 0,
+                score2: match.score?.score_away || match.score?.score_away || 0,
+                time: startTime,
+                status: match.status === 'live' ? (match.score?.period ? `Q${match.score.period}` : 'LIVE') : (match.status || 'PRE-GAME'),
+                isLive: match.status === 'live' || (match.score && match.score.event_status && match.score.event_status.includes('IN_PROGRESS')),
+                spread: {
+                    label: lines.spread?.point || '-',
+                    val1: lines.spread?.home || '-',
+                    val2: lines.spread?.away || '-'
+                },
+                money: {
+                    val1: lines.moneyline?.home || '-',
+                    val2: lines.moneyline?.away || '-'
+                },
+                total: {
+                    label: lines.total?.total || '-',
+                    val1: lines.total?.over || '-',
+                    val2: lines.total?.under || '-'
+                }
+            };
+        });
+    }, [rawMatches]);
 
-                    return {
-                        id: match.id,
-                        team1: match.homeTeam,
-                        team2: match.awayTeam,
-                        score1: match.score?.score_home || 0,
-                        score2: match.score?.score_away || 0,
-                        time: startTime, // Add time field for JSX
-                        status: match.status === 'live' ? (match.score?.period ? `Q${match.score.period}` : 'LIVE') : 'PRE-GAME',
-                        isLive: match.status === 'live',
-                        spread: {
-                            label: lines.spread?.point || '-',
-                            val1: lines.spread?.home || '-',
-                            val2: lines.spread?.away || '-'
-                        },
-                        money: {
-                            val1: lines.moneyline?.home || '-',
-                            val2: lines.moneyline?.away || '-'
-                        },
-                        total: {
-                            label: lines.total?.total || '-',
-                            val1: lines.total?.over || '-',
-                            val2: lines.total?.under || '-'
-                        }
-                    };
-                });
-
-                setMatches(formattedMatches);
-            } catch (error) {
-                console.error('Error fetching matches:', error);
-            }
-        };
-
-        fetchMatches();
-
-        // Optional: Set up polling
-        const interval = setInterval(fetchMatches, 60000);
-        return () => clearInterval(interval);
-    }, []);
     return (
         <div className="betting-grid">
-            {matches.map(match => (
+            {formatted.map(match => (
                 <div key={match.id} className="bet-card glass-panel">
                     <div className="match-status">
                         {match.isLive ? (

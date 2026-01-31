@@ -16,7 +16,6 @@ import BonusView from './components/BonusView';
 import MobileGridMenu from './components/MobileGridMenu';
 import MobileContentView from './components/MobileContentView';
 import PromoCard from './components/PromoCard';
-import AdminPanel from './components/AdminPanel';
 import './index.css';
 import './dashboard.css';
 
@@ -28,7 +27,6 @@ function App() {
   const [betMode, setBetMode] = useState('straight');
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [showPromo, setShowPromo] = useState(false);
-  const [isAdminMode, setIsAdminMode] = useState(false);
   const [isMobileSportsSelectionMode, setIsMobileSportsSelectionMode] = useState(false);
 
   const [user, setUser] = useState(null); // Store full user object
@@ -132,11 +130,7 @@ function App() {
 
   return (
     <div className="app-container">
-      {isAdminMode ? (
-        <AdminPanel
-          onExit={() => setIsAdminMode(false)}
-        />
-      ) : !isLoggedIn ? (
+      {!isLoggedIn ? (
         <>
           <Header onLogin={handleLogin} isLoggedIn={isLoggedIn} />
           <LeagueNav activeLeague={activeLeague} onSelectLeague={setActiveLeague} />
@@ -175,7 +169,6 @@ function App() {
             onContinue={handleContinue}
             isMobileSportsSelectionMode={isMobileSportsSelectionMode}
             onHomeClick={handleHomeClick}
-            onAdminClick={() => setIsAdminMode(true)}
           />
 
           <div className={`dashboard-content-area ${isMobileSportsSelectionMode ? 'mobile-sports-mode' : ''}`} style={{ position: 'relative', marginTop: '0' }}>

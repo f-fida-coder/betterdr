@@ -1,32 +1,6 @@
 import React from 'react';
 
-function AdminSidebar({ activeView, onViewChange, isOpen }) {
-  const [role, setRole] = React.useState('admin');
-  const [debugError, setDebugError] = React.useState(null);
-
-  React.useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      try {
-        const base64Url = token.split('.')[1];
-        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-        const jsonPayload = decodeURIComponent(atob(base64).split('').map(function (c) {
-          return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-        }).join(''));
-
-        const payload = JSON.parse(jsonPayload);
-        console.log("AdminSidebar detected role:", payload.role);
-        setRole(payload.role || 'admin');
-      } catch (e) {
-        console.error('Error decoding token:', e);
-        setDebugError(e.message);
-        setRole('admin');
-      }
-    } else {
-      setDebugError('No token found');
-      setRole('admin');
-    }
-  }, []);
+function AdminSidebar({ activeView, onViewChange, isOpen, role = 'admin' }) {
 
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: '🏠', roles: ['admin', 'agent'] },
@@ -53,29 +27,23 @@ function AdminSidebar({ activeView, onViewChange, isOpen }) {
     { id: 'agent-admin', label: 'Agent Admin', icon: '👨‍💼', roles: ['admin'] },
     { id: 'billing', label: 'Billing', icon: '💳', roles: ['admin'] },
     { id: 'settings', label: 'Settings', icon: '⚙️', roles: ['admin'] },
+    { id: 'monitor', label: 'System Monitor', icon: '🖥️', roles: ['admin'] },
     { id: 'rules', label: 'Rules', icon: '📋', roles: ['admin'] },
     { id: 'feedback', label: 'Feedback', icon: '💬', roles: ['admin'] },
     { id: 'faq', label: 'FAQ', icon: '❓', roles: ['admin'] },
     { id: 'user-manual', label: 'User Manual', icon: '📖', roles: ['admin', 'agent'] },
   ];
 
-  const filteredItems = menuItems.filter(item => item.roles && item.roles.includes(role));
+  const filteredItems = menuItems.filter(item => item.roles && item.roles.includes(role || 'admin'));
 
   return (
     <aside className={`admin-sidebar ${isOpen ? 'open' : ''}`}>
       <nav className="sidebar-nav">
-        {filteredItems.length === 0 && (
-          <div style={{ color: 'white', padding: '10px', fontSize: '12px' }}>
-            No menu items.<br />
-            Role: {role}<br />
-            {debugError && <span>Error: {debugError}</span>}
-          </div>
-        )}
         {filteredItems.map(item => (
           <button
             key={item.id}
             className={`nav-item ${activeView === item.id ? 'active' : ''}`}
-            onClick={() => onViewChange(item.id)}
+            onClick={() => { console.log('AdminSidebar: clicked', item.id); onViewChange(item.id); }}
             title={item.label}
           >
             <span className="nav-icon">{item.icon}</span>

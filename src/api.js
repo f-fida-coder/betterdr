@@ -21,14 +21,14 @@ export const registerUser = async (userData) => {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(userData)
         });
-        
+
         const data = await response.json();
-        
+
         if (!response.ok) {
             console.error('Registration failed:', data.message);
             throw new Error(data.message || 'Registration failed');
         }
-        
+
         console.log('Registration successful:', data);
         return data;
     } catch (error) {
@@ -97,33 +97,47 @@ export const getAgents = async (token) => {
 
 export const createAgent = async (agentData, token) => {
     try {
-        console.log('createAgent called with token:', token ? token.substring(0, 30) + '...' : 'NO TOKEN');
-        
+        console.log('🔐 createAgent API called');
+        console.log('📝 Token parameter:', token ? token.substring(0, 50) + '...' : 'NO TOKEN PARAM');
+        console.log('📦 Agent data:', agentData);
+
         if (!token) {
             throw new Error('No token provided. Please login first.');
         }
-        
+
+        const requestHeaders = {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+        };
+        console.log('📨 Request headers:', {
+            'Content-Type': requestHeaders['Content-Type'],
+            'Authorization': requestHeaders['Authorization'] ? 'Bearer ' + token.substring(0, 30) + '...' : 'NONE'
+        });
+
         const response = await fetch(`${API_URL}/admin/create-agent`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            },
+            headers: requestHeaders,
             body: JSON.stringify(agentData)
         });
+
+        console.log('📊 Response status:', response.status);
+
         if (!response.ok) {
             let errorMsg = 'Failed to create agent';
             try {
                 const errorData = await response.json();
+                console.error('❌ Server error:', errorData);
                 errorMsg = errorData.message || errorMsg;
             } catch (e) {
                 errorMsg = `Server error (${response.status}): ${response.statusText}`;
             }
             throw new Error(errorMsg);
         }
-        return response.json();
+        const result = await response.json();
+        console.log('✅ Agent created:', result);
+        return result;
     } catch (error) {
-        console.error('Create Agent Error:', error);
+        console.error('❌ Create Agent Error:', error);
         if (error instanceof TypeError) {
             throw new Error('Network error - Unable to reach server. Is the backend running on port 5000?');
         }
@@ -133,33 +147,47 @@ export const createAgent = async (agentData, token) => {
 
 export const createUserByAdmin = async (userData, token) => {
     try {
-        console.log('createUserByAdmin called with token:', token ? token.substring(0, 30) + '...' : 'NO TOKEN');
-        
+        console.log('🔐 createUserByAdmin API called');
+        console.log('📝 Token parameter:', token ? token.substring(0, 50) + '...' : 'NO TOKEN PARAM');
+        console.log('📦 User data:', userData);
+
         if (!token) {
             throw new Error('No token provided. Please login first.');
         }
-        
+
+        const requestHeaders = {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+        };
+        console.log('📨 Request headers:', {
+            'Content-Type': requestHeaders['Content-Type'],
+            'Authorization': requestHeaders['Authorization'] ? 'Bearer ' + token.substring(0, 30) + '...' : 'NONE'
+        });
+
         const response = await fetch(`${API_URL}/admin/create-user`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            },
+            headers: requestHeaders,
             body: JSON.stringify(userData)
         });
+
+        console.log('📊 Response status:', response.status);
+
         if (!response.ok) {
             let errorMsg = 'Failed to create user';
             try {
                 const errorData = await response.json();
+                console.error('❌ Server error:', errorData);
                 errorMsg = errorData.message || errorMsg;
             } catch (e) {
                 errorMsg = `Server error (${response.status}): ${response.statusText}`;
             }
             throw new Error(errorMsg);
         }
-        return response.json();
+        const result = await response.json();
+        console.log('✅ User created:', result);
+        return result;
     } catch (error) {
-        console.error('Create User Error:', error);
+        console.error('❌ Create User Error:', error);
         if (error instanceof TypeError) {
             throw new Error('Network error - Unable to reach server. Is the backend running on port 5000?');
         }
@@ -170,11 +198,11 @@ export const createUserByAdmin = async (userData, token) => {
 export const createPlayerByAgent = async (userData, token) => {
     try {
         console.log('createPlayerByAgent called with token:', token ? token.substring(0, 30) + '...' : 'NO TOKEN');
-        
+
         if (!token) {
             throw new Error('No token provided. Please login first.');
         }
-        
+
         const response = await fetch(`${API_URL}/agent/create-user`, {
             method: 'POST',
             headers: {
@@ -208,5 +236,52 @@ export const getMyPlayers = async (token) => {
         headers: { 'Authorization': `Bearer ${token}` }
     });
     if (!response.ok) throw new Error('Failed to fetch players');
+    return response.json();
+};
+
+export const updateAgent = async (id, data, token) => {
+    try {
+        const response = await fetch(`${API_URL}/admin/agent/${id}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify(data)
+        });
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.message || 'Failed to update agent');
+        }
+        return response.json();
+    } catch (error) {
+        console.error('Update Agent Error:', error);
+        throw error;
+    }
+};
+
+export const suspendUser = async (userId, token) => {
+    const response = await fetch(`${API_URL}/admin/suspend`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ userId })
+    });
+    if (!response.ok) throw new Error('Failed to suspend user');
+    return response.json();
+};
+
+export const unsuspendUser = async (userId, token) => {
+    const response = await fetch(`${API_URL}/admin/unsuspend`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ userId })
+    });
+    if (!response.ok) throw new Error('Failed to unsuspend user');
     return response.json();
 };

@@ -1,89 +1,107 @@
 import React, { useState } from 'react';
-import { getMatches, placeBet } from '../api';
+import { placeBet } from '../api';
+import useMatches from '../hooks/useMatches';
 
 const SportContentView = ({ sportId, selectedItems = [] }) => {
     const [activeTab, setActiveTab] = useState('matches');
 
     const [content, setContent] = useState({ name: '', icon: '', matches: [], scoreboards: [] });
-    const [loading, setLoading] = useState(true);
+    const rawMatches = useMatches();
 
     React.useEffect(() => {
-        const fetchContent = async () => {
-            try {
-                // Determine sport name and icon
-                const sportMap = {
-                    nfl: { name: 'NFL', icon: 'fa-solid fa-football' },
-                    nba: { name: 'NBA', icon: 'fa-solid fa-basketball' },
-                    mlb: { name: 'MLB', icon: 'fa-solid fa-baseball' },
-                    nhl: { name: 'NHL', icon: 'fa-solid fa-hockey-puck' },
-                    epl: { name: 'EPL (Soccer)', icon: 'fa-solid fa-futbol' }
-                };
-                const sportInfo = sportMap[sportId] || { name: 'Sports', icon: 'fa-solid fa-trophy' };
-
-                const matchesData = await getMatches();
-
-                // Filter and Map matches
-                const filteredMatches = matchesData.filter(m => {
-                    if (!sportId) return true;
-                    // Loose matching: 'nba' in 'sport_4' (no), need map. 
-                    // Mock data uses sport_3 (MLB), sport_4 (NBA). 
-                    // Real API might return 'baseball', 'basketball'.
-                    // For now, let's just show ALL matches if sportId doesn't match well, or improve mapping.
-                    // Assuming Database mock uses 'sport_3' for MLB, 'sport_4' for NBA.
-                    // We can also check m.sport string.
-                    return true; // SHOW ALL FOR DEMO to ensure data appears
-                }).map(match => {
-                    const lineKey = match.odds ? Object.keys(match.odds)[0] : null;
-                    const lines = lineKey ? match.odds[lineKey] : {};
-
-                    // Format Odds for View
-                    // Expected: spread: ['-3.5 (-110)', ...], moneyline: [], total: []
-                    const formatMoney = (val) => val > 0 ? `+${val}` : val;
-                    const spreadPoint = lines.spread?.point;
-                    const spreadHome = lines.spread?.home;
-                    const spreadAway = lines.spread?.away;
-
-                    return {
-                        id: match.id,
-                        time: new Date(match.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                        date: new Date(match.startTime).toLocaleDateString(),
-                        team1: { name: match.homeTeam, abbr: match.homeTeam.substring(0, 3).toUpperCase(), logo: '🔵' },
-                        team2: { name: match.awayTeam, abbr: match.awayTeam.substring(0, 3).toUpperCase(), logo: '🔴' },
-                        score1: match.score?.score_home || 0,
-                        score2: match.score?.score_away || 0,
-                        status: match.status === 'live' ? 'LIVE' : 'Scheduled',
-                        odds: {
-                            spread: [
-                                `${spreadPoint || '-'} (${spreadHome || '-'})`,
-                                `${spreadPoint ? -spreadPoint : '-'} (${spreadAway || '-'})`
-                            ],
-                            moneyline: [
-                                `${lines.moneyline?.home || '-'}`,
-                                `${lines.moneyline?.away || '-'}`
-                            ],
-                            total: [
-                                `O ${lines.total?.total || '-'} (${lines.total?.over || '-'})`,
-                                `U ${lines.total?.total || '-'} (${lines.total?.under || '-'})`
-                            ]
-                        },
-                        rawMatch: match // Keep raw for betting
-                    };
-                });
-
-                setContent({
-                    ...sportInfo,
-                    matches: filteredMatches,
-                    scoreboards: [] // Populate if we have data
-                });
-            } catch (err) {
-                console.error(err);
-            } finally {
-                setLoading(false);
-            }
+        // Determine sport name and icon
+        const sportMap = {
+            nfl: { name: 'NFL', icon: 'fa-solid fa-football' },
+            nba: { name: 'NBA', icon: 'fa-solid fa-basketball' },
+            mlb: { name: 'MLB', icon: 'fa-solid fa-baseball' },
+            nhl: { name: 'NHL', icon: 'fa-solid fa-hockey-puck' },
+            epl: { name: 'EPL (Soccer)', icon: 'fa-solid fa-futbol' },
+            boxing: { name: 'Boxing', icon: 'fa-solid fa-hand-fist' },
+            mma: { name: 'MMA/UFC', icon: 'fa-solid fa-hand-fist' },
+            ncaaf: { name: 'NCAA Football', icon: 'fa-solid fa-building-columns' },
+            ncaab: { name: 'NCAA Basketball', icon: 'fa-solid fa-basketball' }
         };
 
-        fetchContent();
-    }, [sportId]);
+        // Handle sub-categories (nfl-1st-quarter -> nfl)
+        let resolvedSportId = sportId;
+        let periodFilter = null;
+
+        if (sportId) {
+            if (sportId.startsWith('nfl-')) {
+                resolvedSportId = 'nfl';
+                if (sportId.includes('1st-quarter')) periodFilter = 'Q1';
+                if (sportId.includes('2nd-quarter')) periodFilter = 'Q2';
+                if (sportId.includes('1st-half')) periodFilter = 'H1';
+            } else if (sportId.startsWith('ncaa-')) {
+                resolvedSportId = 'ncaaf';
+            }
+        }
+
+        const sportInfo = sportMap[resolvedSportId] || { name: 'Sports', icon: 'fa-solid fa-trophy' };
+
+        // Map rawMatches into view-friendly structure and filter by sportId where possible
+        const processMatches = () => {
+            const matchesData = (rawMatches || []);
+
+            const filteredMatches = matchesData.filter(m => {
+                if (!resolvedSportId) return true;
+                if (!m.sport) return true;
+                // Flexible matching: 'americanfootball_nfl' contains 'nfl'
+                return m.sport.toLowerCase().includes(resolvedSportId.toLowerCase()) || resolvedSportId.toLowerCase().includes(m.sport?.toLowerCase());
+            }).map(match => {
+                const lineKey = match.odds ? Object.keys(match.odds)[0] : null;
+                const lines = lineKey ? match.odds[lineKey] : {};
+
+                const spreadPoint = lines.spread?.point;
+                const spreadHome = lines.spread?.home;
+                const spreadAway = lines.spread?.away;
+
+                // Determine score to show based on period filter
+                let displayScore1 = match.score?.score_home ?? 0;
+                let displayScore2 = match.score?.score_away ?? 0;
+
+                return {
+                    id: match.id || match._id || match.externalId,
+                    time: match.startTime ? new Date(match.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
+                    date: match.startTime ? new Date(match.startTime).toLocaleDateString() : '',
+                    team1: { name: match.homeTeam || match.home_team || '', abbr: (match.homeTeam || match.home_team || '').substring(0, 3).toUpperCase(), logo: '🔵' },
+                    team2: { name: match.awayTeam || match.away_team || '', abbr: (match.awayTeam || match.away_team || '').substring(0, 3).toUpperCase(), logo: '🔴' },
+                    score1: displayScore1,
+                    score2: displayScore2,
+                    period: match.score?.period, // e.g. 'Q1', '2nd Half'
+                    status: match.status === 'live' || (match.score && (String(match.score.event_status || '').toUpperCase().includes('IN_PROGRESS') || String(match.score.event_status || '').toUpperCase().includes('LIVE'))) ? 'LIVE' : (match.status || 'Scheduled'),
+                    odds: {
+                        spread: [
+                            `${spreadPoint || '-'} (${spreadHome || '-'})`,
+                            `${spreadPoint ? -spreadPoint : '-'} (${spreadAway || '-'})`
+                        ],
+                        moneyline: [
+                            `${lines.moneyline?.home || '-'}`,
+                            `${lines.moneyline?.away || '-'}`
+                        ],
+                        total: [
+                            `O ${lines.total?.total || '-'} (${lines.total?.over || '-'})`,
+                            `U ${lines.total?.total || '-'} (${lines.total?.under || '-'})`
+                        ]
+                    },
+                    rawMatch: match // Keep raw for betting
+                };
+            });
+
+            setContent({
+                ...sportInfo,
+                matches: filteredMatches,
+                scoreboards: []
+            });
+        };
+
+        processMatches();
+
+        // Auto-refresh every 5 seconds locally (re-process raw matches if they change)
+        const interval = setInterval(processMatches, 5000);
+        return () => clearInterval(interval);
+
+    }, [sportId, rawMatches]);
 
     const handlePlaceBet = async (matchId, team, type, odds) => {
         const token = localStorage.getItem('token');
@@ -133,68 +151,77 @@ const SportContentView = ({ sportId, selectedItems = [] }) => {
 
             {activeTab === 'matches' && (
                 <div className="matches-section">
-                    {content.matches.map((match) => (
-                        <div key={match.id} className="match-card">
-                            <div className="match-header">
-                                <div className="match-time">
-                                    <span className="time">{match.time}</span>
-                                    <span className="date">{match.date}</span>
-                                </div>
-                                <span className="match-status">{match.status}</span>
-                            </div>
-
-                            <div className="match-body">
-                                <div className="team-box">
-                                    {match.team1.logo && <span className="team-logo">{match.team1.logo}</span>}
-                                    <div className="team-info">
-                                        <span className="team-name">{match.team1.name}</span>
-                                        <span className="team-abbr">{match.team1.abbr}</span>
-                                    </div>
-                                    <span className="score">{match.score1}</span>
-                                </div>
-
-                                <div className="vs-separator">vs</div>
-
-                                <div className="team-box">
-                                    {match.team2.logo && <span className="team-logo">{match.team2.logo}</span>}
-                                    <div className="team-info">
-                                        <span className="team-name">{match.team2.name}</span>
-                                        <span className="team-abbr">{match.team2.abbr}</span>
-                                    </div>
-                                    <span className="score">{match.score2}</span>
-                                </div>
-                            </div>
-
-                            {match.odds && (
-                                <div className="match-odds">
-                                    <div className="odds-row">
-                                        <div className="odds-cell">
-                                            <span className="odds-label">Spread</span>
-                                            <span className="odds-value">{match.odds.spread[0]}</span>
-                                            <span className="odds-value">{match.odds.spread[1]}</span>
-                                        </div>
-                                        <div className="odds-cell">
-                                            <span className="odds-label">Moneyline</span>
-                                            <span className="odds-value">{match.odds.moneyline[0]}</span>
-                                            <span className="odds-value">{match.odds.moneyline[1]}</span>
-                                        </div>
-                                        <div className="odds-cell">
-                                            <span className="odds-label">Total</span>
-                                            <span className="odds-value">{match.odds.total[0]}</span>
-                                            <span className="odds-value">{match.odds.total[1]}</span>
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-
-                            <div className="match-footer">
-                                <button
-                                    className="bet-btn"
-                                    onClick={() => handlePlaceBet(match.id, match.team1.name, 'straight', 1.90)} // Dummy odds for button click
-                                >Place Bet</button>
-                            </div>
+                    {content.matches.length === 0 ? (
+                        <div style={{ padding: '40px', textAlign: 'center', color: '#888', background: '#fff', borderRadius: '8px' }}>
+                            <i className="fa-solid fa-calendar-xmark" style={{ fontSize: '48px', marginBottom: '16px', opacity: 0.5 }}></i>
+                            <h3>No Live Matches Found</h3>
+                            <p>There are no {content.name} matches playing right now.</p>
+                            <p style={{ fontSize: '0.9em' }}>Check back later for live updates.</p>
                         </div>
-                    ))}
+                    ) : (
+                        content.matches.map((match) => (
+                            <div key={match.id} className="match-card">
+                                <div className="match-header">
+                                    <div className="match-time">
+                                        <span className="time">{match.time}</span>
+                                        <span className="date">{match.date}</span>
+                                    </div>
+                                    <span className={`match-status ${match.status === 'LIVE' ? 'live' : ''}`}>{match.status}</span>
+                                </div>
+
+                                <div className="match-body">
+                                    <div className="team-box">
+                                        {match.team1.logo && <span className="team-logo">{match.team1.logo}</span>}
+                                        <div className="team-info">
+                                            <span className="team-name">{match.team1.name}</span>
+                                            <span className="team-abbr">{match.team1.abbr}</span>
+                                        </div>
+                                        <span className="score">{match.score1}</span>
+                                    </div>
+
+                                    <div className="vs-separator">vs</div>
+
+                                    <div className="team-box">
+                                        {match.team2.logo && <span className="team-logo">{match.team2.logo}</span>}
+                                        <div className="team-info">
+                                            <span className="team-name">{match.team2.name}</span>
+                                            <span className="team-abbr">{match.team2.abbr}</span>
+                                        </div>
+                                        <span className="score">{match.score2}</span>
+                                    </div>
+                                </div>
+
+                                {match.odds && match.odds.spread[0] !== '-' && (
+                                    <div className="match-odds">
+                                        <div className="odds-row">
+                                            <div className="odds-cell">
+                                                <span className="odds-label">Spread</span>
+                                                <span className="odds-value">{match.odds.spread[0]}</span>
+                                                <span className="odds-value">{match.odds.spread[1]}</span>
+                                            </div>
+                                            <div className="odds-cell">
+                                                <span className="odds-label">Moneyline</span>
+                                                <span className="odds-value">{match.odds.moneyline[0]}</span>
+                                                <span className="odds-value">{match.odds.moneyline[1]}</span>
+                                            </div>
+                                            <div className="odds-cell">
+                                                <span className="odds-label">Total</span>
+                                                <span className="odds-value">{match.odds.total[0]}</span>
+                                                <span className="odds-value">{match.odds.total[1]}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                <div className="match-footer">
+                                    <button
+                                        className="bet-btn"
+                                        onClick={() => handlePlaceBet(match.id, match.team1.name, 'straight', 1.90)} // Dummy odds for button click
+                                    >Place Bet</button>
+                                </div>
+                            </div>
+                        ))
+                    )}
                 </div>
             )}
 

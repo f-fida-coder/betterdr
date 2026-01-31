@@ -17,9 +17,7 @@ const protect = async (req, res, next) => {
             const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret');
             console.log('✅ Token verified. User ID:', decoded.id, 'Role:', decoded.role);
 
-            req.user = await User.findByPk(decoded.id, {
-                attributes: { exclude: ['password'] },
-            });
+            req.user = await User.findById(decoded.id).select('-password');
 
             if (!req.user) {
                 console.error('❌ User not found in database for ID:', decoded.id);
