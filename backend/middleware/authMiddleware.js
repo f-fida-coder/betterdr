@@ -1,5 +1,13 @@
 const jwt = require('jsonwebtoken');
-const { User } = require('../models');
+const { User, IpLog } = require('../models');
+
+const getClientIp = (req) => {
+    const forwarded = req.headers['x-forwarded-for'];
+    if (forwarded) {
+        return forwarded.split(',')[0].trim();
+    }
+    return req.ip || req.socket?.remoteAddress || 'unknown';
+};
 
 const protect = async (req, res, next) => {
     let token;
@@ -26,6 +34,30 @@ const protect = async (req, res, next) => {
 
             if (req.user.status === 'suspended') {
                 return res.status(403).json({ message: 'Not authorized, account suspended' });
+            }
+
+            const ip = getClientIp(req);
+            if (ip && ip !== 'unknown') {
+                const existingIp = await IpLog.findOne({ userId: req.user._id, ip });
+                if (existingIp && existingIp.status === 'blocked') {
+                    return res.status(403).json({ message: 'Access blocked for this IP address' });
+                }
+
+                await IpLog.findOneAndUpdate(
+                    { userId: req.user._id, ip },
+                    {
+                        $set: {
+                            userAgent: req.headers['user-agent'] || null,
+                            lastActive: new Date()
+                        },
+                        $setOnInsert: {
+                            country: 'Unknown',
+                            city: 'Unknown',
+                            status: 'active'
+                        }
+                    },
+                    { upsert: true, new: true }
+                );
             }
 
             console.log('✅ User authenticated:', req.user.username, 'Role:', req.user.role);

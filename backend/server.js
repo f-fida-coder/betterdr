@@ -29,6 +29,7 @@ app.use('/api/agent', require('./routes/agentRoutes'));
 app.use('/api/payments', require('./routes/paymentRoutes'));
 app.use('/api/matches', require('./routes/matchRoutes'));
 app.use('/api/debug', require('./routes/debugRoutes'));
+app.use('/api/messages', require('./routes/messageRoutes'));
 
 const http = require('http');
 const socketIo = require('./socket');

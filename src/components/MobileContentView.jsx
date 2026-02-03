@@ -34,7 +34,7 @@ const MobileContentView = ({ selectedSports = [] }) => {
         return sportMap[id] || id.replace('-', ' ').toUpperCase();
     };
 
-    const rawMatches = useMatches();
+    const rawMatches = useMatches({ status: 'live-upcoming' });
     const primarySport = selectedSports && selectedSports.length > 0 ? selectedSports[0] : null;
     const sportName = primarySport ? getSportName(primarySport) : 'Selected Sport';
 

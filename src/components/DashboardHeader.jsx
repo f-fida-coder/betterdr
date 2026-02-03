@@ -24,6 +24,12 @@ const DashboardHeader = ({ username, balance, pendingBalance, onViewChange, acti
     const [showScoreboard, setShowScoreboard] = useState(false);
     const [showSettingsModal, setShowSettingsModal] = useState(false);
     const [showPersonalizeSidebar, setShowPersonalizeSidebar] = useState(false);
+    const formatMoney = (value) => {
+        if (value === null || value === undefined || value === '') return '—';
+        const num = Number(value);
+        if (Number.isNaN(num)) return '—';
+        return `$ ${num.toFixed(2)}`;
+    };
     const languages = [
         { name: 'English', flag: 'https://upload.wikimedia.org/wikipedia/en/a/a4/Flag_of_the_United_States.svg', active: true },
         { name: 'Spanish', flag: 'https://upload.wikimedia.org/wikipedia/commons/9/9a/Flag_of_Spain.svg' },
@@ -75,7 +81,7 @@ const DashboardHeader = ({ username, balance, pendingBalance, onViewChange, acti
                     <div className="right-section">
                         {(!hasSelection || currentView === 'bonus' || (hasSelection && !isMobileSportsSelectionMode)) ? (
                             <div className="balance-container">
-                                <div className="balance-amount">$ 0</div>
+                                <div className="balance-amount">{formatMoney(balance)}</div>
                                 <div className="balance-label">BALANCE</div>
                             </div>
                         ) : (
@@ -116,6 +122,11 @@ const DashboardHeader = ({ username, balance, pendingBalance, onViewChange, acti
                         <div className="usd-item" onClick={() => { setShowPersonalizeSidebar(true); setShowUserMenu(false); }}>
                             <div className="usd-icon"><i className="fa-solid fa-sliders"></i></div>
                             <div className="usd-text">PERSONALIZE</div>
+                            <div className="usd-right-icon"><i className="fa-solid fa-chevron-right"></i></div>
+                        </div>
+                        <div className="usd-item" onClick={() => { onViewChange && onViewChange('support'); setShowUserMenu(false); }}>
+                            <div className="usd-icon"><i className="fa-solid fa-headset"></i></div>
+                            <div className="usd-text">SUPPORT</div>
                             <div className="usd-right-icon"><i className="fa-solid fa-chevron-right"></i></div>
                         </div>
                         <div className="usd-item signout" onClick={onLogout}>
@@ -272,19 +283,25 @@ const DashboardHeader = ({ username, balance, pendingBalance, onViewChange, acti
                             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" /><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" /></svg>
                         </div>
                     </div>
+                    <div className="dash-nav-item" style={{ cursor: 'pointer' }} onClick={() => onViewChange && onViewChange('support')}>
+                        <span>SUPPORT</span>
+                        <div className="dash-nav-icon">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 4h16v6H4z" /><path d="M4 10h10v10H4z" /><path d="M14 10h6v4h-6z" /></svg>
+                        </div>
+                    </div>
                 </div>
                 <div className="dash-user-info">
                     <div className="dash-balance">
                         <span>BALANCE</span>
-                        <strong>$ {Number(balance || 0).toFixed(2)}</strong>
+                        <strong>{formatMoney(balance)}</strong>
                     </div>
                     <div className="dash-balance">
                         <span>PENDING</span>
-                        <strong>$ {Number(pendingBalance || 0).toFixed(2)}</strong>
+                        <strong>{formatMoney(pendingBalance)}</strong>
                     </div>
                     <div className="dash-balance">
                         <span>AVAILABLE</span>
-                        <strong>$ {Number((balance || 0)).toFixed(2)}</strong>
+                        <strong>{formatMoney(balance)}</strong>
                     </div>
                     
                     <div
@@ -323,6 +340,11 @@ const DashboardHeader = ({ username, balance, pendingBalance, onViewChange, acti
                                 <div className="usd-item" onClick={() => setShowPersonalizeSidebar(true)}>
                                     <div className="usd-icon"><i className="fa-solid fa-sliders"></i></div>
                                     <div className="usd-text">Personalize</div>
+                                    <div className="usd-right-icon"><i className="fa-solid fa-chevron-right"></i></div>
+                                </div>
+                                <div className="usd-item" onClick={() => onViewChange && onViewChange('support')}>
+                                    <div className="usd-icon"><i className="fa-solid fa-headset"></i></div>
+                                    <div className="usd-text">Support</div>
                                     <div className="usd-right-icon"><i className="fa-solid fa-chevron-right"></i></div>
                                 </div>
                                 <div className="usd-item signout" onClick={onLogout}>

@@ -5,6 +5,9 @@ const socketIo = require('../socket');
 // API Configuration
 const ODDS_API_KEY = process.env.ODDS_API_KEY;
 const ODDS_API_URL = 'https://api.the-odds-api.com/v4';
+const ODDS_API_REGIONS = process.env.ODDS_API_REGIONS || 'us';
+const ODDS_API_MARKETS = process.env.ODDS_API_MARKETS || 'h2h,spreads,totals';
+const ODDS_API_ODDS_FORMAT = process.env.ODDS_API_ODDS_FORMAT || 'american';
 
 /**
  * Service to fetch odds and update matches in the database.
@@ -36,10 +39,13 @@ class OddsService {
 
             const allSports = sportsResponse.data;
 
-            // Filter inactive sports
-            // We want everything inactive = false
+            // Filter active sports only
             const activeSports = allSports.filter(s => s.active);
+            const normalSports = activeSports.filter(s => !s.has_outrights);
+            const outrightSports = activeSports.filter(s => s.has_outrights);
             console.log(`📊 Found ${activeSports.length} active sports`);
+            console.log(`   ▶ Normal match sports: ${normalSports.length}`);
+            console.log(`   ▶ Outright markets: ${outrightSports.length} (separated)`);
 
             // 2. Select sports to fetch
             // To save credits, we prioritize:
@@ -67,11 +73,12 @@ class OddsService {
             // AND we will add a few others if active.
 
             const POPULAR_KEYS = [
-                'americanfootball_nfl',
+                // High-demand priority
+                'soccer_epl',
                 'basketball_nba',
+                'americanfootball_nfl',
                 'baseball_mlb',
                 'icehockey_nhl',
-                'soccer_epl',
                 'soccer_uefa_champs_league',
                 'soccer_spain_la_liga',
                 'soccer_germany_bundesliga',
@@ -95,12 +102,21 @@ class OddsService {
             // I will inclusively fetch 'active' sports that match our keys or are major categories.
 
             // Let's fetch the POPULAR_KEYS if they are in the active list.
-            const sportsToFetch = activeSports.filter(s =>
+            const sportsToFetch = normalSports.filter(s =>
                 POPULAR_KEYS.includes(s.key) ||
                 s.group === 'Soccer' ||    // Fetch ALL Soccer
                 s.group === 'Tennis' ||    // Fetch ALL Tennis
                 s.group === 'Basketball'   // Fetch ALL Basketball (Euroleague etc)
             );
+
+            // Prioritize high-demand sports first
+            const popularSet = new Set(POPULAR_KEYS);
+            sportsToFetch.sort((a, b) => {
+                const aPopular = popularSet.has(a.key) ? 0 : 1;
+                const bPopular = popularSet.has(b.key) ? 0 : 1;
+                if (aPopular !== bPopular) return aPopular - bPopular;
+                return a.key.localeCompare(b.key);
+            });
 
             console.log(`🎯 Targeted ${sportsToFetch.length} sports for detailed data.`);
 
@@ -202,9 +218,9 @@ class OddsService {
                         const oddsResponse = await axios.get(`${ODDS_API_URL}/sports/${sport.key}/odds`, {
                             params: {
                                 apiKey: ODDS_API_KEY,
-                                regions: 'us',
-                                markets: 'h2h,spreads,totals', // cost depends on markets? usually 1 request.
-                                oddsFormat: 'decimal'
+                                regions: ODDS_API_REGIONS,
+                                markets: ODDS_API_MARKETS,
+                                oddsFormat: ODDS_API_ODDS_FORMAT
                             }
                         });
                         oddsData = oddsResponse.data;

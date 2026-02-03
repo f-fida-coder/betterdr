@@ -1,40 +1,51 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { getWeeklyFigures } from '../../api';
 
 function WeeklyFiguresView() {
   const [timePeriod, setTimePeriod] = useState('this-week');
   const [searchTerm, setSearchTerm] = useState('');
+  const [summaryData, setSummaryData] = useState(null);
+  const [customers, setCustomers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
-  const summaryData = {
-    totalPlayers: 6293,
-    deadAccounts: 4852,
-    agentsManagers: 891,
-    summary: [
-      { day: 'Mon (1/5)', amount: 2862.240, color: '#e74c3c' },
-      { day: 'Tue (1/6)', amount: 3.106 },
-      { day: 'Wed (1/7)', amount: 0 },
-      { day: 'Thu (1/8)', amount: 0 },
-      { day: 'Fri (1/9)', amount: 0 },
-      { day: 'Sat (1/10)', amount: 0 },
-      { day: 'Sun (1/11)', amount: 0 },
-    ]
+  const formatMoney = (value) => {
+    if (value === null || value === undefined) return '—';
+    const num = Number(value);
+    if (Number.isNaN(num)) return '—';
+    return num.toFixed(2);
   };
 
-  const customerData = [
-    { id: 'MNK101', name: 'Alfred Simpson', password: 'AF123', carry: -43, mon: 0, tue: 0, wed: 0, thu: 0, fri: 0, sat: 0, sun: 0, week: 0, balance: -43, pending: 0 },
-    { id: 'MNK102', name: 'Jared Tinsman', password: 'JT123', carry: 0, mon: 0, tue: 0, wed: 0, thu: 0, fri: 0, sat: 0, sun: 0, week: 0, balance: 0, pending: 0 },
-    { id: 'MNK103', name: 'James Adeleman', password: 'JARADE6635', carry: 62, mon: 0, tue: 0, wed: 0, thu: 0, fri: 0, sat: 0, sun: 0, week: 0, balance: 62, pending: 0 },
-    { id: 'MNK104', name: 'Jacob Hand', password: 'JACHAN8022', carry: 40, mon: 0, tue: 0, wed: 0, thu: 0, fri: 0, sat: 0, sun: 0, week: 0, balance: 40, pending: 0 },
-    { id: 'MNK106', name: 'Harrison Iarrde', password: 'HARLAR2838', carry: 0, mon: 0, tue: 0, wed: 0, thu: 0, fri: 0, sat: 0, sun: 0, week: 0, balance: 0, pending: 0 },
-    { id: 'MNK108', name: 'Jaxon Bunton', password: 'JAXBUN8858', carry: -188, mon: 0, tue: 0, wed: 0, thu: 0, fri: 0, sat: 0, sun: 0, week: 0, balance: -188, pending: 0 },
-    { id: 'MNK109', name: 'Barry smith', password: 'BARISMI2774', carry: -181, mon: 0, tue: 0, wed: 0, thu: 0, fri: 0, sat: 0, sun: 0, week: 0, balance: -181, pending: 0 },
-    { id: 'MNK111', name: 'Luke reneick', password: 'LUKREN2208', carry: -68, mon: 0, tue: 0, wed: 0, thu: 0, fri: 0, sat: 0, sun: 0, week: 0, balance: -68, pending: 0 },
-    { id: 'MNK112', name: 'Jake Kie', password: 'JAKLES2317', carry: -657, mon: 0, tue: 0, wed: 0, thu: 0, fri: 0, sat: 0, sun: 0, week: 0, balance: -657, pending: 0 },
-    { id: 'MNK113', name: 'Tomás', password: 'TOMAS1015', carry: -197, mon: 0, tue: 0, wed: 0, thu: 0, fri: 0, sat: 0, sun: 0, week: 0, balance: -197, pending: 0 },
-  ];
+  useEffect(() => {
+    const fetchWeeklyFigures = async () => {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        setError('Please login as admin to view weekly figures.');
+        setLoading(false);
+        return;
+      }
 
-  const filteredData = customerData.filter(customer =>
-    customer.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    customer.name.toLowerCase().includes(searchTerm.toLowerCase())
+      try {
+        setLoading(true);
+        const data = await getWeeklyFigures(timePeriod, token);
+        setSummaryData(data.summary);
+        setCustomers(data.customers || []);
+        setError('');
+      } catch (err) {
+        console.error('Failed to fetch weekly figures:', err);
+        setError(err.message || 'Failed to load weekly figures');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchWeeklyFigures();
+  }, [timePeriod]);
+
+  const filteredData = customers.filter(customer =>
+    customer.username?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    customer.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    customer.email?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   return (
@@ -64,7 +75,10 @@ function WeeklyFiguresView() {
       </div>
 
       <div className="view-content">
-        {/* Summary Section */}
+        {loading && <div style={{ padding: '20px', textAlign: 'center' }}>Loading weekly figures...</div>}
+        {error && <div style={{ padding: '20px', color: 'red', textAlign: 'center' }}>{error}</div>}
+        {!loading && !error && summaryData && (
+        <>
         <div className="summary-section">
           <div className="summary-header">
             <h3>Summary</h3>
@@ -73,7 +87,7 @@ function WeeklyFiguresView() {
             <thead>
               <tr>
                 <th>Carry</th>
-                {summaryData.summary.map((day, idx) => (
+                {summaryData.days.map((day, idx) => (
                   <th key={idx}>{day.day}</th>
                 ))}
                 <th>Week</th>
@@ -84,23 +98,21 @@ function WeeklyFiguresView() {
             <tbody>
               <tr>
                 <td><strong>{summaryData.totalPlayers} Players</strong></td>
-                <td style={{ color: '#e74c3c' }}>2,662.240</td>
-                <td>3.106</td>
-                <td>0</td>
-                <td>0</td>
-                <td>0</td>
-                <td>0</td>
-                <td>0</td>
-                <td>3.106</td>
-                <td style={{ color: '#e74c3c' }}>-2,661.534</td>
-                <td>104.354</td>
+                {summaryData.days.map((day, idx) => (
+                  <td key={idx} style={{ color: day.amount < 0 ? '#e74c3c' : '#27ae60' }}>
+                    {formatMoney(day.amount)}
+                  </td>
+                ))}
+                <td style={{ color: summaryData.weekTotal < 0 ? '#e74c3c' : '#27ae60' }}>{formatMoney(summaryData.weekTotal)}</td>
+                <td style={{ color: summaryData.balanceTotal < 0 ? '#e74c3c' : '#27ae60' }}>{formatMoney(summaryData.balanceTotal)}</td>
+                <td>{formatMoney(summaryData.pendingTotal)}</td>
               </tr>
             </tbody>
           </table>
 
           <div className="dead-agents-row">
             <span><strong>DEAD / AGENTS / MANAGERS</strong></span>
-            <span className="value">{summaryData.deadAccounts}</span>
+            <span className="value">{summaryData.deadAccounts} / {summaryData.agentsManagers}</span>
           </div>
         </div>
 
@@ -123,15 +135,11 @@ function WeeklyFiguresView() {
                 <tr>
                   <th>Customer</th>
                   <th>Name</th>
-                  <th>Password</th>
+                  <th>Email</th>
                   <th>Carry</th>
-                  <th>Mon (1/5)</th>
-                  <th>Tue (1/6)</th>
-                  <th>Wed (1/7)</th>
-                  <th>Thu (1/8)</th>
-                  <th>Fri (1/9)</th>
-                  <th>Sat (1/10)</th>
-                  <th>Sun (1/11)</th>
+                  {summaryData.days.map((day, idx) => (
+                    <th key={idx}>{day.day}</th>
+                  ))}
                   <th>Week</th>
                   <th>Balance</th>
                   <th>Pending</th>
@@ -140,30 +148,28 @@ function WeeklyFiguresView() {
               <tbody>
                 {filteredData.map((customer, idx) => (
                   <tr key={idx}>
-                    <td><strong>{customer.id}</strong></td>
+                    <td><strong>{customer.username}</strong></td>
                     <td>{customer.name}</td>
-                    <td>{customer.password}</td>
+                    <td>{customer.email}</td>
                     <td style={{ color: customer.carry < 0 ? '#e74c3c' : '#27ae60' }}>
-                      {customer.carry}
+                      {formatMoney(customer.carry)}
                     </td>
-                    <td>{customer.mon}</td>
-                    <td>{customer.tue}</td>
-                    <td>{customer.wed}</td>
-                    <td>{customer.thu}</td>
-                    <td>{customer.fri}</td>
-                    <td>{customer.sat}</td>
-                    <td>{customer.sun}</td>
-                    <td>{customer.week}</td>
+                    {customer.daily.map((value, dayIdx) => (
+                      <td key={dayIdx}>{formatMoney(value)}</td>
+                    ))}
+                    <td>{formatMoney(customer.week)}</td>
                     <td style={{ color: customer.balance < 0 ? '#e74c3c' : '#27ae60' }}>
-                      {customer.balance}
+                      {formatMoney(customer.balance)}
                     </td>
-                    <td>{customer.pending}</td>
+                    <td>{formatMoney(customer.pending)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         </div>
+        </>
+        )}
       </div>
     </div>
   );

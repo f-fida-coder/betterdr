@@ -16,6 +16,9 @@ import BonusView from './components/BonusView';
 import MobileGridMenu from './components/MobileGridMenu';
 import MobileContentView from './components/MobileContentView';
 import PromoCard from './components/PromoCard';
+import TutorialsView from './components/TutorialsView';
+import SupportView from './components/SupportView';
+import ChatWidget from './components/ChatWidget';
 import './index.css';
 import './dashboard.css';
 
@@ -157,8 +160,8 @@ function App() {
         <div className="dashboard-layout">
           <DashboardHeader
             username={user?.username || 'Guest'}
-            balance={user?.balance || 0}
-            pendingBalance={user?.pendingBalance || 0}
+            balance={user?.balance ?? null}
+            pendingBalance={user?.pendingBalance ?? null}
             onLogout={handleLogout}
             onViewChange={handleViewChange}
             activeBetMode={betMode}
@@ -233,7 +236,13 @@ function App() {
             {dashboardView === 'rules' && <RulesView />}
 
             {dashboardView === 'bonus' && <BonusView />}
+
+            {dashboardView === 'tutorials' && <TutorialsView />}
+
+            {dashboardView === 'support' && <SupportView />}
           </div>
+
+          <ChatWidget />
 
           <div className="desktop-feedback-trigger" style={{
             position: 'fixed',

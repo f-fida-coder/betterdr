@@ -50,7 +50,7 @@ const DashboardMain = ({ selectedSports = [] }) => {
 
     const getSportSections = () => {
         if (isDefault) {
-            return [{ sportId: 'nfl', filter: null }];
+            return [{ sportId: null, filter: null }];
         }
 
         const sections = [];
@@ -118,7 +118,7 @@ const DashboardMain = ({ selectedSports = [] }) => {
             }
         });
 
-        return sections.length > 0 ? sections : [{ sportId: 'nfl', filter: null }];
+        return sections.length > 0 ? sections : [{ sportId: null, filter: null }];
     };
 
     const sportSections = getSportSections();
@@ -141,8 +141,9 @@ const DashboardMain = ({ selectedSports = [] }) => {
             ))}
 
             {selectedSports.length === 0 && (
-                <div style={{ textAlign: 'center', padding: '50px', color: '#666' }}>
-                    <h3>Select a sport from the sidebar</h3>
+                <div style={{ textAlign: 'center', padding: '30px', color: '#666' }}>
+                    <h3>Showing all sports</h3>
+                    <p style={{ fontSize: '13px' }}>Use the sidebar to filter by a specific sport.</p>
                 </div>
             )}
         </main>

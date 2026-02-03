@@ -1,15 +1,20 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { API_URL, createTicketWriterBet, getAdminMatches } from '../../api';
 
 function TicketWriterView() {
   const [formData, setFormData] = useState({
-    betType: 'single',
-    sport: 'nba',
-    match: '',
+    betType: 'straight',
+    matchId: '',
     selection: '',
-    odds: '',
-    amount: '',
-    customer: '',
+    odds: '1.90',
+    amount: '50',
+    userId: '',
   });
+  const [matches, setMatches] = useState([]);
+  const [customers, setCustomers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [createLoading, setCreateLoading] = useState(false);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -19,20 +24,68 @@ function TicketWriterView() {
     }));
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    console.log('Ticket created:', formData);
-    alert('Ticket created successfully!');
-    setFormData({
-      betType: 'single',
-      sport: 'nba',
-      match: '',
-      selection: '',
-      odds: '',
-      amount: '',
-      customer: '',
-    });
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setError('Please login as admin to create tickets.');
+      return;
+    }
+    try {
+      setCreateLoading(true);
+      await createTicketWriterBet({
+        userId: formData.userId,
+        matchId: formData.matchId,
+        amount: Number(formData.amount) || 0,
+        odds: Number(formData.odds) || 0,
+        type: formData.betType,
+        selection: formData.selection.trim(),
+        status: 'pending'
+      }, token);
+      setFormData({
+        betType: 'straight',
+        matchId: '',
+        selection: '',
+        odds: '1.90',
+        amount: '50',
+        userId: '',
+      });
+      setError('');
+    } catch (err) {
+      console.error('Ticket creation failed:', err);
+      setError(err.message || 'Failed to create ticket');
+    } finally {
+      setCreateLoading(false);
+    }
   };
+
+  useEffect(() => {
+    const loadReference = async () => {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        setError('Please login as admin to load ticket data.');
+        setLoading(false);
+        return;
+      }
+      try {
+        setLoading(true);
+        const [matchesData, usersData] = await Promise.all([
+          getAdminMatches(token),
+          fetch(`${API_URL}/admin/users`, { headers: { 'Authorization': `Bearer ${token}` } }).then(res => res.json())
+        ]);
+        setMatches(matchesData || []);
+        setCustomers(usersData || []);
+        setError('');
+      } catch (err) {
+        console.error('Failed to load ticket data:', err);
+        setError(err.message || 'Failed to load ticket data');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadReference();
+  }, []);
 
   return (
     <div className="admin-view">
@@ -41,6 +94,9 @@ function TicketWriterView() {
         <p className="subtitle">Create custom betting tickets</p>
       </div>
       <div className="view-content">
+        {loading && <div style={{ padding: '20px', textAlign: 'center' }}>Loading ticket data...</div>}
+        {error && <div style={{ padding: '20px', color: 'red', textAlign: 'center' }}>{error}</div>}
+        {!loading && !error && (
         <div className="form-container">
           <form onSubmit={handleSubmit} className="admin-form">
             <div className="form-section">
@@ -48,14 +104,14 @@ function TicketWriterView() {
               
               <div className="form-group">
                 <label>Customer:</label>
-                <input
-                  type="text"
-                  name="customer"
-                  value={formData.customer}
-                  onChange={handleChange}
-                  placeholder="Enter customer username"
-                  required
-                />
+                <select name="userId" value={formData.userId} onChange={handleChange} required>
+                  <option value="">Select customer</option>
+                  {customers.map(customer => (
+                    <option key={customer.id || customer._id} value={customer.id || customer._id}>
+                      {customer.username}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div className="form-group">
@@ -65,38 +121,27 @@ function TicketWriterView() {
                   value={formData.betType}
                   onChange={handleChange}
                 >
-                  <option value="single">Single</option>
+                  <option value="straight">Straight</option>
                   <option value="parlay">Parlay</option>
                   <option value="teaser">Teaser</option>
-                  <option value="round-robin">Round Robin</option>
-                </select>
-              </div>
-
-              <div className="form-group">
-                <label>Sport:</label>
-                <select
-                  name="sport"
-                  value={formData.sport}
-                  onChange={handleChange}
-                >
-                  <option value="nba">NBA</option>
-                  <option value="nfl">NFL</option>
-                  <option value="mlb">MLB</option>
-                  <option value="soccer">Soccer</option>
-                  <option value="tennis">Tennis</option>
                 </select>
               </div>
 
               <div className="form-group">
                 <label>Match:</label>
-                <input
-                  type="text"
-                  name="match"
-                  value={formData.match}
+                <select
+                  name="matchId"
+                  value={formData.matchId}
                   onChange={handleChange}
-                  placeholder="e.g., Lakers vs Celtics"
                   required
-                />
+                >
+                  <option value="">Select match</option>
+                  {matches.map(match => (
+                    <option key={match.id || match._id} value={match.id || match._id}>
+                      {match.homeTeam} vs {match.awayTeam}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div className="form-group">
@@ -139,11 +184,27 @@ function TicketWriterView() {
             </div>
 
             <div className="form-actions">
-              <button type="submit" className="btn-primary">Create Ticket</button>
-              <button type="reset" className="btn-secondary">Clear</button>
+              <button type="submit" className="btn-primary" disabled={createLoading}>
+                {createLoading ? 'Saving...' : 'Create Ticket'}
+              </button>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => setFormData({
+                  betType: 'straight',
+                  matchId: '',
+                  selection: '',
+                  odds: '1.90',
+                  amount: '50',
+                  userId: '',
+                })}
+              >
+                Clear
+              </button>
             </div>
           </form>
         </div>
+        )}
       </div>
     </div>
   );

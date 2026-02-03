@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { getSettings, updateSettings } from '../../api';
 
 function SettingsView() {
   const [settings, setSettings] = useState({
@@ -12,6 +13,43 @@ function SettingsView() {
     emailNotifications: true,
     twoFactor: true,
   });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    const loadSettings = async () => {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        setError('Please login as admin to load settings.');
+        setLoading(false);
+        return;
+      }
+      try {
+        setLoading(true);
+        const data = await getSettings(token);
+        setSettings({
+          platformName: data.platformName,
+          dailyBetLimit: data.dailyBetLimit,
+          weeklyBetLimit: data.weeklyBetLimit,
+          maxOdds: data.maxOdds,
+          minBet: data.minBet,
+          maxBet: data.maxBet,
+          maintenanceMode: data.maintenanceMode,
+          emailNotifications: data.emailNotifications,
+          twoFactor: data.twoFactor,
+        });
+        setError('');
+      } catch (err) {
+        console.error('Failed to load settings:', err);
+        setError(err.message || 'Failed to load settings');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadSettings();
+  }, []);
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -21,8 +59,21 @@ function SettingsView() {
     }));
   };
 
-  const handleSave = () => {
-    alert('Settings saved successfully!');
+  const handleSave = async () => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setError('Please login as admin to save settings.');
+      return;
+    }
+    try {
+      setSaving(true);
+      await updateSettings(settings, token);
+      setError('');
+    } catch (err) {
+      setError(err.message || 'Failed to save settings');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -31,6 +82,9 @@ function SettingsView() {
         <h2>Platform Settings</h2>
       </div>
       <div className="view-content">
+        {loading && <div style={{ padding: '20px', textAlign: 'center' }}>Loading settings...</div>}
+        {error && <div style={{ padding: '20px', color: 'red', textAlign: 'center' }}>{error}</div>}
+        {!loading && !error && (
         <div className="settings-container">
           <form className="settings-form">
             <div className="form-section">
@@ -132,11 +186,20 @@ function SettingsView() {
             </div>
 
             <div className="form-actions">
-              <button type="button" onClick={handleSave} className="btn-primary">Save Settings</button>
-              <button type="reset" className="btn-secondary">Reset</button>
+              <button type="button" onClick={handleSave} className="btn-primary" disabled={saving}>
+                {saving ? 'Saving...' : 'Save Settings'}
+              </button>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => window.location.reload()}
+              >
+                Reset
+              </button>
             </div>
           </form>
         </div>
+        )}
       </div>
     </div>
   );

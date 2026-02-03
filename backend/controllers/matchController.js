@@ -5,7 +5,17 @@ const Match = require('../models/Match');
 // @access  Public
 const getMatches = async (req, res) => {
     try {
-        const matches = await Match.find().sort({ startTime: 1 });
+        const { status, active } = req.query;
+        let filter = {};
+
+        if (status) {
+            const normalized = status.toString().toLowerCase();
+            filter.status = normalized === 'active' ? 'live' : normalized;
+        } else if (active && active.toString().toLowerCase() === 'true') {
+            filter.status = 'live';
+        }
+
+        const matches = await Match.find(filter).sort({ startTime: 1 });
         res.json(matches);
     } catch (error) {
         console.error('Error fetching matches:', error);

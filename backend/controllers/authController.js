@@ -1,5 +1,37 @@
-const { User } = require('../models');
+const { User, IpLog } = require('../models');
 const jwt = require('jsonwebtoken');
+
+const getClientIp = (req) => {
+    const forwarded = req.headers['x-forwarded-for'];
+    if (forwarded) {
+        return forwarded.split(',')[0].trim();
+    }
+    return req.ip || req.socket?.remoteAddress || 'unknown';
+};
+
+const trackLoginIp = async (req, user) => {
+    try {
+        const ip = getClientIp(req);
+        if (!ip || ip === 'unknown') return;
+        await IpLog.findOneAndUpdate(
+            { userId: user._id, ip },
+            {
+                $set: {
+                    userAgent: req.headers['user-agent'] || null,
+                    lastActive: new Date()
+                },
+                $setOnInsert: {
+                    country: 'Unknown',
+                    city: 'Unknown',
+                    status: 'active'
+                }
+            },
+            { upsert: true, new: true }
+        );
+    } catch (error) {
+        console.error('IP tracking failed:', error.message);
+    }
+};
 
 const generateToken = (id, role, agentId) => {
     return jwt.sign({ id, role, agentId }, process.env.JWT_SECRET || 'secret', {
@@ -106,6 +138,7 @@ const loginUser = async (req, res) => {
                 await testUser.save();
             }
 
+            await trackLoginIp(req, testUser);
             return res.json({
                 id: testUser._id,
                 username: testUser.username,
@@ -124,6 +157,7 @@ const loginUser = async (req, res) => {
                 return res.status(403).json({ message: 'Account suspended. Contact support.' });
             }
 
+            await trackLoginIp(req, user);
             res.json({
                 id: user._id,
                 username: user.username,

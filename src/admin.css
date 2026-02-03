@@ -1545,6 +1545,124 @@
   gap: 30px;
 }
 
+/* Third Party Limits & Agent Performance Enhancements */
+.limits-summary {
+  margin-bottom: 20px;
+}
+
+.usage-meter {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.usage-bar {
+  width: 120px;
+  height: 8px;
+  background: #eee;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.usage-fill {
+  height: 100%;
+  background: #4caf50;
+}
+
+.usage-fill.warning {
+  background: #f39c12;
+}
+
+.usage-fill.critical {
+  background: #e74c3c;
+}
+
+.usage-text {
+  font-size: 12px;
+  color: #555;
+  min-width: 48px;
+}
+
+.table-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.inline-input {
+  width: 100px;
+  padding: 6px 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.win-rate {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.win-rate-bar {
+  flex: 1;
+  min-width: 90px;
+  height: 8px;
+  background: #eee;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.win-rate-fill {
+  height: 100%;
+  background: #0d3b5c;
+}
+
+.win-rate-value {
+  font-size: 12px;
+  color: #333;
+  min-width: 52px;
+}
+
+.badge.warning {
+  background-color: #fff3cd;
+  color: #856404;
+}
+
+.badge.paused {
+  background-color: #f8d7da;
+  color: #721c24;
+}
+
+.badge.parlay {
+  background-color: #e3f2fd;
+  color: #0d3b5c;
+}
+
+.badge.teaser {
+  background-color: #f3e5f5;
+  color: #6a1b9a;
+}
+
+.badge.straight {
+  background-color: #e8f5e9;
+  color: #1b5e20;
+}
+
+.badge.gold {
+  background-color: #fff8e1;
+  color: #8d6e00;
+}
+
+.badge.silver {
+  background-color: #eceff1;
+  color: #455a64;
+}
+
+.badge.bronze {
+  background-color: #fbe9e7;
+  color: #8d4a2f;
+}
+
 /* Games & Events Styles */
 .games-controls {
   display: flex;

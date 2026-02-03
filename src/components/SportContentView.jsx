@@ -6,7 +6,7 @@ const SportContentView = ({ sportId, selectedItems = [] }) => {
     const [activeTab, setActiveTab] = useState('matches');
 
     const [content, setContent] = useState({ name: '', icon: '', matches: [], scoreboards: [] });
-    const rawMatches = useMatches();
+    const rawMatches = useMatches({ status: 'live-upcoming' });
 
     React.useEffect(() => {
         // Determine sport name and icon
@@ -131,7 +131,7 @@ const SportContentView = ({ sportId, selectedItems = [] }) => {
             <div className="content-header">
                 <div className="content-title">
                     <i className={content.icon}></i>
-                    <span>{content.name} - Live Updates</span>
+                    <span>{content.name} - Live & Upcoming</span>
                 </div>
                 <div className="content-tabs">
                     <button
@@ -154,9 +154,9 @@ const SportContentView = ({ sportId, selectedItems = [] }) => {
                     {content.matches.length === 0 ? (
                         <div style={{ padding: '40px', textAlign: 'center', color: '#888', background: '#fff', borderRadius: '8px' }}>
                             <i className="fa-solid fa-calendar-xmark" style={{ fontSize: '48px', marginBottom: '16px', opacity: 0.5 }}></i>
-                            <h3>No Live Matches Found</h3>
-                            <p>There are no {content.name} matches playing right now.</p>
-                            <p style={{ fontSize: '0.9em' }}>Check back later for live updates.</p>
+                            <h3>No Live or Upcoming Matches Found</h3>
+                            <p>There are no {content.name} matches available right now.</p>
+                            <p style={{ fontSize: '0.9em' }}>Check back later for new updates.</p>
                         </div>
                     ) : (
                         content.matches.map((match) => (

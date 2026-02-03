@@ -1,13 +1,77 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { getPendingItems, approvePendingItem, declinePendingItem } from '../../api';
 
 function PendingView() {
-  const [pending] = useState([
-    { id: 1, type: 'Withdrawal', amount: '$500.00', user: 'User123', date: '2025-01-13', status: 'pending' },
-    { id: 2, type: 'Deposit', amount: '$1,000.00', user: 'User456', date: '2025-01-13', status: 'pending' },
-    { id: 3, type: 'Verification', amount: 'N/A', user: 'User789', date: '2025-01-12', status: 'pending' },
-    { id: 4, type: 'Bonus Claim', amount: '$100.00', user: 'User101', date: '2025-01-12', status: 'pending' },
-    { id: 5, type: 'Account Update', amount: 'N/A', user: 'User202', date: '2025-01-11', status: 'pending' },
-  ]);
+  const [pending, setPending] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [actionLoadingId, setActionLoadingId] = useState(null);
+
+  useEffect(() => {
+    const fetchPending = async () => {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        setError('Please login as admin to view pending items.');
+        setLoading(false);
+        return;
+      }
+
+      try {
+        setLoading(true);
+        const data = await getPendingItems(token);
+        setPending(data || []);
+        setError('');
+      } catch (err) {
+        console.error('Failed to load pending items:', err);
+        setError(err.message || 'Failed to load pending items');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchPending();
+  }, []);
+
+  const handleApprove = async (itemId) => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setError('Please login as admin to approve items.');
+      return;
+    }
+    try {
+      setActionLoadingId(itemId);
+      await approvePendingItem(itemId, token);
+      setPending(prev => prev.filter(item => item.id !== itemId));
+    } catch (err) {
+      setError(err.message || 'Failed to approve item');
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  const handleDecline = async (itemId) => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setError('Please login as admin to decline items.');
+      return;
+    }
+    try {
+      setActionLoadingId(itemId);
+      await declinePendingItem(itemId, token);
+      setPending(prev => prev.filter(item => item.id !== itemId));
+    } catch (err) {
+      setError(err.message || 'Failed to decline item');
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  const formatAmount = (amount) => {
+    if (amount === null || amount === undefined) return '—';
+    const num = Number(amount);
+    if (Number.isNaN(num)) return '—';
+    return `$${num.toFixed(2)}`;
+  };
 
   return (
     <div className="admin-view">
@@ -16,6 +80,9 @@ function PendingView() {
         <p className="count">{pending.length} pending items</p>
       </div>
       <div className="view-content">
+        {loading && <div style={{ padding: '20px', textAlign: 'center' }}>Loading pending items...</div>}
+        {error && <div style={{ padding: '20px', color: 'red', textAlign: 'center' }}>{error}</div>}
+        {!loading && !error && (
         <div className="table-container">
           <table className="data-table">
             <thead>
@@ -32,19 +99,32 @@ function PendingView() {
               {pending.map(item => (
                 <tr key={item.id}>
                   <td>{item.type}</td>
-                  <td>{item.amount}</td>
+                  <td>{formatAmount(item.amount)}</td>
                   <td>{item.user}</td>
-                  <td>{item.date}</td>
+                  <td>{new Date(item.date).toLocaleDateString()}</td>
                   <td><span className="badge pending">{item.status}</span></td>
                   <td>
-                    <button className="btn-small btn-approve">Approve</button>
-                    <button className="btn-small btn-decline">Decline</button>
+                    <button
+                      className="btn-small btn-approve"
+                      onClick={() => handleApprove(item.id)}
+                      disabled={actionLoadingId === item.id}
+                    >
+                      {actionLoadingId === item.id ? 'Working...' : 'Approve'}
+                    </button>
+                    <button
+                      className="btn-small btn-decline"
+                      onClick={() => handleDecline(item.id)}
+                      disabled={actionLoadingId === item.id}
+                    >
+                      {actionLoadingId === item.id ? 'Working...' : 'Decline'}
+                    </button>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+        )}
       </div>
     </div>
   );

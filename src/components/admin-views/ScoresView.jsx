@@ -1,58 +1,82 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { getAdminMatches, updateAdminMatch } from '../../api';
 
 function ScoresView() {
   const [sportFilter, setSportFilter] = useState('all');
-  
-  const featuredMatches = [
-    {
-      id: 1,
-      sport: 'Soccer',
-      title: 'FEATURED MATCHES',
-      category: 'Featured Match',
-      matches: [
-        { id: 11, teams: 'Newcastle vs Man City', time: '01:00', odds: { '1': 2.55, 'X': 3.50, '2': 2.50 }, boost: 'BET BOOST ➤' },
-        { id: 12, teams: 'Borussia Dortmund vs Werder Bremen', time: '00:30', odds: { '1': 1.40, 'X': 5.00, '2': 7.50 }, boost: 'BET BOOST ➤' },
-        { id: 13, teams: 'Roma vs Torino', time: '01:00', odds: { '1': 1.61, 'X': 3.75, '2': 5.50 }, boost: null },
-      ]
-    },
-    {
-      id: 2,
-      sport: 'NBA',
-      title: 'FEATURED PROPS',
-      category: 'Props & Specials',
-      matches: [
-        { id: 21, teams: 'PHX Suns vs MIA Heat', time: '05:40', odds: { 'Spread': 1.90, 'Total': 1.90, 'ML': 1.95 }, boost: '+15% ACCA BOOST' },
-        { id: 22, teams: 'MIN Timberwolves vs MIL Bucks', time: '06:10', odds: { 'Spread': 1.90, 'Total': 1.90, 'ML': 2.25 }, boost: null },
-        { id: 23, teams: 'SA Spurs vs OKC Thunder', time: '06:10', odds: { 'Spread': 1.90, 'Total': 1.90, 'ML': 3.50 }, boost: null },
-      ]
-    },
-    {
-      id: 3,
-      sport: 'Tennis',
-      title: 'ATP/WTA MATCHES',
-      category: 'Tennis Props',
-      matches: [
-        { id: 31, teams: 'Marcos Giron vs Alex Michelsen', time: '03:30', odds: { '1': 2.00, '2': 1.80 }, boost: '+20% ACCA BOOST' },
-        { id: 32, teams: 'Ben Shelton vs Francisco Comesana', time: '03:30', odds: { '1': 1.25, '2': 4.00 }, boost: null },
-        { id: 33, teams: 'Jenson Brooksby vs Sebastian Baez', time: '05:00', odds: { '1': 1.57, '2': 2.37 }, boost: null },
-      ]
+  const [matches, setMatches] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [selectedMatch, setSelectedMatch] = useState(null);
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
+  const [updateForm, setUpdateForm] = useState({ scoreHome: '', scoreAway: '', status: 'scheduled' });
+  const [actionLoading, setActionLoading] = useState(false);
+
+  const loadMatches = async () => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setError('Please login as admin to view scores.');
+      setLoading(false);
+      return;
     }
-  ];
-
-  const allMatches = featuredMatches.flatMap(category => 
-    category.matches.map(m => ({ ...m, sport: category.sport }))
-  );
-
-  const filteredMatches = sportFilter === 'all' 
-    ? allMatches 
-    : allMatches.filter(m => m.sport.toLowerCase() === sportFilter.toLowerCase());
-
-  const getMatchStatus = (match) => {
-    const hour = parseInt(match.time.split(':')[0]);
-    if (hour < 1) return 'LIVE';
-    if (hour < 6) return 'UPCOMING';
-    return 'SCHEDULED';
+    try {
+      setLoading(true);
+      const data = await getAdminMatches(token);
+      setMatches(data || []);
+      setError('');
+    } catch (err) {
+      console.error('Failed to load matches:', err);
+      setError(err.message || 'Failed to load matches');
+    } finally {
+      setLoading(false);
+    }
   };
+
+  useEffect(() => {
+    loadMatches();
+  }, []);
+
+  const filteredMatches = sportFilter === 'all'
+    ? matches
+    : matches.filter(m => String(m.sport || '').toLowerCase() === sportFilter.toLowerCase());
+
+  const openUpdateModal = (match) => {
+    const scoreHome = match.score?.score_home ?? match.score?.scoreHome ?? '';
+    const scoreAway = match.score?.score_away ?? match.score?.scoreAway ?? '';
+    setSelectedMatch(match);
+    setUpdateForm({
+      scoreHome: scoreHome === 0 ? 0 : scoreHome,
+      scoreAway: scoreAway === 0 ? 0 : scoreAway,
+      status: match.status || 'scheduled'
+    });
+    setShowUpdateModal(true);
+  };
+
+  const handleUpdate = async () => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setError('Please login as admin to update scores.');
+      return;
+    }
+    try {
+      setActionLoading(true);
+      await updateAdminMatch(selectedMatch.id || selectedMatch._id, {
+        status: updateForm.status,
+        score: {
+          scoreHome: Number(updateForm.scoreHome) || 0,
+          scoreAway: Number(updateForm.scoreAway) || 0
+        },
+        lastUpdated: new Date()
+      }, token);
+      setShowUpdateModal(false);
+      loadMatches();
+    } catch (err) {
+      setError(err.message || 'Failed to update score');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const getMatchStatus = (match) => match.status || 'scheduled';
 
   return (
     <div className="admin-view">
@@ -72,8 +96,8 @@ function ScoresView() {
             ⚽ Soccer
           </button>
           <button 
-            className={sportFilter === 'nba' ? 'active' : ''}
-            onClick={() => setSportFilter('nba')}
+            className={sportFilter === 'basketball' ? 'active' : ''}
+            onClick={() => setSportFilter('basketball')}
           >
             🏀 NBA
           </button>
@@ -83,77 +107,95 @@ function ScoresView() {
           >
             🎾 Tennis
           </button>
+          <button 
+            className={sportFilter === 'football' ? 'active' : ''}
+            onClick={() => setSportFilter('football')}
+          >
+            🏈 Football
+          </button>
         </div>
       </div>
       <div className="view-content">
-        {/* Featured Match Cards */}
-        {sportFilter === 'all' ? (
-          <>
-            {featuredMatches.map(category => (
-              <div key={category.id} className="featured-section">
-                <h3 className="section-title">{category.title}</h3>
-                <div className="featured-matches-grid">
-                  {category.matches.map(match => (
-                    <div key={match.id} className="featured-card">
-                      <div className="card-header">
-                        <span className="boost-badge">{match.boost || 'FEATURED'}</span>
-                      </div>
-                      <div className="card-content">
-                        <h4>{match.teams}</h4>
-                        <div className="match-meta">
-                          <span className="time">{match.time}</span>
-                          <span className={`status ${getMatchStatus(match)}`}>{getMatchStatus(match)}</span>
-                        </div>
-                      </div>
-                      <div className="card-odds">
-                        {Object.entries(match.odds).map(([key, value]) => (
-                          <div key={key} className="odd-item">
-                            <span className="odd-label">{key}</span>
-                            <span className="odd-value">{value}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </>
-        ) : (
-          <div className="filtered-matches-section">
-            <div className="table-container scrollable">
-              <table className="data-table live-matches-table">
-                <thead>
-                  <tr>
-                    <th>Match</th>
-                    <th>Time</th>
-                    <th>Status</th>
-                    <th colSpan="3">Odds</th>
-                    <th>Boost</th>
-                    <th>Action</th>
+        {loading && <div style={{ padding: '20px', textAlign: 'center' }}>Loading scores...</div>}
+        {error && <div style={{ padding: '20px', color: 'red', textAlign: 'center' }}>{error}</div>}
+        {!loading && !error && (
+        <div className="filtered-matches-section">
+          <div className="table-container scrollable">
+            <table className="data-table live-matches-table">
+              <thead>
+                <tr>
+                  <th>Match</th>
+                  <th>Time</th>
+                  <th>Status</th>
+                  <th>Score</th>
+                  <th>Odds</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredMatches.map(match => (
+                  <tr key={match.id || match._id}>
+                    <td><strong>{match.homeTeam} vs {match.awayTeam}</strong></td>
+                    <td>{match.startTime ? new Date(match.startTime).toLocaleString() : '—'}</td>
+                    <td><span className={`badge ${getMatchStatus(match)}`}>{getMatchStatus(match)}</span></td>
+                    <td>
+                      {(match.score?.score_home ?? match.score?.scoreHome ?? 0)}
+                      {' - '}
+                      {(match.score?.score_away ?? match.score?.scoreAway ?? 0)}
+                    </td>
+                    <td>{match.odds ? JSON.stringify(match.odds) : '—'}</td>
+                    <td>
+                      <button className="btn-small" onClick={() => openUpdateModal(match)}>Update</button>
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {filteredMatches.map(match => (
-                    <tr key={match.id}>
-                      <td><strong>{match.teams}</strong></td>
-                      <td>{match.time}</td>
-                      <td><span className={`badge ${getMatchStatus(match)}`}>{getMatchStatus(match)}</span></td>
-                      {Object.entries(match.odds).map(([key, value]) => (
-                        <td key={key} className="odds-td"><span className="odds-yellow">{value}</span></td>
-                      ))}
-                      <td>{match.boost ? <span className="boost-text">{match.boost}</span> : '-'}</td>
-                      <td>
-                        <button className="btn-small">Update</button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                ))}
+              </tbody>
+            </table>
           </div>
+        </div>
         )}
       </div>
+
+      {showUpdateModal && selectedMatch && (
+        <div className="modal-overlay" onClick={() => setShowUpdateModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <h3>Update Score</h3>
+            <div className="view-details">
+              <div className="filter-group">
+                <label>Home Score</label>
+                <input
+                  type="number"
+                  value={updateForm.scoreHome}
+                  onChange={(e) => setUpdateForm(prev => ({ ...prev, scoreHome: e.target.value }))}
+                />
+              </div>
+              <div className="filter-group">
+                <label>Away Score</label>
+                <input
+                  type="number"
+                  value={updateForm.scoreAway}
+                  onChange={(e) => setUpdateForm(prev => ({ ...prev, scoreAway: e.target.value }))}
+                />
+              </div>
+              <div className="filter-group">
+                <label>Status</label>
+                <select value={updateForm.status} onChange={(e) => setUpdateForm(prev => ({ ...prev, status: e.target.value }))}>
+                  <option value="scheduled">Scheduled</option>
+                  <option value="live">Live</option>
+                  <option value="finished">Finished</option>
+                  <option value="cancelled">Cancelled</option>
+                </select>
+              </div>
+            </div>
+            <div className="modal-actions">
+              <button type="button" className="btn-secondary" onClick={() => setShowUpdateModal(false)}>Cancel</button>
+              <button type="button" className="btn-primary" onClick={handleUpdate} disabled={actionLoading}>
+                {actionLoading ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

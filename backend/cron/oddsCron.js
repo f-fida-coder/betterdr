@@ -2,17 +2,26 @@ const cron = require('node-cron');
 const oddsService = require('../services/oddsService');
 
 const startOddsJob = () => {
-    // Run every 60 seconds
-    // Run every 15 minutes to conserve API credits (500/month is very limited)
-    cron.schedule('*/15 * * * *', async () => {
-        console.log('⏰ Running Odds Update Cron Job...');
+    const minutes = Math.max(1, parseInt(process.env.ODDS_CRON_MINUTES || '1', 10) || 1);
+    const cronExpr = `*/${minutes} * * * *`;
+
+    const runUpdate = async (label) => {
+        console.log(`⏰ Running Odds Update ${label}...`);
         try {
             await oddsService.updateMatches();
         } catch (error) {
-            console.error('❌ Odds Cron Job Failed:', error.message);
+            console.error('❌ Odds Update Failed:', error.message);
         }
+    };
+
+    // Run immediately on startup so data appears right away
+    runUpdate('(initial)');
+
+    cron.schedule(cronExpr, async () => {
+        await runUpdate('(cron)');
     });
-    console.log('✅ Odds Cron Job started (runs every 60s).');
+
+    console.log(`✅ Odds Cron Job started (runs every ${minutes} min).`);
 };
 
 module.exports = startOddsJob;

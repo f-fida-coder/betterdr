@@ -12,6 +12,7 @@ const MobileGridMenu = ({ onClose, onViewChange }) => {
         { id: 'parlay-boosts', label: 'Parlay Boosts', icon: 'fa-solid fa-bolt-lightning' },
         { id: 'rules', label: 'Rules', icon: 'fa-solid fa-whistle' },
         { id: 'tutorials', label: 'Tutorials', icon: 'fa-solid fa-book-open' },
+        { id: 'support', label: 'Support', icon: 'fa-solid fa-headset' },
     ];
 
     const handleClick = (id) => {
@@ -20,7 +21,7 @@ const MobileGridMenu = ({ onClose, onViewChange }) => {
         } else if (id === 'live-casino') {
             onViewChange('live-casino');
         } else if (id === 'tutorials') {
-                    } else {
+        } else {
             onViewChange(id);
         }
         onClose();

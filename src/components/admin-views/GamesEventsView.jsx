@@ -1,10 +1,23 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { createAdminMatch, getAdminMatches, refreshOdds, clearCache } from '../../api';
 
 function GamesEventsView() {
   const [periodFilter, setPeriodFilter] = useState('game');
   const [gamesFilter, setGamesFilter] = useState('all');
   const [selectedSports, setSelectedSports] = useState([]);
-  const [showNoEventsModal, setShowNoEventsModal] = useState(true);
+  const [showNoEventsModal, setShowNoEventsModal] = useState(false);
+  const [matches, setMatches] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [actionLoading, setActionLoading] = useState('');
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [newMatch, setNewMatch] = useState({
+    homeTeam: '',
+    awayTeam: '',
+    startTime: '',
+    sport: 'basketball',
+    status: 'scheduled'
+  });
 
   const sportsIcons = [
     { id: 'nfl', label: 'NFL', icon: '🏈' },
@@ -42,6 +55,126 @@ function GamesEventsView() {
     { header: 'US', key: 'us' },
   ];
 
+  const loadMatches = async () => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setError('Please login as admin to load games.');
+      setLoading(false);
+      return;
+    }
+    try {
+      setLoading(true);
+      const data = await getAdminMatches(token);
+      setMatches(data || []);
+      setError('');
+    } catch (err) {
+      console.error('Failed to load matches:', err);
+      setError(err.message || 'Failed to load matches');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadMatches();
+  }, []);
+
+  const filterByTime = (match) => {
+    if (!match?.startTime) return gamesFilter === 'all';
+    if (gamesFilter === 'all') return true;
+    const date = new Date(match.startTime);
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const startOfTomorrow = new Date(startOfToday.getTime() + 24 * 60 * 60 * 1000);
+    const endOfTomorrow = new Date(startOfTomorrow.getTime() + 24 * 60 * 60 * 1000);
+    const endOfWeek = new Date(startOfToday.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+    if (gamesFilter === 'today') return date >= startOfToday && date < startOfTomorrow;
+    if (gamesFilter === 'tomorrow') return date >= startOfTomorrow && date < endOfTomorrow;
+    if (gamesFilter === 'this-week') return date >= startOfToday && date < endOfWeek;
+    return true;
+  };
+
+  const filterByPeriod = (match) => {
+    if (periodFilter === 'game') return true;
+    return match?.status === periodFilter;
+  };
+
+  const filterBySport = (match) => {
+    if (!selectedSports.length) return true;
+    const normalized = String(match?.sport || '').toLowerCase();
+    return selectedSports.includes(normalized);
+  };
+
+  const filteredMatches = matches
+    .filter(filterByTime)
+    .filter(filterByPeriod)
+    .filter(filterBySport);
+
+  useEffect(() => {
+    if (!loading && filteredMatches.length === 0) {
+      setShowNoEventsModal(true);
+    }
+  }, [loading, filteredMatches.length]);
+
+  const handleAddGame = async () => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setError('Please login as admin to add games.');
+      return;
+    }
+    try {
+      setActionLoading('add');
+      await createAdminMatch({
+        homeTeam: newMatch.homeTeam.trim(),
+        awayTeam: newMatch.awayTeam.trim(),
+        startTime: newMatch.startTime,
+        sport: newMatch.sport,
+        status: newMatch.status
+      }, token);
+      setNewMatch({ homeTeam: '', awayTeam: '', startTime: '', sport: 'basketball', status: 'scheduled' });
+      setShowAddModal(false);
+      loadMatches();
+    } catch (err) {
+      setError(err.message || 'Failed to add game');
+    } finally {
+      setActionLoading('');
+    }
+  };
+
+  const handleRefreshOdds = async () => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setError('Please login as admin to update odds.');
+      return;
+    }
+    try {
+      setActionLoading('odds');
+      await refreshOdds(token);
+      loadMatches();
+    } catch (err) {
+      setError(err.message || 'Failed to update odds');
+    } finally {
+      setActionLoading('');
+    }
+  };
+
+  const handleClearCache = async () => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setError('Please login as admin to clear cache.');
+      return;
+    }
+    try {
+      setActionLoading('cache');
+      await clearCache(token);
+    } catch (err) {
+      setError(err.message || 'Failed to clear cache');
+    } finally {
+      setActionLoading('');
+    }
+  };
+
   return (
     <div className="admin-view">
       <div className="view-header">
@@ -49,6 +182,10 @@ function GamesEventsView() {
       </div>
 
       <div className="view-content">
+        {loading && <div style={{ padding: '20px', textAlign: 'center' }}>Loading games...</div>}
+        {error && <div style={{ padding: '20px', color: 'red', textAlign: 'center' }}>{error}</div>}
+        {!loading && !error && (
+        <>
         {/* Top Controls */}
         <div className="games-controls">
           <div className="control-group">
@@ -99,7 +236,20 @@ function GamesEventsView() {
                 </tr>
               </thead>
               <tbody>
-                {/* Empty state - no games for this period */}
+                {filteredMatches.map(match => (
+                  <tr key={match.id || match._id}>
+                    <td>{match.status || 'scheduled'}</td>
+                    <td>{match.homeTeam} vs {match.awayTeam}</td>
+                    <td>{match.startTime ? new Date(match.startTime).toLocaleString() : '—'}</td>
+                    <td>{match.sport || '—'}</td>
+                    <td>—</td>
+                    <td>—</td>
+                    <td>—</td>
+                    <td>—</td>
+                    <td>—</td>
+                    <td>—</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
@@ -160,12 +310,87 @@ function GamesEventsView() {
         {/* Quick Actions */}
         <div className="quick-actions">
           <h4>Quick Actions:</h4>
-          <button className="btn-primary">Add Game</button>
-          <button className="btn-secondary">Import Games</button>
-          <button className="btn-secondary">Update Odds</button>
-          <button className="btn-danger">Clear Cache</button>
+          <button className="btn-primary" onClick={() => setShowAddModal(true)}>Add Game</button>
+          <button className="btn-secondary" onClick={handleRefreshOdds} disabled={actionLoading === 'odds'}>
+            {actionLoading === 'odds' ? 'Working...' : 'Import Games'}
+          </button>
+          <button className="btn-secondary" onClick={handleRefreshOdds} disabled={actionLoading === 'odds'}>
+            {actionLoading === 'odds' ? 'Working...' : 'Update Odds'}
+          </button>
+          <button className="btn-danger" onClick={handleClearCache} disabled={actionLoading === 'cache'}>
+            {actionLoading === 'cache' ? 'Working...' : 'Clear Cache'}
+          </button>
         </div>
+        </>
+        )}
       </div>
+
+      {showAddModal && (
+        <div className="modal-overlay" onClick={() => setShowAddModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <h3>Add Game</h3>
+            <div className="view-details">
+              <div className="filter-group">
+                <label>Home Team</label>
+                <input
+                  type="text"
+                  value={newMatch.homeTeam}
+                  onChange={(e) => setNewMatch(prev => ({ ...prev, homeTeam: e.target.value }))}
+                />
+              </div>
+              <div className="filter-group">
+                <label>Away Team</label>
+                <input
+                  type="text"
+                  value={newMatch.awayTeam}
+                  onChange={(e) => setNewMatch(prev => ({ ...prev, awayTeam: e.target.value }))}
+                />
+              </div>
+              <div className="filter-group">
+                <label>Start Time</label>
+                <input
+                  type="datetime-local"
+                  value={newMatch.startTime}
+                  onChange={(e) => setNewMatch(prev => ({ ...prev, startTime: e.target.value }))}
+                />
+              </div>
+              <div className="filter-group">
+                <label>Sport</label>
+                <select value={newMatch.sport} onChange={(e) => setNewMatch(prev => ({ ...prev, sport: e.target.value }))}>
+                  <option value="basketball">Basketball</option>
+                  <option value="football">Football</option>
+                  <option value="baseball">Baseball</option>
+                  <option value="hockey">Hockey</option>
+                  <option value="soccer">Soccer</option>
+                  <option value="tennis">Tennis</option>
+                  <option value="golf">Golf</option>
+                  <option value="boxing">Boxing</option>
+                  <option value="esports">Esports</option>
+                </select>
+              </div>
+              <div className="filter-group">
+                <label>Status</label>
+                <select value={newMatch.status} onChange={(e) => setNewMatch(prev => ({ ...prev, status: e.target.value }))}>
+                  <option value="scheduled">Scheduled</option>
+                  <option value="live">Live</option>
+                  <option value="finished">Finished</option>
+                </select>
+              </div>
+            </div>
+            <div className="modal-actions">
+              <button type="button" className="btn-secondary" onClick={() => setShowAddModal(false)}>Cancel</button>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={handleAddGame}
+                disabled={actionLoading === 'add' || !newMatch.homeTeam.trim() || !newMatch.awayTeam.trim() || !newMatch.startTime}
+              >
+                {actionLoading === 'add' ? 'Saving...' : 'Add Game'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

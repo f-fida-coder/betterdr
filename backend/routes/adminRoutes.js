@@ -1,6 +1,74 @@
 const express = require('express');
 const router = express.Router();
-const { getUsers, getAgents, suspendUser, unsuspendUser, getStats, getSystemStats, createAgent, createUser, updateAgent, refreshOdds } = require('../controllers/adminController');
+const {
+	getUsers,
+	getAgents,
+	suspendUser,
+	unsuspendUser,
+	getStats,
+	getSystemStats,
+	createAgent,
+	createUser,
+	updateAgent,
+	refreshOdds,
+	getWeeklyFigures,
+	getPendingTransactions,
+	approvePendingTransaction,
+	declinePendingTransaction,
+	getMessages,
+	markMessageRead,
+	replyToMessage,
+	deleteMessage,
+	getAdminMatches,
+	createMatch,
+	updateMatch,
+	getCashierSummary,
+	getCashierTransactions,
+	getThirdPartyLimits,
+	createThirdPartyLimit,
+	updateThirdPartyLimit,
+	getAdminBets,
+	createAdminBet,
+	getAgentPerformance,
+	getIpTracker,
+	blockIp,
+	unblockIp,
+	getTransactionsHistory,
+	getCollections,
+	createCollection,
+	collectCollection,
+	getCollectionById,
+	getDeletedWagers,
+	restoreDeletedWager,
+	getSportsbookLinks,
+	createSportsbookLink,
+	updateSportsbookLink,
+	testSportsbookLink,
+	clearCache,
+	getBillingSummary,
+	getBillingInvoices,
+	createBillingInvoice,
+	updateBillingInvoice,
+	getBillingInvoiceById,
+	getSettings,
+	updateSettings,
+	getRules,
+	createRule,
+	updateRule,
+	deleteRule,
+	getFeedback,
+	replyFeedback,
+	markFeedbackReviewed,
+	deleteFeedback,
+	getFaqs,
+	createFaq,
+	updateFaq,
+	deleteFaq,
+	getManualSections,
+	createManualSection,
+	updateManualSection,
+	deleteManualSection
+} = require('../controllers/adminController');
 const { protect } = require('../middleware/authMiddleware');
 const { adminOnly } = require('../middleware/roleMiddleware');
 
@@ -14,5 +82,62 @@ router.post('/unsuspend', protect, adminOnly, unsuspendUser);
 router.get('/stats', protect, adminOnly, getStats);
 router.get('/system-stats', protect, adminOnly, getSystemStats);
 router.post('/refresh-odds', protect, adminOnly, refreshOdds); // New Route
+router.get('/weekly-figures', protect, adminOnly, getWeeklyFigures);
+router.get('/pending', protect, adminOnly, getPendingTransactions);
+router.post('/pending/approve', protect, adminOnly, approvePendingTransaction);
+router.post('/pending/decline', protect, adminOnly, declinePendingTransaction);
+router.get('/messages', protect, adminOnly, getMessages);
+router.post('/messages/:id/read', protect, adminOnly, markMessageRead);
+router.post('/messages/:id/reply', protect, adminOnly, replyToMessage);
+router.delete('/messages/:id', protect, adminOnly, deleteMessage);
+router.get('/matches', protect, adminOnly, getAdminMatches);
+router.post('/matches', protect, adminOnly, createMatch);
+router.put('/matches/:id', protect, adminOnly, updateMatch);
+router.get('/cashier/summary', protect, adminOnly, getCashierSummary);
+router.get('/cashier/transactions', protect, adminOnly, getCashierTransactions);
+router.get('/third-party-limits', protect, adminOnly, getThirdPartyLimits);
+router.post('/third-party-limits', protect, adminOnly, createThirdPartyLimit);
+router.put('/third-party-limits/:id', protect, adminOnly, updateThirdPartyLimit);
+router.get('/bets', protect, adminOnly, getAdminBets);
+router.post('/bets', protect, adminOnly, createAdminBet);
+router.get('/agent-performance', protect, adminOnly, getAgentPerformance);
+router.get('/ip-tracker', protect, adminOnly, getIpTracker);
+router.post('/ip-tracker/:id/block', protect, adminOnly, blockIp);
+router.post('/ip-tracker/:id/unblock', protect, adminOnly, unblockIp);
+router.get('/transactions', protect, adminOnly, getTransactionsHistory);
+router.get('/collections', protect, adminOnly, getCollections);
+router.post('/collections', protect, adminOnly, createCollection);
+router.post('/collections/:id/collect', protect, adminOnly, collectCollection);
+router.get('/collections/:id', protect, adminOnly, getCollectionById);
+router.get('/deleted-wagers', protect, adminOnly, getDeletedWagers);
+router.post('/deleted-wagers/:id/restore', protect, adminOnly, restoreDeletedWager);
+router.get('/sportsbook-links', protect, adminOnly, getSportsbookLinks);
+router.post('/sportsbook-links', protect, adminOnly, createSportsbookLink);
+router.put('/sportsbook-links/:id', protect, adminOnly, updateSportsbookLink);
+router.post('/sportsbook-links/:id/test', protect, adminOnly, testSportsbookLink);
+router.post('/clear-cache', protect, adminOnly, clearCache);
+router.get('/billing/summary', protect, adminOnly, getBillingSummary);
+router.get('/billing/invoices', protect, adminOnly, getBillingInvoices);
+router.post('/billing/invoices', protect, adminOnly, createBillingInvoice);
+router.put('/billing/invoices/:id', protect, adminOnly, updateBillingInvoice);
+router.get('/billing/invoices/:id', protect, adminOnly, getBillingInvoiceById);
+router.get('/settings', protect, adminOnly, getSettings);
+router.put('/settings', protect, adminOnly, updateSettings);
+router.get('/rules', protect, adminOnly, getRules);
+router.post('/rules', protect, adminOnly, createRule);
+router.put('/rules/:id', protect, adminOnly, updateRule);
+router.delete('/rules/:id', protect, adminOnly, deleteRule);
+router.get('/feedback', protect, adminOnly, getFeedback);
+router.post('/feedback/:id/reply', protect, adminOnly, replyFeedback);
+router.post('/feedback/:id/reviewed', protect, adminOnly, markFeedbackReviewed);
+router.delete('/feedback/:id', protect, adminOnly, deleteFeedback);
+router.get('/faqs', protect, adminOnly, getFaqs);
+router.post('/faqs', protect, adminOnly, createFaq);
+router.put('/faqs/:id', protect, adminOnly, updateFaq);
+router.delete('/faqs/:id', protect, adminOnly, deleteFaq);
+router.get('/manual', protect, adminOnly, getManualSections);
+router.post('/manual', protect, adminOnly, createManualSection);
+router.put('/manual/:id', protect, adminOnly, updateManualSection);
+router.delete('/manual/:id', protect, adminOnly, deleteManualSection);
 
 module.exports = router;

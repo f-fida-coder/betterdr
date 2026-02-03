@@ -1,11 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { getMyMessages, createMessage } from '../api';
 
 const ChatWidget = () => {
     const [isOpen, setIsOpen] = useState(false);
-    const [messages, setMessages] = useState([
-        { id: 1, text: 'Hello! How can we help you today?', sender: 'agent' }
-    ]);
+    const [messages, setMessages] = useState([]);
     const [inputValue, setInputValue] = useState('');
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
     const messagesEndRef = useRef(null);
 
     const scrollToBottom = () => {
@@ -16,27 +17,78 @@ const ChatWidget = () => {
         scrollToBottom();
     }, [messages]);
 
-    const handleSend = (e) => {
+    const loadMessages = async () => {
+        const token = localStorage.getItem('token');
+        if (!token) {
+            setError('Please login to message support.');
+            return;
+        }
+
+        try {
+            setLoading(true);
+            const data = await getMyMessages(token);
+            const flattened = [];
+            data.forEach(msg => {
+                flattened.push({
+                    id: `${msg._id}-user`,
+                    text: msg.body,
+                    sender: 'user',
+                    createdAt: msg.createdAt
+                });
+                (msg.replies || []).forEach((reply, idx) => {
+                    flattened.push({
+                        id: `${msg._id}-reply-${idx}`,
+                        text: reply.message,
+                        sender: 'agent',
+                        createdAt: reply.createdAt
+                    });
+                });
+            });
+            flattened.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+            setMessages(flattened);
+            setError('');
+        } catch (err) {
+            console.error('Failed to load messages:', err);
+            setError(err.message || 'Failed to load messages');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleSend = async (e) => {
         e.preventDefault();
         if (!inputValue.trim()) return;
 
-        const newUserMsg = { id: Date.now(), text: inputValue, sender: 'user' };
-        setMessages(prev => [...prev, newUserMsg]);
-        setInputValue('');
+        const token = localStorage.getItem('token');
+        if (!token) {
+            setError('Please login to message support.');
+            return;
+        }
 
-                setTimeout(() => {
-            const responses = [
-                "Thanks for reaching out! An agent will be with you shortly.",
-                "Could you provide more details about your issue?",
-                "We appreciate your feedback.",
-                "Have you checked our Tutorials page for this info?",
-                "Interesting question! Let me check that for you."
-            ];
-            const randomResponse = responses[Math.floor(Math.random() * responses.length)];
-            const newAgentMsg = { id: Date.now() + 1, text: randomResponse, sender: 'agent' };
-            setMessages(prev => [...prev, newAgentMsg]);
-        }, 1000);
+        const body = inputValue.trim();
+        const subject = body.split(' ').slice(0, 6).join(' ');
+
+        try {
+            setLoading(true);
+            const newMessage = await createMessage(subject, body, token);
+            setMessages(prev => ([
+                ...prev,
+                { id: `${newMessage._id}-user`, text: newMessage.body, sender: 'user', createdAt: newMessage.createdAt }
+            ]));
+            setInputValue('');
+            setError('');
+        } catch (err) {
+            setError(err.message || 'Failed to send message');
+        } finally {
+            setLoading(false);
+        }
     };
+
+    useEffect(() => {
+        if (isOpen) {
+            loadMessages();
+        }
+    }, [isOpen]);
 
     return (
         <div className="chat-widget-container" style={{ position: 'fixed', bottom: '30px', right: '30px', zIndex: 1000, fontFamily: 'Inter, sans-serif' }}>
@@ -73,6 +125,11 @@ const ChatWidget = () => {
                     </div>
 
                     <div style={{ flex: 1, padding: '20px', overflowY: 'auto', background: '#f9f9f9', display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                        {loading && <div style={{ fontSize: '12px', color: '#777' }}>Loading messages...</div>}
+                        {error && <div style={{ fontSize: '12px', color: '#b00020' }}>{error}</div>}
+                        {!loading && !error && messages.length === 0 && (
+                            <div style={{ fontSize: '12px', color: '#777' }}>No messages yet. Start a conversation below.</div>
+                        )}
                         {messages.map(msg => (
                             <div key={msg.id} style={{
                                 alignSelf: msg.sender === 'user' ? 'flex-end' : 'flex-start',
@@ -90,7 +147,7 @@ const ChatWidget = () => {
                                     {msg.text}
                                 </div>
                                 <div style={{ fontSize: '10px', color: '#aaa', marginTop: '5px', textAlign: msg.sender === 'user' ? 'right' : 'left' }}>
-                                    {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                    {msg.createdAt ? new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
                                 </div>
                             </div>
                         ))}
