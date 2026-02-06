@@ -121,7 +121,7 @@ exports.getUsers = async (req, res) => {
 
         const users = await User.find(query)
             .populate('agentId', 'username')
-            .select('username email balance pendingBalance role status createdAt agentId');
+            .select('username email balance pendingBalance balanceOwed role status createdAt agentId');
         // Calculate active status (>= 2 bets in last 7 days)
         const oneWeekAgo = new Date();
         oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
@@ -136,6 +136,7 @@ exports.getUsers = async (req, res) => {
         const formatted = users.map(user => {
             const balance = parseFloat(user.balance?.toString() || '0');
             const pendingBalance = parseFloat(user.pendingBalance?.toString() || '0');
+            const balanceOwed = parseFloat(user.balanceOwed?.toString() || '0');
             const availableBalance = Math.max(0, balance - pendingBalance);
             return {
                 id: user._id,
@@ -147,6 +148,7 @@ exports.getUsers = async (req, res) => {
                 agentId: user.agentId,
                 balance,
                 pendingBalance,
+                balanceOwed,
                 availableBalance,
                 isActive: activeSet.has(String(user._id))
             };
@@ -163,7 +165,7 @@ exports.getAgents = async (req, res) => {
     try {
         const agents = await Agent.find()
             .populate('createdBy', 'username')
-            .select('username email balance role status createdAt createdBy agentBillingRate agentBillingStatus viewOnly');
+            .select('username email balance balanceOwed role status createdAt createdBy agentBillingRate agentBillingStatus viewOnly');
 
         const activeSince = new Date(Date.now() - 7 * MS_PER_DAY);
         const activeUserIds = await Bet.aggregate([
@@ -459,9 +461,16 @@ exports.updateUserCredit = async (req, res) => {
             return res.status(404).json({ message: 'User not found' });
         }
 
+        let agent = null;
         // Agent Check
-        if (req.user.role === 'agent' && String(user.agentId) !== String(req.user._id)) {
-            return res.status(403).json({ message: 'Not authorized to update this user' });
+        if (req.user.role === 'agent') {
+            if (String(user.agentId) !== String(req.user._id)) {
+                return res.status(403).json({ message: 'Not authorized to update this user' });
+            }
+            agent = await Agent.findById(req.user._id);
+            if (!agent) {
+                return res.status(404).json({ message: 'Agent account not found' });
+            }
         }
 
         if (balance === undefined || Number.isNaN(Number(balance))) {
@@ -470,6 +479,19 @@ exports.updateUserCredit = async (req, res) => {
 
         const nextBalance = Math.max(0, Number(balance));
         const balanceBefore = parseFloat(user.balance?.toString() || '0');
+        const diff = nextBalance - balanceBefore;
+
+        // If agent is performing the update, enforce balance check
+        if (agent) {
+            const agentBalance = parseFloat(agent.balance?.toString() || '0');
+            if (diff > 0 && agentBalance < diff) {
+                return res.status(400).json({ message: `Insufficient balance. You need ${diff.toFixed(2)} but only have ${agentBalance.toFixed(2)}` });
+            }
+
+            // Update agent balance (deduct if increasing user credit, refund if decreasing)
+            agent.balance = agentBalance - diff;
+            await agent.save();
+        }
 
         user.balance = nextBalance;
         await user.save();
@@ -478,14 +500,14 @@ exports.updateUserCredit = async (req, res) => {
         await Transaction.create({
             userId: user._id,
             adminId: req.user?._id || null,
-            amount: Math.abs(nextBalance - balanceBefore),
+            amount: Math.abs(diff),
             type: 'adjustment',
             status: 'completed',
             balanceBefore,
             balanceAfter: nextBalance,
             referenceType: 'Adjustment',
             reason: 'ADMIN_BALANCE_ADJUSTMENT',
-            description: 'Admin updated user balance'
+            description: agent ? `Agent ${agent.username} updated user balance` : 'Admin updated user balance'
         });
 
         const pendingBalance = parseFloat(user.pendingBalance?.toString() || '0');
@@ -498,7 +520,8 @@ exports.updateUserCredit = async (req, res) => {
                 balance: nextBalance,
                 pendingBalance,
                 availableBalance
-            }
+            },
+            agentBalance: agent ? parseFloat(agent.balance.toString()) : undefined
         });
     } catch (error) {
         console.error('Error updating user balance:', error);

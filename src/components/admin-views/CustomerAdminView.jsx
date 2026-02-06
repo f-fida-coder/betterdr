@@ -327,6 +327,7 @@ function CustomerAdminView({ onViewChange }) {
                     <th>Status</th>
                     {currentRole !== 'agent' && <th>Agent</th>}
                     <th>Balance</th>
+                    <th>Outstanding</th>
                     <th>Pending</th>
                     <th>Available</th>
                     <th>Role</th>
@@ -337,7 +338,7 @@ function CustomerAdminView({ onViewChange }) {
                 <tbody>
                   {filteredCustomers.length === 0 ? (
                     <tr>
-                      <td colSpan={currentRole !== 'agent' ? 10 : 9} style={{ textAlign: 'center', padding: '20px' }}>No users found</td>
+                      <td colSpan={currentRole !== 'agent' ? 11 : 10} style={{ textAlign: 'center', padding: '20px' }}>No users found</td>
                     </tr>
                   ) : (
                     filteredCustomers.map(customer => {
@@ -354,6 +355,7 @@ function CustomerAdminView({ onViewChange }) {
                             <td>{customer.agentId?.username || 'Admin'}</td>
                           )}
                           <td>{formatBalance(customer.balance)}</td>
+                          <td>{formatBalance(customer.balanceOwed)}</td>
                           <td>{formatBalance(customer.pendingBalance)}</td>
                           <td>{formatBalance(customer.availableBalance)}</td>
                           <td><span className={`badge ${customer.role}`}>{customer.role}</span></td>

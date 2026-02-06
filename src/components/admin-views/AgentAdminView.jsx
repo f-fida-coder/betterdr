@@ -249,6 +249,7 @@ function AgentAdminView() {
             <div className="detail-row"><label>Customers:</label> <span>{selectedAgent.userCount}</span></div>
             <div className="detail-row"><label>Active Customers:</label> <span>{selectedAgent.activeCustomerCount || 0}</span></div>
             <div className="detail-row"><label>Balance:</label> <span>{formatMoney(selectedAgent.balance)}</span></div>
+            <div className="detail-row"><label>Outstanding Balance:</label> <span>{formatMoney(selectedAgent.balanceOwed)}</span></div>
             <div className="detail-row"><label>Rate per Customer:</label> <span>${Number(selectedAgent.agentBillingRate || 0).toFixed(2)}</span></div>
             <div className="detail-row"><label>Weekly Charge:</label> <span>${Number(selectedAgent.weeklyCharge || 0).toFixed(2)}</span></div>
             <div className="detail-row"><label>Billing Status:</label> <span>{selectedAgent.agentBillingStatus || 'paid'}</span></div>
@@ -272,6 +273,7 @@ function AgentAdminView() {
                 <th>Created By</th>
                 <th>Customers</th>
                 <th>Balance</th>
+                <th>Outstanding</th>
                 <th>Rate/Customer</th>
                 <th>Weekly Charge</th>
                 <th>Billing</th>
@@ -295,6 +297,7 @@ function AgentAdminView() {
                   </td>
                   <td>{agent.userCount || 0}</td>
                   <td>{formatMoney(agent.balance)}</td>
+                  <td>{formatMoney(agent.balanceOwed)}</td>
                   <td>${Number(agent.agentBillingRate || 0).toFixed(2)}</td>
                   <td>${Number(agent.weeklyCharge || 0).toFixed(2)}</td>
                   <td><span className={`badge ${agent.agentBillingStatus === 'unpaid' ? 'warning' : 'active'}`}>{agent.agentBillingStatus || 'paid'}</span></td>

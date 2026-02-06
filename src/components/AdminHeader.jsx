@@ -82,7 +82,7 @@ function AdminHeader({ onMenuToggle, onLogout, onViewChange }) {
   // For Admin, show Total Outstanding from all users. For Agent/User, show their own.
   const isSuperAdmin = profile?.role === 'admin';
   const outstandingDisplay = isSuperAdmin ? summary.totalOutstanding : (profile?.balanceOwed ?? null);
-  const outstandingLabel = isSuperAdmin ? 'Total Owed' : 'Outstanding';
+  const outstandingLabel = isSuperAdmin ? 'Outstanding Balance' : 'Outstanding';
 
   return (
     <div className="admin-header">
