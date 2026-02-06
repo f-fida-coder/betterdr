@@ -54,7 +54,7 @@ body::before {
   background:
     radial-gradient(circle at 50% 50%, rgba(255, 215, 0, 0.1) 0%, rgba(5, 5, 7, 0.2) 100%),
     url('/premium-bg.png');
-  
+
   background-size: cover;
   background-position: center;
   background-attachment: fixed;
@@ -230,7 +230,7 @@ body::after {
   margin: 40px auto;
   padding: 0 40px;
   display: block;
-  
+
 }
 
 
@@ -263,7 +263,7 @@ body::after {
 
 .main-content {
   flex: 1;
-  
+
   display: flex;
   flex-direction: column;
   gap: 40px;
@@ -823,9 +823,9 @@ body::after {
     width: 100% !important;
     margin-top: 0 !important;
     transform: none !important;
-    
+
     background: transparent !important;
-    
+
   }
 
   .desktop-feedback-trigger {
@@ -847,6 +847,7 @@ body::after {
 }
 
 @media (max-width: 768px) {
+
   /* Header fixes */
   .main-header {
     padding: 12px 15px;
@@ -956,6 +957,7 @@ body::after {
       opacity: 0;
       transform: translateY(-10px);
     }
+
     to {
       opacity: 1;
       transform: translateY(0);
@@ -1122,4 +1124,32 @@ body::after {
 .footer-content p {
   margin: 10px 0;
   color: var(--text-dim);
+}
+
+/* Landing Page Refinements */
+.landing-page {
+  animation: landingFadeIn 0.8s ease-out;
+  background: radial-gradient(circle at 50% 0%, rgba(255, 30, 30, 0.05) 0%, transparent 70%);
+}
+
+.landing-page input::placeholder {
+  color: rgba(255, 255, 255, 0.3);
+}
+
+.landing-page input:focus {
+  background: rgba(255, 255, 255, 0.1) !important;
+  box-shadow: 0 0 20px rgba(255, 30, 30, 0.2) !important;
+  border-color: var(--primary) !important;
+}
+
+@keyframes landingFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }

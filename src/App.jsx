@@ -21,6 +21,7 @@ import SupportView from './components/SupportView';
 import ChatWidget from './components/ChatWidget';
 import MyBetsView from './components/MyBetsView';
 import AdminPanel from './components/AdminPanel'; // Import AdminPanel
+import LandingPage from './components/LandingPage';
 import './index.css';
 import './dashboard.css';
 
@@ -39,8 +40,6 @@ function App() {
     && window.matchMedia('(max-width: 768px)').matches;
 
   const [user, setUser] = useState(null); // Store full user object
-  const [loginForm, setLoginForm] = useState({ username: '', password: '' });
-  const [loginError, setLoginError] = useState('');
 
   // Initial Load - Check for token (simplified)
   useEffect(() => {
@@ -106,9 +105,7 @@ function App() {
 
       setIsLoggedIn(true);
       document.body.classList.add('dashboard-mode');
-      setLoginError('');
     } catch (err) {
-      setLoginError(err.message || 'Login failed');
       throw err;
     }
   };
@@ -172,59 +169,7 @@ function App() {
       ) : (
         /* Standard User Interface */
         !isLoggedIn ? (
-          <>
-            <Header onLogin={handleLogin} isLoggedIn={isLoggedIn} />
-            <LeagueNav activeLeague={activeLeague} onSelectLeague={setActiveLeague} />
-
-            <Hero />
-
-            {!isLoggedIn && (
-              <div style={{ display: 'flex', justifyContent: 'center', padding: '20px' }}>
-                <div style={{ width: '100%', maxWidth: '420px', background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', padding: '20px', boxShadow: '0 20px 40px rgba(0,0,0,0.4)' }}>
-                  <h3 style={{ margin: '0 0 12px', color: 'white', textAlign: 'center' }}>Quick Sign In</h3>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                    <input
-                      type="text"
-                      placeholder="Username"
-                      value={loginForm.username}
-                      onChange={(e) => setLoginForm(prev => ({ ...prev, username: e.target.value }))}
-                      style={{ padding: '10px 12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.08)', color: 'white' }}
-                    />
-                    <input
-                      type="password"
-                      placeholder="Password"
-                      value={loginForm.password}
-                      onChange={(e) => setLoginForm(prev => ({ ...prev, password: e.target.value }))}
-                      style={{ padding: '10px 12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.08)', color: 'white' }}
-                    />
-                    <button
-                      onClick={() => handleLogin(loginForm.username, loginForm.password)}
-                      style={{ padding: '10px 12px', borderRadius: '8px', border: 'none', background: '#ff1e1e', color: 'white', fontWeight: 700, cursor: 'pointer' }}
-                    >
-                      Sign In
-                    </button>
-                    {loginError && <div style={{ color: '#ffb3b3', fontSize: '12px', textAlign: 'center' }}>{loginError}</div>}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <div className="bottom-banner">
-              <div className="banner-overlay">
-                <div className="banner-content-centered">
-                  <img src="/bgremlogo.png" alt="betterbet365" style={{ height: '70px', marginBottom: '20px', filter: 'drop-shadow(0 0 20px rgba(255,255,255,0.4)) brightness(1.1)' }} />
-                  <div style={{ width: '100%', height: '1px', background: 'rgba(255,255,255,0.2)', marginBottom: '20px' }}></div>
-                  <p style={{ color: 'white', fontSize: '14px', fontWeight: 700, letterSpacing: '4px', textShadow: '0 2px 10px rgba(0,0,0,0.5)' }}>THE PREMIUM CHOICE FOR WINNERS</p>
-                </div>
-              </div>
-            </div>
-
-            <footer className="main-footer">
-              <div className="footer-content">
-                <p>© 2026 betterbet365 | RESPONSIBLE GAMING</p>
-              </div>
-            </footer>
-          </>
+          <LandingPage onLogin={handleLogin} isLoggedIn={isLoggedIn} />
         ) : (
           <div className="dashboard-layout">
             <DashboardHeader
