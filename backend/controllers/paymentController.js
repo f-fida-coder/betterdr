@@ -2,6 +2,32 @@ const Stripe = require('stripe');
 const { User, Transaction } = require('../models');
 const mongoose = require('mongoose');
 
+const transactionsEnabled = () => String(process.env.MONGODB_TRANSACTIONS_ENABLED || 'false').toLowerCase() === 'true';
+const withSession = (query, session) => (session ? query.session(session) : query);
+const saveWithSession = (doc, session) => (session ? doc.save({ session }) : doc.save());
+const createWithSession = (Model, docs, session) => (session ? Model.create(docs, { session }) : Model.create(docs));
+const runWithOptionalTransaction = async (work) => {
+    if (!transactionsEnabled()) {
+        return work(null);
+    }
+    const session = await mongoose.startSession();
+    try {
+        let result;
+        await session.withTransaction(async () => {
+            result = await work(session);
+        });
+        return result;
+    } catch (error) {
+        const message = error?.message || '';
+        if (message.includes('Transaction numbers are only allowed') || message.toLowerCase().includes('replica set')) {
+            return work(null);
+        }
+        throw error;
+    } finally {
+        try { session.endSession(); } catch (e) { }
+    }
+};
+
 // Initialize Stripe directly
 const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
 
@@ -12,6 +38,11 @@ const createDepositIntent = async (req, res) => {
 
         if (!amount || amount <= 0) {
             return res.status(400).json({ message: 'Invalid amount' });
+        }
+
+        // Restrict 'user' role from self-service deposits
+        if (req.user.role === 'user') {
+            return res.status(403).json({ message: 'Deposits are disabled. Please contact your agent to add funds.' });
         }
 
         // Create a PaymentIntent with the order amount and currency
@@ -61,49 +92,38 @@ const handleWebhook = async (req, res) => {
 };
 
 const handleSuccessfulDeposit = async (paymentIntent) => {
-    const session = await mongoose.startSession();
-    session.startTransaction();
-
     try {
         const { userId, type } = paymentIntent.metadata;
         const amount = paymentIntent.amount / 100; // Convert back to main currency unit
 
         if (type === 'deposit' && userId) {
-            const user = await User.findById(userId).session(session);
-            if (!user) {
-                console.error(`User not found for deposit: ${userId}`);
-                await session.abortTransaction();
-                return;
-            }
+            await runWithOptionalTransaction(async (session) => {
+                const user = await withSession(User.findById(userId), session);
+                if (!user) {
+                    console.error(`User not found for deposit: ${userId}`);
+                    return;
+                }
 
-            try {
                 // Update user balance
                 const newBalance = parseFloat(user.balance.toString()) + parseFloat(amount);
                 user.balance = newBalance;
-                await user.save({ session });
+                await saveWithSession(user, session);
 
                 // Create Transaction record
-                await Transaction.create([{
+                await createWithSession(Transaction, [{
                     userId,
                     amount,
                     type: 'deposit',
                     status: 'completed',
                     stripePaymentId: paymentIntent.id,
                     description: 'Stripe Deposit'
-                }], { session });
+                }], session);
 
-                await session.commitTransaction();
                 console.log(`Deposit processed for user ${userId}: $${amount}`);
-            } catch (err) {
-                await session.abortTransaction();
-                console.error('Error processing deposit transaction:', err);
-            }
+            });
         }
     } catch (error) {
         console.error('Error in handleSuccessfulDeposit:', error);
-        await session.abortTransaction();
-    } finally {
-        await session.endSession();
     }
 };
 

@@ -2,32 +2,42 @@ const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
 const { connectDB } = require('./config/database');
+const rateLimit = require('./middleware/rateLimit');
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-app.use(cors());
+const allowedOrigins = (process.env.CORS_ORIGIN || '').split(',').map(v => v.trim()).filter(Boolean);
+app.use(cors({
+    origin: (origin, callback) => {
+        if (!origin || allowedOrigins.length === 0) return callback(null, true);
+        if (allowedOrigins.includes(origin)) return callback(null, true);
+        return callback(new Error('Not allowed by CORS'));
+    },
+    credentials: true
+}));
 app.use(express.json({
     verify: (req, res, buf) => {
         req.rawBody = buf;
     }
 }));
 
+const publicLimiter = rateLimit({ windowMs: 60_000, max: 120 });
+
 app.get('/', (req, res) => {
     res.send('Sports Betting Backend is running');
 });
 
 // Routes
-app.use('/api/auth', require('./routes/authRoutes'));
+app.use('/api/auth', publicLimiter, require('./routes/authRoutes'));
 app.use('/api/wallet', require('./routes/walletRoutes'));
-app.use('/api/bets', require('./routes/betRoutes'));
 app.use('/api/bets', require('./routes/betRoutes'));
 app.use('/api/admin', require('./routes/adminRoutes'));
 app.use('/api/agent', require('./routes/agentRoutes'));
 app.use('/api/payments', require('./routes/paymentRoutes'));
-app.use('/api/matches', require('./routes/matchRoutes'));
+app.use('/api/matches', publicLimiter, require('./routes/matchRoutes'));
 app.use('/api/debug', require('./routes/debugRoutes'));
 app.use('/api/messages', require('./routes/messageRoutes'));
 
@@ -54,8 +64,12 @@ const startServer = async () => {
 
         // Step 3: Start Background Jobs
         console.log('⏰ Starting background jobs...');
-        startOddsJob();
-        console.log('✅ Cron jobs started.\n');
+        if (String(process.env.MANUAL_FETCH_MODE || 'false').toLowerCase() === 'true') {
+            console.log('🛑 MANUAL_FETCH_MODE enabled. Skipping odds cron job.');
+        } else {
+            startOddsJob();
+            console.log('✅ Cron jobs started.\n');
+        }
 
         // Step 4: Start server
         server.listen(PORT, () => {

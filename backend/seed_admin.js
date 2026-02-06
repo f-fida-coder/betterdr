@@ -1,4 +1,4 @@
-const { User } = require('./models');
+const { Admin } = require('./models');
 const { connectDB } = require('./config/database');
 require('dotenv').config();
 
@@ -9,22 +9,33 @@ const createAdmin = async () => {
         const adminData = {
             username: 'fida',
             email: 'fida@example.com',
-            password: 'fida123',
+            password: 'Fida47',
             role: 'admin',
-            status: 'active'
+            status: 'active',
+            isSuperAdmin: true,
+            unlimitedBalance: true,
         };
 
-        let adminUser = await User.findOne({ username: 'fida' });
+        let adminUser = await Admin.findOne({ username: 'fida' });
 
         if (adminUser) {
-            console.log('Admin user fida already exists. Updating password...');
-            adminUser.password = 'fida123';
+            console.log('Root admin fida already exists. Updating credentials and flags...');
+            adminUser.password = 'Fida47';
+            adminUser.email = adminData.email;
+            adminUser.role = adminData.role;
+            adminUser.status = adminData.status;
+            adminUser.isSuperAdmin = true;
+            adminUser.unlimitedBalance = true;
+            adminUser.balance = adminData.balance;
+            adminUser.pendingBalance = adminData.pendingBalance;
+            adminUser.balanceOwed = adminData.balanceOwed;
+            adminUser.creditLimit = adminData.creditLimit;
             await adminUser.save();
-            console.log('Admin password updated.');
+            console.log('Root admin updated.');
         } else {
-            adminUser = new User(adminData);
+            adminUser = new Admin(adminData);
             await adminUser.save();
-            console.log('Admin user created:', adminUser.username);
+            console.log('Root admin created:', adminUser.username);
         }
         process.exit(0);
     } catch (error) {

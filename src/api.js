@@ -13,6 +13,32 @@ export const loginUser = async (username, password) => {
     return response.json();
 };
 
+export const loginAdmin = async (username, password) => {
+    const response = await fetch(`${API_URL}/auth/admin/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+    });
+    if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Admin login failed');
+    }
+    return response.json();
+};
+
+export const loginAgent = async (username, password) => {
+    const response = await fetch(`${API_URL}/auth/agent/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+    });
+    if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Agent login failed');
+    }
+    return response.json();
+};
+
 export const registerUser = async (userData) => {
     try {
         console.log('Calling registerUser API with:', userData.username);
@@ -48,6 +74,14 @@ export const getBalance = async (token) => {
     return response.json();
 };
 
+export const getMe = async (token) => {
+    const response = await fetch(`${API_URL}/auth/me`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (!response.ok) throw new Error('Failed to fetch user profile');
+    return response.json();
+};
+
 export const getMatches = async () => {
     const response = await fetch(`${API_URL}/matches`);
     if (!response.ok) throw new Error('Failed to fetch matches');
@@ -76,6 +110,14 @@ export const placeBet = async (betData, token) => {
     return response.json();
 };
 
+export const getMyBets = async (token) => {
+    const response = await fetch(`${API_URL}/bets/my-bets`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (!response.ok) throw new Error('Failed to fetch my bets');
+    return response.json();
+};
+
 export const createDeposit = async (amount, token) => {
     const response = await fetch(`${API_URL}/payments/deposit`, {
         method: 'POST',
@@ -98,6 +140,14 @@ export const getAgents = async (token) => {
         headers: { 'Authorization': `Bearer ${token}` }
     });
     if (!response.ok) throw new Error('Failed to fetch agents');
+    return response.json();
+};
+
+export const getAdminHeaderSummary = async (token) => {
+    const response = await fetch(`${API_URL}/admin/header-summary`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (!response.ok) throw new Error('Failed to fetch admin header summary');
     return response.json();
 };
 
@@ -264,7 +314,7 @@ export const getCashierSummary = async (token) => {
 };
 
 export const getCashierTransactions = async (token, limit = 50) => {
-    const response = await fetch(`${API_URL}/admin/cashier/transactions?limit=${limit}` , {
+    const response = await fetch(`${API_URL}/admin/cashier/transactions?limit=${limit}`, {
         headers: { 'Authorization': `Bearer ${token}` }
     });
     if (!response.ok) throw new Error('Failed to fetch cashier transactions');
@@ -456,6 +506,17 @@ export const refreshOdds = async (token) => {
     return response.json();
 };
 
+export const fetchOddsManual = async () => {
+    const response = await fetch(`${API_URL}/matches/fetch-odds`, {
+        method: 'POST'
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || 'Failed to fetch odds');
+    }
+    return response.json();
+};
+
 export const clearCache = async (token) => {
     const response = await fetch(`${API_URL}/admin/clear-cache`, {
         method: 'POST',
@@ -516,6 +577,22 @@ export const createAdminBet = async (payload, token) => {
     if (!response.ok) {
         const error = await response.json().catch(() => ({}));
         throw new Error(error.message || 'Failed to create bet');
+    }
+    return response.json();
+};
+
+export const settleMatchBets = async (payload, token) => {
+    const response = await fetch(`${API_URL}/bets/settle`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(payload)
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || 'Failed to settle bets');
     }
     return response.json();
 };
@@ -670,6 +747,38 @@ export const getMyPlayers = async (token) => {
         headers: { 'Authorization': `Bearer ${token}` }
     });
     if (!response.ok) throw new Error('Failed to fetch players');
+    return response.json();
+};
+
+export const updateUserCredit = async (userId, payload, token) => {
+    const response = await fetch(`${API_URL}/admin/users/${userId}/credit`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(payload)
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || 'Failed to update user balance');
+    }
+    return response.json();
+};
+
+export const updateUserBalanceOwedByAgent = async (userId, balance, token) => {
+    const response = await fetch(`${API_URL}/agent/update-balance-owed`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ userId, balance })
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || 'Failed to update balance');
+    }
     return response.json();
 };
 
@@ -1019,5 +1128,36 @@ export const unsuspendUser = async (userId, token) => {
         body: JSON.stringify({ userId })
     });
     if (!response.ok) throw new Error('Failed to unsuspend user');
+    return response.json();
+};
+export const resetUserPasswordByAdmin = async (id, newPassword, token) => {
+    const response = await fetch(`${API_URL}/admin/users/${id}/reset-password`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ newPassword })
+    });
+    if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to reset user password');
+    }
+    return response.json();
+};
+
+export const resetAgentPasswordByAdmin = async (id, newPassword, token) => {
+    const response = await fetch(`${API_URL}/admin/agents/${id}/reset-password`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ newPassword })
+    });
+    if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to reset agent password');
+    }
     return response.json();
 };

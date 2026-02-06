@@ -2,11 +2,11 @@ import React, { useState } from 'react';
 import { placeBet } from '../api';
 import useMatches from '../hooks/useMatches';
 
-const SportContentView = ({ sportId, selectedItems = [] }) => {
+const SportContentView = ({ sportId, selectedItems = [], status = 'live-upcoming' }) => {
     const [activeTab, setActiveTab] = useState('matches');
 
     const [content, setContent] = useState({ name: '', icon: '', matches: [], scoreboards: [] });
-    const rawMatches = useMatches({ status: 'live-upcoming' });
+    const rawMatches = useMatches({ status });
 
     React.useEffect(() => {
         // Determine sport name and icon
@@ -20,6 +20,33 @@ const SportContentView = ({ sportId, selectedItems = [] }) => {
             mma: { name: 'MMA/UFC', icon: 'fa-solid fa-hand-fist' },
             ncaaf: { name: 'NCAA Football', icon: 'fa-solid fa-building-columns' },
             ncaab: { name: 'NCAA Basketball', icon: 'fa-solid fa-basketball' }
+        };
+
+        const getSportKeywords = (id) => {
+            if (!id) return [];
+            const normalized = id.toString().toLowerCase();
+            const keywordMap = {
+                nfl: ['nfl', 'americanfootball_nfl', 'national football', 'american football'],
+                ncaaf: ['ncaaf', 'ncaa football', 'college football'],
+                nba: ['nba', 'basketball_nba', 'national basketball'],
+                ncaab: ['ncaab', 'ncaa basketball', 'college basketball'],
+                mlb: ['mlb', 'baseball_mlb', 'major league baseball'],
+                nhl: ['nhl', 'icehockey_nhl', 'hockey_nhl'],
+                epl: ['epl', 'premier league', 'english premier league'],
+                soccer: ['soccer', 'football', 'premier league', 'la liga', 'serie a', 'bundesliga', 'ligue 1', 'mls'],
+                basketball: ['basketball', 'nba', 'ncaab', 'euroleague'],
+                baseball: ['baseball', 'mlb'],
+                hockey: ['hockey', 'nhl', 'icehockey'],
+                golf: ['golf', 'pga'],
+                tennis: ['tennis', 'atp', 'wta'],
+                boxing: ['boxing'],
+                mma: ['mma', 'ufc'],
+                rugby: ['rugby'],
+                'auto-racing': ['racing', 'motorsport', 'nascar', 'formula'],
+                'martial-arts': ['mma', 'ufc', 'martial'],
+                'olympics': ['olympics', 'olympic'],
+            };
+            return keywordMap[normalized] || [normalized];
         };
 
         // Handle sub-categories (nfl-1st-quarter -> nfl)
@@ -42,19 +69,77 @@ const SportContentView = ({ sportId, selectedItems = [] }) => {
         // Map rawMatches into view-friendly structure and filter by sportId where possible
         const processMatches = () => {
             const matchesData = (rawMatches || []);
+            const keywords = getSportKeywords(resolvedSportId);
 
-            const filteredMatches = matchesData.filter(m => {
+            let filteredMatches = matchesData.filter(m => {
                 if (!resolvedSportId) return true;
-                if (!m.sport) return true;
-                // Flexible matching: 'americanfootball_nfl' contains 'nfl'
-                return m.sport.toLowerCase().includes(resolvedSportId.toLowerCase()) || resolvedSportId.toLowerCase().includes(m.sport?.toLowerCase());
-            }).map(match => {
-                const lineKey = match.odds ? Object.keys(match.odds)[0] : null;
-                const lines = lineKey ? match.odds[lineKey] : {};
+                if (!m.sport) return false;
+                const sportValue = m.sport.toString().toLowerCase();
+                return keywords.some(k => sportValue.includes(k));
+            });
 
-                const spreadPoint = lines.spread?.point;
-                const spreadHome = lines.spread?.home;
-                const spreadAway = lines.spread?.away;
+            // Fallback removed: If filteredMatches is empty, show empty state instead of all matches.
+            // if (resolvedSportId && filteredMatches.length === 0) {
+            //     filteredMatches = matchesData;
+            // }
+
+            const extractOdds = (match, homeName, awayName) => {
+                if (!match || !match.odds) {
+                    return {
+                        spread: ['-', '-'],
+                        moneyline: ['-', '-'],
+                        total: ['-', '-']
+                    };
+                }
+
+                if (match.odds.spread && match.odds.moneyline && match.odds.total) {
+                    return match.odds;
+                }
+
+                const markets = Array.isArray(match.odds.markets) ? match.odds.markets : [];
+                const byKey = (key) => markets.find(m => String(m.key || '').toLowerCase() === key);
+
+                const pickOutcome = (market, teamName) => {
+                    if (!market || !Array.isArray(market.outcomes)) return null;
+                    const exact = market.outcomes.find(o => String(o.name || '').toLowerCase() === String(teamName || '').toLowerCase());
+                    if (exact) return exact;
+                    return market.outcomes.find(o => String(o.name || '').toLowerCase().includes(String(teamName || '').toLowerCase())) || null;
+                };
+
+                const h2h = byKey('h2h');
+                const spreads = byKey('spreads');
+                const totals = byKey('totals');
+
+                const h2hHome = pickOutcome(h2h, homeName);
+                const h2hAway = pickOutcome(h2h, awayName);
+
+                const spreadHome = pickOutcome(spreads, homeName);
+                const spreadAway = pickOutcome(spreads, awayName);
+
+                const totalOver = totals?.outcomes?.find(o => String(o.name || '').toLowerCase().includes('over')) || null;
+                const totalUnder = totals?.outcomes?.find(o => String(o.name || '').toLowerCase().includes('under')) || null;
+
+                const spreadPoint = spreadHome?.point ?? spreadAway?.point;
+
+                return {
+                    spread: [
+                        `${spreadPoint ?? '-'} (${spreadHome?.price ?? '-'})`,
+                        `${spreadPoint !== undefined && spreadPoint !== null ? -spreadPoint : '-'} (${spreadAway?.price ?? '-'})`
+                    ],
+                    moneyline: [
+                        `${h2hHome?.price ?? '-'}`,
+                        `${h2hAway?.price ?? '-'}`
+                    ],
+                    total: [
+                        `O ${totalOver?.point ?? totalUnder?.point ?? '-'} (${totalOver?.price ?? '-'})`,
+                        `U ${totalUnder?.point ?? totalOver?.point ?? '-'} (${totalUnder?.price ?? '-'})`
+                    ]
+                };
+            };
+
+            filteredMatches = filteredMatches.map(match => {
+                const homeName = match.homeTeam || match.home_team || '';
+                const awayName = match.awayTeam || match.away_team || '';
 
                 // Determine score to show based on period filter
                 let displayScore1 = match.score?.score_home ?? 0;
@@ -64,26 +149,13 @@ const SportContentView = ({ sportId, selectedItems = [] }) => {
                     id: match.id || match._id || match.externalId,
                     time: match.startTime ? new Date(match.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
                     date: match.startTime ? new Date(match.startTime).toLocaleDateString() : '',
-                    team1: { name: match.homeTeam || match.home_team || '', abbr: (match.homeTeam || match.home_team || '').substring(0, 3).toUpperCase(), logo: '🔵' },
-                    team2: { name: match.awayTeam || match.away_team || '', abbr: (match.awayTeam || match.away_team || '').substring(0, 3).toUpperCase(), logo: '🔴' },
+                    team1: { name: homeName, abbr: homeName.substring(0, 3).toUpperCase(), logo: '🔵' },
+                    team2: { name: awayName, abbr: awayName.substring(0, 3).toUpperCase(), logo: '🔴' },
                     score1: displayScore1,
                     score2: displayScore2,
                     period: match.score?.period, // e.g. 'Q1', '2nd Half'
                     status: match.status === 'live' || (match.score && (String(match.score.event_status || '').toUpperCase().includes('IN_PROGRESS') || String(match.score.event_status || '').toUpperCase().includes('LIVE'))) ? 'LIVE' : (match.status || 'Scheduled'),
-                    odds: {
-                        spread: [
-                            `${spreadPoint || '-'} (${spreadHome || '-'})`,
-                            `${spreadPoint ? -spreadPoint : '-'} (${spreadAway || '-'})`
-                        ],
-                        moneyline: [
-                            `${lines.moneyline?.home || '-'}`,
-                            `${lines.moneyline?.away || '-'}`
-                        ],
-                        total: [
-                            `O ${lines.total?.total || '-'} (${lines.total?.over || '-'})`,
-                            `U ${lines.total?.total || '-'} (${lines.total?.under || '-'})`
-                        ]
-                    },
+                    odds: extractOdds(match, homeName, awayName),
                     rawMatch: match // Keep raw for betting
                 };
             });
@@ -113,14 +185,18 @@ const SportContentView = ({ sportId, selectedItems = [] }) => {
         if (!amount) return;
 
         try {
-            await placeBet({
+            const response = await placeBet({
                 matchId,
                 selection: team, // 'home' or 'away' or team name
                 odds: parseFloat(odds), // Simplified
                 amount: parseFloat(amount),
                 type: 'straight'
             }, token);
-            alert('Bet Placed Successfully!');
+
+            alert(`Bet Placed Successfully! New Balance: $${response.newBalance}`);
+            // Dispatch event to refresh user balance globally
+            window.dispatchEvent(new Event('user:refresh'));
+
         } catch (e) {
             alert(`Bet Failed: ${e.message}`);
         }

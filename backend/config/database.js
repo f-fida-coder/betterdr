@@ -7,10 +7,7 @@ const mongoUri = process.env.MONGODB_URI || process.env.MONGO_URI || 'mongodb://
 
 const connectDB = async () => {
     try {
-        await mongoose.connect(mongoUri, {
-            useNewUrlParser: true,
-            useUnifiedTopology: true,
-        });
+        await mongoose.connect(mongoUri);
         console.log('✅ MongoDB connected successfully');
         console.log(`   URI: ${mongoUri.replace(/mongodb\+srv:\/\/.*:.*@/, 'mongodb+srv://***:***@')}`);
         return mongoose.connection;

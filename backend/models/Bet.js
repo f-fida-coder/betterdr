@@ -43,11 +43,36 @@ const betSchema = new mongoose.Schema(
             required: true,
             get: (value) => value ? value.toString() : '0.00',
         },
+
         status: {
             type: String,
-            enum: ['pending', 'won', 'lost', 'void'],
+            enum: ['pending', 'won', 'lost', 'void', 'cashed_out'],
             default: 'pending',
             index: true,
+        },
+        result: {
+            type: String,
+            default: null, // 'won', 'lost', 'void'
+        },
+        settledAt: {
+            type: Date,
+            default: null,
+        },
+        settledBy: {
+            type: String, // 'system', 'admin'
+            default: null,
+        },
+        matchSnapshot: {
+            type: mongoose.Schema.Types.Mixed, // Stores snapshot of match data at bet time
+            default: {},
+        },
+        ipAddress: {
+            type: String,
+            default: null,
+        },
+        userAgent: {
+            type: String,
+            default: null,
         },
     },
     {
@@ -58,7 +83,7 @@ const betSchema = new mongoose.Schema(
 );
 
 // Virtual field for id (alias of _id) to maintain compatibility
-betSchema.virtual('id').get(function() {
+betSchema.virtual('id').get(function () {
     return this._id.toString();
 });
 

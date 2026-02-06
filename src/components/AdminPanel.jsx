@@ -30,6 +30,7 @@ import FeedbackView from './admin-views/FeedbackView';
 import FAQView from './admin-views/FAQView';
 import UserManualView from './admin-views/UserManualView';
 import SystemMonitorView from './admin-views/SystemMonitorView';
+import ProfileView from './admin-views/ProfileView';
 import '../admin.css';
 
 function AdminPanel({ onExit, role = 'admin' }) {
@@ -96,6 +97,8 @@ function AdminPanel({ onExit, role = 'admin' }) {
         return <BillingView />;
       case 'settings':
         return <SettingsView />;
+      case 'profile':
+        return <ProfileView />;
       case 'rules':
         return <RulesView />;
       case 'feedback':
@@ -116,6 +119,7 @@ function AdminPanel({ onExit, role = 'admin' }) {
       <AdminHeader
         onMenuToggle={() => setMobileSidebarOpen(!mobileSidebarOpen)}
         onLogout={handleLogout}
+        onViewChange={handleViewChange}
       />
       <div className="admin-container">
         <AdminSidebar

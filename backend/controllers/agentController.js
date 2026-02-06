@@ -3,7 +3,7 @@ const { User, Bet } = require('../models');
 // Create User (Agent specific)
 exports.createUser = async (req, res) => {
     try {
-        const { username, email, password, fullName } = req.body;
+        const { username, email, password, fullName, balance } = req.body;
         const agentId = req.user._id; // From auth middleware
 
         // Validation
@@ -23,6 +23,23 @@ exports.createUser = async (req, res) => {
             return res.status(409).json({ message: 'Email already exists' });
         }
 
+        // Check weekly creation limit for this agent
+        const oneWeekAgo = new Date();
+        oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+
+        const recentUsersCount = await User.countDocuments({
+            agentId: agentId,
+            createdAt: { $gte: oneWeekAgo }
+        });
+
+        // Limit: 10 users per week
+        const WEEKLY_LIMIT = 10;
+        if (recentUsersCount >= WEEKLY_LIMIT) {
+            return res.status(429).json({
+                message: `Weekly limit reached. You can only create ${WEEKLY_LIMIT} new customers per week.`
+            });
+        }
+
         // Create user assigned to this agent
         const newUser = new User({
             username,
@@ -31,7 +48,8 @@ exports.createUser = async (req, res) => {
             fullName: fullName || username,
             role: 'user',
             status: 'active',
-            balance: 0.00,
+            balance: balance != null ? balance : 1000,
+            pendingBalance: 0,
             agentId: agentId
         });
 
@@ -58,9 +76,37 @@ exports.getMyUsers = async (req, res) => {
     try {
         const agentId = req.user._id;
 
-        const users = await User.find({ agentId }).select('username email balance status createdAt totalWinnings');
+        const users = await User.find({ agentId }).select('username email balance pendingBalance status createdAt totalWinnings');
+        // Calculate active status (>= 2 bets in last 7 days)
+        const oneWeekAgo = new Date();
+        oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
 
-        res.json(users);
+        const activeUserIds = await Bet.aggregate([
+            { $match: { userId: { $in: users.map(u => u._id) }, createdAt: { $gte: oneWeekAgo } } },
+            { $group: { _id: '$userId', count: { $sum: 1 } } },
+            { $match: { count: { $gte: 2 } } }
+        ]);
+        const activeSet = new Set(activeUserIds.map(a => String(a._id)));
+
+        const formatted = users.map(user => {
+            const balance = parseFloat(user.balance?.toString() || '0');
+            const pendingBalance = parseFloat(user.pendingBalance?.toString() || '0');
+            const availableBalance = Math.max(0, balance - pendingBalance);
+            return {
+                id: user._id,
+                username: user.username,
+                email: user.email,
+                status: user.status,
+                createdAt: user.createdAt,
+                totalWinnings: user.totalWinnings,
+                balance,
+                pendingBalance,
+                availableBalance,
+                isActive: activeSet.has(String(user._id))
+            };
+        });
+
+        res.json(formatted);
     } catch (error) {
         console.error('Error fetching my users:', error);
         res.status(500).json({ message: 'Server error fetching users' });
@@ -112,5 +158,62 @@ exports.getAgentStats = async (req, res) => {
     } catch (error) {
         console.error('Error fetching agent stats:', error);
         res.status(500).json({ message: 'Server error fetching stats' });
+    }
+};
+
+// Agent updates customer balance owed (manual payment adjustments)
+exports.updateUserBalanceOwed = async (req, res) => {
+    try {
+        const agentId = req.user._id;
+        const { userId, balanceOwed, balance } = req.body;
+        const nextValue = balance !== undefined ? balance : balanceOwed;
+
+        if (!userId || nextValue === undefined) {
+            return res.status(400).json({ message: 'User ID and balance are required' });
+        }
+
+        const user = await User.findById(userId);
+        if (!user || user.role !== 'user') {
+            return res.status(404).json({ message: 'Customer not found' });
+        }
+
+        if (req.user.role === 'agent' && String(user.agentId) !== String(agentId)) {
+            return res.status(403).json({ message: 'Not authorized to update this customer' });
+        }
+
+        const balanceBefore = parseFloat(user.balance?.toString() || '0');
+        const nextBalance = Math.max(0, Number(nextValue));
+
+        user.balance = nextBalance;
+        await user.save();
+
+        const Transaction = require('../models/Transaction');
+        await Transaction.create({
+            userId: user._id,
+            agentId: req.user?._id || null,
+            amount: Math.abs(nextBalance - balanceBefore),
+            type: 'adjustment',
+            status: 'completed',
+            balanceBefore,
+            balanceAfter: nextBalance,
+            referenceType: 'Adjustment',
+            reason: 'AGENT_BALANCE_ADJUSTMENT',
+            description: 'Agent updated user balance'
+        });
+
+        const pendingBalance = parseFloat(user.pendingBalance?.toString() || '0');
+        const availableBalance = Math.max(0, nextBalance - pendingBalance);
+        res.json({
+            message: 'Balance updated',
+            user: {
+                id: user._id,
+                balance: nextBalance,
+                pendingBalance,
+                availableBalance
+            }
+        });
+    } catch (error) {
+        console.error('Error updating balance owed:', error);
+        res.status(500).json({ message: 'Server error updating balance owed' });
     }
 };

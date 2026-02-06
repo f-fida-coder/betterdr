@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { io } from 'socket.io-client';
-import { getMatches, getLiveMatches, API_URL } from '../api';
+import { getMatches, getLiveMatches, fetchOddsManual, API_URL } from '../api';
 
 // Use backend origin explicitly to avoid Vite serving index.html on relative fetch
 const SOCKET_URL = API_URL.replace(/\/api\/?$/, '') || 'http://localhost:5000';
@@ -45,9 +45,17 @@ export default function useMatches(options = {}) {
 
     useEffect(() => {
         let mounted = true;
+        const shouldRefreshOdds = options.refreshOdds !== false;
 
         const fetchMatches = async () => {
             try {
+                if (shouldRefreshOdds) {
+                    try {
+                        await fetchOddsManual();
+                    } catch (refreshError) {
+                        console.warn('useMatches: odds refresh failed', refreshError);
+                    }
+                }
                 const data = (statusFilter === 'live' || statusFilter === 'active')
                     ? await getLiveMatches()
                     : await getMatches();
@@ -56,6 +64,11 @@ export default function useMatches(options = {}) {
                 let filtered = normalized;
                 if (statusFilter === 'live' || statusFilter === 'active') {
                     filtered = normalized.filter(isLiveMatch);
+                    if (filtered.length === 0 && normalized.length > 0) {
+                        filtered = normalized;
+                    }
+                } else if (statusFilter === 'upcoming' || statusFilter === 'scheduled') {
+                    filtered = normalized.filter(m => !isFinishedMatch(m) && isUpcomingMatch(m));
                 } else if (statusFilter === 'live-upcoming' || statusFilter === 'active-upcoming') {
                     filtered = normalized.filter(m => !isFinishedMatch(m) && (isLiveMatch(m) || isUpcomingMatch(m) || (!isFinishedMatch(m) && !m.status)));
                 }
@@ -67,6 +80,12 @@ export default function useMatches(options = {}) {
         };
 
         fetchMatches();
+
+        const handleRefresh = () => {
+            fetchMatches();
+        };
+
+        window.addEventListener('matches:refresh', handleRefresh);
 
         // Force polling transport as websocket upgrade was failing in some dev setups
         const socket = io(SOCKET_URL, { transports: ['polling'], upgrade: false });
@@ -94,6 +113,8 @@ export default function useMatches(options = {}) {
                 let shouldKeep = true;
                 if (statusFilter === 'live' || statusFilter === 'active') {
                     shouldKeep = isLiveMatch(updatedMatch);
+                } else if (statusFilter === 'upcoming' || statusFilter === 'scheduled') {
+                    shouldKeep = !isFinishedMatch(updatedMatch) && isUpcomingMatch(updatedMatch);
                 } else if (statusFilter === 'live-upcoming' || statusFilter === 'active-upcoming') {
                     shouldKeep = !isFinishedMatch(updatedMatch) && (isLiveMatch(updatedMatch) || isUpcomingMatch(updatedMatch) || (!isFinishedMatch(updatedMatch) && !updatedMatch?.status));
                 }
@@ -120,8 +141,9 @@ export default function useMatches(options = {}) {
         return () => {
             mounted = false;
             try { socket.disconnect(); } catch (e) {}
+            window.removeEventListener('matches:refresh', handleRefresh);
         };
-    }, [statusFilter]);
+    }, [statusFilter, options.refreshOdds]);
 
     return matches;
 }

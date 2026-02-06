@@ -1,7 +1,13 @@
 import React from 'react';
 
-const SettingsModal = ({ onClose }) => {
+const SettingsModal = ({ onClose, balance, pendingBalance, availableBalance }) => {
     const isMobile = window.innerWidth <= 768;
+    const formatMoney = (value) => {
+        if (value === null || value === undefined || value === '') return '—';
+        const num = Number(value);
+        if (Number.isNaN(num)) return '—';
+        return `$ ${num.toFixed(2)}`;
+    };
     
     return (
         <div style={{
@@ -56,15 +62,15 @@ const SettingsModal = ({ onClose }) => {
                     <div style={{ border: '1px solid #ddd', borderRadius: '4px', marginBottom: '15px' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 15px', borderBottom: '1px solid #eee' }}>
                             <span style={{ fontWeight: 'bold', color: '#333' }}>Balance</span>
-                            <span style={{ fontWeight: 'bold', textDecoration: 'underline' }}>$ 0.00</span>
+                            <span style={{ fontWeight: 'bold', textDecoration: 'underline' }}>{formatMoney(balance)}</span>
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 15px', borderBottom: '1px solid #eee', background: '#f9f9f9' }}>
                             <span style={{ fontWeight: 'bold', color: '#333' }}>Pending</span>
-                            <span style={{ fontWeight: 'bold', textDecoration: 'underline' }}>$ 0.00</span>
+                            <span style={{ fontWeight: 'bold', textDecoration: 'underline' }}>{formatMoney(pendingBalance)}</span>
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 15px' }}>
                             <span style={{ fontWeight: 'bold', color: '#333' }}>Available</span>
-                            <span style={{ fontWeight: 'bold', textDecoration: 'underline' }}>$ 0.00</span>
+                            <span style={{ fontWeight: 'bold', textDecoration: 'underline' }}>{formatMoney(availableBalance)}</span>
                         </div>
                     </div>
 

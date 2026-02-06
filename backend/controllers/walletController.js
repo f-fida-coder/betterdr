@@ -5,9 +5,13 @@ const getBalance = async (req, res) => {
     try {
         const user = await User.findById(req.user._id);
         if (user) {
+            const balance = parseFloat(user.balance?.toString() || '0');
+            const pendingBalance = parseFloat(user.pendingBalance?.toString() || '0');
+            const availableBalance = Math.max(0, balance - pendingBalance);
             res.json({
-                balance: user.balance,
-                pendingBalance: user.pendingBalance,
+                balance,
+                pendingBalance,
+                availableBalance,
                 totalWinnings: user.totalWinnings,
             });
         } else {
@@ -20,45 +24,14 @@ const getBalance = async (req, res) => {
 
 // For testing purposes - manual deposit
 const deposit = async (req, res) => {
-    const session = await mongoose.startSession();
-    session.startTransaction();
-
     try {
         const { amount } = req.body;
         const userId = req.user._id;
 
-        if (!amount || amount <= 0) {
-            await session.abortTransaction();
-            return res.status(400).json({ message: 'Invalid amount' });
-        }
-
-        const user = await User.findById(userId).session(session);
-
-        try {
-            const newBalance = parseFloat(user.balance.toString()) + parseFloat(amount);
-
-            user.balance = newBalance;
-            await user.save({ session });
-
-            await Transaction.create([{
-                userId,
-                amount,
-                type: 'deposit',
-                description: 'Manual deposit'
-            }], { session });
-
-            await session.commitTransaction();
-
-            res.json({ message: 'Deposit successful', balance: newBalance });
-        } catch (err) {
-            await session.abortTransaction();
-            throw err;
-        }
+        return res.status(403).json({ message: 'Deposits are disabled. Customers use credit only.' });
 
     } catch (error) {
         res.status(500).json({ message: 'Server error', error: error.message });
-    } finally {
-        await session.endSession();
     }
 }
 

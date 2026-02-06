@@ -7,9 +7,11 @@ const {
 	unsuspendUser,
 	getStats,
 	getSystemStats,
+	getAdminHeaderSummary,
 	createAgent,
 	createUser,
 	updateAgent,
+	updateUserCredit,
 	refreshOdds,
 	getWeeklyFigures,
 	getPendingTransactions,
@@ -67,25 +69,36 @@ const {
 	getManualSections,
 	createManualSection,
 	updateManualSection,
-	deleteManualSection
+	deleteManualSection,
+	fetchOddsManual,
+	resetUserPassword,
+	resetAgentPassword
 } = require('../controllers/adminController');
 const { protect } = require('../middleware/authMiddleware');
-const { adminOnly } = require('../middleware/roleMiddleware');
+const { adminOnly, adminOrAgent } = require('../middleware/roleMiddleware');
+const rateLimit = require('../middleware/rateLimit');
 
-router.get('/users', protect, adminOnly, getUsers);
+
+const adminRefreshLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 1 });
+const manualFetchLimiter = rateLimit({ windowMs: 5 * 60 * 1000, max: 1 });
+
+router.get('/users', protect, adminOrAgent, getUsers);
 router.get('/agents', protect, adminOnly, getAgents);
 router.post('/create-agent', protect, adminOnly, createAgent);
 router.put('/agent/:id', protect, adminOnly, updateAgent); // New Route
-router.post('/create-user', protect, adminOnly, createUser);
-router.post('/suspend', protect, adminOnly, suspendUser);
-router.post('/unsuspend', protect, adminOnly, unsuspendUser);
-router.get('/stats', protect, adminOnly, getStats);
-router.get('/system-stats', protect, adminOnly, getSystemStats);
-router.post('/refresh-odds', protect, adminOnly, refreshOdds); // New Route
-router.get('/weekly-figures', protect, adminOnly, getWeeklyFigures);
-router.get('/pending', protect, adminOnly, getPendingTransactions);
-router.post('/pending/approve', protect, adminOnly, approvePendingTransaction);
-router.post('/pending/decline', protect, adminOnly, declinePendingTransaction);
+router.post('/create-user', protect, adminOrAgent, createUser);
+router.post('/suspend', protect, adminOrAgent, suspendUser);
+router.post('/unsuspend', protect, adminOrAgent, unsuspendUser);
+router.put('/users/:id/credit', protect, adminOrAgent, updateUserCredit);
+router.get('/stats', protect, adminOrAgent, getStats);
+router.get('/system-stats', protect, adminOrAgent, getSystemStats);
+router.get('/header-summary', protect, adminOrAgent, getAdminHeaderSummary);
+router.post('/refresh-odds', protect, adminOnly, adminRefreshLimiter, refreshOdds); // New Route
+router.post('/fetch-odds', protect, adminOnly, manualFetchLimiter, fetchOddsManual);
+router.get('/weekly-figures', protect, adminOrAgent, getWeeklyFigures);
+router.get('/pending', protect, adminOrAgent, getPendingTransactions);
+router.post('/pending/approve', protect, adminOrAgent, approvePendingTransaction);
+router.post('/pending/decline', protect, adminOrAgent, declinePendingTransaction);
 router.get('/messages', protect, adminOnly, getMessages);
 router.post('/messages/:id/read', protect, adminOnly, markMessageRead);
 router.post('/messages/:id/reply', protect, adminOnly, replyToMessage);
@@ -139,5 +152,9 @@ router.get('/manual', protect, adminOnly, getManualSections);
 router.post('/manual', protect, adminOnly, createManualSection);
 router.put('/manual/:id', protect, adminOnly, updateManualSection);
 router.delete('/manual/:id', protect, adminOnly, deleteManualSection);
+
+// Password Reset Routes
+router.post('/users/:id/reset-password', protect, adminOrAgent, resetUserPassword);
+router.post('/agents/:id/reset-password', protect, adminOnly, resetAgentPassword);
 
 module.exports = router;

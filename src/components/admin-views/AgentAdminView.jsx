@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { getAgents, createAgent, updateAgent, suspendUser, unsuspendUser } from '../../api';
+import { getAgents, createAgent, updateAgent, suspendUser, unsuspendUser, resetAgentPasswordByAdmin } from '../../api';
 
 function AgentAdminView() {
   const [agents, setAgents] = useState([]);
@@ -10,8 +10,15 @@ function AgentAdminView() {
   const [selectedAgent, setSelectedAgent] = useState(null);
 
   const [newAgent, setNewAgent] = useState({ username: '', email: '', password: '' });
-  const [editForm, setEditForm] = useState({ id: '', email: '', password: '' }); // Only allow email/pass edit for safety
+  const [editForm, setEditForm] = useState({ id: '', email: '', password: '', agentBillingRate: '', agentBillingStatus: 'paid' });
   const [error, setError] = useState(null);
+
+  const formatMoney = (value) => {
+    if (value === null || value === undefined || value === '') return '—';
+    const num = Number(value);
+    if (Number.isNaN(num)) return '—';
+    return `$${num.toFixed(2)}`;
+  };
 
   React.useEffect(() => {
     fetchAgents();
@@ -73,7 +80,9 @@ function AgentAdminView() {
     setEditForm({
       id: agent.id || agent._id,
       email: agent.email || '',
-      password: '' // Don't show existing hash
+      password: '', // Don't show existing hash
+      agentBillingRate: agent.agentBillingRate ?? '',
+      agentBillingStatus: agent.agentBillingStatus || 'paid'
     });
     setSelectedAgent(agent);
     setShowEditModal(true);
@@ -87,7 +96,7 @@ function AgentAdminView() {
       const token = localStorage.getItem('token');
       if (!token) throw new Error('No token found');
 
-      const updateData = { email: editForm.email };
+      const updateData = { email: editForm.email, agentBillingRate: editForm.agentBillingRate, agentBillingStatus: editForm.agentBillingStatus };
       if (editForm.password) updateData.password = editForm.password;
 
       await updateAgent(editForm.id, updateData, token);
@@ -103,6 +112,51 @@ function AgentAdminView() {
   const openViewModal = (agent) => {
     setSelectedAgent(agent);
     setShowViewModal(true);
+  };
+
+  const handleAdjustBalance = async (agent) => {
+    const agentId = agent.id || agent._id;
+    const currentBalance = agent.balance ?? 0;
+    const input = window.prompt('Enter new agent balance:', `${currentBalance}`);
+    if (input === null) return;
+    const nextBalance = Number(input);
+    if (Number.isNaN(nextBalance)) {
+      alert('Balance must be a valid number.');
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) throw new Error('No token found');
+
+      await updateAgent(agentId, { balance: nextBalance }, token);
+      fetchAgents();
+    } catch (err) {
+      alert('Failed to update agent balance: ' + (err.message || 'Unknown error'));
+    }
+  };
+
+  const handleResetPassword = async (agent) => {
+    const agentId = agent.id || agent._id;
+    const newPassword = window.prompt(`Enter new password for agent ${agent.username}:`, '');
+
+    if (newPassword === null) return;
+
+    if (newPassword.length < 6) {
+      alert('Password must be at least 6 characters long');
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) throw new Error('No token found');
+
+      await resetAgentPasswordByAdmin(agentId, newPassword, token);
+      alert(`Password for agent ${agent.username} has been reset successfully.`);
+    } catch (err) {
+      console.error('Agent password reset failed:', err);
+      alert(err.message || 'Failed to reset agent password');
+    }
   };
 
   return (
@@ -153,6 +207,26 @@ function AgentAdminView() {
                 <label>New Password (leave blank to keep)</label>
                 <input type="password" value={editForm.password} onChange={e => setEditForm({ ...editForm, password: e.target.value })} />
               </div>
+              <div className="form-group">
+                <label>Rate per Customer (Weekly)</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={editForm.agentBillingRate}
+                  onChange={e => setEditForm({ ...editForm, agentBillingRate: e.target.value })}
+                />
+              </div>
+              <div className="form-group">
+                <label>Billing Status</label>
+                <select
+                  value={editForm.agentBillingStatus}
+                  onChange={e => setEditForm({ ...editForm, agentBillingStatus: e.target.value })}
+                  style={{ width: '100%', padding: '0.5rem', background: '#333', border: '1px solid #444', color: '#fff', borderRadius: '4px' }}
+                >
+                  <option value="paid">Paid</option>
+                  <option value="unpaid">Unpaid</option>
+                </select>
+              </div>
               <div className="modal-actions">
                 <button type="submit" className="btn-primary">Save Changes</button>
                 <button type="button" className="btn-secondary" onClick={() => setShowEditModal(false)}>Cancel</button>
@@ -173,6 +247,12 @@ function AgentAdminView() {
             <div className="detail-row"><label>Created By:</label> <span>{selectedAgent.createdBy?.username || 'System'}</span></div>
             <div className="detail-row"><label>Created At:</label> <span>{new Date(selectedAgent.createdAt).toLocaleString()}</span></div>
             <div className="detail-row"><label>Customers:</label> <span>{selectedAgent.userCount}</span></div>
+            <div className="detail-row"><label>Active Customers:</label> <span>{selectedAgent.activeCustomerCount || 0}</span></div>
+            <div className="detail-row"><label>Balance:</label> <span>{formatMoney(selectedAgent.balance)}</span></div>
+            <div className="detail-row"><label>Rate per Customer:</label> <span>${Number(selectedAgent.agentBillingRate || 0).toFixed(2)}</span></div>
+            <div className="detail-row"><label>Weekly Charge:</label> <span>${Number(selectedAgent.weeklyCharge || 0).toFixed(2)}</span></div>
+            <div className="detail-row"><label>Billing Status:</label> <span>{selectedAgent.agentBillingStatus || 'paid'}</span></div>
+            <div className="detail-row"><label>View Only:</label> <span>{selectedAgent.viewOnly ? 'Yes' : 'No'}</span></div>
 
             <div className="modal-actions">
               <button type="button" className="btn-secondary" onClick={() => setShowViewModal(false)}>Close</button>
@@ -191,17 +271,20 @@ function AgentAdminView() {
                 <th>Status</th>
                 <th>Created By</th>
                 <th>Customers</th>
-                <th>Revenue</th>
+                <th>Balance</th>
+                <th>Rate/Customer</th>
+                <th>Weekly Charge</th>
+                <th>Billing</th>
                 <th>Action</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan="7">Loading agents...</td></tr>
+                <tr><td colSpan="9">Loading agents...</td></tr>
               ) : error ? (
-                <tr><td colSpan="7">{error}</td></tr>
+                <tr><td colSpan="9">{error}</td></tr>
               ) : agents.length === 0 ? (
-                <tr><td colSpan="7">No agents found.</td></tr>
+                <tr><td colSpan="9">No agents found.</td></tr>
               ) : agents.map(agent => (
                 <tr key={agent.id || agent._id}>
                   <td>{agent.username}</td>
@@ -211,16 +294,21 @@ function AgentAdminView() {
                     {agent.createdBy ? (agent.createdBy.username) : 'System'}
                   </td>
                   <td>{agent.userCount || 0}</td>
-                  <td>{agent.balance != null ? (typeof agent.balance === 'number' ? `$${agent.balance.toFixed(2)}` : agent.balance) : '$0.00'}</td>
+                  <td>{formatMoney(agent.balance)}</td>
+                  <td>${Number(agent.agentBillingRate || 0).toFixed(2)}</td>
+                  <td>${Number(agent.weeklyCharge || 0).toFixed(2)}</td>
+                  <td><span className={`badge ${agent.agentBillingStatus === 'unpaid' ? 'warning' : 'active'}`}>{agent.agentBillingStatus || 'paid'}</span></td>
                   <td>
                     <button className="btn-small" onClick={() => openEditModal(agent)}>Edit</button>
                     <button className="btn-small" onClick={() => openViewModal(agent)}>View</button>
+                    <button className="btn-small" onClick={() => handleAdjustBalance(agent)}>Adjust Balance</button>
                     <button
                       className={`btn-small ${agent.status === 'suspended' ? 'btn-success' : 'btn-danger'}`}
                       onClick={() => handleToggleStatus(agent)}
                     >
                       {agent.status === 'suspended' ? 'Activate' : 'Deactivate'}
                     </button>
+                    <button className="btn-small btn-secondary" onClick={() => handleResetPassword(agent)}>Reset Pass</button>
                   </td>
                 </tr>
               ))}

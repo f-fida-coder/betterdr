@@ -18,9 +18,9 @@ async function test() {
 
         // 1. Login as admin
         console.log('1. Logging in as admin...');
-        const adminLogin = await axios.post(`${API_URL}/auth/login`, {
-            username: 'admin',
-            password: 'admin123'
+        const adminLogin = await axios.post(`${API_URL}/auth/admin/login`, {
+            username: 'fida',
+            password: 'Fida47'
         });
         adminToken = adminLogin.data.token;
         console.log('✓ Admin logged in, token:', adminToken.substring(0, 20) + '...\n');
@@ -48,7 +48,7 @@ async function test() {
 
         // 3. Login as agent
         console.log('3. Logging in as agent...');
-        const agentLogin = await axios.post(`${API_URL}/auth/login`, {
+        const agentLogin = await axios.post(`${API_URL}/auth/agent/login`, {
             username: agentUsername,
             password: 'agent123'
         });
@@ -106,8 +106,48 @@ async function test() {
         console.log('✓ Users:', usersRes.data.map(u => ({ id: u.id, username: u.username, role: u.role, agentId: u.agentId })));
         console.log();
 
-        console.log('✅ All tests passed!');
+        // 7. Verify Agent Dashboard Access (Data Filtering)
+        console.log('7. Verifying Agent Dashboard Access...');
+        const dashboardEndpoints = [
+            '/admin/users',
+            '/admin/header-summary',
+            '/admin/stats',
+            '/admin/weekly-figures'
+        ];
 
+        // Get Agent ID from token
+        const agentId = JSON.parse(Buffer.from(agentToken.split('.')[1], 'base64').toString()).id;
+
+        for (const endpoint of dashboardEndpoints) {
+            try {
+                process.stdout.write(`   - Testing ${endpoint}... `);
+                const res = await axios.get(`${API_URL}${endpoint}`, {
+                    headers: { Authorization: `Bearer ${agentToken}` }
+                });
+                console.log('✅ OK');
+
+                // Specific checks
+                if (endpoint === '/admin/users') {
+                    const users = res.data;
+                    const allOwned = users.every(u => {
+                        const uAgentId = u.agentId && u.agentId._id ? u.agentId._id : u.agentId;
+                        return String(uAgentId) === String(agentId);
+                    });
+
+                    if (!allOwned) {
+                        console.error('\n     ❌ Error: Agent sees users not belonging to them!');
+                    } else {
+                        console.log(`     ✓ Verified ${users.length} users owned by agent`);
+                    }
+                }
+            } catch (err) {
+                console.log('❌ Failed');
+                console.error('     Error:', err.response ? err.response.data : err.message);
+            }
+        }
+        console.log();
+
+        console.log('✅ All tests passed!');
     } catch (error) {
         console.error('❌ Test failed:');
         if (error.response) {

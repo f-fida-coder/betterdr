@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { createAdminMatch, getAdminMatches, refreshOdds, clearCache } from '../../api';
+import { createPortal } from 'react-dom';
+import { createAdminMatch, getAdminMatches, refreshOdds, clearCache, settleMatchBets } from '../../api';
 
 function GamesEventsView() {
   const [periodFilter, setPeriodFilter] = useState('game');
@@ -18,6 +19,7 @@ function GamesEventsView() {
     sport: 'basketball',
     status: 'scheduled'
   });
+  const MIN_LOADING_MS = 600;
 
   const sportsIcons = [
     { id: 'nfl', label: 'NFL', icon: '🏈' },
@@ -149,12 +151,17 @@ function GamesEventsView() {
       return;
     }
     try {
+      const startedAt = Date.now();
       setActionLoading('odds');
       await refreshOdds(token);
       loadMatches();
     } catch (err) {
       setError(err.message || 'Failed to update odds');
     } finally {
+      const elapsed = Date.now() - startedAt;
+      if (elapsed < MIN_LOADING_MS) {
+        await new Promise(resolve => setTimeout(resolve, MIN_LOADING_MS - elapsed));
+      }
       setActionLoading('');
     }
   };
@@ -175,11 +182,55 @@ function GamesEventsView() {
     }
   };
 
+  const handleSettleMatch = async (match) => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setError('Please login as admin to settle matches.');
+      return;
+    }
+
+    const winnerChoice = window.prompt(
+      `Set winner for ${match.homeTeam} vs ${match.awayTeam}. Type "home" or "away":`,
+      'home'
+    );
+    if (!winnerChoice) return;
+
+    const normalized = winnerChoice.trim().toLowerCase();
+    if (normalized !== 'home' && normalized !== 'away') {
+      setError('Winner must be "home" or "away".');
+      return;
+    }
+
+    const winner = normalized === 'home' ? match.homeTeam : match.awayTeam;
+
+    try {
+      setActionLoading(`settle-${match.id || match._id}`);
+      await settleMatchBets({ matchId: match.id || match._id, winner }, token);
+      await loadMatches();
+      setError('');
+      alert('Match settled successfully.');
+    } catch (err) {
+      setError(err.message || 'Failed to settle match');
+    } finally {
+      setActionLoading('');
+    }
+  };
+
   return (
     <div className="admin-view">
       <div className="view-header">
         <h2>Games & Events Management</h2>
       </div>
+
+      {actionLoading === 'odds' && createPortal(
+        <div className="admin-loading-overlay">
+          <div className="admin-loading-card">
+            <div className="admin-spinner" />
+            <div>Refreshing odds & scores...</div>
+          </div>
+        </div>,
+        document.body
+      )}
 
       <div className="view-content">
         {loading && <div style={{ padding: '20px', textAlign: 'center' }}>Loading games...</div>}
@@ -233,6 +284,7 @@ function GamesEventsView() {
                   {eventColumns.map(col => (
                     <th key={col.key}>{col.header}</th>
                   ))}
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -248,6 +300,15 @@ function GamesEventsView() {
                     <td>—</td>
                     <td>—</td>
                     <td>—</td>
+                    <td>
+                      <button
+                        className="btn-small"
+                        onClick={() => handleSettleMatch(match)}
+                        disabled={actionLoading === `settle-${match.id || match._id}`}
+                      >
+                        {actionLoading === `settle-${match.id || match._id}` ? 'Settling...' : 'Settle'}
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -312,10 +373,18 @@ function GamesEventsView() {
           <h4>Quick Actions:</h4>
           <button className="btn-primary" onClick={() => setShowAddModal(true)}>Add Game</button>
           <button className="btn-secondary" onClick={handleRefreshOdds} disabled={actionLoading === 'odds'}>
-            {actionLoading === 'odds' ? 'Working...' : 'Import Games'}
+            {actionLoading === 'odds' ? (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                <span className="admin-inline-spinner" /> Working...
+              </span>
+            ) : 'Import Games'}
           </button>
           <button className="btn-secondary" onClick={handleRefreshOdds} disabled={actionLoading === 'odds'}>
-            {actionLoading === 'odds' ? 'Working...' : 'Update Odds'}
+            {actionLoading === 'odds' ? (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                <span className="admin-inline-spinner" /> Working...
+              </span>
+            ) : 'Update Odds'}
           </button>
           <button className="btn-danger" onClick={handleClearCache} disabled={actionLoading === 'cache'}>
             {actionLoading === 'cache' ? 'Working...' : 'Clear Cache'}

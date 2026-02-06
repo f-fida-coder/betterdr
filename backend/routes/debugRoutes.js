@@ -1,9 +1,11 @@
 const express = require('express');
 const router = express.Router();
 const socketIo = require('../socket');
+const { protect } = require('../middleware/authMiddleware');
+const { adminOnly } = require('../middleware/roleMiddleware');
 
 // POST /api/debug/emit-match
-router.post('/emit-match', (req, res) => {
+router.post('/emit-match', protect, adminOnly, (req, res) => {
     try {
         const io = socketIo.getIo();
         const payload = req.body && Object.keys(req.body).length ? req.body : {

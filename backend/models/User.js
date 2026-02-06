@@ -31,6 +31,16 @@ const userSchema = new mongoose.Schema(
             default: 0.00,
             get: (value) => value ? value.toString() : '0.00',
         },
+        creditLimit: {
+            type: mongoose.Decimal128,
+            default: 1000.00,
+            get: (value) => value ? value.toString() : '0.00',
+        },
+        balanceOwed: {
+            type: mongoose.Decimal128,
+            default: 0.00,
+            get: (value) => value ? value.toString() : '0.00',
+        },
         pendingBalance: {
             type: mongoose.Decimal128,
             default: 0.00,
@@ -43,9 +53,8 @@ const userSchema = new mongoose.Schema(
         },
         role: {
             type: String,
-            enum: ['user', 'agent', 'admin'],
             default: 'user',
-            index: true,
+            immutable: true
         },
         status: {
             type: String,
@@ -54,13 +63,35 @@ const userSchema = new mongoose.Schema(
         },
         agentId: {
             type: mongoose.Schema.Types.ObjectId,
-            ref: 'User',
+            ref: 'Agent', // Updated ref to Agent collection
             default: null,
         },
         createdBy: {
             type: mongoose.Schema.Types.ObjectId,
-            ref: 'User',
+            ref: 'User', // Could be Agent or Admin, keep generic or update later
             default: null,
+        },
+        isVerified: {
+            type: Boolean,
+            default: false,
+        },
+        kycVerifiedAt: {
+            type: Date,
+            default: null,
+        },
+        accountStatus: {
+            type: String,
+            enum: ['active', 'suspended', 'closed'],
+            default: 'active',
+        },
+        betCount: {
+            type: Number,
+            default: 0,
+        },
+        totalWagered: {
+            type: mongoose.Decimal128,
+            default: 0.00,
+            get: (value) => value ? value.toString() : '0.00',
         },
     },
     {
@@ -73,6 +104,20 @@ const userSchema = new mongoose.Schema(
 // Virtual field for id (alias of _id) to maintain compatibility
 userSchema.virtual('id').get(function () {
     return this._id.toString();
+});
+
+userSchema.virtual('availableCredit').get(function () {
+    const limit = parseFloat(this.creditLimit ? this.creditLimit.toString() : '0');
+    const owed = parseFloat(this.balanceOwed ? this.balanceOwed.toString() : '0');
+    const available = limit - owed;
+    return available < 0 ? 0 : available;
+});
+
+userSchema.virtual('availableBalance').get(function () {
+    const balance = parseFloat(this.balance ? this.balance.toString() : '0');
+    const pending = parseFloat(this.pendingBalance ? this.pendingBalance.toString() : '0');
+    const available = balance - pending;
+    return available < 0 ? 0 : available;
 });
 
 // Hash password before saving

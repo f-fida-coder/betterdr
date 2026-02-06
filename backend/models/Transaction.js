@@ -5,7 +5,19 @@ const transactionSchema = new mongoose.Schema(
         userId: {
             type: mongoose.Schema.Types.ObjectId,
             ref: 'User',
-            required: true,
+            required: false,
+            index: true,
+        },
+        agentId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'User',
+            default: null,
+            index: true,
+        },
+        adminId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'User',
+            default: null,
             index: true,
         },
         amount: {
@@ -15,7 +27,7 @@ const transactionSchema = new mongoose.Schema(
         },
         type: {
             type: String,
-            enum: ['deposit', 'withdrawal', 'bet_placed', 'bet_won', 'bet_refund'],
+            enum: ['deposit', 'withdrawal', 'bet_placed', 'bet_won', 'bet_lost', 'bet_refund', 'adjustment', 'payment'],
             required: true,
             index: true,
         },
@@ -25,6 +37,30 @@ const transactionSchema = new mongoose.Schema(
             default: 'completed',
             index: true,
         },
+
+        balanceBefore: {
+            type: mongoose.Decimal128,
+            default: null,
+            get: (value) => value ? value.toString() : null,
+        },
+        balanceAfter: {
+            type: mongoose.Decimal128,
+            default: null,
+            get: (value) => value ? value.toString() : null,
+        },
+        reason: {
+            type: String,
+            default: null, // e.g., 'BET_WON', 'DEPOSIT_STRIPE'
+        },
+        referenceType: {
+            type: String,
+            enum: ['Bet', 'Payment', 'Adjustment', null],
+            default: null,
+        },
+        referenceId: {
+            type: mongoose.Schema.Types.ObjectId,
+            default: null,
+        },
         stripePaymentId: {
             type: String,
             default: null,
@@ -32,6 +68,19 @@ const transactionSchema = new mongoose.Schema(
         description: {
             type: String,
             default: null,
+        },
+        ipAddress: {
+            type: String,
+            default: null,
+        },
+        userAgent: {
+            type: String,
+            default: null,
+        },
+        metadata: {
+            type: Map,
+            of: String,
+            default: {},
         },
     },
     {
@@ -42,7 +91,7 @@ const transactionSchema = new mongoose.Schema(
 );
 
 // Virtual field for id (alias of _id) to maintain compatibility
-transactionSchema.virtual('id').get(function() {
+transactionSchema.virtual('id').get(function () {
     return this._id.toString();
 });
 

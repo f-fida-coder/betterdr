@@ -4,7 +4,7 @@ function AdminSidebar({ activeView, onViewChange, isOpen, role = 'admin' }) {
 
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: '🏠', roles: ['admin', 'agent'] },
-    { id: 'weekly-figures', label: 'Weekly Figures', icon: '📊', roles: ['admin'] },
+    { id: 'weekly-figures', label: 'Weekly Figures', icon: '📊', roles: ['admin', 'agent'] },
     { id: 'pending', label: 'Pending', icon: '📋', roles: ['admin', 'agent'] },
     { id: 'messaging', label: 'Messaging', icon: '✉️', roles: ['admin'] },
     { id: 'game-admin', label: 'Game Admin', icon: '🎮', roles: ['admin'] },

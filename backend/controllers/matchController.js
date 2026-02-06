@@ -40,7 +40,27 @@ const getMatchById = async (req, res) => {
     }
 };
 
+// @desc    Manual fetch odds (public)
+// @route   POST /api/matches/fetch-odds
+// @access  Public (rate limited)
+const fetchOddsPublic = async (_req, res) => {
+    try {
+        const allowPublicRefresh = String(process.env.PUBLIC_ODDS_REFRESH || 'true').toLowerCase() === 'true';
+        if (!allowPublicRefresh) {
+            return res.status(403).json({ message: 'Public odds refresh is disabled' });
+        }
+        const oddsService = require('../services/oddsService');
+        console.log('🧪 Manual odds fetch triggered by public refresh');
+        const results = await oddsService.updateMatches({ source: 'public', forceFetch: true });
+        res.json({ message: 'Manual odds fetch completed', results });
+    } catch (error) {
+        console.error('Error in manual public odds fetch:', error);
+        res.status(500).json({ message: 'Server error manual odds fetch' });
+    }
+};
+
 module.exports = {
     getMatches,
-    getMatchById
+    getMatchById,
+    fetchOddsPublic
 };

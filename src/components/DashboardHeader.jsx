@@ -4,7 +4,7 @@ import ScoreboardSidebar from './ScoreboardSidebar';
 import SettingsModal from './SettingsModal';
 import PersonalizeSidebar from './PersonalizeSidebar';
 
-const DashboardHeader = ({ username, balance, pendingBalance, onViewChange, activeBetMode = 'straight', onBetModeChange, currentView, onToggleSidebar, selectedSports = [], onContinue, onLogout, isMobileSportsSelectionMode = false, onHomeClick }) => {
+const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, onViewChange, activeBetMode = 'straight', onBetModeChange, currentView, onToggleSidebar, selectedSports = [], onContinue, onLogout, isMobileSportsSelectionMode = false, onHomeClick, role, unlimitedBalance }) => {
     const [showLiveMenu, setShowLiveMenu] = useState(false);
     const [showMoreMenu, setShowMoreMenu] = useState(false);
     const [showUserMenu, setShowUserMenu] = useState(false);
@@ -25,6 +25,7 @@ const DashboardHeader = ({ username, balance, pendingBalance, onViewChange, acti
     const [showSettingsModal, setShowSettingsModal] = useState(false);
     const [showPersonalizeSidebar, setShowPersonalizeSidebar] = useState(false);
     const formatMoney = (value) => {
+        if (unlimitedBalance) return 'Unlimited';
         if (value === null || value === undefined || value === '') return '—';
         const num = Number(value);
         if (Number.isNaN(num)) return '—';
@@ -71,7 +72,13 @@ const DashboardHeader = ({ username, balance, pendingBalance, onViewChange, acti
 
                         <div
                             className={`icon-btn ${currentView === 'bonus' ? 'active-bonus' : ''}`}
-                            onClick={() => onViewChange && onViewChange(hasSelection ? 'bonus' : 'bonus')}
+                            onClick={() => {
+                                if (role === 'user') {
+                                    alert('Deposits and Withdrawals are managed by your Agent. Please contact them to update your balance.');
+                                    return;
+                                }
+                                onViewChange && onViewChange(hasSelection ? 'bonus' : 'bonus');
+                            }}
                         >
                             <i className="fa-solid fa-cash-register"></i>
                             <span>{hasSelection ? 'BONUS' : 'CASHIER'}</span>
@@ -81,7 +88,7 @@ const DashboardHeader = ({ username, balance, pendingBalance, onViewChange, acti
                     <div className="right-section">
                         {(!hasSelection || currentView === 'bonus' || (hasSelection && !isMobileSportsSelectionMode)) ? (
                             <div className="balance-container">
-                                <div className="balance-amount">{formatMoney(balance)}</div>
+                                <div className="balance-amount">{formatMoney(availableBalance)}</div>
                                 <div className="balance-label">BALANCE</div>
                             </div>
                         ) : (
@@ -127,6 +134,11 @@ const DashboardHeader = ({ username, balance, pendingBalance, onViewChange, acti
                         <div className="usd-item" onClick={() => { onViewChange && onViewChange('support'); setShowUserMenu(false); }}>
                             <div className="usd-icon"><i className="fa-solid fa-headset"></i></div>
                             <div className="usd-text">SUPPORT</div>
+                            <div className="usd-right-icon"><i className="fa-solid fa-chevron-right"></i></div>
+                        </div>
+                        <div className="usd-item" onClick={() => { onViewChange && onViewChange('my-bets'); setShowUserMenu(false); }}>
+                            <div className="usd-icon"><i className="fa-solid fa-list"></i></div>
+                            <div className="usd-text">MY BETS</div>
                             <div className="usd-right-icon"><i className="fa-solid fa-chevron-right"></i></div>
                         </div>
                         <div className="usd-item signout" onClick={onLogout}>
@@ -292,18 +304,18 @@ const DashboardHeader = ({ username, balance, pendingBalance, onViewChange, acti
                 </div>
                 <div className="dash-user-info">
                     <div className="dash-balance">
-                        <span>BALANCE</span>
+                        <span>CREDIT LIMIT</span>
                         <strong>{formatMoney(balance)}</strong>
                     </div>
                     <div className="dash-balance">
-                        <span>PENDING</span>
+                        <span>BALANCE OWED</span>
                         <strong>{formatMoney(pendingBalance)}</strong>
                     </div>
                     <div className="dash-balance">
-                        <span>AVAILABLE</span>
-                        <strong>{formatMoney(balance)}</strong>
+                        <span>AVAILABLE CREDIT</span>
+                        <strong>{formatMoney(availableBalance)}</strong>
                     </div>
-                    
+
                     <div
                         style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', position: 'relative' }}
                         onClick={() => setShowUserMenu(!showUserMenu)}
@@ -347,6 +359,11 @@ const DashboardHeader = ({ username, balance, pendingBalance, onViewChange, acti
                                     <div className="usd-text">Support</div>
                                     <div className="usd-right-icon"><i className="fa-solid fa-chevron-right"></i></div>
                                 </div>
+                                <div className="usd-item" onClick={() => onViewChange && onViewChange('my-bets')}>
+                                    <div className="usd-icon"><i className="fa-solid fa-list"></i></div>
+                                    <div className="usd-text">My Bets</div>
+                                    <div className="usd-right-icon"><i className="fa-solid fa-chevron-right"></i></div>
+                                </div>
                                 <div className="usd-item signout" onClick={onLogout}>
                                     <div className="usd-icon"><i className="fa-solid fa-power-off"></i></div>
                                     <div className="usd-text">SIGN OUT</div>
@@ -385,7 +402,11 @@ const DashboardHeader = ({ username, balance, pendingBalance, onViewChange, acti
                         </div>
 
                         <div className="bet-action-group">
-                            <button className="action-btn refresh-btn" title="Refresh">
+                            <button
+                                className="action-btn refresh-btn"
+                                title="Refresh"
+                                onClick={() => window.dispatchEvent(new CustomEvent('matches:refresh'))}
+                            >
                                 <i className="fa-solid fa-arrows-rotate" style={{ fontSize: '16px' }}></i>
                                 <span>REFRESH</span>
                             </button>
@@ -565,7 +586,12 @@ const DashboardHeader = ({ username, balance, pendingBalance, onViewChange, acti
             {showScoreboard && <ScoreboardSidebar onClose={() => setShowScoreboard(false)} />}
 
             {showSettingsModal && createPortal(
-                <SettingsModal onClose={() => setShowSettingsModal(false)} />,
+                <SettingsModal
+                    onClose={() => setShowSettingsModal(false)}
+                    balance={balance}
+                    pendingBalance={pendingBalance}
+                    availableBalance={availableBalance}
+                />,
                 document.body
             )}
 

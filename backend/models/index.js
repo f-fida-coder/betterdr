@@ -1,5 +1,7 @@
 const mongoose = require('mongoose');
 const User = require('./User');
+const Admin = require('./Admin');
+const Agent = require('./Agent');
 const Bet = require('./Bet');
 const Transaction = require('./Transaction');
 const Match = require('./Match');
@@ -15,10 +17,13 @@ const Rule = require('./Rule');
 const Feedback = require('./Feedback');
 const Faq = require('./Faq');
 const ManualSection = require('./ManualSection');
+const BetLimit = require('./BetLimit');
 
 const db = {
     mongoose,
     User,
+    Admin,
+    Agent,
     Bet,
     Transaction,
     Match,
@@ -34,6 +39,7 @@ const db = {
     Feedback,
     Faq,
     ManualSection,
+    BetLimit,
 };
 
 // Note: Relationships are defined using refs in the schemas

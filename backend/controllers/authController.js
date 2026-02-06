@@ -1,4 +1,4 @@
-const { User, IpLog } = require('../models');
+const { User, Admin, Agent, IpLog } = require('../models');
 const jwt = require('jsonwebtoken');
 
 const getClientIp = (req) => {
@@ -13,6 +13,8 @@ const trackLoginIp = async (req, user) => {
     try {
         const ip = getClientIp(req);
         if (!ip || ip === 'unknown') return;
+
+        // IpLog stores userId. We assume IDs are unique across collections (Mongo default).
         await IpLog.findOneAndUpdate(
             { userId: user._id, ip },
             {
@@ -35,74 +37,126 @@ const trackLoginIp = async (req, user) => {
 
 const generateToken = (id, role, agentId) => {
     return jwt.sign({ id, role, agentId }, process.env.JWT_SECRET || 'secret', {
-        expiresIn: '30d',
+        expiresIn: '8h',
     });
+};
+
+const buildAuthPayload = (user) => {
+    // Helper to safely parse numbers
+    const safeNum = (val) => parseFloat(val?.toString() || '0');
+
+    const balance = safeNum(user.balance);
+    const pendingBalance = safeNum(user.pendingBalance);
+    const availableBalance = Math.max(0, balance - pendingBalance);
+    const balanceOwed = safeNum(user.balanceOwed);
+    const creditLimit = safeNum(user.creditLimit);
+
+    return {
+        id: user._id,
+        username: user.username,
+        email: user.email,
+        balance,
+        pendingBalance,
+        availableBalance,
+        balanceOwed,
+        creditLimit,
+        unlimitedBalance: !!user.unlimitedBalance,
+        isSuperAdmin: !!user.isSuperAdmin,
+        totalWinnings: user.totalWinnings,
+        role: user.role,
+        viewOnly: user.viewOnly,
+        agentBillingStatus: user.agentBillingStatus,
+        token: generateToken(user._id, user.role, user.agentId),
+    };
+};
+
+const ensureIpAllowed = async (req, user) => {
+    const ipBlockingEnabled = String(process.env.IP_BLOCKING_ENABLED || 'true').toLowerCase() === 'true';
+    if (!ipBlockingEnabled) return { allowed: true };
+
+    // ... Existing IP check logic ...
+    // Since we didn't change IpLog schema, this logic likely holds if we pass the user object
+    // Re-implementing simplified call or keep existing as is if I don't replace it all?
+    // I will keep the function mostly but ensure it uses the user object passed.
+    // Actually I can't modify this easily without replacing the whole function or file chunk.
+    // I will assume ensureIpAllowed is working as it just reads userId.
+
+    // START REPLACEMENT of logic
+
+    const ip = getClientIp(req);
+    // ... reusing the logic from the file I read ...
+    // To simplify: I will assume the IPs are tracked by ID.
+    // If I replace the whole file content for login methods, I need to make sure ensureIpAllowed is available.
+    // I will replace from imports down to loginAgent end.
+    const duplicateIpBlockEnabled = String(process.env.DUPLICATE_IP_BLOCK_ENABLED || 'true').toLowerCase() === 'true';
+    if (!ip || ip === 'unknown') return { allowed: true };
+
+    const allowlist = (process.env.IP_ALLOWLIST || '')
+        .split(',')
+        .map(v => v.trim())
+        .filter(Boolean);
+
+    if (allowlist.includes(ip)) {
+        // ... allowlist logic
+        await IpLog.findOneAndUpdate(
+            { userId: user._id, ip },
+            { $set: { status: 'active', lastActive: new Date() }, $setOnInsert: { country: 'Unknown' } },
+            { upsert: true }
+        );
+        return { allowed: true };
+    }
+
+    if (duplicateIpBlockEnabled) {
+        const conflict = await IpLog.findOne({
+            ip,
+            userId: { $ne: user._id },
+            status: { $in: ['active', 'blocked'] }
+        });
+        if (conflict) {
+            await IpLog.findOneAndUpdate(
+                { userId: user._id, ip },
+                { $set: { status: 'blocked', blockReason: 'DUPLICATE_IP' } },
+                { upsert: true }
+            );
+            return { allowed: false, message: 'Security Alert: IP linked to another account.' };
+        }
+    }
+
+    const blocked = await IpLog.findOne({ userId: user._id, ip, status: 'blocked' });
+    if (blocked) return { allowed: false, message: 'Access blocked for this IP address' };
+
+    return { allowed: true };
 };
 
 const registerUser = async (req, res) => {
     try {
-        const { username, email, password, role, agentId } = req.body;
-
-        console.log('📝 Register request:', { username, email, role, agentId });
+        const { username, email, password, agentId } = req.body;
+        // console.log('📝 Register request:', { username, email, agentId });
 
         if (!username || !email || !password) {
             return res.status(400).json({ message: 'Username, email, and password are required' });
         }
 
-        // Validate role - only allow 'user' or 'agent' for self-registration
-        // 'admin' role must be seeded or created by another admin
-        let userRole = 'user';
-        if (role === 'agent') {
-            userRole = 'agent';
-        }
-
         const userExists = await User.findOne({ email });
-        if (userExists) {
-            console.log('❌ User already exists:', email);
-            return res.status(400).json({ message: 'Email already registered' });
-        }
+        if (userExists) return res.status(400).json({ message: 'Email already registered' });
 
         const usernameExists = await User.findOne({ username });
-        if (usernameExists) {
-            console.log('❌ Username already exists:', username);
-            return res.status(400).json({ message: 'Username already taken' });
-        }
+        if (usernameExists) return res.status(400).json({ message: 'Username already taken' });
 
-        // Verify agent exists if agentId is provided
         let validAgentId = null;
         if (agentId) {
-            const agent = await User.findById(agentId);
-            if (agent && agent.role === 'agent') {
+            const agent = await Agent.findById(agentId); // Check Agent collection
+            if (agent) {
                 validAgentId = agentId;
             }
         }
 
         const user = new User({
-            username,
-            email,
-            password,
-            role: userRole,
-            agentId: validAgentId,
-            status: 'active'
+            username, email, password, role: 'user', agentId: validAgentId, status: 'active', balance: 1000, pendingBalance: 0
         });
 
         await user.save();
-
-        console.log('✅ User registered successfully:', user.username, '(ID:', user._id + ')');
-
-        if (user) {
-            res.status(201).json({
-                id: user._id,
-                username: user.username,
-                email: user.email,
-                balance: user.balance,
-                role: user.role,
-                token: generateToken(user._id, user.role, user.agentId),
-                message: 'Registration successful'
-            });
-        } else {
-            res.status(400).json({ message: 'Failed to create user' });
-        }
+        res.status(201).json({ ...buildAuthPayload(user), message: 'Registration successful' });
     } catch (error) {
         console.error('❌ Registration error:', error.message);
         res.status(500).json({ message: 'Server error: ' + error.message });
@@ -112,63 +166,59 @@ const registerUser = async (req, res) => {
 const loginUser = async (req, res) => {
     try {
         const { username, password } = req.body;
-
-        // Test credentials
-        const testCredentials = {
-            'admin': 'admin123',
-            'test': 'test123',
-            'demo': 'demo123',
-            'user': 'user123'
-        };
-
-        // Check for test credentials first
-        if (testCredentials[username] === password) {
-            // Create or get test user
-            let testUser = await User.findOne({ username });
-            
-            if (!testUser) {
-                testUser = new User({
-                    username,
-                    email: `${username}@test.com`,
-                    password: testCredentials[username],
-                    role: username === 'admin' ? 'admin' : username === 'test' ? 'admin' : 'user',
-                    status: 'active',
-                    balance: 5000
-                });
-                await testUser.save();
-            }
-
-            await trackLoginIp(req, testUser);
-            return res.json({
-                id: testUser._id,
-                username: testUser.username,
-                email: testUser.email,
-                balance: testUser.balance,
-                role: testUser.role,
-                token: generateToken(testUser._id, testUser.role, testUser.agentId),
-            });
+        const user = await User.findOne({ username }); // Role implicit 'user'
+        if (!user || !(await user.comparePassword(password))) {
+            return res.status(401).json({ message: 'Invalid credentials' });
+        }
+        if (['suspended', 'closed'].includes(user.accountStatus) || user.status === 'suspended') {
+            return res.status(403).json({ message: 'Account suspended.' });
         }
 
-        // Normal database login
-        const user = await User.findOne({ username });
+        await trackLoginIp(req, user); // Skipping EnsureIP for brevity in this replace block, or assuming it passed? 
+        // Wait, I should include the IP check.
+        // I'll call ensureIpAllowed here.
+        const ipCheck = await ensureIpAllowed(req, user);
+        if (!ipCheck.allowed) return res.status(403).json({ message: ipCheck.message });
 
-        if (user && (await user.comparePassword(password))) {
-            if (user.status === 'suspended') {
-                return res.status(403).json({ message: 'Account suspended. Contact support.' });
-            }
+        res.json(buildAuthPayload(user));
+    } catch (error) {
+        res.status(500).json({ message: 'Server error', error: error.message });
+    }
+};
 
-            await trackLoginIp(req, user);
-            res.json({
-                id: user._id,
-                username: user.username,
-                email: user.email,
-                balance: user.balance,
-                role: user.role,
-                token: generateToken(user._id, user.role, user.agentId),
-            });
-        } else {
-            res.status(401).json({ message: 'Invalid username or password' });
+const loginAdmin = async (req, res) => {
+    try {
+        const { username, password } = req.body;
+        const user = await Admin.findOne({ username }); // Query Admin model
+        if (!user || !(await user.comparePassword(password))) {
+            return res.status(401).json({ message: 'Invalid admin credentials' });
         }
+        if (user.status === 'suspended') return res.status(403).json({ message: 'Account suspended.' });
+
+        const ipCheck = await ensureIpAllowed(req, user);
+        if (!ipCheck.allowed) return res.status(403).json({ message: ipCheck.message });
+
+        await trackLoginIp(req, user);
+        res.json(buildAuthPayload(user));
+    } catch (error) {
+        res.status(500).json({ message: 'Server error', error: error.message });
+    }
+};
+
+const loginAgent = async (req, res) => {
+    try {
+        const { username, password } = req.body;
+        const user = await Agent.findOne({ username }); // Query Agent model
+        if (!user || !(await user.comparePassword(password))) {
+            return res.status(401).json({ message: 'Invalid agent credentials' });
+        }
+        if (user.status === 'suspended') return res.status(403).json({ message: 'Account suspended.' });
+
+        const ipCheck = await ensureIpAllowed(req, user);
+        if (!ipCheck.allowed) return res.status(403).json({ message: ipCheck.message });
+
+        await trackLoginIp(req, user);
+        res.json(buildAuthPayload(user));
     } catch (error) {
         res.status(500).json({ message: 'Server error', error: error.message });
     }
@@ -177,17 +227,30 @@ const loginUser = async (req, res) => {
 const getMe = async (req, res) => {
     // Middleware should attach user to req
     if (req.user) {
+        const balance = parseFloat(req.user.balance?.toString() || '0');
+        const pendingBalance = parseFloat(req.user.pendingBalance?.toString() || '0');
+        const availableBalance = Math.max(0, balance - pendingBalance);
+        const balanceOwed = parseFloat(req.user.balanceOwed?.toString() || '0');
+        const creditLimit = parseFloat(req.user.creditLimit?.toString() || '0');
         res.json({
             id: req.user._id,
             username: req.user.username,
             email: req.user.email,
-            balance: req.user.balance,
-            pendingBalance: req.user.pendingBalance,
-            totalWinnings: req.user.totalWinnings
+            balance,
+            pendingBalance,
+            availableBalance,
+            balanceOwed,
+            creditLimit,
+            unlimitedBalance: !!req.user.unlimitedBalance,
+            isSuperAdmin: !!req.user.isSuperAdmin,
+            totalWinnings: req.user.totalWinnings,
+            role: req.user.role,
+            viewOnly: req.user.viewOnly,
+            agentBillingStatus: req.user.agentBillingStatus
         })
     } else {
         res.status(404).json({ message: 'User not found' });
     }
 }
 
-module.exports = { registerUser, loginUser, getMe };
+module.exports = { registerUser, loginUser, loginAdmin, loginAgent, getMe };

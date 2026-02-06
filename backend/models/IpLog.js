@@ -44,6 +44,10 @@ const ipLogSchema = new mongoose.Schema(
             ref: 'User',
             default: null,
         },
+        blockReason: {
+            type: String,
+            default: null,
+        },
     },
     {
         timestamps: true,

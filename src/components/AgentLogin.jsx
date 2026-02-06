@@ -1,13 +1,12 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { loginAdmin, loginAgent } from '../api';
+import { loginAgent } from '../api';
 
-const AdminLogin = () => {
+const AgentLogin = () => {
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [isLoggingIn, setIsLoggingIn] = useState(false);
-    const [loginRole, setLoginRole] = useState('admin'); // 'admin' or 'agent'
     const navigate = useNavigate();
 
     const handleLogin = async (e) => {
@@ -22,37 +21,22 @@ const AdminLogin = () => {
         setIsLoggingIn(true);
 
         try {
-            let result;
-            if (loginRole === 'admin') {
-                result = await loginAdmin(username, password);
-                if (result.role !== 'admin') {
-                    throw new Error('Not authorized: admin role required');
-                }
-            } else {
-                result = await loginAgent(username, password);
-                // Agent role check is implicit in loginAgent but good to verify
-                if (result.role !== 'agent') {
-                    throw new Error('Not authorized: agent role required');
-                }
+            const result = await loginAgent(username, password);
+
+            if (result.role !== 'agent') {
+                throw new Error('Not authorized: agent role required');
             }
 
             localStorage.setItem('token', result.token);
-            sessionStorage.setItem('adminAuthenticated', 'true');
-            sessionStorage.setItem('adminUsername', username);
+            sessionStorage.setItem('agentAuthenticated', 'true');
+            sessionStorage.setItem('agentUsername', username);
 
-            // Navigate to admin panel
-            navigate('/admin/dashboard');
+            navigate('/agent/dashboard');
         } catch (err) {
-            console.error(`❌ ${loginRole} login failed:`, err);
-            setError(err.message || `Invalid ${loginRole} credentials`);
+            console.error('❌ Agent login failed:', err);
+            setError(err.message || 'Invalid agent credentials');
         } finally {
             setIsLoggingIn(false);
-        }
-    };
-
-    const handleKeyPress = (e) => {
-        if (e.key === 'Enter') {
-            handleLogin(e);
         }
     };
 
@@ -62,7 +46,7 @@ const AdminLogin = () => {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            background: 'linear-gradient(135deg, #0d3b5c 0%, #1a1a2e 100%)',
+            background: 'linear-gradient(135deg, #0b3d2a 0%, #0f172a 100%)',
             fontFamily: 'Arial, sans-serif'
         }}>
             <div style={{
@@ -77,65 +61,27 @@ const AdminLogin = () => {
                 <div style={{ textAlign: 'center', marginBottom: '30px' }}>
                     <img
                         src="/bgremlogo.png"
-                        alt="Admin"
+                        alt="Agent"
                         style={{ height: '60px', marginBottom: '20px' }}
                     />
                     <h2 style={{
                         margin: 0,
-                        color: '#0d3b5c',
+                        color: '#0b3d2a',
                         fontSize: '28px',
                         fontWeight: 'bold'
                     }}>
-                        {loginRole === 'admin' ? 'ADMIN LOGIN' : 'AGENT LOGIN'}
+                        AGENT LOGIN
                     </h2>
                     <p style={{
                         color: '#666',
                         fontSize: '14px',
                         marginTop: '10px'
                     }}>
-                        {loginRole === 'admin' ? 'Admin Panel Access' : 'Agent Dashboard Access'}
+                        Agent Dashboard Access
                     </p>
                 </div>
 
                 <form onSubmit={handleLogin}>
-                    {/* Role Selector */}
-                    <div style={{ display: 'flex', marginBottom: '20px', background: '#f0f2f5', borderRadius: '8px', padding: '4px', border: '1px solid #e1e4e8' }}>
-                        <button
-                            type="button"
-                            onClick={() => setLoginRole('admin')}
-                            style={{
-                                flex: 1,
-                                background: loginRole === 'admin' ? '#0d3b5c' : 'transparent',
-                                color: loginRole === 'admin' ? 'white' : '#666',
-                                border: 'none',
-                                borderRadius: '6px',
-                                padding: '10px',
-                                cursor: 'pointer',
-                                fontWeight: 'bold',
-                                transition: 'all 0.3s ease'
-                            }}
-                        >
-                            ADMIN
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => setLoginRole('agent')}
-                            style={{
-                                flex: 1,
-                                background: loginRole === 'agent' ? '#0d3b5c' : 'transparent',
-                                color: loginRole === 'agent' ? 'white' : '#666',
-                                border: 'none',
-                                borderRadius: '6px',
-                                padding: '10px',
-                                cursor: 'pointer',
-                                fontWeight: 'bold',
-                                transition: 'all 0.3s ease'
-                            }}
-                        >
-                            AGENT
-                        </button>
-                    </div>
-
                     <div style={{ marginBottom: '20px' }}>
                         <label style={{
                             display: 'block',
@@ -150,8 +96,7 @@ const AdminLogin = () => {
                             type="text"
                             value={username}
                             onChange={(e) => setUsername(e.target.value)}
-                            onKeyPress={handleKeyPress}
-                            placeholder={`Enter ${loginRole} username`}
+                            placeholder="Enter agent username"
                             style={{
                                 width: '100%',
                                 padding: '12px 15px',
@@ -162,7 +107,7 @@ const AdminLogin = () => {
                                 transition: 'border-color 0.3s',
                                 outline: 'none'
                             }}
-                            onFocus={(e) => e.target.style.borderColor = '#0d3b5c'}
+                            onFocus={(e) => e.target.style.borderColor = '#0b3d2a'}
                             onBlur={(e) => e.target.style.borderColor = '#ddd'}
                         />
                     </div>
@@ -181,8 +126,7 @@ const AdminLogin = () => {
                             type="password"
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
-                            onKeyPress={handleKeyPress}
-                            placeholder={`Enter ${loginRole} password`}
+                            placeholder="Enter agent password"
                             style={{
                                 width: '100%',
                                 padding: '12px 15px',
@@ -193,7 +137,7 @@ const AdminLogin = () => {
                                 transition: 'border-color 0.3s',
                                 outline: 'none'
                             }}
-                            onFocus={(e) => e.target.style.borderColor = '#0d3b5c'}
+                            onFocus={(e) => e.target.style.borderColor = '#0b3d2a'}
                             onBlur={(e) => e.target.style.borderColor = '#ddd'}
                         />
                     </div>
@@ -219,7 +163,7 @@ const AdminLogin = () => {
                         style={{
                             width: '100%',
                             padding: '14px',
-                            background: isLoggingIn ? '#999' : '#0d3b5c',
+                            background: isLoggingIn ? '#999' : '#0b3d2a',
                             color: 'white',
                             border: 'none',
                             borderRadius: '6px',
@@ -229,26 +173,14 @@ const AdminLogin = () => {
                             transition: 'background 0.3s',
                             marginBottom: '15px'
                         }}
-                        onMouseEnter={(e) => !isLoggingIn && (e.target.style.background = '#0a2d45')}
-                        onMouseLeave={(e) => !isLoggingIn && (e.target.style.background = '#0d3b5c')}
+                        onMouseEnter={(e) => !isLoggingIn && (e.target.style.background = '#0a2d1f')}
+                        onMouseLeave={(e) => !isLoggingIn && (e.target.style.background = '#0b3d2a')}
                     >
-                        {isLoggingIn ? 'LOGGING IN...' : `LOGIN AS ${loginRole.toUpperCase()}`}
+                        {isLoggingIn ? 'LOGGING IN...' : 'LOGIN'}
                     </button>
 
                     <div style={{ textAlign: 'center' }}>
-                        <a
-                            href="/"
-                            style={{
-                                color: '#0d3b5c',
-                                textDecoration: 'none',
-                                fontSize: '14px',
-                                fontWeight: '600'
-                            }}
-                            onMouseEnter={(e) => e.target.style.textDecoration = 'underline'}
-                            onMouseLeave={(e) => e.target.style.textDecoration = 'none'}
-                        >
-                            ← Back to Main Site
-                        </a>
+                        <small style={{ color: '#888' }}>Authorized access only</small>
                     </div>
                 </form>
             </div>
@@ -256,4 +188,4 @@ const AdminLogin = () => {
     );
 };
 
-export default AdminLogin;
+export default AgentLogin;

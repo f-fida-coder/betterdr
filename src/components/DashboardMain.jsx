@@ -50,7 +50,15 @@ const DashboardMain = ({ selectedSports = [] }) => {
 
     const getSportSections = () => {
         if (isDefault) {
-            return [{ sportId: null, filter: null }];
+            return [{ sportId: null, filter: null, status: 'live-upcoming' }];
+        }
+
+        if (selectedSports.includes('up-next')) {
+            return [{ sportId: null, filter: null, status: 'upcoming' }];
+        }
+
+        if (selectedSports.includes('commercial-live')) {
+            return [{ sportId: null, filter: null, status: 'live' }];
         }
 
         const sections = [];
@@ -110,7 +118,7 @@ const DashboardMain = ({ selectedSports = [] }) => {
                 sections.push({ sportId: 'nba', filter: null });
                 addedSports.add('nba');
             }
-            else if (!id.includes('-') && id.length <= 6) {
+            else {
                 if (!addedSports.has(id)) {
                     sections.push({ sportId: id, filter: null });
                     addedSports.add(id);
@@ -131,6 +139,7 @@ const DashboardMain = ({ selectedSports = [] }) => {
                         sportId={section.sportId}
                         selectedItems={selectedSports}
                         filter={section.filter}
+                        status={section.status || 'live-upcoming'}
                     />
                     {/* <SportGenericView
                         sportId={section.sportId}
