@@ -105,6 +105,16 @@ function App() {
 
       setIsLoggedIn(true);
       document.body.classList.add('dashboard-mode');
+
+      // Sync with explicit admin routes if applicable
+      if (result.role === 'admin' || result.role === 'agent') {
+        const roleKey = result.role === 'admin' ? 'admin' : 'agent';
+        sessionStorage.setItem(`${roleKey}Authenticated`, 'true');
+        sessionStorage.setItem(`${roleKey}Username`, result.username);
+
+        // Redirect to the actual dashboard URL for consistent routing
+        window.location.href = `/${roleKey}/dashboard`;
+      }
     } catch (err) {
       throw err;
     }

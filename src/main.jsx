@@ -10,13 +10,15 @@ import AgentLogin from './components/AgentLogin.jsx'
 
 // Protected Route Component for Admin
 const ProtectedAdminRoute = ({ children }) => {
-  const isAuthenticated = sessionStorage.getItem('adminAuthenticated') === 'true';
-  return isAuthenticated ? children : <Navigate to="/admin" replace />;
+  const isAuth = sessionStorage.getItem('adminAuthenticated') === 'true';
+  // Fallback: If session is lost but token exists in localStorage, it might still be valid
+  // but for safety with the current architecture, we rely on the set flags.
+  return isAuth ? children : <Navigate to="/admin" replace />;
 };
 
 const ProtectedAgentRoute = ({ children }) => {
-  const isAuthenticated = sessionStorage.getItem('agentAuthenticated') === 'true';
-  return isAuthenticated ? children : <Navigate to="/agent" replace />;
+  const isAuth = sessionStorage.getItem('agentAuthenticated') === 'true';
+  return isAuth ? children : <Navigate to="/agent" replace />;
 };
 
 createRoot(document.getElementById('root')).render(
@@ -25,8 +27,8 @@ createRoot(document.getElementById('root')).render(
       <Routes>
         <Route path="/" element={<App />} />
         <Route path="/admin" element={<AdminLogin />} />
-        <Route 
-          path="/admin/dashboard" 
+        <Route
+          path="/admin/dashboard"
           element={
             <ProtectedAdminRoute>
               <AdminPanel role="admin" onExit={() => {
@@ -36,11 +38,11 @@ createRoot(document.getElementById('root')).render(
                 window.location.href = '/';
               }} />
             </ProtectedAdminRoute>
-          } 
+          }
         />
         <Route path="/agent" element={<AgentLogin />} />
-        <Route 
-          path="/agent/dashboard" 
+        <Route
+          path="/agent/dashboard"
           element={
             <ProtectedAgentRoute>
               <AdminPanel role="agent" onExit={() => {
@@ -50,7 +52,7 @@ createRoot(document.getElementById('root')).render(
                 window.location.href = '/';
               }} />
             </ProtectedAgentRoute>
-          } 
+          }
         />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

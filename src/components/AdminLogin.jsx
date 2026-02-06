@@ -10,6 +10,14 @@ const AdminLogin = () => {
     const [loginRole, setLoginRole] = useState('admin'); // 'admin' or 'agent'
     const navigate = useNavigate();
 
+    // Auto-redirect if already authenticated
+    React.useEffect(() => {
+        const isAuth = sessionStorage.getItem(`${loginRole}Authenticated`) === 'true';
+        if (isAuth) {
+            navigate(`/${loginRole}/dashboard`);
+        }
+    }, [loginRole, navigate]);
+
     const handleLogin = async (e) => {
         e.preventDefault();
         setError('');
