@@ -272,28 +272,61 @@ const SportContentView = ({ sportId, selectedItems = [], status = 'live-upcoming
                                         <div className="odds-row">
                                             <div className="odds-cell">
                                                 <span className="odds-label">Spread</span>
-                                                <span className="odds-value">{match.odds.spread[0]}</span>
-                                                <span className="odds-value">{match.odds.spread[1]}</span>
+                                                <div className="odds-values-group">
+                                                    <button
+                                                        className="odds-value-btn"
+                                                        onClick={() => handlePlaceBet(match.id, match.team1.name, 'spreads', match.rawMatch.odds.markets.find(m => m.key === 'spreads')?.outcomes.find(o => o.name === match.team1.name)?.price)}
+                                                    >
+                                                        {match.odds.spread[0]}
+                                                    </button>
+                                                    <button
+                                                        className="odds-value-btn"
+                                                        onClick={() => handlePlaceBet(match.id, match.team2.name, 'spreads', match.rawMatch.odds.markets.find(m => m.key === 'spreads')?.outcomes.find(o => o.name === match.team2.name)?.price)}
+                                                    >
+                                                        {match.odds.spread[1]}
+                                                    </button>
+                                                </div>
                                             </div>
                                             <div className="odds-cell">
                                                 <span className="odds-label">Moneyline</span>
-                                                <span className="odds-value">{match.odds.moneyline[0]}</span>
-                                                <span className="odds-value">{match.odds.moneyline[1]}</span>
+                                                <div className="odds-values-group">
+                                                    <button
+                                                        className="odds-value-btn"
+                                                        onClick={() => handlePlaceBet(match.id, match.team1.name, 'h2h', match.rawMatch.odds.markets.find(m => m.key === 'h2h')?.outcomes.find(o => o.name === match.team1.name)?.price)}
+                                                    >
+                                                        {match.odds.moneyline[0]}
+                                                    </button>
+                                                    <button
+                                                        className="odds-value-btn"
+                                                        onClick={() => handlePlaceBet(match.id, match.team2.name, 'h2h', match.rawMatch.odds.markets.find(m => m.key === 'h2h')?.outcomes.find(o => o.name === match.team2.name)?.price)}
+                                                    >
+                                                        {match.odds.moneyline[1]}
+                                                    </button>
+                                                </div>
                                             </div>
                                             <div className="odds-cell">
                                                 <span className="odds-label">Total</span>
-                                                <span className="odds-value">{match.odds.total[0]}</span>
-                                                <span className="odds-value">{match.odds.total[1]}</span>
+                                                <div className="odds-values-group">
+                                                    <button
+                                                        className="odds-value-btn"
+                                                        onClick={() => handlePlaceBet(match.id, 'Over', 'totals', match.rawMatch.odds.markets.find(m => m.key === 'totals')?.outcomes.find(o => o.name.toLowerCase().includes('over'))?.price)}
+                                                    >
+                                                        {match.odds.total[0]}
+                                                    </button>
+                                                    <button
+                                                        className="odds-value-btn"
+                                                        onClick={() => handlePlaceBet(match.id, 'Under', 'totals', match.rawMatch.odds.markets.find(m => m.key === 'totals')?.outcomes.find(o => o.name.toLowerCase().includes('under'))?.price)}
+                                                    >
+                                                        {match.odds.total[1]}
+                                                    </button>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
                                 )}
 
-                                <div className="match-footer">
-                                    <button
-                                        className="bet-btn"
-                                        onClick={() => handlePlaceBet(match.id, match.team1.name, 'straight', 1.90)} // Dummy odds for button click
-                                    >Place Bet</button>
+                                <div className="match-footer" style={{ justifyContent: 'center', padding: '10px' }}>
+                                    <span style={{ fontSize: '0.8em', color: '#888' }}>Click any odds to place your bet</span>
                                 </div>
                             </div>
                         ))
