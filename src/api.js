@@ -1,9 +1,20 @@
 export const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
+const getHeaders = (token = null) => {
+    const headers = {
+        'Content-Type': 'application/json',
+        'Bypass-Tunnel-Remainder': 'true'
+    };
+    if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+    }
+    return headers;
+};
+
 export const loginUser = async (username, password) => {
     const response = await fetch(`${API_URL}/auth/login`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getHeaders(),
         body: JSON.stringify({ username, password })
     });
     if (!response.ok) {
@@ -16,7 +27,7 @@ export const loginUser = async (username, password) => {
 export const loginAdmin = async (username, password) => {
     const response = await fetch(`${API_URL}/auth/admin/login`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getHeaders(),
         body: JSON.stringify({ username, password })
     });
     if (!response.ok) {
@@ -29,7 +40,7 @@ export const loginAdmin = async (username, password) => {
 export const loginAgent = async (username, password) => {
     const response = await fetch(`${API_URL}/auth/agent/login`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getHeaders(),
         body: JSON.stringify({ username, password })
     });
     if (!response.ok) {
@@ -44,7 +55,7 @@ export const registerUser = async (userData) => {
         console.log('Calling registerUser API with:', userData.username);
         const response = await fetch(`${API_URL}/auth/register`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: getHeaders(),
             body: JSON.stringify(userData)
         });
 
@@ -68,7 +79,7 @@ export const registerUser = async (userData) => {
 
 export const getBalance = async (token) => {
     const response = await fetch(`${API_URL}/wallet/balance`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch balance');
     return response.json();
@@ -76,20 +87,20 @@ export const getBalance = async (token) => {
 
 export const getMe = async (token) => {
     const response = await fetch(`${API_URL}/auth/me`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch user profile');
     return response.json();
 };
 
 export const getMatches = async () => {
-    const response = await fetch(`${API_URL}/matches`);
+    const response = await fetch(`${API_URL}/matches`, { headers: getHeaders() });
     if (!response.ok) throw new Error('Failed to fetch matches');
     return response.json();
 };
 
 export const getLiveMatches = async () => {
-    const response = await fetch(`${API_URL}/matches?status=live`);
+    const response = await fetch(`${API_URL}/matches?status=live`, { headers: getHeaders() });
     if (!response.ok) throw new Error('Failed to fetch live matches');
     return response.json();
 };
@@ -97,10 +108,7 @@ export const getLiveMatches = async () => {
 export const placeBet = async (betData, token) => {
     const response = await fetch(`${API_URL}/bets/place`, {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-        },
+        headers: getHeaders(token),
         body: JSON.stringify(betData)
     });
     if (!response.ok) {
@@ -112,7 +120,7 @@ export const placeBet = async (betData, token) => {
 
 export const getMyBets = async (token) => {
     const response = await fetch(`${API_URL}/bets/my-bets`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch my bets');
     return response.json();
@@ -121,10 +129,7 @@ export const getMyBets = async (token) => {
 export const createDeposit = async (amount, token) => {
     const response = await fetch(`${API_URL}/payments/deposit`, {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-        },
+        headers: getHeaders(token),
         body: JSON.stringify({ amount, currency: 'usd' })
     });
     if (!response.ok) {
