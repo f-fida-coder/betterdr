@@ -1,14 +1,31 @@
-const { User, Bet } = require('../models');
+const { User, Bet, Agent, Admin } = require('../models');
 
 // Create User (Agent specific)
 exports.createUser = async (req, res) => {
     try {
-        const { username, email, password, fullName, balance } = req.body;
-        const agentId = req.user._id; // From auth middleware
+        const {
+            username,
+            phoneNumber,
+            password,
+            firstName,
+            lastName,
+            fullName,
+            balance,
+            minBet,
+            maxBet,
+            creditLimit,
+            balanceOwed
+        } = req.body;
+        const agentId = req.user._id;
+
+        // Ensure only regular agents (sub-agents) can create users
+        if (req.user.role !== 'agent') {
+            return res.status(403).json({ message: 'Only Agents (Sub-Agents) can create customers' });
+        }
 
         // Validation
-        if (!username || !email || !password) {
-            return res.status(400).json({ message: 'Username, email, and password are required' });
+        if (!username || !phoneNumber || !password) {
+            return res.status(400).json({ message: 'Username, phone number, and password are required' });
         }
 
         // Check if username already exists
@@ -17,10 +34,10 @@ exports.createUser = async (req, res) => {
             return res.status(409).json({ message: 'Username already exists' });
         }
 
-        // Check if email already exists
-        const existingEmail = await User.findOne({ email });
-        if (existingEmail) {
-            return res.status(409).json({ message: 'Email already exists' });
+        // Check if phone number already exists
+        const existingPhone = await User.findOne({ phoneNumber });
+        if (existingPhone) {
+            return res.status(409).json({ message: 'Phone number already exists' });
         }
 
         // Check weekly creation limit for this agent
@@ -43,14 +60,22 @@ exports.createUser = async (req, res) => {
         // Create user assigned to this agent
         const newUser = new User({
             username,
-            email,
+            phoneNumber,
             password,
-            fullName: fullName || username,
+            firstName,
+            lastName,
+            fullName: fullName || `${firstName || ''} ${lastName || ''}`.trim() || username,
             role: 'user',
             status: 'active',
             balance: balance != null ? balance : 1000,
+            minBet: minBet != null ? minBet : 1,
+            maxBet: maxBet != null ? maxBet : 5000,
+            creditLimit: creditLimit != null ? creditLimit : 1000,
+            balanceOwed: balanceOwed != null ? balanceOwed : 0,
             pendingBalance: 0,
-            agentId: agentId
+            agentId: agentId,
+            createdBy: agentId,
+            createdByModel: 'Agent'
         });
 
         await newUser.save();
@@ -60,7 +85,7 @@ exports.createUser = async (req, res) => {
             user: {
                 id: newUser._id,
                 username: newUser.username,
-                email: newUser.email,
+                phoneNumber: newUser.phoneNumber,
                 role: newUser.role,
                 agentId: newUser.agentId
             }
@@ -76,7 +101,7 @@ exports.getMyUsers = async (req, res) => {
     try {
         const agentId = req.user._id;
 
-        const users = await User.find({ agentId }).select('username email balance pendingBalance status createdAt totalWinnings');
+        const users = await User.find({ agentId }).select('username firstName lastName fullName phoneNumber balance pendingBalance balanceOwed creditLimit minBet maxBet status createdAt totalWinnings');
         // Calculate active status (>= 2 bets in last 7 days)
         const oneWeekAgo = new Date();
         oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
@@ -95,7 +120,14 @@ exports.getMyUsers = async (req, res) => {
             return {
                 id: user._id,
                 username: user.username,
-                email: user.email,
+                phoneNumber: user.phoneNumber,
+                firstName: user.firstName,
+                lastName: user.lastName,
+                fullName: user.fullName,
+                minBet: user.minBet,
+                maxBet: user.maxBet,
+                creditLimit: parseFloat(user.creditLimit?.toString() || '0'),
+                balanceOwed: parseFloat(user.balanceOwed?.toString() || '0'),
                 status: user.status,
                 createdAt: user.createdAt,
                 totalWinnings: user.totalWinnings,
@@ -139,21 +171,26 @@ exports.getAgentStats = async (req, res) => {
 
         let totalWagered = 0;
         let totalPayouts = 0;
+        let winCount = 0;
+        let betCount = bets.length;
 
         bets.forEach(bet => {
             totalWagered += parseFloat(bet.amount.toString());
             if (bet.status === 'won') {
                 totalPayouts += parseFloat(bet.potentialPayout.toString());
+                winCount += 1;
             }
         });
 
         const netProfit = totalWagered - totalPayouts; // House profit from these users
+        const winRate = betCount > 0 ? (winCount / betCount) * 100 : 0;
 
         res.json({
             totalUsers,
-            totalBets: bets.length,
+            totalBets: betCount,
             totalWagered,
-            netProfit
+            netProfit,
+            winRate: winRate.toFixed(2) // percent, rounded to 2 decimals
         });
     } catch (error) {
         console.error('Error fetching agent stats:', error);
@@ -215,5 +252,145 @@ exports.updateUserBalanceOwed = async (req, res) => {
     } catch (error) {
         console.error('Error updating balance owed:', error);
         res.status(500).json({ message: 'Server error updating balance owed' });
+    }
+};
+// Agent updates customer details
+exports.updateCustomer = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const {
+            phoneNumber,
+            firstName,
+            lastName,
+            fullName,
+            password,
+            minBet,
+            maxBet,
+            creditLimit,
+            balanceOwed
+        } = req.body;
+        const agentId = req.user._id;
+
+        const user = await User.findById(id);
+        if (!user || user.role !== 'user') {
+            return res.status(404).json({ message: 'Customer not found' });
+        }
+
+        if (String(user.agentId) !== String(agentId)) {
+            return res.status(403).json({ message: 'Not authorized to update this customer' });
+        }
+
+        if (phoneNumber && phoneNumber !== user.phoneNumber) {
+            const existingPhone = await User.findOne({ phoneNumber, _id: { $ne: id } });
+            if (existingPhone) {
+                return res.status(409).json({ message: 'Phone number already exists' });
+            }
+            user.phoneNumber = phoneNumber;
+        }
+
+        if (password) user.password = password;
+        if (firstName) user.firstName = firstName;
+        if (lastName) user.lastName = lastName;
+        if (fullName) {
+            user.fullName = fullName;
+        } else if (firstName || lastName) {
+            const fName = firstName || user.firstName || '';
+            const lName = lastName || user.lastName || '';
+            user.fullName = `${fName} ${lName}`.trim();
+        }
+
+        if (minBet !== undefined) user.minBet = minBet;
+        if (maxBet !== undefined) user.maxBet = maxBet;
+        if (creditLimit !== undefined) user.creditLimit = creditLimit;
+        if (balanceOwed !== undefined) user.balanceOwed = balanceOwed;
+
+        await user.save();
+
+        res.json({ message: 'Customer updated successfully', user });
+    } catch (error) {
+        console.error('Error updating customer:', error);
+        res.status(500).json({ message: 'Server error updating customer' });
+    }
+};
+
+// --- Super Agent Functionality ---
+
+// Get My Sub-Agents
+exports.getMySubAgents = async (req, res) => {
+    try {
+        const superAgentId = req.user._id;
+
+        // Find agents created by this Super Agent
+        const agents = await Agent.find({
+            createdBy: superAgentId,
+            createdByModel: 'Agent'
+        }).select('username phoneNumber balance balanceOwed role status createdAt');
+
+        res.json(agents);
+    } catch (error) {
+        console.error('Error fetching sub-agents:', error);
+        res.status(500).json({ message: 'Server error fetching sub-agents' });
+    }
+};
+
+// Create Sub-Agent
+exports.createSubAgent = async (req, res) => {
+    try {
+        const { username, phoneNumber, password, fullName } = req.body;
+        const creator = req.user;
+
+        // Only super_agent can create sub-agents
+        if (creator.role !== 'super_agent') {
+            return res.status(403).json({ message: 'Only Super Agents can create sub-agents' });
+        }
+
+        // Validation
+        if (!username || !phoneNumber || !password) {
+            return res.status(400).json({ message: 'Username, phone number, and password are required' });
+        }
+
+        // Check if username/phone exists in ANY collection
+        const existingInfo = await Promise.all([
+            User.findOne({ $or: [{ username }, { phoneNumber }] }),
+            Admin.findOne({ $or: [{ username }, { phoneNumber }] }),
+            Agent.findOne({ $or: [{ username }, { phoneNumber }] })
+        ]);
+
+        if (existingInfo.some(doc => doc)) {
+            return res.status(409).json({ message: 'Username or Phone number already exists in the system' });
+        }
+
+        // Create sub-agent
+        const newAgent = new Agent({
+            username,
+            phoneNumber,
+            password,
+            fullName: fullName || username,
+            role: 'agent',
+            status: 'active',
+            balance: 0.00,
+            agentBillingRate: creator.agentBillingRate || 0.00,
+            agentBillingStatus: 'paid',
+            createdBy: creator._id,
+            createdByModel: 'Agent'
+        });
+
+        await newAgent.save();
+
+        res.status(201).json({
+            message: 'Sub-Agent created successfully',
+            agent: {
+                id: newAgent._id,
+                username: newAgent.username,
+                phoneNumber: newAgent.phoneNumber,
+                fullName: newAgent.fullName,
+                role: newAgent.role,
+                status: newAgent.status,
+                createdAt: newAgent.createdAt
+            }
+        });
+    } catch (error) {
+        console.error('Error creating sub-agent:', error);
+        res.status(500).json({ message: 'Server error creating sub-agent' });
     }
 };

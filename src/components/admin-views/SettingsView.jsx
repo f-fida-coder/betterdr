@@ -10,7 +10,7 @@ function SettingsView() {
     minBet: '1',
     maxBet: '5000',
     maintenanceMode: false,
-    emailNotifications: true,
+    smsNotifications: true,
     twoFactor: true,
   });
   const [loading, setLoading] = useState(true);
@@ -36,7 +36,7 @@ function SettingsView() {
           minBet: data.minBet,
           maxBet: data.maxBet,
           maintenanceMode: data.maintenanceMode,
-          emailNotifications: data.emailNotifications,
+          smsNotifications: data.smsNotifications,
           twoFactor: data.twoFactor,
         });
         setError('');
@@ -85,120 +85,120 @@ function SettingsView() {
         {loading && <div style={{ padding: '20px', textAlign: 'center' }}>Loading settings...</div>}
         {error && <div style={{ padding: '20px', color: 'red', textAlign: 'center' }}>{error}</div>}
         {!loading && !error && (
-        <div className="settings-container">
-          <form className="settings-form">
-            <div className="form-section">
-              <h3>General Settings</h3>
-              <div className="form-group">
-                <label>Platform Name:</label>
-                <input
-                  type="text"
-                  name="platformName"
-                  value={settings.platformName}
-                  onChange={handleChange}
-                />
+          <div className="settings-container">
+            <form className="settings-form">
+              <div className="form-section">
+                <h3>General Settings</h3>
+                <div className="form-group">
+                  <label>Platform Name:</label>
+                  <input
+                    type="text"
+                    name="platformName"
+                    value={settings.platformName}
+                    onChange={handleChange}
+                  />
+                </div>
               </div>
-            </div>
 
-            <div className="form-section">
-              <h3>Bet Limits</h3>
-              <div className="form-group">
-                <label>Daily Bet Limit ($):</label>
-                <input
-                  type="number"
-                  name="dailyBetLimit"
-                  value={settings.dailyBetLimit}
-                  onChange={handleChange}
-                />
+              <div className="form-section">
+                <h3>Bet Limits</h3>
+                <div className="form-group">
+                  <label>Daily Bet Limit ($):</label>
+                  <input
+                    type="number"
+                    name="dailyBetLimit"
+                    value={settings.dailyBetLimit}
+                    onChange={handleChange}
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Weekly Bet Limit ($):</label>
+                  <input
+                    type="number"
+                    name="weeklyBetLimit"
+                    value={settings.weeklyBetLimit}
+                    onChange={handleChange}
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Max Odds:</label>
+                  <input
+                    type="number"
+                    name="maxOdds"
+                    value={settings.maxOdds}
+                    onChange={handleChange}
+                    step="0.01"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Minimum Bet ($):</label>
+                  <input
+                    type="number"
+                    name="minBet"
+                    value={settings.minBet}
+                    onChange={handleChange}
+                    step="0.01"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Maximum Bet ($):</label>
+                  <input
+                    type="number"
+                    name="maxBet"
+                    value={settings.maxBet}
+                    onChange={handleChange}
+                  />
+                </div>
               </div>
-              <div className="form-group">
-                <label>Weekly Bet Limit ($):</label>
-                <input
-                  type="number"
-                  name="weeklyBetLimit"
-                  value={settings.weeklyBetLimit}
-                  onChange={handleChange}
-                />
-              </div>
-              <div className="form-group">
-                <label>Max Odds:</label>
-                <input
-                  type="number"
-                  name="maxOdds"
-                  value={settings.maxOdds}
-                  onChange={handleChange}
-                  step="0.01"
-                />
-              </div>
-              <div className="form-group">
-                <label>Minimum Bet ($):</label>
-                <input
-                  type="number"
-                  name="minBet"
-                  value={settings.minBet}
-                  onChange={handleChange}
-                  step="0.01"
-                />
-              </div>
-              <div className="form-group">
-                <label>Maximum Bet ($):</label>
-                <input
-                  type="number"
-                  name="maxBet"
-                  value={settings.maxBet}
-                  onChange={handleChange}
-                />
-              </div>
-            </div>
 
-            <div className="form-section">
-              <h3>Security Settings</h3>
-              <div className="form-group checkbox">
-                <input
-                  type="checkbox"
-                  name="twoFactor"
-                  checked={settings.twoFactor}
-                  onChange={handleChange}
-                  id="twoFactor"
-                />
-                <label htmlFor="twoFactor">Require Two-Factor Authentication</label>
+              <div className="form-section">
+                <h3>Security Settings</h3>
+                <div className="form-group checkbox">
+                  <input
+                    type="checkbox"
+                    name="twoFactor"
+                    checked={settings.twoFactor}
+                    onChange={handleChange}
+                    id="twoFactor"
+                  />
+                  <label htmlFor="twoFactor">Require Two-Factor Authentication</label>
+                </div>
+                <div className="form-group checkbox">
+                  <input
+                    type="checkbox"
+                    name="maintenanceMode"
+                    checked={settings.maintenanceMode}
+                    onChange={handleChange}
+                    id="maintenanceMode"
+                  />
+                  <label htmlFor="maintenanceMode">Maintenance Mode</label>
+                </div>
+                <div className="form-group checkbox">
+                  <input
+                    type="checkbox"
+                    name="smsNotifications"
+                    checked={settings.smsNotifications}
+                    onChange={handleChange}
+                    id="smsNotifications"
+                  />
+                  <label htmlFor="smsNotifications">Enable SMS Notifications</label>
+                </div>
               </div>
-              <div className="form-group checkbox">
-                <input
-                  type="checkbox"
-                  name="maintenanceMode"
-                  checked={settings.maintenanceMode}
-                  onChange={handleChange}
-                  id="maintenanceMode"
-                />
-                <label htmlFor="maintenanceMode">Maintenance Mode</label>
-              </div>
-              <div className="form-group checkbox">
-                <input
-                  type="checkbox"
-                  name="emailNotifications"
-                  checked={settings.emailNotifications}
-                  onChange={handleChange}
-                  id="emailNotifications"
-                />
-                <label htmlFor="emailNotifications">Enable Email Notifications</label>
-              </div>
-            </div>
 
-            <div className="form-actions">
-              <button type="button" onClick={handleSave} className="btn-primary" disabled={saving}>
-                {saving ? 'Saving...' : 'Save Settings'}
-              </button>
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={() => window.location.reload()}
-              >
-                Reset
-              </button>
-            </div>
-          </form>
-        </div>
+              <div className="form-actions">
+                <button type="button" onClick={handleSave} className="btn-primary" disabled={saving}>
+                  {saving ? 'Saving...' : 'Save Settings'}
+                </button>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => window.location.reload()}
+                >
+                  Reset
+                </button>
+              </div>
+            </form>
+          </div>
         )}
       </div>
     </div>

@@ -4,16 +4,19 @@ import { getAgents, createUserByAdmin, createPlayerByAgent } from '../../api';
 function AddCustomerView() {
   const [formData, setFormData] = useState({
     username: '',
-    email: '',
+    phoneNumber: '',
     password: '',
     confirmPassword: '',
     firstName: '',
     lastName: '',
-    phone: '',
     address: '',
     city: '',
     country: '',
     agentId: '', // For admin to select agent
+    minBet: '1',
+    maxBet: '5000',
+    creditLimit: '1000',
+    balanceOwed: '0'
   });
   const [role, setRole] = useState('user');
   const [agents, setAgents] = useState([]);
@@ -29,7 +32,7 @@ function AddCustomerView() {
         const userRole = payload.role;
         setRole(userRole);
 
-        if (userRole === 'admin') {
+        if (userRole === 'admin' || userRole === 'super_agent') {
           setLoadingAgents(true);
           const agentList = await getAgents(token);
           setAgents(agentList || []);
@@ -66,50 +69,59 @@ function AddCustomerView() {
         return;
       }
 
-      if (role === 'agent') {
+      if (role === 'agent' || role === 'super_agent') {
         console.log('Creating player via agent API');
         await createPlayerByAgent({
           username: formData.username,
-          email: formData.email,
+          phoneNumber: formData.phoneNumber,
           password: formData.password,
           firstName: formData.firstName,
           lastName: formData.lastName,
-          phone: formData.phone,
           address: formData.address,
           city: formData.city,
           country: formData.country,
-          fullName: `${formData.firstName} ${formData.lastName}`.trim()
+          fullName: `${formData.firstName} ${formData.lastName}`.trim(),
+          minBet: formData.minBet,
+          maxBet: formData.maxBet,
+          creditLimit: formData.creditLimit,
+          balanceOwed: formData.balanceOwed
         }, token);
       } else {
         // Admin or fallback
         console.log('Creating user via admin API');
         await createUserByAdmin({
           username: formData.username,
-          email: formData.email,
+          phoneNumber: formData.phoneNumber,
           password: formData.password,
           firstName: formData.firstName,
           lastName: formData.lastName,
-          phone: formData.phone,
           address: formData.address,
           city: formData.city,
           country: formData.country,
-          agentId: formData.agentId || null // Pass selected agent
+          agentId: formData.agentId || null, // Pass selected agent
+          minBet: formData.minBet,
+          maxBet: formData.maxBet,
+          creditLimit: formData.creditLimit,
+          balanceOwed: formData.balanceOwed
         }, token);
       }
 
       alert('Customer added successfully!');
       setFormData({
         username: '',
-        email: '',
+        phoneNumber: '',
         password: '',
         confirmPassword: '',
         firstName: '',
         lastName: '',
-        phone: '',
         address: '',
         city: '',
         country: '',
         agentId: '',
+        minBet: '1',
+        maxBet: '5000',
+        creditLimit: '1000',
+        balanceOwed: '0'
       });
     } catch (error) {
       alert('Failed to add customer: ' + error.message);
@@ -138,14 +150,14 @@ function AddCustomerView() {
                 />
               </div>
               <div className="form-group">
-                <label>Email:</label>
+                <label>Phone Number:</label>
                 <input
-                  type="email"
-                  name="email"
-                  value={formData.email}
+                  type="tel"
+                  name="phoneNumber"
+                  value={formData.phoneNumber}
                   onChange={handleChange}
                   required
-                  placeholder="Enter email"
+                  placeholder="Enter phone number"
                 />
               </div>
               <div className="form-group">
@@ -171,7 +183,7 @@ function AddCustomerView() {
                 />
               </div>
 
-              {role === 'admin' && (
+              {(role === 'admin' || role === 'super_agent') && (
                 <div className="form-group">
                   <label>Assign to Agent (Optional):</label>
                   <select
@@ -191,6 +203,51 @@ function AddCustomerView() {
                 </div>
               )}
 
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+                <div className="form-group">
+                  <label>Min Bet:</label>
+                  <input
+                    type="number"
+                    name="minBet"
+                    value={formData.minBet}
+                    onChange={handleChange}
+                    placeholder="1"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Max Bet:</label>
+                  <input
+                    type="number"
+                    name="maxBet"
+                    value={formData.maxBet}
+                    onChange={handleChange}
+                    placeholder="5000"
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+                <div className="form-group">
+                  <label>Credit Limit:</label>
+                  <input
+                    type="number"
+                    name="creditLimit"
+                    value={formData.creditLimit}
+                    onChange={handleChange}
+                    placeholder="1000"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Balance Owed (Settle):</label>
+                  <input
+                    type="number"
+                    name="balanceOwed"
+                    value={formData.balanceOwed}
+                    onChange={handleChange}
+                    placeholder="0"
+                  />
+                </div>
+              </div>
             </div>
 
             <div className="form-section">
@@ -215,16 +272,7 @@ function AddCustomerView() {
                   placeholder="Enter last name"
                 />
               </div>
-              <div className="form-group">
-                <label>Phone:</label>
-                <input
-                  type="tel"
-                  name="phone"
-                  value={formData.phone}
-                  onChange={handleChange}
-                  placeholder="Enter phone number"
-                />
-              </div>
+
             </div>
 
             <div className="form-section">

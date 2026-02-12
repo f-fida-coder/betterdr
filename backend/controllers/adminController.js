@@ -120,8 +120,10 @@ exports.getUsers = async (req, res) => {
         }
 
         const users = await User.find(query)
+            .select('-password')
             .populate('agentId', 'username')
-            .select('username email balance pendingBalance balanceOwed role status createdAt agentId');
+            .populate('createdBy', 'username role') // Populate polymorphic creator
+            .select('username firstName lastName fullName phoneNumber balance pendingBalance balanceOwed creditLimit minBet maxBet role status createdAt agentId createdBy createdByModel');
         // Calculate active status (>= 2 bets in last 7 days)
         const oneWeekAgo = new Date();
         oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
@@ -141,7 +143,13 @@ exports.getUsers = async (req, res) => {
             return {
                 id: user._id,
                 username: user.username,
-                email: user.email,
+                phoneNumber: user.phoneNumber,
+                firstName: user.firstName,
+                lastName: user.lastName,
+                fullName: user.fullName,
+                minBet: user.minBet,
+                maxBet: user.maxBet,
+                creditLimit: parseFloat(user.creditLimit?.toString() || '0'),
                 role: user.role,
                 status: user.status,
                 createdAt: user.createdAt,
@@ -150,7 +158,9 @@ exports.getUsers = async (req, res) => {
                 pendingBalance,
                 balanceOwed,
                 availableBalance,
-                isActive: activeSet.has(String(user._id))
+                isActive: activeSet.has(String(user._id)),
+                createdBy: user.createdBy ? { username: user.createdBy.username, role: user.createdBy.role } : null,
+                createdByModel: user.createdByModel
             };
         });
         res.json(formatted);
@@ -165,7 +175,7 @@ exports.getAgents = async (req, res) => {
     try {
         const agents = await Agent.find()
             .populate('createdBy', 'username')
-            .select('username email balance balanceOwed role status createdAt createdBy agentBillingRate agentBillingStatus viewOnly');
+            .select('username phoneNumber balance balanceOwed role status createdAt createdBy agentBillingRate agentBillingStatus viewOnly');
 
         const activeSince = new Date(Date.now() - 7 * MS_PER_DAY);
         const activeUserIds = await Bet.aggregate([
@@ -181,6 +191,16 @@ exports.getAgents = async (req, res) => {
                 const agentUsers = await User.find({ agentId: agent._id, status: 'active' }).select('_id');
                 const activeCustomerCount = agentUsers.filter(u => activeUserSet.has(String(u._id))).length;
 
+                let subAgentCount = 0;
+                let totalUsersInHierarchy = 0;
+
+                if (agent.role === 'super_agent') {
+                    const subAgents = await Agent.find({ createdBy: agent._id, createdByModel: 'Agent' }).select('_id');
+                    subAgentCount = subAgents.length;
+                    const subAgentIds = subAgents.map(sa => sa._id);
+                    totalUsersInHierarchy = await User.countDocuments({ agentId: { $in: subAgentIds } });
+                }
+
                 const obj = agent.toObject();
                 if (obj.balance != null) {
                     try {
@@ -193,11 +213,13 @@ exports.getAgents = async (req, res) => {
                 }
 
                 const billingRate = parseFloat(agent.agentBillingRate?.toString() || '0');
-                const weeklyCharge = billingRate * activeCustomerCount;
+                const weeklyCharge = billingRate * (activeCustomerCount || 0);
                 return {
                     id: agent._id,
                     ...obj,
                     userCount,
+                    subAgentCount,
+                    totalUsersInHierarchy,
                     activeCustomerCount,
                     agentBillingRate: billingRate,
                     agentBillingStatus: agent.agentBillingStatus,
@@ -217,56 +239,46 @@ exports.getAgents = async (req, res) => {
 // Create new agent
 exports.createAgent = async (req, res) => {
     try {
-        const { username, email, password, fullName } = req.body;
+        const { username, phoneNumber, password, fullName } = req.body;
         const creatorAdmin = req.user; // From auth middleware
 
         // Validation
-        if (!username || !email || !password) {
-            return res.status(400).json({ message: 'Username, email, and password are required' });
+        if (!username || !phoneNumber || !password) {
+            return res.status(400).json({ message: 'Username, phone number, and password are required' });
         }
 
         // Check if username already exists in ANY collection
         const existingInfo = await Promise.all([
-            User.findOne({ $or: [{ username }, { email }] }),
-            Admin.findOne({ $or: [{ username }, { email }] }),
-            Agent.findOne({ $or: [{ username }, { email }] })
+            User.findOne({ $or: [{ username }, { phoneNumber }] }),
+            Admin.findOne({ $or: [{ username }, { phoneNumber }] }),
+            Agent.findOne({ $or: [{ username }, { phoneNumber }] })
         ]);
 
         if (existingInfo.some(doc => doc)) {
-            return res.status(409).json({ message: 'Username or Email already exists in the system' });
+            return res.status(409).json({ message: 'Username or Phone number already exists in the system' });
         }
 
-        // Create agent
+        // Create agent - strictly super_agent
         const newAgent = new Agent({
             username,
-            email,
+            phoneNumber,
             password,
             fullName: fullName || username,
-            role: 'agent',
+            role: 'super_agent',
             status: 'active',
             balance: 0.00,
             agentBillingRate: 0.00,
             agentBillingStatus: 'paid',
             viewOnly: false,
-            createdBy: creatorAdmin._id
+            createdBy: creatorAdmin._id,
+            createdByModel: 'Admin'
         });
 
         await newAgent.save();
 
-        res.status(201).json({
-            message: 'Agent created successfully',
-            agent: {
-                id: newAgent._id,
-                username: newAgent.username,
-                email: newAgent.email,
-                fullName: newAgent.fullName,
-                role: newAgent.role,
-                status: newAgent.status,
-                createdAt: newAgent.createdAt
-            }
-        });
+        res.status(201).json({ message: 'Agent created successfully' });
     } catch (error) {
-        console.error('Error creating agent:', error.message, error);
+        console.error('Error creating agent:', error);
         res.status(500).json({ message: 'Server error creating agent: ' + error.message });
     }
 };
@@ -275,7 +287,7 @@ exports.createAgent = async (req, res) => {
 exports.updateAgent = async (req, res) => {
     try {
         const { id } = req.params;
-        const { email, password, agentBillingRate, agentBillingStatus, balance } = req.body;
+        const { phoneNumber, password, agentBillingRate, agentBillingStatus, balance } = req.body;
 
         const agent = await Agent.findById(id);
         if (!agent) {
@@ -283,7 +295,7 @@ exports.updateAgent = async (req, res) => {
         }
 
         // Only update fields if provided
-        if (email) agent.email = email;
+        if (phoneNumber) agent.phoneNumber = phoneNumber;
         if (password) agent.password = password; // Pre-save hook will hash this
         if (agentBillingRate !== undefined) agent.agentBillingRate = agentBillingRate;
         let balanceBefore = null;
@@ -327,12 +339,25 @@ exports.updateAgent = async (req, res) => {
 // Create new user (by admin or agent)
 exports.createUser = async (req, res) => {
     try {
-        const { username, email, password, fullName, agentId, balance } = req.body;
+        const {
+            username,
+            phoneNumber,
+            password,
+            firstName,
+            lastName,
+            fullName,
+            agentId,
+            balance,
+            minBet,
+            maxBet,
+            creditLimit,
+            balanceOwed
+        } = req.body;
         const creator = req.user; // From auth middleware
 
         // Validation
-        if (!username || !email || !password) {
-            return res.status(400).json({ message: 'Username, email, and password are required' });
+        if (!username || !phoneNumber || !password) {
+            return res.status(400).json({ message: 'Username, phone number, and password are required' });
         }
 
         // Check if username already exists
@@ -341,10 +366,10 @@ exports.createUser = async (req, res) => {
             return res.status(409).json({ message: 'Username already exists' });
         }
 
-        // Check if email already exists
-        const existingEmail = await User.findOne({ email });
-        if (existingEmail) {
-            return res.status(409).json({ message: 'Email already exists' });
+        // Check if phone number already exists
+        const existingPhone = await User.findOne({ phoneNumber });
+        if (existingPhone) {
+            return res.status(409).json({ message: 'Phone number already exists' });
         }
 
         // Validate Agent if provided
@@ -368,12 +393,18 @@ exports.createUser = async (req, res) => {
         // Create user
         const newUser = new User({
             username,
-            email,
+            phoneNumber,
             password,
-            fullName: fullName || username,
+            firstName,
+            lastName,
+            fullName: fullName || `${firstName || ''} ${lastName || ''}`.trim() || username,
             role: 'user',
             status: 'active',
             balance: balance != null ? balance : 1000,
+            minBet: minBet != null ? minBet : 1,
+            maxBet: maxBet != null ? maxBet : 5000,
+            creditLimit: creditLimit != null ? creditLimit : 1000,
+            balanceOwed: balanceOwed != null ? balanceOwed : 0,
             pendingBalance: 0,
             agentId: assignedAgentId
         });
@@ -385,7 +416,7 @@ exports.createUser = async (req, res) => {
             user: {
                 id: newUser._id,
                 username: newUser.username,
-                email: newUser.email,
+                phoneNumber: newUser.phoneNumber,
                 fullName: newUser.fullName,
                 role: newUser.role,
                 status: newUser.status,
@@ -397,6 +428,87 @@ exports.createUser = async (req, res) => {
     } catch (error) {
         console.error('Error creating user:', error.message, error);
         res.status(500).json({ message: 'Server error creating user: ' + error.message });
+    }
+};
+
+// Update User
+exports.updateUser = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const {
+            phoneNumber,
+            password,
+            firstName,
+            lastName,
+            fullName,
+            status,
+            balance,
+            minBet,
+            maxBet,
+            creditLimit,
+            balanceOwed
+        } = req.body;
+
+        const user = await User.findById(id);
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        // Only update fields if provided
+        if (phoneNumber && phoneNumber !== user.phoneNumber) {
+            // Check if phone number already exists
+            const existingPhone = await User.findOne({ phoneNumber, _id: { $ne: id } });
+            if (existingPhone) {
+                return res.status(409).json({ message: 'Phone number already exists' });
+            }
+            user.phoneNumber = phoneNumber;
+        }
+
+        if (password) user.password = password;
+        if (firstName) user.firstName = firstName;
+        if (lastName) user.lastName = lastName;
+        if (fullName) {
+            user.fullName = fullName;
+        } else if (firstName || lastName) {
+            const fName = firstName || user.firstName || '';
+            const lName = lastName || user.lastName || '';
+            user.fullName = `${fName} ${lName}`.trim();
+        }
+
+        if (status) user.status = status;
+        if (minBet !== undefined) user.minBet = minBet;
+        if (maxBet !== undefined) user.maxBet = maxBet;
+        if (creditLimit !== undefined) user.creditLimit = creditLimit;
+        if (balanceOwed !== undefined) user.balanceOwed = balanceOwed;
+
+        let balanceBefore = null;
+        if (balance !== undefined) {
+            balanceBefore = parseFloat(user.balance?.toString() || '0');
+            user.balance = Math.max(0, Number(balance));
+        }
+
+        await user.save();
+
+        if (balance !== undefined) {
+            const Transaction = require('../models/Transaction');
+            await Transaction.create({
+                userId: user._id,
+                adminId: req.user?._id || null,
+                amount: Math.abs(user.balance - (balanceBefore || 0)),
+                type: 'adjustment',
+                status: 'completed',
+                balanceBefore,
+                balanceAfter: user.balance,
+                referenceType: 'Adjustment',
+                reason: 'ADMIN_USER_BALANCE_ADJUSTMENT',
+                description: 'Admin updated user balance'
+            });
+        }
+
+        res.json({ message: 'User updated successfully', user });
+    } catch (error) {
+        console.error('Error updating user:', error);
+        res.status(500).json({ message: 'Server error updating user' });
     }
 };
 
@@ -831,7 +943,7 @@ exports.getWeeklyFigures = async (req, res) => {
         }
 
         const [users, agentsManagersCount] = await Promise.all([
-            User.find(query).select('username email fullName balance pendingBalance status createdAt'),
+            User.find(query).select('username phoneNumber fullName balance pendingBalance status createdAt'),
             User.countDocuments({ role: { $in: ['agent', 'admin'] } })
         ]);
 
@@ -874,7 +986,7 @@ exports.getWeeklyFigures = async (req, res) => {
                 id: user._id,
                 username: user.username,
                 name: user.fullName || user.username,
-                email: user.email,
+                phoneNumber: user.phoneNumber,
                 daily,
                 week: weekTotal,
                 carry,
@@ -925,7 +1037,7 @@ exports.getPendingTransactions = async (req, res) => {
         }
 
         const pending = await Transaction.find(query)
-            .populate('userId', 'username email')
+            .populate('userId', 'username phoneNumber')
             .sort({ createdAt: -1 });
 
         res.json(pending.map(tx => ({
@@ -1212,7 +1324,7 @@ exports.getCashierTransactions = async (req, res) => {
     try {
         const limit = Math.min(parseInt(req.query.limit || '50', 10), 200);
         const transactions = await Transaction.find()
-            .populate('userId', 'username email')
+            .populate('userId', 'username phoneNumber')
             .sort({ createdAt: -1 })
             .limit(limit);
 
@@ -1500,7 +1612,7 @@ exports.getIpTracker = async (req, res) => {
         }
 
         const logs = await IpLog.find(query)
-            .populate('userId', 'username email')
+            .populate('userId', 'username phoneNumber')
             .sort({ lastActive: -1 })
             .limit(limit);
 
@@ -1579,7 +1691,7 @@ exports.getTransactionsHistory = async (req, res) => {
         }
 
         const transactions = await Transaction.find(query)
-            .populate('userId', 'username email')
+            .populate('userId', 'username phoneNumber')
             .sort({ createdAt: -1 })
             .limit(limit);
 
@@ -1622,7 +1734,7 @@ exports.getCollections = async (req, res) => {
         }
 
         const collections = await Collection.find(query)
-            .populate('userId', 'username email')
+            .populate('userId', 'username phoneNumber')
             .sort({ createdAt: -1 })
             .limit(limit);
 
@@ -1713,7 +1825,7 @@ exports.collectCollection = async (req, res) => {
 exports.getCollectionById = async (req, res) => {
     try {
         const { id } = req.params;
-        const collection = await Collection.findById(id).populate('userId', 'username email');
+        const collection = await Collection.findById(id).populate('userId', 'username phoneNumber');
         if (!collection) return res.status(404).json({ message: 'Collection not found' });
 
         res.json({
@@ -1754,7 +1866,7 @@ exports.getDeletedWagers = async (req, res) => {
         }
 
         const wagers = await DeletedWager.find(query)
-            .populate('userId', 'username email')
+            .populate('userId', 'username phoneNumber')
             .sort({ deletedAt: -1 })
             .limit(limit);
 
@@ -2064,7 +2176,7 @@ exports.updateSettings = async (req, res) => {
             'minBet',
             'maxBet',
             'maintenanceMode',
-            'emailNotifications',
+            'smsNotifications',
             'twoFactor'
         ];
 
@@ -2147,7 +2259,7 @@ exports.getFeedback = async (req, res) => {
         if (status && status !== 'all') query.status = status;
 
         const feedbacks = await Feedback.find(query)
-            .populate('userId', 'username email')
+            .populate('userId', 'username phoneNumber')
             .sort({ createdAt: -1 });
 
         const formatted = feedbacks.map(item => ({
@@ -2440,5 +2552,86 @@ exports.getAgentPerformance = async (req, res) => {
     } catch (error) {
         console.error('Error fetching agent performance:', error);
         res.status(500).json({ message: 'Server error fetching agent performance' });
+    }
+};
+// Get Detailed User Statistics
+exports.getUserStats = async (req, res) => {
+    try {
+        const { userId } = req.params;
+
+        // Find user and populate creator
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        // Determine Creator Details
+        let creator = null;
+        if (user.createdBy) {
+            if (user.createdByModel === 'Admin') {
+                const admin = await Admin.findById(user.createdBy);
+                if (admin) creator = { username: admin.username, role: 'Admin' };
+            } else if (user.createdByModel === 'Agent') {
+                const agent = await Agent.findById(user.createdBy);
+                if (agent) creator = { username: agent.username, role: 'Agent' };
+            }
+        }
+
+        // Find Agent if assigned
+        let agent = null;
+        if (user.agentId) {
+            const agentDoc = await Agent.findById(user.agentId);
+            if (agentDoc) agent = { username: agentDoc.username };
+        }
+
+        // Aggregate Betting Stats
+        const bettingStats = await Bet.aggregate([
+            { $match: { userId: user._id } },
+            {
+                $group: {
+                    _id: null,
+                    totalBets: { $sum: 1 },
+                    totalWagered: { $sum: '$wagerAmount' },
+                    totalWon: { $sum: { $cond: [{ $eq: ['$status', 'won'] }, '$payout', 0] } },
+                    wins: { $sum: { $cond: [{ $eq: ['$status', 'won'] }, 1, 0] } },
+                    losses: { $sum: { $cond: [{ $eq: ['$status', 'lost'] }, 1, 0] } },
+                    voids: { $sum: { $cond: [{ $eq: ['$status', 'void'] }, 1, 0] } },
+                    lastBetDate: { $max: '$createdAt' }
+                }
+            }
+        ]);
+
+        const stats = bettingStats[0] || {
+            totalBets: 0,
+            totalWagered: 0,
+            totalWon: 0,
+            wins: 0,
+            losses: 0,
+            voids: 0,
+            lastBetDate: null
+        };
+
+        stats.netProfit = stats.totalWon - stats.totalWagered;
+
+        res.status(200).json({
+            user: {
+                username: user.username,
+                firstName: user.firstName,
+                lastName: user.lastName,
+                phoneNumber: user.phoneNumber,
+                status: user.status,
+                balance: user.balance,
+                creditLimit: user.creditLimit,
+                balanceOwed: user.balanceOwed,
+                createdAt: user.createdAt
+            },
+            creator,
+            agent,
+            stats
+        });
+
+    } catch (error) {
+        console.error('Error fetching user stats:', error);
+        res.status(500).json({ message: 'Server error fetching user stats' });
     }
 };

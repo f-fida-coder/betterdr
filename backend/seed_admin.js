@@ -1,6 +1,7 @@
+
+require('dotenv').config({ path: __dirname + '/.env' });
 const { Admin } = require('./models');
 const { connectDB } = require('./config/database');
-require('dotenv').config();
 
 const createAdmin = async () => {
     try {

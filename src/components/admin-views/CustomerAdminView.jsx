@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { createUserByAdmin, createPlayerByAgent, getAgents, getMyPlayers, getMe, updateUserCredit, updateUserBalanceOwedByAgent, resetUserPasswordByAdmin } from '../../api';
+import { createUserByAdmin, createPlayerByAgent, getAgents, getMyPlayers, getMe, updateUserCredit, updateUserBalanceOwedByAgent, resetUserPasswordByAdmin, updateUserByAdmin, updateUserByAgent, getUserStatistics } from '../../api';
 
 function CustomerAdminView({ onViewChange }) {
   const [customers, setCustomers] = useState([]);
@@ -8,10 +8,38 @@ function CustomerAdminView({ onViewChange }) {
   const [error, setError] = useState('');
   const [actionLoadingId, setActionLoadingId] = useState(null);
   const [createLoading, setCreateLoading] = useState(false);
-  const [newCustomer, setNewCustomer] = useState({ username: '', email: '', password: '', fullName: '', agentId: '', balance: '' });
+  const [newCustomer, setNewCustomer] = useState({
+    username: '',
+    phoneNumber: '',
+    password: '',
+    firstName: '',
+    lastName: '',
+    fullName: '',
+    agentId: '',
+    balance: '',
+    minBet: '1',
+    maxBet: '5000',
+    creditLimit: '1000',
+    balanceOwed: '0'
+  });
   const [currentRole, setCurrentRole] = useState('admin');
   const [viewOnly, setViewOnly] = useState(false);
   const [sourceFilter, setSourceFilter] = useState('all');
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [selectedCustomer, setSelectedCustomer] = useState(null);
+  const [editForm, setEditForm] = useState({
+    phoneNumber: '',
+    firstName: '',
+    lastName: '',
+    fullName: '',
+    password: '',
+    minBet: '1',
+    maxBet: '5000',
+    creditLimit: '1000',
+    balanceOwed: '0'
+  });
+
+
 
   useEffect(() => {
     const fetchUsers = async () => {
@@ -75,7 +103,20 @@ function CustomerAdminView({ onViewChange }) {
       } else {
         await createUserByAdmin(payload, token);
       }
-      setNewCustomer({ username: '', email: '', password: '', fullName: '', agentId: '', balance: '' });
+      setNewCustomer({
+        username: '',
+        phoneNumber: '',
+        password: '',
+        firstName: '',
+        lastName: '',
+        fullName: '',
+        agentId: '',
+        balance: '',
+        minBet: '1',
+        maxBet: '5000',
+        creditLimit: '1000',
+        balanceOwed: '0'
+      });
       setError('');
       if (currentRole === 'agent') {
         const data = await getMyPlayers(token);
@@ -216,6 +257,47 @@ function CustomerAdminView({ onViewChange }) {
     }
   };
 
+  const handleEditClick = (customer) => {
+    setSelectedCustomer(customer);
+    setEditForm({
+      phoneNumber: customer.phoneNumber || '',
+      firstName: customer.firstName || '',
+      lastName: customer.lastName || '',
+      fullName: customer.fullName || '',
+      password: '', // Keep empty for no change
+      minBet: customer.minBet || '1',
+      maxBet: customer.maxBet || '5000',
+      creditLimit: customer.creditLimit || '1000',
+      balanceOwed: customer.balanceOwed || '0'
+    });
+    setShowEditModal(true);
+  };
+
+  const handleUpdateCustomer = async (e) => {
+    e.preventDefault();
+    const customerId = selectedCustomer.id || selectedCustomer._id;
+    try {
+      const token = localStorage.getItem('token');
+      const payload = { ...editForm };
+      if (!payload.password) delete payload.password;
+
+      if (currentRole === 'agent') {
+        await updateUserByAgent(customerId, payload, token);
+      } else {
+        await updateUserByAdmin(customerId, payload, token);
+      }
+
+      setCustomers(prev => prev.map(c => (
+        (c.id || c._id) === customerId ? { ...c, ...payload } : c
+      )));
+      setShowEditModal(false);
+      setError('');
+    } catch (err) {
+      console.error('Update customer failed:', err);
+      setError(err.message || 'Failed to update customer');
+    }
+  };
+
   const filteredCustomers = customers.filter(customer => {
     if (currentRole === 'agent' || sourceFilter === 'all') return true;
     const hasAgent = Boolean(customer.agentId);
@@ -223,6 +305,12 @@ function CustomerAdminView({ onViewChange }) {
     if (sourceFilter === 'admin') return !hasAgent;
     return true;
   });
+
+  const handleViewDetails = (customer) => {
+    if (onViewChange) {
+      onViewChange('user-details', customer.id || customer._id);
+    }
+  };
 
   return (
     <div className="admin-view">
@@ -246,12 +334,12 @@ function CustomerAdminView({ onViewChange }) {
                 />
               </div>
               <div className="filter-group">
-                <label>Email</label>
+                <label>Phone Number</label>
                 <input
-                  type="email"
-                  value={newCustomer.email}
-                  onChange={(e) => setNewCustomer(prev => ({ ...prev, email: e.target.value }))}
-                  placeholder="Email"
+                  type="tel"
+                  value={newCustomer.phoneNumber}
+                  onChange={(e) => setNewCustomer(prev => ({ ...prev, phoneNumber: e.target.value }))}
+                  placeholder="Phone Number"
                 />
               </div>
               <div className="filter-group">
@@ -264,12 +352,21 @@ function CustomerAdminView({ onViewChange }) {
                 />
               </div>
               <div className="filter-group">
-                <label>Full Name</label>
+                <label>First Name</label>
                 <input
                   type="text"
-                  value={newCustomer.fullName}
-                  onChange={(e) => setNewCustomer(prev => ({ ...prev, fullName: e.target.value }))}
-                  placeholder="Optional"
+                  value={newCustomer.firstName}
+                  onChange={(e) => setNewCustomer(prev => ({ ...prev, firstName: e.target.value }))}
+                  placeholder="First name"
+                />
+              </div>
+              <div className="filter-group">
+                <label>Last Name</label>
+                <input
+                  type="text"
+                  value={newCustomer.lastName}
+                  onChange={(e) => setNewCustomer(prev => ({ ...prev, lastName: e.target.value }))}
+                  placeholder="Last name"
                 />
               </div>
               {currentRole !== 'agent' && (
@@ -289,6 +386,33 @@ function CustomerAdminView({ onViewChange }) {
                 </div>
               )}
               <div className="filter-group">
+                <label>Min Bet</label>
+                <input
+                  type="number"
+                  value={newCustomer.minBet}
+                  onChange={(e) => setNewCustomer(prev => ({ ...prev, minBet: e.target.value }))}
+                  placeholder="1"
+                />
+              </div>
+              <div className="filter-group">
+                <label>Max Bet</label>
+                <input
+                  type="number"
+                  value={newCustomer.maxBet}
+                  onChange={(e) => setNewCustomer(prev => ({ ...prev, maxBet: e.target.value }))}
+                  placeholder="5000"
+                />
+              </div>
+              <div className="filter-group">
+                <label>Credit</label>
+                <input
+                  type="number"
+                  value={newCustomer.creditLimit}
+                  onChange={(e) => setNewCustomer(prev => ({ ...prev, creditLimit: e.target.value }))}
+                  placeholder="1000"
+                />
+              </div>
+              <div className="filter-group">
                 <label>Starting Balance</label>
                 <input
                   type="number"
@@ -301,7 +425,7 @@ function CustomerAdminView({ onViewChange }) {
               <button
                 className="btn-primary"
                 onClick={handleCreateCustomer}
-                disabled={viewOnly || createLoading || !newCustomer.username || !newCustomer.email || !newCustomer.password}
+                disabled={viewOnly || createLoading || !newCustomer.username || !newCustomer.phoneNumber || !newCustomer.password}
               >
                 {viewOnly ? 'View-only (Unpaid)' : createLoading ? 'Saving...' : 'Create Customer'}
               </button>
@@ -323,15 +447,16 @@ function CustomerAdminView({ onViewChange }) {
                 <thead>
                   <tr>
                     <th>Username</th>
-                    <th>Email</th>
+                    <th>Password</th>
+                    <th>First Name</th>
+                    <th>Last Name</th>
+                    <th>Min Bet</th>
+                    <th>Max Bet</th>
+                    <th>Credit</th>
+                    <th>Settle</th>
+                    <th>Balance</th>
                     <th>Status</th>
                     {currentRole !== 'agent' && <th>Agent</th>}
-                    <th>Balance</th>
-                    <th>Outstanding</th>
-                    <th>Pending</th>
-                    <th>Available</th>
-                    <th>Role</th>
-                    <th>Joined</th>
                     <th>Action</th>
                   </tr>
                 </thead>
@@ -346,7 +471,16 @@ function CustomerAdminView({ onViewChange }) {
                       return (
                         <tr key={customerId}>
                           <td>{customer.username}</td>
-                          <td>{customer.email}</td>
+                          <td style={{ textAlign: 'center' }}>
+                            <button className="btn-small btn-secondary" onClick={() => handleResetPassword(customer)}>Reset</button>
+                          </td>
+                          <td>{customer.firstName || '—'}</td>
+                          <td>{customer.lastName || '—'}</td>
+                          <td>{customer.minBet || '1'}</td>
+                          <td>{customer.maxBet || '5000'}</td>
+                          <td>{formatBalance(customer.creditLimit)}</td>
+                          <td>{formatBalance(customer.balanceOwed)}</td>
+                          <td>{formatBalance(customer.balance)}</td>
                           <td>
                             <span className={`badge ${customer.status}`}>{customer.status}</span>
                             {customer.isActive && <span className="badge active-customer" style={{ marginLeft: '5px', background: '#28a745', color: 'white' }}>Active</span>}
@@ -354,48 +488,21 @@ function CustomerAdminView({ onViewChange }) {
                           {currentRole !== 'agent' && (
                             <td>{customer.agentId?.username || 'Admin'}</td>
                           )}
-                          <td>{formatBalance(customer.balance)}</td>
-                          <td>{formatBalance(customer.balanceOwed)}</td>
-                          <td>{formatBalance(customer.pendingBalance)}</td>
-                          <td>{formatBalance(customer.availableBalance)}</td>
-                          <td><span className={`badge ${customer.role}`}>{customer.role}</span></td>
-                          <td>{new Date(customer.createdAt).toLocaleDateString()}</td>
                           <td>
+                            <button className="btn-small btn-info" onClick={() => handleViewDetails(customer)} style={{ marginRight: '8px' }}>View</button>
+                            <button
+                              className="btn-small btn-primary"
+                              onClick={() => handleEditClick(customer)}
+                              style={{ marginRight: '8px' }}
+                            >
+                              Edit
+                            </button>
                             <button
                               className="btn-small"
                               onClick={() => handleAdjustBalance(customer)}
                               disabled={viewOnly || actionLoadingId === customerId}
                             >
-                              {actionLoadingId === customerId ? 'Working...' : 'Adjust Balance'}
-                            </button>
-                            {currentRole !== 'agent' && (
-                              customer.status === 'suspended' ? (
-                                <button
-                                  className="btn-small"
-                                  onClick={() => updateCustomerStatus(customerId, 'active')}
-                                  disabled={actionLoadingId === customerId}
-                                  style={{ marginLeft: '8px' }}
-                                >
-                                  {actionLoadingId === customerId ? 'Working...' : 'Unsuspend'}
-                                </button>
-                              ) : (
-                                <button
-                                  className="btn-small btn-danger"
-                                  onClick={() => updateCustomerStatus(customerId, 'suspended')}
-                                  disabled={actionLoadingId === customerId}
-                                  style={{ marginLeft: '8px' }}
-                                >
-                                  {actionLoadingId === customerId ? 'Working...' : 'Suspend'}
-                                </button>
-                              )
-                            )}
-                            <button
-                              className="btn-small btn-secondary"
-                              onClick={() => handleResetPassword(customer)}
-                              disabled={actionLoadingId === customerId}
-                              style={{ marginLeft: '8px' }}
-                            >
-                              Reset Pass
+                              {actionLoadingId === customerId ? 'Working...' : 'Adj Bal'}
                             </button>
                           </td>
                         </tr>
@@ -408,6 +515,94 @@ function CustomerAdminView({ onViewChange }) {
           </>
         )}
       </div>
+
+      {/* EDIT MODAL */}
+      {showEditModal && (
+        <div className="modal-overlay">
+          <div className="modal-content">
+            <h3>Edit Customer: {selectedCustomer?.username}</h3>
+            <form onSubmit={handleUpdateCustomer}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+                <div className="form-group">
+                  <label>First Name</label>
+                  <input
+                    type="text"
+                    value={editForm.firstName}
+                    onChange={e => setEditForm({ ...editForm, firstName: e.target.value })}
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Last Name</label>
+                  <input
+                    type="text"
+                    value={editForm.lastName}
+                    onChange={e => setEditForm({ ...editForm, lastName: e.target.value })}
+                  />
+                </div>
+              </div>
+              <div className="form-group">
+                <label>Phone Number</label>
+                <input
+                  type="tel"
+                  value={editForm.phoneNumber}
+                  onChange={e => setEditForm({ ...editForm, phoneNumber: e.target.value })}
+                  required
+                />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+                <div className="form-group">
+                  <label>Min Bet</label>
+                  <input
+                    type="number"
+                    value={editForm.minBet}
+                    onChange={e => setEditForm({ ...editForm, minBet: e.target.value })}
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Max Bet</label>
+                  <input
+                    type="number"
+                    value={editForm.maxBet}
+                    onChange={e => setEditForm({ ...editForm, maxBet: e.target.value })}
+                  />
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+                <div className="form-group">
+                  <label>Credit</label>
+                  <input
+                    type="number"
+                    value={editForm.creditLimit}
+                    onChange={e => setEditForm({ ...editForm, creditLimit: e.target.value })}
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Settle (Balance Owed)</label>
+                  <input
+                    type="number"
+                    value={editForm.balanceOwed}
+                    onChange={e => setEditForm({ ...editForm, balanceOwed: e.target.value })}
+                  />
+                </div>
+              </div>
+              <div className="form-group">
+                <label>New Password (leave blank to keep)</label>
+                <input
+                  type="password"
+                  value={editForm.password}
+                  onChange={e => setEditForm({ ...editForm, password: e.target.value })}
+                />
+              </div>
+              <div className="modal-actions">
+                <button type="submit" className="btn-primary">Save Changes</button>
+                <button type="button" className="btn-secondary" onClick={() => setShowEditModal(false)}>Cancel</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* STATS MODAL REMOVED */}
     </div>
   );
 }

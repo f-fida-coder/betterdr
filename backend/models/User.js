@@ -10,21 +10,37 @@ const userSchema = new mongoose.Schema(
             trim: true,
             index: true,
         },
-        email: {
+        phoneNumber: {
             type: String,
             required: true,
             unique: true,
-            lowercase: true,
-            match: [/^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/, 'Invalid email format'],
+            trim: true,
+            match: [/^\+?[1-9]\d{1,14}$/, 'Invalid phone number format'],
             index: true,
         },
         password: {
             type: String,
             required: true,
         },
+        firstName: {
+            type: String,
+            default: null,
+        },
+        lastName: {
+            type: String,
+            default: null,
+        },
         fullName: {
             type: String,
             default: null,
+        },
+        minBet: {
+            type: Number,
+            default: 1, // Default from platform settings usually
+        },
+        maxBet: {
+            type: Number,
+            default: 5000, // Default from platform settings usually
         },
         balance: {
             type: mongoose.Decimal128,
@@ -68,8 +84,14 @@ const userSchema = new mongoose.Schema(
         },
         createdBy: {
             type: mongoose.Schema.Types.ObjectId,
-            ref: 'User', // Could be Agent or Admin, keep generic or update later
+            refPath: 'createdByModel',
             default: null,
+        },
+        createdByModel: {
+            type: String,
+            required: false,
+            enum: ['Admin', 'Agent', 'User'], // Allow User for self-registration if needed
+            default: null
         },
         isVerified: {
             type: Boolean,

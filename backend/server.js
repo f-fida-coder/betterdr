@@ -31,7 +31,7 @@ app.get('/', (req, res) => {
 });
 
 // Routes
-app.use('/api/auth', publicLimiter, require('./routes/authRoutes'));
+app.use('/api/auth', require('./routes/authRoutes'));
 app.use('/api/wallet', require('./routes/walletRoutes'));
 app.use('/api/bets', require('./routes/betRoutes'));
 app.use('/api/admin', require('./routes/adminRoutes'));

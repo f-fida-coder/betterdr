@@ -1,12 +1,10 @@
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
-import RegisterModal from './RegisterModal';
 
 const Header = ({ onLogin, isLoggedIn }) => {
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const [isLoggingIn, setIsLoggingIn] = useState(false);
-    const [showRegisterModal, setShowRegisterModal] = useState(false);
     const [showMobileLogin, setShowMobileLogin] = useState(false);
 
     const handleLogin = async () => {
@@ -67,13 +65,6 @@ const Header = ({ onLogin, isLoggedIn }) => {
                         >
                             {isLoggingIn ? 'LOGGING IN...' : 'SIGN IN'}
                         </button>
-                        <button
-                            className="btn-login"
-                            onClick={() => setShowRegisterModal(true)}
-                            style={{ marginLeft: '15px' }}
-                        >
-                            REGISTER
-                        </button>
                     </>
                 ) : (
                     <button
@@ -106,7 +97,6 @@ const Header = ({ onLogin, isLoggedIn }) => {
                         {!isLoggedIn ? (
                             <div style={{ display: 'flex', alignItems: 'center' }}>
                                 <button className="mobile-login-btn" onClick={() => setShowMobileLogin(!showMobileLogin)}>LOGIN</button>
-                                <button className="mobile-join-btn" onClick={() => setShowRegisterModal(true)}>JOIN NOW</button>
                             </div>
                         ) : (
                             <div className="mobile-user-trigger" onClick={() => setShowMobileLogin(!showMobileLogin)}>
@@ -252,23 +242,6 @@ const Header = ({ onLogin, isLoggedIn }) => {
                                     >
                                         {isLoggingIn ? 'SIGNING IN...' : 'SIGN IN'}
                                     </button>
-                                    <button 
-                                        className="btn-login register"
-                                        onClick={() => { setShowRegisterModal(true); setShowMobileLogin(false); }}
-                                        style={{
-                                            width: '100%',
-                                            padding: '12px',
-                                            background: '#28a745',
-                                            color: 'white',
-                                            border: 'none',
-                                            borderRadius: '4px',
-                                            fontSize: '16px',
-                                            fontWeight: 'bold',
-                                            cursor: 'pointer'
-                                        }}
-                                    >
-                                        REGISTER
-                                    </button>
                                 </>
                             ) : (
                                 <div style={{ textAlign: 'center', color: '#000' }}>
@@ -298,13 +271,7 @@ const Header = ({ onLogin, isLoggedIn }) => {
                 )
             }
 
-            {showRegisterModal && createPortal(
-                <RegisterModal 
-                    onClose={() => setShowRegisterModal(false)} 
-                    onOpenLogin={() => setShowMobileLogin(true)}
-                />,
-                document.body
-            )}
+            {/* RegisterModal removed */}
         </header >
     );
 };

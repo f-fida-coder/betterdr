@@ -23,6 +23,7 @@ import BetTickerView from './admin-views/BetTickerView';
 import TicketWriterView from './admin-views/TicketWriterView';
 import ScoresView from './admin-views/ScoresView';
 import AgentAdminView from './admin-views/AgentAdminView';
+import SubAgentManagerView from './admin-views/SubAgentManagerView';
 import BillingView from './admin-views/BillingView';
 import SettingsView from './admin-views/SettingsView';
 import RulesView from './admin-views/RulesAdminView';
@@ -33,24 +34,36 @@ import SystemMonitorView from './admin-views/SystemMonitorView';
 import ProfileView from './admin-views/ProfileView';
 import '../admin.css';
 
+import UserStatisticsView from './admin-views/UserStatisticsView';
+
 function AdminPanel({ onExit, role = 'admin' }) {
   const [adminView, setAdminView] = useState('dashboard');
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [selectedUserId, setSelectedUserId] = useState(null);
 
-  const handleViewChange = (view) => {
-    console.log('AdminPanel: switching to view', view);
+  const handleViewChange = (view, userId = null) => {
     setAdminView(view);
+    if (userId) {
+      setSelectedUserId(userId);
+    }
     setMobileSidebarOpen(false);
   };
 
   const handleLogout = () => {
-    if (onExit) {
-      onExit();
-    }
+    onExit();
   };
 
   const renderView = () => {
     switch (adminView) {
+      case 'dashboard':
+        return <AdminDashboard role={role} />;
+      case 'user-details':
+        return (
+          <UserStatisticsView
+            userId={selectedUserId}
+            onBack={() => setAdminView('customer-admin')}
+          />
+        );
       case 'weekly-figures':
         return <WeeklyFiguresView />;
       case 'pending':
@@ -93,6 +106,8 @@ function AdminPanel({ onExit, role = 'admin' }) {
         return <ScoresView />;
       case 'agent-admin':
         return <AgentAdminView />;
+      case 'sub-agent-admin':
+        return <SubAgentManagerView />;
       case 'billing':
         return <BillingView />;
       case 'settings':

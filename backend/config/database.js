@@ -3,6 +3,7 @@ const dotenv = require('dotenv');
 
 dotenv.config();
 
+console.log('Loaded MONGODB_URI:', process.env.MONGODB_URI);
 const mongoUri = process.env.MONGODB_URI || process.env.MONGO_URI || 'mongodb://localhost:27017/sports_betting';
 
 const connectDB = async () => {

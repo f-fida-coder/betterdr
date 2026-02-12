@@ -57,8 +57,8 @@ function ProfileView() {
                   <input type="text" value={profile.username || ''} readOnly />
                 </div>
                 <div className="form-group">
-                  <label>Email:</label>
-                  <input type="text" value={profile.email || ''} readOnly />
+                  <label>Phone Number:</label>
+                  <input type="text" value={profile.phoneNumber || ''} readOnly />
                 </div>
                 <div className="form-group">
                   <label>Role:</label>

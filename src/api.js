@@ -706,6 +706,25 @@ export const createUserByAdmin = async (userData, token) => {
     }
 };
 
+export const updateUserByAdmin = async (userId, userData, token) => {
+    try {
+        const response = await fetch(`${API_URL}/admin/users/${userId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify(userData)
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.message || 'Failed to update user');
+        return data;
+    } catch (error) {
+        console.error('updateUserByAdmin error:', error);
+        throw error;
+    }
+};
+
 export const createPlayerByAgent = async (userData, token) => {
     try {
         console.log('createPlayerByAgent called with token:', token ? token.substring(0, 30) + '...' : 'NO TOKEN');
@@ -799,6 +818,78 @@ export const updateAgent = async (id, data, token) => {
         return response.json();
     } catch (error) {
         console.error('Update Agent Error:', error);
+        throw error;
+    }
+};
+
+export const updateUserByAgent = async (userId, userData, token) => {
+    try {
+        const response = await fetch(`${API_URL}/agent/users/${userId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify(userData)
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.message || 'Failed to update customer');
+        return data;
+    } catch (error) {
+        console.error('updateUserByAgent error:', error);
+        throw error;
+    }
+};
+
+export const createSubAgent = async (agentData, token) => {
+    try {
+        const response = await fetch(`${API_URL}/agent/create-sub-agent`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify(agentData)
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.message || 'Failed to create sub-agent');
+        return data;
+    } catch (error) {
+        console.error('createSubAgent error:', error);
+        throw error;
+    }
+};
+
+export const getMySubAgents = async (token) => {
+    try {
+        const response = await fetch(`${API_URL}/agent/my-sub-agents`, {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.message || 'Failed to fetch sub-agents');
+        return data;
+    } catch (error) {
+        console.error('getMySubAgents error:', error);
+        throw error;
+    }
+};
+
+export const getUserStatistics = async (userId, token) => {
+    try {
+        const response = await fetch(`${API_URL}/admin/users/${userId}/stats`, {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.message || 'Failed to fetch user statistics');
+        return data;
+    } catch (error) {
+        console.error('getUserStatistics error:', error);
         throw error;
     }
 };
@@ -1145,6 +1236,7 @@ export const resetUserPasswordByAdmin = async (id, newPassword, token) => {
     }
     return response.json();
 };
+
 
 export const resetAgentPasswordByAdmin = async (id, newPassword, token) => {
     const response = await fetch(`${API_URL}/admin/agents/${id}/reset-password`, {

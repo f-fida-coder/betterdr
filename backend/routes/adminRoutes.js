@@ -72,7 +72,9 @@ const {
 	deleteManualSection,
 	fetchOddsManual,
 	resetUserPassword,
-	resetAgentPassword
+	resetAgentPassword,
+	updateUser,
+	getUserStats
 } = require('../controllers/adminController');
 const { protect } = require('../middleware/authMiddleware');
 const { adminOnly, adminOrAgent } = require('../middleware/roleMiddleware');
@@ -90,6 +92,7 @@ router.post('/create-user', protect, adminOrAgent, createUser);
 router.post('/suspend', protect, adminOrAgent, suspendUser);
 router.post('/unsuspend', protect, adminOrAgent, unsuspendUser);
 router.put('/users/:id/credit', protect, adminOrAgent, updateUserCredit);
+router.put('/users/:id', protect, adminOnly, updateUser);
 router.get('/stats', protect, adminOrAgent, getStats);
 router.get('/system-stats', protect, adminOrAgent, getSystemStats);
 router.get('/header-summary', protect, adminOrAgent, getAdminHeaderSummary);
@@ -156,5 +159,8 @@ router.delete('/manual/:id', protect, adminOnly, deleteManualSection);
 // Password Reset Routes
 router.post('/users/:id/reset-password', protect, adminOrAgent, resetUserPassword);
 router.post('/agents/:id/reset-password', protect, adminOnly, resetAgentPassword);
+
+// User Statistics Route
+router.get('/users/:userId/stats', protect, adminOrAgent, getUserStats);
 
 module.exports = router;

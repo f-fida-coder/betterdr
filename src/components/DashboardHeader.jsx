@@ -8,6 +8,7 @@ const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, 
     const [showLiveMenu, setShowLiveMenu] = useState(false);
     const [showMoreMenu, setShowMoreMenu] = useState(false);
     const [showUserMenu, setShowUserMenu] = useState(false);
+    const [isRefreshing, setIsRefreshing] = useState(false);
 
     const hasSelection = selectedSports.length > 0;
 
@@ -31,6 +32,26 @@ const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, 
         if (Number.isNaN(num)) return '—';
         return `$ ${num.toFixed(2)}`;
     };
+
+    const handleRefreshRequest = () => {
+        if (isRefreshing) return;
+        setIsRefreshing(true);
+        window.dispatchEvent(new CustomEvent('matches:refresh'));
+
+        // Fallback timeout in case event is missed or backend fails silently
+        setTimeout(() => {
+            setIsRefreshing(false);
+        }, 30000);
+    };
+
+    React.useEffect(() => {
+        const handleRefreshCompleted = () => {
+            setIsRefreshing(false);
+        };
+        window.addEventListener('matches:refresh-completed', handleRefreshCompleted);
+        return () => window.removeEventListener('matches:refresh-completed', handleRefreshCompleted);
+    }, []);
+
     const languages = [
         { name: 'English', flag: 'https://upload.wikimedia.org/wikipedia/en/a/a4/Flag_of_the_United_States.svg', active: true },
         { name: 'Spanish', flag: 'https://upload.wikimedia.org/wikipedia/commons/9/9a/Flag_of_Spain.svg' },
@@ -183,7 +204,7 @@ const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, 
                 <div className="dash-nav-links">
                     <div
                         className="dash-nav-item"
-                        onClick={() => onViewChange && onViewChange('dashboard')}
+                        onClick={() => onHomeClick && onHomeClick()}
                     >
                         <span>SPORTS</span>
                         <div className="dash-nav-icon">
@@ -403,197 +424,209 @@ const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, 
 
                         <div className="bet-action-group">
                             <button
-                                className="action-btn refresh-btn"
+                                className={`action-btn refresh-btn ${isRefreshing ? 'refresh-loading' : ''}`}
                                 title="Refresh"
-                                onClick={() => window.dispatchEvent(new CustomEvent('matches:refresh'))}
+                                onClick={handleRefreshRequest}
+                                disabled={isRefreshing}
                             >
-                                <i className="fa-solid fa-arrows-rotate" style={{ fontSize: '16px' }}></i>
-                                <span>REFRESH</span>
+                                <i className={`fa-solid fa-arrows-rotate ${isRefreshing ? 'fa-spin' : ''}`} style={{ fontSize: '16px' }}></i>
+                                <span>{isRefreshing ? 'REFRESHING...' : 'REFRESH'}</span>
                             </button>
-                            <button className="action-btn green continue-btn" title="Continue">
+                            <button
+                                className="action-btn green continue-btn"
+                                title="Continue"
+                                onClick={onContinue || onToggleSidebar}
+                            >
                                 <i className="fa-solid fa-chevron-right" style={{ fontSize: '16px' }}></i>
                                 <span>CONTINUE</span>
                             </button>
                         </div>
                     </div>
                 </>
-            )}
+            )
+            }
 
             { }
 
 
 
 
-            {showLanguageModal && (
-                <div style={{
-                    position: 'fixed',
-                    top: 0,
-                    left: 0,
-                    width: '100%',
-                    height: '100%',
-                    background: 'rgba(0,0,0,0.7)',
-                    zIndex: 2000,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center'
-                }}>
+            {
+                showLanguageModal && (
                     <div style={{
-                        background: 'white',
-                        width: '300px',
-                        borderRadius: '4px',
-                        overflow: 'hidden',
-                        boxShadow: '0 5px 15px rgba(0,0,0,0.5)'
+                        position: 'fixed',
+                        top: 0,
+                        left: 0,
+                        width: '100%',
+                        height: '100%',
+                        background: 'rgba(0,0,0,0.7)',
+                        zIndex: 2000,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
                     }}>
                         <div style={{
-                            padding: '15px 20px',
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                            borderBottom: '1px solid #eee'
+                            background: 'white',
+                            width: '300px',
+                            borderRadius: '4px',
+                            overflow: 'hidden',
+                            boxShadow: '0 5px 15px rgba(0,0,0,0.5)'
                         }}>
-                            <h3 style={{ margin: 0, color: '#333', fontSize: '18px' }}>Available Languages</h3>
-                            <span
-                                onClick={() => setShowLanguageModal(false)}
-                                style={{ cursor: 'pointer', fontSize: '20px', color: '#999' }}
-                            >×</span>
-                        </div>
-
-                        <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
-                            {languages.map((lang, index) => (
-                                <div key={index} style={{
-                                    display: 'flex',
-                                    justifyContent: 'space-between',
-                                    alignItems: 'center',
-                                    padding: '12px 20px',
-                                    borderBottom: '1px solid #eee',
-                                    background: lang.active ? '#004d26' : 'white',
-                                    color: lang.active ? 'white' : '#333',
-                                    cursor: 'pointer'
-                                }}>
-                                    <span style={{ fontSize: '16px', fontWeight: lang.active ? 'bold' : 'normal' }}>{lang.name}</span>
-                                    <img
-                                        src={lang.flag}
-                                        alt={lang.name}
-                                        style={{ width: '24px', borderRadius: '3px', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }}
-                                    />
-                                </div>
-                            ))}
-                        </div>
-
-                        <div style={{ padding: '15px', display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid #eee' }}>
-                            <button
-                                onClick={() => setShowLanguageModal(false)}
-                                style={{
-                                    background: '#d9534f',
-                                    color: 'white',
-                                    border: 'none',
-                                    padding: '8px 20px',
-                                    borderRadius: '4px',
-                                    cursor: 'pointer',
-                                    fontSize: '14px',
-                                    fontWeight: 'bold'
-                                }}
-                            >
-                                Close
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {showOddsModal && (
-                <div style={{
-                    position: 'fixed',
-                    top: 0,
-                    left: 0,
-                    width: '100%',
-                    height: '100%',
-                    background: 'rgba(0,0,0,0.7)',
-                    zIndex: 2000,
-                    display: 'flex',
-                    alignItems: 'center', justifyContent: 'center'
-                }}>
-                    <div style={{
-                        background: 'white',
-                        width: '300px',
-                        borderRadius: '4px',
-                        overflow: 'hidden',
-                        boxShadow: '0 5px 15px rgba(0,0,0,0.5)',
-                        marginBottom: '20vh'
-                    }}>
-                        <div style={{
-                            padding: '15px 20px',
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                            borderBottom: '1px solid #eee'
-                        }}>
-                            <h3 style={{ margin: 0, color: '#333', fontSize: '18px' }}>Odds Display</h3>
-                            <span
-                                onClick={() => setShowOddsModal(false)}
-                                style={{ cursor: 'pointer', fontSize: '20px', color: '#999' }}
-                            >×</span>
-                        </div>
-
-                        <div style={{ padding: '20px' }}>
                             <div style={{
-                                border: '1px solid #ccc',
-                                borderRadius: '4px',
-                                overflow: 'hidden'
+                                padding: '15px 20px',
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                borderBottom: '1px solid #eee'
                             }}>
-                                <div style={{
-                                    padding: '12px 15px',
-                                    background: '#004d26',
-                                    color: 'white',
-                                    fontWeight: 'bold',
-                                    borderBottom: '1px solid #ccc',
-                                    cursor: 'pointer'
-                                }}>
-                                    American
-                                </div>
-                                <div style={{
-                                    padding: '12px 15px',
-                                    background: 'white',
-                                    color: '#333',
-                                    cursor: 'pointer'
-                                }}>
-                                    Decimal
-                                </div>
+                                <h3 style={{ margin: 0, color: '#333', fontSize: '18px' }}>Available Languages</h3>
+                                <span
+                                    onClick={() => setShowLanguageModal(false)}
+                                    style={{ cursor: 'pointer', fontSize: '20px', color: '#999' }}
+                                >×</span>
+                            </div>
+
+                            <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
+                                {languages.map((lang, index) => (
+                                    <div key={index} style={{
+                                        display: 'flex',
+                                        justifyContent: 'space-between',
+                                        alignItems: 'center',
+                                        padding: '12px 20px',
+                                        borderBottom: '1px solid #eee',
+                                        background: lang.active ? '#004d26' : 'white',
+                                        color: lang.active ? 'white' : '#333',
+                                        cursor: 'pointer'
+                                    }}>
+                                        <span style={{ fontSize: '16px', fontWeight: lang.active ? 'bold' : 'normal' }}>{lang.name}</span>
+                                        <img
+                                            src={lang.flag}
+                                            alt={lang.name}
+                                            style={{ width: '24px', borderRadius: '3px', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }}
+                                        />
+                                    </div>
+                                ))}
+                            </div>
+
+                            <div style={{ padding: '15px', display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid #eee' }}>
+                                <button
+                                    onClick={() => setShowLanguageModal(false)}
+                                    style={{
+                                        background: '#d9534f',
+                                        color: 'white',
+                                        border: 'none',
+                                        padding: '8px 20px',
+                                        borderRadius: '4px',
+                                        cursor: 'pointer',
+                                        fontSize: '14px',
+                                        fontWeight: 'bold'
+                                    }}
+                                >
+                                    Close
+                                </button>
                             </div>
                         </div>
+                    </div>
+                )
+            }
 
-                        <div style={{ padding: '15px', display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid #eee' }}>
-                            <button
-                                onClick={() => setShowOddsModal(false)}
-                                style={{
-                                    background: '#d9534f',
-                                    color: 'white',
-                                    border: 'none',
-                                    padding: '8px 20px',
+            {
+                showOddsModal && (
+                    <div style={{
+                        position: 'fixed',
+                        top: 0,
+                        left: 0,
+                        width: '100%',
+                        height: '100%',
+                        background: 'rgba(0,0,0,0.7)',
+                        zIndex: 2000,
+                        display: 'flex',
+                        alignItems: 'center', justifyContent: 'center'
+                    }}>
+                        <div style={{
+                            background: 'white',
+                            width: '300px',
+                            borderRadius: '4px',
+                            overflow: 'hidden',
+                            boxShadow: '0 5px 15px rgba(0,0,0,0.5)',
+                            marginBottom: '20vh'
+                        }}>
+                            <div style={{
+                                padding: '15px 20px',
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                borderBottom: '1px solid #eee'
+                            }}>
+                                <h3 style={{ margin: 0, color: '#333', fontSize: '18px' }}>Odds Display</h3>
+                                <span
+                                    onClick={() => setShowOddsModal(false)}
+                                    style={{ cursor: 'pointer', fontSize: '20px', color: '#999' }}
+                                >×</span>
+                            </div>
+
+                            <div style={{ padding: '20px' }}>
+                                <div style={{
+                                    border: '1px solid #ccc',
                                     borderRadius: '4px',
-                                    cursor: 'pointer',
-                                    fontSize: '14px',
-                                    fontWeight: 'bold'
-                                }}
-                            >
-                                Close
-                            </button>
+                                    overflow: 'hidden'
+                                }}>
+                                    <div style={{
+                                        padding: '12px 15px',
+                                        background: '#004d26',
+                                        color: 'white',
+                                        fontWeight: 'bold',
+                                        borderBottom: '1px solid #ccc',
+                                        cursor: 'pointer'
+                                    }}>
+                                        American
+                                    </div>
+                                    <div style={{
+                                        padding: '12px 15px',
+                                        background: 'white',
+                                        color: '#333',
+                                        cursor: 'pointer'
+                                    }}>
+                                        Decimal
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div style={{ padding: '15px', display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid #eee' }}>
+                                <button
+                                    onClick={() => setShowOddsModal(false)}
+                                    style={{
+                                        background: '#d9534f',
+                                        color: 'white',
+                                        border: 'none',
+                                        padding: '8px 20px',
+                                        borderRadius: '4px',
+                                        cursor: 'pointer',
+                                        fontSize: '14px',
+                                        fontWeight: 'bold'
+                                    }}
+                                >
+                                    Close
+                                </button>
+                            </div>
                         </div>
                     </div>
-                </div>
-            )}
+                )
+            }
 
             {showScoreboard && <ScoreboardSidebar onClose={() => setShowScoreboard(false)} />}
 
-            {showSettingsModal && createPortal(
-                <SettingsModal
-                    onClose={() => setShowSettingsModal(false)}
-                    balance={balance}
-                    pendingBalance={pendingBalance}
-                    availableBalance={availableBalance}
-                />,
-                document.body
-            )}
+            {
+                showSettingsModal && createPortal(
+                    <SettingsModal
+                        onClose={() => setShowSettingsModal(false)}
+                        balance={balance}
+                        pendingBalance={pendingBalance}
+                        availableBalance={availableBalance}
+                    />,
+                    document.body
+                )
+            }
 
             {showPersonalizeSidebar && <PersonalizeSidebar onClose={() => setShowPersonalizeSidebar(false)} />}
         </>

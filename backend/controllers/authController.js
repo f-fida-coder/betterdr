@@ -54,7 +54,7 @@ const buildAuthPayload = (user) => {
     return {
         id: user._id,
         username: user.username,
-        email: user.email,
+        phoneNumber: user.phoneNumber,
         balance,
         pendingBalance,
         availableBalance,
@@ -130,15 +130,15 @@ const ensureIpAllowed = async (req, user) => {
 
 const registerUser = async (req, res) => {
     try {
-        const { username, email, password, agentId } = req.body;
-        // console.log('📝 Register request:', { username, email, agentId });
+        const { username, phoneNumber, password, agentId } = req.body;
+        // console.log('📝 Register request:', { username, phoneNumber, agentId });
 
-        if (!username || !email || !password) {
-            return res.status(400).json({ message: 'Username, email, and password are required' });
+        if (!username || !phoneNumber || !password) {
+            return res.status(400).json({ message: 'Username, phone number, and password are required' });
         }
 
-        const userExists = await User.findOne({ email });
-        if (userExists) return res.status(400).json({ message: 'Email already registered' });
+        const userExists = await User.findOne({ phoneNumber });
+        if (userExists) return res.status(400).json({ message: 'Phone number already registered' });
 
         const usernameExists = await User.findOne({ username });
         if (usernameExists) return res.status(400).json({ message: 'Username already taken' });
@@ -152,7 +152,7 @@ const registerUser = async (req, res) => {
         }
 
         const user = new User({
-            username, email, password, role: 'user', agentId: validAgentId, status: 'active', balance: 1000, pendingBalance: 0
+            username, phoneNumber, password, role: 'user', agentId: validAgentId, status: 'active', balance: 1000, pendingBalance: 0
         });
 
         await user.save();
@@ -166,22 +166,35 @@ const registerUser = async (req, res) => {
 const loginUser = async (req, res) => {
     try {
         const { username, password } = req.body;
-        const user = await User.findOne({ username }); // Role implicit 'user'
+
+        // 1. Check User collection
+        let user = await User.findOne({ username });
+
+        // 2. If not found, check Agent collection
+        if (!user) {
+            user = await Agent.findOne({ username });
+        }
+
+        // 3. If still not found, check Admin collection
+        if (!user) {
+            user = await Admin.findOne({ username });
+        }
+
         if (!user || !(await user.comparePassword(password))) {
             return res.status(401).json({ message: 'Invalid credentials' });
         }
+
         if (['suspended', 'closed'].includes(user.accountStatus) || user.status === 'suspended') {
             return res.status(403).json({ message: 'Account suspended.' });
         }
 
-        await trackLoginIp(req, user); // Skipping EnsureIP for brevity in this replace block, or assuming it passed? 
-        // Wait, I should include the IP check.
-        // I'll call ensureIpAllowed here.
         const ipCheck = await ensureIpAllowed(req, user);
         if (!ipCheck.allowed) return res.status(403).json({ message: ipCheck.message });
 
+        await trackLoginIp(req, user);
         res.json(buildAuthPayload(user));
     } catch (error) {
+        console.error('❌ Login error:', error.message);
         res.status(500).json({ message: 'Server error', error: error.message });
     }
 };
@@ -235,7 +248,7 @@ const getMe = async (req, res) => {
         res.json({
             id: req.user._id,
             username: req.user.username,
-            email: req.user.email,
+            phoneNumber: req.user.phoneNumber,
             balance,
             pendingBalance,
             availableBalance,

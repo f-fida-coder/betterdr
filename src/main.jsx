@@ -18,7 +18,12 @@ const ProtectedAdminRoute = ({ children }) => {
 
 const ProtectedAgentRoute = ({ children }) => {
   const isAuth = sessionStorage.getItem('agentAuthenticated') === 'true';
-  return isAuth ? children : <Navigate to="/agent" replace />;
+  return isAuth ? children : <Navigate to="/" replace />;
+};
+
+const ProtectedSuperAgentRoute = ({ children }) => {
+  const isAuth = sessionStorage.getItem('super_agentAuthenticated') === 'true';
+  return isAuth ? children : <Navigate to="/" replace />;
 };
 
 createRoot(document.getElementById('root')).render(
@@ -26,7 +31,9 @@ createRoot(document.getElementById('root')).render(
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<App />} />
-        <Route path="/admin" element={<AdminLogin />} />
+        <Route path="/admin" element={<Navigate to="/" replace />} />
+        <Route path="/agent" element={<Navigate to="/" replace />} />
+        <Route path="/super_agent" element={<Navigate to="/" replace />} />
         <Route
           path="/admin/dashboard"
           element={
@@ -40,7 +47,6 @@ createRoot(document.getElementById('root')).render(
             </ProtectedAdminRoute>
           }
         />
-        <Route path="/agent" element={<AgentLogin />} />
         <Route
           path="/agent/dashboard"
           element={
@@ -52,6 +58,19 @@ createRoot(document.getElementById('root')).render(
                 window.location.href = '/';
               }} />
             </ProtectedAgentRoute>
+          }
+        />
+        <Route
+          path="/super_agent/dashboard"
+          element={
+            <ProtectedSuperAgentRoute>
+              <AdminPanel role="super_agent" onExit={() => {
+                sessionStorage.removeItem('super_agentAuthenticated');
+                sessionStorage.removeItem('super_agentUsername');
+                localStorage.removeItem('token');
+                window.location.href = '/';
+              }} />
+            </ProtectedSuperAgentRoute>
           }
         />
         <Route path="*" element={<Navigate to="/" replace />} />

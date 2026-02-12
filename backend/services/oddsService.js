@@ -1,6 +1,7 @@
 const axios = require('axios');
 const Match = require('../models/Match');
 const socketIo = require('../socket');
+const betController = require('../controllers/betController');
 
 // API Configuration
 const ODDS_API_KEY = process.env.ODDS_API_KEY;
@@ -422,14 +423,38 @@ class OddsService {
                     };
 
                     if (match) {
+                        const oldStatus = match.status;
                         Object.assign(match, matchData);
                         await match.save();
+
                         try { socketIo.getIo().emit('matchUpdate', match); } catch (e) { }
+
+                        // New: Trigger automated settlement if match just finished
+                        if (match.status === 'finished' && oldStatus !== 'finished') {
+                            console.log(`🏁 Match ${match.homeTeam} vs ${match.awayTeam} finished. Triggering automated settlement...`);
+                            try {
+                                await betController.internalSettleMatch({ matchId: match._id, settledBy: 'system' });
+                            } catch (settleErr) {
+                                console.error(`❌ Automated settlement failed for match ${match._id}:`, settleErr.message);
+                            }
+                        }
+
                         updatedCount++;
                     } else {
                         match = new Match(matchData);
                         await match.save();
                         try { socketIo.getIo().emit('matchUpdate', match); } catch (e) { }
+
+                        // Trigger automated settlement if match is already created as finished
+                        if (match.status === 'finished') {
+                            console.log(`🏁 Match ${match.homeTeam} vs ${match.awayTeam} created as finished. Triggering automated settlement...`);
+                            try {
+                                await betController.internalSettleMatch({ matchId: match._id, settledBy: 'system' });
+                            } catch (settleErr) {
+                                console.error(`❌ Automated settlement failed for match ${match._id}:`, settleErr.message);
+                            }
+                        }
+
                         createdCount++;
                     }
                 }

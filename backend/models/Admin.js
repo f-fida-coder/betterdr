@@ -10,12 +10,12 @@ const adminSchema = new mongoose.Schema(
             trim: true,
             index: true,
         },
-        email: {
+        phoneNumber: {
             type: String,
             required: true,
             unique: true,
-            lowercase: true,
-            match: [/^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/, 'Invalid email format'],
+            trim: true,
+            match: [/^\+?[1-9]\d{1,14}$/, 'Invalid phone number format'],
             index: true,
         },
         password: {
@@ -40,8 +40,7 @@ const adminSchema = new mongoose.Schema(
             enum: ['active', 'suspended'],
             default: 'active',
         },
-        // Admins might still want to track PnL conceptually, but usually they are the house.
-        // We'll keep basic profile fields.
+
         fullName: { type: String, default: null },
     },
     {

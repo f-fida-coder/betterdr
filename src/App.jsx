@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { loginUser, getBalance } from './api';
+import { loginUser, getBalance, getMe } from './api';
 import Header from './components/Header';
 import LeagueNav from './components/LeagueNav';
 import Hero from './components/Hero';
@@ -20,8 +20,9 @@ import TutorialsView from './components/TutorialsView';
 import SupportView from './components/SupportView';
 import ChatWidget from './components/ChatWidget';
 import MyBetsView from './components/MyBetsView';
-import AdminPanel from './components/AdminPanel'; // Import AdminPanel
+import AdminPanel from './components/AdminPanel';
 import LandingPage from './components/LandingPage';
+import BetSlip from './components/BetSlip'; // Import BetSlip
 import './index.css';
 import './dashboard.css';
 
@@ -72,13 +73,12 @@ function App() {
 
   const fetchUserData = async (authToken) => {
     try {
-      const balanceData = await getBalance(authToken);
-      // Assuming we decode token for username or fetch /me endpoint. 
-      // For now, let's use the one from login response or a placeholder if just token exists
-      // Ideally we need a /api/auth/me endpoint.
-      setUser(prev => ({ ...prev, ...balanceData, username: prev?.username || 'User' }));
+      const userData = await getMe(authToken);
+      setUser(userData);
     } catch (e) {
       console.error('Failed to fetch user data', e);
+      // If token is invalid or expired, logout
+      handleLogout();
     }
   };
 
@@ -94,7 +94,7 @@ function App() {
       // Store user data from the backend response
       setUser({
         username: result.username,
-        email: result.email,
+        phoneNumber: result.phoneNumber,
         balance: result.balance,
         pendingBalance: result.pendingBalance,
         availableBalance: result.availableBalance,
@@ -107,8 +107,9 @@ function App() {
       document.body.classList.add('dashboard-mode');
 
       // Sync with explicit admin routes if applicable
-      if (result.role === 'admin' || result.role === 'agent') {
-        const roleKey = result.role === 'admin' ? 'admin' : 'agent';
+      // Sync with explicit admin routes if applicable
+      if (result.role === 'admin' || result.role === 'agent' || result.role === 'super_agent') {
+        const roleKey = result.role === 'admin' ? 'admin' : (result.role === 'super_agent' ? 'super_agent' : 'agent');
         sessionStorage.setItem(`${roleKey}Authenticated`, 'true');
         sessionStorage.setItem(`${roleKey}Username`, result.username);
 
@@ -132,46 +133,36 @@ function App() {
   const handleViewChange = (view) => {
     setDashboardView(view);
     setMobileSidebarOpen(false);
-    setShowPromo(false);
   };
 
   const handleHomeClick = () => {
-    // Reset to default dashboard view with no selected sports
     setDashboardView('dashboard');
     setSelectedSports([]);
-    setMobileSidebarOpen(false);
-    setShowPromo(false);
+    setActiveLeague('all');
     setIsMobileSportsSelectionMode(false);
-  };
-
-  const handleSportToggle = (id) => {
-    setSelectedSports(prev => {
-      const next = prev.includes(id) ? [] : [id];
-      if (isMobileViewport) {
-        setIsMobileSportsSelectionMode(next.length > 0);
-      }
-      return next;
-    });
-    setShowPromo(false);
+    setMobileSidebarOpen(false);
   };
 
   const handleContinue = () => {
-    setShowPromo(false);
-    setMobileSidebarOpen(false);
-    // Exit mobile sports selection mode and show content
     setIsMobileSportsSelectionMode(false);
   };
 
-  useEffect(() => {
-    return () => {
-      document.body.classList.remove('dashboard-mode');
-    };
-  }, []);
+  const handleSportToggle = (sport) => {
+    setSelectedSports(prev => {
+      const isSelected = prev.includes(sport);
+      if (isSelected) {
+        return prev.filter(s => s !== sport);
+      } else {
+        return [...prev, sport];
+      }
+    });
+  };
+
 
   return (
     <div className="app-container">
       {/* If logged in as admin or agent, show Admin Panel */}
-      {isLoggedIn && user && (user.role === 'admin' || user.role === 'agent') ? (
+      {isLoggedIn && user && (user.role === 'admin' || user.role === 'agent' || user.role === 'super_agent') ? (
         <AdminPanel
           onExit={handleLogout}
           role={user.role}
@@ -288,6 +279,14 @@ function App() {
             }}>
               FEEDBACK
             </div>
+
+            {isLoggedIn && user && user.role === 'user' && (
+              <BetSlip
+                user={user}
+                balance={user.balance}
+                onBetPlaced={() => fetchUserData(token)}
+              />
+            )}
 
             <div style={{
               position: 'fixed',

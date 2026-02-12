@@ -30,7 +30,7 @@ const platformSettingSchema = new mongoose.Schema(
             type: Boolean,
             default: false,
         },
-        emailNotifications: {
+        smsNotifications: {
             type: Boolean,
             default: true,
         },

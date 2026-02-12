@@ -3,7 +3,7 @@
 const API_BASE = 'http://localhost:5000/api';
 
 // Create Agent Endpoint
-const createAgent = async (username, email, password, fullName, token) => {
+const createAgent = async (username, phoneNumber, password, fullName, token) => {
   const response = await fetch(`${API_BASE}/admin/create-agent`, {
     method: 'POST',
     headers: {
@@ -12,22 +12,22 @@ const createAgent = async (username, email, password, fullName, token) => {
     },
     body: JSON.stringify({
       username,
-      email,
+      phoneNumber,
       password,
       fullName
     })
   });
-  
+
   if (!response.ok) {
     const error = await response.json();
     throw new Error(error.message);
   }
-  
+
   return await response.json();
 };
 
 // Create User Endpoint
-const createUser = async (username, email, password, fullName, token) => {
+const createUser = async (username, phoneNumber, password, fullName, token) => {
   const response = await fetch(`${API_BASE}/admin/create-user`, {
     method: 'POST',
     headers: {
@@ -36,17 +36,17 @@ const createUser = async (username, email, password, fullName, token) => {
     },
     body: JSON.stringify({
       username,
-      email,
+      phoneNumber,
       password,
       fullName
     })
   });
-  
+
   if (!response.ok) {
     const error = await response.json();
     throw new Error(error.message);
   }
-  
+
   return await response.json();
 };
 
@@ -58,11 +58,11 @@ const getUsers = async (token) => {
       'Authorization': `Bearer ${token}`
     }
   });
-  
+
   if (!response.ok) {
     throw new Error('Failed to fetch users');
   }
-  
+
   return await response.json();
 };
 
@@ -72,7 +72,7 @@ import { useState } from 'react';
 
 function AdminPanel() {
   const [username, setUsername] = useState('');
-  const [email, setEmail] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const token = localStorage.getItem('authToken');
@@ -80,12 +80,12 @@ function AdminPanel() {
   const handleCreateAgent = async (e) => {
     e.preventDefault();
     try {
-      const result = await createAgent(username, email, password, fullName, token);
+      const result = await createAgent(username, phoneNumber, password, fullName, token);
       console.log('Agent created:', result);
       alert(`Agent ${result.agent.username} created successfully!`);
       // Reset form
       setUsername('');
-      setEmail('');
+      setPhoneNumber('');
       setPassword('');
       setFullName('');
     } catch (error) {
@@ -96,7 +96,7 @@ function AdminPanel() {
   return (
     <form onSubmit={handleCreateAgent}>
       <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Username" required />
-      <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" required />
+      <input value={phoneNumber} onChange={(e) => setPhoneNumber(e.target.value)} placeholder="Phone Number" required />
       <input value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" type="password" required />
       <input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Full Name" />
       <button type="submit">Create Agent</button>

@@ -11,7 +11,7 @@ const betSchema = new mongoose.Schema(
         matchId: {
             type: mongoose.Schema.Types.ObjectId,
             ref: 'Match',
-            required: true,
+            required: false, // Changed to false to support multi-selection bets
             index: true,
         },
         amount: {
@@ -27,16 +27,52 @@ const betSchema = new mongoose.Schema(
         },
         odds: {
             type: mongoose.Decimal128,
-            required: true,
+            required: false, // Changed to false for multi-selection
             get: (value) => value ? value.toString() : '0.00',
         },
         type: {
             type: String,
-            required: true,
+            required: true, // 'straight', 'parlay', 'teaser', 'if_bet', 'reverse'
         },
         selection: {
             type: String,
-            required: true,
+            required: false, // Changed to false for multi-selection
+        },
+        selections: [
+            {
+                matchId: {
+                    type: mongoose.Schema.Types.ObjectId,
+                    ref: 'Match',
+                    required: true,
+                },
+                selection: {
+                    type: String,
+                    required: true,
+                },
+                odds: {
+                    type: Number,
+                    required: true,
+                },
+                marketType: {
+                    type: String, // e.g., 'h2h', 'spreads', 'totals'
+                },
+                point: {
+                    type: Number,
+                },
+                status: {
+                    type: String,
+                    enum: ['pending', 'won', 'lost', 'void'],
+                    default: 'pending',
+                },
+                matchSnapshot: {
+                    type: mongoose.Schema.Types.Mixed,
+                    default: {},
+                },
+            }
+        ],
+        teaserPoints: {
+            type: Number,
+            default: 0,
         },
         potentialPayout: {
             type: mongoose.Decimal128,

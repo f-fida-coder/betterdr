@@ -9,8 +9,8 @@ function AgentAdminView() {
   const [showViewModal, setShowViewModal] = useState(false);
   const [selectedAgent, setSelectedAgent] = useState(null);
 
-  const [newAgent, setNewAgent] = useState({ username: '', email: '', password: '' });
-  const [editForm, setEditForm] = useState({ id: '', email: '', password: '', agentBillingRate: '', agentBillingStatus: 'paid' });
+  const [newAgent, setNewAgent] = useState({ username: '', phoneNumber: '', password: '' });
+  const [editForm, setEditForm] = useState({ id: '', phoneNumber: '', password: '', agentBillingRate: '', agentBillingStatus: 'paid' });
   const [error, setError] = useState(null);
 
   const formatMoney = (value) => {
@@ -45,10 +45,11 @@ function AgentAdminView() {
       const token = localStorage.getItem('token');
       if (!token) throw new Error('No token found');
 
+      // Create agent - explicitly backend sets role: 'super_agent'
       await createAgent(newAgent, token);
-      alert('Agent created successfully');
+      alert('Super Agent created successfully');
       setShowAddModal(false);
-      setNewAgent({ username: '', email: '', password: '' });
+      setNewAgent({ username: '', phoneNumber: '', password: '' });
       fetchAgents();
     } catch (error) {
       console.error('Agent creation error:', error);
@@ -79,7 +80,7 @@ function AgentAdminView() {
   const openEditModal = (agent) => {
     setEditForm({
       id: agent.id || agent._id,
-      email: agent.email || '',
+      phoneNumber: agent.phoneNumber || '',
       password: '', // Don't show existing hash
       agentBillingRate: agent.agentBillingRate ?? '',
       agentBillingStatus: agent.agentBillingStatus || 'paid'
@@ -96,7 +97,7 @@ function AgentAdminView() {
       const token = localStorage.getItem('token');
       if (!token) throw new Error('No token found');
 
-      const updateData = { email: editForm.email, agentBillingRate: editForm.agentBillingRate, agentBillingStatus: editForm.agentBillingStatus };
+      const updateData = { phoneNumber: editForm.phoneNumber, agentBillingRate: editForm.agentBillingRate, agentBillingStatus: editForm.agentBillingStatus };
       if (editForm.password) updateData.password = editForm.password;
 
       await updateAgent(editForm.id, updateData, token);
@@ -162,23 +163,23 @@ function AgentAdminView() {
   return (
     <div className="admin-view">
       <div className="view-header">
-        <h2>Agent Administration</h2>
-        <button className="btn-primary" onClick={() => setShowAddModal(true)}>Add New Agent</button>
+        <h2>Super Agent Administration</h2>
+        <button className="btn-primary" onClick={() => setShowAddModal(true)}>Add Super Agent</button>
       </div>
 
       {/* CREATE MODAL */}
       {showAddModal && (
         <div className="modal-overlay">
           <div className="modal-content">
-            <h3>New Agent</h3>
+            <h3>New Super Agent</h3>
             <form onSubmit={handleCreateAgent}>
               <div className="form-group">
                 <label>Username</label>
                 <input type="text" value={newAgent.username} onChange={e => setNewAgent({ ...newAgent, username: e.target.value })} required />
               </div>
               <div className="form-group">
-                <label>Email</label>
-                <input type="email" value={newAgent.email} onChange={e => setNewAgent({ ...newAgent, email: e.target.value })} required />
+                <label>Phone Number</label>
+                <input type="tel" value={newAgent.phoneNumber} onChange={e => setNewAgent({ ...newAgent, phoneNumber: e.target.value })} required />
               </div>
               <div className="form-group">
                 <label>Password</label>
@@ -200,8 +201,8 @@ function AgentAdminView() {
             <h3>Edit Agent: {selectedAgent?.username}</h3>
             <form onSubmit={handleUpdateAgent}>
               <div className="form-group">
-                <label>Email</label>
-                <input type="email" value={editForm.email} onChange={e => setEditForm({ ...editForm, email: e.target.value })} required />
+                <label>Phone Number</label>
+                <input type="tel" value={editForm.phoneNumber} onChange={e => setEditForm({ ...editForm, phoneNumber: e.target.value })} required />
               </div>
               <div className="form-group">
                 <label>New Password (leave blank to keep)</label>
@@ -242,7 +243,7 @@ function AgentAdminView() {
           <div className="modal-content">
             <h3>Agent Details</h3>
             <div className="detail-row"><label>Username:</label> <span>{selectedAgent.username}</span></div>
-            <div className="detail-row"><label>Email:</label> <span>{selectedAgent.email}</span></div>
+            <div className="detail-row"><label>Phone Number:</label> <span>{selectedAgent.phoneNumber}</span></div>
             <div className="detail-row"><label>Status:</label> <span className={`badge ${selectedAgent.status}`}>{selectedAgent.status}</span></div>
             <div className="detail-row"><label>Created By:</label> <span>{selectedAgent.createdBy?.username || 'System'}</span></div>
             <div className="detail-row"><label>Created At:</label> <span>{new Date(selectedAgent.createdAt).toLocaleString()}</span></div>
@@ -268,10 +269,12 @@ function AgentAdminView() {
             <thead>
               <tr>
                 <th>Agent Name</th>
-                <th>Email</th>
+                <th>Role</th>
+                <th>Phone Number</th>
                 <th>Status</th>
                 <th>Created By</th>
-                <th>Customers</th>
+                <th>Sub-Agents</th>
+                <th>Total Users</th>
                 <th>Balance</th>
                 <th>Outstanding</th>
                 <th>Rate/Customer</th>
@@ -282,20 +285,26 @@ function AgentAdminView() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan="9">Loading agents...</td></tr>
+                <tr><td colSpan="14">Loading agents...</td></tr>
               ) : error ? (
-                <tr><td colSpan="9">{error}</td></tr>
+                <tr><td colSpan="14">{error}</td></tr>
               ) : agents.length === 0 ? (
-                <tr><td colSpan="9">No agents found.</td></tr>
+                <tr><td colSpan="14">No agents found.</td></tr>
               ) : agents.map(agent => (
                 <tr key={agent.id || agent._id}>
                   <td>{agent.username}</td>
-                  <td>{agent.email}</td>
+                  <td>
+                    <span className={`badge ${agent.role === 'super_agent' ? 'btn-primary' : 'btn-secondary'}`} style={{ fontSize: '0.75rem', textTransform: 'capitalize' }}>
+                      {agent.role?.replace('_', ' ') || 'agent'}
+                    </span>
+                  </td>
+                  <td>{agent.phoneNumber}</td>
                   <td><span className={`badge ${agent.status || ''}`}>{agent.status || 'unknown'}</span></td>
                   <td style={{ fontWeight: 'bold', color: agent.createdBy ? '#e67e22' : '#999' }}>
                     {agent.createdBy ? (agent.createdBy.username) : 'System'}
                   </td>
-                  <td>{agent.userCount || 0}</td>
+                  <td>{agent.role === 'super_agent' ? (agent.subAgentCount || 0) : '—'}</td>
+                  <td>{agent.role === 'super_agent' ? (agent.totalUsersInHierarchy || 0) : (agent.userCount || 0)}</td>
                   <td>{formatMoney(agent.balance)}</td>
                   <td>{formatMoney(agent.balanceOwed)}</td>
                   <td>${Number(agent.agentBillingRate || 0).toFixed(2)}</td>

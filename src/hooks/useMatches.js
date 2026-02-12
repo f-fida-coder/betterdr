@@ -45,7 +45,7 @@ export default function useMatches(options = {}) {
 
     useEffect(() => {
         let mounted = true;
-        const shouldRefreshOdds = options.refreshOdds !== false;
+        const shouldRefreshOdds = options.refreshOdds === true;
 
         const fetchMatches = async () => {
             try {
@@ -74,8 +74,10 @@ export default function useMatches(options = {}) {
                 }
 
                 if (mounted) setMatches(filtered);
+                window.dispatchEvent(new CustomEvent('matches:refresh-completed', { detail: { success: true } }));
             } catch (err) {
                 console.error('useMatches: fetch error', err);
+                window.dispatchEvent(new CustomEvent('matches:refresh-completed', { detail: { success: false, error: err.message } }));
             }
         };
 
@@ -140,7 +142,7 @@ export default function useMatches(options = {}) {
 
         return () => {
             mounted = false;
-            try { socket.disconnect(); } catch (e) {}
+            try { socket.disconnect(); } catch (e) { }
             window.removeEventListener('matches:refresh', handleRefresh);
         };
     }, [statusFilter, options.refreshOdds]);

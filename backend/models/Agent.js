@@ -10,21 +10,17 @@ const agentSchema = new mongoose.Schema(
             trim: true,
             index: true,
         },
-        email: {
+        phoneNumber: {
             type: String,
             required: true,
             unique: true,
-            lowercase: true,
+            trim: true,
+            match: [/^\+?[1-9]\d{1,14}$/, 'Invalid phone number format'],
             index: true,
         },
         password: {
             type: String,
             required: true,
-        },
-        role: {
-            type: String,
-            default: 'agent',
-            immutable: true
         },
         fullName: { type: String, default: null },
 
@@ -59,6 +55,12 @@ const agentSchema = new mongoose.Schema(
             default: null,
         },
 
+        role: {
+            type: String,
+            enum: ['agent', 'super_agent'],
+            default: 'agent',
+        },
+
         status: {
             type: String,
             enum: ['active', 'suspended'],
@@ -68,8 +70,26 @@ const agentSchema = new mongoose.Schema(
         // Hierarchy
         createdBy: {
             type: mongoose.Schema.Types.ObjectId,
-            ref: 'Admin', // Agents created by Admins
-            default: null,
+            required: true,
+            refPath: 'createdByModel',
+        },
+        createdByModel: {
+            type: String,
+            required: true,
+            enum: ['Admin', 'Agent'],
+        },
+        // Performance fields (for analytics, optional, can be updated by cron or on demand)
+        winRate: {
+            type: Number,
+            default: 0,
+        },
+        wins: {
+            type: Number,
+            default: 0,
+        },
+        losses: {
+            type: Number,
+            default: 0,
         },
     },
     {

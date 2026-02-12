@@ -175,31 +175,17 @@ const SportContentView = ({ sportId, selectedItems = [], status = 'live-upcoming
 
     }, [sportId, rawMatches]);
 
-    const handlePlaceBet = async (matchId, team, type, odds) => {
-        const token = localStorage.getItem('token');
-        if (!token) {
-            alert('Please login to place a bet');
-            return;
-        }
-        const amount = prompt("Enter bet amount:");
-        if (!amount) return;
-
-        try {
-            const response = await placeBet({
+    const handleAddToSlip = (matchId, selection, marketType, odds, matchName, marketLabel) => {
+        window.dispatchEvent(new CustomEvent('betslip:add', {
+            detail: {
                 matchId,
-                selection: team, // 'home' or 'away' or team name
-                odds: parseFloat(odds), // Simplified
-                amount: parseFloat(amount),
-                type: 'straight'
-            }, token);
-
-            alert(`Bet Placed Successfully! New Balance: $${response.newBalance}`);
-            // Dispatch event to refresh user balance globally
-            window.dispatchEvent(new Event('user:refresh'));
-
-        } catch (e) {
-            alert(`Bet Failed: ${e.message}`);
-        }
+                selection,
+                marketType,
+                odds: parseFloat(odds),
+                matchName,
+                marketLabel
+            }
+        }));
     };
 
     return (
@@ -275,13 +261,13 @@ const SportContentView = ({ sportId, selectedItems = [], status = 'live-upcoming
                                                 <div className="odds-values-group">
                                                     <button
                                                         className="odds-value-btn"
-                                                        onClick={() => handlePlaceBet(match.id, match.team1.name, 'spreads', match.rawMatch.odds.markets.find(m => m.key === 'spreads')?.outcomes.find(o => o.name === match.team1.name)?.price)}
+                                                        onClick={() => handleAddToSlip(match.id, match.team1.name, 'spreads', match.rawMatch.odds.markets.find(m => m.key === 'spreads')?.outcomes.find(o => o.name === match.team1.name)?.price, `${match.team1.name} vs ${match.team2.name}`, 'Spread')}
                                                     >
                                                         {match.odds.spread[0]}
                                                     </button>
                                                     <button
                                                         className="odds-value-btn"
-                                                        onClick={() => handlePlaceBet(match.id, match.team2.name, 'spreads', match.rawMatch.odds.markets.find(m => m.key === 'spreads')?.outcomes.find(o => o.name === match.team2.name)?.price)}
+                                                        onClick={() => handleAddToSlip(match.id, match.team2.name, 'spreads', match.rawMatch.odds.markets.find(m => m.key === 'spreads')?.outcomes.find(o => o.name === match.team2.name)?.price, `${match.team1.name} vs ${match.team2.name}`, 'Spread')}
                                                     >
                                                         {match.odds.spread[1]}
                                                     </button>
@@ -292,13 +278,13 @@ const SportContentView = ({ sportId, selectedItems = [], status = 'live-upcoming
                                                 <div className="odds-values-group">
                                                     <button
                                                         className="odds-value-btn"
-                                                        onClick={() => handlePlaceBet(match.id, match.team1.name, 'h2h', match.rawMatch.odds.markets.find(m => m.key === 'h2h')?.outcomes.find(o => o.name === match.team1.name)?.price)}
+                                                        onClick={() => handleAddToSlip(match.id, match.team1.name, 'h2h', match.rawMatch.odds.markets.find(m => m.key === 'h2h')?.outcomes.find(o => o.name === match.team1.name)?.price, `${match.team1.name} vs ${match.team2.name}`, 'Moneyline')}
                                                     >
                                                         {match.odds.moneyline[0]}
                                                     </button>
                                                     <button
                                                         className="odds-value-btn"
-                                                        onClick={() => handlePlaceBet(match.id, match.team2.name, 'h2h', match.rawMatch.odds.markets.find(m => m.key === 'h2h')?.outcomes.find(o => o.name === match.team2.name)?.price)}
+                                                        onClick={() => handleAddToSlip(match.id, match.team2.name, 'h2h', match.rawMatch.odds.markets.find(m => m.key === 'h2h')?.outcomes.find(o => o.name === match.team2.name)?.price, `${match.team1.name} vs ${match.team2.name}`, 'Moneyline')}
                                                     >
                                                         {match.odds.moneyline[1]}
                                                     </button>
@@ -309,13 +295,13 @@ const SportContentView = ({ sportId, selectedItems = [], status = 'live-upcoming
                                                 <div className="odds-values-group">
                                                     <button
                                                         className="odds-value-btn"
-                                                        onClick={() => handlePlaceBet(match.id, 'Over', 'totals', match.rawMatch.odds.markets.find(m => m.key === 'totals')?.outcomes.find(o => o.name.toLowerCase().includes('over'))?.price)}
+                                                        onClick={() => handleAddToSlip(match.id, 'Over', 'totals', match.rawMatch.odds.markets.find(m => m.key === 'totals')?.outcomes.find(o => o.name.toLowerCase().includes('over'))?.price, `${match.team1.name} vs ${match.team2.name}`, 'Total')}
                                                     >
                                                         {match.odds.total[0]}
                                                     </button>
                                                     <button
                                                         className="odds-value-btn"
-                                                        onClick={() => handlePlaceBet(match.id, 'Under', 'totals', match.rawMatch.odds.markets.find(m => m.key === 'totals')?.outcomes.find(o => o.name.toLowerCase().includes('under'))?.price)}
+                                                        onClick={() => handleAddToSlip(match.id, 'Under', 'totals', match.rawMatch.odds.markets.find(m => m.key === 'totals')?.outcomes.find(o => o.name.toLowerCase().includes.toLowerCase().includes('under'))?.price, `${match.team1.name} vs ${match.team2.name}`, 'Total')}
                                                     >
                                                         {match.odds.total[1]}
                                                     </button>
