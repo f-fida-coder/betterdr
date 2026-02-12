@@ -36,20 +36,20 @@ const AdminLogin = () => {
                 if (result.role !== 'admin') {
                     throw new Error('Not authorized: admin role required');
                 }
+                localStorage.setItem('token', result.token);
+                sessionStorage.setItem('adminAuthenticated', 'true');
+                sessionStorage.setItem('adminUsername', username);
+                navigate('/admin/dashboard');
             } else {
                 result = await loginAgent(username, password);
-                // Agent role check is implicit in loginAgent but good to verify
                 if (result.role !== 'agent') {
                     throw new Error('Not authorized: agent role required');
                 }
+                localStorage.setItem('token', result.token);
+                sessionStorage.setItem('agentAuthenticated', 'true');
+                sessionStorage.setItem('agentUsername', username);
+                navigate('/agent/dashboard');
             }
-
-            localStorage.setItem('token', result.token);
-            sessionStorage.setItem('adminAuthenticated', 'true');
-            sessionStorage.setItem('adminUsername', username);
-
-            // Navigate to admin panel
-            navigate('/admin/dashboard');
         } catch (err) {
             console.error(`❌ ${loginRole} login failed:`, err);
             setError(err.message || `Invalid ${loginRole} credentials`);
