@@ -88,4 +88,17 @@ const startServer = async () => {
     }
 };
 
+// Global error handlers
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+    // In production, you might want to perform a graceful shutdown
+});
+
+process.on('uncaughtException', (error) => {
+    console.error('Uncaught Exception thrown:', error);
+    // Graceful shutdown is highly recommended for uncaughtException
+    process.exit(1);
+});
+
 startServer();
+

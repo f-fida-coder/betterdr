@@ -35,7 +35,8 @@ function AddCustomerView() {
         if (userRole === 'admin' || userRole === 'super_agent') {
           setLoadingAgents(true);
           const agentList = await getAgents(token);
-          setAgents(agentList || []);
+          // Only show sub-agents (role: agent), not super agents
+          setAgents((agentList || []).filter(a => a.role === 'agent'));
           setLoadingAgents(false);
         }
       } catch (error) {

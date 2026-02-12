@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { createUserByAdmin, createPlayerByAgent, getAgents, getMyPlayers, getMe, updateUserCredit, updateUserBalanceOwedByAgent, resetUserPasswordByAdmin, updateUserByAdmin, updateUserByAgent, getUserStatistics } from '../../api';
+import { createUserByAdmin, createPlayerByAgent, getAgents, getMyPlayers, getMe, updateUserCredit, updateUserBalanceOwedByAgent, resetUserPasswordByAdmin, updateUserByAdmin, updateUserByAgent, getUserStatistics, getNextUsername } from '../../api';
 
 function CustomerAdminView({ onViewChange }) {
   const [customers, setCustomers] = useState([]);
@@ -139,34 +139,20 @@ function CustomerAdminView({ onViewChange }) {
   };
 
   const updateCustomerStatus = async (customerId, nextStatus) => {
-    if (currentRole === 'agent') {
-      setError('Agents cannot change customer status in this view.');
-      return;
-    }
     const token = localStorage.getItem('token');
     if (!token) {
-      setError('Please login as admin to update user status.');
+      setError('Please login to update user status.');
       return;
     }
-
-    const endpoint = nextStatus === 'suspended'
-      ? 'http://localhost:5000/api/admin/suspend'
-      : 'http://localhost:5000/api/admin/unsuspend';
 
     try {
       setActionLoadingId(customerId);
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ userId: customerId })
-      });
+      const payload = { status: nextStatus };
 
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.message || 'Failed to update user status');
+      if (currentRole === 'agent') {
+        await updateUserByAgent(customerId, payload, token);
+      } else {
+        await updateUserByAdmin(customerId, payload, token);
       }
 
       setCustomers(prev => prev.map(c => (
@@ -179,6 +165,75 @@ function CustomerAdminView({ onViewChange }) {
     } finally {
       setActionLoadingId(null);
     }
+  };
+
+  const getStatusColor = (status) => {
+    switch (status) {
+      case 'active': return '#28a745'; // Green
+      case 'disabled':
+      case 'read only':
+      case 'ghost':
+      case 'bot':
+      case 'sharp':
+      case 'suspended':
+        return '#dc3545'; // Red
+      default: return '#6c757d'; // Grey
+    }
+  };
+
+  const handleAgentChange = async (agentId) => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    setNewCustomer(prev => ({ ...prev, agentId }));
+
+    if (agentId) {
+      const selectedAgent = agents.find(a => (a.id || a._id) === agentId);
+      if (selectedAgent) {
+        try {
+          const { nextUsername } = await getNextUsername(selectedAgent.username, token);
+          setNewCustomer(prev => ({ ...prev, username: nextUsername }));
+        } catch (err) {
+          console.error('Failed to get next username:', err);
+        }
+      }
+    } else {
+      setNewCustomer(prev => ({ ...prev, username: '' }));
+    }
+  };
+
+  const updateAutoPassword = (firstName, lastName, phoneNumber) => {
+    if (firstName && lastName && phoneNumber) {
+      const last4 = phoneNumber.slice(-4);
+      const first3First = firstName.slice(0, 3).toUpperCase();
+      const first3Last = lastName.slice(0, 3).toUpperCase();
+      const autoPass = `${first3First}${first3Last}${last4}`;
+      setNewCustomer(prev => ({ ...prev, password: autoPass }));
+    }
+  };
+
+  const handleFirstNameChange = (val) => {
+    setNewCustomer(prev => {
+      const updated = { ...prev, firstName: val };
+      updateAutoPassword(val, updated.lastName, updated.phoneNumber);
+      return updated;
+    });
+  };
+
+  const handleLastNameChange = (val) => {
+    setNewCustomer(prev => {
+      const updated = { ...prev, lastName: val };
+      updateAutoPassword(updated.firstName, val, updated.phoneNumber);
+      return updated;
+    });
+  };
+
+  const handlePhoneChange = (val) => {
+    setNewCustomer(prev => {
+      const updated = { ...prev, phoneNumber: val };
+      updateAutoPassword(updated.firstName, updated.lastName, val);
+      return updated;
+    });
   };
 
   const formatBalance = (balance) => {
@@ -324,57 +379,13 @@ function CustomerAdminView({ onViewChange }) {
         {!loading && !error && (
           <>
             <div className="filter-section">
-              <div className="filter-group">
-                <label>Username</label>
-                <input
-                  type="text"
-                  value={newCustomer.username}
-                  onChange={(e) => setNewCustomer(prev => ({ ...prev, username: e.target.value }))}
-                  placeholder="Username"
-                />
-              </div>
-              <div className="filter-group">
-                <label>Phone Number</label>
-                <input
-                  type="tel"
-                  value={newCustomer.phoneNumber}
-                  onChange={(e) => setNewCustomer(prev => ({ ...prev, phoneNumber: e.target.value }))}
-                  placeholder="Phone Number"
-                />
-              </div>
-              <div className="filter-group">
-                <label>Password</label>
-                <input
-                  type="password"
-                  value={newCustomer.password}
-                  onChange={(e) => setNewCustomer(prev => ({ ...prev, password: e.target.value }))}
-                  placeholder="Password"
-                />
-              </div>
-              <div className="filter-group">
-                <label>First Name</label>
-                <input
-                  type="text"
-                  value={newCustomer.firstName}
-                  onChange={(e) => setNewCustomer(prev => ({ ...prev, firstName: e.target.value }))}
-                  placeholder="First name"
-                />
-              </div>
-              <div className="filter-group">
-                <label>Last Name</label>
-                <input
-                  type="text"
-                  value={newCustomer.lastName}
-                  onChange={(e) => setNewCustomer(prev => ({ ...prev, lastName: e.target.value }))}
-                  placeholder="Last name"
-                />
-              </div>
               {currentRole !== 'agent' && (
                 <div className="filter-group">
-                  <label>Agent</label>
+                  <label>Agent Assigned</label>
                   <select
                     value={newCustomer.agentId}
-                    onChange={(e) => setNewCustomer(prev => ({ ...prev, agentId: e.target.value }))}
+                    onChange={(e) => handleAgentChange(e.target.value)}
+                    style={{ backgroundColor: '#fffbe6' }}
                   >
                     <option value="">Unassigned</option>
                     {agents.map(agent => (
@@ -386,12 +397,64 @@ function CustomerAdminView({ onViewChange }) {
                 </div>
               )}
               <div className="filter-group">
+                <label>Username</label>
+                <input
+                  type="text"
+                  value={newCustomer.username}
+                  onChange={(e) => setNewCustomer(prev => ({ ...prev, username: e.target.value }))}
+                  placeholder="Username"
+                  readOnly
+                  style={{ backgroundColor: '#f5f5f5' }}
+                />
+              </div>
+              <div className="filter-group">
+                <label>First Name</label>
+                <input
+                  type="text"
+                  value={newCustomer.firstName}
+                  onChange={(e) => handleFirstNameChange(e.target.value)}
+                  placeholder="First name"
+                  style={{ backgroundColor: '#fffbe6' }}
+                />
+              </div>
+              <div className="filter-group">
+                <label>Last Name</label>
+                <input
+                  type="text"
+                  value={newCustomer.lastName}
+                  onChange={(e) => handleLastNameChange(e.target.value)}
+                  placeholder="Last name"
+                  style={{ backgroundColor: '#fffbe6' }}
+                />
+              </div>
+              <div className="filter-group">
+                <label>Phone Number</label>
+                <input
+                  type="tel"
+                  value={newCustomer.phoneNumber}
+                  onChange={(e) => handlePhoneChange(e.target.value)}
+                  placeholder="Phone Number"
+                  style={{ backgroundColor: '#fffbe6' }}
+                />
+              </div>
+              <div className="filter-group">
+                <label>Password</label>
+                <input
+                  type="text"
+                  value={newCustomer.password}
+                  onChange={(e) => setNewCustomer(prev => ({ ...prev, password: e.target.value }))}
+                  placeholder="Password"
+                  style={{ backgroundColor: '#f5f5f5' }}
+                />
+              </div>
+              <div className="filter-group">
                 <label>Min Bet</label>
                 <input
                   type="number"
                   value={newCustomer.minBet}
                   onChange={(e) => setNewCustomer(prev => ({ ...prev, minBet: e.target.value }))}
                   placeholder="1"
+                  style={{ backgroundColor: '#fffbe6' }}
                 />
               </div>
               <div className="filter-group">
@@ -401,6 +464,7 @@ function CustomerAdminView({ onViewChange }) {
                   value={newCustomer.maxBet}
                   onChange={(e) => setNewCustomer(prev => ({ ...prev, maxBet: e.target.value }))}
                   placeholder="5000"
+                  style={{ backgroundColor: '#fffbe6' }}
                 />
               </div>
               <div className="filter-group">
@@ -410,22 +474,35 @@ function CustomerAdminView({ onViewChange }) {
                   value={newCustomer.creditLimit}
                   onChange={(e) => setNewCustomer(prev => ({ ...prev, creditLimit: e.target.value }))}
                   placeholder="1000"
+                  style={{ backgroundColor: '#fffbe6' }}
                 />
               </div>
               <div className="filter-group">
-                <label>Starting Balance</label>
+                <label>Settle (Balance Owed)</label>
                 <input
                   type="number"
-                  value={newCustomer.balance}
-                  onChange={(e) => setNewCustomer(prev => ({ ...prev, balance: e.target.value }))}
-                  placeholder="1000"
-                  min="0"
+                  value={newCustomer.balanceOwed}
+                  onChange={(e) => setNewCustomer(prev => ({ ...prev, balanceOwed: e.target.value }))}
+                  placeholder="0"
+                  style={{ backgroundColor: '#fffbe6' }}
                 />
               </div>
               <button
                 className="btn-primary"
                 onClick={handleCreateCustomer}
-                disabled={viewOnly || createLoading || !newCustomer.username || !newCustomer.phoneNumber || !newCustomer.password}
+                disabled={
+                  viewOnly ||
+                  createLoading ||
+                  !newCustomer.username ||
+                  !newCustomer.phoneNumber ||
+                  !newCustomer.password ||
+                  !newCustomer.firstName ||
+                  !newCustomer.lastName ||
+                  !newCustomer.minBet ||
+                  !newCustomer.maxBet ||
+                  !newCustomer.creditLimit ||
+                  !newCustomer.balanceOwed
+                }
               >
                 {viewOnly ? 'View-only (Unpaid)' : createLoading ? 'Saving...' : 'Create Customer'}
               </button>
@@ -482,8 +559,31 @@ function CustomerAdminView({ onViewChange }) {
                           <td>{formatBalance(customer.balanceOwed)}</td>
                           <td>{formatBalance(customer.balance)}</td>
                           <td>
-                            <span className={`badge ${customer.status}`}>{customer.status}</span>
-                            {customer.isActive && <span className="badge active-customer" style={{ marginLeft: '5px', background: '#28a745', color: 'white' }}>Active</span>}
+                            <select
+                              value={customer.status || 'active'}
+                              onChange={(e) => updateCustomerStatus(customerId, e.target.value)}
+                              disabled={actionLoadingId === customerId || viewOnly}
+                              style={{
+                                padding: '4px 8px',
+                                borderRadius: '4px',
+                                border: 'none',
+                                backgroundColor: getStatusColor(customer.status),
+                                color: 'white',
+                                cursor: 'pointer',
+                                fontWeight: 'bold',
+                                textTransform: 'uppercase',
+                                fontSize: '11px',
+                                minWidth: '100px'
+                              }}
+                            >
+                              <option value="active">Active</option>
+                              <option value="disabled">Disabled</option>
+                              <option value="read only">Read Only</option>
+                              <option value="ghost">Ghost</option>
+                              <option value="bot">Bot</option>
+                              <option value="sharp">Sharp</option>
+                              {customer.status === 'suspended' && <option value="suspended">Suspended</option>}
+                            </select>
                           </td>
                           {currentRole !== 'agent' && (
                             <td>{customer.agentId?.username || 'Admin'}</td>

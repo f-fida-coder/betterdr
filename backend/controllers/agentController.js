@@ -303,6 +303,7 @@ exports.updateCustomer = async (req, res) => {
         if (maxBet !== undefined) user.maxBet = maxBet;
         if (creditLimit !== undefined) user.creditLimit = creditLimit;
         if (balanceOwed !== undefined) user.balanceOwed = balanceOwed;
+        if (req.body.status) user.status = req.body.status;
 
         await user.save();
 

@@ -70,11 +70,12 @@ const {
 	createManualSection,
 	updateManualSection,
 	deleteManualSection,
-	fetchOddsManual,
+	getUserStats,
+	getNextUsername,
+	updateUser,
 	resetUserPassword,
 	resetAgentPassword,
-	updateUser,
-	getUserStats
+	fetchOddsManual
 } = require('../controllers/adminController');
 const { protect } = require('../middleware/authMiddleware');
 const { adminOnly, adminOrAgent } = require('../middleware/roleMiddleware');
@@ -162,5 +163,7 @@ router.post('/agents/:id/reset-password', protect, adminOnly, resetAgentPassword
 
 // User Statistics Route
 router.get('/users/:userId/stats', protect, adminOrAgent, getUserStats);
+
+router.get('/next-username/:prefix', protect, adminOrAgent, getNextUsername);
 
 module.exports = router;

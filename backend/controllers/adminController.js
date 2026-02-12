@@ -379,14 +379,11 @@ exports.createUser = async (req, res) => {
         if (creator.role === 'agent') {
             assignedAgentId = creator._id;
         } else if (agentId) {
-            const agent = await User.findById(agentId); // Note: Should we check Agent collection or User collection? 
-            // The getAgents call earlier implies agents are in Agent collection now.
-            // Let's check Agent collection first.
-            const agentObj = await Agent.findById(agentId);
+            const agentObj = await Agent.findOne({ _id: agentId, role: 'agent' });
             if (agentObj) {
                 assignedAgentId = agentId;
             } else {
-                return res.status(400).json({ message: 'Invalid Agent ID provided' });
+                return res.status(400).json({ message: 'Invalid Agent ID or cannot assign users to a Super Agent' });
             }
         }
 
@@ -428,6 +425,32 @@ exports.createUser = async (req, res) => {
     } catch (error) {
         console.error('Error creating user:', error.message, error);
         res.status(500).json({ message: 'Server error creating user: ' + error.message });
+    }
+};
+
+exports.getNextUsername = async (req, res) => {
+    try {
+        const { prefix } = req.params;
+        if (!prefix) return res.status(400).json({ message: 'Prefix is required' });
+
+        // Find all users with this prefix followed by numbers
+        const regex = new RegExp(`^${prefix}(\\d+)$`, 'i');
+        const users = await User.find({ username: regex }).select('username');
+
+        let maxNum = 100; // Starting from 101 as per user example FIDA101
+        users.forEach(u => {
+            const match = u.username.match(regex);
+            if (match) {
+                const num = parseInt(match[1]);
+                if (num > maxNum) maxNum = num;
+            }
+        });
+
+        const nextUsername = `${prefix.toUpperCase()}${maxNum + 1}`;
+        res.json({ nextUsername });
+    } catch (error) {
+        console.error('Error getting next username:', error);
+        res.status(500).json({ message: 'Server error: ' + error.message });
     }
 };
 

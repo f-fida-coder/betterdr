@@ -15,7 +15,7 @@ const adminSchema = new mongoose.Schema(
             required: true,
             unique: true,
             trim: true,
-            match: [/^\+?[1-9]\d{1,14}$/, 'Invalid phone number format'],
+            match: [/^\+?[0-9]\d{1,14}$/, 'Invalid phone number format'],
             index: true,
         },
         password: {

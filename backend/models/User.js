@@ -15,7 +15,7 @@ const userSchema = new mongoose.Schema(
             required: true,
             unique: true,
             trim: true,
-            match: [/^\+?[1-9]\d{1,14}$/, 'Invalid phone number format'],
+            match: [/^\+?[0-9]\d{1,14}$/, 'Invalid phone number format'],
             index: true,
         },
         password: {
@@ -74,7 +74,7 @@ const userSchema = new mongoose.Schema(
         },
         status: {
             type: String,
-            enum: ['active', 'suspended'],
+            enum: ['active', 'disabled', 'read only', 'ghost', 'bot', 'sharp', 'suspended'], // Keeping suspended for compatibility if needed, but the UI will use the new ones
             default: 'active',
         },
         agentId: {

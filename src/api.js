@@ -1253,3 +1253,11 @@ export const resetAgentPasswordByAdmin = async (id, newPassword, token) => {
     }
     return response.json();
 };
+
+export const getNextUsername = async (prefix, token) => {
+    const response = await fetch(`${API_URL}/admin/next-username/${prefix}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (!response.ok) throw new Error('Failed to fetch next username');
+    return response.json();
+};

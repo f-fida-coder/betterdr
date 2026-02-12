@@ -106,7 +106,9 @@ exports.placeBet = async (req, res) => {
         await runWithOptionalTransaction(async (session) => {
             const user = await withSession(User.findById(userId), session);
             if (!user) throw new Error('User not found');
-            if (user.status === 'suspended') throw new Error('Account is suspended');
+            if (['suspended', 'disabled', 'read only'].includes(user.status)) {
+                throw new Error('Account is suspended, disabled, or read-only');
+            }
 
             // Validate Min/Max Bet
             if (user.minBet && betAmount < user.minBet) {

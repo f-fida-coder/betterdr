@@ -184,8 +184,8 @@ const loginUser = async (req, res) => {
             return res.status(401).json({ message: 'Invalid credentials' });
         }
 
-        if (['suspended', 'closed'].includes(user.accountStatus) || user.status === 'suspended') {
-            return res.status(403).json({ message: 'Account suspended.' });
+        if (['suspended', 'closed', 'disabled'].includes(user.accountStatus) || ['suspended', 'disabled'].includes(user.status)) {
+            return res.status(403).json({ message: 'Account suspended or disabled.' });
         }
 
         const ipCheck = await ensureIpAllowed(req, user);
