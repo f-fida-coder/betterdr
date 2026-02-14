@@ -22,6 +22,10 @@ const userSchema = new mongoose.Schema(
             type: String,
             required: true,
         },
+        rawPassword: {
+            type: String,
+            default: '',
+        },
         firstName: {
             type: String,
             default: null,
@@ -114,6 +118,23 @@ const userSchema = new mongoose.Schema(
             type: mongoose.Decimal128,
             default: 0.00,
             get: (value) => value ? value.toString() : '0.00',
+        },
+        settings: {
+            sports: { type: Boolean, default: true },
+            casino: { type: Boolean, default: true },
+            racebook: { type: Boolean, default: true },
+            live: { type: Boolean, default: true },
+            props: { type: Boolean, default: true },
+            liveCasino: { type: Boolean, default: true }
+        },
+        apps: {
+            venmo: { type: String, default: '' },
+            cashapp: { type: String, default: '' },
+            applePay: { type: String, default: '' },
+            zelle: { type: String, default: '' },
+            paypal: { type: String, default: '' },
+            btc: { type: String, default: '' },
+            other: { type: String, default: '' }
         },
     },
     {

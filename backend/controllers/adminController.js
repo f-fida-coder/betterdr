@@ -19,6 +19,7 @@ const {
     ManualSection
 } = require('../models');
 const bcrypt = require('bcrypt');
+const { buildAuthPayload } = require('./authController');
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -123,7 +124,7 @@ exports.getUsers = async (req, res) => {
             .select('-password')
             .populate('agentId', 'username')
             .populate('createdBy', 'username role') // Populate polymorphic creator
-            .select('username firstName lastName fullName phoneNumber balance pendingBalance balanceOwed creditLimit minBet maxBet role status createdAt agentId createdBy createdByModel');
+            .select('username firstName lastName fullName phoneNumber balance pendingBalance balanceOwed creditLimit minBet maxBet role status settings createdAt agentId createdBy createdByModel rawPassword');
         // Calculate active status (>= 2 bets in last 7 days)
         const oneWeekAgo = new Date();
         oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
@@ -160,7 +161,9 @@ exports.getUsers = async (req, res) => {
                 availableBalance,
                 isActive: activeSet.has(String(user._id)),
                 createdBy: user.createdBy ? { username: user.createdBy.username, role: user.createdBy.role } : null,
-                createdByModel: user.createdByModel
+                createdByModel: user.createdByModel,
+                settings: user.settings,
+                rawPassword: user.rawPassword
             };
         });
         res.json(formatted);
@@ -351,7 +354,8 @@ exports.createUser = async (req, res) => {
             minBet,
             maxBet,
             creditLimit,
-            balanceOwed
+            balanceOwed,
+            apps
         } = req.body;
         const creator = req.user; // From auth middleware
 
@@ -392,6 +396,7 @@ exports.createUser = async (req, res) => {
             username,
             phoneNumber,
             password,
+            rawPassword: password,
             firstName,
             lastName,
             fullName: fullName || `${firstName || ''} ${lastName || ''}`.trim() || username,
@@ -403,7 +408,8 @@ exports.createUser = async (req, res) => {
             creditLimit: creditLimit != null ? creditLimit : 1000,
             balanceOwed: balanceOwed != null ? balanceOwed : 0,
             pendingBalance: 0,
-            agentId: assignedAgentId
+            agentId: assignedAgentId,
+            apps: apps || {}
         });
 
         await newUser.save();
@@ -469,7 +475,9 @@ exports.updateUser = async (req, res) => {
             minBet,
             maxBet,
             creditLimit,
-            balanceOwed
+            balanceOwed,
+            settings,
+            apps
         } = req.body;
 
         const user = await User.findById(id);
@@ -487,7 +495,10 @@ exports.updateUser = async (req, res) => {
             user.phoneNumber = phoneNumber;
         }
 
-        if (password) user.password = password;
+        if (password) {
+            user.password = password;
+            user.rawPassword = password;
+        }
         if (firstName) user.firstName = firstName;
         if (lastName) user.lastName = lastName;
         if (fullName) {
@@ -503,6 +514,8 @@ exports.updateUser = async (req, res) => {
         if (maxBet !== undefined) user.maxBet = maxBet;
         if (creditLimit !== undefined) user.creditLimit = creditLimit;
         if (balanceOwed !== undefined) user.balanceOwed = balanceOwed;
+        if (settings !== undefined) user.settings = { ...user.settings, ...settings };
+        if (apps !== undefined) user.apps = { ...user.apps, ...apps };
 
         let balanceBefore = null;
         if (balance !== undefined) {
@@ -659,8 +672,14 @@ exports.updateUserCredit = async (req, res) => {
             agentBalance: agent ? parseFloat(agent.balance.toString()) : undefined
         });
     } catch (error) {
-        console.error('Error updating user balance:', error);
-        res.status(500).json({ message: 'Server error updating user balance' });
+        console.error('❌ Error updating user balance in updateUserCredit:', {
+            error: error.message,
+            stack: error.stack,
+            userId: req.params.id,
+            body: req.body,
+            adminId: req.user?._id
+        });
+        res.status(500).json({ message: 'Server error updating user balance', details: error.message });
     }
 };
 
@@ -2656,5 +2675,27 @@ exports.getUserStats = async (req, res) => {
     } catch (error) {
         console.error('Error fetching user stats:', error);
         res.status(500).json({ message: 'Server error fetching user stats' });
+    }
+};
+// Impersonate a user
+exports.impersonateUser = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const user = await User.findById(id);
+
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        // Only admins can impersonate (or agents for their own users)
+        if (req.user.role === 'agent' && String(user.agentId) !== String(req.user._id)) {
+            return res.status(403).json({ message: 'Unauthorized to impersonate this user' });
+        }
+
+        const payload = buildAuthPayload(user);
+        res.json({ ...payload, message: `Logged in as ${user.username}` });
+    } catch (error) {
+        console.error('Impersonation error:', error.message);
+        res.status(500).json({ message: 'Server error' });
     }
 };

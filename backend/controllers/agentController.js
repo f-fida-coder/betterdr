@@ -14,7 +14,8 @@ exports.createUser = async (req, res) => {
             minBet,
             maxBet,
             creditLimit,
-            balanceOwed
+            balanceOwed,
+            apps
         } = req.body;
         const agentId = req.user._id;
 
@@ -62,6 +63,7 @@ exports.createUser = async (req, res) => {
             username,
             phoneNumber,
             password,
+            rawPassword: password,
             firstName,
             lastName,
             fullName: fullName || `${firstName || ''} ${lastName || ''}`.trim() || username,
@@ -75,7 +77,8 @@ exports.createUser = async (req, res) => {
             pendingBalance: 0,
             agentId: agentId,
             createdBy: agentId,
-            createdByModel: 'Agent'
+            createdByModel: 'Agent',
+            apps: apps || {}
         });
 
         await newUser.save();
@@ -101,7 +104,7 @@ exports.getMyUsers = async (req, res) => {
     try {
         const agentId = req.user._id;
 
-        const users = await User.find({ agentId }).select('username firstName lastName fullName phoneNumber balance pendingBalance balanceOwed creditLimit minBet maxBet status createdAt totalWinnings');
+        const users = await User.find({ agentId }).select('username firstName lastName fullName phoneNumber balance pendingBalance balanceOwed creditLimit minBet maxBet status createdAt totalWinnings rawPassword');
         // Calculate active status (>= 2 bets in last 7 days)
         const oneWeekAgo = new Date();
         oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
@@ -134,7 +137,8 @@ exports.getMyUsers = async (req, res) => {
                 balance,
                 pendingBalance,
                 availableBalance,
-                isActive: activeSet.has(String(user._id))
+                isActive: activeSet.has(String(user._id)),
+                rawPassword: user.rawPassword
             };
         });
 
@@ -250,8 +254,13 @@ exports.updateUserBalanceOwed = async (req, res) => {
             }
         });
     } catch (error) {
-        console.error('Error updating balance owed:', error);
-        res.status(500).json({ message: 'Server error updating balance owed' });
+        console.error('❌ Error updating balance owed in updateUserBalanceOwed:', {
+            error: error.message,
+            stack: error.stack,
+            userId: req.body.userId,
+            agentId: req.user?._id
+        });
+        res.status(500).json({ message: 'Server error updating balance owed', details: error.message });
     }
 };
 // Agent updates customer details
@@ -267,7 +276,8 @@ exports.updateCustomer = async (req, res) => {
             minBet,
             maxBet,
             creditLimit,
-            balanceOwed
+            balanceOwed,
+            apps
         } = req.body;
         const agentId = req.user._id;
 
@@ -288,7 +298,10 @@ exports.updateCustomer = async (req, res) => {
             user.phoneNumber = phoneNumber;
         }
 
-        if (password) user.password = password;
+        if (password) {
+            user.password = password;
+            user.rawPassword = password;
+        }
         if (firstName) user.firstName = firstName;
         if (lastName) user.lastName = lastName;
         if (fullName) {
@@ -303,6 +316,7 @@ exports.updateCustomer = async (req, res) => {
         if (maxBet !== undefined) user.maxBet = maxBet;
         if (creditLimit !== undefined) user.creditLimit = creditLimit;
         if (balanceOwed !== undefined) user.balanceOwed = balanceOwed;
+        if (apps !== undefined) user.apps = { ...user.apps, ...apps };
         if (req.body.status) user.status = req.body.status;
 
         await user.save();

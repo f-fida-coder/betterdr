@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { loginUser, getBalance, getMe } from './api';
 import Header from './components/Header';
 import LeagueNav from './components/LeagueNav';
@@ -27,6 +28,7 @@ import './index.css';
 import './dashboard.css';
 
 function App() {
+  const navigate = useNavigate();
   const [token, setToken] = useState(localStorage.getItem('token') || null);
   const [isLoggedIn, setIsLoggedIn] = useState(Boolean(token));
   const [activeLeague, setActiveLeague] = useState('all');
@@ -113,8 +115,8 @@ function App() {
         sessionStorage.setItem(`${roleKey}Authenticated`, 'true');
         sessionStorage.setItem(`${roleKey}Username`, result.username);
 
-        // Redirect to the actual dashboard URL for consistent routing
-        window.location.href = `/${roleKey}/dashboard`;
+        // Use React Router navigation for smoother transitions
+        navigate(`/${roleKey}/dashboard`);
       }
     } catch (err) {
       throw err;
@@ -161,155 +163,148 @@ function App() {
 
   return (
     <div className="app-container">
-      {/* If logged in as admin or agent, show Admin Panel */}
-      {isLoggedIn && user && (user.role === 'admin' || user.role === 'agent' || user.role === 'super_agent') ? (
-        <AdminPanel
-          onExit={handleLogout}
-          role={user.role}
-        />
+      {/* Standard User Interface */}
+      {!isLoggedIn ? (
+        <LandingPage onLogin={handleLogin} isLoggedIn={isLoggedIn} />
       ) : (
-        /* Standard User Interface */
-        !isLoggedIn ? (
-          <LandingPage onLogin={handleLogin} isLoggedIn={isLoggedIn} />
-        ) : (
-          <div className="dashboard-layout">
-            <DashboardHeader
-              username={user?.username || 'Guest'}
-              balance={user?.balance ?? null}
-              pendingBalance={user?.pendingBalance ?? null}
-              availableBalance={user?.availableBalance ?? user?.balance ?? null}
-              role={user?.role} // Pass role
-              unlimitedBalance={user?.unlimitedBalance} // Pass unlimitedBalance
-              onLogout={handleLogout}
-              onViewChange={handleViewChange}
-              activeBetMode={betMode}
-              onBetModeChange={setBetMode}
-              currentView={dashboardView}
-              onToggleSidebar={() => setMobileSidebarOpen(!mobileSidebarOpen)}
-              selectedSports={selectedSports}
-              onContinue={handleContinue}
-              isMobileSportsSelectionMode={isMobileSportsSelectionMode}
-              onHomeClick={handleHomeClick}
-            />
+        <div className="dashboard-layout">
+          <DashboardHeader
+            username={user?.username || 'Guest'}
+            balance={user?.balance ?? null}
+            pendingBalance={user?.pendingBalance ?? null}
+            availableBalance={user?.availableBalance ?? user?.balance ?? null}
+            role={user?.role} // Pass role
+            unlimitedBalance={user?.unlimitedBalance} // Pass unlimitedBalance
+            onLogout={handleLogout}
+            onViewChange={handleViewChange}
+            activeBetMode={betMode}
+            onBetModeChange={setBetMode}
+            currentView={dashboardView}
+            onToggleSidebar={() => setMobileSidebarOpen(!mobileSidebarOpen)}
+            selectedSports={selectedSports}
+            onContinue={handleContinue}
+            isMobileSportsSelectionMode={isMobileSportsSelectionMode}
+            onHomeClick={handleHomeClick}
+          />
 
-            <div className={`dashboard-content-area ${isMobileSportsSelectionMode ? 'mobile-sports-mode' : ''}`} style={{ position: 'relative', marginTop: '0' }}>
-              {mobileSidebarOpen && (
-                <MobileGridMenu
-                  onClose={() => setMobileSidebarOpen(false)}
-                  onViewChange={handleViewChange}
-                />
-              )}
+          <div className={`dashboard-content-area ${isMobileSportsSelectionMode ? 'mobile-sports-mode' : ''}`} style={{ position: 'relative', marginTop: '0' }}>
+            {mobileSidebarOpen && (
+              <MobileGridMenu
+                onClose={() => setMobileSidebarOpen(false)}
+                onViewChange={handleViewChange}
+              />
+            )}
 
-              {dashboardView === 'dashboard' && (
-                <>
-                  {isMobileViewport && isMobileSportsSelectionMode ? (
-                    // Mobile: Show only sidebar for sports selection
+            {dashboardView === 'dashboard' && (
+              <>
+                {isMobileViewport && isMobileSportsSelectionMode ? (
+                  // Mobile: Show only sidebar for sports selection
+                  <DashboardSidebar
+                    selectedSports={selectedSports}
+                    onToggleSport={handleSportToggle}
+                    betMode={betMode}
+                    isOpen={true}
+                    onCloseSidebar={() => setMobileSidebarOpen(false)}
+                    isMobileSportsSelectionMode={isMobileSportsSelectionMode}
+                  />
+                ) : isMobileViewport && selectedSports && selectedSports.length > 0 ? (
+                  // Mobile: Show content after Continue
+                  <MobileContentView selectedSports={selectedSports} />
+                ) : (
+                  // Desktop or default view
+                  <>
                     <DashboardSidebar
                       selectedSports={selectedSports}
                       onToggleSport={handleSportToggle}
                       betMode={betMode}
-                      isOpen={true}
+                      isOpen={mobileSidebarOpen}
                       onCloseSidebar={() => setMobileSidebarOpen(false)}
                       isMobileSportsSelectionMode={isMobileSportsSelectionMode}
                     />
-                  ) : isMobileViewport && selectedSports && selectedSports.length > 0 ? (
-                    // Mobile: Show content after Continue
-                    <MobileContentView selectedSports={selectedSports} />
-                  ) : (
-                    // Desktop or default view
-                    <>
-                      <DashboardSidebar
-                        selectedSports={selectedSports}
-                        onToggleSport={handleSportToggle}
-                        betMode={betMode}
-                        isOpen={mobileSidebarOpen}
-                        onCloseSidebar={() => setMobileSidebarOpen(false)}
-                        isMobileSportsSelectionMode={isMobileSportsSelectionMode}
-                      />
-                      <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-                        {showPromo && <PromoCard />}
-                        <div style={{ flex: 1 }}>
-                          <DashboardMain selectedSports={selectedSports} />
-                        </div>
+                    <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+                      {showPromo && <PromoCard />}
+                      <div style={{ flex: 1 }}>
+                        <DashboardMain selectedSports={selectedSports} />
                       </div>
-                    </>
-                  )}
-                </>
-              )}
-
-              {dashboardView === 'prime-live' && <PrimeLiveView />}
-
-              {dashboardView === 'ultra-live' && <UltraLiveView />}
-
-              {dashboardView === 'casino' && <CasinoView />}
-
-              {dashboardView === 'live-casino' && (
-                <div style={{ flex: 1, backgroundColor: '#505050', minHeight: 'calc(100vh - 125px)' }}>
-                  <LiveCasinoView />
-                </div>
-              )}
-
-              {dashboardView === 'props' && <PropsView />}
-
-              {dashboardView === 'rules' && <RulesView />}
-
-              {dashboardView === 'bonus' && <BonusView />}
-
-              {dashboardView === 'tutorials' && <TutorialsView />}
-
-              {dashboardView === 'support' && <SupportView />}
-
-              {dashboardView === 'my-bets' && <MyBetsView />}
-            </div>
-
-            <ChatWidget />
-
-            <div className="desktop-feedback-trigger" style={{
-              position: 'fixed',
-              bottom: '0',
-              left: '0',
-              width: '260px',
-              background: '#004d26',
-              color: 'white',
-              padding: '10px',
-              textAlign: 'center',
-              fontWeight: 'bold',
-              fontSize: '12px',
-              zIndex: 100
-            }}>
-              FEEDBACK
-            </div>
-
-            {isLoggedIn && user && user.role === 'user' && (
-              <BetSlip
-                user={user}
-                balance={user.balance}
-                onBetPlaced={() => fetchUserData(token)}
-              />
+                    </div>
+                  </>
+                )}
+              </>
             )}
 
-            <div style={{
-              position: 'fixed',
-              bottom: '40px',
-              left: '20px',
-              width: '50px',
-              height: '50px',
-              background: '#a30000',
-              borderRadius: '50%',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: 'white',
-              zIndex: 21,
-              boxShadow: '0 2px 5px rgba(0,0,0,0.3)',
-              border: '2px solid white'
-            }}>
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z" />
-              </svg>
-            </div>
+            {dashboardView === 'prime-live' && <PrimeLiveView />}
+
+            {dashboardView === 'ultra-live' && <UltraLiveView />}
+
+            {dashboardView === 'casino' && <CasinoView />}
+
+            {dashboardView === 'live-casino' && (
+              <div style={{ flex: 1, backgroundColor: '#505050', minHeight: 'calc(100vh - 125px)' }}>
+                <LiveCasinoView />
+              </div>
+            )}
+
+            {dashboardView === 'props' && <PropsView />}
+
+            {dashboardView === 'rules' && <RulesView />}
+
+            {dashboardView === 'bonus' && <BonusView />}
+
+            {dashboardView === 'tutorials' && <TutorialsView />}
+
+            {dashboardView === 'support' && <SupportView />}
+
+            {dashboardView === 'my-bets' && <MyBetsView />}
           </div>
-        ))}
+
+          <ChatWidget />
+
+          <div className="desktop-feedback-trigger" style={{
+            position: 'fixed',
+            bottom: '0',
+            left: '0',
+            width: '260px',
+            background: '#004d26',
+            color: 'white',
+            padding: '10px',
+            textAlign: 'center',
+            fontWeight: 'bold',
+            fontSize: '12px',
+            zIndex: 100
+          }}>
+            FEEDBACK
+          </div>
+
+          {isLoggedIn && user && user.role === 'user' && (
+            <BetSlip
+              user={user}
+              balance={user.balance}
+              onBetPlaced={() => fetchUserData(token)}
+            />
+          )}
+
+          <div style={{
+            position: 'fixed',
+            bottom: '40px',
+            left: '20px',
+            width: '50px',
+            height: '50px',
+            background: '#a30000',
+            borderRadius: '50%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: 'white',
+            zIndex: 21,
+            boxShadow: '0 2px 5px rgba(0,0,0,0.3)',
+            border: '2px solid white'
+          }}>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z" />
+            </svg>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

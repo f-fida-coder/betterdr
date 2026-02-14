@@ -75,6 +75,7 @@ const {
 	updateUser,
 	resetUserPassword,
 	resetAgentPassword,
+	impersonateUser,
 	fetchOddsManual
 } = require('../controllers/adminController');
 const { protect } = require('../middleware/authMiddleware');
@@ -165,5 +166,8 @@ router.post('/agents/:id/reset-password', protect, adminOnly, resetAgentPassword
 router.get('/users/:userId/stats', protect, adminOrAgent, getUserStats);
 
 router.get('/next-username/:prefix', protect, adminOrAgent, getNextUsername);
+
+// Impersonation Route
+router.post('/impersonate-user/:id', protect, adminOrAgent, impersonateUser);
 
 module.exports = router;

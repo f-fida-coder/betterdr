@@ -3,7 +3,13 @@ const dotenv = require('dotenv');
 
 dotenv.config();
 
-console.log('Loaded MONGODB_URI:', process.env.MONGODB_URI);
+// Fallback to parent directory if .env not found in current (for unified structure)
+if (!process.env.MONGODB_URI) {
+    const path = require('path');
+    dotenv.config({ path: path.join(__dirname, '..', '..', '.env') });
+}
+
+console.log('Loaded MONGODB_URI:', process.env.MONGODB_URI ? 'FOUND' : 'NOT FOUND');
 const mongoUri = process.env.MONGODB_URI || process.env.MONGO_URI || 'mongodb://localhost:27017/sports_betting';
 
 const connectDB = async () => {

@@ -1,6 +1,6 @@
 // Quick API Reference for Agent & User Creation
 
-const API_BASE = 'http://localhost:5000/api';
+import { API_URL as API_BASE } from '../api';
 
 // Create Agent Endpoint
 const createAgent = async (username, phoneNumber, password, fullName, token) => {

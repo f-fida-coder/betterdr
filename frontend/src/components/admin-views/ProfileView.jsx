@@ -89,7 +89,7 @@ function ProfileView() {
                   <input type="text" value={formatCurrency(profile.availableBalance)} readOnly />
                 </div>
                 <div className="form-group">
-                  <label>Outstanding (Balance Owed):</label>
+                  <label>Outstanding (Settle Limit):</label>
                   <input type="text" value={formatCurrency(profile.balanceOwed)} readOnly />
                 </div>
                 <div className="form-group">

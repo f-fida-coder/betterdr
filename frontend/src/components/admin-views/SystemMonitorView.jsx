@@ -39,7 +39,7 @@ const SystemMonitorView = () => {
     const handleRefreshOdds = async () => {
         try {
             const token = localStorage.getItem('token');
-            const response = await fetch('http://localhost:5000/api/admin/refresh-odds', {
+            const response = await fetch(`${API_URL}/admin/refresh-odds`, {
                 method: 'POST',
                 headers: { 'Authorization': `Bearer ${token}` }
             });

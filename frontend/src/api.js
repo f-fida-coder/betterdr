@@ -1,4 +1,16 @@
-export const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const getBaseUrl = () => {
+    if (import.meta.env.VITE_API_URL) {
+        return import.meta.env.VITE_API_URL;
+    }
+    // Fixed fallback for local development vs production
+    const isProd = import.meta.env.PROD;
+    if (isProd) {
+        return `${window.location.origin}/api`;
+    }
+    return 'http://localhost:5000/api';
+};
+
+export const API_URL = getBaseUrl();
 
 const getHeaders = (token = null) => {
     const headers = {
@@ -774,6 +786,17 @@ export const getMyPlayers = async (token) => {
     return response.json();
 };
 
+export const getUsersAdmin = async (token) => {
+    const response = await fetch(`${API_URL}/admin/users`, {
+        headers: getHeaders(token)
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || 'Failed to fetch users');
+    }
+    return response.json();
+};
+
 export const updateUserCredit = async (userId, payload, token) => {
     const response = await fetch(`${API_URL}/admin/users/${userId}/credit`, {
         method: 'PUT',
@@ -1264,5 +1287,16 @@ export const getNextUsername = async (prefix, token) => {
         headers: { 'Authorization': `Bearer ${token}` }
     });
     if (!response.ok) throw new Error('Failed to fetch next username');
+    return response.json();
+};
+export const impersonateUser = async (userId, token) => {
+    const response = await fetch(`${API_URL}/admin/impersonate-user/${userId}`, {
+        method: 'POST',
+        headers: getHeaders(token)
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || 'Failed to impersonate user');
+    }
     return response.json();
 };

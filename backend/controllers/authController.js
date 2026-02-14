@@ -266,4 +266,4 @@ const getMe = async (req, res) => {
     }
 }
 
-module.exports = { registerUser, loginUser, loginAdmin, loginAgent, getMe };
+module.exports = { registerUser, loginUser, loginAdmin, loginAgent, getMe, generateToken, buildAuthPayload };

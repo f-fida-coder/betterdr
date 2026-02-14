@@ -34,7 +34,7 @@ import SystemMonitorView from './admin-views/SystemMonitorView';
 import ProfileView from './admin-views/ProfileView';
 import '../admin.css';
 
-import UserStatisticsView from './admin-views/UserStatisticsView';
+import CustomerDetailsView from './admin-views/CustomerDetailsView';
 
 function AdminPanel({ onExit, role = 'admin' }) {
   const [adminView, setAdminView] = useState('dashboard');
@@ -59,9 +59,10 @@ function AdminPanel({ onExit, role = 'admin' }) {
         return <AdminDashboard role={role} />;
       case 'user-details':
         return (
-          <UserStatisticsView
+          <CustomerDetailsView
             userId={selectedUserId}
             onBack={() => setAdminView('customer-admin')}
+            role={role}
           />
         );
       case 'weekly-figures':

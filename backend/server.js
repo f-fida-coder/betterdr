@@ -1,16 +1,18 @@
 const express = require('express');
+const path = require('path');
 const cors = require('cors');
 const dotenv = require('dotenv');
 const { connectDB } = require('./config/database');
 const rateLimit = require('./middleware/rateLimit');
 
 dotenv.config();
+// Fallback to parent directory if .env not found in current (for unified structure)
+if (!process.env.MONGODB_URI) {
+    dotenv.config({ path: path.join(__dirname, '..', '.env') });
+}
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
 
 const allowedOrigins = (process.env.CORS_ORIGIN || '').split(',').map(v => v.trim()).filter(Boolean);
 app.use(cors({
@@ -29,10 +31,6 @@ app.use(express.json({
 
 const publicLimiter = rateLimit({ windowMs: 60_000, max: 120 });
 
-app.get('/', (req, res) => {
-    res.send('Sports Betting Backend is running');
-});
-
 // Routes
 app.use('/api/auth', require('./routes/authRoutes'));
 app.use('/api/wallet', require('./routes/walletRoutes'));
@@ -43,6 +41,18 @@ app.use('/api/payments', require('./routes/paymentRoutes'));
 app.use('/api/matches', publicLimiter, require('./routes/matchRoutes'));
 app.use('/api/debug', require('./routes/debugRoutes'));
 app.use('/api/messages', require('./routes/messageRoutes'));
+
+// Serve static files from the React app
+app.use(express.static(path.join(__dirname, 'public')));
+
+// The "catchall" handler: for any request that doesn't
+// match one above, send back React's index.html file.
+app.use((req, res, next) => {
+    if (req.method === 'GET' && !req.path.startsWith('/api')) {
+        return res.sendFile(path.join(__dirname, 'public', 'index.html'));
+    }
+    next();
+});
 
 const http = require('http');
 const socketIo = require('./socket');

@@ -28,11 +28,19 @@ const runWithOptionalTransaction = async (work) => {
     }
 };
 
-// Initialize Stripe directly
-const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
+// Initialize Stripe safely
+const stripeKey = process.env.STRIPE_SECRET_KEY;
+const stripe = (stripeKey && !stripeKey.includes('PLACEHOLDER')) ? Stripe(stripeKey) : null;
+
+if (!stripe) {
+    console.warn('⚠️ Stripe API key is missing or is a placeholder. Payments will be disabled.');
+}
 
 const createDepositIntent = async (req, res) => {
     try {
+        if (!stripe) {
+            return res.status(503).json({ message: 'Payment service is currently unavailable. Please contact support.' });
+        }
         const { amount } = req.body;
         const userId = req.user._id;
 
@@ -71,6 +79,10 @@ const createDepositIntent = async (req, res) => {
 const handleWebhook = async (req, res) => {
     const sig = req.headers['stripe-signature'];
     let event;
+
+    if (!stripe) {
+        return res.status(503).send('Stripe not initialized');
+    }
 
     try {
         // req.rawBody must be available. 
