@@ -8,7 +8,6 @@ export default defineConfig({
     dedupe: ['react', 'react-dom'],
   },
   build: {
-    outDir: '../backend/public',
     emptyOutDir: true,
   }
 })
