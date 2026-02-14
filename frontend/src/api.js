@@ -7,7 +7,7 @@ const getBaseUrl = () => {
     if (isProd) {
         return `${window.location.origin}/api`;
     }
-    return 'http://localhost:5000/api';
+    return 'https://betterdr-backend.onrender.com/api';
 };
 
 export const API_URL = getBaseUrl();

@@ -3,7 +3,7 @@ import { io } from 'socket.io-client';
 import { getMatches, getLiveMatches, fetchOddsManual, API_URL } from '../api';
 
 // Use backend origin explicitly to avoid Vite serving index.html on relative fetch
-const SOCKET_URL = API_URL.replace(/\/api\/?$/, '') || 'http://localhost:5000';
+const SOCKET_URL = API_URL.replace(/\/api\/?$/, '') || 'https://betterdr-backend.onrender.com';
 
 // Hook: fetch initial matches and subscribe to live match updates
 const isLiveMatch = (match) => {
