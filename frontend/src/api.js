@@ -4,9 +4,8 @@ const getBaseUrl = () => {
     }
     // Fixed fallback for local development vs production
     const isProd = import.meta.env.PROD;
-    if (isProd) {
-        return `${window.location.origin}/api`;
-    }
+    // Only use window.location.origin if VITE_API_URL is explicitly set to relative path or empty
+    // Otherwise default to the deployed backend URL
     return 'https://betterdr-backend.onrender.com/api';
 };
 
