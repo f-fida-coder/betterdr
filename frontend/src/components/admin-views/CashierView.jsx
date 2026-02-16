@@ -12,7 +12,7 @@ function CashierView() {
   const loadCashier = async () => {
     const token = localStorage.getItem('token');
     if (!token) {
-      setError('Please login as admin to view cashier data.');
+      setError('Please login to view cashier data.');
       setLoading(false);
       return;
     }

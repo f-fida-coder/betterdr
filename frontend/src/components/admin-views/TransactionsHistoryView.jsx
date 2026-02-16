@@ -15,7 +15,7 @@ function TransactionsHistoryView() {
   const loadTransactions = async () => {
     const token = localStorage.getItem('token');
     if (!token) {
-      setError('Please login as admin to view transaction history.');
+      setError('Please login to view transaction history.');
       setLoading(false);
       return;
     }

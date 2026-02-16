@@ -13,7 +13,7 @@ function FAQView() {
   const loadFaqs = async () => {
     const token = localStorage.getItem('token');
     if (!token) {
-      setError('Please login as admin to view FAQs.');
+      setError('Please login to view FAQs.');
       setLoading(false);
       return;
     }
@@ -49,7 +49,7 @@ function FAQView() {
   const handleSave = async () => {
     const token = localStorage.getItem('token');
     if (!token) {
-      setError('Please login as admin to save FAQs.');
+      setError('Please login to save FAQs.');
       return;
     }
     try {
@@ -77,7 +77,7 @@ function FAQView() {
   const handleDelete = async (faqId) => {
     const token = localStorage.getItem('token');
     if (!token) {
-      setError('Please login as admin to delete FAQs.');
+      setError('Please login to delete FAQs.');
       return;
     }
     try {

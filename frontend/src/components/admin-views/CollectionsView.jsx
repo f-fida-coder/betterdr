@@ -17,7 +17,7 @@ function CollectionsView() {
   const loadCollections = async () => {
     const token = localStorage.getItem('token');
     if (!token) {
-      setError('Please login as admin to view collections.');
+      setError('Please login to view collections.');
       setLoading(false);
       return;
     }
@@ -68,7 +68,7 @@ function CollectionsView() {
   const handleCreateCollection = async () => {
     const token = localStorage.getItem('token');
     if (!token) {
-      setError('Please login as admin to create collections.');
+      setError('Please login to create collections.');
       return;
     }
 
@@ -93,7 +93,7 @@ function CollectionsView() {
   const handleCollect = async (id) => {
     const token = localStorage.getItem('token');
     if (!token) {
-      setError('Please login as admin to collect.');
+      setError('Please login to collect.');
       return;
     }
     try {

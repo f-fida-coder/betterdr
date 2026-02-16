@@ -60,7 +60,7 @@ function GamesEventsView() {
   const loadMatches = async () => {
     const token = localStorage.getItem('token');
     if (!token) {
-      setError('Please login as admin to load games.');
+      setError('Please login to load games.');
       setLoading(false);
       return;
     }
@@ -122,7 +122,7 @@ function GamesEventsView() {
   const handleAddGame = async () => {
     const token = localStorage.getItem('token');
     if (!token) {
-      setError('Please login as admin to add games.');
+      setError('Please login to add games.');
       return;
     }
     try {
@@ -147,7 +147,7 @@ function GamesEventsView() {
   const handleRefreshOdds = async () => {
     const token = localStorage.getItem('token');
     if (!token) {
-      setError('Please login as admin to update odds.');
+      setError('Please login to update odds.');
       return;
     }
     try {
@@ -169,7 +169,7 @@ function GamesEventsView() {
   const handleClearCache = async () => {
     const token = localStorage.getItem('token');
     if (!token) {
-      setError('Please login as admin to clear cache.');
+      setError('Please login to clear cache.');
       return;
     }
     try {
@@ -185,7 +185,7 @@ function GamesEventsView() {
   const handleSettleMatch = async (match) => {
     const token = localStorage.getItem('token');
     if (!token) {
-      setError('Please login as admin to settle matches.');
+      setError('Please login to settle matches.');
       return;
     }
 

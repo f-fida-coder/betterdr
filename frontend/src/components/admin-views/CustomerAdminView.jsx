@@ -74,7 +74,7 @@ function CustomerAdminView({ onViewChange }) {
         const token = localStorage.getItem('token');
         if (!token) {
           setCustomers([]);
-          setError('Please login as admin to load users.');
+          setError('Please login to load users.');
           return;
         }
         const me = await getMe(token);
@@ -124,7 +124,7 @@ function CustomerAdminView({ onViewChange }) {
       setCreateLoading(true);
       const token = localStorage.getItem('token');
       if (!token) {
-        setError('Please login as admin to create users.');
+        setError('Please login to create users.');
         return;
       }
       const payload = { ...newCustomer };

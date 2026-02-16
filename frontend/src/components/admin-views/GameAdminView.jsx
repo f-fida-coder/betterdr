@@ -27,7 +27,7 @@ function GameAdminView() {
   const loadGames = async () => {
     const token = localStorage.getItem('token');
     if (!token) {
-      setError('Please login as admin to manage games.');
+      setError('Please login to manage games.');
       setLoading(false);
       return;
     }
@@ -86,7 +86,7 @@ function GameAdminView() {
     e.preventDefault();
     const token = localStorage.getItem('token');
     if (!token) {
-      setError('Please login as admin to add games.');
+      setError('Please login to add games.');
       return;
     }
 
@@ -116,7 +116,7 @@ function GameAdminView() {
     e.preventDefault();
     const token = localStorage.getItem('token');
     if (!token) {
-      setError('Please login as admin to update games.');
+      setError('Please login to update games.');
       return;
     }
 

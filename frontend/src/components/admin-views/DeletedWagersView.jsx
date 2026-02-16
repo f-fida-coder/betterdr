@@ -13,7 +13,7 @@ function DeletedWagersView() {
   const loadWagers = async () => {
     const token = localStorage.getItem('token');
     if (!token) {
-      setError('Please login as admin to view deleted wagers.');
+      setError('Please login to view deleted wagers.');
       setLoading(false);
       return;
     }
@@ -38,7 +38,7 @@ function DeletedWagersView() {
   const handleRestore = async (id) => {
     const token = localStorage.getItem('token');
     if (!token) {
-      setError('Please login as admin to restore wagers.');
+      setError('Please login to restore wagers.');
       return;
     }
     try {

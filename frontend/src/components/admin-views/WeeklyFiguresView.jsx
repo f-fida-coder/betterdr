@@ -20,7 +20,7 @@ function WeeklyFiguresView() {
     const fetchWeeklyFigures = async () => {
       const token = localStorage.getItem('token');
       if (!token) {
-        setError('Please login as admin to view weekly figures.');
+        setError('Please login to view weekly figures.');
         setLoading(false);
         return;
       }

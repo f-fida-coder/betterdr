@@ -11,7 +11,7 @@ function MessagingView() {
     const fetchMessages = async () => {
       const token = localStorage.getItem('token');
       if (!token) {
-        setError('Please login as admin to view messages.');
+        setError('Please login to view messages.');
         setLoading(false);
         return;
       }
@@ -35,7 +35,7 @@ function MessagingView() {
   const handleReply = async (messageId) => {
     const token = localStorage.getItem('token');
     if (!token) {
-      setError('Please login as admin to reply.');
+      setError('Please login to reply.');
       return;
     }
     const reply = window.prompt('Enter your reply:');
@@ -57,7 +57,7 @@ function MessagingView() {
   const handleDelete = async (messageId) => {
     const token = localStorage.getItem('token');
     if (!token) {
-      setError('Please login as admin to delete messages.');
+      setError('Please login to delete messages.');
       return;
     }
     try {

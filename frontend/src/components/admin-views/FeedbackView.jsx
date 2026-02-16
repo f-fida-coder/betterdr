@@ -14,7 +14,7 @@ function FeedbackView() {
   const loadFeedback = async () => {
     const token = localStorage.getItem('token');
     if (!token) {
-      setError('Please login as admin to view feedback.');
+      setError('Please login to view feedback.');
       setLoading(false);
       return;
     }
@@ -44,7 +44,7 @@ function FeedbackView() {
   const handleReply = async () => {
     const token = localStorage.getItem('token');
     if (!token) {
-      setError('Please login as admin to reply.');
+      setError('Please login to reply.');
       return;
     }
     try {
@@ -62,7 +62,7 @@ function FeedbackView() {
   const handleReviewed = async (feedbackId) => {
     const token = localStorage.getItem('token');
     if (!token) {
-      setError('Please login as admin to mark reviewed.');
+      setError('Please login to mark reviewed.');
       return;
     }
     try {
@@ -79,7 +79,7 @@ function FeedbackView() {
   const handleDelete = async (feedbackId) => {
     const token = localStorage.getItem('token');
     if (!token) {
-      setError('Please login as admin to delete feedback.');
+      setError('Please login to delete feedback.');
       return;
     }
     try {

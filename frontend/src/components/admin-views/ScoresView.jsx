@@ -14,7 +14,7 @@ function ScoresView() {
   const loadMatches = async () => {
     const token = localStorage.getItem('token');
     if (!token) {
-      setError('Please login as admin to view scores.');
+      setError('Please login to view scores.');
       setLoading(false);
       return;
     }
@@ -54,7 +54,7 @@ function ScoresView() {
   const handleUpdate = async () => {
     const token = localStorage.getItem('token');
     if (!token) {
-      setError('Please login as admin to update scores.');
+      setError('Please login to update scores.');
       return;
     }
     try {

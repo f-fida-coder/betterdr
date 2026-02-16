@@ -13,7 +13,7 @@ function RulesAdminView() {
   const loadRules = async () => {
     const token = localStorage.getItem('token');
     if (!token) {
-      setError('Please login as admin to view rules.');
+      setError('Please login to view rules.');
       setLoading(false);
       return;
     }
@@ -49,7 +49,7 @@ function RulesAdminView() {
   const handleSave = async () => {
     const token = localStorage.getItem('token');
     if (!token) {
-      setError('Please login as admin to save rules.');
+      setError('Please login to save rules.');
       return;
     }
     try {
@@ -76,7 +76,7 @@ function RulesAdminView() {
   const handleDelete = async (ruleId) => {
     const token = localStorage.getItem('token');
     if (!token) {
-      setError('Please login as admin to delete rules.');
+      setError('Please login to delete rules.');
       return;
     }
     try {

@@ -13,7 +13,7 @@ function UserManualView() {
   const loadSections = async () => {
     const token = localStorage.getItem('token');
     if (!token) {
-      setError('Please login as admin to view manual.');
+      setError('Please login to view manual.');
       setLoading(false);
       return;
     }
@@ -49,7 +49,7 @@ function UserManualView() {
   const handleSave = async () => {
     const token = localStorage.getItem('token');
     if (!token) {
-      setError('Please login as admin to save manual sections.');
+      setError('Please login to save manual sections.');
       return;
     }
     try {
@@ -77,7 +77,7 @@ function UserManualView() {
   const handleDelete = async (sectionId) => {
     const token = localStorage.getItem('token');
     if (!token) {
-      setError('Please login as admin to delete sections.');
+      setError('Please login to delete sections.');
       return;
     }
     try {

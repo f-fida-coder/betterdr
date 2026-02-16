@@ -69,7 +69,7 @@ function PropsView() {
       const token = localStorage.getItem('token');
       if (!token) {
         setBettingData([]);
-        setError('Please login as admin to load bets.');
+        setError('Please login to load bets.');
         return;
       }
       const response = await getAdminBets(params, token);
@@ -124,7 +124,7 @@ function PropsView() {
       setCreateLoading(true);
       const token = localStorage.getItem('token');
       if (!token) {
-        setError('Please login as admin to create bets.');
+        setError('Please login to create bets.');
         return;
       }
       const payload = {

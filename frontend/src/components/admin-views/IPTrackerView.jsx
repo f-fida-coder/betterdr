@@ -14,7 +14,7 @@ function IPTrackerView() {
   const loadIps = async () => {
     const token = localStorage.getItem('token');
     if (!token) {
-      setError('Please login as admin to view IP tracker.');
+      setError('Please login to view IP tracker.');
       setLoading(false);
       return;
     }
@@ -39,7 +39,7 @@ function IPTrackerView() {
   const handleBlock = async (id) => {
     const token = localStorage.getItem('token');
     if (!token) {
-      setError('Please login as admin to block IPs.');
+      setError('Please login to block IPs.');
       return;
     }
     try {
@@ -56,7 +56,7 @@ function IPTrackerView() {
   const handleUnblock = async (id) => {
     const token = localStorage.getItem('token');
     if (!token) {
-      setError('Please login as admin to unblock IPs.');
+      setError('Please login to unblock IPs.');
       return;
     }
     try {
@@ -73,7 +73,7 @@ function IPTrackerView() {
   const handleWhitelist = async (id) => {
     const token = localStorage.getItem('token');
     if (!token) {
-      setError('Please login as admin to whitelist IPs.');
+      setError('Please login to whitelist IPs.');
       return;
     }
     try {

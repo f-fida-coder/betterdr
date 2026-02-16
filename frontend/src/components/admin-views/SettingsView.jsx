@@ -21,7 +21,7 @@ function SettingsView() {
     const loadSettings = async () => {
       const token = localStorage.getItem('token');
       if (!token) {
-        setError('Please login as admin to load settings.');
+        setError('Please login to load settings.');
         setLoading(false);
         return;
       }
@@ -62,7 +62,7 @@ function SettingsView() {
   const handleSave = async () => {
     const token = localStorage.getItem('token');
     if (!token) {
-      setError('Please login as admin to save settings.');
+      setError('Please login to save settings.');
       return;
     }
     try {

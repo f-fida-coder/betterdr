@@ -35,7 +35,7 @@ function AgentPerformanceView() {
         const token = localStorage.getItem('token');
         if (!token) {
           setAgents([]);
-          setError('Please login as admin to load performance.');
+          setError('Please login to load performance.');
           return;
         }
         const response = await getAgentPerformance({ period }, token);
@@ -64,7 +64,7 @@ function AgentPerformanceView() {
       setCreateLoading(true);
       const token = localStorage.getItem('token');
       if (!token) {
-        setError('Please login as admin to create agents.');
+        setError('Please login to create agents.');
         return;
       }
       await createAgent(newAgent, token);

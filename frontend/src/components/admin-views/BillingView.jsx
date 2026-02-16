@@ -16,7 +16,7 @@ function BillingView() {
   const loadBilling = async () => {
     const token = localStorage.getItem('token');
     if (!token) {
-      setError('Please login as admin to view billing.');
+      setError('Please login to view billing.');
       setLoading(false);
       return;
     }
@@ -61,7 +61,7 @@ function BillingView() {
   const handleSave = async () => {
     const token = localStorage.getItem('token');
     if (!token) {
-      setError('Please login as admin to save invoices.');
+      setError('Please login to save invoices.');
       return;
     }
     try {
@@ -85,7 +85,7 @@ function BillingView() {
   const handleMarkPaid = async (invoice) => {
     const token = localStorage.getItem('token');
     if (!token) {
-      setError('Please login as admin to update invoices.');
+      setError('Please login to update invoices.');
       return;
     }
     try {

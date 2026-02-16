@@ -37,7 +37,7 @@ function ProfileView() {
     const loadProfile = async () => {
       const token = localStorage.getItem('token');
       if (!token) {
-        setError('Please login as admin to view profile.');
+        setError('Please login to view profile.');
         setLoading(false);
         return;
       }

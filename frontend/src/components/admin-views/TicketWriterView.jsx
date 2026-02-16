@@ -28,7 +28,7 @@ function TicketWriterView() {
     e.preventDefault();
     const token = localStorage.getItem('token');
     if (!token) {
-      setError('Please login as admin to create tickets.');
+      setError('Please login to create tickets.');
       return;
     }
     try {
@@ -63,7 +63,7 @@ function TicketWriterView() {
     const loadReference = async () => {
       const token = localStorage.getItem('token');
       if (!token) {
-        setError('Please login as admin to load ticket data.');
+        setError('Please login to load ticket data.');
         setLoading(false);
         return;
       }

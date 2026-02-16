@@ -14,7 +14,7 @@ function SportsBookLinksView() {
   const loadLinks = async () => {
     const token = localStorage.getItem('token');
     if (!token) {
-      setError('Please login as admin to view sportsbook links.');
+      setError('Please login to view sportsbook links.');
       setLoading(false);
       return;
     }
@@ -55,7 +55,7 @@ function SportsBookLinksView() {
   const handleSave = async () => {
     const token = localStorage.getItem('token');
     if (!token) {
-      setError('Please login as admin to save links.');
+      setError('Please login to save links.');
       return;
     }
     try {
@@ -77,7 +77,7 @@ function SportsBookLinksView() {
   const handleTest = async (id) => {
     const token = localStorage.getItem('token');
     if (!token) {
-      setError('Please login as admin to test links.');
+      setError('Please login to test links.');
       return;
     }
     try {

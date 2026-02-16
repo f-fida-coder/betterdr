@@ -11,7 +11,7 @@ function PendingView() {
     const fetchPending = async () => {
       const token = localStorage.getItem('token');
       if (!token) {
-        setError('Please login as admin to view pending items.');
+        setError('Please login to view pending items.');
         setLoading(false);
         return;
       }
@@ -35,7 +35,7 @@ function PendingView() {
   const handleApprove = async (itemId) => {
     const token = localStorage.getItem('token');
     if (!token) {
-      setError('Please login as admin to approve items.');
+      setError('Please login to approve items.');
       return;
     }
     try {
@@ -52,7 +52,7 @@ function PendingView() {
   const handleDecline = async (itemId) => {
     const token = localStorage.getItem('token');
     if (!token) {
-      setError('Please login as admin to decline items.');
+      setError('Please login to decline items.');
       return;
     }
     try {

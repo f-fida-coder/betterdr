@@ -40,7 +40,7 @@ function ThirdPartyLimitsView() {
       const token = localStorage.getItem('token');
       if (!token) {
         setLimits([]);
-        setError('Please login as admin to load limits.');
+        setError('Please login to load limits.');
         return;
       }
       const data = await getThirdPartyLimits(token);
@@ -91,7 +91,7 @@ function ThirdPartyLimitsView() {
     try {
       const token = localStorage.getItem('token');
       if (!token) {
-        setError('Please login as admin to update limits.');
+        setError('Please login to update limits.');
         return;
       }
       const payload = {
@@ -115,7 +115,7 @@ function ThirdPartyLimitsView() {
       setCreateLoading(true);
       const token = localStorage.getItem('token');
       if (!token) {
-        setError('Please login as admin to create limits.');
+        setError('Please login to create limits.');
         return;
       }
       const payload = {
