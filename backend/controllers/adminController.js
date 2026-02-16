@@ -116,9 +116,20 @@ const getClientIp = (req) => {
 exports.getUsers = async (req, res) => {
     try {
         const query = { role: 'user' };
+
         if (req.user.role === 'agent') {
+            // Regular agents: see only their own players
             query.agentId = req.user._id;
+        } else if (req.user.role === 'super_agent' || req.user.role === 'master_agent') {
+            // Super agents: see players created by them AND by their sub-agents
+            const subAgents = await Agent.find({
+                createdBy: req.user._id,
+                createdByModel: 'Agent'
+            }).select('_id');
+            const subAgentIds = subAgents.map(sa => sa._id);
+            query.agentId = { $in: [req.user._id, ...subAgentIds] };
         }
+        // Admin sees all users (no filter)
 
         const users = await User.find(query)
             .select('-password')
@@ -177,7 +188,18 @@ exports.getUsers = async (req, res) => {
 // Get all agents
 exports.getAgents = async (req, res) => {
     try {
-        const agents = await Agent.find()
+        let query = {};
+
+        if (req.user.role === 'super_agent' || req.user.role === 'master_agent') {
+            // Super agents: see only agents they created
+            query = { createdBy: req.user._id, createdByModel: 'Agent' };
+        } else if (req.user.role === 'agent') {
+            // Regular agents: cannot see any agents
+            return res.json([]);
+        }
+        // Admin sees all agents (no filter)
+
+        const agents = await Agent.find(query)
             .populate('createdBy', 'username role')
             .select('username phoneNumber balance balanceOwed role status createdAt createdBy createdByModel agentBillingRate agentBillingStatus viewOnly');
 
