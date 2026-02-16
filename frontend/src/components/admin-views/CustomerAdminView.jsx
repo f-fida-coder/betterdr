@@ -133,9 +133,16 @@ function CustomerAdminView({ onViewChange }) {
           await createUserByAdmin(payload, token);
         }
       } else if (creationType === 'agent') {
-        await createSubAgent(payload, token);
+        if (currentRole === 'admin') {
+          // Admin creating standard Agent
+          await createAgent({ ...payload, role: 'agent' }, token);
+        } else {
+          // Super Agent creating Sub-Agent
+          await createSubAgent(payload, token);
+        }
       } else if (creationType === 'super_agent') {
-        await createAgent(payload, token);
+        // Admin creating Master Agent
+        await createAgent({ ...payload, role: 'super_agent' }, token);
       }
 
       alert(`${creationType === 'player' ? 'Player' : creationType === 'agent' ? 'Agent' : 'Master Agent'} initialized successfully!`);
@@ -584,7 +591,10 @@ function CustomerAdminView({ onViewChange }) {
                       <option value="agent">Agent</option>
                     )}
                     {currentRole === 'admin' && (
-                      <option value="super_agent">Master Agent</option>
+                      <>
+                        <option value="agent">Agent</option>
+                        <option value="super_agent">Master Agent</option>
+                      </>
                     )}
                   </select>
                 </div>

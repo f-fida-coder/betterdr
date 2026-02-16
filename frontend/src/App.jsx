@@ -58,6 +58,16 @@ function App() {
     }
   }, [token]);
 
+  // Redirect admins/agents who land on root "/" back to their dashboard
+  useEffect(() => {
+    if (user && (user.role === 'admin' || user.role === 'agent' || user.role === 'super_agent')) {
+      const targetPath = user.role === 'admin'
+        ? '/admin/dashboard'
+        : (user.role === 'super_agent' ? '/super_agent/dashboard' : '/agent/dashboard');
+      navigate(targetPath, { replace: true });
+    }
+  }, [user, navigate]);
+
   // Listen for user refresh events (e.g., after placing a bet)
   useEffect(() => {
     const handleUserRefresh = () => {

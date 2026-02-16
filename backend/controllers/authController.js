@@ -66,6 +66,7 @@ const buildAuthPayload = (user) => {
         role: user.role,
         viewOnly: user.viewOnly,
         agentBillingStatus: user.agentBillingStatus,
+        dashboardLayout: user.dashboardLayout,
         token: generateToken(user._id, user.role, user.agentId),
     };
 };
@@ -268,11 +269,40 @@ const getMe = async (req, res) => {
             totalWinnings: req.user.totalWinnings,
             role: req.user.role,
             viewOnly: req.user.viewOnly,
-            agentBillingStatus: req.user.agentBillingStatus
+            agentBillingStatus: req.user.agentBillingStatus,
+            dashboardLayout: req.user.dashboardLayout
         })
     } else {
         res.status(404).json({ message: 'User not found' });
     }
 }
 
-module.exports = { registerUser, loginUser, loginAdmin, loginAgent, getMe, generateToken, buildAuthPayload };
+const updateProfile = async (req, res) => {
+    try {
+        const user = req.user; // From protect middleware
+        if (!user) return res.status(401).json({ message: 'Not authorized' });
+
+        const { dashboardLayout } = req.body;
+
+        if (dashboardLayout) {
+            user.dashboardLayout = dashboardLayout;
+        }
+
+        await user.save();
+
+        res.json({
+            message: 'Profile updated successfully',
+            user: {
+                id: user._id,
+                username: user.username,
+                role: user.role,
+                dashboardLayout: user.dashboardLayout
+            }
+        });
+    } catch (error) {
+        console.error('Error updating profile:', error);
+        res.status(500).json({ message: 'Server error updating profile' });
+    }
+};
+
+module.exports = { registerUser, loginUser, loginAdmin, loginAgent, getMe, generateToken, buildAuthPayload, updateProfile };

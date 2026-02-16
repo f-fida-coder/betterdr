@@ -75,7 +75,7 @@ const agentSchema = new mongoose.Schema(
 
         role: {
             type: String,
-            enum: ['agent', 'super_agent'],
+            enum: ['agent', 'master_agent'],
             default: 'agent',
         },
 
@@ -109,6 +109,29 @@ const agentSchema = new mongoose.Schema(
             type: Number,
             default: 0,
         },
+        permissions: {
+            // General
+            updateInfo: { type: Boolean, default: true },
+            suspendWagering: { type: Boolean, default: true },
+            enterDepositsWithdrawals: { type: Boolean, default: true },
+            deleteTransactions: { type: Boolean, default: true },
+            enterBettingAdjustments: { type: Boolean, default: true },
+            moveAccounts: { type: Boolean, default: true },
+            addAccounts: { type: Boolean, default: true },
+
+            // Limit and Sport Setup
+            changeCreditLimit: { type: Boolean, default: true },
+            setMinBet: { type: Boolean, default: true },
+            changeWagerLimit: { type: Boolean, default: true },
+            adjustParlayTeaser: { type: Boolean, default: true },
+            setGlobalTeamLimit: { type: Boolean, default: true },
+            maxWagerSetup: { type: Boolean, default: true },
+            allowDeny: { type: Boolean, default: true },
+            juiceSetup: { type: Boolean, default: true },
+            changeTempCredit: { type: Boolean, default: true },
+            changeSettleFigure: { type: Boolean, default: true },
+        },
+        dashboardLayout: { type: String, enum: ['tiles', 'sidebar'], default: 'tiles' },
     },
     {
         timestamps: true,

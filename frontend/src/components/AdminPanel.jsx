@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import AdminDashboard from './AdminDashboard';
 import AdminHeader from './AdminHeader';
 import AdminSidebar from './AdminSidebar';
@@ -23,7 +23,7 @@ import BetTickerView from './admin-views/BetTickerView';
 import TicketWriterView from './admin-views/TicketWriterView';
 import ScoresView from './admin-views/ScoresView';
 import AgentAdminView from './admin-views/AgentAdminView';
-import SubAgentManagerView from './admin-views/SubAgentManagerView';
+import MasterAgentManagerView from './admin-views/MasterAgentManagerView';
 import BillingView from './admin-views/BillingView';
 import SettingsView from './admin-views/SettingsView';
 import RulesView from './admin-views/RulesAdminView';
@@ -35,11 +35,41 @@ import ProfileView from './admin-views/ProfileView';
 import '../admin.css';
 
 import CustomerDetailsView from './admin-views/CustomerDetailsView';
+import ErrorBoundary from './ErrorBoundary';
+
+import { getMe } from '../api';
 
 function AdminPanel({ onExit, role = 'admin' }) {
   const [adminView, setAdminView] = useState('dashboard');
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState(null);
+  const [layoutPref, setLayoutPref] = useState('tiles');
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+
+  useEffect(() => {
+    const fetchPref = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        if (token) {
+          const me = await getMe(token);
+          if (me && me.dashboardLayout) {
+            setLayoutPref(me.dashboardLayout);
+          }
+        }
+      } catch (e) {
+        console.error("Failed to fetch layout pref", e);
+      }
+    };
+    fetchPref();
+  }, []);
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth <= 768);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   const handleViewChange = (view, userId = null) => {
     setAdminView(view);
@@ -56,7 +86,7 @@ function AdminPanel({ onExit, role = 'admin' }) {
   const renderView = () => {
     switch (adminView) {
       case 'dashboard':
-        return <AdminDashboard role={role} />;
+        return <AdminDashboard onMenuClick={handleViewChange} role={role} layoutPref={layoutPref} isMobile={isMobile} />;
       case 'user-details':
         return (
           <CustomerDetailsView
@@ -107,8 +137,10 @@ function AdminPanel({ onExit, role = 'admin' }) {
         return <ScoresView />;
       case 'agent-admin':
         return <AgentAdminView />;
-      case 'sub-agent-admin':
-        return <SubAgentManagerView />;
+      case 'agent-manager':
+        return <MasterAgentManagerView />;
+      case 'master-agent-admin':
+        return <AgentAdminView />;
       case 'billing':
         return <BillingView />;
       case 'settings':
@@ -145,7 +177,9 @@ function AdminPanel({ onExit, role = 'admin' }) {
           role={role}
         />
         <div className="admin-content">
-          {renderView()}
+          <ErrorBoundary>
+            {renderView()}
+          </ErrorBoundary>
         </div>
       </div>
     </div>

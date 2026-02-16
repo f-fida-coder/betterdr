@@ -20,9 +20,9 @@ exports.createUser = async (req, res) => {
         } = req.body;
         const agentId = req.user._id;
 
-        // Ensure agents or super agents can create users
-        if (req.user.role !== 'agent' && req.user.role !== 'super_agent') {
-            return res.status(403).json({ message: 'Only Agents or Super Agents can create customers' });
+        // Ensure agents or master agents can create users
+        if (req.user.role !== 'agent' && req.user.role !== 'master_agent') {
+            return res.status(403).json({ message: 'Only Agents or Master Agents can create customers' });
         }
 
         // Validation
@@ -337,11 +337,11 @@ exports.updateCustomer = async (req, res) => {
 // Get My Sub-Agents
 exports.getMySubAgents = async (req, res) => {
     try {
-        const superAgentId = req.user._id;
+        const masterAgentId = req.user._id;
 
-        // Find agents created by this Super Agent
+        // Find agents created by this Master Agent
         const agents = await Agent.find({
-            createdBy: superAgentId,
+            createdBy: masterAgentId,
             createdByModel: 'Agent'
         }).select('username phoneNumber balance balanceOwed role status createdAt');
 
@@ -355,12 +355,12 @@ exports.getMySubAgents = async (req, res) => {
 // Create Sub-Agent
 exports.createSubAgent = async (req, res) => {
     try {
-        const { username, phoneNumber, password, fullName, defaultMinBet, defaultMaxBet, defaultCreditLimit, defaultSettleLimit } = req.body;
+        const { username, phoneNumber, password, fullName, defaultMinBet, defaultMaxBet, defaultCreditLimit, defaultSettleLimit, role } = req.body;
         const creator = req.user;
 
-        // Only super_agent can create sub-agents
-        if (creator.role !== 'super_agent') {
-            return res.status(403).json({ message: 'Only Super Agents can create agents' });
+        // Only master_agent can create agents
+        if (creator.role !== 'master_agent') {
+            return res.status(403).json({ message: 'Only Master Agents can create agents' });
         }
 
         // Validation
@@ -379,13 +379,15 @@ exports.createSubAgent = async (req, res) => {
             return res.status(409).json({ message: 'Username or Phone number already exists in the system' });
         }
 
+        const agentRole = (role === 'master_agent') ? 'master_agent' : 'agent';
+
         // Create sub-agent
         const newAgent = new Agent({
             username: username.toUpperCase(),
             phoneNumber,
             password,
             fullName: (fullName || username).toUpperCase(),
-            role: 'agent',
+            role: agentRole,
             status: 'active',
             balance: 0.00,
             agentBillingRate: creator.agentBillingRate || 0.00,

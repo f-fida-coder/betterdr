@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { getAgents, createAgent, updateAgent, suspendUser, unsuspendUser, resetAgentPasswordByAdmin, getNextUsername } from '../../api';
+import AgentPermissionModal from './AgentPermissionModal';
 
 function AgentAdminView() {
   const [agents, setAgents] = useState([]);
@@ -7,11 +8,20 @@ function AgentAdminView() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showViewModal, setShowViewModal] = useState(false);
+  const [showPermissionModal, setShowPermissionModal] = useState(false);
   const [selectedAgent, setSelectedAgent] = useState(null);
 
   const [newAgent, setNewAgent] = useState({ username: '', phoneNumber: '', password: '', agentPrefix: '' });
   const [editForm, setEditForm] = useState({ id: '', phoneNumber: '', password: '', agentBillingRate: '', agentBillingStatus: 'paid' });
   const [error, setError] = useState(null);
+  const [creatorFilter, setCreatorFilter] = useState('all'); // 'all', 'admin', 'master_agent'
+
+  const filteredAgents = agents.filter(agent => {
+    if (creatorFilter === 'all') return true;
+    if (creatorFilter === 'admin') return agent.createdByModel === 'Admin';
+    if (creatorFilter === 'master_agent') return agent.createdByModel === 'Agent';
+    return true;
+  });
 
   const formatMoney = (value) => {
     if (value === null || value === undefined || value === '') return '—';
@@ -63,9 +73,9 @@ function AgentAdminView() {
       const token = localStorage.getItem('token');
       if (!token) throw new Error('No token found');
 
-      // Create agent - explicitly backend sets role: 'super_agent'
+      // Create agent - explicitly backend sets role: 'master_agent'
       await createAgent(newAgent, token);
-      alert('Super Agent created successfully');
+      alert('Master Agent created successfully');
       setShowAddModal(false);
       setNewAgent({ username: '', phoneNumber: '', password: '', agentPrefix: '' });
       fetchAgents();
@@ -181,15 +191,26 @@ function AgentAdminView() {
   return (
     <div className="admin-view">
       <div className="view-header">
-        <h2>Super Agent Administration</h2>
-        <button className="btn-primary" onClick={() => setShowAddModal(true)}>Add Super Agent</button>
+        <h2>Master Agent Administration</h2>
+        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+          <select
+            value={creatorFilter}
+            onChange={(e) => setCreatorFilter(e.target.value)}
+            style={{ padding: '0.5rem', borderRadius: '4px', border: '1px solid #444', backgroundColor: '#333', color: 'white' }}
+          >
+            <option value="all">Show All Creators</option>
+            <option value="admin">Created by Admin</option>
+            <option value="master_agent">Created by Master Agent</option>
+          </select>
+          <button className="btn-primary" onClick={() => setShowAddModal(true)}>Add Master Agent</button>
+        </div>
       </div>
 
       {/* CREATE MODAL */}
       {showAddModal && (
         <div className="modal-overlay">
           <div className="modal-content">
-            <h3>New Super Agent</h3>
+            <h3>New Master Agent</h3>
             <form onSubmit={handleCreateAgent}>
               <div className="form-group">
                 <label>Prefix</label>
@@ -292,6 +313,14 @@ function AgentAdminView() {
         </div>
       )}
 
+      {showPermissionModal && selectedAgent && (
+        <AgentPermissionModal
+          agent={selectedAgent}
+          onClose={() => setShowPermissionModal(false)}
+          onUpdate={fetchAgents}
+        />
+      )}
+
       <div className="view-content">
         <div className="table-container">
           <table className="data-table">
@@ -317,23 +346,30 @@ function AgentAdminView() {
                 <tr><td colSpan="14">Loading agents...</td></tr>
               ) : error ? (
                 <tr><td colSpan="14">{error}</td></tr>
-              ) : agents.length === 0 ? (
-                <tr><td colSpan="14">No agents found.</td></tr>
-              ) : agents.map(agent => (
+              ) : filteredAgents.length === 0 ? (
+                <tr><td colSpan="14">No agents found matching filter.</td></tr>
+              ) : filteredAgents.map(agent => (
                 <tr key={agent.id || agent._id}>
                   <td>{agent.username}</td>
                   <td>
-                    <span className={`badge ${agent.role === 'super_agent' ? 'btn-primary' : 'btn-secondary'}`} style={{ fontSize: '0.75rem', textTransform: 'capitalize' }}>
+                    <span className={`badge ${agent.role === 'master_agent' ? 'btn-primary' : 'btn-secondary'}`} style={{ fontSize: '0.75rem', textTransform: 'capitalize' }}>
                       {agent.role?.replace('_', ' ') || 'agent'}
                     </span>
                   </td>
                   <td>{agent.phoneNumber}</td>
                   <td><span className={`badge ${agent.status || ''}`}>{agent.status || 'unknown'}</span></td>
                   <td style={{ fontWeight: 'bold', color: agent.createdBy ? '#e67e22' : '#999' }}>
-                    {agent.createdBy ? (agent.createdBy.username) : 'System'}
+                    {agent.createdBy ? (
+                      <>
+                        <span style={{ fontSize: '0.8em', color: '#888', marginRight: '4px' }}>
+                          [{agent.createdByModel === 'Admin' ? 'Admin' : 'MA'}]
+                        </span>
+                        {agent.createdBy.username}
+                      </>
+                    ) : 'System'}
                   </td>
-                  <td>{agent.role === 'super_agent' ? (agent.subAgentCount || 0) : '—'}</td>
-                  <td>{agent.role === 'super_agent' ? (agent.totalUsersInHierarchy || 0) : (agent.userCount || 0)}</td>
+                  <td>{agent.role === 'master_agent' ? (agent.subAgentCount || 0) : '—'}</td>
+                  <td>{agent.role === 'master_agent' ? (agent.totalUsersInHierarchy || 0) : (agent.userCount || 0)}</td>
                   <td>{formatMoney(agent.balance)}</td>
                   <td>{formatMoney(agent.balanceOwed)}</td>
                   <td>${Number(agent.agentBillingRate || 0).toFixed(2)}</td>
@@ -342,6 +378,10 @@ function AgentAdminView() {
                   <td>
                     <button className="btn-small" onClick={() => openEditModal(agent)}>Edit</button>
                     <button className="btn-small" onClick={() => openViewModal(agent)}>View</button>
+                    <button className="btn-small" onClick={() => {
+                      setSelectedAgent(agent);
+                      setShowPermissionModal(true);
+                    }}>Permissions</button>
                     <button className="btn-small" onClick={() => handleAdjustBalance(agent)}>Adjust Balance</button>
                     <button
                       className={`btn-small ${agent.status === 'suspended' ? 'btn-success' : 'btn-danger'}`}

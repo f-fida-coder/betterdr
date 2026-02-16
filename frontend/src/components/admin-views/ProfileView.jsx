@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { getMe } from '../../api';
+import { getMe, updateProfile } from '../../api';
 
 const formatCurrency = (value) => {
   const num = Number(value);
@@ -15,6 +15,23 @@ function ProfileView() {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const handleLayoutChange = async (e) => {
+    const newLayout = e.target.value;
+    setSaving(true);
+    try {
+      const token = localStorage.getItem('token');
+      await updateProfile({ dashboardLayout: newLayout }, token);
+      setProfile(prev => ({ ...prev, dashboardLayout: newLayout }));
+      alert('Layout updated. The page will reload to apply changes.');
+      window.location.reload();
+    } catch (err) {
+      alert('Failed to update layout: ' + err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   useEffect(() => {
     const loadProfile = async () => {
@@ -55,6 +72,22 @@ function ProfileView() {
                 <div className="form-group">
                   <label>Username:</label>
                   <input type="text" value={profile.username || ''} readOnly />
+                </div>
+
+                <div className="form-section">
+                  <h3>Preferences</h3>
+                  <div className="form-group">
+                    <label>Dashboard Layout:</label>
+                    <select
+                      value={profile.dashboardLayout || 'tiles'}
+                      onChange={handleLayoutChange}
+                      disabled={saving}
+                      style={{ padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }}
+                    >
+                      <option value="tiles">Tiles (Default)</option>
+                      <option value="sidebar">Sidebar Navigation</option>
+                    </select>
+                  </div>
                 </div>
                 <div className="form-group">
                   <label>Phone Number:</label>

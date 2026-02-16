@@ -178,8 +178,8 @@ exports.getUsers = async (req, res) => {
 exports.getAgents = async (req, res) => {
     try {
         const agents = await Agent.find()
-            .populate('createdBy', 'username')
-            .select('username phoneNumber balance balanceOwed role status createdAt createdBy agentBillingRate agentBillingStatus viewOnly');
+            .populate('createdBy', 'username role')
+            .select('username phoneNumber balance balanceOwed role status createdAt createdBy createdByModel agentBillingRate agentBillingStatus viewOnly');
 
         const activeSince = new Date(Date.now() - 7 * MS_PER_DAY);
         const activeUserIds = await Bet.aggregate([
@@ -198,7 +198,7 @@ exports.getAgents = async (req, res) => {
                 let subAgentCount = 0;
                 let totalUsersInHierarchy = 0;
 
-                if (agent.role === 'super_agent') {
+                if (agent.role === 'master_agent') {
                     const subAgents = await Agent.find({ createdBy: agent._id, createdByModel: 'Agent' }).select('_id');
                     subAgentCount = subAgents.length;
                     const subAgentIds = subAgents.map(sa => sa._id);
@@ -243,7 +243,7 @@ exports.getAgents = async (req, res) => {
 // Create new agent
 exports.createAgent = async (req, res) => {
     try {
-        const { username, phoneNumber, password, fullName, defaultMinBet, defaultMaxBet, defaultCreditLimit, defaultSettleLimit } = req.body;
+        const { username, phoneNumber, password, fullName, defaultMinBet, defaultMaxBet, defaultCreditLimit, defaultSettleLimit, role } = req.body;
         const creatorAdmin = req.user; // From auth middleware
 
         // Validation
@@ -262,13 +262,15 @@ exports.createAgent = async (req, res) => {
             return res.status(409).json({ message: 'Username or Phone number already exists in the system' });
         }
 
-        // Create agent - strictly super_agent
+        // Create agent - allow 'agent' or 'master_agent', default to 'master_agent'
+        const agentRole = (role === 'agent' || role === 'master_agent') ? role : 'master_agent';
+
         const newAgent = new Agent({
             username: username.toUpperCase(),
             phoneNumber,
             password,
             fullName: (fullName || username).toUpperCase(),
-            role: 'super_agent',
+            role: agentRole,
             status: 'active',
             balance: 0.00,
             agentBillingRate: 0.00,
@@ -334,6 +336,7 @@ exports.updateAgent = async (req, res) => {
         if (defaultMaxBet !== undefined) agent.defaultMaxBet = defaultMaxBet;
         if (defaultCreditLimit !== undefined) agent.defaultCreditLimit = defaultCreditLimit;
         if (defaultSettleLimit !== undefined) agent.defaultSettleLimit = defaultSettleLimit;
+        if (req.body.dashboardLayout) agent.dashboardLayout = req.body.dashboardLayout;
 
         await agent.save();
 
@@ -357,6 +360,34 @@ exports.updateAgent = async (req, res) => {
     } catch (error) {
         console.error('Error updating agent:', error);
         res.status(500).json({ message: 'Server error updating agent', details: error.message });
+    }
+};
+
+// Update Agent Permissions
+exports.updateAgentPermissions = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { permissions } = req.body;
+
+        const agent = await Agent.findById(id);
+        if (!agent) {
+            return res.status(404).json({ message: 'Agent not found' });
+        }
+
+        // Deep merge permissions
+        if (permissions) {
+            agent.permissions = {
+                ...agent.permissions.toObject(),
+                ...permissions
+            };
+        }
+
+        await agent.save();
+
+        res.json({ message: 'Agent permissions updated successfully', agent });
+    } catch (error) {
+        console.error('Error updating agent permissions:', error);
+        res.status(500).json({ message: 'Server error updating permissions', details: error.message });
     }
 };
 
@@ -557,7 +588,9 @@ exports.updateUser = async (req, res) => {
         if (balanceOwed !== undefined) user.balanceOwed = balanceOwed;
         if (freeplayBalance !== undefined) user.freeplayBalance = freeplayBalance;
         if (settings !== undefined) user.settings = { ...user.settings, ...settings };
+        if (settings !== undefined) user.settings = { ...user.settings, ...settings };
         if (apps !== undefined) user.apps = { ...user.apps, ...apps };
+        if (req.body.dashboardLayout) user.dashboardLayout = req.body.dashboardLayout;
 
         let balanceBefore = null;
         if (balance !== undefined) {

@@ -106,6 +106,19 @@ export const getMe = async (token) => {
     return response.json();
 };
 
+export const updateProfile = async (profileData, token) => {
+    const response = await fetch(`${API_URL}/auth/profile`, {
+        method: 'PUT',
+        headers: getHeaders(token),
+        body: JSON.stringify(profileData)
+    });
+    if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to update profile');
+    }
+    return response.json();
+};
+
 export const getMatches = async () => {
     const response = await fetch(`${API_URL}/matches`, { headers: getHeaders() });
     if (!response.ok) throw new Error('Failed to fetch matches');
@@ -637,6 +650,22 @@ export const getAgentPerformance = async (params, token) => {
         headers: { 'Authorization': `Bearer ${token}` }
     });
     if (!response.ok) throw new Error('Failed to fetch agent performance');
+    return response.json();
+};
+
+export const updateAgentPermissions = async (agentId, permissions, token) => {
+    const response = await fetch(`${API_URL}/agent/permissions/${agentId}`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ permissions })
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || 'Failed to update permissions');
+    }
     return response.json();
 };
 

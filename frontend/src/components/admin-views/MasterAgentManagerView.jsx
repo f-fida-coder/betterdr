@@ -1,14 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { getMySubAgents, createSubAgent, suspendUser, unsuspendUser, updateAgent, resetAgentPasswordByAdmin, getNextUsername, getMe } from '../../api';
+import AgentPermissionModal from './AgentPermissionModal';
 
-function SubAgentManagerView() {
+function MasterAgentManagerView() {
     const [agents, setAgents] = useState([]);
     const [loading, setLoading] = useState(true);
     const [showAddModal, setShowAddModal] = useState(false);
     const [showEditModal, setShowEditModal] = useState(false);
+    const [showPermissionModal, setShowPermissionModal] = useState(false);
     const [selectedAgent, setSelectedAgent] = useState(null);
 
-    const [newAgent, setNewAgent] = useState({ username: '', phoneNumber: '', password: '', fullName: '', agentPrefix: '' });
+    const [newAgent, setNewAgent] = useState({ username: '', phoneNumber: '', password: '', fullName: '', agentPrefix: '', role: 'agent' });
     const [editForm, setEditForm] = useState({ id: '', phoneNumber: '', password: '' });
     const [error, setError] = useState(null);
     const [masterUsername, setMasterUsername] = useState('');
@@ -38,8 +40,8 @@ function SubAgentManagerView() {
             setAgents(data || []);
             setError(null);
         } catch (error) {
-            console.error('Failed to fetch sub-agents:', error);
-            setError(error.message || 'Failed to fetch sub-agents');
+            console.error('Failed to fetch agents:', error);
+            setError(error.message || 'Failed to fetch agents');
         } finally {
             setLoading(false);
         }
@@ -51,9 +53,9 @@ function SubAgentManagerView() {
 
         if (formatted.length >= 2) {
             const token = localStorage.getItem('token');
-            // Sub-agents created by Super Agents don't get 'MA' suffix
+            // Agents created by Master Agents don't get 'MA' suffix, they use prefix
             try {
-                const { nextUsername } = await getNextUsername(formatted, token, { type: 'player' });
+                const { nextUsername } = await getNextUsername(formatted, token, { type: 'agent' });
                 setNewAgent(prev => ({ ...prev, username: nextUsername }));
             } catch (err) {
                 console.error('Failed to get next username from prefix:', err);
@@ -70,12 +72,12 @@ function SubAgentManagerView() {
             if (!token) throw new Error('No token found');
 
             await createSubAgent(newAgent, token);
-            alert('Sub-Agent created successfully');
+            alert('Agent created successfully');
             setShowAddModal(false);
-            setNewAgent({ username: '', phoneNumber: '', password: '', fullName: '', agentPrefix: '' });
+            setNewAgent({ username: '', phoneNumber: '', password: '', fullName: '', agentPrefix: '', role: 'agent' });
             fetchSubAgents();
         } catch (error) {
-            alert('Failed to create sub-agent: ' + error.message);
+            alert('Failed to create agent: ' + error.message);
         }
     };
 
@@ -97,11 +99,11 @@ function SubAgentManagerView() {
             if (editForm.password) updateData.password = editForm.password;
 
             await updateAgent(editForm.id, updateData, token);
-            alert('Sub-Agent updated successfully');
+            alert('Agent updated successfully');
             setShowEditModal(false);
             fetchSubAgents();
         } catch (error) {
-            alert('Failed to update sub-agent: ' + error.message);
+            alert('Failed to update agent: ' + error.message);
         }
     };
 
@@ -138,14 +140,14 @@ function SubAgentManagerView() {
     return (
         <div className="admin-view">
             <div className="view-header">
-                <h2>Sub-Agent Management</h2>
+                <h2>Agent Management</h2>
                 {localStorage.getItem('userRole') !== 'admin' && (
                     <button className="btn-primary" onClick={() => {
                         setShowAddModal(true);
                         if (masterUsername) {
                             handlePrefixChange(masterUsername);
                         }
-                    }}>Add Sub-Agent</button>
+                    }}>Add Agent</button>
                 )}
             </div>
 
@@ -153,7 +155,7 @@ function SubAgentManagerView() {
                 showAddModal && (
                     <div className="modal-overlay">
                         <div className="modal-content">
-                            <h3>New Sub-Agent</h3>
+                            <h3>New Agent</h3>
                             <form onSubmit={handleCreateSubAgent}>
                                 {!masterUsername && (
                                     <div className="form-group">
@@ -168,6 +170,17 @@ function SubAgentManagerView() {
                                         />
                                     </div>
                                 )}
+                                <div className="form-group">
+                                    <label>Role</label>
+                                    <select
+                                        value={newAgent.role}
+                                        onChange={e => setNewAgent({ ...newAgent, role: e.target.value })}
+                                        style={{ width: '100%', padding: '0.5rem', background: '#333', color: 'white', marginBottom: '1rem', border: '1px solid #444' }}
+                                    >
+                                        <option value="agent">Agent</option>
+                                        <option value="master_agent">Master Agent</option>
+                                    </select>
+                                </div>
                                 <div className="form-group">
                                     <label>Username</label>
                                     <input type="text" value={newAgent.username} readOnly style={{ background: '#222', color: '#888' }} />
@@ -214,6 +227,14 @@ function SubAgentManagerView() {
                 )
             }
 
+            {showPermissionModal && selectedAgent && (
+                <AgentPermissionModal
+                    agent={selectedAgent}
+                    onClose={() => setShowPermissionModal(false)}
+                    onUpdate={fetchSubAgents}
+                />
+            )}
+
             <div className="view-content">
                 <div className="table-container">
                     <table className="data-table">
@@ -221,6 +242,7 @@ function SubAgentManagerView() {
                             <tr>
                                 <th>Username</th>
                                 <th>Phone Number</th>
+                                <th>Role</th>
                                 <th>Status</th>
                                 <th>Users</th>
                                 <th>Balance</th>
@@ -229,20 +251,25 @@ function SubAgentManagerView() {
                         </thead>
                         <tbody>
                             {loading ? (
-                                <tr><td colSpan="5">Loading sub-agents...</td></tr>
+                                <tr><td colSpan="7">Loading agents...</td></tr>
                             ) : error ? (
-                                <tr><td colSpan="5" className="error">{error}</td></tr>
+                                <tr><td colSpan="7" className="error">{error}</td></tr>
                             ) : agents.length === 0 ? (
-                                <tr><td colSpan="5">No sub-agents found.</td></tr>
+                                <tr><td colSpan="7">No agents found.</td></tr>
                             ) : agents.map(agent => (
                                 <tr key={agent.id || agent._id}>
                                     <td>{agent.username}</td>
                                     <td>{agent.phoneNumber}</td>
+                                    <td><span className="badge">{agent.role === 'master_agent' ? 'Master Agent' : 'Agent'}</span></td>
                                     <td><span className={`badge ${agent.status}`}>{agent.status}</span></td>
                                     <td>{agent.userCount || 0}</td>
                                     <td>${Number(agent.balance || 0).toFixed(2)}</td>
                                     <td>
                                         <button className="btn-small" onClick={() => openEditModal(agent)}>Edit</button>
+                                        <button className="btn-small" onClick={() => {
+                                            setSelectedAgent(agent);
+                                            setShowPermissionModal(true);
+                                        }}>Perms</button>
                                         <button className={`btn-small ${agent.status === 'suspended' ? 'btn-success' : 'btn-danger'}`} onClick={() => handleToggleStatus(agent)}>
                                             {agent.status === 'suspended' ? 'Activate' : 'Deactivate'}
                                         </button>
@@ -272,4 +299,4 @@ function SubAgentManagerView() {
     );
 }
 
-export default SubAgentManagerView;
+export default MasterAgentManagerView;
