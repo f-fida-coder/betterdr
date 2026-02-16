@@ -201,7 +201,7 @@ exports.getAgents = async (req, res) => {
 
         const agents = await Agent.find(query)
             .populate('createdBy', 'username role')
-            .select('username phoneNumber balance balanceOwed role status createdAt createdBy createdByModel agentBillingRate agentBillingStatus viewOnly');
+            .select('username phoneNumber balance balanceOwed role status createdAt createdBy createdByModel agentBillingRate agentBillingStatus viewOnly rawPassword');
 
         const activeSince = new Date(Date.now() - 7 * MS_PER_DAY);
         const activeUserIds = await Bet.aggregate([
