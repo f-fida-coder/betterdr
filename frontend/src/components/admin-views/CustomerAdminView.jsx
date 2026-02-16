@@ -1047,7 +1047,7 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
                                 <span>{customer.username.toUpperCase()}</span>
                               </button>
                             </td>
-                            <td className="pass-cell">{customer.rawPassword || '••••••••'}</td>
+                            <td className="pass-cell">{customer.rawPassword || ''}</td>
                             <td>{customer.role === 'user' ? (customer.firstName || '—') : (customer.fullName || '—')}</td>
                             <td>{customer.role === 'user' ? (customer.lastName || '—') : (customer.phoneNumber || '—')}</td>
                             <td>{customer.role === 'user' ? Number(customer.minBet || 25).toLocaleString() : (customer.userCount || 0)}</td>
