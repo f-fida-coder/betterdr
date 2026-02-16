@@ -102,34 +102,38 @@ const ensureIpAllowed = async (req, user) => {
         return { allowed: true };
     }
 
-    // 2. Check if IP is whitelisted in DB
+    // 2. Check if IP is whitelisted in DB for this user
     const existingLog = await IpLog.findOne({ ip, userId: user._id });
     if (existingLog && existingLog.status === 'whitelisted') {
         return { allowed: true };
     }
 
     if (duplicateIpBlockEnabled) {
+        // Find any OTHER user using this same IP
         const conflict = await IpLog.findOne({
             ip,
             userId: { $ne: user._id },
-            status: { $in: ['active', 'blocked'] }
+            status: { $in: ['active', 'whitelisted'] } // Changed from checking blocked - we want to find active conflicts
         });
-        if (conflict) {
-            // Also check if the conflict IP is whitelisted (whitelisted IPs shouldn't cause conflicts?)
-            // Actually, if an IP is whitelisted, we should allow it regardless of other users.
-            if (conflict.status === 'whitelisted') {
-                return { allowed: true };
-            }
 
+        if (conflict) {
+            // Block this user's IP and return security alert
             await IpLog.findOneAndUpdate(
                 { userId: user._id, ip },
-                { $set: { status: 'blocked', blockReason: 'DUPLICATE_IP' } },
+                {
+                    $set: {
+                        status: 'blocked',
+                        blockReason: 'DUPLICATE_IP',
+                        blockedAt: new Date()
+                    }
+                },
                 { upsert: true }
             );
             return { allowed: false, message: 'Security Alert: IP linked to another account.' };
         }
     }
 
+    // Check if this user's IP is blocked
     const blocked = await IpLog.findOne({ userId: user._id, ip, status: 'blocked' });
     if (blocked) return { allowed: false, message: 'Access blocked for this IP address' };
 
