@@ -888,12 +888,7 @@ function CustomerAdminView({ onViewChange }) {
                   className="btn-secondary"
                   style={{ backgroundColor: '#17a2b8', color: 'white', flex: 0.5 }}
                   onClick={() => {
-                    const pass = newCustomer.password || (() => {
-                      const last4 = (newCustomer.phoneNumber || '').replace(/\D/g, '').slice(-4);
-                      const f3 = (newCustomer.firstName || '').slice(0, 3).toUpperCase();
-                      const l3 = (newCustomer.lastName || '').slice(0, 3).toUpperCase();
-                      return `${f3}${l3}${last4}`;
-                    })();
+                    const pass = newCustomer.password || 'N/A';
 
                     let info = '';
                     if (creationType === 'player') {
@@ -1235,12 +1230,7 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
                           className="btn-secondary"
                           style={{ marginLeft: 'auto', backgroundColor: '#17a2b8', color: 'white' }}
                           onClick={() => {
-                            const pass = editForm.password || (() => {
-                              const last4 = editForm.phoneNumber.replace(/\D/g, '').slice(-4);
-                              const f3 = editForm.firstName.slice(0, 3).toUpperCase();
-                              const l3 = editForm.lastName.slice(0, 3).toUpperCase();
-                              return `${f3}${l3}${last4}`;
-                            })();
+                            const pass = selectedCustomer.rawPassword || editForm.password || 'N/A';
 
                             const info = `Here’s your account info. PLEASE READ ALL RULES THOROUGHLY.
 
