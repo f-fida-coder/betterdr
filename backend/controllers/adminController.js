@@ -280,9 +280,19 @@ exports.createAgent = async (req, res) => {
             defaultMaxBet: defaultMaxBet != null ? defaultMaxBet : 200,
             defaultCreditLimit: defaultCreditLimit != null ? defaultCreditLimit : 1000,
             defaultSettleLimit: defaultSettleLimit != null ? defaultSettleLimit : 0,
-            createdBy: creatorAdmin._id,
-            createdByModel: 'Admin'
+            defaultSettleLimit: defaultSettleLimit != null ? defaultSettleLimit : 0,
+            createdBy: (req.user.role === 'admin' && req.body.parentAgentId) ? req.body.parentAgentId : creatorAdmin._id,
+            createdByModel: (req.user.role === 'admin' && req.body.parentAgentId) ? 'Agent' : 'Admin'
         });
+
+        // Verify parent if provided
+        if (req.user.role === 'admin' && req.body.parentAgentId) {
+            const parent = await Agent.findOne({ _id: req.body.parentAgentId, role: 'master_agent' });
+            if (!parent) {
+                return res.status(400).json({ message: 'Invalid Parent Master Agent ID' });
+            }
+        }
+
 
         await newAgent.save();
 

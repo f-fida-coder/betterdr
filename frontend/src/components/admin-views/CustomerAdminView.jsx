@@ -25,7 +25,8 @@ function CustomerAdminView({ onViewChange }) {
     defaultMaxBet: '200',
     defaultCreditLimit: '1000',
     defaultSettleLimit: '0',
-    agentPrefix: ''
+    agentPrefix: '',
+    parentAgentId: ''
   });
   const [creationType, setCreationType] = useState('player'); // player, agent, super_agent
   const [currentRole, setCurrentRole] = useState('admin');
@@ -61,6 +62,9 @@ function CustomerAdminView({ onViewChange }) {
     nextBalance: ''
   });
 
+  const [assignmentSource, setAssignmentSource] = useState('admin'); // 'admin' or 'agent' (or 'master' for agent creation)
+  const [listFilterOrigin, setListFilterOrigin] = useState('all'); // 'all', 'admin', 'upline'
+  const [listFilterUplineId, setListFilterUplineId] = useState('');
   const [adminUsername, setAdminUsername] = useState('');
 
   useEffect(() => {
@@ -164,7 +168,8 @@ function CustomerAdminView({ onViewChange }) {
         defaultMaxBet: '200',
         defaultCreditLimit: '1000',
         defaultSettleLimit: '0',
-        agentPrefix: ''
+        agentPrefix: '',
+        parentAgentId: ''
       };
 
       // Reset form state first
@@ -282,6 +287,11 @@ function CustomerAdminView({ onViewChange }) {
     if (!token) return;
 
     if (type === 'super_agent' || type === 'agent') {
+      // If admin is creating an agent, force assignmentSource to 'agent' (super agent)
+      if (type === 'agent' && currentRole === 'admin') {
+        setAssignmentSource('agent');
+      }
+
       const suffix = type === 'super_agent' ? 'MA' : '';
       const prefixToUse = (currentRole === 'super_agent' && type === 'agent') ? adminUsername : newCustomer.agentPrefix;
       // ONLY Admin-created top-level Agents/MA start at 247. Sub-agents (created by MA) start at 101.
@@ -299,7 +309,8 @@ function CustomerAdminView({ onViewChange }) {
       }
     } else {
       // Player
-      handleAgentChange(newCustomer.agentId);
+      setAssignmentSource('admin');
+      handleAgentChange(''); // Reset to direct
     }
   };
 
@@ -534,20 +545,42 @@ function CustomerAdminView({ onViewChange }) {
   };
 
   const filteredCustomers = (() => {
+    let result = [];
     if (sourceFilter === 'player') {
-      return customers.filter(c => {
-        if (currentRole === 'agent') return true;
-        // In direct/admin mode, we show all players but allow sub-filtering by agent if needed
-        return true;
-      });
+      result = customers;
+      // Filter by Origin
+      if (listFilterOrigin === 'admin') {
+        result = result.filter(c => !c.agentId); // Direct from Admin
+      } else if (listFilterOrigin === 'upline') {
+        result = result.filter(c => c.agentId); // Created by Agent
+        if (listFilterUplineId) {
+          result = result.filter(c => c.agentId === listFilterUplineId);
+        }
+      }
+    } else if (sourceFilter === 'agent') {
+      result = agents.filter(a => a.role === 'agent');
+      // Filter by Origin
+      if (listFilterOrigin === 'admin') {
+        result = result.filter(a => a.createdByModel === 'Admin');
+      } else if (listFilterOrigin === 'upline') {
+        result = result.filter(a => a.createdByModel === 'Agent'); // Created by Master Agent
+        if (listFilterUplineId) {
+          result = result.filter(a => a.createdBy === listFilterUplineId);
+        }
+      }
+    } else if (sourceFilter === 'master') {
+      result = agents.filter(a => a.role === 'super_agent');
+      // Filter by Origin
+      if (listFilterOrigin === 'admin') {
+        result = result.filter(a => a.createdByModel === 'Admin');
+      } else if (listFilterOrigin === 'upline') {
+        result = result.filter(a => a.createdByModel === 'Agent'); // Created by Master Agent (if hierarchy allows MA to create MA)
+        if (listFilterUplineId) {
+          result = result.filter(a => a.createdBy === listFilterUplineId);
+        }
+      }
     }
-    if (sourceFilter === 'agent') {
-      return agents.filter(a => a.role === 'agent');
-    }
-    if (sourceFilter === 'master') {
-      return agents.filter(a => a.role === 'super_agent');
-    }
-    return customers;
+    return result;
   })();
 
   const handleViewDetails = (customer) => {
@@ -599,6 +632,109 @@ function CustomerAdminView({ onViewChange }) {
                   </select>
                 </div>
               </div>
+
+              {/* Player Creation - Source Selection */}
+              {creationType === 'player' && currentRole !== 'agent' && (
+                <div className="filter-group">
+                  <label>Created By</label>
+                  <div style={{ display: 'flex', gap: '15px', marginBottom: '10px' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer', color: assignmentSource === 'admin' ? '#fff' : '#888' }}>
+                      <input
+                        type="radio"
+                        name="source"
+                        checked={assignmentSource === 'admin'}
+                        onChange={() => {
+                          setAssignmentSource('admin');
+                          handleAgentChange(''); // Set to direct
+                        }}
+                      /> Admin
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer', color: assignmentSource === 'agent' ? '#fff' : '#888' }}>
+                      <input
+                        type="radio"
+                        name="source"
+                        checked={assignmentSource === 'agent'}
+                        onChange={() => {
+                          setAssignmentSource('agent');
+                          // If agents list has items, default to first? No, let user pick.
+                        }}
+                      /> Agent
+                    </label>
+                  </div>
+
+                  {assignmentSource === 'admin' ? (
+                    <div className="s-wrapper">
+                      <input type="text" value={`Admin: ${adminUsername}`} readOnly className="readonly-input" />
+                    </div>
+                  ) : (
+                    <div className="s-wrapper">
+                      <select
+                        value={newCustomer.agentId}
+                        onChange={(e) => handleAgentChange(e.target.value)}
+                      >
+                        <option value="">Select Agent...</option>
+                        {agents.map(agent => (
+                          <option key={agent.id || agent._id} value={agent.id || agent._id}>
+                            {agent.username}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Agent/Master Agent Creation - Source Selection */}
+              {(creationType === 'agent' || creationType === 'super_agent') && currentRole === 'admin' && (
+                <div className="filter-group">
+                  <label>Created By</label>
+                  <div style={{ display: 'flex', gap: '15px', marginBottom: '10px' }}>
+                    {creationType === 'super_agent' && (
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer', color: assignmentSource === 'admin' ? '#fff' : '#888' }}>
+                        <input
+                          type="radio"
+                          name="ma_source"
+                          checked={assignmentSource === 'admin'}
+                          onChange={() => {
+                            setAssignmentSource('admin');
+                            setNewCustomer(prev => ({ ...prev, parentAgentId: '' }));
+                          }}
+                        /> Admin
+                      </label>
+                    )}
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer', color: assignmentSource === 'agent' ? '#fff' : '#888' }}>
+                      <input
+                        type="radio"
+                        name="ma_source"
+                        checked={assignmentSource === 'agent'}
+                        onChange={() => {
+                          setAssignmentSource('agent');
+                        }}
+                      /> Master Agent
+                    </label>
+                  </div>
+
+                  {assignmentSource === 'admin' ? (
+                    <div className="s-wrapper">
+                      <input type="text" value={`Admin: ${adminUsername}`} readOnly className="readonly-input" />
+                    </div>
+                  ) : (
+                    <div className="s-wrapper">
+                      <select
+                        value={newCustomer.parentAgentId}
+                        onChange={(e) => setNewCustomer(prev => ({ ...prev, parentAgentId: e.target.value }))}
+                      >
+                        <option value="">Select Master Agent...</option>
+                        {agents.filter(a => a.role === 'master_agent').map(ma => (
+                          <option key={ma.id || ma._id} value={ma.id || ma._id}>
+                            {ma.username} (Master Agent)
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+              )}
               {(creationType === 'agent' || creationType === 'super_agent') && (currentRole !== 'super_agent' || creationType === 'super_agent') && (
                 <div className="filter-group">
                   <label>Prefix</label>
@@ -611,24 +747,7 @@ function CustomerAdminView({ onViewChange }) {
                   />
                 </div>
               )}
-              {creationType === 'player' && currentRole !== 'agent' && (
-                <div className="filter-group">
-                  <label>Agent Assignment</label>
-                  <div className="s-wrapper">
-                    <select
-                      value={newCustomer.agentId}
-                      onChange={(e) => handleAgentChange(e.target.value)}
-                    >
-                      <option value="">Direct / Unassigned</option>
-                      {agents.map(agent => (
-                        <option key={agent.id || agent._id} value={agent.id || agent._id}>
-                          {agent.username}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-              )}
+
               <div className="filter-group">
                 <label>Username</label>
                 <input
@@ -829,21 +948,70 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
 
             <div className="table-container">
               {currentRole !== 'agent' && (
-                <div className="table-actions">
-                  <div className="filter-tab-group">
-                    {[
-                      { id: 'player', label: 'Player' },
-                      { id: 'agent', label: 'Agent' },
-                      { id: 'master', label: 'Master' }
-                    ].map(f => (
+                <div className="table-actions" style={{ flexDirection: 'column', gap: '15px' }}>
+                  {/* List Filters */}
+                  <div style={{ display: 'flex', gap: '20px', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <div className="filter-tab-group">
                       <button
-                        key={f.id}
-                        className={`tab ${sourceFilter === f.id ? 'active' : ''}`}
-                        onClick={() => setSourceFilter(f.id)}
+                        className={`tab ${listFilterOrigin === 'all' ? 'active' : ''}`}
+                        onClick={() => { setListFilterOrigin('all'); setListFilterUplineId(''); }}
                       >
-                        {f.label}
+                        All Sources
                       </button>
-                    ))}
+                      <button
+                        className={`tab ${listFilterOrigin === 'admin' ? 'active' : ''}`}
+                        onClick={() => { setListFilterOrigin('admin'); setListFilterUplineId(''); }}
+                      >
+                        By Admin
+                      </button>
+                      <button
+                        className={`tab ${listFilterOrigin === 'upline' ? 'active' : ''}`}
+                        onClick={() => { setListFilterOrigin('upline'); setListFilterUplineId(''); }}
+                      >
+                        {sourceFilter === 'player' ? 'By Agent' : 'By Master Agent'}
+                      </button>
+                    </div>
+
+                    {/* Specific Upline Dropdown */}
+                    {listFilterOrigin === 'upline' && (
+                      <div className="s-wrapper" style={{ minWidth: '200px' }}>
+                        <select
+                          value={listFilterUplineId}
+                          onChange={(e) => setListFilterUplineId(e.target.value)}
+                          style={{ padding: '8px', borderRadius: '8px', background: '#0f172a', color: 'white', border: '1px solid #334155' }}
+                        >
+                          <option value="">
+                            All {sourceFilter === 'player' ? 'Agents' : 'Master Agents'}
+                          </option>
+                          {sourceFilter === 'player'
+                            ? agents.filter(a => a.role === 'agent' || a.role === 'master_agent').map(a => (
+                              <option key={a.id || a._id} value={a.id || a._id}>{a.username}</option>
+                            ))
+                            : agents.filter(a => a.role === 'master_agent').map(ma => (
+                              <option key={ma.id || ma._id} value={ma.id || ma._id}>{ma.username}</option>
+                            ))
+                          }
+                        </select>
+                      </div>
+                    )}
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+                    <div className="filter-tab-group">
+                      {[
+                        { id: 'player', label: 'Player' },
+                        { id: 'agent', label: 'Agent' },
+                        { id: 'master', label: 'Master' }
+                      ].map(f => (
+                        <button
+                          key={f.id}
+                          className={`tab ${sourceFilter === f.id ? 'active' : ''}`}
+                          onClick={() => setSourceFilter(f.id)}
+                        >
+                          {f.label}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
               )}
@@ -934,149 +1102,147 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
                 </table>
               </div>
             </div>
-          </>
-        )}
-      </div>
 
-      {/* EDIT MODAL */}
-      {
-        showEditModal && (
-          <div className="modal-overlay">
-            <div className="modal-content">
-              <h3>Edit {selectedCustomer?.role === 'user' ? 'Player' : selectedCustomer?.role === 'agent' ? 'Agent' : 'Master Agent'}: {selectedCustomer?.username}</h3>
-              <form onSubmit={handleUpdateCustomer}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                  <div className="form-group">
-                    <label>First Name</label>
-                    <input
-                      type="text"
-                      value={editForm.firstName}
-                      onChange={e => setEditForm({ ...editForm, firstName: e.target.value })}
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>Last Name</label>
-                    <input
-                      type="text"
-                      value={editForm.lastName}
-                      onChange={e => setEditForm({ ...editForm, lastName: e.target.value })}
-                    />
-                  </div>
-                </div>
-                <div className="form-group">
-                  <label>Phone Number</label>
-                  <input
-                    type="tel"
-                    value={editForm.phoneNumber}
-                    onChange={e => setEditForm({ ...editForm, phoneNumber: e.target.value })}
-                    required
-                  />
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                  <div className="form-group">
-                    <label>Min bet:</label>
-                    <input
-                      type="number"
-                      value={editForm.minBet}
-                      onChange={e => setEditForm({ ...editForm, minBet: e.target.value })}
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>Max bet:</label>
-                    <input
-                      type="number"
-                      value={editForm.maxBet}
-                      onChange={e => setEditForm({ ...editForm, maxBet: e.target.value })}
-                    />
-                  </div>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                  <div className="form-group">
-                    <label>Credit limit:</label>
-                    <input
-                      type="number"
-                      value={editForm.creditLimit}
-                      onChange={e => setEditForm({ ...editForm, creditLimit: e.target.value })}
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>Settle Limit:</label>
-                    <input
-                      type="number"
-                      value={editForm.balanceOwed}
-                      onChange={e => setEditForm({ ...editForm, balanceOwed: e.target.value })}
-                    />
-                  </div>
-                </div>
-                <div className="form-group">
-                  <label>New Password (leave blank to keep)</label>
-                  <input
-                    type="password"
-                    value={editForm.password}
-                    onChange={e => setEditForm({ ...editForm, password: e.target.value })}
-                  />
-                </div>
 
-                <div className="payment-apps-section">
-                  <h4 className="section-title" style={{ color: '#0d3b5c', marginBottom: '15px' }}>Payment Apps</h4>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                    <div className="form-group">
-                      <label>Venmo</label>
-                      <input
-                        type="text"
-                        value={editForm.apps.venmo}
-                        onChange={e => setEditForm({ ...editForm, apps: { ...editForm.apps, venmo: e.target.value } })}
-                        placeholder="@username"
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label>Cashapp</label>
-                      <input
-                        type="text"
-                        value={editForm.apps.cashapp}
-                        onChange={e => setEditForm({ ...editForm, apps: { ...editForm.apps, cashapp: e.target.value } })}
-                        placeholder="$cashtag"
-                      />
-                    </div>
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                    <div className="form-group">
-                      <label>Apple Pay</label>
-                      <input
-                        type="text"
-                        value={editForm.apps.applePay}
-                        onChange={e => setEditForm({ ...editForm, apps: { ...editForm.apps, applePay: e.target.value } })}
-                        placeholder="Phone/Email"
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label>Zelle</label>
-                      <input
-                        type="text"
-                        value={editForm.apps.zelle}
-                        onChange={e => setEditForm({ ...editForm, apps: { ...editForm.apps, zelle: e.target.value } })}
-                        placeholder="Phone/Email"
-                      />
-                    </div>
-                  </div>
-                </div>
+            {/* EDIT MODAL */}
+            {
+              showEditModal && (
+                <div className="modal-overlay">
+                  <div className="modal-content">
+                    <h3>Edit {selectedCustomer?.role === 'user' ? 'Player' : selectedCustomer?.role === 'agent' ? 'Agent' : 'Master Agent'}: {selectedCustomer?.username}</h3>
+                    <form onSubmit={handleUpdateCustomer}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                        <div className="form-group">
+                          <label>First Name</label>
+                          <input
+                            type="text"
+                            value={editForm.firstName}
+                            onChange={e => setEditForm({ ...editForm, firstName: e.target.value })}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label>Last Name</label>
+                          <input
+                            type="text"
+                            value={editForm.lastName}
+                            onChange={e => setEditForm({ ...editForm, lastName: e.target.value })}
+                          />
+                        </div>
+                      </div>
+                      <div className="form-group">
+                        <label>Phone Number</label>
+                        <input
+                          type="tel"
+                          value={editForm.phoneNumber}
+                          onChange={e => setEditForm({ ...editForm, phoneNumber: e.target.value })}
+                          required
+                        />
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                        <div className="form-group">
+                          <label>Min bet:</label>
+                          <input
+                            type="number"
+                            value={editForm.minBet}
+                            onChange={e => setEditForm({ ...editForm, minBet: e.target.value })}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label>Max bet:</label>
+                          <input
+                            type="number"
+                            value={editForm.maxBet}
+                            onChange={e => setEditForm({ ...editForm, maxBet: e.target.value })}
+                          />
+                        </div>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                        <div className="form-group">
+                          <label>Credit limit:</label>
+                          <input
+                            type="number"
+                            value={editForm.creditLimit}
+                            onChange={e => setEditForm({ ...editForm, creditLimit: e.target.value })}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label>Settle Limit:</label>
+                          <input
+                            type="number"
+                            value={editForm.balanceOwed}
+                            onChange={e => setEditForm({ ...editForm, balanceOwed: e.target.value })}
+                          />
+                        </div>
+                      </div>
+                      <div className="form-group">
+                        <label>New Password (leave blank to keep)</label>
+                        <input
+                          type="password"
+                          value={editForm.password}
+                          onChange={e => setEditForm({ ...editForm, password: e.target.value })}
+                        />
+                      </div>
 
-                <div className="form-actions">
-                  <button type="submit" className="btn-primary">Save Changes</button>
-                  <button type="button" className="btn-secondary" onClick={() => setShowEditModal(false)}>Cancel</button>
-                  <button
-                    type="button"
-                    className="btn-secondary"
-                    style={{ marginLeft: 'auto', backgroundColor: '#17a2b8', color: 'white' }}
-                    onClick={() => {
-                      const pass = editForm.password || (() => {
-                        const last4 = editForm.phoneNumber.replace(/\D/g, '').slice(-4);
-                        const f3 = editForm.firstName.slice(0, 3).toUpperCase();
-                        const l3 = editForm.lastName.slice(0, 3).toUpperCase();
-                        return `${f3}${l3}${last4}`;
-                      })();
+                      <div className="payment-apps-section">
+                        <h4 className="section-title" style={{ color: '#0d3b5c', marginBottom: '15px' }}>Payment Apps</h4>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                          <div className="form-group">
+                            <label>Venmo</label>
+                            <input
+                              type="text"
+                              value={editForm.apps.venmo}
+                              onChange={e => setEditForm({ ...editForm, apps: { ...editForm.apps, venmo: e.target.value } })}
+                              placeholder="@username"
+                            />
+                          </div>
+                          <div className="form-group">
+                            <label>Cashapp</label>
+                            <input
+                              type="text"
+                              value={editForm.apps.cashapp}
+                              onChange={e => setEditForm({ ...editForm, apps: { ...editForm.apps, cashapp: e.target.value } })}
+                              placeholder="$cashtag"
+                            />
+                          </div>
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                          <div className="form-group">
+                            <label>Apple Pay</label>
+                            <input
+                              type="text"
+                              value={editForm.apps.applePay}
+                              onChange={e => setEditForm({ ...editForm, apps: { ...editForm.apps, applePay: e.target.value } })}
+                              placeholder="Phone/Email"
+                            />
+                          </div>
+                          <div className="form-group">
+                            <label>Zelle</label>
+                            <input
+                              type="text"
+                              value={editForm.apps.zelle}
+                              onChange={e => setEditForm({ ...editForm, apps: { ...editForm.apps, zelle: e.target.value } })}
+                              placeholder="Phone/Email"
+                            />
+                          </div>
+                        </div>
+                      </div>
 
-                      const info = `Here’s your account info. PLEASE READ ALL RULES THOROUGHLY.
+                      <div className="form-actions">
+                        <button type="submit" className="btn-primary">Save Changes</button>
+                        <button type="button" className="btn-secondary" onClick={() => setShowEditModal(false)}>Cancel</button>
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          style={{ marginLeft: 'auto', backgroundColor: '#17a2b8', color: 'white' }}
+                          onClick={() => {
+                            const pass = editForm.password || (() => {
+                              const last4 = editForm.phoneNumber.replace(/\D/g, '').slice(-4);
+                              const f3 = editForm.firstName.slice(0, 3).toUpperCase();
+                              const l3 = editForm.lastName.slice(0, 3).toUpperCase();
+                              return `${f3}${l3}${last4}`;
+                            })();
+
+                            const info = `Here’s your account info. PLEASE READ ALL RULES THOROUGHLY.
 
 Login: ${editForm.username || selectedCustomer.username}
 Password: ${pass}
@@ -1103,62 +1269,62 @@ I start all NEW players off with $200 in freeplay. In order to collect your winn
 
 I need active players so if you could do me a solid and place a bet today even if it’s with freeplay. Good luck! Lmk that you’ve read all the rules and or if you have any questions and need me to adjust anything!
 `;
-                      navigator.clipboard.writeText(info).then(() => alert('Copied to clipboard!'));
-                    }}
-                  >
-                    Copy Info
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )
-      }
-
-      {/* BALANCE MODAL */}
-      {/* BALANCE MODAL */}
-      {
-        showBalanceModal && (
-          <div className="modal-overlay">
-            <div className="modal-glass-content">
-              <h3>Adjust Balance: {balanceForm.username}</h3>
-              <form onSubmit={handleConfirmBalanceUpdate}>
-                <div className="premium-field-info">
-                  <label>Current Net Balance</label>
-                  <div className={`large-val ${balanceForm.currentBalance < 0 ? 'neg' : 'pos'}`}>
-                    {formatBalance(balanceForm.currentBalance)}
+                            navigator.clipboard.writeText(info).then(() => alert('Copied to clipboard!'));
+                          }}
+                        >
+                          Copy Info
+                        </button>
+                      </div>
+                    </form>
                   </div>
                 </div>
+              )
+            }
 
-                <div className="p-field">
-                  <label>New Net Balance</label>
-                  <div className="input-with-symbol">
-                    <span className="sym">$</span>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={balanceForm.nextBalance}
-                      onChange={e => setBalanceForm({ ...balanceForm, nextBalance: e.target.value })}
-                      autoFocus
-                      required
-                    />
+            {/* BALANCE MODAL */}
+            {/* BALANCE MODAL */}
+            {
+              showBalanceModal && (
+                <div className="modal-overlay">
+                  <div className="modal-glass-content">
+                    <h3>Adjust Balance: {balanceForm.username}</h3>
+                    <form onSubmit={handleConfirmBalanceUpdate}>
+                      <div className="premium-field-info">
+                        <label>Current Net Balance</label>
+                        <div className={`large-val ${balanceForm.currentBalance < 0 ? 'neg' : 'pos'}`}>
+                          {formatBalance(balanceForm.currentBalance)}
+                        </div>
+                      </div>
+
+                      <div className="p-field">
+                        <label>New Net Balance</label>
+                        <div className="input-with-symbol">
+                          <span className="sym">$</span>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={balanceForm.nextBalance}
+                            onChange={e => setBalanceForm({ ...balanceForm, nextBalance: e.target.value })}
+                            autoFocus
+                            required
+                          />
+                        </div>
+                        <small className="field-hint">Setting a new net balance will adjust the credit/owed amount accordingly.</small>
+                      </div>
+
+                      <div className="modal-premium-actions">
+                        <button type="submit" className="btn-save-premium" disabled={actionLoadingId !== null}>
+                          {actionLoadingId !== null ? 'Updating...' : 'Confirm Adjustment'}
+                        </button>
+                        <button type="button" className="btn-cancel-premium" onClick={() => setShowBalanceModal(false)}>Cancel</button>
+                      </div>
+                    </form>
                   </div>
-                  <small className="field-hint">Setting a new net balance will adjust the credit/owed amount accordingly.</small>
                 </div>
+              )
+            }
 
-                <div className="modal-premium-actions">
-                  <button type="submit" className="btn-save-premium" disabled={actionLoadingId !== null}>
-                    {actionLoadingId !== null ? 'Updating...' : 'Confirm Adjustment'}
-                  </button>
-                  <button type="button" className="btn-cancel-premium" onClick={() => setShowBalanceModal(false)}>Cancel</button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )
-      }
-
-      <style>{`
+            <style>{`
         .premium-admin-theme { 
           background: #0f172a; 
           min-height: 100vh; color: #f8fafc; 
@@ -1306,7 +1472,10 @@ I need active players so if you could do me a solid and place a bet today even i
         .cap-dot { width: 6px; height: 6px; border-radius: 50%; background: #10b981; }
 
       `}</style>
-    </div >
+          </>
+        )}
+      </div>
+    </div>
   );
 }
 
