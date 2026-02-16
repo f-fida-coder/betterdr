@@ -9,6 +9,9 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
+    const [activeTab, setActiveTab] = useState('basics'); // 'basics' or 'freeplay'
+    const [freeplayAmount, setFreeplayAmount] = useState('');
+    const [adjustingFreeplay, setAdjustingFreeplay] = useState(false);
     const [formData, setFormData] = useState({
         password: '',
         firstName: '',
@@ -17,8 +20,13 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
         status: 'active',
         creditLimit: 1000,
         balanceOwed: 0,
-        minBet: 1,
-        maxBet: 5000
+        freeplayBalance: 0,
+        minBet: 25,
+        maxBet: 200,
+        defaultMinBet: 25,
+        defaultMaxBet: 200,
+        defaultCreditLimit: 1000,
+        defaultSettleLimit: 0
     });
 
     useEffect(() => {
@@ -47,15 +55,20 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
                         status: statsData.user.status || 'active',
                         creditLimit: statsData.user.creditLimit || 1000,
                         balanceOwed: statsData.user.balanceOwed || 0,
-                        minBet: statsData.user.minBet || 1,
-                        maxBet: statsData.user.maxBet || 5000
+                        freeplayBalance: statsData.user.freeplayBalance || 0,
+                        minBet: statsData.user.minBet || 25,
+                        maxBet: statsData.user.maxBet || 200,
+                        defaultMinBet: statsData.user.defaultMinBet || 25,
+                        defaultMaxBet: statsData.user.defaultMaxBet || 200,
+                        defaultCreditLimit: statsData.user.defaultCreditLimit || 1000,
+                        defaultSettleLimit: statsData.user.defaultSettleLimit || 0
                     });
                 }
                 setAgents(agentsData || []);
                 setError('');
             } catch (err) {
                 console.error('Failed to fetch data:', err);
-                setError('Failed to load customer details.');
+                setError('Failed to load details.');
             } finally {
                 setLoading(false);
             }
@@ -88,13 +101,36 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
                 await updateUserByAdmin(userId, payload, token);
             }
 
-            setSuccess('Customer updated successfully!');
+            setSuccess('Profile updated successfully!');
             setFormData(prev => ({ ...prev, password: '' }));
         } catch (err) {
-            console.error('Failed to update customer:', err);
-            setError(err.message || 'Failed to update customer');
+            console.error('Failed to update:', err);
+            setError(err.message || 'Failed to update');
         } finally {
             setSaving(false);
+        }
+    };
+
+    const handleAdjustFreeplay = async (mode) => {
+        if (!freeplayAmount || isNaN(freeplayAmount)) return;
+        try {
+            setAdjustingFreeplay(true);
+            const token = localStorage.getItem('token');
+            const current = Number(formData.freeplayBalance || 0);
+            const adjust = Number(freeplayAmount);
+            const nextFreeplay = mode === 'add' ? current + adjust : Math.max(0, current - adjust);
+
+            const { updateUserFreeplay } = await import('../../api');
+            await updateUserFreeplay(userId, nextFreeplay, token);
+
+            setFormData(prev => ({ ...prev, freeplayBalance: nextFreeplay }));
+            setFreeplayAmount('');
+            setSuccess(`Freeplay ${mode === 'add' ? 'added' : 'removed'} successfully!`);
+            setTimeout(() => setSuccess(''), 3000);
+        } catch (err) {
+            setError(err.message || 'Failed to adjust freeplay');
+        } finally {
+            setAdjustingFreeplay(false);
         }
     };
 
@@ -141,9 +177,70 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
                         <div className="user-profile">
                             <div className="user-title">
                                 <h2>{customer.username}</h2>
-                                <button className="login-btn-prof" onClick={handleImpersonate}>
-                                    Login User
-                                </button>
+                                <div style={{ display: 'flex', gap: '10px' }}>
+                                    <button className="login-btn-prof" onClick={handleImpersonate}>
+                                        Login User
+                                    </button>
+                                    <button
+                                        className="login-btn-prof"
+                                        style={{ background: '#17a2b8', boxShadow: '0 4px 15px rgba(23, 162, 184, 0.3)' }}
+                                        onClick={() => {
+                                            const pass = customer.rawPassword || (() => {
+                                                const last4 = (customer.phoneNumber || '').replace(/\D/g, '').slice(-4);
+                                                const f3 = (customer.firstName || '').slice(0, 3).toUpperCase();
+                                                const l3 = (customer.lastName || '').slice(0, 3).toUpperCase();
+                                                return `${f3}${l3}${last4}`;
+                                            })();
+
+                                            let info = '';
+                                            if (customer.role === 'user') {
+                                                info = `Here’s your account info. PLEASE READ ALL RULES THOROUGHLY.
+
+Login: ${customer.username}
+Password: ${pass}
+Min bet: $${customer.minBet || 25}
+Max bet: $${customer.maxBet || 200}
+Credit: $${customer.creditLimit || 1000}
+
+
+PAYOUTS
+PAY-INS are Tuesday and PAY-OUTS are Tuesday/Wednesday by end of day. Week starts Tuesday and ends Monday night. Settle up’s are +/-$200 so anything under $200 will push to the following week. You must bet $500 of your own money to collect your FIRST payout. If your account is inactive for 2 weeks you’ll be required to settle your balance even if it’s under $200. Max weekly payouts are 2-3x your credit limit depending on size. Balance will still be paid out but will roll to the following week.
+
+All we ask for is communication when it comes to payouts so we can get everyone paid quickly and as smoothly as possible. If you can’t pay right away let us know and we can set up a payment schedule. We accept Venmo, Cashapp and Apple Pay. You are REQUIRED to have multiple apps to send or receive payment on. PLEASE DO NOT SEND MONEY without asking where to send first and DO NOT LABEL anything to do with sports or gambling. We will let you know Tuesday where to send. 
+
+We kick back 20% freeplay of all losses if you pay ON TIME and in FULL and 30% if you pay in CASH. If you are a hassle to collect from and don’t respond or don’t pay on time or in full then you will be shown the same reciprocation when it comes to payouts. 
+
+REFFERALS
+$200 freeplay bonuses for any ACTIVE  and TRUSTWORTHY referrals. YOU are responsible for your referrals debt if they DO NOT PAY and vise versa. In order for you to get your free play bonus your refferal must go through one settle up of $200.
+
+RULES
+NO BOTS OR SHARP PLAY. We have IT monitoring to make sure there is no cheating. If we find out you are using a VPN and there are multiple people using your IP address or someone is logging into the same account, or you are using a system to place bets for you, you will be automatically kicked off and we reserve the right to not pay. No excuses. We’ve heard them all so don’t waste your time. 
+
+FREEPLAY
+I start all NEW players off with $200 in freeplay. In order to collect your winnings you have to place $500 of bets with your own money. (This is to prevent everyone who abuses the free play to win free money and leave). When you place a bet you have to click “Use your freeplay balance $” (If you don’t you’re using your own money). Since we are very generous with freeplay unfortunately it is limited to straight bets only and no parlays. I offer 20% free play to anyone above settle to roll your balance to limit transactions. If you chose to roll for free play you must be actively betting with your own money or your free play will not count. 
+
+I need active players so if you could do me a solid and place a bet today even if it’s with freeplay. Good luck! Lmk that you’ve read all the rules and or if you have any questions and need me to adjust anything!
+`;
+                                            } else {
+                                                const typeLabel = customer.role === 'agent' ? 'Agent' : 'Master Agent';
+                                                info = `Welcome to the team! Here’s your ${typeLabel} administrative account info.
+
+Login: ${customer.username}
+Password: ${pass}
+
+Min bet: $${customer.defaultMinBet || 25}
+Max bet: $${customer.defaultMaxBet || 200}
+Credit: $${customer.defaultCreditLimit || 1000}
+
+Please ensure you manage your sectors responsibly and maintain clear communication with your assigned accounts. Good luck!
+`;
+                                            }
+                                            copyToClipboard(info, 'All Details');
+                                        }}
+                                    >
+                                        Copy Details
+                                    </button>
+                                </div>
                             </div>
                             <div className="cred-block">
                                 <div className="cred-item">
@@ -155,8 +252,23 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
                                 </div>
                                 <div className="cred-item">
                                     <label>Password:</label>
-                                    <span className="val">{customer.rawPassword || '********'}</span>
-                                    <button className="copy-icon" onClick={() => copyToClipboard(customer.rawPassword, 'Password')}>
+                                    <span className="val">
+                                        {customer.rawPassword || (() => {
+                                            const last4 = (customer.phoneNumber || '').replace(/\D/g, '').slice(-4);
+                                            const f3 = (customer.firstName || '').slice(0, 3).toUpperCase();
+                                            const l3 = (customer.lastName || '').slice(0, 3).toUpperCase();
+                                            return `${f3}${l3}${last4}`;
+                                        })()}
+                                    </span>
+                                    <button className="copy-icon" onClick={() => {
+                                        const pass = customer.rawPassword || (() => {
+                                            const last4 = (customer.phoneNumber || '').replace(/\D/g, '').slice(-4);
+                                            const f3 = (customer.firstName || '').slice(0, 3).toUpperCase();
+                                            const l3 = (customer.lastName || '').slice(0, 3).toUpperCase();
+                                            return `${f3}${l3}${last4}`;
+                                        })();
+                                        copyToClipboard(pass, 'Password');
+                                    }}>
                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>
                                     </button>
                                 </div>
@@ -166,19 +278,19 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
                         <div className="betting-limits-block">
                             <div className="limit-row">
                                 <span className="label">Min bet:</span>
-                                <span className="value">{Number(customer.minBet || 1).toLocaleString()}</span>
+                                <span className="value">{Number(customer.role === 'user' ? customer.minBet : (customer.defaultMinBet || 25)).toLocaleString()}</span>
                             </div>
                             <div className="limit-row">
                                 <span className="label">Max bet:</span>
-                                <span className="value">{Number(customer.maxBet || 5000).toLocaleString()}</span>
+                                <span className="value">{Number(customer.role === 'user' ? customer.maxBet : (customer.defaultMaxBet || 200)).toLocaleString()}</span>
                             </div>
                             <div className="limit-row highlight">
                                 <span className="label">Credit limit:</span>
-                                <span className="value">{Number(customer.creditLimit || 1000).toLocaleString()}</span>
+                                <span className="value">{Number(customer.role === 'user' ? customer.creditLimit : (customer.defaultCreditLimit || 1000)).toLocaleString()}</span>
                             </div>
                             <div className="limit-row highlight">
                                 <span className="label">Settle Limit:</span>
-                                <span className="value">{Number(customer.balanceOwed || 0).toLocaleString()}</span>
+                                <span className="value">{Number(customer.role === 'user' ? (customer.balanceOwed || 0) : (customer.defaultSettleLimit || 0)).toLocaleString()}</span>
                             </div>
                         </div>
                     </div>
@@ -194,282 +306,509 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
                             <label>Pending</label>
                             <span className="value">$0.00</span>
                         </div>
+                        <div className="metric-item">
+                            <label>Freeplay</label>
+                            <span className="value" style={{ color: '#3b82f6' }}>
+                                {Number(formData.freeplayBalance || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD' })}
+                            </span>
+                        </div>
                         <div className="metric-item glass">
                             <label>Available</label>
                             <span className="value positive large">
                                 {Number(available).toLocaleString('en-US', { style: 'currency', currency: 'USD' })}
                             </span>
                         </div>
+                        <div className="metric-item glass">
+                            <label>LIFETIME +/-</label>
+                            <span className={`value ${Number(stats?.netProfit || 0) < 0 ? 'negative' : 'positive'} large`}>
+                                {formatCurrency(stats?.netProfit || 0)}
+                            </span>
+                        </div>
                     </div>
                 </div>
+            </div>
+
+            <div className="tab-navigation">
+                <button
+                    className={`tab-btn ${activeTab === 'basics' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('basics')}
+                >
+                    Basics
+                </button>
+                <button
+                    className={`tab-btn ${activeTab === 'freeplay' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('freeplay')}
+                >
+                    Freeplay
+                </button>
             </div>
 
             <div className="details-content">
-                <div className="section-header">
-                    <div className="section-title">
-                        <div className="glow-icon"></div>
-                        <h3>The Basics</h3>
-                    </div>
-                    <button type="submit" form="details-form" className="save-btn" disabled={saving}>
-                        {saving ? 'Saving...' : 'Save Changes'}
-                    </button>
-                </div>
-
-                <form id="details-form" onSubmit={handleSave} className="basics-form">
-                    {error && <div className="alert error">{error}</div>}
-                    {success && <div className="alert success">{success}</div>}
-
-                    <div className="form-group">
-                        <label>Password</label>
-                        <input
-                            type="text"
-                            name="password"
-                            value={formData.password}
-                            onChange={handleChange}
-                            placeholder={customer.rawPassword || "Enter new password"}
-                        />
-                    </div>
-
-                    <div className="form-group">
-                        <label>Full Name</label>
-                        <input
-                            type="text"
-                            name="fullName"
-                            value={`${formData.firstName} ${formData.lastName}`.trim()}
-                            onChange={(e) => {
-                                const parts = e.target.value.split(' ');
-                                setFormData(prev => ({
-                                    ...prev,
-                                    firstName: parts[0] || '',
-                                    lastName: parts.slice(1).join(' ') || ''
-                                }));
-                            }}
-                            placeholder="Customer Name"
-                        />
-                    </div>
-
-                    <div className="form-group">
-                        <label>Agent Assignment</label>
-                        {role === 'admin' ? (
-                            <div className="select-wrapper">
-                                <select name="agentId" value={formData.agentId} onChange={handleChange}>
-                                    <option value="">None</option>
-                                    {agents.map(a => (
-                                        <option key={a._id} value={a._id}>{a.username}</option>
-                                    ))}
-                                </select>
+                {activeTab === 'basics' ? (
+                    <>
+                        <div className="section-header">
+                            <div className="section-title">
+                                <div className="glow-icon"></div>
+                                <h3>The Basics</h3>
                             </div>
-                        ) : (
-                            <input type="text" value={customer.agentId?.username || 'None'} readOnly disabled />
-                        )}
-                    </div>
+                            <button type="submit" form="details-form" className="save-btn" disabled={saving}>
+                                {saving ? 'Saving...' : 'Save Changes'}
+                            </button>
+                        </div>
 
-                    <div className="form-group">
-                        <label>Account Status</label>
-                        <div className="select-wrapper">
-                            <select name="status" value={formData.status} onChange={handleChange}>
-                                <option value="active">Active</option>
-                                <option value="suspended">Suspended</option>
-                                <option value="closed">Closed</option>
-                            </select>
+                        <form id="details-form" onSubmit={handleSave} className="basics-form">
+                            {error && <div className="alert error">{error}</div>}
+                            {success && <div className="alert success">{success}</div>}
+                            {/* Basics form content continues... */}
+                            <div className="form-group">
+                                <label>Password</label>
+                                <input
+                                    type="text"
+                                    name="password"
+                                    value={formData.password}
+                                    onChange={handleChange}
+                                    placeholder={customer.rawPassword || "Enter new password"}
+                                />
+                            </div>
+
+                            <div className="form-group">
+                                <label>Full Name</label>
+                                <input
+                                    type="text"
+                                    name="fullName"
+                                    value={`${formData.firstName} ${formData.lastName}`.trim()}
+                                    onChange={(e) => {
+                                        const parts = e.target.value.split(' ');
+                                        setFormData(prev => ({
+                                            ...prev,
+                                            firstName: parts[0] || '',
+                                            lastName: parts.slice(1).join(' ') || ''
+                                        }));
+                                    }}
+                                    placeholder="Full Name/Contact Name"
+                                />
+                            </div>
+
+                            <div className="form-group">
+                                <label>Agent Assignment</label>
+                                {role === 'admin' ? (
+                                    <div className="select-wrapper">
+                                        <select name="agentId" value={formData.agentId} onChange={handleChange}>
+                                            <option value="">None</option>
+                                            {agents.map(a => (
+                                                <option key={a._id} value={a._id}>{a.username}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                ) : (
+                                    <input type="text" value={customer.agentId?.username || 'None'} readOnly disabled />
+                                )}
+                            </div>
+
+                            <div className="form-group">
+                                <label>Account Status</label>
+                                <div className="select-wrapper">
+                                    <select name="status" value={formData.status} onChange={handleChange}>
+                                        <option value="active">Active</option>
+                                        <option value="suspended">Suspended</option>
+                                        <option value="closed">Closed</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            {customer.role === 'user' ? (
+                                <>
+                                    <div className="form-group">
+                                        <label>Min bet:</label>
+                                        <input
+                                            type="text"
+                                            name="minBet"
+                                            value={formData.minBet}
+                                            placeholder="25"
+                                            onChange={(e) => {
+                                                const val = e.target.value.replace(/,/g, '');
+                                                if (!isNaN(val)) setFormData(prev => ({ ...prev, minBet: val }));
+                                            }}
+                                        />
+                                    </div>
+
+                                    <div className="form-group">
+                                        <label>Max bet:</label>
+                                        <input
+                                            type="text"
+                                            name="maxBet"
+                                            value={formData.maxBet}
+                                            placeholder="200"
+                                            onChange={(e) => {
+                                                const val = e.target.value.replace(/,/g, '');
+                                                if (!isNaN(val)) setFormData(prev => ({ ...prev, maxBet: val }));
+                                            }}
+                                        />
+                                    </div>
+
+                                    <div className="form-group">
+                                        <label>Credit limit:</label>
+                                        <input
+                                            type="text"
+                                            name="creditLimit"
+                                            value={formData.creditLimit}
+                                            placeholder="1000"
+                                            onChange={(e) => {
+                                                const val = e.target.value.replace(/,/g, '');
+                                                if (!isNaN(val)) setFormData(prev => ({ ...prev, creditLimit: val }));
+                                            }}
+                                        />
+                                    </div>
+
+                                    <div className="form-group">
+                                        <label>Settle Limit:</label>
+                                        <input
+                                            type="text"
+                                            name="balanceOwed"
+                                            value={formData.balanceOwed}
+                                            onChange={(e) => {
+                                                const val = e.target.value.replace(/,/g, '');
+                                                if (!isNaN(val)) setFormData(prev => ({ ...prev, balanceOwed: val }));
+                                            }}
+                                        />
+                                    </div>
+                                </>
+                            ) : (
+                                <>
+                                    <div className="form-group">
+                                        <label>Min bet:</label>
+                                        <input
+                                            type="text"
+                                            name="defaultMinBet"
+                                            value={formData.defaultMinBet}
+                                            placeholder="25"
+                                            onChange={(e) => {
+                                                const val = e.target.value.replace(/,/g, '');
+                                                if (!isNaN(val)) setFormData(prev => ({ ...prev, defaultMinBet: val }));
+                                            }}
+                                        />
+                                    </div>
+
+                                    <div className="form-group">
+                                        <label>Max bet:</label>
+                                        <input
+                                            type="text"
+                                            name="defaultMaxBet"
+                                            value={formData.defaultMaxBet}
+                                            placeholder="200"
+                                            onChange={(e) => {
+                                                const val = e.target.value.replace(/,/g, '');
+                                                if (!isNaN(val)) setFormData(prev => ({ ...prev, defaultMaxBet: val }));
+                                            }}
+                                        />
+                                    </div>
+
+                                    <div className="form-group">
+                                        <label>Credit limit:</label>
+                                        <input
+                                            type="text"
+                                            name="defaultCreditLimit"
+                                            value={formData.defaultCreditLimit}
+                                            placeholder="1000"
+                                            onChange={(e) => {
+                                                const val = e.target.value.replace(/,/g, '');
+                                                if (!isNaN(val)) setFormData(prev => ({ ...prev, defaultCreditLimit: val }));
+                                            }}
+                                        />
+                                    </div>
+
+                                    <div className="form-group">
+                                        <label>Settle limit:</label>
+                                        <input
+                                            type="text"
+                                            name="defaultSettleLimit"
+                                            value={formData.defaultSettleLimit}
+                                            onChange={(e) => {
+                                                const val = e.target.value.replace(/,/g, '');
+                                                if (!isNaN(val)) setFormData(prev => ({ ...prev, defaultSettleLimit: val }));
+                                            }}
+                                        />
+                                    </div>
+                                </>
+                            )}
+                        </form>
+                    </>
+                ) : (
+                    <div className="freeplay-management">
+                        <div className="section-header">
+                            <div className="section-title">
+                                <div className="glow-icon" style={{ background: '#3b82f6', boxShadow: '0 0 15px #3b82f6' }}></div>
+                                <h3>Freeplay Management</h3>
+                            </div>
+                        </div>
+
+                        <div className="freeplay-card glass-effect">
+                            <div className="card-top">
+                                <div className="balance-info">
+                                    <span className="label">Current Freeplay Balance</span>
+                                    <span className="value">{Number(formData.freeplayBalance || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD' })}</span>
+                                </div>
+                            </div>
+
+                            <div className="adjustment-controls">
+                                <div className="input-group">
+                                    <label>Adjustment Amount</label>
+                                    <div className="amount-input">
+                                        <span className="currency-symbol">$</span>
+                                        <input
+                                            type="number"
+                                            value={freeplayAmount}
+                                            onChange={(e) => setFreeplayAmount(e.target.value)}
+                                            placeholder="0.00"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="action-btns">
+                                    <button
+                                        className="adjust-btn add"
+                                        onClick={() => handleAdjustFreeplay('add')}
+                                        disabled={adjustingFreeplay || !freeplayAmount}
+                                    >
+                                        Add Freeplay
+                                    </button>
+                                    <button
+                                        className="adjust-btn remove"
+                                        onClick={() => handleAdjustFreeplay('remove')}
+                                        disabled={adjustingFreeplay || !freeplayAmount}
+                                    >
+                                        Remove Freeplay
+                                    </button>
+                                </div>
+                            </div>
+
+                            {error && <div className="alert error" style={{ marginTop: '20px' }}>{error}</div>}
+                            {success && <div className="alert success" style={{ marginTop: '20px' }}>{success}</div>}
+                        </div>
+
+                        <div className="info-notice">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="12" y1="16" x2="12" y2="12" /><line x1="12" y1="8" x2="12.01" y2="8" /></svg>
+                            <p>Adjustments to freeplay balance are logged as transactions for auditing purposes.</p>
                         </div>
                     </div>
-
-                    <div className="form-group">
-                        <label>Min bet:</label>
-                        <input
-                            type="text"
-                            name="minBet"
-                            value={formData.minBet}
-                            onChange={(e) => {
-                                const val = e.target.value.replace(/,/g, '');
-                                if (!isNaN(val)) setFormData(prev => ({ ...prev, minBet: val }));
-                            }}
-                        />
-                    </div>
-
-                    <div className="form-group">
-                        <label>Max bet:</label>
-                        <input
-                            type="text"
-                            name="maxBet"
-                            value={formData.maxBet}
-                            onChange={(e) => {
-                                const val = e.target.value.replace(/,/g, '');
-                                if (!isNaN(val)) setFormData(prev => ({ ...prev, maxBet: val }));
-                            }}
-                        />
-                    </div>
-
-                    <div className="form-group">
-                        <label>Credit limit:</label>
-                        <input
-                            type="text"
-                            name="creditLimit"
-                            value={formData.creditLimit}
-                            onChange={(e) => {
-                                const val = e.target.value.replace(/,/g, '');
-                                if (!isNaN(val)) setFormData(prev => ({ ...prev, creditLimit: val }));
-                            }}
-                        />
-                    </div>
-
-                    <div className="form-group">
-                        <label>Settle Limit:</label>
-                        <input
-                            type="text"
-                            name="balanceOwed"
-                            value={formData.balanceOwed}
-                            onChange={(e) => {
-                                const val = e.target.value.replace(/,/g, '');
-                                if (!isNaN(val)) setFormData(prev => ({ ...prev, balanceOwed: val }));
-                            }}
-                        />
-                    </div>
-                </form>
+                )}
             </div>
 
             <style>{`
-                .customer-details-view.premium-theme { 
-                    background: #0f172a; 
-                    min-height: 100vh; 
-                    font-family: 'Inter', system-ui, -apple-system, sans-serif;
-                    color: #f8fafc;
-                }
-                .details-header { 
-                    background: rgba(30, 41, 59, 0.7); 
-                    backdrop-filter: blur(12px);
-                    padding: 32px; 
-                    border-bottom: 1px solid rgba(255,255,255,0.1); 
-                    position: sticky;
-                    top: 0;
-                    z-index: 10;
-                }
-                .header-top { display: flex; gap: 48px; align-items: start; }
-                .back-btn { 
-                    background: rgba(255,255,255,0.05); 
-                    border: 1px solid rgba(255,255,255,0.1); 
-                    padding: 10px;
-                    border-radius: 12px;
-                    cursor: pointer; 
-                    color: #94a3b8; 
-                    transition: all 0.2s ease;
-                }
-                .back-btn:hover { background: rgba(30, 41, 59, 0.8); color: #fff; transform: translateX(-4px); }
-                
-                .left-info { flex: 1; display: flex; flex-direction: column; gap: 24px; }
-                .user-title { display: flex; align-items: center; gap: 20px; }
-                .user-title h2 { margin: 0; font-size: 32px; font-weight: 800; letter-spacing: -0.5px; color: #fff; }
-                
-                .login-btn-prof {
-                    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); 
-                    color: white; 
-                    border: none; 
-                    padding: 8px 24px;
-                    border-radius: 100px; 
-                    font-size: 14px; 
-                    font-weight: 700; 
-                    cursor: pointer;
-                    box-shadow: 0 4px 15px rgba(37, 99, 235, 0.3);
-                    transition: all 0.2s ease;
-                }
-                .login-btn-prof:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(37, 99, 235, 0.4); }
-
-                .cred-block { display: flex; flex-direction: column; gap: 10px; }
-                .cred-item { display: flex; align-items: center; gap: 12px; font-size: 14px; }
-                .cred-item label { color: #64748b; width: 80px; font-weight: 600; }
-                .cred-item .val { 
-                    color: #cbd5e1; 
-                    font-family: 'JetBrains Mono', monospace; 
-                    background: rgba(255,255,255,0.05); 
-                    padding: 4px 12px; 
-                    border-radius: 8px;
-                    border: 1px solid rgba(255,255,255,0.05);
-                }
-                .copy-icon { 
-                    background: none; 
-                    border: none; 
-                    cursor: pointer; 
-                    color: #3b82f6; 
-                    opacity: 0.6;
-                    transition: opacity 0.2s;
-                }
-                .copy-icon:hover { opacity: 1; }
-
-                .betting-limits-block {
-                    display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
-                    background: linear-gradient(145deg, #1e293b 0%, #0f172a 100%); 
-                    padding: 24px; 
-                    border-radius: 20px; 
-                    border: 1px solid rgba(255,255,255,0.1);
-                    max-width: 440px;
-                    box-shadow: 0 20px 40px rgba(0,0,0,0.2);
-                }
-                .limit-row { display: flex; flex-direction: column; gap: 4px; }
-                .limit-row .label { font-size: 11px; text-transform: uppercase; color: #64748b; font-weight: 800; letter-spacing: 0.5px; }
-                .limit-row .value { font-size: 20px; font-weight: 700; color: #f8fafc; }
-                .limit-row.highlight .value { color: #10b981; }
-
-                .metrics-stacked {
-                    display: flex; flex-direction: column; gap: 20px; text-align: right;
-                    min-width: 200px; border-left: 1px solid rgba(255,255,255,0.1); padding-left: 40px;
-                }
-                .metric-item { display: flex; flex-direction: column; gap: 6px; }
-                .metric-item label { font-size: 12px; text-transform: uppercase; color: #64748b; font-weight: 800; }
-                .metric-item .value { font-size: 24px; font-weight: 800; color: #fff; }
-                .metric-item .value.negative { color: #ef4444; }
-                .metric-item .value.positive { color: #10b981; }
-                .metric-item.glass {
-                    background: rgba(16, 185, 129, 0.1);
-                    padding: 12px;
-                    border-radius: 16px;
-                    border: 1px solid rgba(16, 185, 129, 0.2);
-                }
-                .metric-item .value.large { font-size: 32px; background: linear-gradient(to bottom, #fff, #94a3b8); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-
-                .details-content { padding: 40px; max-width: 1000px; margin: 0 auto; }
-                .section-header {
-                    display: flex; justify-content: space-between; align-items: center;
-                    margin-bottom: 40px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 20px;
-                }
-                .section-title { display: flex; align-items: center; gap: 16px; }
-                .glow-icon { width: 12px; height: 12px; background: #3b82f6; border-radius: 50%; box-shadow: 0 0 15px #3b82f6; }
-                .section-header h3 { margin: 0; font-size: 24px; font-weight: 800; color: #fff; }
-
-                .save-btn {
-                    background: #fff; color: #0f172a; border: none; padding: 12px 40px;
-                    border-radius: 12px; font-size: 15px; font-weight: 700; cursor: pointer;
-                    transition: all 0.2s;
-                }
-                .save-btn:hover { background: #e2e8f0; transform: scale(1.05); }
-                .save-btn:disabled { background: #334155; color: #64748b; cursor: not-allowed; }
-
-                .basics-form { 
-                    display: grid; grid-template-columns: 1fr 1fr; gap: 40px; 
-                    background: rgba(30, 41, 59, 0.4); 
-                    padding: 40px; 
-                    border-radius: 24px; 
-                    border: 1px solid rgba(255,255,255,0.05);
-                }
-                .form-group { display: flex; flex-direction: column; gap: 10px; }
-                .form-group label { font-size: 12px; color: #94a3b8; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
-                .form-group input, .form-group select { 
-                    border: 1px solid rgba(255,255,255,0.1); 
-                    padding: 14px 16px; 
-                    font-size: 16px; 
-                    outline: none; 
-                    background: rgba(15, 23, 42, 0.6); 
-                    border-radius: 12px;
-                    color: #fff;
-                    transition: border-color 0.2s;
-                }
-                .form-group input:focus { border-color: #3b82f6; }
-                
-                .alert { grid-column: span 2; padding: 16px; border-radius: 12px; font-size: 14px; font-weight: 500; }
-                .alert.error { background: rgba(239, 68, 68, 0.1); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.2); }
-                .alert.success { background: rgba(16, 185, 129, 0.1); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.2); }
-            `}</style>
-        </div>
+                 .customer-details-view.premium-theme { 
+                     background: #f8fafc; 
+                     min-height: 100vh; 
+                     font-family: 'Inter', system-ui, -apple-system, sans-serif;
+                     color: #1e293b;
+                 }
+                 .details-header { 
+                     background: #ffffff; 
+                     backdrop-filter: blur(12px);
+                     padding: 32px; 
+                     border-bottom: 1px solid #e2e8f0; 
+                     position: sticky;
+                     top: 0;
+                     z-index: 10;
+                     box-shadow: 0 4px 12px rgba(0,0,0,0.03);
+                 }
+                 .header-top { display: flex; gap: 48px; align-items: start; }
+                 .back-btn { 
+                     background: #f1f5f9; 
+                     border: 1px solid #e2e8f0; 
+                     padding: 10px;
+                     border-radius: 12px;
+                     cursor: pointer; 
+                     color: #64748b; 
+                     transition: all 0.2s ease;
+                 }
+                 .back-btn:hover { background: #e2e8f0; color: #1e293b; transform: translateX(-4px); }
+                 
+                 .left-info { flex: 1; display: flex; flex-direction: column; gap: 24px; }
+                 .user-title { display: flex; align-items: center; gap: 20px; }
+                 .user-title h2 { margin: 0; font-size: 32px; font-weight: 800; letter-spacing: -0.5px; color: #0f172a; }
+                 
+                 .login-btn-prof {
+                     background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); 
+                     color: white; 
+                     border: none; 
+                     padding: 8px 24px;
+                     border-radius: 100px; 
+                     font-size: 14px; 
+                     font-weight: 700; 
+                     cursor: pointer;
+                     box-shadow: 0 4px 15px rgba(37, 99, 235, 0.3);
+                     transition: all 0.2s ease;
+                 }
+                 .login-btn-prof:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(37, 99, 235, 0.4); }
+  
+                 .cred-block { display: flex; flex-direction: column; gap: 10px; }
+                 .cred-item { display: flex; align-items: center; gap: 12px; font-size: 14px; }
+                 .cred-item label { color: #64748b; width: 80px; font-weight: 600; }
+                 .cred-item .val { 
+                     color: #334155; 
+                     font-family: 'JetBrains Mono', monospace; 
+                     background: #f1f5f9; 
+                     padding: 4px 12px; 
+                     border-radius: 8px;
+                     border: 1px solid #e2e8f0;
+                     font-weight: 600;
+                 }
+                 .copy-icon { 
+                     background: none; 
+                     border: none; 
+                     cursor: pointer; 
+                     color: #3b82f6; 
+                     opacity: 0.6;
+                     transition: opacity 0.2s;
+                 }
+                 .copy-icon:hover { opacity: 1; }
+  
+                 .betting-limits-block {
+                     display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+                     background: #ffffff; 
+                     padding: 24px; 
+                     border-radius: 20px; 
+                     border: 1px solid #e2e8f0;
+                     max-width: 440px;
+                     box-shadow: 0 10px 25px rgba(0,0,0,0.05);
+                 }
+                 .limit-row { display: flex; flex-direction: column; gap: 4px; }
+                 .limit-row .label { font-size: 11px; text-transform: uppercase; color: #94a3b8; font-weight: 800; letter-spacing: 0.5px; }
+                 .limit-row .value { font-size: 20px; font-weight: 700; color: #1e293b; }
+                 .limit-row.highlight .value { color: #059669; }
+  
+                 .metrics-stacked {
+                     display: flex; flex-direction: column; gap: 20px; text-align: right;
+                     min-width: 200px; border-left: 1px solid #e2e8f0; padding-left: 40px;
+                 }
+                 .metric-item { display: flex; flex-direction: column; gap: 6px; }
+                 .metric-item label { font-size: 12px; text-transform: uppercase; color: #94a3b8; font-weight: 800; }
+                 .metric-item .value { font-size: 24px; font-weight: 800; color: #0f172a; }
+                 .metric-item .value.negative { color: #dc2626; }
+                 .metric-item .value.positive { color: #059669; }
+                 .metric-item.glass {
+                     background: #f0fdf4;
+                     padding: 12px;
+                     border-radius: 16px;
+                     border: 1px solid #bcf1d3;
+                 }
+                 .metric-item .value.large { font-size: 32px; background: linear-gradient(to bottom, #0f172a, #334155); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  
+                 .tab-navigation {
+                     display: flex;
+                     gap: 4px;
+                     padding: 0 40px;
+                     margin-top: -1px;
+                     background: #ffffff;
+                     border-bottom: 1px solid #e2e8f0;
+                     box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+                 }
+                 .tab-btn {
+                     padding: 16px 32px;
+                     background: none;
+                     border: none;
+                     border-bottom: 2px solid transparent;
+                     color: #94a3b8;
+                     font-weight: 700;
+                     font-size: 14px;
+                     cursor: pointer;
+                     transition: all 0.2s;
+                 }
+                 .tab-btn:hover { color: #1e293b; }
+                 .tab-btn.active {
+                     color: #2563eb;
+                     border-bottom-color: #2563eb;
+                 }
+  
+                 .details-content { padding: 40px; max-width: 1000px; margin: 0 auto; }
+                 .section-header {
+                     display: flex; justify-content: space-between; align-items: center;
+                     margin-bottom: 40px; border-bottom: 1px solid #e2e8f0; padding-bottom: 20px;
+                 }
+                 .section-title { display: flex; align-items: center; gap: 16px; }
+                 .glow-icon { width: 12px; height: 12px; background: #3b82f6; border-radius: 50%; box-shadow: 0 0 10px rgba(59, 130, 246, 0.5); }
+                 .section-header h3 { margin: 0; font-size: 24px; font-weight: 800; color: #0f172a; }
+  
+                 .save-btn {
+                     background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%); 
+                     color: #ffffff; border: none; padding: 12px 40px;
+                     border-radius: 12px; font-size: 15px; font-weight: 700; cursor: pointer;
+                     transition: all 0.2s;
+                     box-shadow: 0 4px 15px rgba(79, 70, 229, 0.3);
+                 }
+                 .save-btn:hover { transform: scale(1.05); box-shadow: 0 6px 20px rgba(79, 70, 229, 0.4); }
+                 .save-btn:disabled { background: #94a3b8; color: #ffffff; cursor: not-allowed; box-shadow: none; }
+  
+                 .basics-form { 
+                     display: grid; grid-template-columns: 1fr 1fr; gap: 40px; 
+                     background: #ffffff; 
+                     padding: 40px; 
+                     border-radius: 24px; 
+                     border: 1px solid #e2e8f0;
+                     box-shadow: 0 4px 20px rgba(0,0,0,0.03);
+                 }
+                 .form-group { display: flex; flex-direction: column; gap: 10px; }
+                 .form-group label { font-size: 12px; color: #64748b; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+                 .form-group input, .form-group select { 
+                     border: 1px solid #e2e8f0; 
+                     padding: 14px 16px; 
+                     font-size: 16px; 
+                     outline: none; 
+                     background: #f8fafc; 
+                     border-radius: 12px;
+                     color: #1e293b;
+                     transition: all 0.2s;
+                 }
+                 .form-group input:focus { border-color: #3b82f6; background: #fff; box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1); }
+                 
+                 .freeplay-card {
+                     background: #ffffff;
+                     padding: 40px;
+                     border-radius: 24px;
+                     border: 1px solid #e2e8f0;
+                     box-shadow: 0 10px 30px rgba(0,0,0,0.05);
+                 }
+                 .card-top { margin-bottom: 40px; border-bottom: 1px solid #f1f5f9; padding-bottom: 32px; }
+                 .balance-info { display: flex; flex-direction: column; gap: 8px; }
+                 .balance-info .label { font-size: 14px; text-transform: uppercase; color: #64748b; font-weight: 800; letter-spacing: 1px; }
+                 .balance-info .value { font-size: 48px; font-weight: 900; color: #2563eb; }
+  
+                 .adjustment-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; align-items: end; }
+                 .amount-input { position: relative; }
+                 .currency-symbol { position: absolute; left: 16px; top: 14px; color: #64748b; font-weight: 700; }
+                 .amount-input input { padding-left: 32px; width: 100%; box-sizing: border-box; }
+  
+                 .action-btns { display: flex; gap: 16px; }
+                 .adjust-btn {
+                     flex: 1; padding: 14px; border: none; border-radius: 12px; 
+                     font-weight: 800; font-size: 14px; cursor: pointer; transition: all 0.2s;
+                 }
+                 .adjust-btn.add { 
+                     background: linear-gradient(135deg, #10b981 0%, #059669 100%); 
+                     color: white; 
+                     box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2);
+                 }
+                 .adjust-btn.remove { 
+                     background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); 
+                     color: white; 
+                     box-shadow: 0 4px 12px rgba(239, 68, 68, 0.2);
+                 }
+                 .adjust-btn:hover { transform: translateY(-2px); opacity: 0.95; box-shadow: 0 6px 15px rgba(0,0,0,0.1); }
+                 .adjust-btn:disabled { background: #cbd5e1; color: #64748b; cursor: not-allowed; transform: none; box-shadow: none; }
+  
+                 .info-notice {
+                     display: flex; gap: 12px; align-items: center; margin-top: 32px;
+                     background: #f0f7ff; padding: 16px 24px; 
+                     border-radius: 16px; border: 1px solid #d0e7ff;
+                     color: #64748b; font-size: 14px;
+                 }
+                 .info-notice p { margin: 0; }
+  
+                 .alert { grid-column: span 2; padding: 16px; border-radius: 12px; font-size: 14px; font-weight: 500; }
+                 .alert.error { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
+                 .alert.success { background: #f0fdf4; color: #15803d; border: 1px solid #bcf1d3; }
+             `}</style>
+        </div >
     );
 }
 

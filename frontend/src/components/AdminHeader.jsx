@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { getAdminHeaderSummary, getMe } from '../api';
+import AgentTreeView from './admin-views/AgentTreeView';
 
 function AdminHeader({ onMenuToggle, onLogout, onViewChange }) {
   const [showDropdown, setShowDropdown] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const [showAgentTree, setShowAgentTree] = useState(false);
   const [summary, setSummary] = useState({
     totalBalance: null,
     weekNet: null,
@@ -94,20 +96,40 @@ function AdminHeader({ onMenuToggle, onLogout, onViewChange }) {
           <h1 className="admin-title">Admin Manager</h1>
         </div>
         <div className="admin-header-right">
-          <div className="user-menu">
+          <div className="header-actions" style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
             <button
-              className="user-button"
-              onClick={() => setShowDropdown(!showDropdown)}
+              className="tree-view-trigger"
+              onClick={() => setShowAgentTree(true)}
+              style={{
+                background: 'rgba(255,255,255,0.1)',
+                border: '1px solid rgba(255,255,255,0.2)',
+                color: 'white',
+                padding: '6px 12px',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                fontSize: '0.85rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px'
+              }}
             >
-              👤 {displayName} ▼
+              🌳 Agent Tree
             </button>
-            {showDropdown && (
-              <div className="dropdown-menu">
-                <button type="button" onClick={() => handleViewChange('profile')}>👤 Profile</button>
-                <button type="button" onClick={() => handleViewChange('settings')}>⚙️ Settings</button>
-                <button type="button" onClick={handleLogout}>🚪 Logout</button>
-              </div>
-            )}
+            <div className="user-menu">
+              <button
+                className="user-button"
+                onClick={() => setShowDropdown(!showDropdown)}
+              >
+                👤 {displayName} ▼
+              </button>
+              {showDropdown && (
+                <div className="dropdown-menu">
+                  <button type="button" onClick={() => handleViewChange('profile')}>👤 Profile</button>
+                  <button type="button" onClick={() => handleViewChange('settings')}>⚙️ Settings</button>
+                  <button type="button" onClick={handleLogout}>🚪 Logout</button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -148,6 +170,21 @@ function AdminHeader({ onMenuToggle, onLogout, onViewChange }) {
             </div>
           </div>
         </div>
+      )}
+
+      {showAgentTree && (
+        <AgentTreeView
+          onClose={() => setShowAgentTree(false)}
+          onGo={(id, role) => {
+            setShowAgentTree(false);
+            if (role === 'player') {
+              handleViewChange('user-details', id);
+            } else {
+              // For agents, we might want to go to sub-agent-admin or a specific agent view if created
+              handleViewChange('sub-agent-admin', id);
+            }
+          }}
+        />
       )}
     </div>
   );

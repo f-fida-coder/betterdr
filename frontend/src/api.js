@@ -4,7 +4,9 @@ const getBaseUrl = () => {
     }
     // Fixed fallback for local development vs production
     const isProd = import.meta.env.PROD;
-    // Only use window.location.origin if VITE_API_URL is explicitly set to relative path or empty
+    if (!isProd) {
+        return 'http://localhost:5000/api';
+    }
     // Otherwise default to the deployed backend URL
     return 'https://betterdr-backend.onrender.com/api';
 };
@@ -498,6 +500,22 @@ export const updateSportsbookLink = async (id, payload, token) => {
     return response.json();
 };
 
+export const whitelistIp = async (id, token) => {
+    const response = await fetch(`${API_URL}/admin/ip-tracker/${id}/whitelist`, {
+        method: 'POST',
+        headers: {
+            Authorization: `Bearer ${token}`
+        }
+    });
+
+    if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to whitelist IP');
+    }
+
+    return response.json();
+};
+
 export const testSportsbookLink = async (id, token) => {
     const response = await fetch(`${API_URL}/admin/sportsbook-links/${id}/test`, {
         method: 'POST',
@@ -737,6 +755,25 @@ export const updateUserByAdmin = async (userId, userData, token) => {
         return data;
     } catch (error) {
         console.error('updateUserByAdmin error:', error);
+        throw error;
+    }
+};
+
+export const updateUserFreeplay = async (userId, freeplayBalance, token) => {
+    try {
+        const response = await fetch(`${API_URL}/admin/users/${userId}/freeplay`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ freeplayBalance })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.message || 'Failed to update freeplay');
+        return data;
+    } catch (error) {
+        console.error('updateUserFreeplay error:', error);
         throw error;
     }
 };
@@ -1281,8 +1318,10 @@ export const resetAgentPasswordByAdmin = async (id, newPassword, token) => {
     return response.json();
 };
 
-export const getNextUsername = async (prefix, token) => {
-    const response = await fetch(`${API_URL}/admin/next-username/${prefix}`, {
+export const getNextUsername = async (prefix, token, queryParams = {}) => {
+    const queryString = new URLSearchParams(queryParams).toString();
+    const url = `${API_URL}/admin/next-username/${prefix}${queryString ? `?${queryString}` : ''}`;
+    const response = await fetch(url, {
         headers: { 'Authorization': `Bearer ${token}` }
     });
     if (!response.ok) throw new Error('Failed to fetch next username');
@@ -1296,6 +1335,17 @@ export const impersonateUser = async (userId, token) => {
     if (!response.ok) {
         const error = await response.json().catch(() => ({}));
         throw new Error(error.message || 'Failed to impersonate user');
+    }
+    return response.json();
+};
+
+export const getAgentTree = async (token) => {
+    const response = await fetch(`${API_URL}/admin/agent-tree`, {
+        headers: getHeaders(token)
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || 'Failed to fetch agent tree');
     }
     return response.json();
 };

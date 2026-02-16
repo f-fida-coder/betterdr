@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { getAgents, createAgent, updateAgent, suspendUser, unsuspendUser, resetAgentPasswordByAdmin } from '../../api';
+import { getAgents, createAgent, updateAgent, suspendUser, unsuspendUser, resetAgentPasswordByAdmin, getNextUsername } from '../../api';
 
 function AgentAdminView() {
   const [agents, setAgents] = useState([]);
@@ -9,7 +9,7 @@ function AgentAdminView() {
   const [showViewModal, setShowViewModal] = useState(false);
   const [selectedAgent, setSelectedAgent] = useState(null);
 
-  const [newAgent, setNewAgent] = useState({ username: '', phoneNumber: '', password: '' });
+  const [newAgent, setNewAgent] = useState({ username: '', phoneNumber: '', password: '', agentPrefix: '' });
   const [editForm, setEditForm] = useState({ id: '', phoneNumber: '', password: '', agentBillingRate: '', agentBillingStatus: 'paid' });
   const [error, setError] = useState(null);
 
@@ -39,6 +39,24 @@ function AgentAdminView() {
     }
   };
 
+  const handlePrefixChange = async (prefix) => {
+    const formatted = prefix.toUpperCase();
+    setNewAgent(prev => ({ ...prev, agentPrefix: formatted }));
+
+    if (formatted.length >= 2) {
+      const token = localStorage.getItem('token');
+      // SuperAgent creation always gets 'MA' suffix in this view
+      try {
+        const { nextUsername } = await getNextUsername(formatted, token, { suffix: 'MA', type: 'agent' });
+        setNewAgent(prev => ({ ...prev, username: nextUsername }));
+      } catch (err) {
+        console.error('Failed to get next username from prefix:', err);
+      }
+    } else {
+      setNewAgent(prev => ({ ...prev, username: '' }));
+    }
+  };
+
   const handleCreateAgent = async (e) => {
     e.preventDefault();
     try {
@@ -49,7 +67,7 @@ function AgentAdminView() {
       await createAgent(newAgent, token);
       alert('Super Agent created successfully');
       setShowAddModal(false);
-      setNewAgent({ username: '', phoneNumber: '', password: '' });
+      setNewAgent({ username: '', phoneNumber: '', password: '', agentPrefix: '' });
       fetchAgents();
     } catch (error) {
       console.error('Agent creation error:', error);
@@ -174,8 +192,19 @@ function AgentAdminView() {
             <h3>New Super Agent</h3>
             <form onSubmit={handleCreateAgent}>
               <div className="form-group">
+                <label>Prefix</label>
+                <input
+                  type="text"
+                  value={newAgent.agentPrefix}
+                  onChange={e => handlePrefixChange(e.target.value)}
+                  placeholder="Enter prefix"
+                  maxLength={5}
+                  required
+                />
+              </div>
+              <div className="form-group">
                 <label>Username</label>
-                <input type="text" value={newAgent.username} onChange={e => setNewAgent({ ...newAgent, username: e.target.value })} required />
+                <input type="text" value={newAgent.username} readOnly style={{ background: '#222', color: '#888' }} />
               </div>
               <div className="form-group">
                 <label>Phone Number</label>

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { getMySubAgents, createSubAgent, suspendUser, unsuspendUser, updateAgent, resetAgentPasswordByAdmin } from '../../api';
+import { getMySubAgents, createSubAgent, suspendUser, unsuspendUser, updateAgent, resetAgentPasswordByAdmin, getNextUsername, getMe } from '../../api';
 
 function SubAgentManagerView() {
     const [agents, setAgents] = useState([]);
@@ -8,13 +8,27 @@ function SubAgentManagerView() {
     const [showEditModal, setShowEditModal] = useState(false);
     const [selectedAgent, setSelectedAgent] = useState(null);
 
-    const [newAgent, setNewAgent] = useState({ username: '', phoneNumber: '', password: '', fullName: '' });
+    const [newAgent, setNewAgent] = useState({ username: '', phoneNumber: '', password: '', fullName: '', agentPrefix: '' });
     const [editForm, setEditForm] = useState({ id: '', phoneNumber: '', password: '' });
     const [error, setError] = useState(null);
+    const [masterUsername, setMasterUsername] = useState('');
 
     useEffect(() => {
         fetchSubAgents();
+        fetchMe();
     }, []);
+
+    const fetchMe = async () => {
+        try {
+            const token = localStorage.getItem('token');
+            if (token) {
+                const me = await getMe(token);
+                setMasterUsername(me?.username || '');
+            }
+        } catch (e) {
+            console.error('Failed to fetch profile:', e);
+        }
+    };
 
     const fetchSubAgents = async () => {
         try {
@@ -31,6 +45,24 @@ function SubAgentManagerView() {
         }
     };
 
+    const handlePrefixChange = async (prefix) => {
+        const formatted = prefix.toUpperCase();
+        setNewAgent(prev => ({ ...prev, agentPrefix: formatted }));
+
+        if (formatted.length >= 2) {
+            const token = localStorage.getItem('token');
+            // Sub-agents created by Super Agents don't get 'MA' suffix
+            try {
+                const { nextUsername } = await getNextUsername(formatted, token, { type: 'player' });
+                setNewAgent(prev => ({ ...prev, username: nextUsername }));
+            } catch (err) {
+                console.error('Failed to get next username from prefix:', err);
+            }
+        } else {
+            setNewAgent(prev => ({ ...prev, username: '' }));
+        }
+    };
+
     const handleCreateSubAgent = async (e) => {
         e.preventDefault();
         try {
@@ -40,7 +72,7 @@ function SubAgentManagerView() {
             await createSubAgent(newAgent, token);
             alert('Sub-Agent created successfully');
             setShowAddModal(false);
-            setNewAgent({ username: '', phoneNumber: '', password: '', fullName: '' });
+            setNewAgent({ username: '', phoneNumber: '', password: '', fullName: '', agentPrefix: '' });
             fetchSubAgents();
         } catch (error) {
             alert('Failed to create sub-agent: ' + error.message);
@@ -108,7 +140,12 @@ function SubAgentManagerView() {
             <div className="view-header">
                 <h2>Sub-Agent Management</h2>
                 {localStorage.getItem('userRole') !== 'admin' && (
-                    <button className="btn-primary" onClick={() => setShowAddModal(true)}>Add Sub-Agent</button>
+                    <button className="btn-primary" onClick={() => {
+                        setShowAddModal(true);
+                        if (masterUsername) {
+                            handlePrefixChange(masterUsername);
+                        }
+                    }}>Add Sub-Agent</button>
                 )}
             </div>
 
@@ -118,9 +155,22 @@ function SubAgentManagerView() {
                         <div className="modal-content">
                             <h3>New Sub-Agent</h3>
                             <form onSubmit={handleCreateSubAgent}>
+                                {!masterUsername && (
+                                    <div className="form-group">
+                                        <label>Prefix</label>
+                                        <input
+                                            type="text"
+                                            value={newAgent.agentPrefix}
+                                            onChange={e => handlePrefixChange(e.target.value)}
+                                            placeholder="Enter prefix"
+                                            maxLength={5}
+                                            required
+                                        />
+                                    </div>
+                                )}
                                 <div className="form-group">
                                     <label>Username</label>
-                                    <input type="text" value={newAgent.username} onChange={e => setNewAgent({ ...newAgent, username: e.target.value })} required />
+                                    <input type="text" value={newAgent.username} readOnly style={{ background: '#222', color: '#888' }} />
                                 </div>
                                 <div className="form-group">
                                     <label>Phone Number</label>

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { blockIp, getIpTracker, unblockIp } from '../../api';
+import { blockIp, getIpTracker, unblockIp, whitelistIp } from '../../api';
 
 function IPTrackerView() {
   const [ipData, setIpData] = useState([]);
@@ -70,6 +70,23 @@ function IPTrackerView() {
     }
   };
 
+  const handleWhitelist = async (id) => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setError('Please login as admin to whitelist IPs.');
+      return;
+    }
+    try {
+      setActionLoadingId(id);
+      await whitelistIp(id, token);
+      setIpData(prev => prev.map(ip => (ip.id === id ? { ...ip, status: 'whitelisted' } : ip)));
+    } catch (err) {
+      setError(err.message || 'Failed to whitelist IP');
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
   const openViewModal = (ip) => {
     setSelectedIp(ip);
     setShowViewModal(true);
@@ -84,75 +101,93 @@ function IPTrackerView() {
         {loading && <div style={{ padding: '20px', textAlign: 'center' }}>Loading IP logs...</div>}
         {error && <div style={{ padding: '20px', color: 'red', textAlign: 'center' }}>{error}</div>}
         {!loading && !error && (
-        <>
-        <div className="filter-section">
-          <div className="filter-group">
-            <label>Search</label>
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="User or IP"
-            />
-          </div>
-          <div className="filter-group">
-            <label>Status</label>
-            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-              <option value="all">All</option>
-              <option value="active">Active</option>
-              <option value="blocked">Blocked</option>
-            </select>
-          </div>
-        </div>
+          <>
+            <div className="filter-section">
+              <div className="filter-group">
+                <label>Search</label>
+                <input
+                  type="text"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="User or IP"
+                />
+              </div>
+              <div className="filter-group">
+                <label>Status</label>
+                <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+                  <option value="all">All</option>
+                  <option value="active">Active</option>
+                  <option value="blocked">Blocked</option>
+                </select>
+              </div>
+            </div>
 
-        <div className="table-container">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>IP Address</th>
-                <th>User</th>
-                <th>Country</th>
-                <th>City</th>
-                <th>Last Active</th>
-                <th>Status</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {ipData.map(ip => (
-                <tr key={ip.id}>
-                  <td className="monospace">{ip.ip}</td>
-                  <td>{ip.user}</td>
-                  <td>{ip.country || 'Unknown'}</td>
-                  <td>{ip.city || 'Unknown'}</td>
-                  <td>{ip.lastActive ? new Date(ip.lastActive).toLocaleString() : '—'}</td>
-                  <td><span className={`badge ${ip.status}`}>{ip.status}</span></td>
-                  <td>
-                    <button className="btn-small" onClick={() => openViewModal(ip)}>View</button>
-                    {ip.status === 'blocked' ? (
-                      <button
-                        className="btn-small"
-                        onClick={() => handleUnblock(ip.id)}
-                        disabled={actionLoadingId === ip.id}
-                      >
-                        {actionLoadingId === ip.id ? 'Working...' : 'Unblock'}
-                      </button>
-                    ) : (
-                      <button
-                        className="btn-small btn-danger"
-                        onClick={() => handleBlock(ip.id)}
-                        disabled={actionLoadingId === ip.id}
-                      >
-                        {actionLoadingId === ip.id ? 'Working...' : 'Block'}
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        </>
+            <div className="table-container">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>IP Address</th>
+                    <th>User</th>
+                    <th>Country</th>
+                    <th>City</th>
+                    <th>Last Active</th>
+                    <th>Status</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ipData.map(ip => (
+                    <tr key={ip.id}>
+                      <td className="monospace">{ip.ip}</td>
+                      <td>{ip.user}</td>
+                      <td>{ip.country || 'Unknown'}</td>
+                      <td>{ip.city || 'Unknown'}</td>
+                      <td>{ip.lastActive ? new Date(ip.lastActive).toLocaleString() : '—'}</td>
+                      <td><span className={`badge ${ip.status}`}>{ip.status}</span></td>
+                      <td>
+                        <button className="btn-small" onClick={() => openViewModal(ip)}>View</button>
+                        {ip.status === 'blocked' ? (
+                          <button
+                            className="btn-small"
+                            onClick={() => handleUnblock(ip.id)}
+                            disabled={actionLoadingId === ip.id}
+                          >
+                            {actionLoadingId === ip.id ? 'Working...' : 'Unblock'}
+                          </button>
+                        ) : ip.status === 'whitelisted' ? (
+                          <button
+                            className="btn-small"
+                            onClick={() => handleUnblock(ip.id)}
+                            disabled={actionLoadingId === ip.id}
+                          >
+                            {actionLoadingId === ip.id ? 'Working...' : 'Un-whitelist'}
+                          </button>
+                        ) : (
+                          <>
+                            <button
+                              className="btn-small btn-danger"
+                              onClick={() => handleBlock(ip.id)}
+                              disabled={actionLoadingId === ip.id}
+                            >
+                              {actionLoadingId === ip.id ? 'Working...' : 'Block'}
+                            </button>
+                            <button
+                              className="btn-small btn-primary"
+                              onClick={() => handleWhitelist(ip.id)}
+                              disabled={actionLoadingId === ip.id}
+                              style={{ marginLeft: '4px', backgroundColor: '#3b82f6' }}
+                            >
+                              {actionLoadingId === ip.id ? '...' : 'Whitelist'}
+                            </button>
+                          </>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
 

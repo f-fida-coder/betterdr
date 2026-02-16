@@ -9,10 +9,11 @@ function AddCustomerView({ onBack }) {
     firstName: '',
     lastName: '',
     agentId: '',
-    minBet: 1,
-    maxBet: 5000,
-    creditLimit: 1000,
+    minBet: '',
+    maxBet: '',
+    creditLimit: '1000',
     balanceOwed: 0,
+    freeplayBalance: '200',
     settings: {
       sports: true,
       casino: true,
@@ -47,7 +48,7 @@ function AddCustomerView({ onBack }) {
     const { name, value } = e.target;
 
     setFormData(prev => {
-      const updated = { ...prev, [name]: value };
+      const updated = { ...prev, [name]: (name === 'firstName' || name === 'lastName') ? value.toUpperCase() : value };
 
       // Auto-generate password if first/last name and phone available
       if ((name === 'firstName' || name === 'lastName' || name === 'phoneNumber')) {
@@ -69,7 +70,7 @@ function AddCustomerView({ onBack }) {
       if (selectedAgent) {
         try {
           const token = localStorage.getItem('token');
-          const { nextUsername } = await getNextUsername(selectedAgent.username, token);
+          const { nextUsername } = await getNextUsername(selectedAgent.username, token, { type: 'player' });
           setFormData(prev => ({ ...prev, username: nextUsername }));
         } catch (err) {
           console.error('Failed to get next username:', err);
@@ -232,6 +233,7 @@ function AddCustomerView({ onBack }) {
                       name="minBet"
                       value={formData.minBet}
                       onChange={handleChange}
+                      placeholder="25"
                     />
                   </div>
                   <div className="p-field">
@@ -241,6 +243,7 @@ function AddCustomerView({ onBack }) {
                       name="maxBet"
                       value={formData.maxBet}
                       onChange={handleChange}
+                      placeholder="200"
                     />
                   </div>
                   <div className="p-field">
@@ -250,6 +253,7 @@ function AddCustomerView({ onBack }) {
                       name="creditLimit"
                       value={formData.creditLimit}
                       onChange={handleChange}
+                      placeholder="1000"
                     />
                   </div>
                   <div className="p-field">
@@ -259,6 +263,16 @@ function AddCustomerView({ onBack }) {
                       name="balanceOwed"
                       value={formData.balanceOwed}
                       onChange={handleChange}
+                    />
+                  </div>
+                  <div className="p-field">
+                    <label>Initial Freeplay:</label>
+                    <input
+                      type="number"
+                      name="freeplayBalance"
+                      value={formData.freeplayBalance}
+                      onChange={handleChange}
+                      placeholder="200"
                     />
                   </div>
                 </div>

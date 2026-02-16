@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { createUserByAdmin, createPlayerByAgent, getAgents, getMyPlayers, getMe, updateUserCredit, updateUserBalanceOwedByAgent, resetUserPasswordByAdmin, updateUserByAdmin, updateUserByAgent, getUserStatistics, getNextUsername, getUsersAdmin } from '../../api';
+import { createUserByAdmin, createPlayerByAgent, createAgent, createSubAgent, getAgents, getMyPlayers, getMe, updateUserCredit, updateUserBalanceOwedByAgent, resetUserPasswordByAdmin, updateUserByAdmin, updateUserByAgent, getUserStatistics, getNextUsername, getUsersAdmin } from '../../api';
 
 function CustomerAdminView({ onViewChange }) {
   const [customers, setCustomers] = useState([]);
@@ -17,14 +17,20 @@ function CustomerAdminView({ onViewChange }) {
     fullName: '',
     agentId: '',
     balance: '',
-    minBet: '1',
-    maxBet: '5000',
+    minBet: '',
+    maxBet: '',
     creditLimit: '1000',
-    balanceOwed: '0'
+    balanceOwed: '0',
+    defaultMinBet: '25',
+    defaultMaxBet: '200',
+    defaultCreditLimit: '1000',
+    defaultSettleLimit: '0',
+    agentPrefix: ''
   });
+  const [creationType, setCreationType] = useState('player'); // player, agent, super_agent
   const [currentRole, setCurrentRole] = useState('admin');
   const [viewOnly, setViewOnly] = useState(false);
-  const [sourceFilter, setSourceFilter] = useState('all');
+  const [sourceFilter, setSourceFilter] = useState('player'); // player, agent, master
   const [showEditModal, setShowEditModal] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [editForm, setEditForm] = useState({
@@ -33,8 +39,8 @@ function CustomerAdminView({ onViewChange }) {
     lastName: '',
     fullName: '',
     password: '',
-    minBet: '1',
-    maxBet: '5000',
+    minBet: '25',
+    maxBet: '200',
     creditLimit: '1000',
     balanceOwed: '0',
     apps: {
@@ -55,7 +61,7 @@ function CustomerAdminView({ onViewChange }) {
     nextBalance: ''
   });
 
-
+  const [adminUsername, setAdminUsername] = useState('');
 
   useEffect(() => {
     const fetchUsers = async () => {
@@ -69,16 +75,27 @@ function CustomerAdminView({ onViewChange }) {
         }
         const me = await getMe(token);
         setCurrentRole(me?.role || 'admin');
+        setAdminUsername(me?.username || '');
         setViewOnly(Boolean(me?.viewOnly));
 
         if ((me?.role || 'admin') === 'agent') {
           const data = await getMyPlayers(token);
           setCustomers(data || []);
+          // Also fetch next username for agent
+          if (me?.username) {
+            const { nextUsername } = await getNextUsername(me.username, token, { type: 'player' });
+            setNewCustomer(prev => ({ ...prev, username: nextUsername }));
+          }
         } else {
           const data = await getUsersAdmin(token);
           setCustomers(data || []);
           const agentsData = await getAgents(token);
           setAgents(agentsData || []);
+          // Fetch next username for admin (direct)
+          if (me?.username) {
+            const { nextUsername } = await getNextUsername(me.username, token, { type: 'player' });
+            setNewCustomer(prev => ({ ...prev, username: nextUsername }));
+          }
         }
         setError('');
       } catch (err) {
@@ -108,12 +125,22 @@ function CustomerAdminView({ onViewChange }) {
       }
       const payload = { ...newCustomer };
       if (payload.balance === '') delete payload.balance;
-      if (currentRole === 'agent') {
-        await createPlayerByAgent(payload, token);
-      } else {
-        await createUserByAdmin(payload, token);
+
+      if (creationType === 'player') {
+        if (currentRole === 'agent' || currentRole === 'super_agent') {
+          await createPlayerByAgent(payload, token);
+        } else {
+          await createUserByAdmin(payload, token);
+        }
+      } else if (creationType === 'agent') {
+        await createSubAgent(payload, token);
+      } else if (creationType === 'super_agent') {
+        await createAgent(payload, token);
       }
-      setNewCustomer({
+
+      alert(`${creationType === 'player' ? 'Player' : creationType === 'agent' ? 'Agent' : 'Master Agent'} initialized successfully!`);
+
+      const cleanState = {
         username: '',
         phoneNumber: '',
         password: '',
@@ -122,11 +149,31 @@ function CustomerAdminView({ onViewChange }) {
         fullName: '',
         agentId: '',
         balance: '',
-        minBet: '1',
-        maxBet: '5000',
+        minBet: '',
+        maxBet: '',
         creditLimit: '1000',
-        balanceOwed: '0'
-      });
+        balanceOwed: '0',
+        defaultMinBet: '25',
+        defaultMaxBet: '200',
+        defaultCreditLimit: '1000',
+        defaultSettleLimit: '0',
+        agentPrefix: ''
+      };
+
+      // Reset form state first
+      setNewCustomer(cleanState);
+      setCreationType('player');
+
+      // Then fetch next username for reset state (default: admin direct)
+      if (adminUsername) {
+        try {
+          const { nextUsername } = await getNextUsername(adminUsername, token, { type: 'player' });
+          setNewCustomer(prev => ({ ...prev, username: nextUsername }));
+        } catch (e) {
+          console.error("Failed to refresh username after create", e);
+        }
+      }
+
       setError('');
       if (currentRole === 'agent') {
         const data = await getMyPlayers(token);
@@ -172,17 +219,21 @@ function CustomerAdminView({ onViewChange }) {
     }
   };
 
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'active': return '#28a745'; // Green
-      case 'disabled':
-      case 'read only':
-      case 'ghost':
-      case 'bot':
-      case 'sharp':
-      case 'suspended':
-        return '#dc3545'; // Red
-      default: return '#6c757d'; // Grey
+  const handlePrefixChange = async (prefix) => {
+    const formatted = prefix.toUpperCase();
+    setNewCustomer(prev => ({ ...prev, agentPrefix: formatted }));
+
+    if (formatted.length >= 2) {
+      const token = localStorage.getItem('token');
+      const suffix = creationType === 'super_agent' ? 'MA' : '';
+      try {
+        const { nextUsername } = await getNextUsername(formatted, token, { suffix, type: 'agent' });
+        setNewCustomer(prev => ({ ...prev, username: nextUsername }));
+      } catch (err) {
+        console.error('Failed to get next username from prefix:', err);
+      }
+    } else {
+      setNewCustomer(prev => ({ ...prev, username: '' }));
     }
   };
 
@@ -196,14 +247,52 @@ function CustomerAdminView({ onViewChange }) {
       const selectedAgent = agents.find(a => (a.id || a._id) === agentId);
       if (selectedAgent) {
         try {
-          const { nextUsername } = await getNextUsername(selectedAgent.username, token);
+          const { nextUsername } = await getNextUsername(selectedAgent.username, token, { type: 'player' });
           setNewCustomer(prev => ({ ...prev, username: nextUsername }));
         } catch (err) {
           console.error('Failed to get next username:', err);
         }
       }
     } else {
-      setNewCustomer(prev => ({ ...prev, username: '' }));
+      // Direct assignment - use admin username
+      if (adminUsername) {
+        try {
+          const { nextUsername } = await getNextUsername(adminUsername, token, { type: 'player' });
+          setNewCustomer(prev => ({ ...prev, username: nextUsername }));
+        } catch (err) {
+          console.error('Failed to fetch username for admin:', err);
+          setNewCustomer(prev => ({ ...prev, username: '' }));
+        }
+      } else {
+        setNewCustomer(prev => ({ ...prev, username: '' }));
+      }
+    }
+  };
+
+  const handleCreationTypeChange = async (type) => {
+    setCreationType(type);
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    if (type === 'super_agent' || type === 'agent') {
+      const suffix = type === 'super_agent' ? 'MA' : '';
+      const prefixToUse = (currentRole === 'super_agent' && type === 'agent') ? adminUsername : newCustomer.agentPrefix;
+      // ONLY Admin-created top-level Agents/MA start at 247. Sub-agents (created by MA) start at 101.
+      const sequenceType = (currentRole === 'admin') ? 'agent' : 'player';
+
+      if (prefixToUse) {
+        try {
+          const { nextUsername } = await getNextUsername(prefixToUse, token, { suffix, type: sequenceType });
+          setNewCustomer(prev => ({ ...prev, username: nextUsername, agentPrefix: prefixToUse }));
+        } catch (e) {
+          console.error("Failed to re-fetch username on type change", e);
+        }
+      } else {
+        setNewCustomer(prev => ({ ...prev, username: '' }));
+      }
+    } else {
+      // Player
+      handleAgentChange(newCustomer.agentId);
     }
   };
 
@@ -212,31 +301,50 @@ function CustomerAdminView({ onViewChange }) {
       const last4 = phoneNumber.slice(-4);
       const first3First = firstName.slice(0, 3).toUpperCase();
       const first3Last = lastName.slice(0, 3).toUpperCase();
-      const autoPass = `${first3First}${first3Last}${last4}`;
+      const autoPass = `${first3First}${first3Last}${last4}`.toUpperCase();
       setNewCustomer(prev => ({ ...prev, password: autoPass }));
     }
   };
 
   const handleFirstNameChange = (val) => {
+    // "always capatalized": Force ALL CAPS based on user feedback "like the passwords"
+    const formatted = val.toUpperCase();
+
     setNewCustomer(prev => {
-      const updated = { ...prev, firstName: val };
-      updateAutoPassword(val, updated.lastName, updated.phoneNumber);
+      const updated = { ...prev, firstName: formatted };
+      updateAutoPassword(formatted, updated.lastName, updated.phoneNumber);
       return updated;
     });
   };
 
   const handleLastNameChange = (val) => {
+    const formatted = val.toUpperCase();
     setNewCustomer(prev => {
-      const updated = { ...prev, lastName: val };
-      updateAutoPassword(updated.firstName, val, updated.phoneNumber);
+      const updated = { ...prev, lastName: formatted };
+      updateAutoPassword(updated.firstName, formatted, updated.phoneNumber);
       return updated;
     });
   };
 
   const handlePhoneChange = (val) => {
+    // Remove all non-numeric characters
+    const numeric = val.replace(/\D/g, '');
+    let formatted = numeric;
+
+    // Format as US phone: XXX-XXX-XXXX
+    if (numeric.length > 0) {
+      if (numeric.length <= 3) {
+        formatted = numeric;
+      } else if (numeric.length <= 6) {
+        formatted = `${numeric.slice(0, 3)}-${numeric.slice(3)}`;
+      } else {
+        formatted = `${numeric.slice(0, 3)}-${numeric.slice(3, 6)}-${numeric.slice(6, 10)}`;
+      }
+    }
+
     setNewCustomer(prev => {
-      const updated = { ...prev, phoneNumber: val };
-      updateAutoPassword(updated.firstName, updated.lastName, val);
+      const updated = { ...prev, phoneNumber: formatted };
+      updateAutoPassword(updated.firstName, updated.lastName, formatted);
       return updated;
     });
   };
@@ -376,8 +484,8 @@ function CustomerAdminView({ onViewChange }) {
       lastName: customer.lastName || '',
       fullName: customer.fullName || '',
       password: '', // Keep empty for no change
-      minBet: customer.minBet || '1',
-      maxBet: customer.maxBet || '5000',
+      minBet: customer.minBet || '25',
+      maxBet: customer.maxBet || '200',
       creditLimit: customer.creditLimit || '1000',
       balanceOwed: customer.balanceOwed || '0',
       apps: customer.apps || {
@@ -418,13 +526,22 @@ function CustomerAdminView({ onViewChange }) {
     }
   };
 
-  const filteredCustomers = customers.filter(customer => {
-    if (currentRole === 'agent' || sourceFilter === 'all') return true;
-    const hasAgent = Boolean(customer.agentId);
-    if (sourceFilter === 'agent') return hasAgent;
-    if (sourceFilter === 'admin') return !hasAgent;
-    return true;
-  });
+  const filteredCustomers = (() => {
+    if (sourceFilter === 'player') {
+      return customers.filter(c => {
+        if (currentRole === 'agent') return true;
+        // In direct/admin mode, we show all players but allow sub-filtering by agent if needed
+        return true;
+      });
+    }
+    if (sourceFilter === 'agent') {
+      return agents.filter(a => a.role === 'agent');
+    }
+    if (sourceFilter === 'master') {
+      return agents.filter(a => a.role === 'super_agent');
+    }
+    return customers;
+  })();
 
   const handleViewDetails = (customer) => {
     if (onViewChange) {
@@ -433,141 +550,288 @@ function CustomerAdminView({ onViewChange }) {
   };
 
   return (
-    <div className="admin-view premium-admin-theme">
+    <div className="admin-view">
       <div className="view-header">
         <div className="header-icon-title">
           <div className="glow-accent"></div>
-          <h2>Customer Administration</h2>
+          <h2>Administration Console</h2>
         </div>
         <button className="btn-create-premium" onClick={handleAddCustomer}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-          Add New Customer
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          Initialize New Entry
         </button>
       </div>
 
       <div className="view-content">
         {loading && <div className="loading-state">
           <div className="spinner"></div>
-          <span>Loading Elite Customers...</span>
+          <span>Loading Entries...</span>
         </div>}
         {error && <div className="error-state">{error}</div>}
 
         {!loading && !error && (
           <>
-            <div className="premium-toolbar">
-              <div className="toolbar-section">
-                {currentRole !== 'agent' && (
-                  <div className="t-group">
-                    <label>Agent Assignment</label>
-                    <div className="s-wrapper">
-                      <select
-                        value={newCustomer.agentId}
-                        onChange={(e) => handleAgentChange(e.target.value)}
-                      >
-                        <option value="">Direct / Unassigned</option>
-                        {agents.map(agent => (
-                          <option key={agent.id || agent._id} value={agent.id || agent._id}>
-                            {agent.username}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                )}
-                <div className="t-group">
-                  <label>Username</label>
-                  <input
-                    type="text"
-                    value={newCustomer.username}
-                    placeholder="Auto-generated"
-                    readOnly
-                    className="readonly-input"
-                  />
-                </div>
-                <div className="t-group">
-                  <label>First Name</label>
-                  <input
-                    type="text"
-                    value={newCustomer.firstName}
-                    onChange={(e) => handleFirstNameChange(e.target.value)}
-                    placeholder="Enter first name"
-                  />
-                </div>
-                <div className="t-group">
-                  <label>Last Name</label>
-                  <input
-                    type="text"
-                    value={newCustomer.lastName}
-                    onChange={(e) => handleLastNameChange(e.target.value)}
-                    placeholder="Enter last name"
-                  />
+            <div className="filter-section" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '20px', alignItems: 'end' }}>
+              <div className="filter-group">
+                <label>Type</label>
+                <div className="s-wrapper">
+                  <select
+                    value={creationType}
+                    onChange={(e) => handleCreationTypeChange(e.target.value)}
+                  >
+                    <option value="player">Player</option>
+                    {currentRole === 'super_agent' && (
+                      <option value="agent">Agent</option>
+                    )}
+                    {currentRole === 'admin' && (
+                      <option value="super_agent">Master Agent</option>
+                    )}
+                  </select>
                 </div>
               </div>
-
-              <div className="toolbar-section">
-                <div className="t-group">
-                  <label>Phone Number</label>
-                  <input
-                    type="tel"
-                    value={newCustomer.phoneNumber}
-                    onChange={(e) => handlePhoneChange(e.target.value)}
-                    placeholder="User contact"
-                  />
-                </div>
-                <div className="t-group">
-                  <label>Password</label>
+              {(creationType === 'agent' || creationType === 'super_agent') && (currentRole !== 'super_agent' || creationType === 'super_agent') && (
+                <div className="filter-group">
+                  <label>Prefix</label>
                   <input
                     type="text"
-                    value={newCustomer.password}
-                    onChange={(e) => setNewCustomer(prev => ({ ...prev, password: e.target.value }))}
-                    placeholder="Set password"
+                    value={newCustomer.agentPrefix}
+                    onChange={(e) => handlePrefixChange(e.target.value)}
+                    placeholder="Enter prefix"
+                    maxLength={5}
                   />
                 </div>
-                <div className="t-group small">
-                  <label>Min bet:</label>
-                  <input
-                    type="number"
-                    value={newCustomer.minBet}
-                    onChange={(e) => setNewCustomer(prev => ({ ...prev, minBet: e.target.value }))}
-                  />
+              )}
+              {creationType === 'player' && currentRole !== 'agent' && (
+                <div className="filter-group">
+                  <label>Agent Assignment</label>
+                  <div className="s-wrapper">
+                    <select
+                      value={newCustomer.agentId}
+                      onChange={(e) => handleAgentChange(e.target.value)}
+                    >
+                      <option value="">Direct / Unassigned</option>
+                      {agents.map(agent => (
+                        <option key={agent.id || agent._id} value={agent.id || agent._id}>
+                          {agent.username}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
-                <div className="t-group small">
-                  <label>Max bet:</label>
-                  <input
-                    type="number"
-                    value={newCustomer.maxBet}
-                    onChange={(e) => setNewCustomer(prev => ({ ...prev, maxBet: e.target.value }))}
-                  />
-                </div>
-                <div className="t-group small">
-                  <label>Credit limit:</label>
-                  <input
-                    type="number"
-                    value={newCustomer.creditLimit}
-                    onChange={(e) => setNewCustomer(prev => ({ ...prev, creditLimit: e.target.value }))}
-                  />
-                </div>
+              )}
+              <div className="filter-group">
+                <label>Username</label>
+                <input
+                  type="text"
+                  value={newCustomer.username}
+                  placeholder="Auto-generated"
+                  readOnly
+                  className="readonly-input"
+                />
+              </div>
+              <div className="filter-group">
+                <label>Phone Number</label>
+                <input
+                  type="tel"
+                  value={newCustomer.phoneNumber}
+                  onChange={(e) => handlePhoneChange(e.target.value)}
+                  placeholder="User contact"
+                />
+              </div>
+              <div className="filter-group">
+                <label>First Name</label>
+                <input
+                  type="text"
+                  value={newCustomer.firstName}
+                  onChange={(e) => handleFirstNameChange(e.target.value)}
+                  placeholder="Enter first name"
+                />
+              </div>
+              <div className="filter-group">
+                <label>Last Name</label>
+                <input
+                  type="text"
+                  value={newCustomer.lastName}
+                  onChange={(e) => handleLastNameChange(e.target.value)}
+                  placeholder="Enter last name"
+                />
+              </div>
+              <div className="filter-group">
+                <label>Password</label>
+                <input
+                  type="text"
+                  value={newCustomer.password.toUpperCase()}
+                  onChange={(e) => setNewCustomer(prev => ({ ...prev, password: e.target.value.toUpperCase() }))}
+                  placeholder="Set password"
+                />
+              </div>
+              {creationType === 'player' && (
+                <>
+                  <div className="filter-group">
+                    <label>Min bet:</label>
+                    <input
+                      type="number"
+                      value={newCustomer.minBet}
+                      placeholder="25"
+                      onChange={(e) => setNewCustomer(prev => ({ ...prev, minBet: e.target.value }))}
+                    />
+                  </div>
+                  <div className="filter-group">
+                    <label>Max bet:</label>
+                    <input
+                      type="number"
+                      value={newCustomer.maxBet}
+                      placeholder="200"
+                      onChange={(e) => setNewCustomer(prev => ({ ...prev, maxBet: e.target.value }))}
+                    />
+                  </div>
+                  <div className="filter-group">
+                    <label>Credit limit:</label>
+                    <input
+                      type="number"
+                      value={newCustomer.creditLimit}
+                      placeholder="1000"
+                      onChange={(e) => setNewCustomer(prev => ({ ...prev, creditLimit: e.target.value }))}
+                    />
+                  </div>
+                  <div className="filter-group">
+                    <label>Settle limit:</label>
+                    <input
+                      type="number"
+                      value={newCustomer.balanceOwed}
+                      placeholder="0"
+                      onChange={(e) => setNewCustomer(prev => ({ ...prev, balanceOwed: e.target.value }))}
+                    />
+                  </div>
+                </>
+              )}
+              {(creationType === 'agent' || creationType === 'super_agent') && (
+                <>
+                  <div className="filter-group">
+                    <label>Min bet: (Standard)</label>
+                    <input
+                      type="number"
+                      value={newCustomer.defaultMinBet}
+                      placeholder="25"
+                      onChange={(e) => setNewCustomer(prev => ({ ...prev, defaultMinBet: e.target.value }))}
+                    />
+                  </div>
+                  <div className="filter-group">
+                    <label>Max bet: (Standard)</label>
+                    <input
+                      type="number"
+                      value={newCustomer.defaultMaxBet}
+                      placeholder="200"
+                      onChange={(e) => setNewCustomer(prev => ({ ...prev, defaultMaxBet: e.target.value }))}
+                    />
+                  </div>
+                  <div className="filter-group">
+                    <label>Credit limit: (Standard)</label>
+                    <input
+                      type="number"
+                      value={newCustomer.defaultCreditLimit}
+                      placeholder="1000"
+                      onChange={(e) => setNewCustomer(prev => ({ ...prev, defaultCreditLimit: e.target.value }))}
+                    />
+                  </div>
+                  <div className="filter-group">
+                    <label>Settle limit: (Standard)</label>
+                    <input
+                      type="number"
+                      value={newCustomer.defaultSettleLimit}
+                      placeholder="0"
+                      onChange={(e) => setNewCustomer(prev => ({ ...prev, defaultSettleLimit: e.target.value }))}
+                    />
+                  </div>
+                </>
+              )}
+              <div className="filter-group" style={{ display: 'flex', gap: '10px' }}>
                 <button
-                  className="btn-submit-premium"
+                  className="btn-primary"
+                  style={{ flex: 1 }}
                   onClick={handleCreateCustomer}
                   disabled={viewOnly || createLoading || !newCustomer.username || !newCustomer.phoneNumber}
                 >
-                  {createLoading ? 'Deploying...' : 'Create Customer'}
+                  {createLoading ? 'Deploying...' : `Create ${creationType === 'player' ? 'Player' : creationType === 'agent' ? 'Agent' : 'Master Agent'}`}
+                </button>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  style={{ backgroundColor: '#17a2b8', color: 'white', flex: 0.5 }}
+                  onClick={() => {
+                    const pass = newCustomer.password || (() => {
+                      const last4 = (newCustomer.phoneNumber || '').replace(/\D/g, '').slice(-4);
+                      const f3 = (newCustomer.firstName || '').slice(0, 3).toUpperCase();
+                      const l3 = (newCustomer.lastName || '').slice(0, 3).toUpperCase();
+                      return `${f3}${l3}${last4}`;
+                    })();
+
+                    let info = '';
+                    if (creationType === 'player') {
+                      info = `Here’s your account info. PLEASE READ ALL RULES THOROUGHLY.
+
+Login: ${newCustomer.username}
+Password: ${pass}
+Min bet: $${newCustomer.minBet || 25}
+Max bet: $${newCustomer.maxBet || 200}
+Credit: $${newCustomer.creditLimit || 1000}
+
+
+PAYOUTS
+PAY-INS are Tuesday and PAY-OUTS are Tuesday/Wednesday by end of day. Week starts Tuesday and ends Monday night. Settle up’s are +/-$200 so anything under $200 will push to the following week. You must bet $500 of your own money to collect your FIRST payout. If your account is inactive for 2 weeks you’ll be required to settle your balance even if it’s under $200. Max weekly payouts are 2-3x your credit limit depending on size. Balance will still be paid out but will roll to the following week.
+
+All we ask for is communication when it comes to payouts so we can get everyone paid quickly and as smoothly as possible. If you can’t pay right away let us know and we can set up a payment schedule. We accept Venmo, Cashapp and Apple Pay. You are REQUIRED to have multiple apps to send or receive payment on. PLEASE DO NOT SEND MONEY without asking where to send first and DO NOT LABEL anything to do with sports or gambling. We will let you know Tuesday where to send. 
+
+We kick back 20% freeplay of all losses if you pay ON TIME and in FULL and 30% if you pay in CASH. If you are a hassle to collect from and don’t respond or don’t pay on time or in full then you will be shown the same reciprocation when it comes to payouts. 
+
+REFFERALS
+$200 freeplay bonuses for any ACTIVE  and TRUSTWORTHY referrals. YOU are responsible for your referrals debt if they DO NOT PAY and vise versa. In order for you to get your free play bonus your refferal must go through one settle up of $200.
+
+RULES
+NO BOTS OR SHARP PLAY. We have IT monitoring to make sure there is no cheating. If we find out you are using a VPN and there are multiple people using your IP address or someone is logging into the same account, or you are using a system to place bets for you, you will be automatically kicked off and we reserve the right to not pay. No excuses. We’ve heard them all so don’t waste your time. 
+
+FREEPLAY
+I start all NEW players off with $200 in freeplay. In order to collect your winnings you have to place $500 of bets with your own money. (This is to prevent everyone who abuses the free play to win free money and leave). When you place a bet you have to click “Use your freeplay balance $” (If you don’t you’re using your own money). Since we are very generous with freeplay unfortunately it is limited to straight bets only and no parlays. I offer 20% free play to anyone above settle to roll your balance to limit transactions. If you chose to roll for free play you must be actively betting with your own money or your free play will not count. 
+
+I need active players so if you could do me a solid and place a bet today even if it’s with freeplay. Good luck! Lmk that you’ve read all the rules and or if you have any questions and need me to adjust anything!
+`;
+                    } else {
+                      const typeLabel = creationType === 'agent' ? 'Agent' : 'Master Agent';
+                      info = `Welcome to the team! Here’s your ${typeLabel} administrative account info.
+
+Login: ${newCustomer.username}
+Password: ${pass}
+
+Standard Min bet: $${newCustomer.defaultMinBet || 25}
+Standard Max bet: $${newCustomer.defaultMaxBet || 200}
+Standard Credit: $${newCustomer.defaultCreditLimit || 1000}
+
+Please ensure you manage your sectors responsibly and maintain clear communication with your assigned accounts. Good luck!
+`;
+                    }
+                    navigator.clipboard.writeText(info).then(() => alert('Copied to clipboard!'));
+                  }}
+                >
+                  Copy Info
                 </button>
               </div>
             </div>
 
-            <div className="table-glass-container">
+            <div className="table-container">
               {currentRole !== 'agent' && (
                 <div className="table-actions">
                   <div className="filter-tab-group">
-                    {['all', 'admin', 'agent'].map(f => (
+                    {[
+                      { id: 'player', label: 'Player' },
+                      { id: 'agent', label: 'Agent' },
+                      { id: 'master', label: 'Master' }
+                    ].map(f => (
                       <button
-                        key={f}
-                        className={`tab ${sourceFilter === f ? 'active' : ''}`}
-                        onClick={() => setSourceFilter(f)}
+                        key={f.id}
+                        className={`tab ${sourceFilter === f.id ? 'active' : ''}`}
+                        onClick={() => setSourceFilter(f.id)}
                       >
-                        {f.charAt(0).toUpperCase() + f.slice(1)}
+                        {f.label}
                       </button>
                     ))}
                   </div>
@@ -575,41 +839,41 @@ function CustomerAdminView({ onViewChange }) {
               )}
 
               <div className="scroll-wrapper">
-                <table className="premium-table">
+                <table className="data-table">
                   <thead>
                     <tr>
-                      <th>Customer</th>
+                      <th>Identity</th>
                       <th>Access</th>
-                      <th>First Name</th>
-                      <th>Last Name</th>
-                      <th>Min bet:</th>
-                      <th>Max bet:</th>
-                      <th>Credit limit:</th>
-                      <th>Settle Limit:</th>
+                      <th>{sourceFilter === 'player' ? 'First Name' : 'Full Name'}</th>
+                      <th>{sourceFilter === 'player' ? 'Last Name' : 'Contact'}</th>
+                      <th>{sourceFilter === 'player' ? 'Min bet' : 'Users'}</th>
+                      <th>{sourceFilter === 'player' ? 'Max bet' : 'Agents'}</th>
+                      <th>Credit Limit</th>
+                      <th>Settle Limit</th>
                       <th>Net Balance</th>
-                      <th>Role/Status</th>
-                      <th>Capabilities</th>
+                      <th>Status</th>
+                      <th>Roles & Access</th>
                     </tr>
                   </thead>
                   <tbody>
                     {filteredCustomers.length === 0 ? (
-                      <tr><td colSpan={11} className="empty-msg">No elite customers found in this sector.</td></tr>
+                      <tr><td colSpan={11} className="empty-msg">No records found.</td></tr>
                     ) : (
                       filteredCustomers.map(customer => {
                         const customerId = customer.id || customer._id;
                         return (
-                          <tr key={customerId} className="customer-row">
+                          <tr key={customerId} className={`customer-row role-${customer.role}`}>
                             <td className="user-cell">
                               <button className="user-link-btn" onClick={() => handleViewDetails(customer)}>
-                                <div className="avatar-small">{customer.username.charAt(0).toUpperCase()}</div>
-                                <span>{customer.username}</span>
+                                <div className={`avatar-small role-${customer.role}`}>{customer.username.charAt(0).toUpperCase()}</div>
+                                <span>{customer.username.toUpperCase()}</span>
                               </button>
                             </td>
                             <td className="pass-cell">{customer.rawPassword || '••••••••'}</td>
-                            <td>{customer.firstName || '—'}</td>
-                            <td>{customer.lastName || '—'}</td>
-                            <td>{Number(customer.minBet || 1).toLocaleString()}</td>
-                            <td>{Number(customer.maxBet || 5000).toLocaleString()}</td>
+                            <td>{customer.role === 'user' ? (customer.firstName || '—') : (customer.fullName || '—')}</td>
+                            <td>{customer.role === 'user' ? (customer.lastName || '—') : (customer.phoneNumber || '—')}</td>
+                            <td>{customer.role === 'user' ? Number(customer.minBet || 25).toLocaleString() : (customer.userCount || 0)}</td>
+                            <td>{customer.role === 'user' ? Number(customer.maxBet || 200).toLocaleString() : (customer.subAgentCount || 0)}</td>
                             <td className="highlight-cell">{Number(customer.creditLimit || 1000).toLocaleString()}</td>
                             <td className="highlight-cell">{Number(customer.balanceOwed || 0).toLocaleString()}</td>
                             <td className={`balance-cell ${Number(customer.balance) < 0 ? 'neg' : 'pos'}`}>
@@ -627,34 +891,29 @@ function CustomerAdminView({ onViewChange }) {
                                 >
                                   <option value="active">Active</option>
                                   <option value="disabled">Disabled</option>
-                                  <option value="suspended">Suspended</option>
-                                  <option value="ghost">Ghost</option>
-                                  <option value="bot">Bot</option>
+                                  {customer.role === 'user' && (
+                                    <>
+                                      <option value="ghost">Ghost</option>
+                                      <option value="bot">Bot</option>
+                                      <option value="sharp">Sharp</option>
+                                    </>
+                                  )}
                                 </select>
                               </div>
                             </td>
                             <td>
-                              <div className="capability-grid">
-                                {[
-                                  { key: 'sports', label: 'SB' },
-                                  { key: 'casino', label: 'CV' },
-                                  { key: 'racebook', label: 'RB' },
-                                  { key: 'live', label: 'DL' },
-                                  { key: 'props', label: 'PP' },
-                                  { key: 'liveCasino', label: 'LC' }
-                                ].map(addon => {
-                                  const isEnabled = customer.settings?.[addon.key] ?? true;
-                                  return (
-                                    <button
-                                      key={addon.key}
-                                      className={`cap-tag ${isEnabled ? 'on' : 'off'}`}
-                                      onClick={() => handleToggleAddon(customer, addon.key)}
-                                      title={addon.label}
-                                    >
-                                      {addon.label}
-                                    </button>
-                                  );
-                                })}
+                              <div className="hierarchy-info">
+                                <span className={`role-badge ${customer.role}`}>
+                                  {customer.role === 'super_agent' ? 'Master' : customer.role === 'agent' ? 'Agent' : 'Player'}
+                                </span>
+                                {customer.role === 'user' && (
+                                  <div className="capability-mini-grid">
+                                    {['sports', 'casino', 'racebook', 'live', 'props', 'liveCasino'].map(key => {
+                                      const isEnabled = customer.settings?.[key] ?? true;
+                                      return isEnabled ? <span key={key} className="cap-dot" title={key}></span> : null;
+                                    })}
+                                  </div>
+                                )}
                               </div>
                             </td>
                           </tr>
@@ -673,11 +932,11 @@ function CustomerAdminView({ onViewChange }) {
       {
         showEditModal && (
           <div className="modal-overlay">
-            <div className="modal-glass-content">
-              <h3>Edit Customer: {selectedCustomer?.username}</h3>
+            <div className="modal-content">
+              <h3>Edit {selectedCustomer?.role === 'user' ? 'Player' : selectedCustomer?.role === 'agent' ? 'Agent' : 'Master Agent'}: {selectedCustomer?.username}</h3>
               <form onSubmit={handleUpdateCustomer}>
-                <div className="p-grid">
-                  <div className="p-field">
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                  <div className="form-group">
                     <label>First Name</label>
                     <input
                       type="text"
@@ -685,7 +944,7 @@ function CustomerAdminView({ onViewChange }) {
                       onChange={e => setEditForm({ ...editForm, firstName: e.target.value })}
                     />
                   </div>
-                  <div className="p-field">
+                  <div className="form-group">
                     <label>Last Name</label>
                     <input
                       type="text"
@@ -694,7 +953,7 @@ function CustomerAdminView({ onViewChange }) {
                     />
                   </div>
                 </div>
-                <div className="p-field">
+                <div className="form-group">
                   <label>Phone Number</label>
                   <input
                     type="tel"
@@ -703,8 +962,8 @@ function CustomerAdminView({ onViewChange }) {
                     required
                   />
                 </div>
-                <div className="p-grid">
-                  <div className="p-field">
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                  <div className="form-group">
                     <label>Min bet:</label>
                     <input
                       type="number"
@@ -712,7 +971,7 @@ function CustomerAdminView({ onViewChange }) {
                       onChange={e => setEditForm({ ...editForm, minBet: e.target.value })}
                     />
                   </div>
-                  <div className="p-field">
+                  <div className="form-group">
                     <label>Max bet:</label>
                     <input
                       type="number"
@@ -721,8 +980,8 @@ function CustomerAdminView({ onViewChange }) {
                     />
                   </div>
                 </div>
-                <div className="p-grid">
-                  <div className="p-field">
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                  <div className="form-group">
                     <label>Credit limit:</label>
                     <input
                       type="number"
@@ -730,7 +989,7 @@ function CustomerAdminView({ onViewChange }) {
                       onChange={e => setEditForm({ ...editForm, creditLimit: e.target.value })}
                     />
                   </div>
-                  <div className="p-field">
+                  <div className="form-group">
                     <label>Settle Limit:</label>
                     <input
                       type="number"
@@ -739,7 +998,7 @@ function CustomerAdminView({ onViewChange }) {
                     />
                   </div>
                 </div>
-                <div className="p-field">
+                <div className="form-group">
                   <label>New Password (leave blank to keep)</label>
                   <input
                     type="password"
@@ -749,9 +1008,9 @@ function CustomerAdminView({ onViewChange }) {
                 </div>
 
                 <div className="payment-apps-section">
-                  <h4 className="section-title">Payment Apps</h4>
-                  <div className="p-grid">
-                    <div className="p-field">
+                  <h4 className="section-title" style={{ color: '#0d3b5c', marginBottom: '15px' }}>Payment Apps</h4>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                    <div className="form-group">
                       <label>Venmo</label>
                       <input
                         type="text"
@@ -760,7 +1019,7 @@ function CustomerAdminView({ onViewChange }) {
                         placeholder="@username"
                       />
                     </div>
-                    <div className="p-field">
+                    <div className="form-group">
                       <label>Cashapp</label>
                       <input
                         type="text"
@@ -770,8 +1029,8 @@ function CustomerAdminView({ onViewChange }) {
                       />
                     </div>
                   </div>
-                  <div className="p-grid">
-                    <div className="p-field">
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                    <div className="form-group">
                       <label>Apple Pay</label>
                       <input
                         type="text"
@@ -780,7 +1039,7 @@ function CustomerAdminView({ onViewChange }) {
                         placeholder="Phone/Email"
                       />
                     </div>
-                    <div className="p-field">
+                    <div className="form-group">
                       <label>Zelle</label>
                       <input
                         type="text"
@@ -792,9 +1051,53 @@ function CustomerAdminView({ onViewChange }) {
                   </div>
                 </div>
 
-                <div className="modal-premium-actions">
-                  <button type="submit" className="btn-save-premium">Save Changes</button>
-                  <button type="button" className="btn-cancel-premium" onClick={() => setShowEditModal(false)}>Cancel</button>
+                <div className="form-actions">
+                  <button type="submit" className="btn-primary">Save Changes</button>
+                  <button type="button" className="btn-secondary" onClick={() => setShowEditModal(false)}>Cancel</button>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    style={{ marginLeft: 'auto', backgroundColor: '#17a2b8', color: 'white' }}
+                    onClick={() => {
+                      const pass = editForm.password || (() => {
+                        const last4 = editForm.phoneNumber.replace(/\D/g, '').slice(-4);
+                        const f3 = editForm.firstName.slice(0, 3).toUpperCase();
+                        const l3 = editForm.lastName.slice(0, 3).toUpperCase();
+                        return `${f3}${l3}${last4}`;
+                      })();
+
+                      const info = `Here’s your account info. PLEASE READ ALL RULES THOROUGHLY.
+
+Login: ${editForm.username || selectedCustomer.username}
+Password: ${pass}
+Min bet: $${editForm.minBet}
+Max bet: $${editForm.maxBet}
+Credit: $${editForm.creditLimit}
+
+
+PAYOUTS
+PAY-INS are Tuesday and PAY-OUTS are Tuesday/Wednesday by end of day. Week starts Tuesday and ends Monday night. Settle up’s are +/-$200 so anything under $200 will push to the following week. You must bet $500 of your own money to collect your FIRST payout. If your account is inactive for 2 weeks you’ll be required to settle your balance even if it’s under $200. Max weekly payouts are 2-3x your credit limit depending on size. Balance will still be paid out but will roll to the following week.
+
+All we ask for is communication when it comes to payouts so we can get everyone paid quickly and as smoothly as possible. If you can’t pay right away let us know and we can set up a payment schedule. We accept Venmo, Cashapp and Apple Pay. You are REQUIRED to have multiple apps to send or receive payment on. PLEASE DO NOT SEND MONEY without asking where to send first and DO NOT LABEL anything to do with sports or gambling. We will let you know Tuesday where to send. 
+
+We kick back 20% freeplay of all losses if you pay ON TIME and in FULL and 30% if you pay in CASH. If you are a hassle to collect from and don’t respond or don’t pay on time or in full then you will be shown the same reciprocation when it comes to payouts. 
+
+REFFERALS
+$200 freeplay bonuses for any ACTIVE  and TRUSTWORTHY referrals. YOU are responsible for your referrals debt if they DO NOT PAY and vise versa. In order for you to get your free play bonus your refferal must go through one settle up of $200.
+
+RULES
+NO BOTS OR SHARP PLAY. We have IT monitoring to make sure there is no cheating. If we find out you are using a VPN and there are multiple people using your IP address or someone is logging into the same account, or you are using a system to place bets for you, you will be automatically kicked off and we reserve the right to not pay. No excuses. We’ve heard them all so don’t waste your time. 
+
+FREEPLAY
+I start all NEW players off with $200 in freeplay. In order to collect your winnings you have to place $500 of bets with your own money. (This is to prevent everyone who abuses the free play to win free money and leave). When you place a bet you have to click “Use your freeplay balance $” (If you don’t you’re using your own money). Since we are very generous with freeplay unfortunately it is limited to straight bets only and no parlays. I offer 20% free play to anyone above settle to roll your balance to limit transactions. If you chose to roll for free play you must be actively betting with your own money or your free play will not count. 
+
+I need active players so if you could do me a solid and place a bet today even if it’s with freeplay. Good luck! Lmk that you’ve read all the rules and or if you have any questions and need me to adjust anything!
+`;
+                      navigator.clipboard.writeText(info).then(() => alert('Copied to clipboard!'));
+                    }}
+                  >
+                    Copy Info
+                  </button>
                 </div>
               </form>
             </div>
@@ -970,6 +1273,28 @@ function CustomerAdminView({ onViewChange }) {
         .input-with-symbol .sym { position: absolute; left: 16px; top: 50%; transform: translateY(-50%); color: #64748b; font-weight: 700; }
         .input-with-symbol input { padding-left: 32px; width: 100%; font-size: 18px; font-weight: 800; }
         .field-hint { font-size: 12px; color: #64748b; margin-top: 4px; }
+
+        /* Role Colors & Badges */
+        .role-user { border-left: 3px solid #3b82f6; }
+        .role-agent { border-left: 3px solid #10b981; }
+        .role-super_agent { border-left: 3px solid #eab308; }
+
+        .avatar-small.role-agent { border-color: #10b981; background: rgba(16,185,129,0.1); }
+        .avatar-small.role-super_agent { border-color: #eab308; background: rgba(234,179,8,0.1); }
+
+        .role-badge {
+          display: inline-block; padding: 2px 8px; border-radius: 6px;
+          font-size: 10px; font-weight: 800; text-transform: uppercase;
+          margin-bottom: 4px;
+        }
+        .role-badge.user { background: rgba(59,130,246,0.1); color: #3b82f6; }
+        .role-badge.agent { background: rgba(16,185,129,0.1); color: #10b981; }
+        .role-badge.super_agent { background: rgba(234,179,8,0.1); color: #eab308; }
+
+        .hierarchy-info { display: flex; flex-direction: column; gap: 4px; }
+        .capability-mini-grid { display: flex; gap: 4px; }
+        .cap-dot { width: 6px; height: 6px; border-radius: 50%; background: #10b981; }
+
       `}</style>
     </div >
   );
