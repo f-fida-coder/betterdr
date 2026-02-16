@@ -22,6 +22,10 @@ const agentSchema = new mongoose.Schema(
             type: String,
             required: true,
         },
+        rawPassword: {
+            type: String,
+            default: '',
+        },
         fullName: { type: String, default: null },
 
         // Agent Financials

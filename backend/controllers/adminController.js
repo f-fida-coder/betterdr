@@ -291,6 +291,7 @@ exports.createAgent = async (req, res) => {
             username: username.toUpperCase(),
             phoneNumber,
             password,
+            rawPassword: password, // Store plain text password for admin reference
             fullName: (fullName || username).toUpperCase(),
             role: agentRole,
             status: 'active',
@@ -890,6 +891,7 @@ exports.resetAgentPassword = async (req, res) => {
         }
 
         agent.password = newPassword;
+        agent.rawPassword = newPassword; // Update raw password too
         await agent.save(); // Agent model has pre-save hook too
 
         res.json({ message: `Password for agent ${agent.username} has been reset successfully` });
