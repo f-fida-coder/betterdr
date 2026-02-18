@@ -25,7 +25,7 @@ function AdminSidebar({ activeView, onViewChange, isOpen, role = 'admin' }) {
     { id: 'bet-ticker', label: 'Bet Ticker', icon: '⏱️', roles: ['admin', 'agent', 'super_agent', 'master_agent'] },
     { id: 'ticketwriter', label: 'TicketWriter', icon: '✏️', roles: ['admin', 'agent', 'super_agent', 'master_agent'] },
     { id: 'scores', label: 'Scores', icon: '🏆', roles: ['admin', 'agent', 'super_agent', 'master_agent'] },
-    { id: 'master-agent-admin', label: 'Master Agent Admin', icon: '👨‍💼', roles: ['admin'] },
+    { id: 'master-agent-admin', label: 'Master Agent Admin', icon: '👨‍💼', roles: ['admin', 'master_agent', 'super_agent'] },
     { id: 'billing', label: 'Billing', icon: '💳', roles: ['admin', 'agent', 'super_agent', 'master_agent'] },
     { id: 'settings', label: 'Settings', icon: '⚙️', roles: ['admin', 'agent', 'super_agent', 'master_agent'] },
     { id: 'monitor', label: 'System Monitor', icon: '🖥️', roles: ['admin', 'agent', 'super_agent', 'master_agent'] },

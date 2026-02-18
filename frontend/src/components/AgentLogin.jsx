@@ -23,15 +23,22 @@ const AgentLogin = () => {
         try {
             const result = await loginAgent(username, password);
 
-            if (result.role !== 'agent') {
-                throw new Error('Not authorized: agent role required');
+            const allowedRoles = ['agent', 'master_agent', 'super_agent'];
+            if (!allowedRoles.includes(result.role)) {
+                throw new Error('Not authorized: valid agent role required');
             }
 
             localStorage.setItem('token', result.token);
-            sessionStorage.setItem('agentAuthenticated', 'true');
-            sessionStorage.setItem('agentUsername', username);
 
-            navigate('/agent/dashboard');
+            if (result.role === 'super_agent') {
+                sessionStorage.setItem('super_agentAuthenticated', 'true');
+                sessionStorage.setItem('super_agentUsername', username);
+                navigate('/super_agent/dashboard');
+            } else {
+                sessionStorage.setItem('agentAuthenticated', 'true');
+                sessionStorage.setItem('agentUsername', username);
+                navigate('/agent/dashboard');
+            }
         } catch (err) {
             console.error('❌ Agent login failed:', err);
             setError(err.message || 'Invalid agent credentials');

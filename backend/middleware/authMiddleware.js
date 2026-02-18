@@ -24,7 +24,7 @@ const protect = async (req, res, next) => {
             // Select Model based on role in token
             if (decoded.role === 'admin') {
                 req.user = await Admin.findById(decoded.id).select('-password');
-            } else if (decoded.role === 'agent' || decoded.role === 'master_agent') {
+            } else if (decoded.role === 'agent' || decoded.role === 'master_agent' || decoded.role === 'super_agent') {
                 req.user = await Agent.findById(decoded.id).select('-password');
             } else {
                 req.user = await User.findById(decoded.id).select('-password');

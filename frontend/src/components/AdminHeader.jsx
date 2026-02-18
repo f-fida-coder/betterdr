@@ -82,9 +82,9 @@ function AdminHeader({ onMenuToggle, onLogout, onViewChange }) {
   const myBalance = profile?.unlimitedBalance ? 'Unlimited' : (profile?.balance ?? null);
 
   // For Admin, show Total Outstanding from all users. For Agent/User, show their own.
-  const isSuperAdmin = profile?.role === 'admin' || profile?.role === 'super_agent' || profile?.role === 'agent';
-  const outstandingDisplay = isSuperAdmin ? summary.totalOutstanding : (profile?.balanceOwed ?? null);
-  const outstandingLabel = isSuperAdmin ? 'Outstanding Balance' : 'Outstanding';
+  // const isSuperAdmin = profile?.role === 'admin' || profile?.role === 'super_agent' || profile?.role === 'agent';
+  // const outstandingDisplay = isSuperAdmin ? summary.totalOutstanding : (profile?.balanceOwed ?? null);
+  // const outstandingLabel = isSuperAdmin ? 'Outstanding Balance' : 'Outstanding';
 
   return (
     <div className="admin-header">
@@ -135,27 +135,26 @@ function AdminHeader({ onMenuToggle, onLogout, onViewChange }) {
       </div>
 
       <div className="admin-header-bottom">
-        <div className="balance-section">
-          <div className="balance-item">
-            <span className="balance-label">My Balance</span>
-            <span className="balance-amount">{myBalance === 'Unlimited' ? 'Unlimited' : formatCurrency(myBalance)}</span>
+        <div className="admin-stats-grid">
+          {/* Row 1 */}
+          <div className="stat-box">
+            <span className="stat-label">Week</span>
+            <span className="stat-value green">{formatCurrency(summary.weekNet)}</span>
           </div>
-          <div className="balance-item">
-            <span className="balance-label">{outstandingLabel}</span>
-            <span className="balance-amount">{formatCurrency(outstandingDisplay)}</span>
+          <div className="stat-box">
+            <span className="stat-label">Today</span>
+            <span className="stat-value green">{formatCurrency(summary.todayNet)}</span>
           </div>
-          <div className="balance-item">
-            <span className="balance-label">Week Profit</span>
-            <span className="balance-amount green">{formatCurrency(summary.weekNet)}</span>
+
+          {/* Row 2 */}
+          <div className="stat-box">
+            <span className="stat-label">Active Accts</span>
+            <span className="stat-value highlight">{formatCount(summary.activeAccounts)}</span>
           </div>
-          <div className="balance-item">
-            <span className="balance-label">Today Profit</span>
-            <span className="balance-amount green">{formatCurrency(summary.todayNet)}</span>
+          <div className="stat-box">
+            <span className="stat-label">Balance</span>
+            <span className="stat-value">{myBalance === 'Unlimited' ? 'Unlimited' : formatCurrency(myBalance)}</span>
           </div>
-        </div>
-        <div className="active-accounts">
-          <span className="label">Active Accts</span>
-          <span className="count">{formatCount(summary.activeAccounts)}</span>
         </div>
       </div>
 

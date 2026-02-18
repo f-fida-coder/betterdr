@@ -79,7 +79,7 @@ const agentSchema = new mongoose.Schema(
 
         role: {
             type: String,
-            enum: ['agent', 'master_agent'],
+            enum: ['agent', 'master_agent', 'super_agent'],
             default: 'agent',
         },
 

@@ -758,15 +758,7 @@ function CustomerAdminView({ onViewChange }) {
                   className="readonly-input"
                 />
               </div>
-              <div className="filter-group">
-                <label>Phone Number</label>
-                <input
-                  type="tel"
-                  value={newCustomer.phoneNumber}
-                  onChange={(e) => handlePhoneChange(e.target.value)}
-                  placeholder="User contact"
-                />
-              </div>
+
               <div className="filter-group">
                 <label>First Name</label>
                 <input
@@ -783,6 +775,15 @@ function CustomerAdminView({ onViewChange }) {
                   value={newCustomer.lastName}
                   onChange={(e) => handleLastNameChange(e.target.value)}
                   placeholder="Enter last name"
+                />
+              </div>
+              <div className="filter-group">
+                <label>Phone Number</label>
+                <input
+                  type="tel"
+                  value={newCustomer.phoneNumber}
+                  onChange={(e) => handlePhoneChange(e.target.value)}
+                  placeholder="User contact"
                 />
               </div>
               <div className="filter-group">

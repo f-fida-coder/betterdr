@@ -41,7 +41,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
 
                 const [statsData, agentsData] = await Promise.all([
                     getUserStatistics(userId, token),
-                    role === 'admin' ? getAgents(token) : Promise.resolve([])
+                    ['admin', 'master_agent', 'super_agent'].includes(role) ? getAgents(token) : Promise.resolve([])
                 ]);
 
                 if (statsData && statsData.user) {
@@ -391,7 +391,7 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
 
                             <div className="form-group">
                                 <label>Agent Assignment</label>
-                                {role === 'admin' ? (
+                                {['admin', 'master_agent', 'super_agent'].includes(role) ? (
                                     <div className="select-wrapper">
                                         <select name="agentId" value={formData.agentId} onChange={handleChange}>
                                             <option value="">None</option>
