@@ -1,9 +1,24 @@
+const DEFAULT_PROD_API_URL = 'https://betterdr-backend.onrender.com/api';
+
+const normalizeApiUrl = (url) => {
+    if (!url) return '';
+    return String(url).replace(/\/+$/, '').replace(/\/api$/, '') + '/api';
+};
+
 const getBaseUrl = () => {
-    if (import.meta.env.VITE_API_URL) {
-        return import.meta.env.VITE_API_URL;
+    const configuredUrl = normalizeApiUrl(import.meta.env.VITE_API_URL);
+    if (configuredUrl) {
+        return configuredUrl;
     }
-    // In dev, use Vite proxy so browser only talks to frontend port (5173).
-    return '/api';
+
+    // In development, use Vite proxy so browser only talks to frontend port (5173).
+    if (import.meta.env.DEV) {
+        return '/api';
+    }
+
+    // In production, never default to relative /api unless explicitly configured.
+    // Many static hosting setups route /api/* to index.html, which causes HTML responses.
+    return normalizeApiUrl(DEFAULT_PROD_API_URL);
 };
 
 export const API_URL = getBaseUrl();
