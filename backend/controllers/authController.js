@@ -1,26 +1,26 @@
 const { User, Admin, Agent, IpLog } = require('../models');
 const jwt = require('jsonwebtoken');
+const { getClientIp, getOwnerModelForRole, parseAllowlist } = require('../utils/ipUtils');
 
-const getClientIp = (req) => {
-    const forwarded = req.headers['x-forwarded-for'];
-    if (forwarded) {
-        return forwarded.split(',')[0].trim();
-    }
-    return req.ip || req.socket?.remoteAddress || 'unknown';
-};
+const ownerFilter = (user, userModel, ip) => ({
+    userId: user._id,
+    ip,
+    $or: [{ userModel }, { userModel: { $exists: false } }]
+});
 
 const trackLoginIp = async (req, user) => {
     try {
         const ip = getClientIp(req);
         if (!ip || ip === 'unknown') return;
+        const userModel = getOwnerModelForRole(user.role);
 
-        // IpLog stores userId. We assume IDs are unique across collections (Mongo default).
         await IpLog.findOneAndUpdate(
-            { userId: user._id, ip },
+            ownerFilter(user, userModel, ip),
             {
                 $set: {
                     userAgent: req.headers['user-agent'] || null,
-                    lastActive: new Date()
+                    lastActive: new Date(),
+                    userModel
                 },
                 $setOnInsert: {
                     country: 'Unknown',
@@ -67,6 +67,7 @@ const buildAuthPayload = (user) => {
         viewOnly: user.viewOnly,
         agentBillingStatus: user.agentBillingStatus,
         dashboardLayout: user.dashboardLayout,
+        permissions: user.permissions || null,
         token: generateToken(user._id, user.role, user.agentId),
     };
 };
@@ -74,68 +75,64 @@ const buildAuthPayload = (user) => {
 const ensureIpAllowed = async (req, user) => {
     const ipBlockingEnabled = String(process.env.IP_BLOCKING_ENABLED || 'true').toLowerCase() === 'true';
     if (!ipBlockingEnabled) return { allowed: true };
-
-    // ... Existing IP check logic ...
-    // Since we didn't change IpLog schema, this logic likely holds if we pass the user object
-    // Re-implementing simplified call or keep existing as is if I don't replace it all?
-    // I will keep the function mostly but ensure it uses the user object passed.
-    // Actually I can't modify this easily without replacing the whole function or file chunk.
-    // I will assume ensureIpAllowed is working as it just reads userId.
-
-    // START REPLACEMENT of logic
-
     const ip = getClientIp(req);
-    // ... reusing the logic from the file I read ...
-    // To simplify: I will assume the IPs are tracked by ID.
-    // If I replace the whole file content for login methods, I need to make sure ensureIpAllowed is available.
-    // I will replace from imports down to loginAgent end.
-    const duplicateIpBlockEnabled = String(process.env.DUPLICATE_IP_BLOCK_ENABLED || 'true').toLowerCase() === 'true';
+    const userModel = getOwnerModelForRole(user.role);
+    const duplicateIpBlockEnabled = String(process.env.DUPLICATE_IP_BLOCK_ENABLED || 'false').toLowerCase() === 'true';
     if (!ip || ip === 'unknown') return { allowed: true };
 
-    const allowlist = (process.env.IP_ALLOWLIST || '')
-        .split(',')
-        .map(v => v.trim())
-        .filter(Boolean);
+    const allowlist = parseAllowlist(process.env.IP_ALLOWLIST || '');
 
-    // 1. Check if IP is explicitly in system allowlist (hardcoded in env)
-    if (allowlist.includes(ip)) {
+    // 1) System allowlist from env
+    if (allowlist.has(ip)) {
         return { allowed: true };
     }
 
-    // 2. Check if IP is whitelisted in DB for this user
-    const existingLog = await IpLog.findOne({ ip, userId: user._id });
-    if (existingLog && existingLog.status === 'whitelisted') {
+    // 2) Any DB whitelist for this IP should bypass all blocking.
+    const globallyWhitelisted = await IpLog.findOne({ ip, status: 'whitelisted' }).select('_id');
+    if (globallyWhitelisted) {
         return { allowed: true };
     }
 
+    // 3) Explicitly blocked for this account
+    const blocked = await IpLog.findOne({
+        ...ownerFilter(user, userModel, ip),
+        status: 'blocked'
+    }).select('_id');
+    if (blocked) return { allowed: false, message: 'Access blocked for this IP address' };
+
+    // 4) Duplicate-IP protection (optional)
     if (duplicateIpBlockEnabled) {
-        // Find any OTHER user using this same IP
         const conflict = await IpLog.findOne({
             ip,
-            userId: { $ne: user._id },
-            status: { $in: ['active', 'whitelisted'] } // Changed from checking blocked - we want to find active conflicts
+            status: { $in: ['active', 'whitelisted'] },
+            $nor: [{
+                userId: user._id,
+                $or: [{ userModel }, { userModel: { $exists: false } }]
+            }]
         });
 
         if (conflict) {
-            // Block this user's IP and return security alert
             await IpLog.findOneAndUpdate(
-                { userId: user._id, ip },
+                ownerFilter(user, userModel, ip),
                 {
                     $set: {
+                        userModel,
                         status: 'blocked',
                         blockReason: 'DUPLICATE_IP',
-                        blockedAt: new Date()
-                    }
+                        blockedAt: new Date(),
+                        blockedBy: null,
+                        blockedByModel: null
+                    },
+                    $setOnInsert: {
+                        country: 'Unknown',
+                        city: 'Unknown'
+                    },
                 },
                 { upsert: true }
             );
             return { allowed: false, message: 'Security Alert: IP linked to another account.' };
         }
     }
-
-    // Check if this user's IP is blocked
-    const blocked = await IpLog.findOne({ userId: user._id, ip, status: 'blocked' });
-    if (blocked) return { allowed: false, message: 'Access blocked for this IP address' };
 
     return { allowed: true };
 };
@@ -274,7 +271,8 @@ const getMe = async (req, res) => {
             role: req.user.role,
             viewOnly: req.user.viewOnly,
             agentBillingStatus: req.user.agentBillingStatus,
-            dashboardLayout: req.user.dashboardLayout
+            dashboardLayout: req.user.dashboardLayout,
+            permissions: req.user.permissions || null
         })
     } else {
         res.status(404).json({ message: 'User not found' });

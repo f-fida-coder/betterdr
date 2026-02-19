@@ -10,6 +10,7 @@ exports.createUser = async (req, res) => {
             firstName,
             lastName,
             fullName,
+            referredByUserId,
             balance,
             minBet,
             maxBet,
@@ -18,11 +19,16 @@ exports.createUser = async (req, res) => {
             freeplayBalance,
             apps
         } = req.body;
-        const agentId = req.user._id;
+        let assignedAgentId = req.user._id;
 
-        // Ensure agents or master agents can create users
-        if (req.user.role !== 'agent' && req.user.role !== 'master_agent') {
-            return res.status(403).json({ message: 'Only Agents or Master Agents can create customers' });
+        // If Master Agent, allow assigning to a sub-agent
+        if (req.user.role === 'master_agent' && req.body.agentId) {
+            // Verify the target agent is created by this Master Agent
+            const targetAgent = await Agent.findOne({ _id: req.body.agentId, createdBy: req.user._id });
+            if (!targetAgent) {
+                return res.status(403).json({ message: 'You can only create players for yourself or your direct sub-agents.' });
+            }
+            assignedAgentId = targetAgent._id;
         }
 
         // Validation
@@ -30,16 +36,14 @@ exports.createUser = async (req, res) => {
             return res.status(400).json({ message: 'Username, phone number, and password are required' });
         }
 
-        // Check if username already exists
-        const existingUser = await User.findOne({ username });
-        if (existingUser) {
-            return res.status(409).json({ message: 'Username already exists' });
-        }
-
-        // Check if phone number already exists
-        const existingPhone = await User.findOne({ phoneNumber });
-        if (existingPhone) {
-            return res.status(409).json({ message: 'Phone number already exists' });
+        // Check if username/phone already exists in any account collection
+        const existingInfo = await Promise.all([
+            User.findOne({ $or: [{ username }, { phoneNumber }] }),
+            Admin.findOne({ $or: [{ username }, { phoneNumber }] }),
+            Agent.findOne({ $or: [{ username }, { phoneNumber }] })
+        ]);
+        if (existingInfo.some(doc => doc)) {
+            return res.status(409).json({ message: 'Username or phone number already exists in the system' });
         }
 
         // Check weekly creation limit for this agent
@@ -47,7 +51,7 @@ exports.createUser = async (req, res) => {
         oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
 
         const recentUsersCount = await User.countDocuments({
-            agentId: agentId,
+            agentId: assignedAgentId,
             createdAt: { $gte: oneWeekAgo }
         });
 
@@ -57,6 +61,17 @@ exports.createUser = async (req, res) => {
             return res.status(429).json({
                 message: `Weekly limit reached. You can only create ${WEEKLY_LIMIT} new customers per week.`
             });
+        }
+
+        if (referredByUserId) {
+            const referrer = await User.findOne({
+                _id: referredByUserId,
+                role: 'user',
+                agentId: assignedAgentId
+            }).select('_id');
+            if (!referrer) {
+                return res.status(400).json({ message: 'Referrer must be one of your own players' });
+            }
         }
 
         // Create user assigned to this agent
@@ -77,9 +92,12 @@ exports.createUser = async (req, res) => {
             balanceOwed: balanceOwed != null ? balanceOwed : (req.user.defaultSettleLimit || 0),
             freeplayBalance: freeplayBalance != null ? freeplayBalance : 200,
             pendingBalance: 0,
-            agentId: agentId,
-            createdBy: agentId,
+            agentId: assignedAgentId,
+            createdBy: req.user._id,
             createdByModel: 'Agent',
+            referredByUserId: referredByUserId || null,
+            referralBonusGranted: false,
+            referralBonusAmount: 0,
             apps: apps || {}
         });
 
@@ -106,7 +124,7 @@ exports.getMyUsers = async (req, res) => {
     try {
         const agentId = req.user._id;
 
-        const users = await User.find({ agentId }).select('username firstName lastName fullName phoneNumber balance pendingBalance balanceOwed freeplayBalance creditLimit minBet maxBet status createdAt totalWinnings rawPassword');
+        const users = await User.find({ agentId }).populate('referredByUserId', 'username').select('username firstName lastName fullName phoneNumber balance pendingBalance balanceOwed freeplayBalance creditLimit minBet maxBet status createdAt totalWinnings rawPassword referredByUserId referralBonusGranted referralBonusAmount');
         // Calculate active status (>= 2 bets in last 7 days)
         const oneWeekAgo = new Date();
         oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
@@ -141,7 +159,11 @@ exports.getMyUsers = async (req, res) => {
                 pendingBalance,
                 availableBalance,
                 isActive: activeSet.has(String(user._id)),
-                rawPassword: user.rawPassword
+                rawPassword: user.rawPassword,
+                referredByUserId: user.referredByUserId?._id || null,
+                referredByUsername: user.referredByUserId?.username || null,
+                referralBonusGranted: Boolean(user.referralBonusGranted),
+                referralBonusAmount: Number(user.referralBonusAmount || 0)
             };
         });
 
@@ -343,7 +365,7 @@ exports.getMySubAgents = async (req, res) => {
         const agents = await Agent.find({
             createdBy: masterAgentId,
             createdByModel: 'Agent'
-        }).select('username phoneNumber balance balanceOwed role status createdAt');
+        }).select('username phoneNumber balance balanceOwed role status createdAt permissions');
 
         res.json(agents);
     } catch (error) {

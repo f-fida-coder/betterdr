@@ -2,13 +2,8 @@ const getBaseUrl = () => {
     if (import.meta.env.VITE_API_URL) {
         return import.meta.env.VITE_API_URL;
     }
-    // Fixed fallback for local development vs production
-    const isProd = import.meta.env.PROD;
-    if (!isProd) {
-        return 'http://localhost:5000/api';
-    }
-    // Otherwise default to the deployed backend URL
-    return 'https://betterdr-backend.onrender.com/api';
+    // In dev, use Vite proxy so browser only talks to frontend port (5173).
+    return '/api';
 };
 
 export const API_URL = getBaseUrl();
@@ -104,7 +99,12 @@ export const getMe = async (token) => {
     const response = await fetch(`${API_URL}/auth/me`, {
         headers: getHeaders(token)
     });
-    if (!response.ok) throw new Error('Failed to fetch user profile');
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        const error = new Error(errorData.message || 'Failed to fetch user profile');
+        error.status = response.status;
+        throw error;
+    }
     return response.json();
 };
 

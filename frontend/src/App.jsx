@@ -144,8 +144,10 @@ function App() {
       setUser(userData);
     } catch (e) {
       console.error('Failed to fetch user data', e);
-      // If token is invalid or expired, logout
-      handleLogout();
+      // Logout only when token is invalid/forbidden; keep session on transient errors.
+      if (e?.status === 401 || e?.status === 403) {
+        handleLogout();
+      }
     }
   };
 
