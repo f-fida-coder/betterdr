@@ -21,17 +21,46 @@ const getHeaders = (token = null) => {
     return headers;
 };
 
+const parseJsonResponse = async (response, fallbackMessage) => {
+    const contentType = (response.headers.get('content-type') || '').toLowerCase();
+    const isJson = contentType.includes('application/json');
+    const rawText = await response.text();
+
+    let payload = null;
+    if (isJson && rawText) {
+        try {
+            payload = JSON.parse(rawText);
+        } catch {
+            payload = null;
+        }
+    }
+
+    if (!response.ok) {
+        const errorMessage =
+            payload?.message ||
+            (rawText && !isJson ? `${fallbackMessage}: received HTML/non-JSON response from ${response.url}` : fallbackMessage);
+        throw new Error(errorMessage);
+    }
+
+    if (isJson) {
+        if (!rawText) return {};
+        try {
+            return JSON.parse(rawText);
+        } catch {
+            throw new Error(`${fallbackMessage}: server returned invalid JSON`);
+        }
+    }
+
+    throw new Error(`${fallbackMessage}: expected JSON but received non-JSON response from ${response.url}`);
+};
+
 export const loginUser = async (username, password) => {
     const response = await fetch(`${API_URL}/auth/login`, {
         method: 'POST',
         headers: getHeaders(),
         body: JSON.stringify({ username, password })
     });
-    if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || 'Login failed');
-    }
-    return response.json();
+    return parseJsonResponse(response, 'Login failed');
 };
 
 export const loginAdmin = async (username, password) => {
@@ -40,11 +69,7 @@ export const loginAdmin = async (username, password) => {
         headers: getHeaders(),
         body: JSON.stringify({ username, password })
     });
-    if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || 'Admin login failed');
-    }
-    return response.json();
+    return parseJsonResponse(response, 'Admin login failed');
 };
 
 export const loginAgent = async (username, password) => {
@@ -53,11 +78,7 @@ export const loginAgent = async (username, password) => {
         headers: getHeaders(),
         body: JSON.stringify({ username, password })
     });
-    if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || 'Agent login failed');
-    }
-    return response.json();
+    return parseJsonResponse(response, 'Agent login failed');
 };
 
 export const registerUser = async (userData) => {
