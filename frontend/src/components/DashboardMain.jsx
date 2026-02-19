@@ -2,7 +2,7 @@ import React from 'react';
 import SportGenericView from './SportGenericView';
 import SportContentView from './SportContentView'; import { sportsData } from '../data/sportsData';
 
-const DashboardMain = ({ selectedSports = [] }) => {
+const DashboardMain = ({ selectedSports = [], activeBetMode = 'straight' }) => {
     const isDefault = selectedSports.length === 0;
 
     const findItemById = (items, id) => {
@@ -140,6 +140,7 @@ const DashboardMain = ({ selectedSports = [] }) => {
                         selectedItems={selectedSports}
                         filter={section.filter}
                         status={section.status || 'live-upcoming'}
+                        activeBetMode={activeBetMode}
                     />
                     {/* <SportGenericView
                         sportId={section.sportId}

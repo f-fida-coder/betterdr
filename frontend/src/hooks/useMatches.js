@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { io } from 'socket.io-client';
-import { getMatches, getLiveMatches, fetchOddsManual, API_URL } from '../api';
+import { getMatches, getLiveMatches, fetchOddsManual, BACKEND_BASE_URL } from '../api';
 
 // Use backend origin explicitly to avoid Vite serving index.html on relative fetch
-const SOCKET_URL = 'https://betterdr-backend.onrender.com';
+const SOCKET_URL = BACKEND_BASE_URL;
 
 // Hook: fetch initial matches and subscribe to live match updates
 const isLiveMatch = (match) => {

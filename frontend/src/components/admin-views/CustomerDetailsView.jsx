@@ -9,6 +9,14 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
+    const [referredBy, setReferredBy] = useState(null);
+    const [referralStats, setReferralStats] = useState({
+        referredCount: 0,
+        referralBonusGranted: false,
+        referralBonusAmount: 0,
+        referralBonusGrantedAt: null,
+        referralQualifiedDepositAt: null
+    });
     const [activeTab, setActiveTab] = useState('basics'); // 'basics' or 'freeplay'
     const [freeplayAmount, setFreeplayAmount] = useState('');
     const [adjustingFreeplay, setAdjustingFreeplay] = useState(false);
@@ -47,6 +55,14 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
                 if (statsData && statsData.user) {
                     setCustomer(statsData.user);
                     setStats(statsData.stats || {});
+                    setReferredBy(statsData.referredBy || null);
+                    setReferralStats(statsData.referralStats || {
+                        referredCount: 0,
+                        referralBonusGranted: false,
+                        referralBonusAmount: 0,
+                        referralBonusGrantedAt: null,
+                        referralQualifiedDepositAt: null
+                    });
                     setFormData({
                         password: '',
                         firstName: statsData.user.firstName || '',
@@ -165,6 +181,13 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
     if (!customer) return <div className="admin-view"><div className="view-content">Not found. <button onClick={onBack}>Back</button></div></div>;
 
     const available = Number(formData.creditLimit || 0) - Number(formData.balanceOwed || 0);
+    const displayPassword = customer.rawPassword || (() => {
+        const last4 = (customer.phoneNumber || '').replace(/\D/g, '').slice(-4);
+        const f3 = (customer.firstName || '').slice(0, 3).toUpperCase();
+        const l3 = (customer.lastName || '').slice(0, 3).toUpperCase();
+        return `${f3}${l3}${last4}`;
+    })();
+    const roleLabel = customer.role === 'user' ? 'Player' : customer.role === 'agent' ? 'Agent' : 'Master Agent';
 
     return (
         <div className="customer-details-view premium-theme">
@@ -176,21 +199,18 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
                     <div className="left-info">
                         <div className="user-profile">
                             <div className="user-title">
-                                <h2>{customer.username}</h2>
-                                <div style={{ display: 'flex', gap: '10px' }}>
+                                <div className="title-wrap">
+                                    <h2>{customer.username}</h2>
+                                    <span className={`role-chip role-${customer.role}`}>{roleLabel}</span>
+                                </div>
+                                <div className="profile-actions">
                                     <button className="login-btn-prof" onClick={handleImpersonate}>
                                         Login User
                                     </button>
                                     <button
-                                        className="login-btn-prof"
-                                        style={{ background: '#17a2b8', boxShadow: '0 4px 15px rgba(23, 162, 184, 0.3)' }}
+                                        className="login-btn-prof secondary"
                                         onClick={() => {
-                                            const pass = customer.rawPassword || (() => {
-                                                const last4 = (customer.phoneNumber || '').replace(/\D/g, '').slice(-4);
-                                                const f3 = (customer.firstName || '').slice(0, 3).toUpperCase();
-                                                const l3 = (customer.lastName || '').slice(0, 3).toUpperCase();
-                                                return `${f3}${l3}${last4}`;
-                                            })();
+                                            const pass = displayPassword;
 
                                             let info = '';
                                             if (customer.role === 'user') {
@@ -253,21 +273,10 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
                                 <div className="cred-item">
                                     <label>Password:</label>
                                     <span className="val">
-                                        {customer.rawPassword || (() => {
-                                            const last4 = (customer.phoneNumber || '').replace(/\D/g, '').slice(-4);
-                                            const f3 = (customer.firstName || '').slice(0, 3).toUpperCase();
-                                            const l3 = (customer.lastName || '').slice(0, 3).toUpperCase();
-                                            return `${f3}${l3}${last4}`;
-                                        })()}
+                                        {displayPassword}
                                     </span>
                                     <button className="copy-icon" onClick={() => {
-                                        const pass = customer.rawPassword || (() => {
-                                            const last4 = (customer.phoneNumber || '').replace(/\D/g, '').slice(-4);
-                                            const f3 = (customer.firstName || '').slice(0, 3).toUpperCase();
-                                            const l3 = (customer.lastName || '').slice(0, 3).toUpperCase();
-                                            return `${f3}${l3}${last4}`;
-                                        })();
-                                        copyToClipboard(pass, 'Password');
+                                        copyToClipboard(displayPassword, 'Password');
                                     }}>
                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>
                                     </button>
@@ -295,35 +304,60 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
                         </div>
                     </div>
 
-                    <div className="metrics-stacked">
-                        <div className="metric-item">
-                            <label>Balance</label>
-                            <span className={`value ${Number(customer.balance) < 0 ? 'negative' : 'positive'}`}>
-                                {formatCurrency(customer.balance)}
-                            </span>
+                    <div className="right-summary">
+                        <div className="metrics-stacked">
+                            <div className="metric-item">
+                                <label>Balance</label>
+                                <span className={`value ${Number(customer.balance) < 0 ? 'negative' : 'positive'}`}>
+                                    {formatCurrency(customer.balance)}
+                                </span>
+                            </div>
+                            <div className="metric-item">
+                                <label>Pending</label>
+                                <span className="value">{Number(customer.pendingBalance || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD' })}</span>
+                            </div>
+                            <div className="metric-item">
+                                <label>Freeplay</label>
+                                <span className="value freeplay-val">
+                                    {Number(formData.freeplayBalance || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD' })}
+                                </span>
+                            </div>
+                            <div className="metric-item glass">
+                                <label>Available</label>
+                                <span className="value positive large">
+                                    {Number(available).toLocaleString('en-US', { style: 'currency', currency: 'USD' })}
+                                </span>
+                            </div>
+                            <div className="metric-item glass">
+                                <label>LIFETIME +/-</label>
+                                <span className={`value ${Number(stats?.netProfit || 0) < 0 ? 'negative' : 'positive'} large`}>
+                                    {formatCurrency(stats?.netProfit || 0)}
+                                </span>
+                            </div>
                         </div>
-                        <div className="metric-item">
-                            <label>Pending</label>
-                            <span className="value">$0.00</span>
-                        </div>
-                        <div className="metric-item">
-                            <label>Freeplay</label>
-                            <span className="value" style={{ color: '#3b82f6' }}>
-                                {Number(formData.freeplayBalance || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD' })}
-                            </span>
-                        </div>
-                        <div className="metric-item glass">
-                            <label>Available</label>
-                            <span className="value positive large">
-                                {Number(available).toLocaleString('en-US', { style: 'currency', currency: 'USD' })}
-                            </span>
-                        </div>
-                        <div className="metric-item glass">
-                            <label>LIFETIME +/-</label>
-                            <span className={`value ${Number(stats?.netProfit || 0) < 0 ? 'negative' : 'positive'} large`}>
-                                {formatCurrency(stats?.netProfit || 0)}
-                            </span>
-                        </div>
+
+                        {customer.role === 'user' && (
+                            <div className="referral-strip">
+                                <div className="referral-block">
+                                    <span className="ref-label">Referred By</span>
+                                    <span className="ref-value">
+                                        {referredBy?.username ? `${referredBy.username}${referredBy.fullName ? ` (${referredBy.fullName})` : ''}` : 'Direct / None'}
+                                    </span>
+                                </div>
+                                <div className="referral-block">
+                                    <span className="ref-label">Players Referred</span>
+                                    <span className="ref-value">{Number(referralStats?.referredCount || 0)}</span>
+                                </div>
+                                <div className="referral-block">
+                                    <span className="ref-label">Referral Bonus</span>
+                                    <span className={`ref-value ${referralStats?.referralBonusGranted ? 'ok' : 'pending'}`}>
+                                        {referralStats?.referralBonusGranted
+                                            ? `${Number(referralStats?.referralBonusAmount || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD' })} granted`
+                                            : 'Pending qualification'}
+                                    </span>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>
@@ -367,7 +401,7 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
                                     name="password"
                                     value={formData.password}
                                     onChange={handleChange}
-                                    placeholder={customer.rawPassword || "Enter new password"}
+                                    placeholder={displayPassword || "Enter new password"}
                                 />
                             </div>
 
@@ -401,7 +435,7 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
                                         </select>
                                     </div>
                                 ) : (
-                                    <input type="text" value={customer.agentId?.username || 'None'} readOnly disabled />
+                                    <input type="text" value={customer.agentUsername || 'None'} readOnly disabled />
                                 )}
                             </div>
 
@@ -768,6 +802,39 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
                      border: 1px solid #e2e8f0;
                      box-shadow: 0 10px 30px rgba(0,0,0,0.05);
                  }
+
+                 .referral-strip {
+                    margin-top: 14px;
+                    display: grid;
+                    grid-template-columns: repeat(3, minmax(0, 1fr));
+                    gap: 10px;
+                 }
+                 .referral-block {
+                    border: 1px solid #d9e6f7;
+                    border-radius: 10px;
+                    background: #f7fbff;
+                    padding: 10px 12px;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 6px;
+                 }
+                 .ref-label {
+                    font-size: 11px;
+                    font-weight: 700;
+                    text-transform: uppercase;
+                    color: #6b7f9e;
+                 }
+                 .ref-value {
+                    font-size: 14px;
+                    font-weight: 700;
+                    color: #1f3f73;
+                 }
+                 .ref-value.ok { color: #0b7f4f; }
+                 .ref-value.pending { color: #9a6b00; }
+
+                 @media (max-width: 900px) {
+                    .referral-strip { grid-template-columns: 1fr; }
+                 }
                  .card-top { margin-bottom: 40px; border-bottom: 1px solid #f1f5f9; padding-bottom: 32px; }
                  .balance-info { display: flex; flex-direction: column; gap: 8px; }
                  .balance-info .label { font-size: 14px; text-transform: uppercase; color: #64748b; font-weight: 800; letter-spacing: 1px; }
@@ -807,6 +874,228 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
                  .alert { grid-column: span 2; padding: 16px; border-radius: 12px; font-size: 14px; font-weight: 500; }
                  .alert.error { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
                  .alert.success { background: #f0fdf4; color: #15803d; border: 1px solid #bcf1d3; }
+
+                 .customer-details-view.premium-theme .details-header {
+                     position: relative;
+                     top: 0;
+                     border-radius: 14px;
+                     margin: 14px;
+                     padding: 24px;
+                     border: 1px solid #e4edf8;
+                     box-shadow: 0 8px 28px rgba(15, 23, 42, 0.06);
+                 }
+                 .customer-details-view.premium-theme {
+                     font-weight: 400;
+                     color: #1e293b;
+                 }
+                 .customer-details-view.premium-theme .header-top {
+                     display: grid;
+                     grid-template-columns: 1.45fr 1fr;
+                     gap: 22px;
+                     align-items: start;
+                 }
+                 .customer-details-view.premium-theme .back-btn {
+                     display: inline-flex;
+                     align-items: center;
+                     justify-content: center;
+                     width: 42px;
+                     height: 42px;
+                 }
+                 .customer-details-view.premium-theme .left-info {
+                     background: #fff;
+                     border: 1px solid #e4edf8;
+                     border-radius: 12px;
+                     padding: 16px;
+                 }
+                 .customer-details-view.premium-theme .title-wrap {
+                     display: flex;
+                     align-items: center;
+                     gap: 12px;
+                 }
+                 .customer-details-view.premium-theme .user-title {
+                     justify-content: space-between;
+                     align-items: center;
+                     gap: 16px;
+                     flex-wrap: wrap;
+                 }
+                 .customer-details-view.premium-theme .user-title h2 {
+                     font-size: 38px;
+                     letter-spacing: -1px;
+                     font-weight: 600;
+                 }
+                 .customer-details-view.premium-theme .role-chip {
+                     font-size: 11px;
+                     font-weight: 600;
+                     text-transform: uppercase;
+                     border-radius: 999px;
+                     padding: 5px 10px;
+                 }
+                 .customer-details-view.premium-theme .role-chip.role-user {
+                     color: #0b5fc2;
+                     background: #eaf4ff;
+                     border: 1px solid #b8d9fb;
+                 }
+                 .customer-details-view.premium-theme .role-chip.role-agent {
+                     color: #0f766e;
+                     background: #e7fffb;
+                     border: 1px solid #9ce6dc;
+                 }
+                 .customer-details-view.premium-theme .role-chip.role-master_agent,
+                 .customer-details-view.premium-theme .role-chip.role-super_agent {
+                     color: #9a6200;
+                     background: #fff8e9;
+                     border: 1px solid #f3d08b;
+                 }
+                 .customer-details-view.premium-theme .profile-actions {
+                     display: flex;
+                     align-items: center;
+                     gap: 10px;
+                 }
+                 .customer-details-view.premium-theme .login-btn-prof {
+                     height: 40px;
+                     padding: 0 16px;
+                     border-radius: 10px;
+                 }
+                 .customer-details-view.premium-theme .login-btn-prof.secondary {
+                     background: linear-gradient(135deg, #0891b2 0%, #0ea5e9 100%);
+                     box-shadow: 0 4px 14px rgba(14, 165, 233, 0.3);
+                 }
+                 .customer-details-view.premium-theme .cred-block {
+                     background: #f8fbff;
+                     border: 1px solid #e4edf8;
+                     border-radius: 10px;
+                     padding: 12px;
+                 }
+                 .customer-details-view.premium-theme .betting-limits-block {
+                     max-width: none;
+                     border-radius: 12px;
+                     border: 1px solid #e4edf8;
+                     box-shadow: none;
+                     padding: 16px;
+                 }
+                 .customer-details-view.premium-theme .right-summary {
+                     display: flex;
+                     flex-direction: column;
+                     gap: 12px;
+                 }
+                 .customer-details-view.premium-theme .metrics-stacked {
+                     border-left: none;
+                     padding-left: 0;
+                     min-width: 0;
+                     display: grid;
+                     grid-template-columns: repeat(2, minmax(0, 1fr));
+                     gap: 12px;
+                     text-align: left;
+                 }
+                 .customer-details-view.premium-theme .metric-item {
+                     border: 1px solid #e4edf8;
+                     border-radius: 12px;
+                     padding: 10px 12px;
+                     background: #fff;
+                 }
+                 .customer-details-view.premium-theme .metric-item .value {
+                     font-size: 28px;
+                     line-height: 1.1;
+                     font-weight: 600;
+                 }
+                 .customer-details-view.premium-theme .metric-item .value.large {
+                     font-size: 34px;
+                 }
+                 .customer-details-view.premium-theme .metric-item .value.freeplay-val {
+                     color: #1f6fda;
+                 }
+                 .customer-details-view.premium-theme .tab-navigation {
+                     margin: 0 14px;
+                     padding: 6px;
+                     border: 1px solid #e4edf8;
+                     border-top: none;
+                     border-radius: 0 0 12px 12px;
+                     gap: 6px;
+                     box-shadow: none;
+                 }
+                 .customer-details-view.premium-theme .tab-btn {
+                     border-radius: 8px;
+                     border: 1px solid transparent;
+                     padding: 10px 16px;
+                 }
+                 .customer-details-view.premium-theme .tab-btn.active {
+                     background: #edf5ff;
+                     border-color: #c6ddff;
+                     border-bottom-color: #c6ddff;
+                     color: #1257b5;
+                 }
+                 .customer-details-view.premium-theme .details-content {
+                     max-width: 1320px;
+                     padding: 22px 18px 32px;
+                 }
+                 .customer-details-view.premium-theme .section-header {
+                     background: #fff;
+                     border: 1px solid #e4edf8;
+                     border-radius: 12px;
+                     padding: 14px 16px;
+                     margin-bottom: 16px;
+                 }
+                 .customer-details-view.premium-theme .section-header h3 {
+                     font-size: 28px;
+                     letter-spacing: -0.6px;
+                     font-weight: 600;
+                 }
+                 .customer-details-view.premium-theme .save-btn {
+                     height: 42px;
+                     padding: 0 20px;
+                     border-radius: 10px;
+                 }
+                 .customer-details-view.premium-theme .basics-form {
+                     border-radius: 12px;
+                     border: 1px solid #e4edf8;
+                     padding: 20px;
+                     gap: 16px;
+                 }
+                 .customer-details-view.premium-theme .form-group label {
+                     font-weight: 600;
+                     letter-spacing: 0.2px;
+                 }
+                 .customer-details-view.premium-theme .form-group input,
+                 .customer-details-view.premium-theme .form-group select {
+                     font-weight: 400;
+                 }
+                 .customer-details-view.premium-theme .referral-strip {
+                     margin-top: 0;
+                     gap: 10px;
+                 }
+
+                 @media (max-width: 1200px) {
+                     .customer-details-view.premium-theme .header-top {
+                         grid-template-columns: 1fr;
+                     }
+                 }
+                 @media (max-width: 760px) {
+                     .customer-details-view.premium-theme .details-header {
+                         margin: 8px;
+                         padding: 12px;
+                     }
+                     .customer-details-view.premium-theme .user-title h2 {
+                         font-size: 30px;
+                     }
+                     .customer-details-view.premium-theme .profile-actions {
+                         width: 100%;
+                     }
+                     .customer-details-view.premium-theme .profile-actions .login-btn-prof {
+                         flex: 1;
+                     }
+                     .customer-details-view.premium-theme .metrics-stacked {
+                         grid-template-columns: 1fr;
+                     }
+                     .customer-details-view.premium-theme .referral-strip {
+                         grid-template-columns: 1fr;
+                     }
+                     .customer-details-view.premium-theme .details-content {
+                         padding: 12px 10px 24px;
+                     }
+                     .customer-details-view.premium-theme .basics-form {
+                         grid-template-columns: 1fr;
+                     }
+                 }
              `}</style>
         </div >
     );

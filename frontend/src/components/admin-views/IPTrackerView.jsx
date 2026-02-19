@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { blockIp, getIpTracker, unblockIp, whitelistIp } from '../../api';
 
-function IPTrackerView() {
+function IPTrackerView({ canManage = true }) {
   const [ipData, setIpData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -42,6 +42,10 @@ function IPTrackerView() {
       setError('Please login to block IPs.');
       return;
     }
+    if (!canManage) {
+      setError('You do not have permission to manage IP actions.');
+      return;
+    }
     try {
       setActionLoadingId(id);
       await blockIp(id, token);
@@ -59,6 +63,10 @@ function IPTrackerView() {
       setError('Please login to unblock IPs.');
       return;
     }
+    if (!canManage) {
+      setError('You do not have permission to manage IP actions.');
+      return;
+    }
     try {
       setActionLoadingId(id);
       await unblockIp(id, token);
@@ -74,6 +82,10 @@ function IPTrackerView() {
     const token = localStorage.getItem('token');
     if (!token) {
       setError('Please login to whitelist IPs.');
+      return;
+    }
+    if (!canManage) {
+      setError('You do not have permission to manage IP actions.');
       return;
     }
     try {
@@ -122,6 +134,12 @@ function IPTrackerView() {
               </div>
             </div>
 
+            {!canManage && (
+              <div style={{ marginBottom: '12px', color: '#f59e0b', fontWeight: 600 }}>
+                View-only mode: IP actions are disabled by your permissions.
+              </div>
+            )}
+
             <div className="table-container">
               <table className="data-table">
                 <thead>
@@ -147,34 +165,34 @@ function IPTrackerView() {
                       <td>
                         <button className="btn-small" onClick={() => openViewModal(ip)}>View</button>
                         {ip.status === 'blocked' ? (
-                          <button
-                            className="btn-small"
-                            onClick={() => handleUnblock(ip.id)}
-                            disabled={actionLoadingId === ip.id}
-                          >
-                            {actionLoadingId === ip.id ? 'Working...' : 'Unblock'}
-                          </button>
+                            <button
+                              className="btn-small"
+                              onClick={() => handleUnblock(ip.id)}
+                              disabled={actionLoadingId === ip.id || !canManage}
+                            >
+                              {actionLoadingId === ip.id ? 'Working...' : 'Unblock'}
+                            </button>
                         ) : ip.status === 'whitelisted' ? (
-                          <button
-                            className="btn-small"
-                            onClick={() => handleUnblock(ip.id)}
-                            disabled={actionLoadingId === ip.id}
-                          >
-                            {actionLoadingId === ip.id ? 'Working...' : 'Un-whitelist'}
-                          </button>
+                            <button
+                              className="btn-small"
+                              onClick={() => handleUnblock(ip.id)}
+                              disabled={actionLoadingId === ip.id || !canManage}
+                            >
+                              {actionLoadingId === ip.id ? 'Working...' : 'Un-whitelist'}
+                            </button>
                         ) : (
                           <>
                             <button
                               className="btn-small btn-danger"
                               onClick={() => handleBlock(ip.id)}
-                              disabled={actionLoadingId === ip.id}
+                              disabled={actionLoadingId === ip.id || !canManage}
                             >
                               {actionLoadingId === ip.id ? 'Working...' : 'Block'}
                             </button>
                             <button
                               className="btn-small btn-primary"
                               onClick={() => handleWhitelist(ip.id)}
-                              disabled={actionLoadingId === ip.id}
+                              disabled={actionLoadingId === ip.id || !canManage}
                               style={{ marginLeft: '4px', backgroundColor: '#3b82f6' }}
                             >
                               {actionLoadingId === ip.id ? '...' : 'Whitelist'}

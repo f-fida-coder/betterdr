@@ -1,6 +1,7 @@
 import React from 'react';
+import { hasViewPermission } from '../utils/adminPermissions';
 
-function AdminDashboard({ onMenuClick, role = 'admin', layoutPref = 'tiles', isMobile = false }) {
+function AdminDashboard({ onMenuClick, role = 'admin', layoutPref = 'tiles', isMobile = false, permissions = null }) {
   // ... menuItems definitions (kept same) ...
   const menuItems = [
     // Row 1 - Teal
@@ -40,7 +41,9 @@ function AdminDashboard({ onMenuClick, role = 'admin', layoutPref = 'tiles', isM
     { id: 'user-manual', label: 'User Manual', icon: '📖', color: 'black', roles: ['admin', 'agent', 'master_agent', 'super_agent'] },
   ];
 
-  const filteredItems = menuItems.filter(item => item.roles && item.roles.includes(role));
+  const filteredItems = menuItems.filter(
+    (item) => item.roles && item.roles.includes(role) && hasViewPermission(role, permissions, item.id)
+  );
 
   if (isMobile && layoutPref === 'sidebar') {
     return (

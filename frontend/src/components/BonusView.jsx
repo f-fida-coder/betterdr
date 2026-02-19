@@ -1,50 +1,158 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import '../bonus.css';
-import { createDeposit } from '../api';
+import { getBalance, getWalletTransactions, requestDeposit, requestWithdrawal } from '../api';
+
+const TABS = [
+    { id: 'deposits', label: 'Deposits', icon: 'fa-solid fa-arrow-down' },
+    { id: 'withdrawals', label: 'Withdrawals', icon: 'fa-solid fa-arrow-up' },
+    { id: 'loyalty', label: 'Loyalty', icon: 'fa-regular fa-star' },
+    { id: 'requests', label: 'Requests', icon: 'fa-regular fa-file-lines' }
+];
+
+const DEPOSIT_METHODS = [
+    { id: 'mastercard_visa', label: 'Mastercard / Visa', eta: 'Instant', fee: 'Low fee', icon: 'fa-brands fa-cc-visa' },
+    { id: 'apple_pay', label: 'Apple Pay', eta: 'Instant', fee: 'No extra fee', icon: 'fa-brands fa-apple' },
+    { id: 'bitcoin', label: 'Bitcoin', eta: '10-30 min', fee: 'Network fee', icon: 'fa-brands fa-bitcoin' },
+    { id: 'ethereum', label: 'Ethereum', eta: '5-20 min', fee: 'Network fee', icon: 'fa-brands fa-ethereum' },
+    { id: 'bank_transfer', label: 'Bank Transfer', eta: '1-3 days', fee: 'No fee', icon: 'fa-solid fa-building-columns' }
+];
+
+const WITHDRAW_METHODS = [
+    { id: 'bank_transfer', label: 'Bank Transfer', eta: '1-3 days', icon: 'fa-solid fa-building-columns' },
+    { id: 'crypto', label: 'Crypto Wallet', eta: '15-60 min', icon: 'fa-solid fa-wallet' },
+    { id: 'card_refund', label: 'Card Refund', eta: '1-5 days', icon: 'fa-brands fa-cc-visa' }
+];
+
+const QUICK_AMOUNTS = [25, 50, 100, 250, 500, 1000];
+
+const money = (value) => `$${Number(value || 0).toFixed(2)}`;
 
 const BonusView = () => {
+    const token = localStorage.getItem('token');
     const [activeTab, setActiveTab] = useState('deposits');
-    const [selectedMethod, setSelectedMethod] = useState('visa');
+    const [balance, setBalance] = useState({ balance: 0, pendingBalance: 0, availableBalance: 0 });
+    const [transactions, setTransactions] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [actionBusy, setActionBusy] = useState(false);
+    const [error, setError] = useState('');
+    const [message, setMessage] = useState('');
+    const [depositMethod, setDepositMethod] = useState(DEPOSIT_METHODS[0].id);
     const [depositAmount, setDepositAmount] = useState('');
+    const [withdrawMethod, setWithdrawMethod] = useState(WITHDRAW_METHODS[0].id);
+    const [withdrawAmount, setWithdrawAmount] = useState('');
 
-    const handleDeposit = async (methodName, amountValue) => {
-        const token = localStorage.getItem('token');
+    const loadWallet = async () => {
         if (!token) {
-            alert('Please login to deposit');
+            setLoading(false);
+            setError('Please login to access wallet.');
             return;
         }
-        const amount = amountValue ?? depositAmount;
-        if (!amount || isNaN(amount)) return;
-
         try {
-            const data = await createDeposit(parseFloat(amount), token);
-            alert(`Deposit Initiated! Client Secret: ${data.clientSecret.substring(0, 10)}...`);
-        } catch (e) {
-            alert(`Deposit Error: ${e.message}`);
+            setLoading(true);
+            setError('');
+            const [wallet, txPayload] = await Promise.all([
+                getBalance(token),
+                getWalletTransactions(token, { limit: 100 })
+            ]);
+            setBalance({
+                balance: Number(wallet?.balance || 0),
+                pendingBalance: Number(wallet?.pendingBalance || 0),
+                availableBalance: Number(wallet?.availableBalance || 0)
+            });
+            setTransactions(Array.isArray(txPayload?.transactions) ? txPayload.transactions : []);
+        } catch (err) {
+            setError(err.message || 'Failed to load wallet data');
+        } finally {
+            setLoading(false);
         }
     };
 
-    const tabs = [
-        { id: 'deposits', label: 'Deposits', icon: 'fa-solid fa-arrow-down' },
-        { id: 'withdrawals', label: 'Withdrawals', icon: 'fa-solid fa-arrow-up' },
-        { id: 'loyalty', label: 'Loyalty', icon: 'fa-regular fa-star' },
-        { id: 'requests', label: 'Requests', icon: 'fa-regular fa-file-lines' }
-    ];
+    useEffect(() => {
+        loadWallet();
+    }, []);
 
-    const depositMethods = [
-        { id: 'visa', name: 'Mastercard / Visa', icon: 'fa-brands fa-cc-visa', color: '#1a1f71', time: 'Instant', fee: 'Low fees' },
-        { id: 'apple', name: 'Apple Pay', icon: 'fa-brands fa-apple', color: '#ffffff', time: 'Instant', fee: 'No extra fees' },
-        { id: 'btc', name: 'Bitcoin', icon: 'fa-brands fa-bitcoin', color: '#f7931a', time: '10–30 min', fee: 'Network fee' },
-        { id: 'eth', name: 'Ethereum', icon: 'fa-brands fa-ethereum', color: '#627eea', time: '5–20 min', fee: 'Network fee' },
-        { id: 'usdt', name: 'USDT (TRC20)', icon: 'fa-solid fa-coins', color: '#26a17b', time: '5–15 min', fee: 'Low fee' },
-        { id: 'ltc', name: 'Litecoin', icon: 'fa-solid fa-circle-nodes', color: '#345d9d', time: '5–15 min', fee: 'Low fee' },
-        { id: 'sol', name: 'Solana', icon: 'fa-solid fa-bolt', color: '#14f195', time: '1–3 min', fee: 'Low fee' },
-        { id: 'bank', name: 'Bank Transfer', icon: 'fa-solid fa-building-columns', color: '#94a3b8', time: '1–3 days', fee: 'No fee' }
-    ];
+    const depositMethodInfo = useMemo(
+        () => DEPOSIT_METHODS.find((method) => method.id === depositMethod) || DEPOSIT_METHODS[0],
+        [depositMethod]
+    );
 
-    const quickAmounts = [25, 50, 100, 250, 500, 1000];
+    const withdrawMethodInfo = useMemo(
+        () => WITHDRAW_METHODS.find((method) => method.id === withdrawMethod) || WITHDRAW_METHODS[0],
+        [withdrawMethod]
+    );
 
-    const selectedMethodInfo = depositMethods.find(m => m.id === selectedMethod) || depositMethods[0];
+    const walletStats = useMemo(() => {
+        const completedDeposits = transactions
+            .filter((tx) => tx.type === 'deposit' && tx.status === 'completed')
+            .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+        const completedWithdrawals = transactions
+            .filter((tx) => tx.type === 'withdrawal' && tx.status === 'completed')
+            .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+        const settledBets = transactions
+            .filter((tx) => tx.type === 'bet_placed')
+            .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+        const loyaltyPoints = Math.floor((completedDeposits + settledBets) / 10);
+        const loyaltyTarget = 4000;
+        const loyaltyPct = Math.min(100, Math.round((loyaltyPoints / loyaltyTarget) * 100));
+        return {
+            completedDeposits,
+            completedWithdrawals,
+            settledBets,
+            loyaltyPoints,
+            loyaltyTarget,
+            loyaltyPct
+        };
+    }, [transactions]);
+
+    const requestItems = useMemo(() => {
+        return [...transactions]
+            .filter((tx) => tx.type === 'deposit' || tx.type === 'withdrawal')
+            .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    }, [transactions]);
+
+    const handleDepositRequest = async () => {
+        const amount = Number(depositAmount);
+        if (Number.isNaN(amount) || amount < 10) {
+            setError('Deposit must be at least $10');
+            return;
+        }
+        try {
+            setActionBusy(true);
+            setError('');
+            const payload = await requestDeposit(amount, depositMethod, token);
+            setMessage(payload.message || 'Deposit request submitted');
+            setDepositAmount('');
+            await loadWallet();
+        } catch (err) {
+            setError(err.message || 'Failed to submit deposit request');
+        } finally {
+            setActionBusy(false);
+        }
+    };
+
+    const handleWithdrawalRequest = async () => {
+        const amount = Number(withdrawAmount);
+        if (Number.isNaN(amount) || amount < 20) {
+            setError('Withdrawal must be at least $20');
+            return;
+        }
+        if (amount > balance.availableBalance) {
+            setError('Withdrawal exceeds available balance');
+            return;
+        }
+        try {
+            setActionBusy(true);
+            setError('');
+            const payload = await requestWithdrawal(amount, withdrawMethod, token);
+            setMessage(payload.message || 'Withdrawal request submitted');
+            setWithdrawAmount('');
+            await loadWallet();
+        } catch (err) {
+            setError(err.message || 'Failed to submit withdrawal request');
+        } finally {
+            setActionBusy(false);
+        }
+    };
 
     return (
         <div className="bonus-view-container">
@@ -52,300 +160,204 @@ const BonusView = () => {
                 <aside className="bonus-sidebar">
                     <div className="sidebar-brand">
                         <span className="brand-chip">Wallet</span>
-                        <h2>Bonus Center</h2>
-                        <p>Manage deposits, withdrawals, and loyalty rewards.</p>
+                        <h2>Cashier Center</h2>
+                        <p>Professional cashier flow with secure approval and tracking.</p>
                     </div>
+
+                    <div className="sidebar-wallet-cards">
+                        <div className="wallet-card">
+                            <span>Balance</span>
+                            <strong>{money(balance.balance)}</strong>
+                        </div>
+                        <div className="wallet-card">
+                            <span>Available</span>
+                            <strong>{money(balance.availableBalance)}</strong>
+                        </div>
+                        <div className="wallet-card">
+                            <span>Pending</span>
+                            <strong>{money(balance.pendingBalance)}</strong>
+                        </div>
+                    </div>
+
                     <div className="sidebar-nav">
-                        {tabs.map(tab => (
+                        {TABS.map((tab) => (
                             <button
                                 key={tab.id}
                                 className={`sidebar-item ${activeTab === tab.id ? 'active' : ''}`}
-                                onClick={() => setActiveTab(tab.id)}
                                 type="button"
+                                onClick={() => setActiveTab(tab.id)}
                             >
-                                <span className="sidebar-icon"><i className={tab.icon}></i></span>
-                                <div>
-                                    <div className="sidebar-title">{tab.label}</div>
-                                    <div className="sidebar-subtitle">
-                                        {tab.id === 'deposits' && 'Add funds instantly'}
-                                        {tab.id === 'withdrawals' && 'Secure payout options'}
-                                        {tab.id === 'loyalty' && 'Rewards & tiers'}
-                                        {tab.id === 'requests' && 'Track activity'}
-                                    </div>
-                                </div>
+                                <i className={tab.icon}></i>
+                                <span>{tab.label}</span>
                             </button>
                         ))}
-                    </div>
-                    <div className="sidebar-footer">
-                        <div className="footer-card">
-                            <span>Need assistance?</span>
-                            <button type="button">Contact Support</button>
-                        </div>
                     </div>
                 </aside>
 
                 <section className="bonus-main">
-                    <div className="bonus-top">
+                    <div className="bonus-main-top">
                         <div>
-                            <span className="bonus-eyebrow">Wallet Overview</span>
-                            <h1>Fast, secure transactions</h1>
-                            <p>All payment tools in one place. Choose a method, enter an amount, and confirm.</p>
+                            <h1>Wallet & Bonus Operations</h1>
+                            <p>All actions are DB-backed and approval-aware for sportsbook workflows.</p>
                         </div>
-                        <div className="bonus-top-stats">
-                            <div>
-                                <span>Processing</span>
-                                <strong>Instant / Same Day</strong>
-                            </div>
-                            <div>
-                                <span>Security</span>
-                                <strong>Encrypted & Verified</strong>
-                            </div>
-                        </div>
+                        <button className="secondary-btn" onClick={loadWallet} type="button">
+                            <i className="fa-solid fa-rotate-right"></i> Refresh
+                        </button>
                     </div>
 
-                    {activeTab === 'deposits' && (
-                        <div className="bonus-section">
-                            <div className="section-header">
-                                <div>
-                                    <h2 className="section-title">Choose a deposit method</h2>
-                                    <p className="section-subtitle">Pick a method, enter amount, and confirm.</p>
-                                </div>
-                                <div className="section-badge">
-                                    <i className="fa-solid fa-lock"></i> Secure
-                                </div>
-                            </div>
-                            <div className="deposit-layout">
-                                <div className="deposit-methods-grid">
-                                    {depositMethods.map((method) => (
+                    {message && <div className="bonus-banner success">{message}</div>}
+                    {error && <div className="bonus-banner error">{error}</div>}
+                    {loading && <div className="bonus-loading">Loading wallet data...</div>}
+
+                    {!loading && activeTab === 'deposits' && (
+                        <div className="bonus-content-grid">
+                            <div className="bonus-card">
+                                <h3>Deposit Methods</h3>
+                                <div className="method-grid">
+                                    {DEPOSIT_METHODS.map((method) => (
                                         <button
                                             key={method.id}
-                                            className={`deposit-method-card ${selectedMethod === method.id ? 'selected' : ''}`}
-                                            onClick={() => setSelectedMethod(method.id)}
                                             type="button"
+                                            className={`method-card ${depositMethod === method.id ? 'selected' : ''}`}
+                                            onClick={() => setDepositMethod(method.id)}
                                         >
-                                            <div className="method-icon" style={{ color: method.color }}>
+                                            <div className="method-head">
                                                 <i className={method.icon}></i>
+                                                <strong>{method.label}</strong>
                                             </div>
-                                            <div className="method-info">
-                                                <div className="method-name">{method.name}</div>
-                                                <div className="method-meta">
-                                                    <span><i className="fa-regular fa-clock"></i> {method.time}</span>
-                                                    <span><i className="fa-solid fa-tag"></i> {method.fee}</span>
-                                                </div>
+                                            <div className="method-meta">
+                                                <span>{method.eta}</span>
+                                                <span>{method.fee}</span>
                                             </div>
                                         </button>
                                     ))}
                                 </div>
-                                <div className="deposit-panel">
-                                    <div className="panel-header">
-                                        <div>
-                                            <div className="panel-title">Deposit Summary</div>
-                                            <div className="panel-subtitle">Review and confirm your deposit.</div>
-                                        </div>
-                                        <div className="panel-pill">{selectedMethodInfo?.name}</div>
-                                    </div>
+                            </div>
 
-                                    <div className="amount-input">
-                                        <label>Amount</label>
-                                        <div className="input-row">
-                                            <span className="currency">$</span>
-                                            <input
-                                                type="number"
-                                                min="1"
-                                                placeholder="Enter amount"
-                                                value={depositAmount}
-                                                onChange={(e) => setDepositAmount(e.target.value)}
-                                            />
-                                        </div>
-                                    </div>
-
-                                    <div className="quick-amounts">
-                                        {quickAmounts.map((amount) => (
-                                            <button
-                                                key={amount}
-                                                type="button"
-                                                className={`chip ${Number(depositAmount) === amount ? 'active' : ''}`}
-                                                onClick={() => setDepositAmount(String(amount))}
-                                            >
-                                                ${amount}
-                                            </button>
-                                        ))}
-                                    </div>
-
-                                    <div className="panel-summary">
-                                        <div>
-                                            <span>Processing time</span>
-                                            <strong>{selectedMethodInfo?.time}</strong>
-                                        </div>
-                                        <div>
-                                            <span>Fees</span>
-                                            <strong>{selectedMethodInfo?.fee}</strong>
-                                        </div>
-                                    </div>
-
-                                    <button
-                                        className="method-select-btn full"
-                                        onClick={() => handleDeposit(selectedMethodInfo?.name, depositAmount)}
-                                    >
-                                        Deposit Now
-                                    </button>
+                            <div className="bonus-card summary">
+                                <h3>Submit Deposit Request</h3>
+                                <div className="input-label">Method</div>
+                                <div className="pill">{depositMethodInfo.label}</div>
+                                <div className="input-label">Amount</div>
+                                <div className="amount-row">
+                                    <span>$</span>
+                                    <input
+                                        type="number"
+                                        min="10"
+                                        value={depositAmount}
+                                        onChange={(e) => setDepositAmount(e.target.value)}
+                                        placeholder="Enter amount"
+                                    />
                                 </div>
+                                <div className="chips">
+                                    {QUICK_AMOUNTS.map((amount) => (
+                                        <button key={amount} className={`chip ${Number(depositAmount) === amount ? 'active' : ''}`} onClick={() => setDepositAmount(String(amount))} type="button">
+                                            ${amount}
+                                        </button>
+                                    ))}
+                                </div>
+                                <button className="primary-btn" disabled={actionBusy} onClick={handleDepositRequest} type="button">
+                                    {actionBusy ? 'Submitting...' : 'Request Deposit'}
+                                </button>
                             </div>
                         </div>
                     )}
 
-                    {activeTab === 'withdrawals' && (
-                        <div className="bonus-section">
-                            <div className="section-header">
-                                <div>
-                                    <h2 className="section-title">Withdraw funds</h2>
-                                    <p className="section-subtitle">Secure payout options with verification.</p>
+                    {!loading && activeTab === 'withdrawals' && (
+                        <div className="bonus-content-grid">
+                            <div className="bonus-card">
+                                <h3>Withdrawal Methods</h3>
+                                <div className="method-grid">
+                                    {WITHDRAW_METHODS.map((method) => (
+                                        <button
+                                            key={method.id}
+                                            type="button"
+                                            className={`method-card ${withdrawMethod === method.id ? 'selected' : ''}`}
+                                            onClick={() => setWithdrawMethod(method.id)}
+                                        >
+                                            <div className="method-head">
+                                                <i className={method.icon}></i>
+                                                <strong>{method.label}</strong>
+                                            </div>
+                                            <div className="method-meta">
+                                                <span>{method.eta}</span>
+                                                <span>Approval required</span>
+                                            </div>
+                                        </button>
+                                    ))}
                                 </div>
                             </div>
-                            <div className="bonus-grid-2">
-                                <div className="info-card">
-                                    <div className="info-card-header">
-                                        <div>
-                                            <h3>Withdrawals Portal</h3>
-                                            <p>Secure your winnings with verified withdrawal options.</p>
-                                        </div>
-                                        <span className="status-pill">No pending</span>
-                                    </div>
-                                    <div className="info-list">
-                                        <div>
-                                            <span>Standard processing</span>
-                                            <strong>1–3 business days</strong>
-                                        </div>
-                                        <div>
-                                            <span>Verification</span>
-                                            <strong>Identity check required</strong>
-                                        </div>
-                                        <div>
-                                            <span>Minimum withdrawal</span>
-                                            <strong>$20</strong>
-                                        </div>
-                                    </div>
-                                    <button className="method-select-btn full" type="button">
-                                        Request Withdrawal
-                                    </button>
+
+                            <div className="bonus-card summary">
+                                <h3>Submit Withdrawal Request</h3>
+                                <div className="input-label">Available Balance</div>
+                                <div className="pill">{money(balance.availableBalance)}</div>
+                                <div className="input-label">Method</div>
+                                <div className="pill">{withdrawMethodInfo.label}</div>
+                                <div className="input-label">Amount</div>
+                                <div className="amount-row">
+                                    <span>$</span>
+                                    <input
+                                        type="number"
+                                        min="20"
+                                        value={withdrawAmount}
+                                        onChange={(e) => setWithdrawAmount(e.target.value)}
+                                        placeholder="Enter amount"
+                                    />
                                 </div>
-                                <div className="info-card muted">
-                                    <h3>Available Methods</h3>
-                                    <div className="method-list">
-                                        <div><i className="fa-brands fa-cc-visa"></i> Card Refund</div>
-                                        <div><i className="fa-brands fa-bitcoin"></i> Bitcoin</div>
-                                        <div><i className="fa-brands fa-ethereum"></i> Ethereum</div>
-                                        <div><i className="fa-solid fa-coins"></i> USDT (TRC20)</div>
-                                        <div><i className="fa-solid fa-circle-nodes"></i> Litecoin</div>
-                                        <div><i className="fa-solid fa-bolt"></i> Solana</div>
-                                        <div><i className="fa-solid fa-building-columns"></i> Bank Transfer</div>
-                                    </div>
-                                </div>
+                                <button className="primary-btn" disabled={actionBusy} onClick={handleWithdrawalRequest} type="button">
+                                    {actionBusy ? 'Submitting...' : 'Request Withdrawal'}
+                                </button>
                             </div>
                         </div>
                     )}
 
-                    {activeTab === 'loyalty' && (
-                        <div className="bonus-section">
-                            <div className="section-header">
-                                <div>
-                                    <h2 className="section-title">Loyalty rewards</h2>
-                                    <p className="section-subtitle">Earn points and unlock exclusive perks.</p>
+                    {!loading && activeTab === 'loyalty' && (
+                        <div className="bonus-content-grid">
+                            <div className="bonus-card">
+                                <h3>Loyalty Progress</h3>
+                                <div className="metric-row">
+                                    <span>Current Points</span>
+                                    <strong>{walletStats.loyaltyPoints}</strong>
+                                </div>
+                                <div className="progress-bar">
+                                    <div style={{ width: `${walletStats.loyaltyPct}%` }}></div>
+                                </div>
+                                <div className="metric-row muted">
+                                    <span>{walletStats.loyaltyPoints} / {walletStats.loyaltyTarget}</span>
+                                    <span>{walletStats.loyaltyPct}%</span>
                                 </div>
                             </div>
-                            <div className="bonus-grid-2">
-                                <div className="info-card">
-                                    <div className="info-card-header">
-                                        <div>
-                                            <h3>Loyalty Overview</h3>
-                                            <p>Earn points on every wager and unlock VIP perks.</p>
-                                        </div>
-                                        <span className="status-pill gold">Gold Tier</span>
-                                    </div>
-                                    <div className="loyalty-progress">
-                                        <div className="progress-bar">
-                                            <div className="progress-fill" style={{ width: '72%' }}></div>
-                                        </div>
-                                        <div className="progress-labels">
-                                            <span>2,880 / 4,000 pts</span>
-                                            <span>Next: Platinum</span>
-                                        </div>
-                                    </div>
-                                    <div className="info-list">
-                                        <div><span>Weekly cashback</span><strong>3%</strong></div>
-                                        <div><span>Priority support</span><strong>Enabled</strong></div>
-                                        <div><span>Exclusive promos</span><strong>3 active</strong></div>
-                                    </div>
-                                </div>
-                                <div className="info-card muted">
-                                    <h3>Tier Benefits</h3>
-                                    <div className="tier-grid">
-                                        <div className="tier-card">
-                                            <h4>Silver</h4>
-                                            <p>1% cashback, weekly draws</p>
-                                        </div>
-                                        <div className="tier-card active">
-                                            <h4>Gold</h4>
-                                            <p>3% cashback, VIP promos</p>
-                                        </div>
-                                        <div className="tier-card">
-                                            <h4>Platinum</h4>
-                                            <p>5% cashback, concierge</p>
-                                        </div>
-                                    </div>
-                                </div>
+                            <div className="bonus-card">
+                                <h3>Wallet Performance</h3>
+                                <div className="metric-row"><span>Completed Deposits</span><strong>{money(walletStats.completedDeposits)}</strong></div>
+                                <div className="metric-row"><span>Completed Withdrawals</span><strong>{money(walletStats.completedWithdrawals)}</strong></div>
+                                <div className="metric-row"><span>Settled Bet Volume</span><strong>{money(walletStats.settledBets)}</strong></div>
                             </div>
                         </div>
                     )}
 
-                    {activeTab === 'requests' && (
-                        <div className="bonus-section">
-                            <div className="section-header">
-                                <div>
-                                    <h2 className="section-title">Recent activity</h2>
-                                    <p className="section-subtitle">Track deposits and withdrawals in real time.</p>
+                    {!loading && activeTab === 'requests' && (
+                        <div className="bonus-card full">
+                            <h3>Deposit/Withdrawal Requests</h3>
+                            <div className="request-table">
+                                <div className="request-head">
+                                    <span>Type</span>
+                                    <span>Amount</span>
+                                    <span>Status</span>
+                                    <span>Date</span>
+                                    <span>Description</span>
                                 </div>
-                            </div>
-                            <div className="bonus-grid-2">
-                                <div className="info-card">
-                                    <div className="info-card-header">
-                                        <div>
-                                            <h3>Active Requests</h3>
-                                            <p>Track your latest deposits and withdrawals.</p>
-                                        </div>
-                                        <span className="status-pill">Updated</span>
+                                {requestItems.length === 0 && <div className="request-empty">No requests found.</div>}
+                                {requestItems.map((tx) => (
+                                    <div key={tx.id} className="request-row">
+                                        <span className="caps">{tx.type}</span>
+                                        <span>{money(tx.amount)}</span>
+                                        <span className={`status ${tx.status}`}>{tx.status}</span>
+                                        <span>{new Date(tx.createdAt).toLocaleString()}</span>
+                                        <span>{tx.description || '-'}</span>
                                     </div>
-                                    <div className="request-list">
-                                        <div className="request-item">
-                                            <div>
-                                                <strong>Deposit • $250</strong>
-                                                <span>Mastercard / Visa</span>
-                                            </div>
-                                            <span className="request-status success">Completed</span>
-                                        </div>
-                                        <div className="request-item">
-                                            <div>
-                                                <strong>Withdrawal • $120</strong>
-                                                <span>Bank Transfer</span>
-                                            </div>
-                                            <span className="request-status pending">Pending</span>
-                                        </div>
-                                        <div className="request-item">
-                                            <div>
-                                                <strong>Deposit • $75</strong>
-                                                <span>Bitcoin</span>
-                                            </div>
-                                            <span className="request-status review">Review</span>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div className="info-card muted">
-                                    <h3>Need help?</h3>
-                                    <p>Contact support for large withdrawals or verification help.</p>
-                                    <button className="method-select-btn full" type="button">
-                                        Contact Support
-                                    </button>
-                                </div>
+                                ))}
                             </div>
                         </div>
                     )}

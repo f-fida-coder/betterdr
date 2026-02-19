@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { placeBet } from '../api';
 import useMatches from '../hooks/useMatches';
 
-const SportContentView = ({ sportId, selectedItems = [], status = 'live-upcoming' }) => {
+const SportContentView = ({ sportId, selectedItems = [], status = 'live-upcoming', activeBetMode = 'straight' }) => {
     const [activeTab, setActiveTab] = useState('matches');
 
     const [content, setContent] = useState({ name: '', icon: '', matches: [], scoreboards: [] });
@@ -188,6 +188,11 @@ const SportContentView = ({ sportId, selectedItems = [], status = 'live-upcoming
         }));
     };
 
+    const normalizedMode = String(activeBetMode || 'straight').toLowerCase().replace(/-/g, '_');
+    const showSpread = ['straight', 'parlay', 'teaser', 'if_bet', 'reverse'].includes(normalizedMode);
+    const showMoneyline = ['straight', 'parlay', 'if_bet', 'reverse'].includes(normalizedMode);
+    const showTotals = ['straight', 'parlay', 'teaser', 'if_bet', 'reverse'].includes(normalizedMode);
+
     return (
         <div className="sport-content-view">
             <div className="content-header">
@@ -253,60 +258,66 @@ const SportContentView = ({ sportId, selectedItems = [], status = 'live-upcoming
                                     </div>
                                 </div>
 
-                                {match.odds && match.odds.spread[0] !== '-' && (
+                                {match.odds && (
                                     <div className="match-odds">
                                         <div className="odds-row">
-                                            <div className="odds-cell">
-                                                <span className="odds-label">Spread</span>
-                                                <div className="odds-values-group">
-                                                    <button
-                                                        className="odds-value-btn"
-                                                        onClick={() => handleAddToSlip(match.id, match.team1.name, 'spreads', match.rawMatch.odds.markets.find(m => m.key === 'spreads')?.outcomes.find(o => o.name === match.team1.name)?.price, `${match.team1.name} vs ${match.team2.name}`, 'Spread')}
+                                            {showSpread && (
+                                                <div className="odds-cell">
+                                                    <span className="odds-label">Spread</span>
+                                                    <div className="odds-values-group">
+                                                        <button
+                                                            className="odds-value-btn"
+                                                            onClick={() => handleAddToSlip(match.id, match.team1.name, 'spreads', match.rawMatch.odds?.markets?.find(m => m.key === 'spreads')?.outcomes.find(o => o.name === match.team1.name)?.price, `${match.team1.name} vs ${match.team2.name}`, 'Spread')}
                                                     >
                                                         {match.odds.spread[0]}
                                                     </button>
                                                     <button
                                                         className="odds-value-btn"
-                                                        onClick={() => handleAddToSlip(match.id, match.team2.name, 'spreads', match.rawMatch.odds.markets.find(m => m.key === 'spreads')?.outcomes.find(o => o.name === match.team2.name)?.price, `${match.team1.name} vs ${match.team2.name}`, 'Spread')}
+                                                        onClick={() => handleAddToSlip(match.id, match.team2.name, 'spreads', match.rawMatch.odds?.markets?.find(m => m.key === 'spreads')?.outcomes.find(o => o.name === match.team2.name)?.price, `${match.team1.name} vs ${match.team2.name}`, 'Spread')}
                                                     >
                                                         {match.odds.spread[1]}
                                                     </button>
                                                 </div>
-                                            </div>
-                                            <div className="odds-cell">
-                                                <span className="odds-label">Moneyline</span>
-                                                <div className="odds-values-group">
-                                                    <button
-                                                        className="odds-value-btn"
-                                                        onClick={() => handleAddToSlip(match.id, match.team1.name, 'h2h', match.rawMatch.odds.markets.find(m => m.key === 'h2h')?.outcomes.find(o => o.name === match.team1.name)?.price, `${match.team1.name} vs ${match.team2.name}`, 'Moneyline')}
+                                                </div>
+                                            )}
+                                            {showMoneyline && (
+                                                <div className="odds-cell">
+                                                    <span className="odds-label">Moneyline</span>
+                                                    <div className="odds-values-group">
+                                                        <button
+                                                            className="odds-value-btn"
+                                                            onClick={() => handleAddToSlip(match.id, match.team1.name, 'h2h', match.rawMatch.odds?.markets?.find(m => m.key === 'h2h')?.outcomes.find(o => o.name === match.team1.name)?.price, `${match.team1.name} vs ${match.team2.name}`, 'Moneyline')}
                                                     >
                                                         {match.odds.moneyline[0]}
                                                     </button>
                                                     <button
                                                         className="odds-value-btn"
-                                                        onClick={() => handleAddToSlip(match.id, match.team2.name, 'h2h', match.rawMatch.odds.markets.find(m => m.key === 'h2h')?.outcomes.find(o => o.name === match.team2.name)?.price, `${match.team1.name} vs ${match.team2.name}`, 'Moneyline')}
+                                                        onClick={() => handleAddToSlip(match.id, match.team2.name, 'h2h', match.rawMatch.odds?.markets?.find(m => m.key === 'h2h')?.outcomes.find(o => o.name === match.team2.name)?.price, `${match.team1.name} vs ${match.team2.name}`, 'Moneyline')}
                                                     >
                                                         {match.odds.moneyline[1]}
                                                     </button>
                                                 </div>
-                                            </div>
-                                            <div className="odds-cell">
-                                                <span className="odds-label">Total</span>
-                                                <div className="odds-values-group">
-                                                    <button
-                                                        className="odds-value-btn"
-                                                        onClick={() => handleAddToSlip(match.id, 'Over', 'totals', match.rawMatch.odds.markets.find(m => m.key === 'totals')?.outcomes.find(o => o.name.toLowerCase().includes('over'))?.price, `${match.team1.name} vs ${match.team2.name}`, 'Total')}
+                                                </div>
+                                            )}
+                                            {showTotals && (
+                                                <div className="odds-cell">
+                                                    <span className="odds-label">Total</span>
+                                                    <div className="odds-values-group">
+                                                        <button
+                                                            className="odds-value-btn"
+                                                            onClick={() => handleAddToSlip(match.id, 'Over', 'totals', match.rawMatch.odds?.markets?.find(m => m.key === 'totals')?.outcomes.find(o => o.name.toLowerCase().includes('over'))?.price, `${match.team1.name} vs ${match.team2.name}`, 'Total')}
                                                     >
                                                         {match.odds.total[0]}
-                                                    </button>
-                                                    <button
-                                                        className="odds-value-btn"
-                                                        onClick={() => handleAddToSlip(match.id, 'Under', 'totals', match.rawMatch.odds.markets.find(m => m.key === 'totals')?.outcomes.find(o => o.name.toLowerCase().includes.toLowerCase().includes('under'))?.price, `${match.team1.name} vs ${match.team2.name}`, 'Total')}
-                                                    >
-                                                        {match.odds.total[1]}
-                                                    </button>
+                                                        </button>
+                                                        <button
+                                                            className="odds-value-btn"
+                                                            onClick={() => handleAddToSlip(match.id, 'Under', 'totals', match.rawMatch.odds?.markets?.find(m => m.key === 'totals')?.outcomes.find(o => o.name.toLowerCase().includes('under'))?.price, `${match.team1.name} vs ${match.team2.name}`, 'Total')}
+                                                        >
+                                                            {match.odds.total[1]}
+                                                        </button>
+                                                    </div>
                                                 </div>
-                                            </div>
+                                            )}
                                         </div>
                                     </div>
                                 )}

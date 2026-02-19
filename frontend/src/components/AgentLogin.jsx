@@ -29,6 +29,7 @@ const AgentLogin = () => {
             }
 
             localStorage.setItem('token', result.token);
+            localStorage.setItem('userRole', result.role);
 
             if (result.role === 'super_agent') {
                 sessionStorage.setItem('super_agentAuthenticated', 'true');

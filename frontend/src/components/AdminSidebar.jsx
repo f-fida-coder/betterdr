@@ -1,6 +1,7 @@
 import React from 'react';
+import { hasViewPermission } from '../utils/adminPermissions';
 
-function AdminSidebar({ activeView, onViewChange, isOpen, role = 'admin' }) {
+function AdminSidebar({ activeView, onViewChange, isOpen, role = 'admin', permissions = null }) {
 
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: '🏠', roles: ['admin', 'agent', 'super_agent', 'master_agent'] },
@@ -35,7 +36,12 @@ function AdminSidebar({ activeView, onViewChange, isOpen, role = 'admin' }) {
     { id: 'user-manual', label: 'User Manual', icon: '📖', roles: ['admin', 'agent', 'super_agent', 'master_agent'] },
   ];
 
-  const filteredItems = menuItems.filter(item => item.roles && item.roles.includes(role || 'admin'));
+  const filteredItems = menuItems.filter(
+    (item) =>
+      item.roles &&
+      item.roles.includes(role || 'admin') &&
+      hasViewPermission(role, permissions, item.id)
+  );
 
   return (
     <aside className={`admin-sidebar ${isOpen ? 'open' : ''}`}>

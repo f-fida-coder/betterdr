@@ -1,215 +1,414 @@
-
 .props-container {
+    --props-bg: #f2f6fb;
+    --props-panel: #ffffff;
+    --props-border: #d9e4f1;
+    --props-text: #1f3148;
+    --props-muted: #637d9b;
+    --props-accent: #0f5db3;
+    --props-accent-soft: #eaf2ff;
+    --props-success: #0f9d6a;
+
     display: flex;
     width: 100%;
-    height: calc(100vh - 64px);
-    
-    color: #333;
-    font-family: 'Arial', sans-serif;
-    background-color: #dcdcdc;
+    min-height: calc(100vh - 72px);
+    background: radial-gradient(circle at top left, #ffffff 0%, var(--props-bg) 72%);
+    color: var(--props-text);
     overflow: hidden;
 }
 
-
-.props-selection-sidebar {
-    width: 260px;
-    background-color: #f0f0f0;
-    border-right: 1px solid #999;
+.props-mini-sidebar {
+    width: 68px;
+    border-right: 1px solid var(--props-border);
+    background: #0f1f33;
     display: flex;
     flex-direction: column;
-    flex-shrink: 0;
 }
 
+.props-ms-item {
+    border: none;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    background: transparent;
+    color: #9eb2ca;
+    width: 100%;
+    min-height: 72px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    font-size: 10px;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.props-ms-item.active {
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.props-ms-icon {
+    font-size: 18px;
+}
+
+.props-selection-sidebar {
+    width: 300px;
+    border-right: 1px solid var(--props-border);
+    background: var(--props-panel);
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
 
 .props-search-area {
-    background: linear-gradient(to bottom, #f2f2f2, #e6e6e6);
-    border-bottom: 1px solid #ccc;
-    padding: 6px 8px;
+    border-bottom: 1px solid #edf3fb;
+    padding: 10px;
+    background: #fbfdff;
 }
 
 .props-search-header-row {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 6px;
-    font-size: 13px;
-    font-weight: 700;
-    color: #000;
-}
-
-.props-search-label {
     font-size: 12px;
-    color: #333;
-    margin-bottom: 3px;
-    font-weight: normal;
+    font-weight: 800;
+    color: #587390;
+    margin-bottom: 8px;
 }
 
 .props-search-input {
     width: 100%;
-    padding: 4px 6px;
-    border: 1px solid #a0a0a0;
-    border-radius: 2px;
-    margin-bottom: 6px;
-    font-size: 12px;
-    box-sizing: border-box;
-    height: 26px;
+    border: 1px solid #d6e3f3;
+    border-radius: 9px;
+    padding: 10px;
+    font-size: 13px;
+    color: var(--props-text);
+    margin-bottom: 8px;
+}
+
+.props-search-input:focus {
+    outline: none;
+    border-color: #9dbce2;
+    box-shadow: 0 0 0 3px rgba(15, 93, 179, 0.12);
 }
 
 .props-adv-search-btn {
     width: 100%;
-    padding: 5px;
-    background: linear-gradient(to bottom, #e6e6e6, #dcdcdc);
-    border: 1px solid #bbb;
-    border-radius: 2px;
+    border: 1px solid #d4e1f0;
+    background: #ffffff;
+    color: #31577f;
+    border-radius: 9px;
+    padding: 9px;
     font-size: 12px;
-    font-weight: normal;
-    color: #333;
+    font-weight: 800;
     cursor: pointer;
-    text-align: center;
 }
 
-.props-adv-search-btn:hover {
-    background: #d4d4d4;
-}
-
-
-.props-track-group {
-    border-bottom: 1px solid #bbb;
+.props-track-list {
+    overflow-y: auto;
 }
 
 .props-group-header {
-    background: linear-gradient(to bottom, #f7f7f7, #e0e0e0);
-    padding: 6px 8px;
-    font-size: 12px;
-    font-weight: 700;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    cursor: pointer;
-    color: #000;
-    border-top: 1px solid white;
-}
-
-.props-group-header:hover {
-    background: #e9e9e9;
-}
-
-.props-track-item {
-    padding: 6px 10px;
-    font-size: 11px;
-    border-bottom: 1px solid #e0e0e0;
-    background: #fdfdfd;
+    width: 100%;
+    border: none;
+    border-bottom: 1px solid #edf3fb;
+    background: #ffffff;
+    color: #3a5b82;
     display: flex;
     justify-content: space-between;
     align-items: center;
+    font-size: 12px;
+    font-weight: 800;
+    padding: 10px;
     cursor: pointer;
-    color: #000;
-    font-weight: 500;
+    text-align: left;
 }
 
-.props-track-item:hover {
-    background: #fffbe6;
+.props-group-header.sport-btn.active {
+    background: var(--props-accent-soft);
+    color: var(--props-accent);
+}
+
+.props-chip {
+    min-width: 20px;
+    height: 20px;
+    border-radius: 999px;
+    background: #e7eef8;
+    color: #2f557d;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 900;
+    padding: 0 6px;
+}
+
+.props-track-item {
+    width: 100%;
+    border: none;
+    border-bottom: 1px solid #f0f5fb;
+    background: #fff;
+    padding: 10px;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 3px;
+    text-align: left;
+    cursor: pointer;
+    font-size: 12px;
+    color: #2f4d72;
+}
+
+.props-track-item.active {
+    background: #eef5ff;
+    box-shadow: inset 2px 0 0 var(--props-accent);
 }
 
 .props-track-time-badges {
     display: flex;
-    gap: 15px;
-    
+    justify-content: flex-end;
 }
 
 .props-time-badge {
-    color: #000;
-    font-weight: 600;
-    font-family: monospace;
-    min-width: 30px;
-    text-align: right;
+    font-size: 10px;
+    color: var(--props-success);
+    font-weight: 800;
 }
-
-
-.props-mini-sidebar {
-    width: 70px;
-    background-color: #1a1a1a;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    padding-top: 0;
-    border-right: 1px solid #000;
-    flex-shrink: 0;
-}
-
-.props-ms-item {
-    width: 100%;
-    height: 70px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    color: #aaa;
-    cursor: pointer;
-    font-size: 11px;
-    font-weight: bold;
-    border-bottom: 1px solid #333;
-    position: relative;
-    background: linear-gradient(to bottom, #2a2a2a, #111);
-}
-
-.props-ms-item.active {
-    color: white;
-    background: #000;
-}
-
-
-.props-ms-icon {
-    font-size: 24px;
-    margin-bottom: 4px;
-    color: inherit;
-}
-
 
 .props-main {
     flex: 1;
+    min-width: 0;
     display: flex;
     flex-direction: column;
-    background-color: #ccc;
-    
 }
 
 .props-main-header {
-    background: linear-gradient(to bottom, #f9f9f9, #ececec);
-    padding: 8px 15px;
-    border-bottom: 1px solid #999;
-    font-weight: 700;
-    font-size: 13px;
-    color: #333;
+    border-bottom: 1px solid var(--props-border);
+    background: #fff;
+    padding: 10px 14px;
+}
+
+.props-main-header.top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+}
+
+.props-main-title {
+    font-size: 22px;
+    font-weight: 900;
+    color: #193a62;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.props-main-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.props-top-btn {
+    border: 1px solid #d6e3f3;
+    background: #ffffff;
+    color: #345c84;
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 12px;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.props-top-btn.active {
+    background: var(--props-accent-soft);
+    color: var(--props-accent);
+    border-color: #9dbce2;
+}
+
+.props-main-header.secondary {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.props-match-title {
+    font-size: 15px;
+    font-weight: 800;
+    color: #25476f;
+}
+
+.props-market-tabs {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.props-market-tab {
+    border: 1px solid #d8e5f4;
+    background: #f8fbff;
+    color: #4f6f93;
+    border-radius: 8px;
+    padding: 7px 10px;
+    font-size: 12px;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.props-market-tab.active {
+    background: #0f5db3;
+    color: #fff;
+    border-color: #0f5db3;
 }
 
 .props-race-grid {
     flex: 1;
-    background-color: #ccc;
+    overflow-y: auto;
+    padding: 12px;
 }
 
-.props-race-row {
-    background: #e8e8e8;
-    padding: 8px 15px;
-    border-bottom: 1px solid #cfcfcf;
+.props-help-card {
+    background: #ffffff;
+    border: 1px solid #d8e5f3;
+    border-radius: 12px;
+    padding: 14px;
+    color: #45678f;
+}
+
+.props-help-card h3 {
+    margin-bottom: 10px;
+    color: #26486f;
+}
+
+.props-bet-row {
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    gap: 10px;
+    font-size: 12px;
+    border-bottom: 1px solid #edf3fb;
+    padding: 7px 0;
+}
+
+.props-bet-row .status {
+    text-transform: uppercase;
+    font-weight: 800;
+}
+
+.props-bet-row .status.pending {
+    color: #9a741d;
+}
+
+.props-bet-row .status.won {
+    color: #0f9d6a;
+}
+
+.props-bet-row .status.lost {
+    color: #bb3f3f;
+}
+
+.props-market-card {
+    background: #fff;
+    border: 1px solid #d9e5f3;
+    border-radius: 10px;
+    overflow: hidden;
+    margin-bottom: 10px;
+}
+
+.props-market-header {
+    width: 100%;
+    border: none;
+    border-bottom: 1px solid #ebf2fb;
+    background: #f9fcff;
+    color: #385d86;
+    padding: 10px 12px;
     display: flex;
+    justify-content: space-between;
     align-items: center;
     font-size: 12px;
+    font-weight: 900;
+    text-transform: uppercase;
+    cursor: pointer;
 }
 
-.col-time {
-    width: 80px;
+.props-market-outcomes {
+    padding: 10px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 8px;
+}
+
+.props-odds-btn {
+    border: 1px solid #d9e5f4;
+    background: #f7fbff;
+    border-radius: 8px;
+    padding: 10px;
+    color: #395b84;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
     text-align: left;
-    font-weight: bold;
 }
 
-.col-track {
-    flex: 1;
-    font-weight: bold;
+.props-odds-btn strong {
+    color: #0f5db3;
+    font-size: 13px;
 }
 
-.col-event {
-    width: 60px;
-    text-align: right;
-    font-weight: bold;
+.props-odds-btn:hover:not(:disabled) {
+    background: #eef5ff;
+    border-color: #9dbde3;
+}
+
+.props-odds-btn.selected {
+    background: #e9f7f0;
+    border-color: #82cbb1;
+}
+
+.props-odds-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.props-empty-outcomes {
+    grid-column: 1 / -1;
+    font-size: 12px;
+    color: #728ba6;
+    padding: 6px 2px;
+}
+
+@media (max-width: 1100px) {
+    .props-selection-sidebar {
+        width: 260px;
+    }
+
+    .props-main-title {
+        font-size: 18px;
+    }
+}
+
+@media (max-width: 900px) {
+    .props-container {
+        flex-direction: column;
+        min-height: auto;
+    }
+
+    .props-mini-sidebar {
+        width: 100%;
+        flex-direction: row;
+        min-height: 56px;
+    }
+
+    .props-ms-item {
+        flex: 1;
+        min-height: 56px;
+        font-size: 11px;
+    }
+
+    .props-selection-sidebar {
+        width: 100%;
+        max-height: 300px;
+    }
 }

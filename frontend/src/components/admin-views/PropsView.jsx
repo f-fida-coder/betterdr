@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { API_URL, createAdminBet, getAdminBets, getAdminMatches } from '../../api';
+import { createAdminBet, deleteAdminBet, getAdminBets, getAdminMatches, getUsersAdmin } from '../../api';
 
 function PropsView() {
   const [activeTab, setActiveTab] = useState('agents');
@@ -12,9 +12,11 @@ function PropsView() {
   const [bettingData, setBettingData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [customers, setCustomers] = useState([]);
   const [matches, setMatches] = useState([]);
   const [createLoading, setCreateLoading] = useState(false);
+  const [deleteLoadingId, setDeleteLoadingId] = useState(null);
   const [createBet, setCreateBet] = useState({
     userId: '',
     matchId: '',
@@ -26,6 +28,16 @@ function PropsView() {
   });
 
   const parseMoney = (value) => Number(String(value).replace(/[^0-9.-]+/g, '')) || 0;
+  const formatMoney = (value) => `$${Number(value || 0).toLocaleString()}`;
+  const matchesAmountRange = (value, range) => {
+    if (range === 'any') return true;
+    if (range === 'under-100') return value < 100;
+    if (range === '100-500') return value >= 100 && value <= 500;
+    if (range === '500-1000') return value > 500 && value <= 1000;
+    if (range === 'over-1000') return value > 1000;
+    return true;
+  };
+
   const getBetType = (bet) => {
     if (bet?.type) return bet.type;
     const text = (bet?.description || '').toLowerCase();
@@ -39,7 +51,7 @@ function PropsView() {
       const customerMatch = bet.customer.toLowerCase().includes(searchPlayer.toLowerCase());
       const riskValue = parseMoney(bet.risk);
       const typeMatch = typeFilter === 'all-types' || getBetType(bet) === typeFilter;
-      return agentMatch && customerMatch && typeMatch && (amountFilter === 'any' || riskValue >= 0);
+      return agentMatch && customerMatch && typeMatch && matchesAmountRange(riskValue, amountFilter);
     })
     .sort((a, b) => {
       if (activeTab === 'agents') return a.agent.localeCompare(b.agent);
@@ -75,8 +87,8 @@ function PropsView() {
       const response = await getAdminBets(params, token);
       const mapped = response.bets.map(bet => ({
         ...bet,
-        risk: `$${Number(bet.risk || 0).toLocaleString()}`,
-        toWin: `$${Number(bet.toWin || 0).toLocaleString()}`,
+        risk: Number(bet.risk || 0),
+        toWin: Number(bet.toWin || 0),
         accepted: new Date(bet.accepted).toLocaleString()
       }));
       setBettingData(mapped);
@@ -95,10 +107,7 @@ function PropsView() {
       try {
         const token = localStorage.getItem('token');
         if (!token) return;
-        const [usersData, matchesData] = await Promise.all([
-          fetch(`${API_URL}/admin/users`, { headers: { 'Authorization': `Bearer ${token}` } }).then(res => res.json()),
-          getAdminMatches(token)
-        ]);
+        const [usersData, matchesData] = await Promise.all([getUsersAdmin(token), getAdminMatches(token)]);
         setCustomers(usersData || []);
         setMatches(matchesData || []);
       } catch (err) {
@@ -122,6 +131,7 @@ function PropsView() {
   const handleCreateBet = async () => {
     try {
       setCreateLoading(true);
+      setNotice('');
       const token = localStorage.getItem('token');
       if (!token) {
         setError('Please login to create bets.');
@@ -136,6 +146,9 @@ function PropsView() {
         selection: createBet.selection.trim(),
         status: createBet.status
       };
+      if (payload.amount <= 0 || payload.odds <= 0) {
+        throw new Error('Amount and odds must be greater than 0');
+      }
       await createAdminBet(payload, token);
       setCreateBet({
         userId: '',
@@ -147,6 +160,7 @@ function PropsView() {
         status: 'pending'
       });
       setError('');
+      setNotice('Bet created successfully.');
       loadBets({
         agent: searchAgent,
         customer: searchPlayer,
@@ -162,7 +176,36 @@ function PropsView() {
     }
   };
 
+  const handleDeleteBet = async (betId) => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setError('Please login to delete bets.');
+      return;
+    }
+    if (!window.confirm('Delete this bet? This cannot be undone.')) return;
+
+    try {
+      setNotice('');
+      setDeleteLoadingId(betId);
+      await deleteAdminBet(betId, token);
+      setError('');
+      setNotice('Bet deleted successfully.');
+      await loadBets({
+        agent: searchAgent,
+        customer: searchPlayer,
+        amount: amountFilter,
+        time: timeFilter,
+        type: typeFilter
+      });
+    } catch (err) {
+      setError(err.message || 'Failed to delete bet');
+    } finally {
+      setDeleteLoadingId(null);
+    }
+  };
+
   const handleSearch = () => {
+    setNotice('');
     loadBets({
       agent: searchAgent,
       customer: searchPlayer,
@@ -181,7 +224,8 @@ function PropsView() {
       <div className="view-content">
         {loading && <div style={{ padding: '20px', textAlign: 'center' }}>Loading bets...</div>}
         {error && <div style={{ padding: '20px', color: 'red', textAlign: 'center' }}>{error}</div>}
-        {!loading && !error && (
+        {notice && <div style={{ padding: '12px 20px', color: '#15803d', textAlign: 'center', fontWeight: 600 }}>{notice}</div>}
+        {!loading && (
           <>
             <div className="filter-section">
               <div className="filter-group">
@@ -210,6 +254,7 @@ function PropsView() {
                 <label>Amount</label>
                 <input
                   type="number"
+                  min="0.01"
                   value={createBet.amount}
                   onChange={(e) => setCreateBet(prev => ({ ...prev, amount: e.target.value }))}
                 />
@@ -219,6 +264,7 @@ function PropsView() {
                 <input
                   type="number"
                   step="0.01"
+                  min="0.01"
                   value={createBet.odds}
                   onChange={(e) => setCreateBet(prev => ({ ...prev, odds: e.target.value }))}
                 />
@@ -243,10 +289,22 @@ function PropsView() {
               <button
                 className="btn-primary"
                 onClick={handleCreateBet}
-                disabled={createLoading || !createBet.userId || !createBet.matchId || !createBet.selection.trim()}
+                disabled={
+                  createLoading ||
+                  !createBet.userId ||
+                  !createBet.matchId ||
+                  !createBet.selection.trim() ||
+                  Number(createBet.amount) <= 0 ||
+                  Number(createBet.odds) <= 0
+                }
               >
                 {createLoading ? 'Saving...' : 'Create Bet'}
               </button>
+              {!createBet.userId || !createBet.matchId || !createBet.selection.trim() ? (
+                <div style={{ alignSelf: 'end', color: '#9a3412', fontSize: '12px' }}>
+                  Select customer, match, and selection to create bet.
+                </div>
+              ) : null}
             </div>
 
             <div className="stats-container">
@@ -366,8 +424,8 @@ function PropsView() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredData.map((bet, idx) => (
-                    <tr key={idx}>
+                  {filteredData.map((bet) => (
+                    <tr key={bet.id}>
                       <td><strong>{bet.agent}</strong></td>
                       <td><strong>{bet.customer}</strong></td>
                       <td>{bet.accepted}</td>
@@ -377,10 +435,19 @@ function PropsView() {
                           <div key={i}>{line}</div>
                         ))}
                       </td>
-                      <td><span className="amount-risk">{bet.risk}</span></td>
-                      <td><span className="amount-towin">{bet.toWin}</span></td>
+                      <td><span className="amount-risk">{formatMoney(bet.risk)}</span></td>
+                      <td><span className="amount-towin">{formatMoney(bet.toWin)}</span></td>
                       <td><span className={`badge ${bet.status}`}>{bet.status}</span></td>
-                      <td><button className="btn-delete">×</button></td>
+                      <td>
+                        <button
+                          className="btn-delete"
+                          onClick={() => handleDeleteBet(bet.id)}
+                          disabled={deleteLoadingId === bet.id || bet.status !== 'pending'}
+                          title={bet.status === 'pending' ? 'Delete bet' : 'Only pending bets can be deleted'}
+                        >
+                          {deleteLoadingId === bet.id ? '...' : '×'}
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>

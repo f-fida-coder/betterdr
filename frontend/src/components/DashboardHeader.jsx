@@ -16,7 +16,7 @@ const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, 
         { id: 'straight', label: 'STRAIGHT', icon: 'S' },
         { id: 'parlay', label: 'PARLAY', icon: 'P' },
         { id: 'teaser', label: 'TEASER', icon: 'T' },
-        { id: 'if-bet', label: 'IF BET', icon: 'I' },
+        { id: 'if_bet', label: 'IF BET', icon: 'I' },
         { id: 'reverse', label: 'REVERSE', icon: 'R' }
     ];
 
@@ -64,6 +64,7 @@ const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, 
     ];
 
     const [showMobileMenu, setShowMobileMenu] = useState(false);
+    const withSidebarOffset = currentView === 'dashboard';
 
     return (
         <>
@@ -174,7 +175,8 @@ const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, 
                         { id: 'straight', label: 'STRAIGHT', letter: 'S' },
                         { id: 'parlay', label: 'PARLAY', letter: 'P' },
                         { id: 'teaser', label: 'TEASER', letter: 'T' },
-                        { id: 'if-bet', label: 'IF BET', letter: 'I' }
+                        { id: 'if_bet', label: 'IF BET', letter: 'I' },
+                        { id: 'reverse', label: 'REVERSE', letter: 'R' }
                     ].map((mode) => (
                         <div
                             key={mode.id}
@@ -185,13 +187,6 @@ const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, 
                             <span className="tab-text">{mode.label}</span>
                         </div>
                     ))}
-                    <div
-                        className={`tab-item ${activeBetMode === 'bet-live' ? 'active' : ''}`}
-                        onClick={() => onBetModeChange && onBetModeChange('bet-live')}
-                    >
-                        <i className="fa-solid fa-desktop tab-icon"></i>
-                        <span className="tab-text">BET LIVE</span>
-                    </div>
                 </div>
 
                 <div className="info-bar">
@@ -400,7 +395,7 @@ const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, 
                 <>
 
 
-                    <div className="dash-subheader mobile-subheader desktop-only" style={{ display: 'flex', borderBottom: '1px solid #ccc', height: 'auto', minHeight: '60px' }}>
+                    <div className={`dash-subheader mobile-subheader desktop-only ${withSidebarOffset ? 'with-sidebar-offset' : ''}`} style={{ display: 'flex', borderBottom: '1px solid #ccc', height: 'auto', minHeight: '60px' }}>
 
 
                         <div className="bet-type-bar">
@@ -408,7 +403,7 @@ const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, 
                                 { id: 'straight', label: 'STRAIGHT', icon: 'S' },
                                 { id: 'parlay', label: 'PARLAY', icon: 'P' },
                                 { id: 'teaser', label: 'TEASER', icon: 'T' },
-                                { id: 'if-bet', label: 'IF BET', icon: 'I' },
+                                { id: 'if_bet', label: 'IF BET', icon: 'I' },
                                 { id: 'reverse', label: 'REVERSE', icon: 'R' }
                             ].map((mode) => (
                                 <div

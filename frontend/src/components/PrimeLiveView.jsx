@@ -3,15 +3,19 @@ import '../primelive.css';
 import useMatches from '../hooks/useMatches';
 
 const PrimeLiveView = () => {
+    const [feedStatus, setFeedStatus] = useState('live-upcoming');
     const [selectedSport, setSelectedSport] = useState('all');
     const [searchText, setSearchText] = useState('');
-    const rawMatches = useMatches({ status: 'live-upcoming' });
+    const [marketView, setMarketView] = useState('all');
+    const [collapsedSports, setCollapsedSports] = useState(new Set());
+    const [selectedOddsKey, setSelectedOddsKey] = useState(null);
+    const rawMatches = useMatches({ status: feedStatus });
 
     const formatSportLabel = (sport = '') => {
         if (!sport) return 'Unknown';
         const parts = sport.toString().split('_').filter(Boolean);
-        if (parts.length === 1) return parts[0].toUpperCase();
-        return `${parts[0].charAt(0).toUpperCase() + parts[0].slice(1)} ${parts.slice(1).join(' ').toUpperCase()}`;
+        if (parts.length === 1) return parts[0].toUpperCase().replace('-', ' ');
+        return `${parts[0].charAt(0).toUpperCase() + parts[0].slice(1)} ${parts.slice(1).join(' ').toUpperCase().replace('-', ' ')}`;
     };
 
     const matches = useMemo(() => {
@@ -61,6 +65,12 @@ const PrimeLiveView = () => {
         }));
     }, [matches]);
 
+    const statusOptions = [
+        { id: 'live-upcoming', label: 'Live + Upcoming' },
+        { id: 'live', label: 'Live' },
+        { id: 'upcoming', label: 'Upcoming' }
+    ];
+
     const getMarket = (match, key) => {
         const markets = match?.odds?.markets || [];
         return markets.find(m => (m.key || '').toLowerCase() === key) || null;
@@ -85,6 +95,47 @@ const PrimeLiveView = () => {
         if (!market || !market.outcomes) return '-';
         const outcome = market.outcomes.find(o => (o.name || '').toLowerCase() === (teamName || '').toLowerCase());
         return outcome ? (outcome.price ?? '-') : '-';
+    };
+
+    const toggleGroup = (sportKey) => {
+        setCollapsedSports(prev => {
+            const next = new Set(prev);
+            if (next.has(sportKey)) next.delete(sportKey);
+            else next.add(sportKey);
+            return next;
+        });
+    };
+
+    const collapseAll = () => {
+        setCollapsedSports(new Set(groupedMatches.map(g => g.sport)));
+    };
+
+    const expandAll = () => {
+        setCollapsedSports(new Set());
+    };
+
+    const addSelection = ({ match, selection, marketType, odds, marketLabel }) => {
+        if (odds === '-' || odds === undefined || odds === null) return;
+        const home = match.homeTeam || match.home_team || 'Home';
+        const away = match.awayTeam || match.away_team || 'Away';
+        const matchId = match.id || match._id || match.externalId;
+        const key = `${matchId}-${marketType}-${selection}`;
+        setSelectedOddsKey(key);
+
+        window.dispatchEvent(new CustomEvent('betslip:add', {
+            detail: {
+                matchId,
+                selection,
+                marketType,
+                odds: parseFloat(odds),
+                matchName: `${home} vs ${away}`,
+                marketLabel
+            }
+        }));
+    };
+
+    const refreshFeed = () => {
+        window.dispatchEvent(new CustomEvent('matches:refresh'));
     };
 
     return (
@@ -129,99 +180,166 @@ const PrimeLiveView = () => {
 
                 <main className="prime-main">
                     <div className="prime-tools-bar">
-                        <div style={{ color: '#94a3b8' }}>
-                            Showing <span style={{ color: 'white', fontWeight: 'bold' }}>{selectedSport === 'all' ? 'All Matches' : formatSportLabel(selectedSport)}</span>
-                            <span style={{ marginLeft: '8px', color: '#64748b' }}>({matches.length})</span>
+                        <div className="prime-toolbar-left">
+                            {statusOptions.map(opt => (
+                                <button
+                                    key={opt.id}
+                                    className={`prime-status-pill ${feedStatus === opt.id ? 'active' : ''}`}
+                                    onClick={() => setFeedStatus(opt.id)}
+                                >
+                                    {opt.label}
+                                </button>
+                            ))}
+                            <button className="prime-refresh-btn" onClick={refreshFeed}>
+                                <i className="fa-solid fa-arrows-rotate"></i> Refresh
+                            </button>
                         </div>
-                        <div style={{ display: 'flex', gap: '15px', color: '#cfaa56', fontWeight: 'bold' }}>
-                            <span style={{ cursor: 'pointer' }}><i className="fa-solid fa-compress"></i> COLLAPSE ALL</span>
-                            <span style={{ cursor: 'pointer' }}><i className="fa-solid fa-expand"></i> EXPAND ALL</span>
+                        <div className="prime-toolbar-right">
+                            <div className="prime-market-toggle">
+                                <button className={marketView === 'all' ? 'active' : ''} onClick={() => setMarketView('all')}>All</button>
+                                <button className={marketView === 'spread' ? 'active' : ''} onClick={() => setMarketView('spread')}>Spread</button>
+                                <button className={marketView === 'total' ? 'active' : ''} onClick={() => setMarketView('total')}>Total</button>
+                                <button className={marketView === 'moneyline' ? 'active' : ''} onClick={() => setMarketView('moneyline')}>Moneyline</button>
+                            </div>
+                            <button className="prime-text-btn" onClick={collapseAll}><i className="fa-solid fa-compress"></i> Collapse</button>
+                            <button className="prime-text-btn" onClick={expandAll}><i className="fa-solid fa-expand"></i> Expand</button>
                         </div>
+                    </div>
+                    <div className="prime-subtitle">
+                        Showing <strong>{selectedSport === 'all' ? 'All Sports' : formatSportLabel(selectedSport)}</strong> ({matches.length})
                     </div>
 
                     {groupedMatches.length === 0 ? (
-                        <div style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>
-                            <i className="fa-solid fa-calendar-xmark" style={{ fontSize: '40px', marginBottom: '16px', opacity: 0.6 }}></i>
-                            <h3 style={{ margin: 0 }}>No matches found</h3>
-                            <p style={{ marginTop: '8px', fontSize: '13px' }}>Try clearing the filter or check back later.</p>
+                        <div className="prime-empty-state">
+                            <i className="fa-solid fa-calendar-xmark"></i>
+                            <h3>No matches found</h3>
+                            <p>Try another filter or refresh the feed.</p>
                         </div>
                     ) : (
                         groupedMatches.map(group => (
                             <div key={group.sport} className="prime-match-group">
-                                <div className="prime-match-header">
+                                <div className="prime-match-header" onClick={() => toggleGroup(group.sport)} role="button">
                                     <span><i className="fa-solid fa-flag"></i> {group.label}</span>
-                                    <span><i className="fa-regular fa-star"></i></span>
+                                    <span className="prime-group-meta">
+                                        <em>{group.items.length} games</em>
+                                        <i className={`fa-solid ${collapsedSports.has(group.sport) ? 'fa-chevron-down' : 'fa-chevron-up'}`}></i>
+                                    </span>
                                 </div>
-                                <div className="prime-header-row">
-                                    <div>Match Info</div>
-                                    <div className="prime-markets-header">
-                                        <span>Spread</span>
-                                        <span>Total</span>
-                                        <span>Moneyline</span>
-                                    </div>
-                                </div>
-
-                                {group.items.map(match => {
-                                    const home = match.homeTeam || match.home_team || 'Home';
-                                    const away = match.awayTeam || match.away_team || 'Away';
-                                    const homeScore = match.score?.score_home ?? '-';
-                                    const awayScore = match.score?.score_away ?? '-';
-                                    const period = match.score?.period || '';
-                                    const status = (match.status || '').toString().toLowerCase();
-                                    const isLive = status === 'live' || String(match.score?.event_status || '').toUpperCase().includes('IN_PROGRESS');
-                                    const startTime = match.startTime ? new Date(match.startTime) : null;
-                                    const timeLabel = isLive && period ? `${period}` : (startTime ? startTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '');
-
-                                    const homeSpread = getSpread(match, home);
-                                    const awaySpread = getSpread(match, away);
-                                    const over = getTotal(match, 'over');
-                                    const under = getTotal(match, 'under');
-                                    const homeMoneyline = getMoneyline(match, home);
-                                    const awayMoneyline = getMoneyline(match, away);
-
-                                    return (
-                                        <div key={match.id || match._id || match.externalId} className="prime-match-row">
-                                            <div className="prime-match-teams">
-                                                <div className="prime-team">
-                                                    <span>{home}</span>
-                                                    <span className="prime-score">{homeScore}</span>
-                                                </div>
-                                                <div className="prime-team">
-                                                    <span>{away}</span>
-                                                    <span className="prime-score">{awayScore}</span>
-                                                </div>
-                                                <div className="prime-time-info">
-                                                    <i className="fa-solid fa-clock-rotate-left"></i> {timeLabel} {isLive ? 'LIVE' : ''}
-                                                </div>
-                                            </div>
-                                            <div className="prime-odds-grid">
-                                                <div className={`prime-odd-btn ${homeSpread.price === '-' ? 'disabled' : ''}`} style={{ opacity: homeSpread.price === '-' ? 0.3 : 1 }}>
-                                                    <span>{homeSpread.point !== '-' ? homeSpread.point : '-'}</span>
-                                                    <span className="prime-odd-val">{homeSpread.price}</span>
-                                                </div>
-                                                <div className={`prime-odd-btn ${over.price === '-' ? 'disabled' : ''}`} style={{ opacity: over.price === '-' ? 0.3 : 1 }}>
-                                                    <span>o{over.point !== '-' ? over.point : '-'}</span>
-                                                    <span className="prime-odd-val">{over.price}</span>
-                                                </div>
-                                                <div className={`prime-odd-btn ${homeMoneyline === '-' ? 'disabled' : ''}`} style={{ opacity: homeMoneyline === '-' ? 0.3 : 1 }}>
-                                                    <span className="prime-odd-val">{homeMoneyline}</span>
-                                                </div>
-
-                                                <div className={`prime-odd-btn ${awaySpread.price === '-' ? 'disabled' : ''}`} style={{ opacity: awaySpread.price === '-' ? 0.3 : 1 }}>
-                                                    <span>{awaySpread.point !== '-' ? awaySpread.point : '-'}</span>
-                                                    <span className="prime-odd-val">{awaySpread.price}</span>
-                                                </div>
-                                                <div className={`prime-odd-btn ${under.price === '-' ? 'disabled' : ''}`} style={{ opacity: under.price === '-' ? 0.3 : 1 }}>
-                                                    <span>u{under.point !== '-' ? under.point : '-'}</span>
-                                                    <span className="prime-odd-val">{under.price}</span>
-                                                </div>
-                                                <div className={`prime-odd-btn ${awayMoneyline === '-' ? 'disabled' : ''}`} style={{ opacity: awayMoneyline === '-' ? 0.3 : 1 }}>
-                                                    <span className="prime-odd-val">{awayMoneyline}</span>
-                                                </div>
+                                {!collapsedSports.has(group.sport) && (
+                                    <>
+                                        <div className="prime-header-row">
+                                            <div>Match Info</div>
+                                            <div className="prime-markets-header">
+                                                {(marketView === 'all' || marketView === 'spread') && <span>Spread</span>}
+                                                {(marketView === 'all' || marketView === 'total') && <span>Total</span>}
+                                                {(marketView === 'all' || marketView === 'moneyline') && <span>Moneyline</span>}
                                             </div>
                                         </div>
-                                    );
-                                })}
+
+                                        {group.items.map(match => {
+                                            const home = match.homeTeam || match.home_team || 'Home';
+                                            const away = match.awayTeam || match.away_team || 'Away';
+                                            const homeScore = match.score?.score_home ?? '-';
+                                            const awayScore = match.score?.score_away ?? '-';
+                                            const period = match.score?.period || '';
+                                            const status = (match.status || '').toString().toLowerCase();
+                                            const isLive = status === 'live' || String(match.score?.event_status || '').toUpperCase().includes('IN_PROGRESS');
+                                            const startTime = match.startTime ? new Date(match.startTime) : null;
+                                            const timeLabel = isLive && period ? `${period}` : (startTime ? startTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '');
+                                            const matchId = match.id || match._id || match.externalId;
+
+                                            const homeSpread = getSpread(match, home);
+                                            const awaySpread = getSpread(match, away);
+                                            const over = getTotal(match, 'over');
+                                            const under = getTotal(match, 'under');
+                                            const homeMoneyline = getMoneyline(match, home);
+                                            const awayMoneyline = getMoneyline(match, away);
+
+                                            return (
+                                                <div key={matchId} className="prime-match-row">
+                                                    <div className="prime-match-teams">
+                                                        <div className="prime-team">
+                                                            <span>{home}</span>
+                                                            <span className="prime-score">{homeScore}</span>
+                                                        </div>
+                                                        <div className="prime-team">
+                                                            <span>{away}</span>
+                                                            <span className="prime-score">{awayScore}</span>
+                                                        </div>
+                                                        <div className="prime-time-info">
+                                                            <span className={`prime-live-pill ${isLive ? 'live' : ''}`}>
+                                                                {isLive ? 'LIVE' : 'SCHEDULED'}
+                                                            </span>
+                                                            <span><i className="fa-regular fa-clock"></i> {timeLabel}</span>
+                                                        </div>
+                                                    </div>
+                                                    <div className="prime-odds-grid">
+                                                        {(marketView === 'all' || marketView === 'spread') && (
+                                                            <>
+                                                                <button
+                                                                    className={`prime-odd-btn ${selectedOddsKey === `${matchId}-spreads-${home}` ? 'selected' : ''}`}
+                                                                    disabled={homeSpread.price === '-'}
+                                                                    onClick={() => addSelection({ match, selection: home, marketType: 'spreads', odds: homeSpread.price, marketLabel: 'Spread' })}
+                                                                >
+                                                                    <span>{homeSpread.point !== '-' ? homeSpread.point : '-'}</span>
+                                                                    <span className="prime-odd-val">{homeSpread.price}</span>
+                                                                </button>
+                                                                <button
+                                                                    className={`prime-odd-btn ${selectedOddsKey === `${matchId}-spreads-${away}` ? 'selected' : ''}`}
+                                                                    disabled={awaySpread.price === '-'}
+                                                                    onClick={() => addSelection({ match, selection: away, marketType: 'spreads', odds: awaySpread.price, marketLabel: 'Spread' })}
+                                                                >
+                                                                    <span>{awaySpread.point !== '-' ? awaySpread.point : '-'}</span>
+                                                                    <span className="prime-odd-val">{awaySpread.price}</span>
+                                                                </button>
+                                                            </>
+                                                        )}
+                                                        {(marketView === 'all' || marketView === 'total') && (
+                                                            <>
+                                                                <button
+                                                                    className={`prime-odd-btn ${selectedOddsKey === `${matchId}-totals-Over` ? 'selected' : ''}`}
+                                                                    disabled={over.price === '-'}
+                                                                    onClick={() => addSelection({ match, selection: 'Over', marketType: 'totals', odds: over.price, marketLabel: 'Total' })}
+                                                                >
+                                                                    <span>o{over.point !== '-' ? over.point : '-'}</span>
+                                                                    <span className="prime-odd-val">{over.price}</span>
+                                                                </button>
+                                                                <button
+                                                                    className={`prime-odd-btn ${selectedOddsKey === `${matchId}-totals-Under` ? 'selected' : ''}`}
+                                                                    disabled={under.price === '-'}
+                                                                    onClick={() => addSelection({ match, selection: 'Under', marketType: 'totals', odds: under.price, marketLabel: 'Total' })}
+                                                                >
+                                                                    <span>u{under.point !== '-' ? under.point : '-'}</span>
+                                                                    <span className="prime-odd-val">{under.price}</span>
+                                                                </button>
+                                                            </>
+                                                        )}
+                                                        {(marketView === 'all' || marketView === 'moneyline') && (
+                                                            <>
+                                                                <button
+                                                                    className={`prime-odd-btn ${selectedOddsKey === `${matchId}-h2h-${home}` ? 'selected' : ''}`}
+                                                                    disabled={homeMoneyline === '-'}
+                                                                    onClick={() => addSelection({ match, selection: home, marketType: 'h2h', odds: homeMoneyline, marketLabel: 'Moneyline' })}
+                                                                >
+                                                                    <span>{home}</span>
+                                                                    <span className="prime-odd-val">{homeMoneyline}</span>
+                                                                </button>
+                                                                <button
+                                                                    className={`prime-odd-btn ${selectedOddsKey === `${matchId}-h2h-${away}` ? 'selected' : ''}`}
+                                                                    disabled={awayMoneyline === '-'}
+                                                                    onClick={() => addSelection({ match, selection: away, marketType: 'h2h', odds: awayMoneyline, marketLabel: 'Moneyline' })}
+                                                                >
+                                                                    <span>{away}</span>
+                                                                    <span className="prime-odd-val">{awayMoneyline}</span>
+                                                                </button>
+                                                            </>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </>
+                                )}
                             </div>
                         ))
                     )}
@@ -230,15 +348,19 @@ const PrimeLiveView = () => {
 
                 <aside className="prime-right-panel">
                     <div className="prime-slip-tabs">
-                        <div className="prime-slip-tab active">BET SLIP</div>
-                        <div className="prime-slip-tab">MY BETS</div>
+                        <div className="prime-slip-tab active">Prime Live</div>
+                        <div className="prime-slip-tab">Insights</div>
                     </div>
                     <div className="prime-slip-content">
-                        <div style={{ marginBottom: '15px', fontSize: '14px', fontWeight: 'bold' }}>Your Slip is Empty</div>
-                        <p style={{ lineHeight: '1.5' }}>Click on any odds to add selections to your bet slip.</p>
-                        <div style={{ marginTop: '20px', padding: '20px', background: 'rgba(255,255,255,0.05)', borderRadius: '8px' }}>
-                            <i className="fa-solid fa-ticket" style={{ fontSize: '32px', color: '#cfaa56', marginBottom: '10px' }}></i>
-                            <div style={{ fontSize: '11px' }}>Start betting now!</div>
+                        <div className="prime-side-card">
+                            <h4>Live Filters</h4>
+                            <p>Use the status pills, sport list, and market toggles to fetch and view different data slices from API in real-time.</p>
+                        </div>
+                        <div className="prime-side-card">
+                            <h4>Quick Actions</h4>
+                            <button className="prime-side-btn" onClick={refreshFeed}><i className="fa-solid fa-arrows-rotate"></i> Refresh Odds</button>
+                            <button className="prime-side-btn" onClick={() => setSelectedSport('all')}><i className="fa-solid fa-list"></i> Show All Sports</button>
+                            <button className="prime-side-btn" onClick={expandAll}><i className="fa-solid fa-up-right-and-down-left-from-center"></i> Expand Leagues</button>
                         </div>
                     </div>
                 </aside>

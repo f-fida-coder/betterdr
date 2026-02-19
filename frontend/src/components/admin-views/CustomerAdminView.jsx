@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { createUserByAdmin, createPlayerByAgent, createAgent, createSubAgent, getAgents, getMyPlayers, getMe, updateUserCredit, updateUserBalanceOwedByAgent, resetUserPasswordByAdmin, updateUserByAdmin, updateUserByAgent, getUserStatistics, getNextUsername, getUsersAdmin } from '../../api';
+import { createUserByAdmin, createPlayerByAgent, createAgent, createSubAgent, getAgents, getMyPlayers, getMe, updateUserCredit, updateUserBalanceOwedByAgent, resetUserPasswordByAdmin, updateUserByAdmin, updateUserByAgent, getUserStatistics, getNextUsername, getUsersAdmin, deleteUser, deleteAgent } from '../../api';
 
 function CustomerAdminView({ onViewChange }) {
   const [customers, setCustomers] = useState([]);
@@ -16,15 +16,16 @@ function CustomerAdminView({ onViewChange }) {
     lastName: '',
     fullName: '',
     agentId: '',
+    referredByUserId: '',
     balance: '',
-    minBet: '',
-    maxBet: '',
+    minBet: '25',
+    maxBet: '200',
     creditLimit: '1000',
-    balanceOwed: '0',
+    balanceOwed: '200',
     defaultMinBet: '25',
     defaultMaxBet: '200',
     defaultCreditLimit: '1000',
-    defaultSettleLimit: '0',
+    defaultSettleLimit: '200',
     agentPrefix: '',
     parentAgentId: ''
   });
@@ -62,10 +63,11 @@ function CustomerAdminView({ onViewChange }) {
     nextBalance: ''
   });
 
-  const [assignmentSource, setAssignmentSource] = useState('admin'); // 'admin' or 'agent' (or 'master' for agent creation)
+
   const [listFilterOrigin, setListFilterOrigin] = useState('all'); // 'all', 'admin', 'upline'
   const [listFilterUplineId, setListFilterUplineId] = useState('');
   const [adminUsername, setAdminUsername] = useState('');
+  const [currentUserId, setCurrentUserId] = useState('');
 
   useEffect(() => {
     const fetchUsers = async () => {
@@ -80,6 +82,7 @@ function CustomerAdminView({ onViewChange }) {
         const me = await getMe(token);
         setCurrentRole(me?.role || 'admin');
         setAdminUsername(me?.username || '');
+        setCurrentUserId(me?.id || me?._id || '');
         setViewOnly(Boolean(me?.viewOnly));
 
         if ((me?.role || 'admin') === 'agent') {
@@ -129,9 +132,10 @@ function CustomerAdminView({ onViewChange }) {
       }
       const payload = { ...newCustomer };
       if (payload.balance === '') delete payload.balance;
+      if (!payload.referredByUserId) delete payload.referredByUserId;
 
       if (creationType === 'player') {
-        if (currentRole === 'agent' || currentRole === 'super_agent') {
+        if (currentRole === 'agent' || currentRole === 'super_agent' || currentRole === 'master_agent') {
           await createPlayerByAgent(payload, token);
         } else {
           await createUserByAdmin(payload, token);
@@ -141,12 +145,17 @@ function CustomerAdminView({ onViewChange }) {
           // Admin creating standard Agent
           await createAgent({ ...payload, role: 'agent' }, token);
         } else {
-          // Super Agent creating Sub-Agent
-          await createSubAgent(payload, token);
+          // Super Agent creating Sub-Agent (Agent)
+          await createSubAgent({ ...payload, role: 'agent' }, token);
         }
       } else if (creationType === 'super_agent') {
-        // Admin creating Master Agent
-        await createAgent({ ...payload, role: 'super_agent' }, token);
+        if (currentRole === 'admin') {
+          // Admin creating Master Agent
+          await createAgent({ ...payload, role: 'master_agent' }, token); // Changed to master_agent for consistency if supported, or 'super_agent'
+        } else {
+          // Super Agent creating Sub-Master Agent
+          await createSubAgent({ ...payload, role: 'master_agent' }, token);
+        }
       }
 
       alert(`${creationType === 'player' ? 'Player' : creationType === 'agent' ? 'Agent' : 'Master Agent'} initialized successfully!`);
@@ -159,15 +168,16 @@ function CustomerAdminView({ onViewChange }) {
         lastName: '',
         fullName: '',
         agentId: '',
+        referredByUserId: '',
         balance: '',
-        minBet: '',
-        maxBet: '',
+        minBet: '25',
+        maxBet: '200',
         creditLimit: '1000',
-        balanceOwed: '0',
+        balanceOwed: '200',
         defaultMinBet: '25',
         defaultMaxBet: '200',
         defaultCreditLimit: '1000',
-        defaultSettleLimit: '0',
+        defaultSettleLimit: '200',
         agentPrefix: '',
         parentAgentId: ''
       };
@@ -253,7 +263,7 @@ function CustomerAdminView({ onViewChange }) {
     const token = localStorage.getItem('token');
     if (!token) return;
 
-    setNewCustomer(prev => ({ ...prev, agentId }));
+    setNewCustomer(prev => ({ ...prev, agentId, referredByUserId: '' }));
 
     if (agentId) {
       const selectedAgent = agents.find(a => (a.id || a._id) === agentId);
@@ -287,15 +297,28 @@ function CustomerAdminView({ onViewChange }) {
     if (!token) return;
 
     if (type === 'super_agent' || type === 'agent') {
-      // If admin is creating an agent, force assignmentSource to 'agent' (super agent)
-      if (type === 'agent' && currentRole === 'admin') {
-        setAssignmentSource('agent');
-      }
-
       const suffix = type === 'super_agent' ? 'MA' : '';
-      const prefixToUse = (currentRole === 'super_agent' && type === 'agent') ? adminUsername : newCustomer.agentPrefix;
-      // ONLY Admin-created top-level Agents/MA start at 247. Sub-agents (created by MA) start at 101.
-      const sequenceType = (currentRole === 'admin') ? 'agent' : 'player';
+      let prefixToUse = newCustomer.agentPrefix; // Default to user input
+
+      // If Admin is creating, and hasn't typed a prefix, maybe dont force one?
+      // But if Super Agent is creating, we might want to default to their username if they are creating an agent?
+      // Actually, existing logic for Super Agent creating Agent used adminUsername? That seems wrong if it was 'super_agent' creating.
+      // Let's stick to using the input prefix if available, or just rely on the user typing it.
+
+      // ONLY Admin-created top-level Agents/MA start at 247. Sub-agents (created by MA) start at 101?
+      // Let's assume standard logic:
+      // Admin creating Master Agent -> 247+
+      // Master Agent creating Agent -> 101+?
+      // The original code had: const sequenceType = (currentRole === 'admin') ? 'agent' : 'player';
+      // checking backend: getNextUsername takes type='player' or 'agent'.
+      // 'agent' type starts at 247. 'player' type starts at 101.
+
+      // If creating a Master Agent (top level), likely want 247+ (type='agent').
+      // If creating a Sub Agent, likely want 101+ (type='player' logic in backend? No, backend says 'player' starts 101, 'agent' starts 247).
+      // Use type='agent' for all agents to be safe 247+, or 'player' for sub-agents if they are meant to look like players? 
+      // Start with 'agent' type for all agent creations to keep IDs distinct from players.
+
+      const sequenceType = 'agent';
 
       if (prefixToUse) {
         try {
@@ -309,8 +332,8 @@ function CustomerAdminView({ onViewChange }) {
       }
     } else {
       // Player
-      setAssignmentSource('admin');
       handleAgentChange(''); // Reset to direct
+      setNewCustomer(prev => ({ ...prev, referredByUserId: '' }));
     }
   };
 
@@ -554,7 +577,7 @@ function CustomerAdminView({ onViewChange }) {
       } else if (listFilterOrigin === 'upline') {
         result = result.filter(c => c.agentId); // Created by Agent
         if (listFilterUplineId) {
-          result = result.filter(c => c.agentId === listFilterUplineId);
+          result = result.filter(c => String(c.agentId?._id || c.agentId || '') === String(listFilterUplineId));
         }
       }
     } else if (sourceFilter === 'agent') {
@@ -569,7 +592,7 @@ function CustomerAdminView({ onViewChange }) {
         }
       }
     } else if (sourceFilter === 'master') {
-      result = agents.filter(a => a.role === 'super_agent');
+      result = agents.filter(a => a.role === 'super_agent' || a.role === 'master_agent');
       // Filter by Origin
       if (listFilterOrigin === 'admin') {
         result = result.filter(a => a.createdByModel === 'Admin');
@@ -583,9 +606,70 @@ function CustomerAdminView({ onViewChange }) {
     return result;
   })();
 
+  const referralOptions = (() => {
+    const playersOnly = customers.filter((c) => c.role === 'user');
+    if (creationType !== 'player') return [];
+
+    if (currentRole === 'agent') {
+      return playersOnly;
+    }
+
+    if (newCustomer.agentId) {
+      return playersOnly.filter((p) => String(p.agentId?._id || p.agentId || '') === String(newCustomer.agentId));
+    }
+
+    if (currentRole === 'master_agent' || currentRole === 'super_agent') {
+      return playersOnly.filter((p) => String(p.agentId?._id || p.agentId || '') === String(currentUserId));
+    }
+
+    return playersOnly;
+  })();
+
   const handleViewDetails = (customer) => {
     if (onViewChange) {
       onViewChange('user-details', customer.id || customer._id);
+    }
+  };
+
+  const handleDelete = async (customer) => {
+    const isAgent = customer.role === 'agent' || customer.role === 'master_agent';
+    const typeLabel = isAgent ? 'Agent' : 'Player';
+
+    if (!window.confirm(`Are you sure you want to PERMANENTLY DELETE ${typeLabel} "${customer.username}"?\n\nThis action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        setError('Please login to delete.');
+        return;
+      }
+
+      setActionLoadingId(customer.id || customer._id);
+
+      if (isAgent) {
+        await deleteAgent(customer.id || customer._id, token);
+      } else {
+        await deleteUser(customer.id || customer._id, token);
+      }
+
+      // Remove from state
+      setCustomers(prev => prev.filter(c => (c.id || c._id) !== (customer.id || customer._id)));
+
+      // Also remove from agents list if it was an agent
+      if (isAgent) {
+        setAgents(prev => prev.filter(a => (a.id || a._id) !== (customer.id || customer._id)));
+      }
+
+      alert(`${typeLabel} "${customer.username}" deleted successfully.`);
+      setError('');
+
+    } catch (err) {
+      console.error('Delete failed:', err);
+      alert(`Failed to delete: ${err.message}`);
+    } finally {
+      setActionLoadingId(null);
     }
   };
 
@@ -620,10 +704,7 @@ function CustomerAdminView({ onViewChange }) {
                     onChange={(e) => handleCreationTypeChange(e.target.value)}
                   >
                     <option value="player">Player</option>
-                    {currentRole === 'super_agent' && (
-                      <option value="agent">Agent</option>
-                    )}
-                    {currentRole === 'admin' && (
+                    {(currentRole === 'admin' || currentRole === 'super_agent' || currentRole === 'master_agent') && (
                       <>
                         <option value="agent">Agent</option>
                         <option value="super_agent">Master Agent</option>
@@ -633,109 +714,9 @@ function CustomerAdminView({ onViewChange }) {
                 </div>
               </div>
 
-              {/* Player Creation - Source Selection */}
-              {creationType === 'player' && currentRole !== 'agent' && (
-                <div className="filter-group">
-                  <label>Created By</label>
-                  <div style={{ display: 'flex', gap: '15px', marginBottom: '10px' }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer', color: assignmentSource === 'admin' ? '#fff' : '#888' }}>
-                      <input
-                        type="radio"
-                        name="source"
-                        checked={assignmentSource === 'admin'}
-                        onChange={() => {
-                          setAssignmentSource('admin');
-                          handleAgentChange(''); // Set to direct
-                        }}
-                      /> Admin
-                    </label>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer', color: assignmentSource === 'agent' ? '#fff' : '#888' }}>
-                      <input
-                        type="radio"
-                        name="source"
-                        checked={assignmentSource === 'agent'}
-                        onChange={() => {
-                          setAssignmentSource('agent');
-                          // If agents list has items, default to first? No, let user pick.
-                        }}
-                      /> Agent
-                    </label>
-                  </div>
-
-                  {assignmentSource === 'admin' ? (
-                    <div className="s-wrapper">
-                      <input type="text" value={`Admin: ${adminUsername}`} readOnly className="readonly-input" />
-                    </div>
-                  ) : (
-                    <div className="s-wrapper">
-                      <select
-                        value={newCustomer.agentId}
-                        onChange={(e) => handleAgentChange(e.target.value)}
-                      >
-                        <option value="">Select Agent...</option>
-                        {agents.map(agent => (
-                          <option key={agent.id || agent._id} value={agent.id || agent._id}>
-                            {agent.username}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Agent/Master Agent Creation - Source Selection */}
-              {(creationType === 'agent' || creationType === 'super_agent') && currentRole === 'admin' && (
-                <div className="filter-group">
-                  <label>Created By</label>
-                  <div style={{ display: 'flex', gap: '15px', marginBottom: '10px' }}>
-                    {creationType === 'super_agent' && (
-                      <label style={{ display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer', color: assignmentSource === 'admin' ? '#fff' : '#888' }}>
-                        <input
-                          type="radio"
-                          name="ma_source"
-                          checked={assignmentSource === 'admin'}
-                          onChange={() => {
-                            setAssignmentSource('admin');
-                            setNewCustomer(prev => ({ ...prev, parentAgentId: '' }));
-                          }}
-                        /> Admin
-                      </label>
-                    )}
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer', color: assignmentSource === 'agent' ? '#fff' : '#888' }}>
-                      <input
-                        type="radio"
-                        name="ma_source"
-                        checked={assignmentSource === 'agent'}
-                        onChange={() => {
-                          setAssignmentSource('agent');
-                        }}
-                      /> Master Agent
-                    </label>
-                  </div>
-
-                  {assignmentSource === 'admin' ? (
-                    <div className="s-wrapper">
-                      <input type="text" value={`Admin: ${adminUsername}`} readOnly className="readonly-input" />
-                    </div>
-                  ) : (
-                    <div className="s-wrapper">
-                      <select
-                        value={newCustomer.parentAgentId}
-                        onChange={(e) => setNewCustomer(prev => ({ ...prev, parentAgentId: e.target.value }))}
-                      >
-                        <option value="">Select Master Agent...</option>
-                        {agents.filter(a => a.role === 'master_agent').map(ma => (
-                          <option key={ma.id || ma._id} value={ma.id || ma._id}>
-                            {ma.username} (Master Agent)
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
-                </div>
-              )}
-              {(creationType === 'agent' || creationType === 'super_agent') && (currentRole !== 'super_agent' || creationType === 'super_agent') && (
+              {/* Source Selection UI Removed - Enforcing strict hierarchy */}
+              {/* Admin -> Direct | Master -> Direct | Agent -> Direct */}
+              {(creationType === 'agent' || creationType === 'super_agent') && (currentRole !== 'super_agent' && currentRole !== 'master_agent' || creationType === 'super_agent') && (
                 <div className="filter-group">
                   <label>Prefix</label>
                   <input
@@ -795,14 +776,60 @@ function CustomerAdminView({ onViewChange }) {
                   placeholder="Set password"
                 />
               </div>
+
+              {/* Assign to Agent Dropdown for Admin and Master Agent when creating Player */}
+              {creationType === 'player' && (currentRole === 'admin' || currentRole === 'super_agent' || currentRole === 'master_agent') && (
+                <div className="filter-group">
+                  <label>Assign to Agent (Optional)</label>
+                  <div className="s-wrapper">
+                    <select
+                      value={newCustomer.agentId}
+                      onChange={(e) => handleAgentChange(e.target.value)}
+                    >
+                      <option value="">Direct (Under Me)</option>
+                      {agents
+                        .filter(a => {
+                          if (currentRole === 'admin') return true; // Admin sees all
+                          if (currentRole === 'super_agent' || currentRole === 'master_agent') {
+                            // Master Agent sees only their sub-agents (which is what 'agents' state contains for them)
+                            return true;
+                          }
+                          return false;
+                        })
+                        .map(a => (
+                          <option key={a.id || a._id} value={a.id || a._id}>
+                            {a.username}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                </div>
+              )}
+
               {creationType === 'player' && (
                 <>
+                  <div className="filter-group">
+                    <label>Referred By Player (Optional)</label>
+                    <div className="s-wrapper">
+                      <select
+                        value={newCustomer.referredByUserId}
+                        onChange={(e) => setNewCustomer(prev => ({ ...prev, referredByUserId: e.target.value }))}
+                      >
+                        <option value="">No referral</option>
+                        {referralOptions.map((p) => (
+                          <option key={p.id || p._id} value={p.id || p._id}>
+                            {(p.username || '').toUpperCase()}
+                            {p.fullName ? ` - ${p.fullName}` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
                   <div className="filter-group">
                     <label>Min bet:</label>
                     <input
                       type="number"
                       value={newCustomer.minBet}
-                      placeholder="25"
                       onChange={(e) => setNewCustomer(prev => ({ ...prev, minBet: e.target.value }))}
                     />
                   </div>
@@ -811,7 +838,6 @@ function CustomerAdminView({ onViewChange }) {
                     <input
                       type="number"
                       value={newCustomer.maxBet}
-                      placeholder="200"
                       onChange={(e) => setNewCustomer(prev => ({ ...prev, maxBet: e.target.value }))}
                     />
                   </div>
@@ -820,7 +846,6 @@ function CustomerAdminView({ onViewChange }) {
                     <input
                       type="number"
                       value={newCustomer.creditLimit}
-                      placeholder="1000"
                       onChange={(e) => setNewCustomer(prev => ({ ...prev, creditLimit: e.target.value }))}
                     />
                   </div>
@@ -829,7 +854,6 @@ function CustomerAdminView({ onViewChange }) {
                     <input
                       type="number"
                       value={newCustomer.balanceOwed}
-                      placeholder="0"
                       onChange={(e) => setNewCustomer(prev => ({ ...prev, balanceOwed: e.target.value }))}
                     />
                   </div>
@@ -842,7 +866,6 @@ function CustomerAdminView({ onViewChange }) {
                     <input
                       type="number"
                       value={newCustomer.defaultMinBet}
-                      placeholder="25"
                       onChange={(e) => setNewCustomer(prev => ({ ...prev, defaultMinBet: e.target.value }))}
                     />
                   </div>
@@ -851,7 +874,6 @@ function CustomerAdminView({ onViewChange }) {
                     <input
                       type="number"
                       value={newCustomer.defaultMaxBet}
-                      placeholder="200"
                       onChange={(e) => setNewCustomer(prev => ({ ...prev, defaultMaxBet: e.target.value }))}
                     />
                   </div>
@@ -860,7 +882,6 @@ function CustomerAdminView({ onViewChange }) {
                     <input
                       type="number"
                       value={newCustomer.defaultCreditLimit}
-                      placeholder="1000"
                       onChange={(e) => setNewCustomer(prev => ({ ...prev, defaultCreditLimit: e.target.value }))}
                     />
                   </div>
@@ -869,7 +890,6 @@ function CustomerAdminView({ onViewChange }) {
                     <input
                       type="number"
                       value={newCustomer.defaultSettleLimit}
-                      placeholder="0"
                       onChange={(e) => setNewCustomer(prev => ({ ...prev, defaultSettleLimit: e.target.value }))}
                     />
                   </div>
@@ -1027,6 +1047,7 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
                       <th>Net Balance</th>
                       <th>Status</th>
                       <th>Roles & Access</th>
+                      <th>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1087,6 +1108,27 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
                                       return isEnabled ? <span key={key} className="cap-dot" title={key}></span> : null;
                                     })}
                                   </div>
+                                )}
+                              </div>
+                            </td>
+                            <td>
+                              <div className="action-buttons-cell" style={{ display: 'flex', gap: '8px' }}>
+                                <button
+                                  className="btn-icon"
+                                  title="Edit Customer"
+                                  onClick={() => handleEditClick(customer)}
+                                >
+                                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                                </button>
+                                {currentRole === 'admin' && (
+                                  <button
+                                    className="btn-icon delete-btn"
+                                    title="Delete Customer"
+                                    onClick={() => handleDelete(customer)}
+                                    style={{ color: '#ff4d4d' }}
+                                  >
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                                  </button>
                                 )}
                               </div>
                             </td>
@@ -1177,6 +1219,48 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
                           value={editForm.password}
                           onChange={e => setEditForm({ ...editForm, password: e.target.value })}
                         />
+                      </div>
+
+                      <div className="action-buttons">
+                        <button
+                          className="btn-icon"
+                          title="View Details"
+                          onClick={() => handleViewDetails(selectedCustomer)}
+                        >
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                        </button>
+                        <button
+                          className="btn-icon"
+                          title="Detailed View (Edit)"
+                          onClick={() => handleEditClick(selectedCustomer)}
+                        >
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                        </button>
+                        <button
+                          className="btn-icon"
+                          title="Adjust Balance / Settle"
+                          onClick={() => handleAdjustBalance(selectedCustomer)}
+                        >
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+                        </button>
+                        <button
+                          className="btn-icon"
+                          title="Reset Password"
+                          onClick={() => handleResetPassword(selectedCustomer)}
+                        >
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                        </button>
+                        {/* Delete Button - Admin Only */}
+                        {currentRole === 'admin' && (
+                          <button
+                            className="btn-icon delete-btn"
+                            title="Delete Customer"
+                            onClick={() => handleDelete(selectedCustomer)}
+                            style={{ color: '#ff4d4d' }}
+                          >
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                          </button>
+                        )}
                       </div>
 
                       <div className="payment-apps-section">
@@ -1466,7 +1550,7 @@ I need active players so if you could do me a solid and place a bet today even i
           </>
         )}
       </div>
-    </div>
+    </div >
   );
 }
 

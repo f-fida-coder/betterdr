@@ -42,6 +42,7 @@ createRoot(document.getElementById('root')).render(
                 sessionStorage.removeItem('adminAuthenticated');
                 sessionStorage.removeItem('adminUsername');
                 localStorage.removeItem('token');
+                localStorage.removeItem('userRole');
                 window.location.href = '/';
               }} />
             </ProtectedAdminRoute>
@@ -55,6 +56,7 @@ createRoot(document.getElementById('root')).render(
                 sessionStorage.removeItem('agentAuthenticated');
                 sessionStorage.removeItem('agentUsername');
                 localStorage.removeItem('token');
+                localStorage.removeItem('userRole');
                 window.location.href = '/';
               }} />
             </ProtectedAgentRoute>
@@ -68,6 +70,7 @@ createRoot(document.getElementById('root')).render(
                 sessionStorage.removeItem('super_agentAuthenticated');
                 sessionStorage.removeItem('super_agentUsername');
                 localStorage.removeItem('token');
+                localStorage.removeItem('userRole');
                 window.location.href = '/';
               }} />
             </ProtectedSuperAgentRoute>

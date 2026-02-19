@@ -117,7 +117,7 @@ const DashboardSidebar = ({ selectedSports = [], onToggleSport, betMode = 'strai
     };
 
         const parlaySportsIds = ['football', 'baseball', 'basketball', 'hockey', 'soccer', 'mma'];
-    const displaySports = (betMode === 'parlay' || betMode === 'teaser' || betMode === 'if-bet' || betMode === 'reverse')
+    const displaySports = (betMode === 'parlay' || betMode === 'teaser' || betMode === 'if_bet' || betMode === 'reverse')
         ? sportsData.filter(s => parlaySportsIds.includes(s.id))
         : sportsData;
 

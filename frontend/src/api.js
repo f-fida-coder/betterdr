@@ -12,6 +12,8 @@ const getBaseUrl = () => {
 };
 
 export const API_URL = getBaseUrl();
+export const BACKEND_BASE_URL = API_URL.replace(/\/api\/?$/, '');
+export const normalizeBetMode = (mode) => String(mode || 'straight').toLowerCase().replace(/-/g, '_').trim();
 
 const getHeaders = (token = null) => {
     const headers = {
@@ -132,15 +134,37 @@ export const getLiveMatches = async () => {
 };
 
 export const placeBet = async (betData, token) => {
+    const normalizedType = normalizeBetMode(betData?.type || 'straight');
+    const normalizedSelections = Array.isArray(betData?.selections)
+        ? betData.selections.map((sel) => ({
+            ...sel,
+            type: normalizeBetMode(sel?.type || sel?.marketType || 'straight')
+        }))
+        : undefined;
+
+    const payload = {
+        ...betData,
+        type: normalizedType,
+        selections: normalizedSelections
+    };
+
     const response = await fetch(`${API_URL}/bets/place`, {
         method: 'POST',
         headers: getHeaders(token),
-        body: JSON.stringify(betData)
+        body: JSON.stringify(payload)
     });
     if (!response.ok) {
         const error = await response.json();
         throw new Error(error.message || 'Failed to place bet');
     }
+    return response.json();
+};
+
+export const getPublicBetModeRules = async (token) => {
+    const response = await fetch(`${API_URL}/betting/rules`, {
+        headers: getHeaders(token)
+    });
+    if (!response.ok) throw new Error('Failed to fetch bet mode rules');
     return response.json();
 };
 
@@ -152,16 +176,89 @@ export const getMyBets = async (token) => {
     return response.json();
 };
 
+export const getCasinoCategories = async (token) => {
+    const response = await fetch(`${API_URL}/casino/categories`, {
+        headers: getHeaders(token)
+    });
+    if (!response.ok) throw new Error('Failed to fetch casino categories');
+    return response.json();
+};
+
+export const getCasinoGames = async ({ token, category = 'lobby', search = '', featured = false, page = 1, limit = 48 } = {}) => {
+    const params = new URLSearchParams();
+    if (category) params.set('category', category);
+    if (search) params.set('search', search);
+    if (featured) params.set('featured', 'true');
+    params.set('page', String(page));
+    params.set('limit', String(limit));
+
+    const response = await fetch(`${API_URL}/casino/games?${params.toString()}`, {
+        headers: getHeaders(token)
+    });
+    if (!response.ok) throw new Error('Failed to fetch casino games');
+    return response.json();
+};
+
+export const launchCasinoGame = async (gameId, token) => {
+    const response = await fetch(`${API_URL}/casino/games/${gameId}/launch`, {
+        method: 'POST',
+        headers: getHeaders(token)
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || 'Failed to launch casino game');
+    }
+    return response.json();
+};
+
 export const createDeposit = async (amount, token) => {
-    const response = await fetch(`${API_URL}/payments/deposit`, {
+    const response = await fetch(`${API_URL}/wallet/request-deposit`, {
         method: 'POST',
         headers: getHeaders(token),
-        body: JSON.stringify({ amount, currency: 'usd' })
+        body: JSON.stringify({ amount, method: 'bonus_center' })
     });
     if (!response.ok) {
         const error = await response.json();
         throw new Error(error.message || 'Deposit failed');
     }
+    return response.json();
+};
+
+export const requestDeposit = async (amount, method, token) => {
+    const response = await fetch(`${API_URL}/wallet/request-deposit`, {
+        method: 'POST',
+        headers: getHeaders(token),
+        body: JSON.stringify({ amount, method })
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || 'Failed to request deposit');
+    }
+    return response.json();
+};
+
+export const requestWithdrawal = async (amount, method, token) => {
+    const response = await fetch(`${API_URL}/wallet/request-withdrawal`, {
+        method: 'POST',
+        headers: getHeaders(token),
+        body: JSON.stringify({ amount, method })
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || 'Failed to request withdrawal');
+    }
+    return response.json();
+};
+
+export const getWalletTransactions = async (token, { type = '', status = '', limit = 50 } = {}) => {
+    const params = new URLSearchParams();
+    if (type) params.set('type', type);
+    if (status) params.set('status', status);
+    params.set('limit', String(limit));
+    const response = await fetch(`${API_URL}/wallet/transactions?${params.toString()}`, {
+        headers: getHeaders(token)
+    });
+    if (!response.ok) throw new Error('Failed to fetch wallet transactions');
     return response.json();
 };
 
@@ -171,6 +268,14 @@ export const getAgents = async (token) => {
         headers: { 'Authorization': `Bearer ${token}` }
     });
     if (!response.ok) throw new Error('Failed to fetch agents');
+    return response.json();
+};
+
+export const getBetModeRules = async (token) => {
+    const response = await fetch(`${API_URL}/admin/bet-mode-rules`, {
+        headers: getHeaders(token)
+    });
+    if (!response.ok) throw new Error('Failed to fetch bet mode rules');
     return response.json();
 };
 
@@ -293,6 +398,22 @@ export const createMessage = async (subject, body, token) => {
         const error = await response.json().catch(() => ({}));
         throw new Error(error.message || 'Failed to send message');
     }
+    return response.json();
+};
+
+export const getTutorialsContent = async (token) => {
+    const response = await fetch(`${API_URL}/content/tutorials`, {
+        headers: getHeaders(token)
+    });
+    if (!response.ok) throw new Error('Failed to fetch tutorials');
+    return response.json();
+};
+
+export const getSupportFaqs = async (token) => {
+    const response = await fetch(`${API_URL}/content/faqs`, {
+        headers: getHeaders(token)
+    });
+    if (!response.ok) throw new Error('Failed to fetch FAQs');
     return response.json();
 };
 
@@ -628,6 +749,20 @@ export const createAdminBet = async (payload, token) => {
     return response.json();
 };
 
+export const deleteAdminBet = async (id, token) => {
+    const response = await fetch(`${API_URL}/admin/bets/${id}`, {
+        method: 'DELETE',
+        headers: {
+            'Authorization': `Bearer ${token}`
+        }
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || 'Failed to delete bet');
+    }
+    return response.json();
+};
+
 export const settleMatchBets = async (payload, token) => {
     const response = await fetch(`${API_URL}/bets/settle`, {
         method: 'POST',
@@ -650,6 +785,18 @@ export const getAgentPerformance = async (params, token) => {
         headers: { 'Authorization': `Bearer ${token}` }
     });
     if (!response.ok) throw new Error('Failed to fetch agent performance');
+    return response.json();
+};
+
+export const getAgentPerformanceDetails = async (agentId, params, token) => {
+    const query = new URLSearchParams(params || {}).toString();
+    const response = await fetch(`${API_URL}/admin/agent-performance/${agentId}/details?${query}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || 'Failed to fetch agent performance details');
+    }
     return response.json();
 };
 
@@ -1375,6 +1522,30 @@ export const getAgentTree = async (token) => {
     if (!response.ok) {
         const error = await response.json().catch(() => ({}));
         throw new Error(error.message || 'Failed to fetch agent tree');
+    }
+    return response.json();
+};
+
+export const deleteUser = async (userId, token) => {
+    const response = await fetch(`${API_URL}/admin/users/${userId}`, {
+        method: 'DELETE',
+        headers: getHeaders(token)
+    });
+    if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to delete user');
+    }
+    return response.json();
+};
+
+export const deleteAgent = async (agentId, token) => {
+    const response = await fetch(`${API_URL}/admin/agents/${agentId}`, {
+        method: 'DELETE',
+        headers: getHeaders(token)
+    });
+    if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to delete agent');
     }
     return response.json();
 };

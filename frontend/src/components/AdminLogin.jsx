@@ -37,18 +37,27 @@ const AdminLogin = () => {
                     throw new Error('Not authorized: admin role required');
                 }
                 localStorage.setItem('token', result.token);
+                localStorage.setItem('userRole', result.role);
                 sessionStorage.setItem('adminAuthenticated', 'true');
                 sessionStorage.setItem('adminUsername', username);
                 navigate('/admin/dashboard');
             } else {
                 result = await loginAgent(username, password);
-                if (result.role !== 'agent') {
-                    throw new Error('Not authorized: agent role required');
+                const allowedRoles = ['agent', 'master_agent', 'super_agent'];
+                if (!allowedRoles.includes(result.role)) {
+                    throw new Error('Not authorized: valid agent role required');
                 }
                 localStorage.setItem('token', result.token);
-                sessionStorage.setItem('agentAuthenticated', 'true');
-                sessionStorage.setItem('agentUsername', username);
-                navigate('/agent/dashboard');
+                localStorage.setItem('userRole', result.role);
+                if (result.role === 'master_agent' || result.role === 'super_agent') {
+                    sessionStorage.setItem('super_agentAuthenticated', 'true');
+                    sessionStorage.setItem('super_agentUsername', username);
+                    navigate('/super_agent/dashboard');
+                } else {
+                    sessionStorage.setItem('agentAuthenticated', 'true');
+                    sessionStorage.setItem('agentUsername', username);
+                    navigate('/agent/dashboard');
+                }
             }
         } catch (err) {
             console.error(`❌ ${loginRole} login failed:`, err);

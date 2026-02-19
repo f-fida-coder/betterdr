@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { loginUser, getBalance, getMe } from './api';
+import { loginUser, getMe, getPublicBetModeRules, normalizeBetMode } from './api';
 import Header from './components/Header';
 import LeagueNav from './components/LeagueNav';
 import Hero from './components/Hero';
@@ -23,9 +23,17 @@ import ChatWidget from './components/ChatWidget';
 import MyBetsView from './components/MyBetsView';
 import AdminPanel from './components/AdminPanel';
 import LandingPage from './components/LandingPage';
-import BetSlip from './components/BetSlip'; // Import BetSlip
+import ModeBetPanel from './components/ModeBetPanel';
 import './index.css';
 import './dashboard.css';
+
+const DEFAULT_BET_MODE_RULES = {
+  straight: { minLegs: 1, maxLegs: 1, teaserPointOptions: [], payoutProfile: { multipliers: {} } },
+  parlay: { minLegs: 2, maxLegs: 12, teaserPointOptions: [], payoutProfile: { multipliers: {} } },
+  teaser: { minLegs: 2, maxLegs: 6, teaserPointOptions: [6, 6.5, 7], payoutProfile: { multipliers: { '2': 1.8, '3': 2.6, '4': 4.0, '5': 6.5, '6': 9.5 } } },
+  if_bet: { minLegs: 2, maxLegs: 2, teaserPointOptions: [], payoutProfile: { multipliers: {} } },
+  reverse: { minLegs: 2, maxLegs: 2, teaserPointOptions: [], payoutProfile: { multipliers: {} } }
+};
 
 function App() {
   const navigate = useNavigate();
@@ -35,6 +43,10 @@ function App() {
   const [dashboardView, setDashboardView] = useState('dashboard');
   const [selectedSports, setSelectedSports] = useState([]);
   const [betMode, setBetMode] = useState('straight');
+  const [slipSelections, setSlipSelections] = useState([]);
+  const [wager, setWager] = useState('');
+  const [teaserPoints, setTeaserPoints] = useState('');
+  const [betModeRules, setBetModeRules] = useState(DEFAULT_BET_MODE_RULES);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [showPromo, setShowPromo] = useState(false);
   const [isMobileSportsSelectionMode, setIsMobileSportsSelectionMode] = useState(false);
@@ -58,12 +70,55 @@ function App() {
     }
   }, [token]);
 
+  useEffect(() => {
+    const loadBetModeRules = async () => {
+      if (!token) return;
+      try {
+        const payload = await getPublicBetModeRules(token);
+        const mapped = (payload?.rules || []).reduce((acc, rule) => {
+          acc[normalizeBetMode(rule.mode)] = rule;
+          return acc;
+        }, {});
+        if (Object.keys(mapped).length > 0) {
+          setBetModeRules(prev => ({ ...prev, ...mapped }));
+        }
+      } catch (error) {
+        console.warn('Failed to load bet mode rules:', error.message);
+      }
+    };
+
+    loadBetModeRules();
+  }, [token]);
+
+  useEffect(() => {
+    const handleAddToSlip = (e) => {
+      const item = e.detail || {};
+      if (!item.matchId || !item.selection) return;
+      const normalizedMode = normalizeBetMode(betMode);
+      const dedupeKey = `${item.matchId}-${item.marketType}-${item.selection}`;
+
+      setSlipSelections(prev => {
+        const existing = prev.find(sel => sel.dedupeKey === dedupeKey);
+        if (existing) return prev;
+        const next = [...prev, { ...item, id: Date.now() + Math.random(), dedupeKey }];
+        if (normalizedMode === 'straight') {
+          return [next[next.length - 1]];
+        }
+        return next;
+      });
+    };
+
+    window.addEventListener('betslip:add', handleAddToSlip);
+    return () => window.removeEventListener('betslip:add', handleAddToSlip);
+  }, [betMode]);
+
+  // Redirect admins/agents who land on root "/" back to their dashboard
   // Redirect admins/agents who land on root "/" back to their dashboard
   useEffect(() => {
-    if (user && (user.role === 'admin' || user.role === 'agent' || user.role === 'super_agent')) {
+    if (user && (user.role === 'admin' || user.role === 'agent' || user.role === 'super_agent' || user.role === 'master_agent')) {
       const targetPath = user.role === 'admin'
         ? '/admin/dashboard'
-        : (user.role === 'super_agent' ? '/super_agent/dashboard' : '/agent/dashboard');
+        : ((user.role === 'super_agent' || user.role === 'master_agent') ? '/super_agent/dashboard' : '/agent/dashboard');
       navigate(targetPath, { replace: true });
     }
   }, [user, navigate]);
@@ -102,6 +157,7 @@ function App() {
       // Store the token from the real backend
       setToken(result.token);
       localStorage.setItem('token', result.token);
+      localStorage.setItem('userRole', result.role);
 
       // Store user data from the backend response
       setUser({
@@ -120,8 +176,9 @@ function App() {
 
       // Sync with explicit admin routes if applicable
       // Sync with explicit admin routes if applicable
-      if (result.role === 'admin' || result.role === 'agent' || result.role === 'super_agent') {
-        const roleKey = result.role === 'admin' ? 'admin' : (result.role === 'super_agent' ? 'super_agent' : 'agent');
+      // Sync with explicit admin routes if applicable
+      if (result.role === 'admin' || result.role === 'agent' || result.role === 'super_agent' || result.role === 'master_agent') {
+        const roleKey = result.role === 'admin' ? 'admin' : ((result.role === 'super_agent' || result.role === 'master_agent') ? 'super_agent' : 'agent');
         sessionStorage.setItem(`${roleKey}Authenticated`, 'true');
         sessionStorage.setItem(`${roleKey}Username`, result.username);
 
@@ -137,7 +194,11 @@ function App() {
     setToken(null);
     setUser(null);
     setIsLoggedIn(false);
+    setSlipSelections([]);
+    setWager('');
+    setTeaserPoints('');
     localStorage.removeItem('token');
+    localStorage.removeItem('userRole');
     document.body.classList.remove('dashboard-mode');
     handleHomeClick();
   };
@@ -145,6 +206,14 @@ function App() {
   const handleViewChange = (view) => {
     setDashboardView(view);
     setMobileSidebarOpen(false);
+  };
+
+  const handleBetModeChange = (mode) => {
+    const normalized = normalizeBetMode(mode);
+    setBetMode(normalized);
+    if (normalized === 'straight') {
+      setSlipSelections(prev => (prev.length > 0 ? [prev[prev.length - 1]] : []));
+    }
   };
 
   const handleHomeClick = () => {
@@ -178,7 +247,7 @@ function App() {
         <LandingPage onLogin={handleLogin} isLoggedIn={isLoggedIn} />
       ) : (
         <div className="dashboard-layout">
-          <DashboardHeader
+            <DashboardHeader
             username={user?.username || 'Guest'}
             balance={user?.balance ?? null}
             pendingBalance={user?.pendingBalance ?? null}
@@ -188,7 +257,7 @@ function App() {
             onLogout={handleLogout}
             onViewChange={handleViewChange}
             activeBetMode={betMode}
-            onBetModeChange={setBetMode}
+            onBetModeChange={handleBetModeChange}
             currentView={dashboardView}
             onToggleSidebar={() => setMobileSidebarOpen(!mobileSidebarOpen)}
             selectedSports={selectedSports}
@@ -234,7 +303,7 @@ function App() {
                     <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
                       {showPromo && <PromoCard />}
                       <div style={{ flex: 1 }}>
-                        <DashboardMain selectedSports={selectedSports} />
+                        <DashboardMain selectedSports={selectedSports} activeBetMode={betMode} />
                       </div>
                     </div>
                   </>
@@ -286,9 +355,18 @@ function App() {
           </div>
 
           {isLoggedIn && user && user.role === 'user' && (
-            <BetSlip
+            <ModeBetPanel
               user={user}
-              balance={user.balance}
+              balance={user.availableBalance ?? user.balance}
+              mode={betMode}
+              onModeChange={handleBetModeChange}
+              selections={slipSelections}
+              onSelectionsChange={setSlipSelections}
+              wager={wager}
+              onWagerChange={setWager}
+              teaserPoints={teaserPoints}
+              onTeaserPointsChange={setTeaserPoints}
+              rulesByMode={betModeRules}
               onBetPlaced={() => fetchUserData(token)}
             />
           )}

@@ -1,39 +1,108 @@
 import React, { useState, useEffect } from 'react';
 import { updateAgentPermissions } from '../../api';
+import { VIEW_PERMISSION_MAP } from '../../utils/adminPermissions';
+
+const DEFAULT_PERMISSIONS = {
+    // General
+    updateInfo: true,
+    suspendWagering: true,
+    enterDepositsWithdrawals: true,
+    deleteTransactions: true,
+    enterBettingAdjustments: true,
+    moveAccounts: true,
+    addAccounts: true,
+
+    // Limit and Sport Setup
+    changeCreditLimit: true,
+    setMinBet: true,
+    changeWagerLimit: true,
+    adjustParlayTeaser: true,
+    setGlobalTeamLimit: true,
+    maxWagerSetup: true,
+    allowDeny: true,
+    juiceSetup: true,
+    changeTempCredit: true,
+    changeSettleFigure: true,
+
+    views: Object.values(VIEW_PERMISSION_MAP).reduce((acc, key) => {
+        acc[key] = true;
+        return acc;
+    }, {}),
+    ipTracker: {
+        manage: true
+    }
+};
+
+const VIEW_LABELS = {
+    dashboard: 'Dashboard',
+    weeklyFigures: 'Weekly Figures',
+    pending: 'Pending',
+    messaging: 'Messaging',
+    gameAdmin: 'Game Admin',
+    customerAdmin: 'Customer Admin',
+    agentManager: 'Agent Management',
+    cashier: 'Cashier',
+    addCustomer: 'Add Customer',
+    thirdPartyLimits: '3rd Party Limits',
+    props: 'Props / Betting',
+    agentPerformance: 'Agent Performance',
+    analysis: 'Analysis',
+    ipTracker: 'IP Tracker',
+    transactionsHistory: 'Transactions History',
+    collections: 'Collections',
+    deletedWagers: 'Deleted Wagers',
+    gamesEvents: 'Games & Events',
+    sportsbookLinks: 'Sportsbook Links',
+    betTicker: 'Bet Ticker',
+    ticketwriter: 'TicketWriter',
+    scores: 'Scores',
+    masterAgentAdmin: 'Master Agent Admin',
+    billing: 'Billing',
+    settings: 'Settings',
+    monitor: 'System Monitor',
+    rules: 'Rules',
+    feedback: 'Feedback',
+    faq: 'FAQ',
+    userManual: 'User Manual',
+    profile: 'Profile'
+};
+
+const mergeDeep = (base, incoming) => {
+    if (!incoming || typeof incoming !== 'object') return base;
+    const merged = { ...base };
+    Object.keys(incoming).forEach((key) => {
+        const nextVal = incoming[key];
+        if (nextVal && typeof nextVal === 'object' && !Array.isArray(nextVal)) {
+            merged[key] = mergeDeep(base[key] || {}, nextVal);
+        } else {
+            merged[key] = nextVal;
+        }
+    });
+    return merged;
+};
 
 function AgentPermissionModal({ agent, onClose, onUpdate }) {
-    const [permissions, setPermissions] = useState({
-        // General
-        updateInfo: true,
-        suspendWagering: true,
-        enterDepositsWithdrawals: true,
-        deleteTransactions: true,
-        enterBettingAdjustments: true,
-        moveAccounts: true,
-        addAccounts: true,
-
-        // Limit and Sport Setup
-        changeCreditLimit: true,
-        setMinBet: true,
-        changeWagerLimit: true,
-        adjustParlayTeaser: true,
-        setGlobalTeamLimit: true,
-        maxWagerSetup: true,
-        allowDeny: true,
-        juiceSetup: true,
-        changeTempCredit: true,
-        changeSettleFigure: true,
-    });
+    const [permissions, setPermissions] = useState(DEFAULT_PERMISSIONS);
     const [loading, setLoading] = useState(false);
 
     useEffect(() => {
-        if (agent && agent.permissions) {
-            setPermissions(prev => ({ ...prev, ...agent.permissions }));
+        if (agent) {
+            setPermissions(mergeDeep(DEFAULT_PERMISSIONS, agent.permissions || {}));
         }
     }, [agent]);
 
     const handleToggle = (key) => {
         setPermissions(prev => ({ ...prev, [key]: !prev[key] }));
+    };
+
+    const handleNestedToggle = (group, key) => {
+        setPermissions(prev => ({
+            ...prev,
+            [group]: {
+                ...(prev[group] || {}),
+                [key]: !prev?.[group]?.[key]
+            }
+        }));
     };
 
     const handleSave = async () => {
@@ -61,6 +130,20 @@ function AgentPermissionModal({ agent, onClose, onUpdate }) {
                     type="checkbox"
                     checked={permissions[key]}
                     onChange={() => handleToggle(key)}
+                />
+                <span className="checkmark"></span>
+                {label}
+            </label>
+        </div>
+    );
+
+    const renderNestedCheckbox = (group, key, label) => (
+        <div key={`${group}.${key}`} className="permission-item">
+            <label className="checkbox-container">
+                <input
+                    type="checkbox"
+                    checked={Boolean(permissions?.[group]?.[key])}
+                    onChange={() => handleNestedToggle(group, key)}
                 />
                 <span className="checkmark"></span>
                 {label}
@@ -100,6 +183,16 @@ function AgentPermissionModal({ agent, onClose, onUpdate }) {
                         {renderCheckbox('juiceSetup', 'Juice Setup')}
                         {renderCheckbox('changeTempCredit', 'Change Temp Credit')}
                         {renderCheckbox('changeSettleFigure', 'Change Settle Figure')}
+                    </div>
+
+                    <div className="section">
+                        <h4>Dashboard Access</h4>
+                        {Object.keys(VIEW_LABELS).map((key) => renderNestedCheckbox('views', key, VIEW_LABELS[key]))}
+                    </div>
+
+                    <div className="section">
+                        <h4>IP Tracker Actions</h4>
+                        {renderNestedCheckbox('ipTracker', 'manage', 'Allow Block / Unblock / Whitelist')}
                     </div>
                 </div>
 
