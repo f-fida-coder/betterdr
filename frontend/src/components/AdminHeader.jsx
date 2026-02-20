@@ -6,6 +6,8 @@ function AdminHeader({ onMenuToggle, onLogout, onViewChange }) {
   const [showDropdown, setShowDropdown] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [showAgentTree, setShowAgentTree] = useState(false);
+  const [headerSearchQuery, setHeaderSearchQuery] = useState('');
+  const [agentTreeSearchQuery, setAgentTreeSearchQuery] = useState('');
   const [summary, setSummary] = useState({
     totalBalance: null,
     weekNet: null,
@@ -78,6 +80,12 @@ function AdminHeader({ onMenuToggle, onLogout, onViewChange }) {
     if (onViewChange) onViewChange(view);
   };
 
+  const handleHeaderSearchSubmit = (e) => {
+    e.preventDefault();
+    setAgentTreeSearchQuery(headerSearchQuery.trim());
+    setShowAgentTree(true);
+  };
+
   const displayName = profile?.username ? profile.username.toUpperCase() : 'ADMIN';
   const myBalance = profile?.unlimitedBalance ? 'Unlimited' : (profile?.balance ?? null);
 
@@ -94,6 +102,15 @@ function AdminHeader({ onMenuToggle, onLogout, onViewChange }) {
             ☰
           </button>
           <h1 className="admin-title">Admin Manager</h1>
+          <form className="admin-header-search" onSubmit={handleHeaderSearchSubmit}>
+            <span className="search-icon" aria-hidden="true">🔍</span>
+            <input
+              type="text"
+              placeholder="Search accounts..."
+              value={headerSearchQuery}
+              onChange={(e) => setHeaderSearchQuery(e.target.value)}
+            />
+          </form>
         </div>
         <div className="admin-header-right">
           <div className="header-actions" style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
@@ -174,6 +191,7 @@ function AdminHeader({ onMenuToggle, onLogout, onViewChange }) {
       {showAgentTree && (
         <AgentTreeView
           onClose={() => setShowAgentTree(false)}
+          initialQuery={agentTreeSearchQuery}
           onGo={(id, role) => {
             setShowAgentTree(false);
             if (role === 'player') {

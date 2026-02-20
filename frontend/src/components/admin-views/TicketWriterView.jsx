@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { API_URL, createTicketWriterBet, getAdminMatches } from '../../api';
+import { createTicketWriterBet, getAdminMatches, getUsersAdmin } from '../../api';
 
 function TicketWriterView() {
   const [formData, setFormData] = useState({
@@ -71,10 +71,10 @@ function TicketWriterView() {
         setLoading(true);
         const [matchesData, usersData] = await Promise.all([
           getAdminMatches(token),
-          fetch(`${API_URL}/admin/users`, { headers: { 'Authorization': `Bearer ${token}` } }).then(res => res.json())
+          getUsersAdmin(token)
         ]);
-        setMatches(matchesData || []);
-        setCustomers(usersData || []);
+        setMatches(Array.isArray(matchesData) ? matchesData : []);
+        setCustomers(Array.isArray(usersData) ? usersData : []);
         setError('');
       } catch (err) {
         console.error('Failed to load ticket data:', err);

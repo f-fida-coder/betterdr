@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { API_URL } from '../../api';
+import { getSystemStats, refreshOdds } from '../../api';
 
 const SystemMonitorView = () => {
     const [stats, setStats] = useState(null);
@@ -9,12 +9,10 @@ const SystemMonitorView = () => {
     const fetchStats = async () => {
         try {
             const token = localStorage.getItem('token');
-            const response = await fetch(`${API_URL}/admin/system-stats`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-
-            if (!response.ok) throw new Error('Failed to fetch stats');
-            const data = await response.json();
+            if (!token) {
+                throw new Error('Please login to view system monitor');
+            }
+            const data = await getSystemStats(token);
             setStats(data);
             setLastUpdated(new Date());
             setLoading(false);
@@ -39,20 +37,15 @@ const SystemMonitorView = () => {
     const handleRefreshOdds = async () => {
         try {
             const token = localStorage.getItem('token');
-            const response = await fetch(`${API_URL}/admin/refresh-odds`, {
-                method: 'POST',
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            const data = await response.json();
-            if (response.ok) {
-                alert(`Odds Refreshed! Created: ${data.results.created}, Updated: ${data.results.updated}`);
-                fetchStats(); // Refresh stats too
-            } else {
-                alert('Failed: ' + data.message);
+            if (!token) {
+                throw new Error('Please login first');
             }
+            const data = await refreshOdds(token);
+            alert(`Odds Refreshed! Created: ${data.results?.created || 0}, Updated: ${data.results?.updated || 0}`);
+            fetchStats(); // Refresh stats too
         } catch (error) {
             console.error('Refresh error:', error);
-            alert('Error refreshing odds');
+            alert(error.message || 'Error refreshing odds');
         }
     };
 

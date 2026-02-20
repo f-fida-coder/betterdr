@@ -993,11 +993,11 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
             <b className="neutral">{formatCurrency(customer.pendingBalance || 0)}</b>
           </button>
           <div className="metric"><span>Available</span><b className="neutral">{formatCurrency(available)}</b></div>
-          <button type="button" className={`metric metric-circle ${activeSection === 'freeplays' ? 'metric-active' : ''}`} onClick={() => openSection('freeplays')}>
+          <button type="button" className={`metric ${activeSection === 'freeplays' ? 'metric-active' : ''}`} onClick={() => openSection('freeplays')}>
             <span>Freeplay</span>
             <b className="neutral">{formatCurrency(customer.freeplayBalance || 0)}</b>
           </button>
-          <button type="button" className={`metric metric-circle ${activeSection === 'performance' ? 'metric-active' : ''}`} onClick={() => openSection('performance')}>
+          <button type="button" className={`metric ${activeSection === 'performance' ? 'metric-active' : ''}`} onClick={() => openSection('performance')}>
             <span>Lifetime +/-</span>
             <b className={Number(stats.netProfit || 0) < 0 ? 'neg' : 'pos'}>{formatCurrency(stats.netProfit || 0)}</b>
           </button>
@@ -1473,7 +1473,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
 
       <style>{`
         .customer-details-v2 { background:#f3f4f6; min-height:100vh; padding:16px; color:#1f2937; }
-        .top-panel { display:flex; justify-content:space-between; align-items:flex-start; background:#fff; border:1px solid #d1d5db; border-radius:12px; padding:16px; box-shadow:0 2px 10px rgba(15, 23, 42, 0.04); }
+        .top-panel { display:flex; justify-content:space-between; align-items:flex-start; background:#fff; border:1px solid #d1d5db; border-radius:8px; padding:16px; box-shadow:0 1px 6px rgba(15, 23, 42, 0.04); }
         .top-left h2 { margin:0; font-size:18px; line-height:1.2; }
         .agent-line { margin-top:4px; color:#4b5563; font-size:14px; }
         .top-actions { display:flex; gap:8px; }
@@ -1487,11 +1487,11 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
         .player-card {
           margin-top: 10px;
           border: 1px solid #d6e2f3;
-          border-radius: 14px;
+          border-radius: 4px;
           padding: 12px;
-          background: #f8fbff;
+          background: #fff;
           max-width: 720px;
-          box-shadow: 0 1px 6px rgba(30, 41, 59, 0.05);
+          box-shadow: none;
         }
         .player-card-head {
           display: flex;
@@ -1509,7 +1509,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
           display: inline-flex;
           align-items: center;
           padding: 5px 10px;
-          border-radius: 999px;
+          border-radius: 4px;
           border: 1px solid #9ec4f2;
           color: #1f5fb9;
           font-weight: 700;
@@ -1517,9 +1517,9 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
         }
         .creds-box {
           border: 1px solid #d6e2f3;
-          border-radius: 12px;
+          border-radius: 4px;
           padding: 10px;
-          background: #f1f6ff;
+          background: #fff;
         }
         .creds-row {
           display: grid;
@@ -1535,10 +1535,10 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
           color: #64748b;
         }
         .creds-pill {
-          border: 1px solid #cbd5e1;
-          background: #eef2f7;
-          border-radius: 14px;
-          padding: 6px 10px;
+          border: none;
+          background: transparent;
+          border-radius: 0;
+          padding: 0;
           font-size: 14px;
           font-weight: 700;
           color: #334155;
@@ -1555,9 +1555,9 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
         .limits-box {
           margin-top: 12px;
           border: 1px solid #d6e2f3;
-          border-radius: 12px;
+          border-radius: 4px;
           padding: 12px;
-          background: #f8fbff;
+          background: #fff;
           display: grid;
           grid-template-columns: 1fr 1fr;
           gap: 12px 28px;
@@ -1602,13 +1602,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
         .metric .neg { color:#dc2626; }
         .metric .pos { color:#15803d; }
         .metric .neutral { color:#111827; }
-        .metric-circle {
-          background: #f0fdf4;
-          border: 1px solid #bbf7d0;
-          border-radius: 999px;
-          padding: 10px 14px;
-          margin-top: 4px;
-        }
+        .metric-circle { background: transparent; border: none; border-radius: 0; padding: 0; margin-top: 0; }
 
         .basics-header { margin-top:8px; background:#fff; border:1px solid #d1d5db; border-radius:10px; padding:10px 12px; display:flex; align-items:center; justify-content:space-between; }
         .basics-left { display:flex; align-items:center; gap:10px; }

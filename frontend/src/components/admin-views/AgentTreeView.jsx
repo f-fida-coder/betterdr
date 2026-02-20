@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { getAgentTree } from '../../api';
 
-function AgentTreeView({ onClose, onGo }) {
+function AgentTreeView({ onClose, onGo, initialQuery = '' }) {
     const [loading, setLoading] = useState(true);
     const [treeData, setTreeData] = useState(null);
     const [searchQuery, setSearchQuery] = useState('');
@@ -28,6 +28,10 @@ function AgentTreeView({ onClose, onGo }) {
         };
         fetchTree();
     }, []);
+
+    useEffect(() => {
+        setSearchQuery(initialQuery || '');
+    }, [initialQuery]);
 
     const toggleNode = (id) => {
         const newSet = new Set(expandedNodes);

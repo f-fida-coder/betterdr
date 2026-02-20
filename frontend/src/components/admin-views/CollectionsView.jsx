@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { API_URL, collectCollection, createCollection, getCollections } from '../../api';
+import { collectCollection, createCollection, getCollections, getUsersAdmin } from '../../api';
 
 function CollectionsView() {
   const [collections, setCollections] = useState([]);
@@ -50,13 +50,8 @@ function CollectionsView() {
       const token = localStorage.getItem('token');
       if (!token) return;
       try {
-        const response = await fetch(`${API_URL}/admin/users`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (response.ok) {
-          const data = await response.json();
-          setCustomers(data || []);
-        }
+        const data = await getUsersAdmin(token);
+        setCustomers(Array.isArray(data) ? data : []);
       } catch (err) {
         console.error('Failed to load customers:', err);
       }

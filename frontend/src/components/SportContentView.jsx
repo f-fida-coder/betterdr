@@ -1,9 +1,12 @@
 import React, { useState } from 'react';
 import { placeBet } from '../api';
 import useMatches from '../hooks/useMatches';
+import { createFallbackTeamLogoDataUri, fetchTeamBadgeUrl } from '../utils/teamLogos';
 
 const SportContentView = ({ sportId, selectedItems = [], status = 'live-upcoming', activeBetMode = 'straight' }) => {
     const [activeTab, setActiveTab] = useState('matches');
+    const [teamLogos, setTeamLogos] = useState({});
+    const attemptedLogoFetchesRef = React.useRef(new Set());
 
     const [content, setContent] = useState({ name: '', icon: '', matches: [], scoreboards: [] });
     const rawMatches = useMatches({ status });
@@ -175,6 +178,25 @@ const SportContentView = ({ sportId, selectedItems = [], status = 'live-upcoming
 
     }, [sportId, rawMatches]);
 
+    React.useEffect(() => {
+        const names = Array.from(new Set(
+            (content.matches || [])
+                .flatMap((match) => [match.team1?.name, match.team2?.name])
+                .filter(Boolean)
+        ));
+
+        names.forEach((teamName) => {
+            if (!teamName || attemptedLogoFetchesRef.current.has(teamName)) return;
+            attemptedLogoFetchesRef.current.add(teamName);
+            fetchTeamBadgeUrl(teamName).then((logoUrl) => {
+                setTeamLogos((prev) => ({
+                    ...prev,
+                    [teamName]: logoUrl || ''
+                }));
+            });
+        });
+    }, [content.matches]);
+
     const handleAddToSlip = (matchId, selection, marketType, odds, matchName, marketLabel) => {
         window.dispatchEvent(new CustomEvent('betslip:add', {
             detail: {
@@ -238,7 +260,18 @@ const SportContentView = ({ sportId, selectedItems = [], status = 'live-upcoming
 
                                 <div className="match-body">
                                     <div className="team-box">
-                                        {match.team1.logo && <span className="team-logo">{match.team1.logo}</span>}
+                                        <span className="team-logo-badge">
+                                            <img
+                                                className="team-logo-image"
+                                                src={teamLogos[match.team1.name] || createFallbackTeamLogoDataUri(match.team1.name)}
+                                                alt={`${match.team1.name} logo`}
+                                                loading="lazy"
+                                                onError={(event) => {
+                                                    event.currentTarget.onerror = null;
+                                                    event.currentTarget.src = createFallbackTeamLogoDataUri(match.team1.name);
+                                                }}
+                                            />
+                                        </span>
                                         <div className="team-info">
                                             <span className="team-name">{match.team1.name}</span>
                                             <span className="team-abbr">{match.team1.abbr}</span>
@@ -249,7 +282,18 @@ const SportContentView = ({ sportId, selectedItems = [], status = 'live-upcoming
                                     <div className="vs-separator">vs</div>
 
                                     <div className="team-box">
-                                        {match.team2.logo && <span className="team-logo">{match.team2.logo}</span>}
+                                        <span className="team-logo-badge">
+                                            <img
+                                                className="team-logo-image"
+                                                src={teamLogos[match.team2.name] || createFallbackTeamLogoDataUri(match.team2.name)}
+                                                alt={`${match.team2.name} logo`}
+                                                loading="lazy"
+                                                onError={(event) => {
+                                                    event.currentTarget.onerror = null;
+                                                    event.currentTarget.src = createFallbackTeamLogoDataUri(match.team2.name);
+                                                }}
+                                            />
+                                        </span>
                                         <div className="team-info">
                                             <span className="team-name">{match.team2.name}</span>
                                             <span className="team-abbr">{match.team2.abbr}</span>

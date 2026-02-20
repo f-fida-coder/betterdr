@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react';
-import { io } from 'socket.io-client';
-import { getMatches, getLiveMatches, fetchOddsManual, BACKEND_BASE_URL } from '../api';
+import { getMatches, getLiveMatches, fetchOddsManual, API_URL } from '../api';
 
-// Use backend origin explicitly to avoid Vite serving index.html on relative fetch
-const SOCKET_URL = BACKEND_BASE_URL;
+const MATCH_STREAM_ENABLED = String(import.meta.env.VITE_ENABLE_MATCH_STREAM || 'true').toLowerCase() === 'true';
+const POLL_INTERVAL_MS = 15000;
 
 // Hook: fetch initial matches and subscribe to live match updates
 const isLiveMatch = (match) => {
@@ -89,60 +88,66 @@ export default function useMatches(options = {}) {
 
         window.addEventListener('matches:refresh', handleRefresh);
 
-        // Force polling transport as websocket upgrade was failing in some dev setups
-        const socket = io(SOCKET_URL, { transports: ['polling'], upgrade: false });
+        let eventSource = null;
+        let pollingTimer = null;
 
-        socket.on('connect', () => {
-            console.debug('useMatches: socket connected', socket.id, 'to', SOCKET_URL);
-        });
-
-        socket.on('connect_error', (err) => {
-            console.warn('useMatches: socket connect_error', err && err.message ? err.message : err);
-        });
-
-        socket.on('disconnect', (reason) => {
-            console.debug('useMatches: socket disconnected', reason);
-        });
-
-        socket.io && socket.io.on('reconnect_attempt', (attempt) => {
-            console.debug('useMatches: reconnect attempt', attempt);
-        });
-
-        socket.on('matchUpdate', (updatedMatch) => {
-            console.debug('useMatches: received matchUpdate', updatedMatch);
-            setMatches(prev => {
-                if (!updatedMatch) return prev;
-                let shouldKeep = true;
-                if (statusFilter === 'live' || statusFilter === 'active') {
-                    shouldKeep = isLiveMatch(updatedMatch);
-                } else if (statusFilter === 'upcoming' || statusFilter === 'scheduled') {
-                    shouldKeep = !isFinishedMatch(updatedMatch) && isUpcomingMatch(updatedMatch);
-                } else if (statusFilter === 'live-upcoming' || statusFilter === 'active-upcoming') {
-                    shouldKeep = !isFinishedMatch(updatedMatch) && (isLiveMatch(updatedMatch) || isUpcomingMatch(updatedMatch) || (!isFinishedMatch(updatedMatch) && !updatedMatch?.status));
+        if (MATCH_STREAM_ENABLED && typeof window !== 'undefined' && typeof window.EventSource !== 'undefined') {
+            eventSource = new window.EventSource(`${API_URL}/matches/stream`);
+            eventSource.addEventListener('matchUpdate', (event) => {
+                let updatedMatch = null;
+                try {
+                    updatedMatch = JSON.parse(event.data);
+                } catch (e) {
+                    return;
                 }
-                // normalize id
-                const id = updatedMatch.id || updatedMatch._id || updatedMatch.externalId;
-                const idx = prev.findIndex(m => (m.id === id) || (m._id === id) || (m.externalId === id));
-                if (!shouldKeep) {
+                console.debug('useMatches: received matchUpdate', updatedMatch);
+                setMatches(prev => {
+                    if (!updatedMatch) return prev;
+                    let shouldKeep = true;
+                    if (statusFilter === 'live' || statusFilter === 'active') {
+                        shouldKeep = isLiveMatch(updatedMatch);
+                    } else if (statusFilter === 'upcoming' || statusFilter === 'scheduled') {
+                        shouldKeep = !isFinishedMatch(updatedMatch) && isUpcomingMatch(updatedMatch);
+                    } else if (statusFilter === 'live-upcoming' || statusFilter === 'active-upcoming') {
+                        shouldKeep = !isFinishedMatch(updatedMatch) && (isLiveMatch(updatedMatch) || isUpcomingMatch(updatedMatch) || (!isFinishedMatch(updatedMatch) && !updatedMatch?.status));
+                    }
+                    const id = updatedMatch.id || updatedMatch._id || updatedMatch.externalId;
+                    const idx = prev.findIndex(m => (m.id === id) || (m._id === id) || (m.externalId === id));
+                    if (!shouldKeep) {
+                        if (idx >= 0) {
+                            const copy = [...prev];
+                            copy.splice(idx, 1);
+                            return copy;
+                        }
+                        return prev;
+                    }
                     if (idx >= 0) {
                         const copy = [...prev];
-                        copy.splice(idx, 1);
+                        copy[idx] = { ...copy[idx], ...updatedMatch };
                         return copy;
                     }
-                    return prev;
-                }
-                if (idx >= 0) {
-                    const copy = [...prev];
-                    copy[idx] = { ...copy[idx], ...updatedMatch };
-                    return copy;
-                }
-                return [updatedMatch, ...prev];
+                    return [updatedMatch, ...prev];
+                });
             });
-        });
+            eventSource.onerror = () => {
+                if (pollingTimer === null) {
+                    pollingTimer = window.setInterval(fetchMatches, POLL_INTERVAL_MS);
+                }
+            };
+        }
+
+        if (pollingTimer === null) {
+            pollingTimer = window.setInterval(fetchMatches, POLL_INTERVAL_MS);
+        }
 
         return () => {
             mounted = false;
-            try { socket.disconnect(); } catch (e) { }
+            if (pollingTimer !== null) {
+                window.clearInterval(pollingTimer);
+            }
+            if (eventSource) {
+                try { eventSource.close(); } catch (e) { }
+            }
             window.removeEventListener('matches:refresh', handleRefresh);
         };
     }, [statusFilter, options.refreshOdds]);

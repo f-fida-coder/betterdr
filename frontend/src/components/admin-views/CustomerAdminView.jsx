@@ -32,7 +32,6 @@ function CustomerAdminView({ onViewChange }) {
   const [creationType, setCreationType] = useState('player'); // player, agent, super_agent
   const [currentRole, setCurrentRole] = useState('admin');
   const [viewOnly, setViewOnly] = useState(false);
-  const [sourceFilter, setSourceFilter] = useState('player'); // player, agent, master
   const [showEditModal, setShowEditModal] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [editForm, setEditForm] = useState({
@@ -62,10 +61,27 @@ function CustomerAdminView({ onViewChange }) {
     currentBalance: 0,
     nextBalance: ''
   });
+  const [bulkEditType, setBulkEditType] = useState('');
+  const [bulkEditValue, setBulkEditValue] = useState('');
+  const [showBulkEditModal, setShowBulkEditModal] = useState(false);
+  const [rowAddonDrafts, setRowAddonDrafts] = useState({});
+  const [expandedRowId, setExpandedRowId] = useState(null);
+  const [expandedEditRowId, setExpandedEditRowId] = useState(null);
+  const [rowDetailDrafts, setRowDetailDrafts] = useState({});
+  const [headerAgentQuery, setHeaderAgentQuery] = useState('');
+  const [headerAgentOpen, setHeaderAgentOpen] = useState(false);
+  const [selectedHeaderAgentId, setSelectedHeaderAgentId] = useState('');
+  const [agentSearchQuery, setAgentSearchQuery] = useState('');
+  const [agentSearchOpen, setAgentSearchOpen] = useState(false);
+  const [quickEditModal, setQuickEditModal] = useState({
+    open: false,
+    type: '',
+    customerId: null,
+    username: '',
+    value: ''
+  });
 
 
-  const [listFilterOrigin, setListFilterOrigin] = useState('all'); // 'all', 'admin', 'upline'
-  const [listFilterUplineId, setListFilterUplineId] = useState('');
   const [adminUsername, setAdminUsername] = useState('');
   const [currentUserId, setCurrentUserId] = useState('');
 
@@ -268,6 +284,7 @@ function CustomerAdminView({ onViewChange }) {
     if (agentId) {
       const selectedAgent = agents.find(a => (a.id || a._id) === agentId);
       if (selectedAgent) {
+        setAgentSearchQuery(selectedAgent.username || '');
         try {
           const { nextUsername } = await getNextUsername(selectedAgent.username, token, { type: 'player' });
           setNewCustomer(prev => ({ ...prev, username: nextUsername }));
@@ -276,6 +293,7 @@ function CustomerAdminView({ onViewChange }) {
         }
       }
     } else {
+      setAgentSearchQuery('');
       // Direct assignment - use admin username
       if (adminUsername) {
         try {
@@ -447,27 +465,46 @@ function CustomerAdminView({ onViewChange }) {
     }
   };
 
-  const handleToggleAddon = async (customer, addonKey) => {
+  const getPlayerAddonState = (customer) => {
     const customerId = customer.id || customer._id;
-    const currentSettings = customer.settings || {
-      sports: true,
-      casino: true,
-      racebook: true,
-      live: true,
-      props: true,
-      liveCasino: true
+    const fallback = {
+      sports: customer.settings?.sports ?? true,
+      casino: customer.settings?.casino ?? true,
+      racebook: customer.settings?.racebook ?? true
     };
-    const updatedSettings = {
-      ...currentSettings,
-      [addonKey]: !currentSettings[addonKey]
-    };
+    return rowAddonDrafts[customerId] || fallback;
+  };
+
+  const handleToggleAddonDraft = (customer, addonKey) => {
+    const customerId = customer.id || customer._id;
+    const current = getPlayerAddonState(customer);
+    setRowAddonDrafts((prev) => ({
+      ...prev,
+      [customerId]: {
+        ...current,
+        [addonKey]: !current[addonKey]
+      }
+    }));
+  };
+
+  const saveAddonDraft = async (customer) => {
+    const customerId = customer.id || customer._id;
+    const draft = rowAddonDrafts[customerId];
+    if (!draft) return;
 
     try {
       const token = localStorage.getItem('token');
       if (!token) return;
 
       setActionLoadingId(customerId);
-      const payload = { settings: updatedSettings };
+      const payload = {
+        settings: {
+          ...(customer.settings || {}),
+          sports: !!draft.sports,
+          casino: !!draft.casino,
+          racebook: !!draft.racebook
+        }
+      };
 
       if (currentRole === 'agent') {
         await updateUserByAgent(customerId, payload, token);
@@ -476,12 +513,17 @@ function CustomerAdminView({ onViewChange }) {
       }
 
       setCustomers(prev => prev.map(c => (
-        (c.id || c._id) === customerId ? { ...c, settings: updatedSettings } : c
+        (c.id || c._id) === customerId ? { ...c, settings: payload.settings } : c
       )));
+      setRowAddonDrafts((prev) => {
+        const next = { ...prev };
+        delete next[customerId];
+        return next;
+      });
       setError('');
     } catch (err) {
-      console.error('Addon toggle failed:', err);
-      setError(err.message || 'Failed to toggle addon');
+      console.error('Addon save failed:', err);
+      setError(err.message || 'Failed to save add-ons');
     } finally {
       setActionLoadingId(null);
     }
@@ -520,16 +562,16 @@ function CustomerAdminView({ onViewChange }) {
   const handleEditClick = (customer) => {
     setSelectedCustomer(customer);
     setEditForm({
-      phoneNumber: customer.phoneNumber || '',
-      firstName: customer.firstName || '',
-      lastName: customer.lastName || '',
-      fullName: customer.fullName || '',
+      phoneNumber: '',
+      firstName: '',
+      lastName: '',
+      fullName: '',
       password: '', // Keep empty for no change
-      minBet: customer.minBet || '25',
-      maxBet: customer.maxBet || '200',
-      creditLimit: customer.creditLimit || '1000',
-      balanceOwed: customer.balanceOwed || '0',
-      apps: customer.apps || {
+      minBet: '',
+      maxBet: '',
+      creditLimit: '',
+      balanceOwed: '',
+      apps: {
         venmo: '',
         cashapp: '',
         applePay: '',
@@ -547,8 +589,26 @@ function CustomerAdminView({ onViewChange }) {
     const customerId = selectedCustomer.id || selectedCustomer._id;
     try {
       const token = localStorage.getItem('token');
-      const payload = { ...editForm };
-      if (!payload.password) delete payload.password;
+      const payload = {};
+      if (editForm.phoneNumber.trim()) payload.phoneNumber = editForm.phoneNumber.trim();
+      if (editForm.firstName.trim()) payload.firstName = editForm.firstName.trim();
+      if (editForm.lastName.trim()) payload.lastName = editForm.lastName.trim();
+      if (editForm.fullName.trim()) payload.fullName = editForm.fullName.trim();
+      if (editForm.password.trim()) payload.password = editForm.password.trim();
+      if (editForm.minBet !== '') payload.minBet = Number(editForm.minBet);
+      if (editForm.maxBet !== '') payload.maxBet = Number(editForm.maxBet);
+      if (editForm.creditLimit !== '') payload.creditLimit = Number(editForm.creditLimit);
+      if (editForm.balanceOwed !== '') payload.balanceOwed = Number(editForm.balanceOwed);
+
+      const appEntries = Object.entries(editForm.apps || {}).filter(([, val]) => (val || '').trim() !== '');
+      if (appEntries.length > 0) {
+        payload.apps = Object.fromEntries(appEntries.map(([key, val]) => [key, val.trim()]));
+      }
+
+      if (Object.keys(payload).length === 0) {
+        setError('Enter at least one value before saving.');
+        return;
+      }
 
       if (currentRole === 'agent') {
         await updateUserByAgent(customerId, payload, token);
@@ -567,44 +627,148 @@ function CustomerAdminView({ onViewChange }) {
     }
   };
 
+  const assignableAgents = agents.filter((a) => {
+    if (currentRole === 'admin') return true;
+    if (currentRole === 'super_agent' || currentRole === 'master_agent') return true;
+    return false;
+  });
+
+  const filteredAssignableAgents = assignableAgents.filter((a) => {
+    if (!agentSearchQuery.trim()) return true;
+    return (a.username || '').toLowerCase().includes(agentSearchQuery.trim().toLowerCase());
+  });
+  const headerFilteredAgents = assignableAgents.filter((a) => {
+    if (!headerAgentQuery.trim()) return true;
+    return (a.username || '').toLowerCase().includes(headerAgentQuery.trim().toLowerCase());
+  });
+
+  const allPlayers = customers.filter((c) => c.role === 'user');
+  const selectedHeaderAgent = assignableAgents.find((a) => String(a.id || a._id) === String(selectedHeaderAgentId));
+  const isMasterSelection = !!selectedHeaderAgent && (selectedHeaderAgent.role === 'master_agent' || selectedHeaderAgent.role === 'super_agent');
+
   const filteredCustomers = (() => {
-    let result = [];
-    if (sourceFilter === 'player') {
-      result = customers;
-      // Filter by Origin
-      if (listFilterOrigin === 'admin') {
-        result = result.filter(c => !c.agentId); // Direct from Admin
-      } else if (listFilterOrigin === 'upline') {
-        result = result.filter(c => c.agentId); // Created by Agent
-        if (listFilterUplineId) {
-          result = result.filter(c => String(c.agentId?._id || c.agentId || '') === String(listFilterUplineId));
-        }
-      }
-    } else if (sourceFilter === 'agent') {
-      result = agents.filter(a => a.role === 'agent');
-      // Filter by Origin
-      if (listFilterOrigin === 'admin') {
-        result = result.filter(a => a.createdByModel === 'Admin');
-      } else if (listFilterOrigin === 'upline') {
-        result = result.filter(a => a.createdByModel === 'Agent'); // Created by Master Agent
-        if (listFilterUplineId) {
-          result = result.filter(a => a.createdBy === listFilterUplineId);
-        }
-      }
-    } else if (sourceFilter === 'master') {
-      result = agents.filter(a => a.role === 'super_agent' || a.role === 'master_agent');
-      // Filter by Origin
-      if (listFilterOrigin === 'admin') {
-        result = result.filter(a => a.createdByModel === 'Admin');
-      } else if (listFilterOrigin === 'upline') {
-        result = result.filter(a => a.createdByModel === 'Agent'); // Created by Master Agent (if hierarchy allows MA to create MA)
-        if (listFilterUplineId) {
-          result = result.filter(a => a.createdBy === listFilterUplineId);
-        }
-      }
+    if (!selectedHeaderAgentId) return allPlayers;
+    if (!isMasterSelection) {
+      return allPlayers.filter((c) => String(c.agentId?._id || c.agentId || '') === String(selectedHeaderAgentId));
     }
-    return result;
+
+    const childAgents = assignableAgents.filter((a) => {
+      const creatorId = String(a.createdBy?._id || a.createdBy || '');
+      return a.role === 'agent' && creatorId === String(selectedHeaderAgentId);
+    });
+    const childAgentIds = new Set(childAgents.map((a) => String(a.id || a._id)));
+
+    const playersUnderChildren = allPlayers.filter((c) => childAgentIds.has(String(c.agentId?._id || c.agentId || '')));
+    const directUnderMaster = allPlayers.filter((c) => String(c.agentId?._id || c.agentId || '') === String(selectedHeaderAgentId));
+    return [...playersUnderChildren, ...directUnderMaster];
   })();
+
+  const displayRows = (() => {
+    if (!isMasterSelection) {
+      return filteredCustomers.map((player) => ({ type: 'player', player }));
+    }
+    const childAgents = assignableAgents.filter((a) => {
+      const creatorId = String(a.createdBy?._id || a.createdBy || '');
+      return a.role === 'agent' && creatorId === String(selectedHeaderAgentId);
+    });
+
+    const rows = [];
+    childAgents.forEach((agent) => {
+      const agentId = String(agent.id || agent._id);
+      const players = filteredCustomers.filter((p) => String(p.agentId?._id || p.agentId || '') === agentId);
+      if (players.length > 0) {
+        rows.push({ type: 'group', label: agent.username });
+        players.forEach((player) => rows.push({ type: 'player', player }));
+      }
+    });
+
+    const directPlayers = filteredCustomers.filter((p) => String(p.agentId?._id || p.agentId || '') === String(selectedHeaderAgentId));
+    if (directPlayers.length > 0) {
+      rows.push({ type: 'group', label: `${selectedHeaderAgent.username} (Direct)` });
+      directPlayers.forEach((player) => rows.push({ type: 'player', player }));
+    }
+
+    return rows;
+  })();
+
+  const visiblePlayers = filteredCustomers;
+
+  const openBulkEditModal = (type) => {
+    setBulkEditType(type);
+    setBulkEditValue('');
+    setShowBulkEditModal(true);
+  };
+
+  const getBulkEditLabel = () => {
+    switch (bulkEditType) {
+      case 'creditLimit':
+        return 'Credit Limit';
+      case 'wagerLimit':
+        return 'Wager Limit';
+      case 'settleFigure':
+        return 'Settle Figure';
+      case 'status':
+        return 'Status';
+      default:
+        return '';
+    }
+  };
+
+  const getDisplayStatus = (status) => {
+    const val = (status || '').toString().toLowerCase();
+    if (val === 'active') return 'Active';
+    if (val === 'read_only' || val === 'readonly') return 'Read Only';
+    return 'Disabled';
+  };
+
+  const applyBulkEdit = async (e) => {
+    e.preventDefault();
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setError('Please login to update players.');
+      return;
+    }
+    if (visiblePlayers.length === 0) {
+      setError('No players available for bulk update.');
+      return;
+    }
+
+    let payload = null;
+    if (bulkEditType === 'status') {
+      const nextStatus = bulkEditValue || 'active';
+      payload = { status: nextStatus };
+    } else {
+      const numericValue = Number(bulkEditValue);
+      if (Number.isNaN(numericValue) || numericValue < 0) {
+        setError('Please enter a valid non-negative number.');
+        return;
+      }
+      if (bulkEditType === 'creditLimit') payload = { creditLimit: numericValue };
+      if (bulkEditType === 'wagerLimit') payload = { wagerLimit: numericValue, maxBet: numericValue };
+      if (bulkEditType === 'settleFigure') payload = { balanceOwed: numericValue };
+    }
+
+    try {
+      setActionLoadingId('bulk-update');
+      await Promise.all(visiblePlayers.map((player) => {
+        const playerId = player.id || player._id;
+        if (currentRole === 'agent') return updateUserByAgent(playerId, payload, token);
+        return updateUserByAdmin(playerId, payload, token);
+      }));
+
+      setCustomers((prev) => prev.map((customer) => {
+        if (customer.role !== 'user') return customer;
+        return { ...customer, ...payload };
+      }));
+      setShowBulkEditModal(false);
+      setError('');
+    } catch (err) {
+      console.error('Bulk update failed:', err);
+      setError(err.message || 'Failed to update players');
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
 
   const referralOptions = (() => {
     const playersOnly = customers.filter((c) => c.role === 'user');
@@ -673,6 +837,178 @@ function CustomerAdminView({ onViewChange }) {
     }
   };
 
+  const getRowDetailDraft = (customer) => {
+    const customerId = customer.id || customer._id;
+    return rowDetailDrafts[customerId] || {
+      firstName: customer.firstName || '',
+      lastName: customer.lastName || '',
+      password: '',
+      creditLimit: String(customer.creditLimit ?? 0),
+      wagerLimit: String(customer.wagerLimit ?? customer.maxBet ?? 0),
+      settleFigure: String(customer.balanceOwed ?? 0),
+      status: (customer.status || 'active').toLowerCase(),
+      sports: customer.settings?.sports ?? true,
+      casino: customer.settings?.casino ?? true,
+      racebook: customer.settings?.racebook ?? true
+    };
+  };
+
+  const toggleRowExpanded = (customer) => {
+    const customerId = customer.id || customer._id;
+    setExpandedRowId((prev) => (prev === customerId ? null : customerId));
+    setExpandedEditRowId((prev) => (prev === customerId ? null : prev));
+  };
+
+  const startInlineEdit = (customer) => {
+    const customerId = customer.id || customer._id;
+    setExpandedRowId(customerId);
+    setExpandedEditRowId(customerId);
+    setRowDetailDrafts((prev) => ({
+      ...prev,
+      [customerId]: getRowDetailDraft(customer)
+    }));
+  };
+
+  const updateRowDetailDraft = (customer, key, value) => {
+    const customerId = customer.id || customer._id;
+    const base = getRowDetailDraft(customer);
+    setRowDetailDrafts((prev) => ({
+      ...prev,
+      [customerId]: {
+        ...base,
+        ...(prev[customerId] || {}),
+        [key]: value
+      }
+    }));
+  };
+
+  const saveInlineRow = async (customer) => {
+    const customerId = customer.id || customer._id;
+    const draft = getRowDetailDraft(customer);
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    const payload = {
+      firstName: draft.firstName.trim(),
+      lastName: draft.lastName.trim(),
+      fullName: `${draft.firstName.trim()} ${draft.lastName.trim()}`.trim(),
+      creditLimit: Number(draft.creditLimit || 0),
+      wagerLimit: Number(draft.wagerLimit || 0),
+      maxBet: Number(draft.wagerLimit || 0),
+      balanceOwed: Number(draft.settleFigure || 0),
+      status: draft.status,
+      settings: {
+        ...(customer.settings || {}),
+        sports: !!draft.sports,
+        casino: !!draft.casino,
+        racebook: !!draft.racebook
+      }
+    };
+
+    try {
+      setActionLoadingId(customerId);
+      if (currentRole === 'agent') {
+        await updateUserByAgent(customerId, payload, token);
+      } else {
+        await updateUserByAdmin(customerId, payload, token);
+      }
+
+      if ((draft.password || '').trim() !== '') {
+        if (currentRole === 'admin') {
+          await resetUserPasswordByAdmin(customerId, draft.password.trim(), token);
+        } else {
+          await updateUserByAgent(customerId, { password: draft.password.trim() }, token);
+        }
+      }
+
+      setCustomers((prev) => prev.map((c) => (
+        (c.id || c._id) === customerId
+          ? {
+              ...c,
+              ...payload,
+              rawPassword: (draft.password || '').trim() ? draft.password.trim() : (c.rawPassword || '')
+            }
+          : c
+      )));
+      setExpandedEditRowId(null);
+      setRowDetailDrafts((prev) => {
+        const next = { ...prev };
+        delete next[customerId];
+        return next;
+      });
+      setError('');
+    } catch (err) {
+      console.error('Inline save failed:', err);
+      setError(err.message || 'Failed to save user details');
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  const openQuickEditModal = (customer, type) => {
+    const customerId = customer.id || customer._id;
+    let value = '';
+    if (type === 'name') value = `${customer.firstName || ''} ${customer.lastName || ''}`.trim();
+    if (type === 'password') value = customer.rawPassword || '';
+    if (type === 'balance') value = String(customer.balance ?? 0);
+    setQuickEditModal({
+      open: true,
+      type,
+      customerId,
+      username: customer.username,
+      value
+    });
+  };
+
+  const applyQuickEdit = async (e) => {
+    e.preventDefault();
+    const token = localStorage.getItem('token');
+    if (!token || !quickEditModal.customerId) return;
+
+    try {
+      setActionLoadingId(quickEditModal.customerId);
+      if (quickEditModal.type === 'name') {
+        const parts = quickEditModal.value.trim().split(/\s+/).filter(Boolean);
+        const firstName = parts[0] || '';
+        const lastName = parts.slice(1).join(' ');
+        const payload = { firstName, lastName, fullName: quickEditModal.value.trim() };
+        if (currentRole === 'agent') await updateUserByAgent(quickEditModal.customerId, payload, token);
+        else await updateUserByAdmin(quickEditModal.customerId, payload, token);
+        setCustomers((prev) => prev.map((c) => ((c.id || c._id) === quickEditModal.customerId ? { ...c, ...payload } : c)));
+      }
+
+      if (quickEditModal.type === 'password') {
+        const nextPass = quickEditModal.value.trim();
+        if (nextPass.length < 6) {
+          setError('Password must be at least 6 characters.');
+          return;
+        }
+        if (currentRole === 'admin') await resetUserPasswordByAdmin(quickEditModal.customerId, nextPass, token);
+        else await updateUserByAgent(quickEditModal.customerId, { password: nextPass }, token);
+        setCustomers((prev) => prev.map((c) => ((c.id || c._id) === quickEditModal.customerId ? { ...c, rawPassword: nextPass } : c)));
+      }
+
+      if (quickEditModal.type === 'balance') {
+        const nextBalance = Number(quickEditModal.value);
+        if (Number.isNaN(nextBalance)) {
+          setError('Balance must be numeric.');
+          return;
+        }
+        if (currentRole === 'agent') await updateUserBalanceOwedByAgent(quickEditModal.customerId, nextBalance, token);
+        else await updateUserCredit(quickEditModal.customerId, { balance: nextBalance }, token);
+        setCustomers((prev) => prev.map((c) => ((c.id || c._id) === quickEditModal.customerId ? { ...c, balance: nextBalance } : c)));
+      }
+
+      setQuickEditModal({ open: false, type: '', customerId: null, username: '', value: '' });
+      setError('');
+    } catch (err) {
+      console.error('Quick edit failed:', err);
+      setError(err.message || 'Failed to update value');
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
   return (
     <div className="admin-view">
       <div className="view-header">
@@ -680,10 +1016,62 @@ function CustomerAdminView({ onViewChange }) {
           <div className="glow-accent"></div>
           <h2>Administration Console</h2>
         </div>
-        <button className="btn-create-premium" onClick={handleAddCustomer}>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-          Initialize New Entry
-        </button>
+        <div
+          className="agent-search-picker header-agent-picker"
+          onFocus={() => setHeaderAgentOpen(true)}
+          onBlur={() => setTimeout(() => setHeaderAgentOpen(false), 120)}
+          tabIndex={0}
+        >
+          <div className="agent-search-head">
+            <span className="agent-search-label">Agents</span>
+            <input
+              type="text"
+              value={headerAgentQuery}
+              onChange={(e) => {
+                setHeaderAgentQuery(e.target.value);
+                setHeaderAgentOpen(true);
+              }}
+              placeholder="Search agent..."
+            />
+          </div>
+          {headerAgentOpen && (
+            <div className="agent-search-list">
+              <button
+                type="button"
+                className={`agent-search-item ${selectedHeaderAgentId ? '' : 'selected'}`}
+                onClick={() => {
+                  setSelectedHeaderAgentId('');
+                  setHeaderAgentQuery('');
+                  setHeaderAgentOpen(false);
+                }}
+              >
+                <span>All Agents</span>
+              </button>
+              {headerFilteredAgents.map((a) => {
+                const id = a.id || a._id;
+                const isMaster = a.role === 'master_agent' || a.role === 'super_agent';
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    className={`agent-search-item ${String(selectedHeaderAgentId || '') === String(id) ? 'selected' : ''}`}
+                    onClick={() => {
+                      setSelectedHeaderAgentId(id);
+                      setHeaderAgentQuery(a.username || '');
+                      setHeaderAgentOpen(false);
+                    }}
+                  >
+                    <span>{a.username}</span>
+                    <span className={`agent-type-badge ${isMaster ? 'master' : 'agent'}`}>{isMaster ? 'M' : 'A'}</span>
+                  </button>
+                );
+              })}
+              {headerFilteredAgents.length === 0 && (
+                <div className="agent-search-empty">No matching agents</div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="view-content">
@@ -780,28 +1168,60 @@ function CustomerAdminView({ onViewChange }) {
               {/* Assign to Agent Dropdown for Admin and Master Agent when creating Player */}
               {creationType === 'player' && (currentRole === 'admin' || currentRole === 'super_agent' || currentRole === 'master_agent') && (
                 <div className="filter-group">
-                  <label>Assign to Agent (Optional)</label>
-                  <div className="s-wrapper">
-                    <select
-                      value={newCustomer.agentId}
-                      onChange={(e) => handleAgentChange(e.target.value)}
-                    >
-                      <option value="">Direct (Under Me)</option>
-                      {agents
-                        .filter(a => {
-                          if (currentRole === 'admin') return true; // Admin sees all
-                          if (currentRole === 'super_agent' || currentRole === 'master_agent') {
-                            // Master Agent sees only their sub-agents (which is what 'agents' state contains for them)
-                            return true;
-                          }
-                          return false;
-                        })
-                        .map(a => (
-                          <option key={a.id || a._id} value={a.id || a._id}>
-                            {a.username}
-                          </option>
-                        ))}
-                    </select>
+                  <label>Assign to Agent</label>
+                  <div
+                    className="agent-search-picker"
+                    onFocus={() => setAgentSearchOpen(true)}
+                    onBlur={() => setTimeout(() => setAgentSearchOpen(false), 120)}
+                    tabIndex={0}
+                  >
+                    <div className="agent-search-head">
+                    <span className="agent-search-label">Agents</span>
+                      <input
+                        type="text"
+                        value={agentSearchQuery}
+                        onChange={(e) => {
+                          setAgentSearchQuery(e.target.value);
+                          setAgentSearchOpen(true);
+                        }}
+                        placeholder="Search agent..."
+                      />
+                    </div>
+                    {agentSearchOpen && (
+                      <div className="agent-search-list">
+                        <button
+                          type="button"
+                          className={`agent-search-item ${newCustomer.agentId ? '' : 'selected'}`}
+                          onClick={() => {
+                            handleAgentChange('');
+                            setAgentSearchOpen(false);
+                          }}
+                        >
+                          <span>Direct (Under Me)</span>
+                        </button>
+                        {filteredAssignableAgents.map((a) => {
+                          const id = a.id || a._id;
+                          const isMaster = a.role === 'master_agent' || a.role === 'super_agent';
+                          return (
+                            <button
+                              key={id}
+                              type="button"
+                              className={`agent-search-item ${String(newCustomer.agentId || '') === String(id) ? 'selected' : ''}`}
+                              onClick={() => {
+                                handleAgentChange(id);
+                                setAgentSearchOpen(false);
+                              }}
+                            >
+                              <span>{a.username}</span>
+                              <span className={`agent-type-badge ${isMaster ? 'master' : 'agent'}`}>{isMaster ? 'M' : 'A'}</span>
+                            </button>
+                          );
+                        })}
+                        {filteredAssignableAgents.length === 0 && (
+                          <div className="agent-search-empty">No matching agents</div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -809,7 +1229,7 @@ function CustomerAdminView({ onViewChange }) {
               {creationType === 'player' && (
                 <>
                   <div className="filter-group">
-                    <label>Referred By Player (Optional)</label>
+                    <label>Referred By Player</label>
                     <div className="s-wrapper">
                       <select
                         value={newCustomer.referredByUserId}
@@ -963,177 +1383,173 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
             </div>
 
             <div className="table-container">
-              {currentRole !== 'agent' && (
-                <div className="table-actions" style={{ flexDirection: 'column', gap: '15px' }}>
-                  {/* List Filters */}
-                  <div style={{ display: 'flex', gap: '20px', alignItems: 'center', flexWrap: 'wrap' }}>
-                    <div className="filter-tab-group">
-                      <button
-                        className={`tab ${listFilterOrigin === 'all' ? 'active' : ''}`}
-                        onClick={() => { setListFilterOrigin('all'); setListFilterUplineId(''); }}
-                      >
-                        All Sources
-                      </button>
-                      <button
-                        className={`tab ${listFilterOrigin === 'admin' ? 'active' : ''}`}
-                        onClick={() => { setListFilterOrigin('admin'); setListFilterUplineId(''); }}
-                      >
-                        By Admin
-                      </button>
-                      <button
-                        className={`tab ${listFilterOrigin === 'upline' ? 'active' : ''}`}
-                        onClick={() => { setListFilterOrigin('upline'); setListFilterUplineId(''); }}
-                      >
-                        {sourceFilter === 'player' ? 'By Agent' : 'By Master Agent'}
-                      </button>
-                    </div>
-
-                    {/* Specific Upline Dropdown */}
-                    {listFilterOrigin === 'upline' && (
-                      <div className="s-wrapper" style={{ minWidth: '200px' }}>
-                        <select
-                          value={listFilterUplineId}
-                          onChange={(e) => setListFilterUplineId(e.target.value)}
-                          style={{ padding: '8px', borderRadius: '8px', background: '#0f172a', color: 'white', border: '1px solid #334155' }}
-                        >
-                          <option value="">
-                            All {sourceFilter === 'player' ? 'Agents' : 'Master Agents'}
-                          </option>
-                          {sourceFilter === 'player'
-                            ? agents.filter(a => a.role === 'agent' || a.role === 'master_agent').map(a => (
-                              <option key={a.id || a._id} value={a.id || a._id}>{a.username}</option>
-                            ))
-                            : agents.filter(a => a.role === 'master_agent').map(ma => (
-                              <option key={ma.id || ma._id} value={ma.id || ma._id}>{ma.username}</option>
-                            ))
-                          }
-                        </select>
-                      </div>
-                    )}
-                  </div>
-
-                  <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
-                    <div className="filter-tab-group">
-                      {[
-                        { id: 'player', label: 'Player' },
-                        { id: 'agent', label: 'Agent' },
-                        { id: 'master', label: 'Master' }
-                      ].map(f => (
-                        <button
-                          key={f.id}
-                          className={`tab ${sourceFilter === f.id ? 'active' : ''}`}
-                          onClick={() => setSourceFilter(f.id)}
-                        >
-                          {f.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
-
               <div className="scroll-wrapper">
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th>Identity</th>
-                      <th>Access</th>
-                      <th>{sourceFilter === 'player' ? 'First Name' : 'Full Name'}</th>
-                      <th>{sourceFilter === 'player' ? 'Last Name' : 'Contact'}</th>
-                      <th>{sourceFilter === 'player' ? 'Min bet' : 'Users'}</th>
-                      <th>{sourceFilter === 'player' ? 'Max bet' : 'Agents'}</th>
-                      <th>Credit Limit</th>
-                      <th>Settle Limit</th>
-                      <th>Net Balance</th>
-                      <th>Status</th>
-                      <th>Roles & Access</th>
+                      <th>Customer</th>
+                      <th>Password</th>
+                      <th>Name</th>
+                      <th className="clickable-col-head" onClick={() => openBulkEditModal('creditLimit')}>Credit Limit</th>
+                      <th className="clickable-col-head" onClick={() => openBulkEditModal('wagerLimit')}>Wager Limit</th>
+                      <th className="clickable-col-head" onClick={() => openBulkEditModal('settleFigure')}>Settle Figure</th>
+                      <th>Balance</th>
+                      <th className="clickable-col-head" onClick={() => openBulkEditModal('status')}>Status</th>
+                      <th>Sportsbook</th>
+                      <th>Casino</th>
+                      <th>Horses</th>
                       <th>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredCustomers.length === 0 ? (
-                      <tr><td colSpan={11} className="empty-msg">No records found.</td></tr>
+                    {displayRows.length === 0 ? (
+                      <tr><td colSpan={12} className="empty-msg">No records found.</td></tr>
                     ) : (
-                      filteredCustomers.map(customer => {
+                      displayRows.map((row, rowIndex) => {
+                        if (row.type === 'group') {
+                          return (
+                            <tr key={`group-${row.label}-${rowIndex}`} className="agent-group-row">
+                              <td colSpan={12}>{row.label}</td>
+                            </tr>
+                          );
+                        }
+                        const customer = row.player;
                         const customerId = customer.id || customer._id;
+                        const addonState = getPlayerAddonState(customer);
+                        const hasPendingAddonChanges = !!rowAddonDrafts[customerId];
+                        const isExpanded = expandedRowId === customerId;
+                        const isInlineEdit = expandedEditRowId === customerId;
+                        const detailDraft = getRowDetailDraft(customer);
+
                         return (
-                          <tr key={customerId} className={`customer-row role-${customer.role}`}>
-                            <td className="user-cell">
-                              <button className="user-link-btn" onClick={() => handleViewDetails(customer)}>
-                                <div className={`avatar-small role-${customer.role}`}>{customer.username.charAt(0).toUpperCase()}</div>
-                                <span>{customer.username.toUpperCase()}</span>
-                              </button>
-                            </td>
-                            <td className="pass-cell">{customer.rawPassword || ''}</td>
-                            <td>{customer.role === 'user' ? (customer.firstName || '—') : (customer.fullName || '—')}</td>
-                            <td>{customer.role === 'user' ? (customer.lastName || '—') : (customer.phoneNumber || '—')}</td>
-                            <td>{customer.role === 'user' ? Number(customer.minBet || 25).toLocaleString() : (customer.userCount || 0)}</td>
-                            <td>{customer.role === 'user' ? Number(customer.maxBet || 200).toLocaleString() : (customer.subAgentCount || 0)}</td>
-                            <td className="highlight-cell">{Number(customer.creditLimit || 1000).toLocaleString()}</td>
-                            <td className="highlight-cell">{Number(customer.balanceOwed || 0).toLocaleString()}</td>
-                            <td className={`balance-cell ${Number(customer.balance) < 0 ? 'neg' : 'pos'}`}>
-                              <button onClick={() => handleAdjustBalance(customer)}>
-                                {formatBalance(customer.balance)}
-                              </button>
-                            </td>
-                            <td>
-                              <div className="status-pill-container">
-                                <select
-                                  value={customer.status || 'active'}
-                                  onChange={(e) => updateCustomerStatus(customerId, e.target.value)}
-                                  disabled={actionLoadingId === customerId || viewOnly}
-                                  className={`status-select ${customer.status || 'active'}`}
-                                >
-                                  <option value="active">Active</option>
-                                  <option value="disabled">Disabled</option>
-                                  {customer.role === 'user' && (
-                                    <>
-                                      <option value="ghost">Ghost</option>
-                                      <option value="bot">Bot</option>
-                                      <option value="sharp">Sharp</option>
-                                    </>
-                                  )}
-                                </select>
-                              </div>
-                            </td>
-                            <td>
-                              <div className="hierarchy-info">
-                                <span className={`role-badge ${customer.role}`}>
-                                  {customer.role === 'super_agent' ? 'Master' : customer.role === 'agent' ? 'Agent' : 'Player'}
-                                </span>
-                                {customer.role === 'user' && (
-                                  <div className="capability-mini-grid">
-                                    {['sports', 'casino', 'racebook', 'live', 'props', 'liveCasino'].map(key => {
-                                      const isEnabled = customer.settings?.[key] ?? true;
-                                      return isEnabled ? <span key={key} className="cap-dot" title={key}></span> : null;
-                                    })}
-                                  </div>
-                                )}
-                              </div>
-                            </td>
-                            <td>
-                              <div className="action-buttons-cell" style={{ display: 'flex', gap: '8px' }}>
-                                <button
-                                  className="btn-icon"
-                                  title="Edit Customer"
-                                  onClick={() => handleEditClick(customer)}
-                                >
-                                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                          <React.Fragment key={customerId}>
+                            <tr className={`customer-row role-${customer.role}`}>
+                              <td className="user-cell">
+                                <button className="user-link-btn" onClick={() => handleViewDetails(customer)}>
+                                  <span>{customer.username.toUpperCase()}</span>
                                 </button>
-                                {currentRole === 'admin' && (
-                                  <button
-                                    className="btn-icon delete-btn"
-                                    title="Delete Customer"
-                                    onClick={() => handleDelete(customer)}
-                                    style={{ color: '#ff4d4d' }}
-                                  >
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                                {customer.role === 'user' && (
+                                  <button className="row-expand-btn" type="button" onClick={() => toggleRowExpanded(customer)}>
+                                    {isExpanded ? '⌄' : '›'}
                                   </button>
                                 )}
-                              </div>
-                            </td>
-                          </tr>
-                        )
+                              </td>
+                              <td className="pass-cell">{customer.rawPassword || ''}</td>
+                              <td>{customer.role === 'user' ? `${customer.firstName || ''} ${customer.lastName || ''}`.trim() || '—' : (customer.fullName || '—')}</td>
+                              <td className="highlight-cell">{Number(customer.creditLimit || 1000).toLocaleString()}</td>
+                              <td>{Number(customer.wagerLimit ?? customer.maxBet ?? 0).toLocaleString()}</td>
+                              <td className="highlight-cell">{Number(customer.balanceOwed || 0).toLocaleString()}</td>
+                              <td className={`balance-cell ${Number(customer.balance) < 0 ? 'neg' : 'pos'}`}>
+                                {formatBalance(customer.balance)}
+                              </td>
+                              <td>{getDisplayStatus(customer.status)}</td>
+                              <td>
+                                {customer.role === 'user' ? (
+                                  <label className="switch-mini">
+                                    <input type="checkbox" checked={!!addonState.sports} onChange={() => handleToggleAddonDraft(customer, 'sports')} />
+                                    <span className="slider-mini"></span>
+                                  </label>
+                                ) : '—'}
+                              </td>
+                              <td>
+                                {customer.role === 'user' ? (
+                                  <label className="switch-mini">
+                                    <input type="checkbox" checked={!!addonState.casino} onChange={() => handleToggleAddonDraft(customer, 'casino')} />
+                                    <span className="slider-mini"></span>
+                                  </label>
+                                ) : '—'}
+                              </td>
+                              <td>
+                                {customer.role === 'user' ? (
+                                  <label className="switch-mini">
+                                    <input type="checkbox" checked={!!addonState.racebook} onChange={() => handleToggleAddonDraft(customer, 'racebook')} />
+                                    <span className="slider-mini"></span>
+                                  </label>
+                                ) : '—'}
+                              </td>
+                              <td>
+                                <div className="action-buttons-cell" style={{ display: 'flex', gap: '8px' }}>
+                                  {customer.role === 'user' ? (
+                                    <>
+                                      <button
+                                        className={`btn-secondary ${hasPendingAddonChanges ? 'btn-save-dirty' : 'btn-save-clean'}`}
+                                        type="button"
+                                        onClick={() => saveAddonDraft(customer)}
+                                        disabled={!hasPendingAddonChanges || actionLoadingId === customerId}
+                                      >
+                                        Save
+                                      </button>
+                                      <button
+                                        className="btn-secondary"
+                                        type="button"
+                                        onClick={() => (isInlineEdit ? saveInlineRow(customer) : startInlineEdit(customer))}
+                                        disabled={actionLoadingId === customerId}
+                                      >
+                                        {isInlineEdit ? 'SAVE' : 'EDIT'}
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <button
+                                      className="btn-icon"
+                                      title="Edit Customer"
+                                      onClick={() => handleEditClick(customer)}
+                                    >
+                                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                                    </button>
+                                  )}
+                                  {currentRole === 'admin' && (
+                                    <button
+                                      className="btn-icon delete-btn"
+                                      title="Delete Customer"
+                                      onClick={() => handleDelete(customer)}
+                                      style={{ color: '#ff4d4d' }}
+                                    >
+                                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                            {customer.role === 'user' && isExpanded && (
+                              <tr className="expanded-detail-row">
+                                <td colSpan={12}>
+                                  <div className={`expanded-detail-grid ${isInlineEdit ? 'is-editing' : ''}`}>
+                                    <div className="detail-card">
+                                      <div className="detail-line"><span>Password</span><span>{customer.rawPassword || '—'} <button type="button" className="link-edit-btn" onClick={() => openQuickEditModal(customer, 'password')}>change</button></span></div>
+                                      <div className="detail-line"><span>Name</span><span>{`${customer.firstName || ''} ${customer.lastName || ''}`.trim() || '—'} <button type="button" className="link-edit-btn" onClick={() => openQuickEditModal(customer, 'name')}>change</button></span></div>
+                                      <div className="detail-line"><span>Credit Limit</span><span>{isInlineEdit ? <input type="number" value={detailDraft.creditLimit} onChange={(e) => updateRowDetailDraft(customer, 'creditLimit', e.target.value)} /> : `$${Number(customer.creditLimit || 0).toLocaleString()}`}</span></div>
+                                      <div className="detail-line"><span>Wager Limit</span><span>{isInlineEdit ? <input type="number" value={detailDraft.wagerLimit} onChange={(e) => updateRowDetailDraft(customer, 'wagerLimit', e.target.value)} /> : `$${Number(customer.wagerLimit ?? customer.maxBet ?? 0).toLocaleString()}`}</span></div>
+                                      <div className="detail-line"><span>Settle Figure</span><span>{isInlineEdit ? <input type="number" value={detailDraft.settleFigure} onChange={(e) => updateRowDetailDraft(customer, 'settleFigure', e.target.value)} /> : `$${Number(customer.balanceOwed || 0).toLocaleString()}`}</span></div>
+                                      <div className="detail-line"><span>Balance</span><span className={Number(customer.balance) < 0 ? 'neg' : 'pos'}>{formatBalance(customer.balance)} <button type="button" className="link-edit-btn" onClick={() => openQuickEditModal(customer, 'balance')}>change</button></span></div>
+                                    </div>
+                                    <div className="detail-card">
+                                      <div className="detail-line"><span>Pending</span><span>{formatBalance(customer.pendingBalance || 0)}</span></div>
+                                      <div className="detail-line"><span>Available</span><span>{formatBalance(customer.availableBalance ?? customer.balance ?? 0)}</span></div>
+                                      <div className="detail-line"><span>FP Balance</span><span>{formatBalance(customer.freeplayBalance || 0)}</span></div>
+                                      <div className="detail-line"><span>Parlay Max Wager</span><span>$0</span></div>
+                                      <div className="detail-line"><span>Parlay Max Payout</span><span>$6,000</span></div>
+                                      <div className="detail-line"><span>Status</span><span>{isInlineEdit ? (
+                                        <select value={detailDraft.status} onChange={(e) => updateRowDetailDraft(customer, 'status', e.target.value)}>
+                                          <option value="active">Active</option>
+                                          <option value="disabled">Disabled</option>
+                                          <option value="read_only">Read Only</option>
+                                        </select>
+                                      ) : getDisplayStatus(customer.status)}</span></div>
+                                    </div>
+                                    <div className="detail-card">
+                                      <div className="detail-line"><span>Max Contest Wager</span><span>$0</span></div>
+                                      <div className="detail-line"><span>Max Contest Payout</span><span>$5,000</span></div>
+                                      <div className="detail-line"><span>Max Soccer Wager</span><span>$0</span></div>
+                                      <div className="detail-line"><span>Sportsbook</span><span>{isInlineEdit ? <label className="switch-mini"><input type="checkbox" checked={!!detailDraft.sports} onChange={() => updateRowDetailDraft(customer, 'sports', !detailDraft.sports)} /><span className="slider-mini"></span></label> : (customer.settings?.sports ?? true ? 'On' : 'Off')}</span></div>
+                                      <div className="detail-line"><span>Casino</span><span>{isInlineEdit ? <label className="switch-mini"><input type="checkbox" checked={!!detailDraft.casino} onChange={() => updateRowDetailDraft(customer, 'casino', !detailDraft.casino)} /><span className="slider-mini"></span></label> : (customer.settings?.casino ?? true ? 'On' : 'Off')}</span></div>
+                                      <div className="detail-line"><span>Horses</span><span>{isInlineEdit ? <label className="switch-mini"><input type="checkbox" checked={!!detailDraft.racebook} onChange={() => updateRowDetailDraft(customer, 'racebook', !detailDraft.racebook)} /><span className="slider-mini"></span></label> : (customer.settings?.racebook ?? true ? 'On' : 'Off')}</span></div>
+                                    </div>
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
+                        );
                       })
                     )}
                   </tbody>
@@ -1156,6 +1572,7 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
                             type="text"
                             value={editForm.firstName}
                             onChange={e => setEditForm({ ...editForm, firstName: e.target.value })}
+                            placeholder={selectedCustomer?.firstName || 'First name'}
                           />
                         </div>
                         <div className="form-group">
@@ -1164,6 +1581,7 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
                             type="text"
                             value={editForm.lastName}
                             onChange={e => setEditForm({ ...editForm, lastName: e.target.value })}
+                            placeholder={selectedCustomer?.lastName || 'Last name'}
                           />
                         </div>
                       </div>
@@ -1173,7 +1591,7 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
                           type="tel"
                           value={editForm.phoneNumber}
                           onChange={e => setEditForm({ ...editForm, phoneNumber: e.target.value })}
-                          required
+                          placeholder={selectedCustomer?.phoneNumber || 'Phone number'}
                         />
                       </div>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
@@ -1183,6 +1601,7 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
                             type="number"
                             value={editForm.minBet}
                             onChange={e => setEditForm({ ...editForm, minBet: e.target.value })}
+                            placeholder={`${selectedCustomer?.minBet ?? 25}`}
                           />
                         </div>
                         <div className="form-group">
@@ -1191,6 +1610,7 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
                             type="number"
                             value={editForm.maxBet}
                             onChange={e => setEditForm({ ...editForm, maxBet: e.target.value })}
+                            placeholder={`${selectedCustomer?.maxBet ?? 200}`}
                           />
                         </div>
                       </div>
@@ -1201,6 +1621,7 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
                             type="number"
                             value={editForm.creditLimit}
                             onChange={e => setEditForm({ ...editForm, creditLimit: e.target.value })}
+                            placeholder={`${selectedCustomer?.creditLimit ?? 1000}`}
                           />
                         </div>
                         <div className="form-group">
@@ -1209,6 +1630,7 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
                             type="number"
                             value={editForm.balanceOwed}
                             onChange={e => setEditForm({ ...editForm, balanceOwed: e.target.value })}
+                            placeholder={`${selectedCustomer?.balanceOwed ?? 0}`}
                           />
                         </div>
                       </div>
@@ -1356,6 +1778,80 @@ I need active players so if you could do me a solid and place a bet today even i
               )
             }
 
+            {showBulkEditModal && (
+              <div className="modal-overlay">
+                <div className="modal-content bulk-edit-modal">
+                  <h3>Edit {getBulkEditLabel()}</h3>
+                  <form onSubmit={applyBulkEdit}>
+                    <div className="form-group">
+                      <label>{getBulkEditLabel()}</label>
+                      {bulkEditType === 'status' ? (
+                        <select
+                          value={bulkEditValue}
+                          onChange={(e) => setBulkEditValue(e.target.value)}
+                          required
+                        >
+                          <option value="">Select status</option>
+                          <option value="active">Active</option>
+                          <option value="disabled">Disabled</option>
+                          <option value="read_only">Read Only</option>
+                        </select>
+                      ) : (
+                        <input
+                          type="number"
+                          step="1"
+                          min="0"
+                          value={bulkEditValue}
+                          onChange={(e) => setBulkEditValue(e.target.value)}
+                          placeholder="Enter amount"
+                          required
+                        />
+                      )}
+                    </div>
+                    <p className="bulk-edit-hint">
+                      This updates all players shown in the current list.
+                    </p>
+                    <div className="form-actions">
+                      <button type="submit" className="btn-primary" disabled={actionLoadingId === 'bulk-update'}>
+                        {actionLoadingId === 'bulk-update' ? 'Saving...' : 'Save'}
+                      </button>
+                      <button type="button" className="btn-secondary" onClick={() => setShowBulkEditModal(false)}>Cancel</button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
+
+            {quickEditModal.open && (
+              <div className="modal-overlay">
+                <div className="modal-content bulk-edit-modal">
+                  <h3>
+                    Edit {quickEditModal.type === 'name' ? 'Name' : quickEditModal.type === 'password' ? 'Password' : 'Balance'}: {quickEditModal.username}
+                  </h3>
+                  <form onSubmit={applyQuickEdit}>
+                    <div className="form-group">
+                      <label>
+                        {quickEditModal.type === 'name' ? 'Name' : quickEditModal.type === 'password' ? 'Password' : 'Balance'}
+                      </label>
+                      <input
+                        type={quickEditModal.type === 'balance' ? 'number' : 'text'}
+                        value={quickEditModal.value}
+                        onChange={(e) => setQuickEditModal((prev) => ({ ...prev, value: e.target.value }))}
+                        autoFocus
+                        required
+                      />
+                    </div>
+                    <div className="form-actions">
+                      <button type="submit" className="btn-primary" disabled={actionLoadingId === quickEditModal.customerId}>
+                        {actionLoadingId === quickEditModal.customerId ? 'Saving...' : 'Save'}
+                      </button>
+                      <button type="button" className="btn-secondary" onClick={() => setQuickEditModal({ open: false, type: '', customerId: null, username: '', value: '' })}>Cancel</button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
+
             {/* BALANCE MODAL */}
             {/* BALANCE MODAL */}
             {
@@ -1409,7 +1905,7 @@ I need active players so if you could do me a solid and place a bet today even i
         .view-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px; border: none; padding: 0; }
         .header-icon-title { display: flex; align-items: center; gap: 16px; }
         .glow-accent { width: 8px; height: 32px; background: #3b82f6; border-radius: 4px; box-shadow: 0 0 15px #3b82f6; }
-        .view-header h2 { font-size: 28px; font-weight: 800; margin: 0; background: linear-gradient(to right, #fff, #94a3b8); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .view-header h2 { font-size: 28px; font-weight: 800; margin: 0; color: #0f172a; }
         
         .btn-create-premium {
           background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
@@ -1442,19 +1938,149 @@ I need active players so if you could do me a solid and place a bet today even i
         }
         .btn-submit-premium:hover { background: #fff; transform: scale(1.02); }
 
+        .agent-search-picker {
+          position: relative;
+          border: 1px solid #cbd5e1;
+          border-radius: 8px;
+          background: #f8fafc;
+        }
+        .header-agent-picker {
+          min-width: 320px;
+          max-width: 420px;
+        }
+        .agent-search-head {
+          display: grid;
+          grid-template-columns: auto 1fr;
+          align-items: center;
+        }
+        .agent-search-label {
+          padding: 8px 10px;
+          border-right: 1px solid #cbd5e1;
+          color: #334155;
+          font-size: 13px;
+          font-weight: 600;
+          white-space: nowrap;
+        }
+        .agent-search-head input {
+          border: none !important;
+          background: transparent !important;
+          padding: 8px 10px !important;
+          outline: none;
+        }
+        .agent-search-list {
+          position: absolute;
+          z-index: 30;
+          left: 0;
+          right: 0;
+          top: calc(100% + 4px);
+          max-height: 220px;
+          overflow-y: auto;
+          border: 1px solid #cbd5e1;
+          border-radius: 8px;
+          background: #ffffff;
+          box-shadow: 0 12px 22px rgba(15, 23, 42, 0.15);
+        }
+        .agent-search-item {
+          width: 100%;
+          border: none;
+          background: #fff;
+          padding: 8px 10px;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          cursor: pointer;
+          font-size: 13px;
+          color: #1e293b;
+          border-bottom: 1px solid #e2e8f0;
+        }
+        .agent-search-item:hover,
+        .agent-search-item.selected {
+          background: #e2f2ff;
+        }
+        .agent-type-badge {
+          font-weight: 800;
+          font-size: 13px;
+          line-height: 1;
+        }
+        .agent-type-badge.master { color: #0f8a0f; }
+        .agent-type-badge.agent { color: #dc2626; }
+        .agent-search-empty {
+          padding: 10px;
+          color: #64748b;
+          font-size: 12px;
+        }
+
         .table-glass-container {
           background: rgba(30, 41, 59, 0.3); border: 1px solid rgba(255,255,255,0.05);
           border-radius: 24px; padding: 20px;
         }
         .table-actions { margin-bottom: 20px; display: flex; justify-content: space-between; }
-        .filter-tab-group { display: flex; background: rgba(0,0,0,0.2); padding: 4px; border-radius: 10px; }
-        .filter-tab-group .tab {
-          background: none; border: none; color: #64748b; padding: 6px 16px;
-          border-radius: 8px; font-weight: 600; font-size: 12px; cursor: pointer; transition: all 0.2s;
-        }
-        .filter-tab-group .tab.active { background: #1e293b; color: #f8fafc; box-shadow: 0 4px 10px rgba(0,0,0,0.2); }
+        .clickable-col-head { cursor: pointer; text-decoration: underline; text-decoration-style: dotted; }
+        .clickable-col-head:hover { color: #3b82f6; }
 
         .scroll-wrapper { overflow-x: auto; }
+        .row-expand-btn {
+          border: none;
+          background: transparent;
+          color: #475569;
+          font-size: 20px;
+          line-height: 1;
+          cursor: pointer;
+          margin-left: 8px;
+        }
+        .user-cell {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 6px;
+        }
+        .expanded-detail-row td {
+          background: #f0f6b3;
+          padding: 12px 16px;
+        }
+        .expanded-detail-grid {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 12px;
+        }
+        .detail-card {
+          background: #f8fafc;
+          border: 1px solid #cbd5e1;
+          border-radius: 6px;
+        }
+        .detail-line {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 10px;
+          padding: 12px 14px;
+          border-bottom: 1px solid #e2e8f0;
+          font-size: 15px;
+          color: #1e293b;
+        }
+        .detail-line:last-child {
+          border-bottom: none;
+        }
+        .detail-line input,
+        .detail-line select {
+          width: 140px;
+          border: 1px solid #94a3b8;
+          border-radius: 4px;
+          padding: 4px 8px;
+          font-size: 14px;
+          color: #0f172a;
+          background: #fff;
+        }
+        .link-edit-btn {
+          border: none;
+          background: transparent;
+          color: #2563eb;
+          text-decoration: underline;
+          cursor: pointer;
+          margin-left: 8px;
+          font-size: 12px;
+          text-transform: uppercase;
+        }
         .premium-table { width: 100%; border-collapse: separate; border-spacing: 0 8px; }
         .premium-table th { text-align: left; padding: 12px 16px; font-size: 11px; text-transform: uppercase; color: #64748b; font-weight: 800; }
         .customer-row { background: rgba(255,255,255,0.02); transition: all 0.2s; }
@@ -1462,10 +2088,30 @@ I need active players so if you could do me a solid and place a bet today even i
         .customer-row td { padding: 16px; border-top: 1px solid rgba(255,255,255,0.02); border-bottom: 1px solid rgba(255,255,255,0.02); }
         .customer-row td:first-child { border-left: 1px solid rgba(255,255,255,0.02); border-radius: 12px 0 0 12px; }
         .customer-row td:last-child { border-right: 1px solid rgba(255,255,255,0.02); border-radius: 0 12px 12px 0; }
+        .agent-group-row td {
+          background: #073b53;
+          color: #e8f5ff;
+          font-weight: 700;
+          letter-spacing: 0.3px;
+          padding: 9px 12px;
+        }
 
         .user-link-btn {
           background: none; border: none; display: flex; align-items: center; gap: 12px;
           color: #3b82f6; font-weight: 700; cursor: pointer; padding: 0;
+        }
+        .btn-save-clean {
+          background: #94a3b8 !important;
+          color: #fff !important;
+          opacity: 0.7;
+        }
+        .btn-save-dirty {
+          background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%) !important;
+          color: #fff !important;
+          box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.2);
+        }
+        .btn-save-dirty:hover {
+          filter: brightness(1.05);
         }
         .avatar-small {
           width: 32px; height: 32px; background: #334155; color: white;
@@ -1488,6 +2134,45 @@ I need active players so if you could do me a solid and place a bet today even i
         }
         .status-select.active { background: rgba(16,185,129,0.1); color: #10b981; }
         .status-select.disabled, .status-select.suspended { background: rgba(239,68,68,0.1); color: #ef4444; }
+
+        .switch-mini {
+          position: relative;
+          display: inline-block;
+          width: 52px;
+          height: 28px;
+        }
+        .switch-mini input { opacity: 0; width: 0; height: 0; }
+        .slider-mini {
+          position: absolute;
+          cursor: pointer;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background-color: #94a3b8;
+          transition: .2s;
+          border-radius: 999px;
+        }
+        .slider-mini:before {
+          position: absolute;
+          content: "";
+          height: 20px;
+          width: 20px;
+          left: 4px;
+          top: 4px;
+          background-color: white;
+          transition: .2s;
+          border-radius: 50%;
+        }
+        .switch-mini input:checked + .slider-mini { background-color: #10b981; }
+        .switch-mini input:checked + .slider-mini:before { transform: translateX(24px); }
+
+        .bulk-edit-modal { max-width: 560px; }
+        .bulk-edit-hint { margin-top: 8px; color: #64748b; font-size: 13px; }
+
+        @media (max-width: 1200px) {
+          .expanded-detail-grid { grid-template-columns: 1fr; }
+        }
 
         .capability-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
         .cap-tag {
