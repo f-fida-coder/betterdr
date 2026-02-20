@@ -301,7 +301,7 @@ export const getWalletTransactions = async (token, { type = '', status = '', lim
 // Admin / Agent APIs
 export const getAgents = async (token) => {
     const response = await fetch(`${API_URL}/admin/agents`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch agents');
     return response.json();
@@ -317,35 +317,41 @@ export const getBetModeRules = async (token) => {
 
 export const getAdminHeaderSummary = async (token) => {
     const response = await fetch(`${API_URL}/admin/header-summary`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch admin header summary');
     return response.json();
 };
 
+export const getSystemStats = async (token) => {
+    const response = await fetch(`${API_URL}/admin/system-stats`, {
+        headers: getHeaders(token)
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || 'Failed to fetch system stats');
+    }
+    return response.json();
+};
+
 export const getWeeklyFigures = async (period, token) => {
     const response = await fetch(`${API_URL}/admin/weekly-figures?period=${encodeURIComponent(period)}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: getHeaders(token)
     });
-    if (!response.ok) throw new Error('Failed to fetch weekly figures');
-    return response.json();
+    return parseJsonResponse(response, 'Failed to fetch weekly figures');
 };
 
 export const getPendingItems = async (token) => {
     const response = await fetch(`${API_URL}/admin/pending`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: getHeaders(token)
     });
-    if (!response.ok) throw new Error('Failed to fetch pending items');
-    return response.json();
+    return parseJsonResponse(response, 'Failed to fetch pending items');
 };
 
 export const approvePendingItem = async (transactionId, token) => {
     const response = await fetch(`${API_URL}/admin/pending/approve`, {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-        },
+        headers: getHeaders(token),
         body: JSON.stringify({ transactionId })
     });
     if (!response.ok) {
@@ -358,10 +364,7 @@ export const approvePendingItem = async (transactionId, token) => {
 export const declinePendingItem = async (transactionId, token) => {
     const response = await fetch(`${API_URL}/admin/pending/decline`, {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-        },
+        headers: getHeaders(token),
         body: JSON.stringify({ transactionId })
     });
     if (!response.ok) {
@@ -373,16 +376,15 @@ export const declinePendingItem = async (transactionId, token) => {
 
 export const getMessages = async (token) => {
     const response = await fetch(`${API_URL}/admin/messages`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: getHeaders(token)
     });
-    if (!response.ok) throw new Error('Failed to fetch messages');
-    return response.json();
+    return parseJsonResponse(response, 'Failed to fetch messages');
 };
 
 export const markMessageRead = async (messageId, token) => {
     const response = await fetch(`${API_URL}/admin/messages/${messageId}/read`, {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to mark message read');
     return response.json();
@@ -391,10 +393,7 @@ export const markMessageRead = async (messageId, token) => {
 export const replyToMessage = async (messageId, reply, token) => {
     const response = await fetch(`${API_URL}/admin/messages/${messageId}/reply`, {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-        },
+        headers: getHeaders(token),
         body: JSON.stringify({ reply })
     });
     if (!response.ok) {
@@ -407,7 +406,7 @@ export const replyToMessage = async (messageId, reply, token) => {
 export const deleteMessage = async (messageId, token) => {
     const response = await fetch(`${API_URL}/admin/messages/${messageId}`, {
         method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to delete message');
     return response.json();
@@ -415,7 +414,7 @@ export const deleteMessage = async (messageId, token) => {
 
 export const getMyMessages = async (token) => {
     const response = await fetch(`${API_URL}/messages/me`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch messages');
     return response.json();
@@ -424,10 +423,7 @@ export const getMyMessages = async (token) => {
 export const createMessage = async (subject, body, token) => {
     const response = await fetch(`${API_URL}/messages`, {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-        },
+        headers: getHeaders(token),
         body: JSON.stringify({ subject, body })
     });
     if (!response.ok) {
@@ -455,19 +451,15 @@ export const getSupportFaqs = async (token) => {
 
 export const getAdminMatches = async (token) => {
     const response = await fetch(`${API_URL}/admin/matches`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: getHeaders(token)
     });
-    if (!response.ok) throw new Error('Failed to fetch matches');
-    return response.json();
+    return parseJsonResponse(response, 'Failed to fetch matches');
 };
 
 export const createAdminMatch = async (matchData, token) => {
     const response = await fetch(`${API_URL}/admin/matches`, {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-        },
+        headers: getHeaders(token),
         body: JSON.stringify(matchData)
     });
     if (!response.ok) {
@@ -480,10 +472,7 @@ export const createAdminMatch = async (matchData, token) => {
 export const updateAdminMatch = async (matchId, matchData, token) => {
     const response = await fetch(`${API_URL}/admin/matches/${matchId}`, {
         method: 'PUT',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-        },
+        headers: getHeaders(token),
         body: JSON.stringify(matchData)
     });
     if (!response.ok) {
@@ -495,7 +484,7 @@ export const updateAdminMatch = async (matchId, matchData, token) => {
 
 export const getCashierSummary = async (token) => {
     const response = await fetch(`${API_URL}/admin/cashier/summary`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch cashier summary');
     return response.json();
@@ -503,7 +492,7 @@ export const getCashierSummary = async (token) => {
 
 export const getCashierTransactions = async (token, limit = 50) => {
     const response = await fetch(`${API_URL}/admin/cashier/transactions?limit=${limit}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch cashier transactions');
     return response.json();
@@ -511,7 +500,7 @@ export const getCashierTransactions = async (token, limit = 50) => {
 
 export const getThirdPartyLimits = async (token) => {
     const response = await fetch(`${API_URL}/admin/third-party-limits`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch third party limits');
     return response.json();
@@ -520,10 +509,7 @@ export const getThirdPartyLimits = async (token) => {
 export const updateThirdPartyLimit = async (id, payload, token) => {
     const response = await fetch(`${API_URL}/admin/third-party-limits/${id}`, {
         method: 'PUT',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-        },
+        headers: getHeaders(token),
         body: JSON.stringify(payload)
     });
     if (!response.ok) {
@@ -536,10 +522,7 @@ export const updateThirdPartyLimit = async (id, payload, token) => {
 export const createThirdPartyLimit = async (payload, token) => {
     const response = await fetch(`${API_URL}/admin/third-party-limits`, {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-        },
+        headers: getHeaders(token),
         body: JSON.stringify(payload)
     });
     if (!response.ok) {
@@ -552,7 +535,7 @@ export const createThirdPartyLimit = async (payload, token) => {
 export const getAdminBets = async (params, token) => {
     const query = new URLSearchParams(params).toString();
     const response = await fetch(`${API_URL}/admin/bets?${query}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch admin bets');
     return response.json();
@@ -561,7 +544,7 @@ export const getAdminBets = async (params, token) => {
 export const getIpTracker = async (params, token) => {
     const query = new URLSearchParams(params).toString();
     const response = await fetch(`${API_URL}/admin/ip-tracker?${query}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch IP tracker');
     return response.json();
@@ -570,7 +553,7 @@ export const getIpTracker = async (params, token) => {
 export const blockIp = async (id, token) => {
     const response = await fetch(`${API_URL}/admin/ip-tracker/${id}/block`, {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: getHeaders(token)
     });
     if (!response.ok) {
         const error = await response.json().catch(() => ({}));
@@ -582,7 +565,7 @@ export const blockIp = async (id, token) => {
 export const unblockIp = async (id, token) => {
     const response = await fetch(`${API_URL}/admin/ip-tracker/${id}/unblock`, {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: getHeaders(token)
     });
     if (!response.ok) {
         const error = await response.json().catch(() => ({}));
@@ -594,16 +577,29 @@ export const unblockIp = async (id, token) => {
 export const getTransactionsHistory = async (params, token) => {
     const query = new URLSearchParams(params).toString();
     const response = await fetch(`${API_URL}/admin/transactions?${query}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch transactions history');
+    return response.json();
+};
+
+export const deleteAdminTransactions = async (ids, token) => {
+    const response = await fetch(`${API_URL}/admin/transactions`, {
+        method: 'DELETE',
+        headers: getHeaders(token),
+        body: JSON.stringify({ ids })
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || 'Failed to delete transactions');
+    }
     return response.json();
 };
 
 export const getCollections = async (params, token) => {
     const query = new URLSearchParams(params).toString();
     const response = await fetch(`${API_URL}/admin/collections?${query}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch collections');
     return response.json();
@@ -612,7 +608,7 @@ export const getCollections = async (params, token) => {
 export const getDeletedWagers = async (params, token) => {
     const query = new URLSearchParams(params).toString();
     const response = await fetch(`${API_URL}/admin/deleted-wagers?${query}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch deleted wagers');
     return response.json();
@@ -621,7 +617,7 @@ export const getDeletedWagers = async (params, token) => {
 export const restoreDeletedWager = async (id, token) => {
     const response = await fetch(`${API_URL}/admin/deleted-wagers/${id}/restore`, {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: getHeaders(token)
     });
     if (!response.ok) {
         const error = await response.json().catch(() => ({}));
@@ -632,7 +628,7 @@ export const restoreDeletedWager = async (id, token) => {
 
 export const getSportsbookLinks = async (token) => {
     const response = await fetch(`${API_URL}/admin/sportsbook-links`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch sportsbook links');
     return response.json();
@@ -641,10 +637,7 @@ export const getSportsbookLinks = async (token) => {
 export const createSportsbookLink = async (payload, token) => {
     const response = await fetch(`${API_URL}/admin/sportsbook-links`, {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-        },
+        headers: getHeaders(token),
         body: JSON.stringify(payload)
     });
     if (!response.ok) {
@@ -657,10 +650,7 @@ export const createSportsbookLink = async (payload, token) => {
 export const updateSportsbookLink = async (id, payload, token) => {
     const response = await fetch(`${API_URL}/admin/sportsbook-links/${id}`, {
         method: 'PUT',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-        },
+        headers: getHeaders(token),
         body: JSON.stringify(payload)
     });
     if (!response.ok) {
@@ -689,7 +679,7 @@ export const whitelistIp = async (id, token) => {
 export const testSportsbookLink = async (id, token) => {
     const response = await fetch(`${API_URL}/admin/sportsbook-links/${id}/test`, {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: getHeaders(token)
     });
     if (!response.ok) {
         const error = await response.json().catch(() => ({}));
@@ -701,7 +691,7 @@ export const testSportsbookLink = async (id, token) => {
 export const refreshOdds = async (token) => {
     const response = await fetch(`${API_URL}/admin/refresh-odds`, {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: getHeaders(token)
     });
     if (!response.ok) {
         const error = await response.json().catch(() => ({}));
@@ -724,7 +714,7 @@ export const fetchOddsManual = async () => {
 export const clearCache = async (token) => {
     const response = await fetch(`${API_URL}/admin/clear-cache`, {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: getHeaders(token)
     });
     if (!response.ok) {
         const error = await response.json().catch(() => ({}));
@@ -736,10 +726,7 @@ export const clearCache = async (token) => {
 export const createCollection = async (payload, token) => {
     const response = await fetch(`${API_URL}/admin/collections`, {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-        },
+        headers: getHeaders(token),
         body: JSON.stringify(payload)
     });
     if (!response.ok) {
@@ -752,7 +739,7 @@ export const createCollection = async (payload, token) => {
 export const collectCollection = async (id, token) => {
     const response = await fetch(`${API_URL}/admin/collections/${id}/collect`, {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: getHeaders(token)
     });
     if (!response.ok) {
         const error = await response.json().catch(() => ({}));
@@ -763,7 +750,7 @@ export const collectCollection = async (id, token) => {
 
 export const getCollectionById = async (id, token) => {
     const response = await fetch(`${API_URL}/admin/collections/${id}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch collection');
     return response.json();
@@ -772,10 +759,7 @@ export const getCollectionById = async (id, token) => {
 export const createAdminBet = async (payload, token) => {
     const response = await fetch(`${API_URL}/admin/bets`, {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-        },
+        headers: getHeaders(token),
         body: JSON.stringify(payload)
     });
     if (!response.ok) {
@@ -788,9 +772,7 @@ export const createAdminBet = async (payload, token) => {
 export const deleteAdminBet = async (id, token) => {
     const response = await fetch(`${API_URL}/admin/bets/${id}`, {
         method: 'DELETE',
-        headers: {
-            'Authorization': `Bearer ${token}`
-        }
+        headers: getHeaders(token)
     });
     if (!response.ok) {
         const error = await response.json().catch(() => ({}));
@@ -802,10 +784,7 @@ export const deleteAdminBet = async (id, token) => {
 export const settleMatchBets = async (payload, token) => {
     const response = await fetch(`${API_URL}/bets/settle`, {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-        },
+        headers: getHeaders(token),
         body: JSON.stringify(payload)
     });
     if (!response.ok) {
@@ -818,7 +797,7 @@ export const settleMatchBets = async (payload, token) => {
 export const getAgentPerformance = async (params, token) => {
     const query = new URLSearchParams(params).toString();
     const response = await fetch(`${API_URL}/admin/agent-performance?${query}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch agent performance');
     return response.json();
@@ -827,7 +806,7 @@ export const getAgentPerformance = async (params, token) => {
 export const getAgentPerformanceDetails = async (agentId, params, token) => {
     const query = new URLSearchParams(params || {}).toString();
     const response = await fetch(`${API_URL}/admin/agent-performance/${agentId}/details?${query}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: getHeaders(token)
     });
     if (!response.ok) {
         const error = await response.json().catch(() => ({}));
@@ -839,10 +818,7 @@ export const getAgentPerformanceDetails = async (agentId, params, token) => {
 export const updateAgentPermissions = async (agentId, permissions, token) => {
     const response = await fetch(`${API_URL}/agent/permissions/${agentId}`, {
         method: 'PUT',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-        },
+        headers: getHeaders(token),
         body: JSON.stringify({ permissions })
     });
     if (!response.ok) {
@@ -956,10 +932,7 @@ export const updateUserByAdmin = async (userId, userData, token) => {
     try {
         const response = await fetch(`${API_URL}/admin/users/${userId}`, {
             method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            },
+            headers: getHeaders(token),
             body: JSON.stringify(userData)
         });
         const data = await response.json();
@@ -971,15 +944,12 @@ export const updateUserByAdmin = async (userId, userData, token) => {
     }
 };
 
-export const updateUserFreeplay = async (userId, freeplayBalance, token) => {
+export const updateUserFreeplay = async (userId, freeplayBalance, token, description = '') => {
     try {
         const response = await fetch(`${API_URL}/admin/users/${userId}/freeplay`, {
             method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            },
-            body: JSON.stringify({ freeplayBalance })
+            headers: getHeaders(token),
+            body: JSON.stringify({ freeplayBalance, description })
         });
         const data = await response.json();
         if (!response.ok) throw new Error(data.message || 'Failed to update freeplay');
@@ -1000,10 +970,7 @@ export const createPlayerByAgent = async (userData, token) => {
 
         const response = await fetch(`${API_URL}/agent/create-user`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            },
+            headers: getHeaders(token),
             body: JSON.stringify(userData)
         });
         if (!response.ok) {
@@ -1028,7 +995,7 @@ export const createPlayerByAgent = async (userData, token) => {
 
 export const getMyPlayers = async (token) => {
     const response = await fetch(`${API_URL}/agent/my-users`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch players');
     return response.json();
@@ -1048,10 +1015,7 @@ export const getUsersAdmin = async (token) => {
 export const updateUserCredit = async (userId, payload, token) => {
     const response = await fetch(`${API_URL}/admin/users/${userId}/credit`, {
         method: 'PUT',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-        },
+        headers: getHeaders(token),
         body: JSON.stringify(payload)
     });
     if (!response.ok) {
@@ -1064,10 +1028,7 @@ export const updateUserCredit = async (userId, payload, token) => {
 export const updateUserBalanceOwedByAgent = async (userId, balance, token) => {
     const response = await fetch(`${API_URL}/agent/update-balance-owed`, {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-        },
+        headers: getHeaders(token),
         body: JSON.stringify({ userId, balance })
     });
     if (!response.ok) {
@@ -1081,10 +1042,7 @@ export const updateAgent = async (id, data, token) => {
     try {
         const response = await fetch(`${API_URL}/admin/agent/${id}`, {
             method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            },
+            headers: getHeaders(token),
             body: JSON.stringify(data)
         });
         if (!response.ok) {
@@ -1102,10 +1060,7 @@ export const updateUserByAgent = async (userId, userData, token) => {
     try {
         const response = await fetch(`${API_URL}/agent/users/${userId}`, {
             method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            },
+            headers: getHeaders(token),
             body: JSON.stringify(userData)
         });
         const data = await response.json();
@@ -1121,10 +1076,7 @@ export const createSubAgent = async (agentData, token) => {
     try {
         const response = await fetch(`${API_URL}/agent/create-sub-agent`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            },
+            headers: getHeaders(token),
             body: JSON.stringify(agentData)
         });
         const data = await response.json();
@@ -1140,9 +1092,7 @@ export const getMySubAgents = async (token) => {
     try {
         const response = await fetch(`${API_URL}/agent/my-sub-agents`, {
             method: 'GET',
-            headers: {
-                'Authorization': `Bearer ${token}`
-            }
+            headers: getHeaders(token)
         });
         const data = await response.json();
         if (!response.ok) throw new Error(data.message || 'Failed to fetch sub-agents');
@@ -1157,9 +1107,7 @@ export const getUserStatistics = async (userId, token) => {
     try {
         const response = await fetch(`${API_URL}/admin/users/${userId}/stats`, {
             method: 'GET',
-            headers: {
-                'Authorization': `Bearer ${token}`
-            }
+            headers: getHeaders(token)
         });
         const data = await response.json();
         if (!response.ok) throw new Error(data.message || 'Failed to fetch user statistics');
@@ -1173,10 +1121,7 @@ export const getUserStatistics = async (userId, token) => {
 export const createTicketWriterBet = async (payload, token) => {
     const response = await fetch(`${API_URL}/admin/bets`, {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-        },
+        headers: getHeaders(token),
         body: JSON.stringify(payload)
     });
     if (!response.ok) {
@@ -1188,7 +1133,7 @@ export const createTicketWriterBet = async (payload, token) => {
 
 export const getBillingSummary = async (token) => {
     const response = await fetch(`${API_URL}/admin/billing/summary`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch billing summary');
     return response.json();
@@ -1197,7 +1142,7 @@ export const getBillingSummary = async (token) => {
 export const getBillingInvoices = async (params, token) => {
     const query = new URLSearchParams(params).toString();
     const response = await fetch(`${API_URL}/admin/billing/invoices?${query}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch invoices');
     return response.json();
@@ -1206,10 +1151,7 @@ export const getBillingInvoices = async (params, token) => {
 export const createBillingInvoice = async (payload, token) => {
     const response = await fetch(`${API_URL}/admin/billing/invoices`, {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-        },
+        headers: getHeaders(token),
         body: JSON.stringify(payload)
     });
     if (!response.ok) {
@@ -1222,10 +1164,7 @@ export const createBillingInvoice = async (payload, token) => {
 export const updateBillingInvoice = async (id, payload, token) => {
     const response = await fetch(`${API_URL}/admin/billing/invoices/${id}`, {
         method: 'PUT',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-        },
+        headers: getHeaders(token),
         body: JSON.stringify(payload)
     });
     if (!response.ok) {
@@ -1237,7 +1176,7 @@ export const updateBillingInvoice = async (id, payload, token) => {
 
 export const getBillingInvoiceById = async (id, token) => {
     const response = await fetch(`${API_URL}/admin/billing/invoices/${id}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch invoice');
     return response.json();
@@ -1245,7 +1184,7 @@ export const getBillingInvoiceById = async (id, token) => {
 
 export const getSettings = async (token) => {
     const response = await fetch(`${API_URL}/admin/settings`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch settings');
     return response.json();
@@ -1254,10 +1193,7 @@ export const getSettings = async (token) => {
 export const updateSettings = async (payload, token) => {
     const response = await fetch(`${API_URL}/admin/settings`, {
         method: 'PUT',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-        },
+        headers: getHeaders(token),
         body: JSON.stringify(payload)
     });
     if (!response.ok) {
@@ -1269,7 +1205,7 @@ export const updateSettings = async (payload, token) => {
 
 export const getRules = async (token) => {
     const response = await fetch(`${API_URL}/admin/rules`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch rules');
     return response.json();
@@ -1278,10 +1214,7 @@ export const getRules = async (token) => {
 export const createRule = async (payload, token) => {
     const response = await fetch(`${API_URL}/admin/rules`, {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-        },
+        headers: getHeaders(token),
         body: JSON.stringify(payload)
     });
     if (!response.ok) {
@@ -1294,10 +1227,7 @@ export const createRule = async (payload, token) => {
 export const updateRule = async (id, payload, token) => {
     const response = await fetch(`${API_URL}/admin/rules/${id}`, {
         method: 'PUT',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-        },
+        headers: getHeaders(token),
         body: JSON.stringify(payload)
     });
     if (!response.ok) {
@@ -1310,7 +1240,7 @@ export const updateRule = async (id, payload, token) => {
 export const deleteRule = async (id, token) => {
     const response = await fetch(`${API_URL}/admin/rules/${id}`, {
         method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: getHeaders(token)
     });
     if (!response.ok) {
         const error = await response.json().catch(() => ({}));
@@ -1322,7 +1252,7 @@ export const deleteRule = async (id, token) => {
 export const getFeedback = async (params, token) => {
     const query = new URLSearchParams(params).toString();
     const response = await fetch(`${API_URL}/admin/feedback?${query}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch feedback');
     return response.json();
@@ -1331,10 +1261,7 @@ export const getFeedback = async (params, token) => {
 export const replyFeedback = async (id, payload, token) => {
     const response = await fetch(`${API_URL}/admin/feedback/${id}/reply`, {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-        },
+        headers: getHeaders(token),
         body: JSON.stringify(payload)
     });
     if (!response.ok) {
@@ -1347,7 +1274,7 @@ export const replyFeedback = async (id, payload, token) => {
 export const markFeedbackReviewed = async (id, token) => {
     const response = await fetch(`${API_URL}/admin/feedback/${id}/reviewed`, {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: getHeaders(token)
     });
     if (!response.ok) {
         const error = await response.json().catch(() => ({}));
@@ -1359,7 +1286,7 @@ export const markFeedbackReviewed = async (id, token) => {
 export const deleteFeedback = async (id, token) => {
     const response = await fetch(`${API_URL}/admin/feedback/${id}`, {
         method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: getHeaders(token)
     });
     if (!response.ok) {
         const error = await response.json().catch(() => ({}));
@@ -1370,7 +1297,7 @@ export const deleteFeedback = async (id, token) => {
 
 export const getFaqs = async (token) => {
     const response = await fetch(`${API_URL}/admin/faqs`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch FAQs');
     return response.json();
@@ -1379,10 +1306,7 @@ export const getFaqs = async (token) => {
 export const createFaq = async (payload, token) => {
     const response = await fetch(`${API_URL}/admin/faqs`, {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-        },
+        headers: getHeaders(token),
         body: JSON.stringify(payload)
     });
     if (!response.ok) {
@@ -1395,10 +1319,7 @@ export const createFaq = async (payload, token) => {
 export const updateFaq = async (id, payload, token) => {
     const response = await fetch(`${API_URL}/admin/faqs/${id}`, {
         method: 'PUT',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-        },
+        headers: getHeaders(token),
         body: JSON.stringify(payload)
     });
     if (!response.ok) {
@@ -1411,7 +1332,7 @@ export const updateFaq = async (id, payload, token) => {
 export const deleteFaq = async (id, token) => {
     const response = await fetch(`${API_URL}/admin/faqs/${id}`, {
         method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: getHeaders(token)
     });
     if (!response.ok) {
         const error = await response.json().catch(() => ({}));
@@ -1422,7 +1343,7 @@ export const deleteFaq = async (id, token) => {
 
 export const getManualSections = async (token) => {
     const response = await fetch(`${API_URL}/admin/manual`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch manual');
     return response.json();
@@ -1431,10 +1352,7 @@ export const getManualSections = async (token) => {
 export const createManualSection = async (payload, token) => {
     const response = await fetch(`${API_URL}/admin/manual`, {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-        },
+        headers: getHeaders(token),
         body: JSON.stringify(payload)
     });
     if (!response.ok) {
@@ -1447,10 +1365,7 @@ export const createManualSection = async (payload, token) => {
 export const updateManualSection = async (id, payload, token) => {
     const response = await fetch(`${API_URL}/admin/manual/${id}`, {
         method: 'PUT',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-        },
+        headers: getHeaders(token),
         body: JSON.stringify(payload)
     });
     if (!response.ok) {
@@ -1463,7 +1378,7 @@ export const updateManualSection = async (id, payload, token) => {
 export const deleteManualSection = async (id, token) => {
     const response = await fetch(`${API_URL}/admin/manual/${id}`, {
         method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: getHeaders(token)
     });
     if (!response.ok) {
         const error = await response.json().catch(() => ({}));
@@ -1475,10 +1390,7 @@ export const deleteManualSection = async (id, token) => {
 export const suspendUser = async (userId, token) => {
     const response = await fetch(`${API_URL}/admin/suspend`, {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-        },
+        headers: getHeaders(token),
         body: JSON.stringify({ userId })
     });
     if (!response.ok) throw new Error('Failed to suspend user');
@@ -1488,10 +1400,7 @@ export const suspendUser = async (userId, token) => {
 export const unsuspendUser = async (userId, token) => {
     const response = await fetch(`${API_URL}/admin/unsuspend`, {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-        },
+        headers: getHeaders(token),
         body: JSON.stringify({ userId })
     });
     if (!response.ok) throw new Error('Failed to unsuspend user');
@@ -1500,10 +1409,7 @@ export const unsuspendUser = async (userId, token) => {
 export const resetUserPasswordByAdmin = async (id, newPassword, token) => {
     const response = await fetch(`${API_URL}/admin/users/${id}/reset-password`, {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-        },
+        headers: getHeaders(token),
         body: JSON.stringify({ newPassword })
     });
     if (!response.ok) {
@@ -1517,10 +1423,7 @@ export const resetUserPasswordByAdmin = async (id, newPassword, token) => {
 export const resetAgentPasswordByAdmin = async (id, newPassword, token) => {
     const response = await fetch(`${API_URL}/admin/agents/${id}/reset-password`, {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-        },
+        headers: getHeaders(token),
         body: JSON.stringify({ newPassword })
     });
     if (!response.ok) {
@@ -1534,7 +1437,7 @@ export const getNextUsername = async (prefix, token, queryParams = {}) => {
     const queryString = new URLSearchParams(queryParams).toString();
     const url = `${API_URL}/admin/next-username/${prefix}${queryString ? `?${queryString}` : ''}`;
     const response = await fetch(url, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch next username');
     return response.json();

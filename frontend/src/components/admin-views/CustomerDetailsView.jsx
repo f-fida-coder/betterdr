@@ -1,1104 +1,2095 @@
-import React, { useState, useEffect } from 'react';
-import { getUserStatistics, updateUserByAdmin, updateUserByAgent, getAgents, impersonateUser } from '../../api';
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  getUserStatistics,
+  getAgents,
+  getTransactionsHistory,
+  getAdminBets,
+  deleteAdminTransactions,
+  updateUserFreeplay,
+  updateUserByAdmin,
+  updateUserByAgent,
+  updateUserCredit,
+  resetUserPasswordByAdmin,
+  impersonateUser
+} from '../../api';
+
+const DEFAULT_FORM = {
+  password: '',
+  firstName: '',
+  lastName: '',
+  agentId: '',
+  status: 'active',
+  creditLimit: 0,
+  wagerLimit: 0,
+  settleLimit: 0,
+  accountType: 'credit',
+  zeroBalanceWeekly: 'standard',
+  tempCredit: 0,
+  expiresOn: '',
+  enableCaptcha: false,
+  cryptoPromoPct: 0,
+  promoType: 'promo_credit',
+  playerNotes: '',
+  sportsbook: true,
+  casino: true,
+  horses: true,
+  messaging: false,
+  dynamicLive: true,
+  propPlus: true,
+  liveCasino: false
+  ,
+  freePlayPercent: 20,
+  maxFpCredit: 0,
+  dlMinStraightBet: 25,
+  dlMaxStraightBet: 250,
+  dlMaxPerOffering: 500,
+  dlMaxBetPerEvent: 500,
+  dlMaxWinSingleBet: 1000,
+  dlMaxWinEvent: 3000,
+  dlDelaySec: 7,
+  dlMaxFavoriteLine: -10000,
+  dlMaxDogLine: 10000,
+  dlMinParlayBet: 10,
+  dlMaxParlayBet: 100,
+  dlMaxWinEventParlay: 3000,
+  dlMaxDogLineParlays: 1000,
+  dlWagerCoolOffSec: 30,
+  dlLiveParlays: false,
+  dlBlockPriorStart: true,
+  dlBlockHalftime: true,
+  dlIncludeGradedInLimits: false,
+  dlUseRiskLimits: false,
+  casinoDefaultMaxWinDay: 10000,
+  casinoDefaultMaxLossDay: 10000,
+  casinoDefaultMaxWinWeek: 10000,
+  casinoDefaultMaxLossWeek: 10000,
+  casinoAgentMaxWinDay: 1000,
+  casinoAgentMaxLossDay: 1000,
+  casinoAgentMaxWinWeek: 5000,
+  casinoAgentMaxLossWeek: 5000,
+  casinoPlayerMaxWinDay: 1000,
+  casinoPlayerMaxLossDay: 1000,
+  casinoPlayerMaxWinWeek: 5000,
+  casinoPlayerMaxLossWeek: 5000
+};
 
 function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
-    const [customer, setCustomer] = useState(null);
-    const [stats, setStats] = useState(null);
-    const [agents, setAgents] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [saving, setSaving] = useState(false);
-    const [error, setError] = useState('');
-    const [success, setSuccess] = useState('');
-    const [referredBy, setReferredBy] = useState(null);
-    const [referralStats, setReferralStats] = useState({
-        referredCount: 0,
-        referralBonusGranted: false,
-        referralBonusAmount: 0,
-        referralBonusGrantedAt: null,
-        referralQualifiedDepositAt: null
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [customer, setCustomer] = useState(null);
+  const [stats, setStats] = useState({});
+  const [agents, setAgents] = useState([]);
+  const [form, setForm] = useState(DEFAULT_FORM);
+  const [showBasicsMenu, setShowBasicsMenu] = useState(false);
+  const [activeSection, setActiveSection] = useState('basics');
+  const [transactions, setTransactions] = useState([]);
+  const [txLoading, setTxLoading] = useState(false);
+  const [txError, setTxError] = useState('');
+  const [txSuccess, setTxSuccess] = useState('');
+  const [txDisplayFilter, setTxDisplayFilter] = useState('7d');
+  const [txTypeFilter, setTxTypeFilter] = useState('all');
+  const [txStatusFilter, setTxStatusFilter] = useState('all');
+  const [selectedTxIds, setSelectedTxIds] = useState([]);
+  const [showNewTxModal, setShowNewTxModal] = useState(false);
+  const [newTxType, setNewTxType] = useState('credit');
+  const [newTxAmount, setNewTxAmount] = useState('');
+  const [newTxDescription, setNewTxDescription] = useState('');
+  const [performancePeriod, setPerformancePeriod] = useState('daily');
+  const [performanceLoading, setPerformanceLoading] = useState(false);
+  const [performanceError, setPerformanceError] = useState('');
+  const [performanceRows, setPerformanceRows] = useState([]);
+  const [performanceSelectedKey, setPerformanceSelectedKey] = useState('');
+  const [performanceDayBets, setPerformanceDayBets] = useState([]);
+  const [freePlayRows, setFreePlayRows] = useState([]);
+  const [freePlayLoading, setFreePlayLoading] = useState(false);
+  const [freePlayError, setFreePlayError] = useState('');
+  const [freePlaySuccess, setFreePlaySuccess] = useState('');
+  const [freePlayDisplayFilter, setFreePlayDisplayFilter] = useState('7d');
+  const [freePlaySelectedIds, setFreePlaySelectedIds] = useState([]);
+  const [showNewFreePlayModal, setShowNewFreePlayModal] = useState(false);
+  const [newFreePlayAmount, setNewFreePlayAmount] = useState('');
+  const [newFreePlayDescription, setNewFreePlayDescription] = useState('');
+  const [dynamicLiveSaving, setDynamicLiveSaving] = useState(false);
+  const [dynamicLiveError, setDynamicLiveError] = useState('');
+  const [dynamicLiveSuccess, setDynamicLiveSuccess] = useState('');
+  const [casinoSaving, setCasinoSaving] = useState(false);
+  const [casinoError, setCasinoError] = useState('');
+  const [casinoSuccess, setCasinoSuccess] = useState('');
+  const [copyNotice, setCopyNotice] = useState('');
+
+  const quickMenuItems = [
+    { id: 'basics', label: 'The Basics', icon: '🪪' },
+    { id: 'transactions', label: 'Transactions', icon: '💳' },
+    { id: 'pending', label: 'Pending', icon: '🕒' },
+    { id: 'performance', label: 'Performance', icon: '📄' },
+    { id: 'analysis', label: 'Analysis', icon: '📈' },
+    { id: 'freeplays', label: 'Free Plays', icon: '🤲' },
+    { id: 'dynamic-live', label: 'Dynamic Live', icon: '🖥️' },
+    { id: 'live-casino', label: 'Live Casino', icon: '🎴' },
+    { id: 'crash', label: 'Crash', icon: '🚀' },
+    { id: 'player-info', label: 'Player Info', icon: 'ℹ️' },
+    { id: 'offerings', label: 'Offerings', icon: '🔁' },
+    { id: 'limits', label: 'Limits', icon: '✋' },
+    { id: 'vig-setup', label: 'Vig Setup', icon: '🛡️' },
+    { id: 'parlays', label: 'Parlays', icon: '🔢' },
+    { id: 'teasers', label: 'Teasers', icon: '8️⃣' },
+    { id: 'buying-pts', label: 'Buying Pts', icon: '🛒' },
+    { id: 'risk-mngmt', label: 'Risk Mngmt', icon: '💲' },
+    { id: 'communication', label: 'Communication', icon: '📞' }
+  ];
+
+  useEffect(() => {
+    const fetchDetails = async () => {
+      try {
+        setLoading(true);
+        setError('');
+        setSuccess('');
+        setTxSuccess('');
+        setTxError('');
+        setCustomer(null);
+        setForm(DEFAULT_FORM);
+        setActiveSection('basics');
+
+        const token = localStorage.getItem('token');
+        if (!token) {
+          setError('Please login to view details.');
+          return;
+        }
+
+        const [detailData, agentsData] = await Promise.all([
+          getUserStatistics(userId, token),
+          ['admin', 'super_agent', 'master_agent'].includes(role) ? getAgents(token) : Promise.resolve([])
+        ]);
+
+        const user = detailData?.user;
+        const userSettings = user?.settings || {};
+        const dl = userSettings.dynamicLiveLimits || {};
+        const dlf = userSettings.dynamicLiveFlags || {};
+        const csl = userSettings.liveCasinoLimits || {};
+        const cslDefault = csl.default || {};
+        const cslAgent = csl.agent || {};
+        const cslPlayer = csl.player || {};
+        if (!user) {
+          setError('User not found.');
+          return;
+        }
+
+        setCustomer(user);
+        setStats(detailData?.stats || {});
+        setAgents(Array.isArray(agentsData) ? agentsData : []);
+        setForm({
+          password: '',
+          firstName: user.firstName || '',
+          lastName: user.lastName || '',
+          agentId: user.agentId?._id || user.agentId || '',
+          status: (user.status || 'active').toLowerCase(),
+          creditLimit: Number(user.creditLimit || 0),
+          wagerLimit: Number(user.wagerLimit ?? user.maxBet ?? 0),
+          settleLimit: Number(user.balanceOwed || 0),
+          accountType: userSettings.accountType || 'credit',
+          zeroBalanceWeekly: userSettings.zeroBalanceWeekly || 'standard',
+          tempCredit: Number(userSettings.tempCredit || 0),
+          expiresOn: userSettings.expiresOn || '',
+          enableCaptcha: !!userSettings.enableCaptcha,
+          cryptoPromoPct: Number(userSettings.cryptoPromoPct || 0),
+          promoType: userSettings.promoType || 'promo_credit',
+          playerNotes: userSettings.playerNotes || '',
+          sportsbook: userSettings.sports ?? true,
+          casino: userSettings.casino ?? true,
+          horses: userSettings.racebook ?? true,
+          messaging: userSettings.messaging ?? false,
+          dynamicLive: userSettings.live ?? true,
+          propPlus: userSettings.props ?? true,
+          liveCasino: userSettings.liveCasino ?? false,
+          freePlayPercent: Number(userSettings.freePlayPercent ?? 20),
+          maxFpCredit: Number(userSettings.maxFpCredit ?? 0),
+          dlMinStraightBet: Number(dl.minStraightBet ?? 25),
+          dlMaxStraightBet: Number(dl.maxStraightBet ?? 250),
+          dlMaxPerOffering: Number(dl.maxPerOffering ?? 500),
+          dlMaxBetPerEvent: Number(dl.maxBetPerEvent ?? 500),
+          dlMaxWinSingleBet: Number(dl.maxWinSingleBet ?? 1000),
+          dlMaxWinEvent: Number(dl.maxWinEvent ?? 3000),
+          dlDelaySec: Number(dl.delaySec ?? 7),
+          dlMaxFavoriteLine: Number(dl.maxFavoriteLine ?? -10000),
+          dlMaxDogLine: Number(dl.maxDogLine ?? 10000),
+          dlMinParlayBet: Number(dl.minParlayBet ?? 10),
+          dlMaxParlayBet: Number(dl.maxParlayBet ?? 100),
+          dlMaxWinEventParlay: Number(dl.maxWinEventParlay ?? 3000),
+          dlMaxDogLineParlays: Number(dl.maxDogLineParlays ?? 1000),
+          dlWagerCoolOffSec: Number(dl.wagerCoolOffSec ?? 30),
+          dlLiveParlays: !!dlf.liveParlays,
+          dlBlockPriorStart: dlf.blockPriorStart ?? true,
+          dlBlockHalftime: dlf.blockHalftime ?? true,
+          dlIncludeGradedInLimits: !!dlf.includeGradedInLimits,
+          dlUseRiskLimits: !!dlf.useRiskLimits,
+          casinoDefaultMaxWinDay: Number(cslDefault.maxWinDay ?? 10000),
+          casinoDefaultMaxLossDay: Number(cslDefault.maxLossDay ?? 10000),
+          casinoDefaultMaxWinWeek: Number(cslDefault.maxWinWeek ?? 10000),
+          casinoDefaultMaxLossWeek: Number(cslDefault.maxLossWeek ?? 10000),
+          casinoAgentMaxWinDay: Number(cslAgent.maxWinDay ?? 1000),
+          casinoAgentMaxLossDay: Number(cslAgent.maxLossDay ?? 1000),
+          casinoAgentMaxWinWeek: Number(cslAgent.maxWinWeek ?? 5000),
+          casinoAgentMaxLossWeek: Number(cslAgent.maxLossWeek ?? 5000),
+          casinoPlayerMaxWinDay: Number(cslPlayer.maxWinDay ?? 1000),
+          casinoPlayerMaxLossDay: Number(cslPlayer.maxLossDay ?? 1000),
+          casinoPlayerMaxWinWeek: Number(cslPlayer.maxWinWeek ?? 5000),
+          casinoPlayerMaxLossWeek: Number(cslPlayer.maxLossWeek ?? 5000)
+        });
+      } catch (err) {
+        console.error('Failed to load player details:', err);
+        setError(err.message || 'Failed to load details');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (userId) fetchDetails();
+  }, [role, userId]);
+
+  useEffect(() => {
+    const loadTransactions = async () => {
+      if (activeSection !== 'transactions' || !customer) return;
+      try {
+        setTxLoading(true);
+        setTxError('');
+        const token = localStorage.getItem('token');
+        if (!token) {
+          setTxError('Please login to view transactions.');
+          return;
+        }
+
+        const data = await getTransactionsHistory({
+          user: customer.username || '',
+          type: txTypeFilter,
+          status: txStatusFilter,
+          time: txDisplayFilter,
+          limit: 300
+        }, token);
+        const list = Array.isArray(data?.transactions) ? data.transactions : [];
+        const forCustomer = list.filter((txn) => String(txn.userId || '') === String(userId));
+        setTransactions(forCustomer);
+      } catch (err) {
+        setTxError(err.message || 'Failed to load transactions');
+      } finally {
+        setTxLoading(false);
+      }
+    };
+
+    loadTransactions();
+  }, [activeSection, customer, txTypeFilter, txStatusFilter, txDisplayFilter, userId]);
+
+  useEffect(() => {
+    const loadPerformance = async () => {
+      if (activeSection !== 'performance' || !customer?.username) return;
+      try {
+        setPerformanceLoading(true);
+        setPerformanceError('');
+        const token = localStorage.getItem('token');
+        if (!token) {
+          setPerformanceError('Please login to view performance.');
+          return;
+        }
+
+        const data = await getAdminBets({
+          customer: customer.username,
+          time: '30d',
+          type: 'all-types',
+          limit: 500
+        }, token);
+        const bets = Array.isArray(data?.bets) ? data.bets : [];
+        const grouped = new Map();
+
+        for (const bet of bets) {
+          const dtRaw = bet?.createdAt;
+          const dt = new Date(dtRaw);
+          if (Number.isNaN(dt.getTime())) continue;
+          const year = dt.getFullYear();
+          const month = String(dt.getMonth() + 1).padStart(2, '0');
+          const day = String(dt.getDate()).padStart(2, '0');
+          const key = `${year}-${month}-${day}`;
+
+          const amount = Number(bet?.amount || 0);
+          const toWin = Number(bet?.potentialPayout || 0);
+          const status = String(bet?.status || '').toLowerCase();
+          const net = status === 'won' ? Math.max(0, toWin - amount) : status === 'lost' ? -amount : 0;
+
+          if (!grouped.has(key)) grouped.set(key, { date: dt, net: 0, wagers: [] });
+          const row = grouped.get(key);
+          row.net += net;
+          row.wagers.push({
+            id: bet.id,
+            label: `${bet?.match?.awayTeam || ''} vs ${bet?.match?.homeTeam || ''}`.trim() || (bet.selection || 'Wager'),
+            amount: net
+          });
+        }
+
+        const rows = Array.from(grouped.entries())
+          .map(([key, value]) => ({
+            key,
+            date: value.date,
+            periodLabel: value.date.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', weekday: 'long' }),
+            net: value.net,
+            wagers: value.wagers
+          }))
+          .sort((a, b) => b.key.localeCompare(a.key));
+
+        setPerformanceRows(rows);
+        const firstKey = rows[0]?.key || '';
+        setPerformanceSelectedKey(firstKey);
+        setPerformanceDayBets(rows[0]?.wagers || []);
+      } catch (err) {
+        setPerformanceError(err.message || 'Failed to load performance');
+        setPerformanceRows([]);
+        setPerformanceSelectedKey('');
+        setPerformanceDayBets([]);
+      } finally {
+        setPerformanceLoading(false);
+      }
+    };
+
+    loadPerformance();
+  }, [activeSection, customer?.username]);
+
+  useEffect(() => {
+    const loadFreePlay = async () => {
+      if (activeSection !== 'freeplays' || !customer?.username) return;
+      try {
+        setFreePlayLoading(true);
+        setFreePlayError('');
+        const token = localStorage.getItem('token');
+        if (!token) {
+          setFreePlayError('Please login to view free play.');
+          return;
+        }
+        const data = await getTransactionsHistory({
+          user: customer.username,
+          type: 'adjustment',
+          status: 'all',
+          time: freePlayDisplayFilter,
+          limit: 300
+        }, token);
+        const list = Array.isArray(data?.transactions) ? data.transactions : [];
+        const filtered = list.filter((txn) => {
+          if (String(txn.userId || '') !== String(userId)) return false;
+          const reason = String(txn.reason || '').toUpperCase();
+          const desc = String(txn.description || '').toLowerCase();
+          return reason === 'FREEPLAY_ADJUSTMENT' || desc.includes('freeplay') || desc.includes('free play');
+        });
+        setFreePlayRows(filtered);
+      } catch (err) {
+        setFreePlayError(err.message || 'Failed to load free play');
+      } finally {
+        setFreePlayLoading(false);
+      }
+    };
+
+    loadFreePlay();
+  }, [activeSection, customer?.username, freePlayDisplayFilter, userId]);
+
+  const setField = (key, value) => {
+    setForm((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const fullName = useMemo(() => {
+    const byFields = `${form.firstName || ''} ${form.lastName || ''}`.trim();
+    if (byFields) return byFields;
+    if (customer?.fullName) return customer.fullName;
+    return '';
+  }, [form.firstName, form.lastName, customer?.fullName]);
+
+  const displayName = useMemo(() => {
+    return fullName || customer?.username || 'Player';
+  }, [fullName, customer?.username]);
+
+  const displayPassword = useMemo(() => {
+    if (!customer) return '';
+    if (customer.rawPassword) return customer.rawPassword;
+    const last4 = (customer.phoneNumber || '').replace(/\D/g, '').slice(-4);
+    const f3 = (customer.firstName || '').slice(0, 3).toUpperCase();
+    const l3 = (customer.lastName || '').slice(0, 3).toUpperCase();
+    const fallback = `${f3}${l3}${last4}`;
+    return fallback || 'Not set';
+  }, [customer]);
+
+  const available = useMemo(() => {
+    return Number(form.creditLimit || 0) - Number(customer?.pendingBalance || 0);
+  }, [form.creditLimit, customer?.pendingBalance]);
+
+  const txSummary = useMemo(() => {
+    let nonPostedCasino = 0;
+    for (const txn of transactions) {
+      if (txn?.status === 'pending' && String(txn?.type || '').toLowerCase().includes('casino')) {
+        nonPostedCasino += Number(txn.amount || 0);
+      }
+    }
+    return {
+      pending: Number(customer?.pendingBalance || 0),
+      available: Number(available || 0),
+      carry: Number(customer?.balance || 0),
+      nonPostedCasino
+    };
+  }, [transactions, customer?.pendingBalance, customer?.balance, available]);
+
+  const formatCurrency = (value) => {
+    return Number(value || 0).toLocaleString('en-US', {
+      style: 'currency',
+      currency: 'USD'
     });
-    const [activeTab, setActiveTab] = useState('basics'); // 'basics' or 'freeplay'
-    const [freeplayAmount, setFreeplayAmount] = useState('');
-    const [adjustingFreeplay, setAdjustingFreeplay] = useState(false);
-    const [formData, setFormData] = useState({
-        password: '',
-        firstName: '',
-        lastName: '',
-        agentId: '',
-        status: 'active',
-        creditLimit: 1000,
-        balanceOwed: 0,
-        freeplayBalance: 0,
-        minBet: 25,
-        maxBet: 200,
-        defaultMinBet: 25,
-        defaultMaxBet: 200,
-        defaultCreditLimit: 1000,
-        defaultSettleLimit: 0
-    });
+  };
 
-    useEffect(() => {
-        const fetchData = async () => {
-            try {
-                setLoading(true);
-                const token = localStorage.getItem('token');
-                if (!token) {
-                    setError('Please login to view details.');
-                    return;
-                }
+  const handleImpersonate = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const data = await impersonateUser(userId, token);
+      localStorage.setItem('token', data.token);
+      localStorage.setItem('user', JSON.stringify(data));
+      window.location.href = '/dashboard';
+    } catch (err) {
+      setError('Impersonation failed: ' + err.message);
+    }
+  };
 
-                const [statsData, agentsData] = await Promise.all([
-                    getUserStatistics(userId, token),
-                    ['admin', 'master_agent', 'super_agent'].includes(role) ? getAgents(token) : Promise.resolve([])
-                ]);
+  const copyText = async (text, label = 'Copied') => {
+    try {
+      const next = String(text ?? '');
+      if (!next) return;
+      await navigator.clipboard.writeText(next);
+      setCopyNotice(`${label} copied`);
+      window.setTimeout(() => setCopyNotice(''), 1400);
+    } catch {
+      setCopyNotice('Copy failed');
+      window.setTimeout(() => setCopyNotice(''), 1400);
+    }
+  };
 
-                if (statsData && statsData.user) {
-                    setCustomer(statsData.user);
-                    setStats(statsData.stats || {});
-                    setReferredBy(statsData.referredBy || null);
-                    setReferralStats(statsData.referralStats || {
-                        referredCount: 0,
-                        referralBonusGranted: false,
-                        referralBonusAmount: 0,
-                        referralBonusGrantedAt: null,
-                        referralQualifiedDepositAt: null
-                    });
-                    setFormData({
-                        password: '',
-                        firstName: statsData.user.firstName || '',
-                        lastName: statsData.user.lastName || '',
-                        agentId: statsData.user.agentId || '',
-                        status: statsData.user.status || 'active',
-                        creditLimit: statsData.user.creditLimit || 1000,
-                        balanceOwed: statsData.user.balanceOwed || 0,
-                        freeplayBalance: statsData.user.freeplayBalance || 0,
-                        minBet: statsData.user.minBet || 25,
-                        maxBet: statsData.user.maxBet || 200,
-                        defaultMinBet: statsData.user.defaultMinBet || 25,
-                        defaultMaxBet: statsData.user.defaultMaxBet || 200,
-                        defaultCreditLimit: statsData.user.defaultCreditLimit || 1000,
-                        defaultSettleLimit: statsData.user.defaultSettleLimit || 0
-                    });
-                }
-                setAgents(agentsData || []);
-                setError('');
-            } catch (err) {
-                console.error('Failed to fetch data:', err);
-                setError('Failed to load details.');
-            } finally {
-                setLoading(false);
+  const copyAllDetails = async () => {
+    const details = [
+      `Login: ${customer?.username || ''}`,
+      `Password: ${displayPassword || ''}`,
+      `Min bet: ${Number(customer?.minBet ?? 0)}`,
+      `Max bet: ${Number(customer?.maxBet ?? customer?.wagerLimit ?? form.wagerLimit ?? 0)}`,
+      `Credit: ${Number(form.creditLimit || customer?.creditLimit || 0)}`,
+      `Settle: ${Number(form.settleLimit || customer?.balanceOwed || 0)}`
+    ].join('\n');
+    await copyText(details, 'All details');
+  };
+
+  const handleSave = async () => {
+    try {
+      setSaving(true);
+      setError('');
+      setSuccess('');
+      const token = localStorage.getItem('token');
+      if (!token) {
+        setError('Please login again.');
+        return;
+      }
+
+      const payload = {
+        firstName: form.firstName.trim(),
+        lastName: form.lastName.trim(),
+        fullName: fullName,
+        status: form.status,
+        creditLimit: Number(form.creditLimit || 0),
+        maxBet: Number(form.wagerLimit || 0),
+        wagerLimit: Number(form.wagerLimit || 0),
+        balanceOwed: Number(form.settleLimit || 0),
+        settings: {
+          accountType: form.accountType,
+          zeroBalanceWeekly: form.zeroBalanceWeekly,
+          tempCredit: Number(form.tempCredit || 0),
+          expiresOn: form.expiresOn || '',
+          enableCaptcha: !!form.enableCaptcha,
+          cryptoPromoPct: Number(form.cryptoPromoPct || 0),
+          promoType: form.promoType,
+          playerNotes: form.playerNotes,
+          sports: !!form.sportsbook,
+          casino: !!form.casino,
+          racebook: !!form.horses,
+          messaging: !!form.messaging,
+          live: !!form.dynamicLive,
+          props: !!form.propPlus,
+          liveCasino: !!form.liveCasino
+        }
+      };
+
+      if (['admin', 'super_agent', 'master_agent'].includes(role) && form.agentId) {
+        payload.agentId = form.agentId;
+      }
+
+      if (role === 'agent') {
+        await updateUserByAgent(userId, payload, token);
+      } else {
+        await updateUserByAdmin(userId, payload, token);
+      }
+
+      if ((form.password || '').trim() !== '') {
+        if (role === 'admin') {
+          await resetUserPasswordByAdmin(userId, form.password.trim(), token);
+        } else {
+          await updateUserByAgent(userId, { password: form.password.trim() }, token);
+        }
+      }
+
+      setCustomer((prev) => ({
+        ...prev,
+        ...payload,
+        rawPassword: (form.password || '').trim() ? form.password.trim() : prev?.rawPassword,
+        settings: {
+          ...(prev?.settings || {}),
+          ...payload.settings
+        }
+      }));
+      setForm((prev) => ({ ...prev, password: '' }));
+      setSuccess('Changes saved successfully.');
+    } catch (err) {
+      console.error('Failed to save player details:', err);
+      setError(err.message || 'Failed to save details');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const updateBalance = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token || !customer) return;
+      await updateUserCredit(userId, { balance: Number(customer.balance || 0) }, token);
+      setSuccess('Balance updated.');
+      setError('');
+    } catch (err) {
+      setError(err.message || 'Failed to update balance');
+    }
+  };
+
+  const toTxDate = (value) => {
+    if (!value) return '—';
+    const dateValue = value?.$date || value;
+    const parsed = new Date(dateValue);
+    if (Number.isNaN(parsed.getTime())) return '—';
+    return parsed.toLocaleString();
+  };
+
+  const txIsDebit = (txn) => {
+    const type = String(txn?.type || '').toLowerCase();
+    return ['withdrawal', 'bet_placed', 'bet_lost', 'fee', 'debit'].includes(type);
+  };
+
+  const openSection = (sectionId) => {
+    if (sectionId === 'transactions') {
+      setActiveSection('transactions');
+      setTxDisplayFilter('7d');
+      setTxTypeFilter('adjustment');
+      setTxStatusFilter('all');
+    } else if (sectionId === 'pending') {
+      setActiveSection('transactions');
+      setTxDisplayFilter('7d');
+      setTxTypeFilter('adjustment');
+      setTxStatusFilter('pending');
+    } else if (sectionId === 'performance') {
+      setActiveSection('performance');
+    } else if (sectionId === 'freeplays') {
+      setActiveSection('freeplays');
+    } else if (sectionId === 'dynamic-live') {
+      setActiveSection('dynamic-live');
+    } else if (sectionId === 'live-casino') {
+      setActiveSection('live-casino');
+    } else {
+      setActiveSection('basics');
+    }
+    setShowBasicsMenu(false);
+    setSuccess('');
+    setTxSuccess('');
+    setError('');
+    setTxError('');
+    setPerformanceError('');
+    setFreePlayError('');
+    setFreePlaySuccess('');
+    setDynamicLiveError('');
+    setDynamicLiveSuccess('');
+    setCasinoError('');
+    setCasinoSuccess('');
+  };
+
+  const activePerformanceRow = useMemo(() => {
+    return performanceRows.find((row) => row.key === performanceSelectedKey) || null;
+  }, [performanceRows, performanceSelectedKey]);
+
+  useEffect(() => {
+    if (!activePerformanceRow) {
+      setPerformanceDayBets([]);
+      return;
+    }
+    setPerformanceDayBets(activePerformanceRow.wagers || []);
+  }, [activePerformanceRow]);
+
+  const performanceResult = useMemo(() => {
+    return performanceDayBets.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+  }, [performanceDayBets]);
+
+  const freePlayPending = useMemo(() => {
+    return freePlayRows
+      .filter((txn) => String(txn.status || '').toLowerCase() === 'pending')
+      .reduce((sum, txn) => sum + Number(txn.amount || 0), 0);
+  }, [freePlayRows]);
+
+  const freePlayBalance = Number(customer?.freeplayBalance || 0);
+
+  const refreshFreePlay = async () => {
+    if (!customer?.username) return;
+    try {
+      setFreePlayLoading(true);
+      const token = localStorage.getItem('token');
+      if (!token) return;
+      const data = await getTransactionsHistory({
+        user: customer.username,
+        type: 'adjustment',
+        status: 'all',
+        time: freePlayDisplayFilter,
+        limit: 300
+      }, token);
+      const list = Array.isArray(data?.transactions) ? data.transactions : [];
+      setFreePlayRows(list.filter((txn) => {
+        if (String(txn.userId || '') !== String(userId)) return false;
+        const reason = String(txn.reason || '').toUpperCase();
+        const desc = String(txn.description || '').toLowerCase();
+        return reason === 'FREEPLAY_ADJUSTMENT' || desc.includes('freeplay') || desc.includes('free play');
+      }));
+    } catch (err) {
+      setFreePlayError(err.message || 'Failed to refresh free play');
+    } finally {
+      setFreePlayLoading(false);
+    }
+  };
+
+  const handleCreateFreePlay = async () => {
+    try {
+      const amount = Number(newFreePlayAmount || 0);
+      if (amount <= 0 || Number.isNaN(amount)) {
+        setFreePlayError('Enter a valid free play amount greater than 0.');
+        return;
+      }
+      const token = localStorage.getItem('token');
+      if (!token || !customer) {
+        setFreePlayError('Please login again.');
+        return;
+      }
+      const nextFreeplay = Number(customer.freeplayBalance || 0) + amount;
+      await updateUserFreeplay(userId, nextFreeplay, token, newFreePlayDescription.trim());
+      setCustomer((prev) => ({ ...prev, freeplayBalance: nextFreeplay }));
+      if (newFreePlayDescription.trim()) {
+        setFreePlaySuccess(`Free play added. Note: "${newFreePlayDescription.trim()}"`);
+      } else {
+        setFreePlaySuccess('Free play added successfully.');
+      }
+      setFreePlayError('');
+      setShowNewFreePlayModal(false);
+      setNewFreePlayAmount('');
+      setNewFreePlayDescription('');
+      await refreshFreePlay();
+    } catch (err) {
+      setFreePlayError(err.message || 'Failed to add free play');
+    }
+  };
+
+  const toggleFreePlaySelection = (txId) => {
+    setFreePlaySelectedIds((prev) => (
+      prev.includes(txId) ? prev.filter((id) => id !== txId) : [...prev, txId]
+    ));
+  };
+
+  const handleDeleteFreePlaySelected = async () => {
+    try {
+      if (freePlaySelectedIds.length === 0) return;
+      const token = localStorage.getItem('token');
+      if (!token) {
+        setFreePlayError('Please login again.');
+        return;
+      }
+      const result = await deleteAdminTransactions(freePlaySelectedIds, token);
+      const deleted = Number(result?.deleted || 0);
+      const skipped = Number(result?.skipped || 0);
+      setFreePlaySelectedIds([]);
+      setFreePlaySuccess(`Deleted ${deleted} free play transaction(s).${skipped > 0 ? ` Skipped ${skipped}.` : ''}`);
+      setFreePlayError('');
+      await refreshFreePlay();
+    } catch (err) {
+      setFreePlayError(err.message || 'Failed to delete free play transactions');
+    }
+  };
+
+  const handleSaveFreePlaySettings = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        setFreePlayError('Please login again.');
+        return;
+      }
+      const settingsPayload = {
+        settings: {
+          freePlayPercent: Number(form.freePlayPercent || 0),
+          maxFpCredit: Number(form.maxFpCredit || 0)
+        }
+      };
+      if (role === 'agent') {
+        await updateUserByAgent(userId, settingsPayload, token);
+      } else {
+        await updateUserByAdmin(userId, settingsPayload, token);
+      }
+      setFreePlaySuccess('Free play settings saved.');
+      setFreePlayError('');
+    } catch (err) {
+      setFreePlayError(err.message || 'Failed to save free play settings');
+    }
+  };
+
+  const handleSaveDynamicLive = async () => {
+    try {
+      setDynamicLiveSaving(true);
+      const token = localStorage.getItem('token');
+      if (!token) {
+        setDynamicLiveError('Please login again.');
+        return;
+      }
+      const payload = {
+        settings: {
+          dynamicLiveLimits: {
+            minStraightBet: Number(form.dlMinStraightBet || 0),
+            maxStraightBet: Number(form.dlMaxStraightBet || 0),
+            maxPerOffering: Number(form.dlMaxPerOffering || 0),
+            maxBetPerEvent: Number(form.dlMaxBetPerEvent || 0),
+            maxWinSingleBet: Number(form.dlMaxWinSingleBet || 0),
+            maxWinEvent: Number(form.dlMaxWinEvent || 0),
+            delaySec: Number(form.dlDelaySec || 0),
+            maxFavoriteLine: Number(form.dlMaxFavoriteLine || 0),
+            maxDogLine: Number(form.dlMaxDogLine || 0),
+            minParlayBet: Number(form.dlMinParlayBet || 0),
+            maxParlayBet: Number(form.dlMaxParlayBet || 0),
+            maxWinEventParlay: Number(form.dlMaxWinEventParlay || 0),
+            maxDogLineParlays: Number(form.dlMaxDogLineParlays || 0),
+            wagerCoolOffSec: Number(form.dlWagerCoolOffSec || 0)
+          },
+          dynamicLiveFlags: {
+            liveParlays: !!form.dlLiveParlays,
+            blockPriorStart: !!form.dlBlockPriorStart,
+            blockHalftime: !!form.dlBlockHalftime,
+            includeGradedInLimits: !!form.dlIncludeGradedInLimits,
+            useRiskLimits: !!form.dlUseRiskLimits
+          }
+        }
+      };
+      if (role === 'agent') {
+        await updateUserByAgent(userId, payload, token);
+      } else {
+        await updateUserByAdmin(userId, payload, token);
+      }
+      setDynamicLiveSuccess('Dynamic Live settings saved.');
+      setDynamicLiveError('');
+    } catch (err) {
+      setDynamicLiveError(err.message || 'Failed to save Dynamic Live settings');
+    } finally {
+      setDynamicLiveSaving(false);
+    }
+  };
+
+  const handleSaveCasinoLimits = async () => {
+    try {
+      setCasinoSaving(true);
+      const token = localStorage.getItem('token');
+      if (!token) {
+        setCasinoError('Please login again.');
+        return;
+      }
+      const payload = {
+        settings: {
+          liveCasinoLimits: {
+            default: {
+              maxWinDay: Number(form.casinoDefaultMaxWinDay || 0),
+              maxLossDay: Number(form.casinoDefaultMaxLossDay || 0),
+              maxWinWeek: Number(form.casinoDefaultMaxWinWeek || 0),
+              maxLossWeek: Number(form.casinoDefaultMaxLossWeek || 0)
+            },
+            agent: {
+              maxWinDay: Number(form.casinoAgentMaxWinDay || 0),
+              maxLossDay: Number(form.casinoAgentMaxLossDay || 0),
+              maxWinWeek: Number(form.casinoAgentMaxWinWeek || 0),
+              maxLossWeek: Number(form.casinoAgentMaxLossWeek || 0)
+            },
+            player: {
+              maxWinDay: Number(form.casinoPlayerMaxWinDay || 0),
+              maxLossDay: Number(form.casinoPlayerMaxLossDay || 0),
+              maxWinWeek: Number(form.casinoPlayerMaxWinWeek || 0),
+              maxLossWeek: Number(form.casinoPlayerMaxLossWeek || 0)
             }
-        };
-
-        if (userId) {
-            fetchData();
+          }
         }
-    }, [userId, role]);
+      };
+      if (role === 'agent') {
+        await updateUserByAgent(userId, payload, token);
+      } else {
+        await updateUserByAdmin(userId, payload, token);
+      }
+      setCasinoSuccess('Live Casino limits saved.');
+      setCasinoError('');
+    } catch (err) {
+      setCasinoError(err.message || 'Failed to save Live Casino limits');
+    } finally {
+      setCasinoSaving(false);
+    }
+  };
 
-    const handleChange = (e) => {
-        const { name, value } = e.target;
-        setFormData(prev => ({ ...prev, [name]: value }));
-    };
+  const refreshTransactions = async () => {
+    if (!customer) return;
+    setTxLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) return;
+      const data = await getTransactionsHistory({
+        user: customer.username || '',
+        type: txTypeFilter,
+        status: txStatusFilter,
+        time: txDisplayFilter,
+        limit: 300
+      }, token);
+      const list = Array.isArray(data?.transactions) ? data.transactions : [];
+      setTransactions(list.filter((txn) => String(txn.userId || '') === String(userId)));
+    } catch (err) {
+      setTxError(err.message || 'Failed to refresh transactions');
+    } finally {
+      setTxLoading(false);
+    }
+  };
 
-    const handleSave = async (e) => {
-        e.preventDefault();
-        try {
-            setSaving(true);
-            setError('');
-            setSuccess('');
-            const token = localStorage.getItem('token');
+  const handleCreateTransaction = async () => {
+    try {
+      const amount = Number(newTxAmount || 0);
+      if (amount <= 0 || Number.isNaN(amount)) {
+        setTxError('Enter a valid amount greater than 0.');
+        return;
+      }
+      const token = localStorage.getItem('token');
+      if (!token || !customer) {
+        setTxError('Please login again.');
+        return;
+      }
+      const currentBalance = Number(customer.balance || 0);
+      const nextBalance = newTxType === 'credit'
+        ? currentBalance + amount
+        : Math.max(0, currentBalance - amount);
+      await updateUserCredit(userId, { balance: nextBalance }, token);
+      setCustomer((prev) => ({ ...prev, balance: nextBalance }));
+      setTxSuccess('Transaction saved and balance updated.');
+      setTxError('');
+      setShowNewTxModal(false);
+      setNewTxAmount('');
+      setNewTxDescription('');
+      await refreshTransactions();
+    } catch (err) {
+      setTxError(err.message || 'Failed to save transaction');
+    }
+  };
 
-            const payload = { ...formData };
-            if (!payload.password) delete payload.password;
+  const toggleTxSelection = (txId) => {
+    setSelectedTxIds((prev) => (
+      prev.includes(txId) ? prev.filter((id) => id !== txId) : [...prev, txId]
+    ));
+  };
 
-            if (role === 'agent') {
-                await updateUserByAgent(userId, payload, token);
-            } else {
-                await updateUserByAdmin(userId, payload, token);
-            }
+  const handleDeleteSelected = async () => {
+    try {
+      if (selectedTxIds.length === 0) return;
+      const token = localStorage.getItem('token');
+      if (!token) {
+        setTxError('Please login again.');
+        return;
+      }
+      const result = await deleteAdminTransactions(selectedTxIds, token);
+      setSelectedTxIds([]);
+      await refreshTransactions();
+      const deleted = Number(result?.deleted || 0);
+      const skipped = Number(result?.skipped || 0);
+      setTxSuccess(`Deleted ${deleted} transaction(s).${skipped > 0 ? ` Skipped ${skipped} (non-adjustment or invalid).` : ''}`);
+      setTxError('');
+    } catch (err) {
+      setTxError(err.message || 'Failed to delete selected transactions');
+    }
+  };
 
-            setSuccess('Profile updated successfully!');
-            setFormData(prev => ({ ...prev, password: '' }));
-        } catch (err) {
-            console.error('Failed to update:', err);
-            setError(err.message || 'Failed to update');
-        } finally {
-            setSaving(false);
-        }
-    };
+  if (loading) {
+    return <div className="admin-view"><div className="view-content">Loading player details...</div></div>;
+  }
 
-    const handleAdjustFreeplay = async (mode) => {
-        if (!freeplayAmount || isNaN(freeplayAmount)) return;
-        try {
-            setAdjustingFreeplay(true);
-            const token = localStorage.getItem('token');
-            const current = Number(formData.freeplayBalance || 0);
-            const adjust = Number(freeplayAmount);
-            const nextFreeplay = mode === 'add' ? current + adjust : Math.max(0, current - adjust);
+  if (!customer) {
+    return <div className="admin-view"><div className="view-content">User not found.</div></div>;
+  }
 
-            const { updateUserFreeplay } = await import('../../api');
-            await updateUserFreeplay(userId, nextFreeplay, token);
+  return (
+    <div className="customer-details-v2">
+      <div className="top-panel">
+        <div className="top-left">
+          <button className="btn btn-back" onClick={onBack}>Customer Admin</button>
+          <div className="player-card">
+            <div className="player-card-head">
+              <div className="player-title-wrap">
+                <h2>{customer.username || 'USER'}</h2>
+                <span className="player-badge">PLAYER</span>
+              </div>
+              <div className="top-actions">
+                <button className="btn btn-user" onClick={handleImpersonate}>Login User</button>
+                <button className="btn btn-copy-all" onClick={copyAllDetails}>Copy Details</button>
+              </div>
+            </div>
 
-            setFormData(prev => ({ ...prev, freeplayBalance: nextFreeplay }));
-            setFreeplayAmount('');
-            setSuccess(`Freeplay ${mode === 'add' ? 'added' : 'removed'} successfully!`);
-            setTimeout(() => setSuccess(''), 3000);
-        } catch (err) {
-            setError(err.message || 'Failed to adjust freeplay');
-        } finally {
-            setAdjustingFreeplay(false);
-        }
-    };
+            <div className="creds-box">
+              <div className="creds-row">
+                <span>Login:</span>
+                <div className="creds-pill">{customer.username || ''}</div>
+                <button className="copy-mini" onClick={() => copyText(customer.username, 'Login')}>📋</button>
+              </div>
+              <div className="creds-row">
+                <span>Password:</span>
+                <div className="creds-pill">{displayPassword}</div>
+                <button className="copy-mini" onClick={() => copyText(displayPassword, 'Password')}>📋</button>
+              </div>
+            </div>
 
-    const handleImpersonate = async () => {
-        try {
-            const token = localStorage.getItem('token');
-            const data = await impersonateUser(userId, token);
-            localStorage.setItem('token', data.token);
-            localStorage.setItem('user', JSON.stringify(data));
-            window.location.href = '/dashboard';
-        } catch (err) {
-            setError('Impersonation failed: ' + err.message);
-        }
-    };
+            <div className="limits-box">
+              <div className="limit-item">
+                <label>Min bet:</label>
+                <strong>{Number(customer.minBet ?? 0).toLocaleString()}</strong>
+              </div>
+              <div className="limit-item">
+                <label>Max bet:</label>
+                <strong>{Number(customer.maxBet ?? customer.wagerLimit ?? form.wagerLimit ?? 0).toLocaleString()}</strong>
+              </div>
+              <div className="limit-item">
+                <label>Credit:</label>
+                <strong className="money-green">{Number(form.creditLimit || customer.creditLimit || 0).toLocaleString()}</strong>
+              </div>
+              <div className="limit-item">
+                <label>Settle:</label>
+                <strong className="money-green">{Number(form.settleLimit || customer.balanceOwed || 0).toLocaleString()}</strong>
+              </div>
+            </div>
+          </div>
+          {copyNotice && (
+            <div className="copy-notice">{copyNotice}</div>
+          )}
+          <div className="agent-line">Agent {customer.agentUsername || customer.agentId?.username || '—'}</div>
+          <div className="top-actions mobile-only">
+            <button className="btn btn-user" onClick={handleImpersonate}>Login User</button>
+            <button className="btn btn-copy-all" onClick={copyAllDetails}>Copy Details</button>
+          </div>
+        </div>
+        <div className="top-right">
+          <button type="button" className={`metric ${activeSection === 'transactions' ? 'metric-active' : ''}`} onClick={() => openSection('transactions')}>
+            <span>Balance</span>
+            <b className={Number(customer.balance || 0) < 0 ? 'neg' : 'pos'}>{formatCurrency(customer.balance || 0)}</b>
+          </button>
+          <button type="button" className={`metric ${activeSection === 'transactions' && txStatusFilter === 'pending' ? 'metric-active' : ''}`} onClick={() => openSection('pending')}>
+            <span>Pending</span>
+            <b className="neutral">{formatCurrency(customer.pendingBalance || 0)}</b>
+          </button>
+          <div className="metric"><span>Available</span><b className="neutral">{formatCurrency(available)}</b></div>
+          <button type="button" className={`metric metric-circle ${activeSection === 'freeplays' ? 'metric-active' : ''}`} onClick={() => openSection('freeplays')}>
+            <span>Freeplay</span>
+            <b className="neutral">{formatCurrency(customer.freeplayBalance || 0)}</b>
+          </button>
+          <button type="button" className={`metric metric-circle ${activeSection === 'performance' ? 'metric-active' : ''}`} onClick={() => openSection('performance')}>
+            <span>Lifetime +/-</span>
+            <b className={Number(stats.netProfit || 0) < 0 ? 'neg' : 'pos'}>{formatCurrency(stats.netProfit || 0)}</b>
+          </button>
+        </div>
+      </div>
 
-    const copyToClipboard = (text, label) => {
-        navigator.clipboard.writeText(text);
-        setSuccess(`${label} copied!`);
-        setTimeout(() => setSuccess(''), 2000);
-    };
+      <div className="basics-header">
+        <div className="basics-left">
+          <button
+            type="button"
+            className="dot-grid-btn"
+            onClick={() => setShowBasicsMenu((prev) => !prev)}
+            aria-label="Open quick sections menu"
+          >
+            <div className="dot-grid" aria-hidden="true">
+              <span></span><span></span><span></span>
+              <span></span><span></span><span></span>
+              <span></span><span></span><span></span>
+            </div>
+          </button>
+          <h3>{activeSection === 'transactions' ? 'Transactions' : activeSection === 'performance' ? 'Performance' : activeSection === 'freeplays' ? 'Free Play' : activeSection === 'dynamic-live' ? 'Dynamic Live' : activeSection === 'live-casino' ? 'Live Casino' : 'The Basics'}</h3>
+        </div>
+        {activeSection === 'transactions' ? (
+          <button className="btn btn-back" onClick={() => setShowNewTxModal(true)}>New transaction</button>
+        ) : activeSection === 'freeplays' ? (
+          <button className="btn btn-back" onClick={() => setShowNewFreePlayModal(true)}>New Free Play</button>
+        ) : activeSection === 'dynamic-live' ? (
+          <button className="btn btn-save" onClick={handleSaveDynamicLive} disabled={dynamicLiveSaving}>{dynamicLiveSaving ? 'Saving...' : 'Save'}</button>
+        ) : activeSection === 'live-casino' ? (
+          <button className="btn btn-save" onClick={handleSaveCasinoLimits} disabled={casinoSaving}>{casinoSaving ? 'Saving...' : 'Save'}</button>
+        ) : activeSection === 'performance' ? (
+          <span></span>
+        ) : (
+          <button className="btn btn-save" onClick={handleSave} disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
+        )}
+      </div>
 
-    const formatCurrency = (val) => {
-        const num = Number(val || 0);
-        return new Intl.NumberFormat('en-US', {
-            style: 'currency',
-            currency: 'USD',
-            signDisplay: 'always'
-        }).format(num);
-    };
+      {showBasicsMenu && (
+        <>
+          <button type="button" className="menu-backdrop" onClick={() => setShowBasicsMenu(false)} aria-label="Close quick sections menu"></button>
+          <div className="basics-quick-menu">
+            <button type="button" className="menu-close" onClick={() => setShowBasicsMenu(false)} aria-label="Close menu">x</button>
+            <div className="menu-grid">
+              {quickMenuItems.map((item) => (
+                <button key={item.id} type="button" className="menu-item" onClick={() => openSection(item.id)}>
+                  <span className="menu-icon">{item.icon}</span>
+                  <span className="menu-label">{item.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
 
-    if (loading) return <div className="admin-view"><div className="view-content">Loading...</div></div>;
-    if (!customer) return <div className="admin-view"><div className="view-content">Not found. <button onClick={onBack}>Back</button></div></div>;
+      {activeSection === 'transactions' ? txError && <div className="alert error">{txError}</div> : activeSection === 'performance' ? performanceError && <div className="alert error">{performanceError}</div> : activeSection === 'freeplays' ? freePlayError && <div className="alert error">{freePlayError}</div> : activeSection === 'dynamic-live' ? dynamicLiveError && <div className="alert error">{dynamicLiveError}</div> : activeSection === 'live-casino' ? casinoError && <div className="alert error">{casinoError}</div> : error && <div className="alert error">{error}</div>}
+      {activeSection === 'transactions' ? txSuccess && <div className="alert success">{txSuccess}</div> : activeSection === 'freeplays' ? freePlaySuccess && <div className="alert success">{freePlaySuccess}</div> : activeSection === 'dynamic-live' ? dynamicLiveSuccess && <div className="alert success">{dynamicLiveSuccess}</div> : activeSection === 'live-casino' ? casinoSuccess && <div className="alert success">{casinoSuccess}</div> : success && <div className="alert success">{success}</div>}
 
-    const available = Number(formData.creditLimit || 0) - Number(formData.balanceOwed || 0);
-    const displayPassword = customer.rawPassword || (() => {
-        const last4 = (customer.phoneNumber || '').replace(/\D/g, '').slice(-4);
-        const f3 = (customer.firstName || '').slice(0, 3).toUpperCase();
-        const l3 = (customer.lastName || '').slice(0, 3).toUpperCase();
-        return `${f3}${l3}${last4}`;
-    })();
-    const roleLabel = customer.role === 'user' ? 'Player' : customer.role === 'agent' ? 'Agent' : 'Master Agent';
+      {activeSection === 'transactions' ? (
+        <div className="transactions-wrap">
+          <div className="tx-controls">
+            <div className="tx-field">
+              <label>Display</label>
+              <select value={txDisplayFilter} onChange={(e) => setTxDisplayFilter(e.target.value)}>
+                <option value="7d">Last 7 Days</option>
+                <option value="30d">Last 30 Days</option>
+                <option value="this-month">This Month</option>
+                <option value="all">All Time</option>
+              </select>
+            </div>
+            <div className="tx-field">
+              <label>Filter Transactions</label>
+              <select value={txTypeFilter} onChange={(e) => setTxTypeFilter(e.target.value)}>
+                <option value="all">All</option>
+                <option value="adjustment">Non-Wager</option>
+                <option value="deposit">Deposits</option>
+                <option value="withdrawal">Withdrawals</option>
+                <option value="bet_placed">Wagers</option>
+              </select>
+            </div>
+            <div className="tx-stat"><label>Pending</label><b>{formatCurrency(txSummary.pending)}</b></div>
+            <div className="tx-stat"><label>Available</label><b>{formatCurrency(txSummary.available)}</b></div>
+            <div className="tx-stat"><label>Carry</label><b className={txSummary.carry < 0 ? 'neg' : ''}>{formatCurrency(txSummary.carry)}</b></div>
+            <div className="tx-stat"><label>Non-Posted Casino</label><b>{formatCurrency(txSummary.nonPostedCasino)}</b></div>
+          </div>
 
-    return (
-        <div className="customer-details-view premium-theme">
-            <div className="details-header">
-                <div className="header-top">
-                    <button className="back-btn" onClick={onBack}>
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
-                    </button>
-                    <div className="left-info">
-                        <div className="user-profile">
-                            <div className="user-title">
-                                <div className="title-wrap">
-                                    <h2>{customer.username}</h2>
-                                    <span className={`role-chip role-${customer.role}`}>{roleLabel}</span>
-                                </div>
-                                <div className="profile-actions">
-                                    <button className="login-btn-prof" onClick={handleImpersonate}>
-                                        Login User
-                                    </button>
-                                    <button
-                                        className="login-btn-prof secondary"
-                                        onClick={() => {
-                                            const pass = displayPassword;
+          <div className="tx-table-wrap">
+            <table className="tx-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Description</th>
+                  <th>Credit</th>
+                  <th>Debit</th>
+                  <th>Balance</th>
+                </tr>
+              </thead>
+              <tbody>
+                {txLoading ? (
+                  <tr><td colSpan={5} className="tx-empty">Loading transactions...</td></tr>
+                ) : transactions.length === 0 ? (
+                  <tr><td colSpan={5} className="tx-empty">No transactions found</td></tr>
+                ) : transactions.map((txn) => {
+                  const isDebit = txIsDebit(txn);
+                  const amount = Number(txn.amount || 0);
+                  const credit = isDebit ? 0 : amount;
+                  const debit = isDebit ? amount : 0;
+                  const selected = selectedTxIds.includes(txn.id);
+                  return (
+                    <tr key={txn.id} className={selected ? 'selected' : ''} onClick={() => toggleTxSelection(txn.id)}>
+                      <td>{toTxDate(txn.date)}</td>
+                      <td>{txn.description || txn.type || 'Transaction'}</td>
+                      <td>{credit > 0 ? formatCurrency(credit) : '—'}</td>
+                      <td>{debit > 0 ? formatCurrency(debit) : '—'}</td>
+                      <td className={Number(customer.balance || 0) < 0 ? 'neg' : ''}>{formatCurrency(customer.balance || 0)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
 
-                                            let info = '';
-                                            if (customer.role === 'user') {
-                                                info = `Here’s your account info. PLEASE READ ALL RULES THOROUGHLY.
+          <button className="btn btn-danger" onClick={handleDeleteSelected} disabled={selectedTxIds.length === 0}>Delete</button>
+        </div>
+      ) : activeSection === 'performance' ? (
+        <div className="performance-wrap">
+          <div className="perf-controls">
+            <div className="tx-field">
+              <label>Time</label>
+              <select value={performancePeriod} onChange={(e) => setPerformancePeriod(e.target.value)}>
+                <option value="daily">Daily</option>
+              </select>
+            </div>
+          </div>
+          <div className="performance-grid">
+            <div className="perf-left">
+              <table className="perf-table">
+                <thead>
+                  <tr><th>Period</th><th>Net</th></tr>
+                </thead>
+                <tbody>
+                  {performanceLoading ? (
+                    <tr><td colSpan={2} className="tx-empty">Loading performance...</td></tr>
+                  ) : performanceRows.length === 0 ? (
+                    <tr><td colSpan={2} className="tx-empty">No performance data</td></tr>
+                  ) : performanceRows.map((row) => (
+                    <tr key={row.key} className={performanceSelectedKey === row.key ? 'selected' : ''} onClick={() => setPerformanceSelectedKey(row.key)}>
+                      <td>{row.periodLabel}</td>
+                      <td>{Number(row.net || 0).toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="perf-right">
+              <div className="perf-title-row">
+                <div>Wagers: <b>{performanceDayBets.length}</b></div>
+                <div>Result: <b>{formatCurrency(performanceResult)}</b></div>
+              </div>
+              <table className="perf-table">
+                <thead>
+                  <tr><th>{activePerformanceRow?.periodLabel || 'Selected Day'}</th><th>Amount</th></tr>
+                </thead>
+                <tbody>
+                  {performanceDayBets.length === 0 ? (
+                    <tr><td colSpan={2} className="tx-empty">No data available in table</td></tr>
+                  ) : performanceDayBets.map((wager) => (
+                    <tr key={wager.id}>
+                      <td>{wager.label || 'Wager'}</td>
+                      <td>{Number(wager.amount || 0).toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      ) : activeSection === 'freeplays' ? (
+        <div className="transactions-wrap">
+          <div className="tx-controls freeplay-controls">
+            <div className="tx-field">
+              <label>Display</label>
+              <select value={freePlayDisplayFilter} onChange={(e) => setFreePlayDisplayFilter(e.target.value)}>
+                <option value="7d">Last 7 Days</option>
+                <option value="30d">Last 30 Days</option>
+                <option value="this-month">This Month</option>
+                <option value="all">All Time</option>
+              </select>
+            </div>
+            <div className="tx-stat"><label>Balance</label><b>{Number(freePlayBalance).toFixed(2)}</b></div>
+            <div className="tx-stat"><label>Pending</label><b>{Number(freePlayPending).toFixed(2)}</b></div>
+          </div>
 
-Login: ${customer.username}
-Password: ${pass}
-Min bet: $${customer.minBet || 25}
-Max bet: $${customer.maxBet || 200}
-Credit: $${customer.creditLimit || 1000}
+          <div className="tx-table-wrap">
+            <table className="tx-table">
+              <thead>
+                <tr>
+                  <th>Customer</th>
+                  <th>Date</th>
+                  <th>Description</th>
+                  <th>Credit</th>
+                  <th>Debit</th>
+                  <th>Balance</th>
+                </tr>
+              </thead>
+              <tbody>
+                {freePlayLoading ? (
+                  <tr><td colSpan={6} className="tx-empty">Loading free play...</td></tr>
+                ) : freePlayRows.length === 0 ? (
+                  <tr><td colSpan={6} className="tx-empty">No free play transactions found</td></tr>
+                ) : freePlayRows.map((txn) => {
+                  const amount = Number(txn.amount || 0);
+                  const credit = amount > 0 ? amount : 0;
+                  const selected = freePlaySelectedIds.includes(txn.id);
+                  return (
+                    <tr key={txn.id} className={selected ? 'selected' : ''} onClick={() => toggleFreePlaySelection(txn.id)}>
+                      <td>{customer.username}</td>
+                      <td>{toTxDate(txn.date)}</td>
+                      <td>{txn.description || 'Free Play Adjustment'}</td>
+                      <td>{credit > 0 ? Number(credit).toFixed(2) : '—'}</td>
+                      <td>—</td>
+                      <td>{Number(freePlayBalance).toFixed(2)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
 
-
-PAYOUTS
-PAY-INS are Tuesday and PAY-OUTS are Tuesday/Wednesday by end of day. Week starts Tuesday and ends Monday night. Settle up’s are +/-$200 so anything under $200 will push to the following week. You must bet $500 of your own money to collect your FIRST payout. If your account is inactive for 2 weeks you’ll be required to settle your balance even if it’s under $200. Max weekly payouts are 2-3x your credit limit depending on size. Balance will still be paid out but will roll to the following week.
-
-All we ask for is communication when it comes to payouts so we can get everyone paid quickly and as smoothly as possible. If you can’t pay right away let us know and we can set up a payment schedule. We accept Venmo, Cashapp and Apple Pay. You are REQUIRED to have multiple apps to send or receive payment on. PLEASE DO NOT SEND MONEY without asking where to send first and DO NOT LABEL anything to do with sports or gambling. We will let you know Tuesday where to send. 
-
-We kick back 20% freeplay of all losses if you pay ON TIME and in FULL and 30% if you pay in CASH. If you are a hassle to collect from and don’t respond or don’t pay on time or in full then you will be shown the same reciprocation when it comes to payouts. 
-
-REFFERALS
-$200 freeplay bonuses for any ACTIVE  and TRUSTWORTHY referrals. YOU are responsible for your referrals debt if they DO NOT PAY and vise versa. In order for you to get your free play bonus your refferal must go through one settle up of $200.
-
-RULES
-NO BOTS OR SHARP PLAY. We have IT monitoring to make sure there is no cheating. If we find out you are using a VPN and there are multiple people using your IP address or someone is logging into the same account, or you are using a system to place bets for you, you will be automatically kicked off and we reserve the right to not pay. No excuses. We’ve heard them all so don’t waste your time. 
-
-FREEPLAY
-I start all NEW players off with $200 in freeplay. In order to collect your winnings you have to place $500 of bets with your own money. (This is to prevent everyone who abuses the free play to win free money and leave). When you place a bet you have to click “Use your freeplay balance $” (If you don’t you’re using your own money). Since we are very generous with freeplay unfortunately it is limited to straight bets only and no parlays. I offer 20% free play to anyone above settle to roll your balance to limit transactions. If you chose to roll for free play you must be actively betting with your own money or your free play will not count. 
-
-I need active players so if you could do me a solid and place a bet today even if it’s with freeplay. Good luck! Lmk that you’ve read all the rules and or if you have any questions and need me to adjust anything!
-`;
-                                            } else {
-                                                const typeLabel = customer.role === 'agent' ? 'Agent' : 'Master Agent';
-                                                info = `Welcome to the team! Here’s your ${typeLabel} administrative account info.
-
-Login: ${customer.username}
-Password: ${pass}
-
-Min bet: $${customer.defaultMinBet || 25}
-Max bet: $${customer.defaultMaxBet || 200}
-Credit: $${customer.defaultCreditLimit || 1000}
-
-Please ensure you manage your sectors responsibly and maintain clear communication with your assigned accounts. Good luck!
-`;
-                                            }
-                                            copyToClipboard(info, 'All Details');
-                                        }}
-                                    >
-                                        Copy Details
-                                    </button>
-                                </div>
-                            </div>
-                            <div className="cred-block">
-                                <div className="cred-item">
-                                    <label>Login:</label>
-                                    <span className="val">{customer.username}</span>
-                                    <button className="copy-icon" onClick={() => copyToClipboard(customer.username, 'Username')}>
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>
-                                    </button>
-                                </div>
-                                <div className="cred-item">
-                                    <label>Password:</label>
-                                    <span className="val">
-                                        {displayPassword}
-                                    </span>
-                                    <button className="copy-icon" onClick={() => {
-                                        copyToClipboard(displayPassword, 'Password');
-                                    }}>
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="betting-limits-block">
-                            <div className="limit-row">
-                                <span className="label">Min bet:</span>
-                                <span className="value">{Number(customer.role === 'user' ? customer.minBet : (customer.defaultMinBet || 25)).toLocaleString()}</span>
-                            </div>
-                            <div className="limit-row">
-                                <span className="label">Max bet:</span>
-                                <span className="value">{Number(customer.role === 'user' ? customer.maxBet : (customer.defaultMaxBet || 200)).toLocaleString()}</span>
-                            </div>
-                            <div className="limit-row highlight">
-                                <span className="label">Credit limit:</span>
-                                <span className="value">{Number(customer.role === 'user' ? customer.creditLimit : (customer.defaultCreditLimit || 1000)).toLocaleString()}</span>
-                            </div>
-                            <div className="limit-row highlight">
-                                <span className="label">Settle Limit:</span>
-                                <span className="value">{Number(customer.role === 'user' ? (customer.balanceOwed || 0) : (customer.defaultSettleLimit || 0)).toLocaleString()}</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="right-summary">
-                        <div className="metrics-stacked">
-                            <div className="metric-item">
-                                <label>Balance</label>
-                                <span className={`value ${Number(customer.balance) < 0 ? 'negative' : 'positive'}`}>
-                                    {formatCurrency(customer.balance)}
-                                </span>
-                            </div>
-                            <div className="metric-item">
-                                <label>Pending</label>
-                                <span className="value">{Number(customer.pendingBalance || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD' })}</span>
-                            </div>
-                            <div className="metric-item">
-                                <label>Freeplay</label>
-                                <span className="value freeplay-val">
-                                    {Number(formData.freeplayBalance || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD' })}
-                                </span>
-                            </div>
-                            <div className="metric-item glass">
-                                <label>Available</label>
-                                <span className="value positive large">
-                                    {Number(available).toLocaleString('en-US', { style: 'currency', currency: 'USD' })}
-                                </span>
-                            </div>
-                            <div className="metric-item glass">
-                                <label>LIFETIME +/-</label>
-                                <span className={`value ${Number(stats?.netProfit || 0) < 0 ? 'negative' : 'positive'} large`}>
-                                    {formatCurrency(stats?.netProfit || 0)}
-                                </span>
-                            </div>
-                        </div>
-
-                        {customer.role === 'user' && (
-                            <div className="referral-strip">
-                                <div className="referral-block">
-                                    <span className="ref-label">Referred By</span>
-                                    <span className="ref-value">
-                                        {referredBy?.username ? `${referredBy.username}${referredBy.fullName ? ` (${referredBy.fullName})` : ''}` : 'Direct / None'}
-                                    </span>
-                                </div>
-                                <div className="referral-block">
-                                    <span className="ref-label">Players Referred</span>
-                                    <span className="ref-value">{Number(referralStats?.referredCount || 0)}</span>
-                                </div>
-                                <div className="referral-block">
-                                    <span className="ref-label">Referral Bonus</span>
-                                    <span className={`ref-value ${referralStats?.referralBonusGranted ? 'ok' : 'pending'}`}>
-                                        {referralStats?.referralBonusGranted
-                                            ? `${Number(referralStats?.referralBonusAmount || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD' })} granted`
-                                            : 'Pending qualification'}
-                                    </span>
-                                </div>
-                            </div>
-                        )}
-                    </div>
+          <div className="freeplay-bottom-row">
+            <button className="btn btn-danger" onClick={handleDeleteFreePlaySelected} disabled={freePlaySelectedIds.length === 0}>Delete</button>
+            <button className="btn btn-back freeplay-settings-btn" onClick={handleSaveFreePlaySettings}>Detailed Free Play Settings</button>
+            <div className="freeplay-inputs">
+              <div className="tx-field">
+                <label>Free Play %</label>
+                <input type="number" value={form.freePlayPercent} onChange={(e) => setField('freePlayPercent', e.target.value)} />
+              </div>
+              <div className="tx-field">
+                <label>Max FP Credit</label>
+                <input type="number" value={form.maxFpCredit} onChange={(e) => setField('maxFpCredit', e.target.value)} />
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : activeSection === 'dynamic-live' ? (
+        <div className="dynamic-live-wrap">
+          <div className="tx-field dl-top-select">
+            <label>View Settings</label>
+            <select value="wagering_limits" readOnly>
+              <option value="wagering_limits">Wagering Limits</option>
+            </select>
+          </div>
+          <div className="dynamic-live-grid">
+            <div className="dl-col">
+              <label>Min Straight Bet :</label><input type="number" value={form.dlMinStraightBet} onChange={(e) => setField('dlMinStraightBet', e.target.value)} />
+              <label>Max Straight Bet :</label><input type="number" value={form.dlMaxStraightBet} onChange={(e) => setField('dlMaxStraightBet', e.target.value)} />
+              <label>Max Per Offering :</label><input type="number" value={form.dlMaxPerOffering} onChange={(e) => setField('dlMaxPerOffering', e.target.value)} />
+              <label>Max Bet Per Event :</label><input type="number" value={form.dlMaxBetPerEvent} onChange={(e) => setField('dlMaxBetPerEvent', e.target.value)} />
+              <label>Max Win for Single Bet :</label><input type="number" value={form.dlMaxWinSingleBet} onChange={(e) => setField('dlMaxWinSingleBet', e.target.value)} />
+              <label>Max Win for Event :</label><input type="number" value={form.dlMaxWinEvent} onChange={(e) => setField('dlMaxWinEvent', e.target.value)} />
+              <label>Delay (sec) - minimum 5 :</label><input type="number" value={form.dlDelaySec} onChange={(e) => setField('dlDelaySec', e.target.value)} />
+            </div>
+            <div className="dl-col">
+              <label>Max Favorite Line :</label><input type="number" value={form.dlMaxFavoriteLine} onChange={(e) => setField('dlMaxFavoriteLine', e.target.value)} />
+              <label>Max Dog Line :</label><input type="number" value={form.dlMaxDogLine} onChange={(e) => setField('dlMaxDogLine', e.target.value)} />
+              <label>Min Parlay Bet :</label><input type="number" value={form.dlMinParlayBet} onChange={(e) => setField('dlMinParlayBet', e.target.value)} />
+              <label>Max Parlay Bet :</label><input type="number" value={form.dlMaxParlayBet} onChange={(e) => setField('dlMaxParlayBet', e.target.value)} />
+              <label>Max Win for Event(parlay only) :</label><input type="number" value={form.dlMaxWinEventParlay} onChange={(e) => setField('dlMaxWinEventParlay', e.target.value)} />
+              <label>Max Dog Line (Parlays) :</label><input type="number" value={form.dlMaxDogLineParlays} onChange={(e) => setField('dlMaxDogLineParlays', e.target.value)} />
+              <label>Wager Cool-Off (sec) :</label><input type="number" value={form.dlWagerCoolOffSec} onChange={(e) => setField('dlWagerCoolOffSec', e.target.value)} />
+            </div>
+            <div className="dl-col-toggles">
+              {[['Live Parlays', 'dlLiveParlays'], ['Block Wagering Prior To Start', 'dlBlockPriorStart'], ['Block Wagering at Halftime', 'dlBlockHalftime'], ['Include Graded Wagers in Limits', 'dlIncludeGradedInLimits'], ['Use Risk (not Volume) for Limits', 'dlUseRiskLimits']].map(([label, key]) => (
+                <div className="switch-row" key={key}>
+                  <span>{label} :</span>
+                  <label className="switch">
+                    <input type="checkbox" checked={!!form[key]} onChange={(e) => setField(key, e.target.checked)} />
+                    <span className="slider"></span>
+                  </label>
                 </div>
+              ))}
             </div>
+          </div>
+        </div>
+      ) : activeSection === 'live-casino' ? (
+        <div className="live-casino-wrap">
+          <div className="live-casino-grid">
+            <div></div>
+            <div className="lc-col-head">Default</div>
+            <div className="lc-col-head">Agent</div>
+            <div className="lc-col-head">Player</div>
 
-            <div className="tab-navigation">
-                <button
-                    className={`tab-btn ${activeTab === 'basics' ? 'active' : ''}`}
-                    onClick={() => setActiveTab('basics')}
-                >
-                    Basics
-                </button>
-                <button
-                    className={`tab-btn ${activeTab === 'freeplay' ? 'active' : ''}`}
-                    onClick={() => setActiveTab('freeplay')}
-                >
-                    Freeplay
-                </button>
+            <div className="lc-label">Max Win Per Day</div>
+            <input type="number" value={form.casinoDefaultMaxWinDay} onChange={(e) => setField('casinoDefaultMaxWinDay', e.target.value)} />
+            <input type="number" value={form.casinoAgentMaxWinDay} onChange={(e) => setField('casinoAgentMaxWinDay', e.target.value)} />
+            <input type="number" value={form.casinoPlayerMaxWinDay} onChange={(e) => setField('casinoPlayerMaxWinDay', e.target.value)} />
+
+            <div className="lc-label">Max Loss Per Day</div>
+            <input type="number" value={form.casinoDefaultMaxLossDay} onChange={(e) => setField('casinoDefaultMaxLossDay', e.target.value)} />
+            <input type="number" value={form.casinoAgentMaxLossDay} onChange={(e) => setField('casinoAgentMaxLossDay', e.target.value)} />
+            <input type="number" value={form.casinoPlayerMaxLossDay} onChange={(e) => setField('casinoPlayerMaxLossDay', e.target.value)} />
+
+            <div className="lc-label">Max Win Per Week</div>
+            <input type="number" value={form.casinoDefaultMaxWinWeek} onChange={(e) => setField('casinoDefaultMaxWinWeek', e.target.value)} />
+            <input type="number" value={form.casinoAgentMaxWinWeek} onChange={(e) => setField('casinoAgentMaxWinWeek', e.target.value)} />
+            <input type="number" value={form.casinoPlayerMaxWinWeek} onChange={(e) => setField('casinoPlayerMaxWinWeek', e.target.value)} />
+
+            <div className="lc-label">Max Loss Per Week</div>
+            <input type="number" value={form.casinoDefaultMaxLossWeek} onChange={(e) => setField('casinoDefaultMaxLossWeek', e.target.value)} />
+            <input type="number" value={form.casinoAgentMaxLossWeek} onChange={(e) => setField('casinoAgentMaxLossWeek', e.target.value)} />
+            <input type="number" value={form.casinoPlayerMaxLossWeek} onChange={(e) => setField('casinoPlayerMaxLossWeek', e.target.value)} />
+          </div>
+
+          <p className="lc-note">
+            *Players that do not have a limit will be assigned the default limit or agent limit if one exists. Once player limits are assigned they will have to be manually overridden either by changing them individually or by changing an agent and sending through the new default limits they want to apply.
+          </p>
+        </div>
+      ) : (
+      <>
+
+      <div className="basics-grid">
+        <div className="col-card">
+          <label>Password</label>
+          <input value={form.password} placeholder={displayPassword} onChange={(e) => setField('password', e.target.value)} />
+
+          <label>Name</label>
+          <input
+            value={fullName}
+            placeholder="Enter full name"
+            onChange={(e) => {
+              const parts = e.target.value.trim().split(/\s+/).filter(Boolean);
+              setField('firstName', parts[0] || '');
+              setField('lastName', parts.slice(1).join(' '));
+            }}
+          />
+
+          <label>Agent</label>
+          {['admin', 'super_agent', 'master_agent'].includes(role) ? (
+            <select value={form.agentId} onChange={(e) => setField('agentId', e.target.value)}>
+              <option value="">None</option>
+              {agents.map((a) => {
+                const id = a.id || a._id;
+                return <option key={id} value={id}>{a.username}</option>;
+              })}
+            </select>
+          ) : (
+            <input value={customer.agentUsername || '—'} readOnly />
+          )}
+
+          <label>Account Status</label>
+          <select value={form.status} onChange={(e) => setField('status', e.target.value)}>
+            <option value="active">Active</option>
+            <option value="disabled">Disabled</option>
+            <option value="read_only">Read Only</option>
+          </select>
+
+          <div className="switch-list">
+            {[['Sportsbook', 'sportsbook'], ['LV Casino', 'casino'], ['Racebook', 'horses'], ['Messaging', 'messaging'], ['Dynamic Live', 'dynamicLive'], ['Prop Plus', 'propPlus'], ['Live Casino', 'liveCasino']].map(([label, key]) => (
+              <div className="switch-row" key={key}>
+                <span>{label}</span>
+                <label className="switch">
+                  <input type="checkbox" checked={!!form[key]} onChange={(e) => setField(key, e.target.checked)} />
+                  <span className="slider"></span>
+                </label>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="col-card">
+          <label>Website</label>
+          <input value={window.location.hostname} readOnly />
+
+          <label>Account Type</label>
+          <select value={form.accountType} onChange={(e) => setField('accountType', e.target.value)}>
+            <option value="credit">Credit</option>
+            <option value="post_up">Post Up</option>
+          </select>
+
+          <label>Credit Limit</label>
+          <input type="number" value={form.creditLimit} onChange={(e) => setField('creditLimit', e.target.value)} />
+
+          <label>Wager Limit</label>
+          <input type="number" value={form.wagerLimit} onChange={(e) => setField('wagerLimit', e.target.value)} />
+
+          <label>Settle Limit</label>
+          <input type="number" value={form.settleLimit} onChange={(e) => setField('settleLimit', e.target.value)} />
+
+          <label>Zero Balance / Weekly</label>
+          <select value={form.zeroBalanceWeekly} onChange={(e) => setField('zeroBalanceWeekly', e.target.value)}>
+            <option value="standard">Standard</option>
+            <option value="zero_balance">Zero Balance</option>
+            <option value="weekly">Weekly</option>
+          </select>
+
+          <label>Temporary Credit</label>
+          <input type="number" value={form.tempCredit} onChange={(e) => setField('tempCredit', e.target.value)} />
+
+          <label>Expires On</label>
+          <input type="date" value={form.expiresOn} onChange={(e) => setField('expiresOn', e.target.value)} />
+        </div>
+
+        <div className="col-card">
+          <div className="switch-row inline-top">
+            <span>Enable Captcha</span>
+            <label className="switch">
+              <input type="checkbox" checked={form.enableCaptcha} onChange={(e) => setField('enableCaptcha', e.target.checked)} />
+              <span className="slider"></span>
+            </label>
+          </div>
+
+          <label>Crypto Promo (%)</label>
+          <input type="number" value={form.cryptoPromoPct} onChange={(e) => setField('cryptoPromoPct', e.target.value)} />
+
+          <label>Promo Type</label>
+          <select value={form.promoType} onChange={(e) => setField('promoType', e.target.value)}>
+            <option value="promo_credit">Promo Credit</option>
+            <option value="bonus_credit">Bonus Credit</option>
+            <option value="none">None</option>
+          </select>
+
+          <label>Player Notes</label>
+          <textarea rows={9} placeholder="For agent reference only" value={form.playerNotes} onChange={(e) => setField('playerNotes', e.target.value)} />
+
+          <label>Balance</label>
+          <input type="number" value={customer.balance ?? 0} onChange={(e) => setCustomer((prev) => ({ ...prev, balance: Number(e.target.value || 0) }))} />
+          <button className="btn btn-user" onClick={updateBalance}>Update Balance</button>
+        </div>
+      </div>
+
+      <div className="bottom-line">
+        <span>Total Wagered: {formatCurrency(stats.totalWagered || 0)}</span>
+        <span>Net: <b className={Number(stats.netProfit || 0) < 0 ? 'neg' : 'pos'}>{formatCurrency(stats.netProfit || 0)}</b></span>
+      </div>
+      </>
+      )}
+
+      {showNewTxModal && (
+        <div className="modal-overlay" onClick={() => setShowNewTxModal(false)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <h4>New transaction</h4>
+            <label>Type</label>
+            <select value={newTxType} onChange={(e) => setNewTxType(e.target.value)}>
+              <option value="credit">Credit</option>
+              <option value="debit">Debit</option>
+            </select>
+            <label>Amount</label>
+            <input type="number" value={newTxAmount} onChange={(e) => setNewTxAmount(e.target.value)} placeholder="0.00" />
+            <label>Description</label>
+            <input value={newTxDescription} onChange={(e) => setNewTxDescription(e.target.value)} placeholder="Optional note" />
+            <div className="modal-actions">
+              <button className="btn btn-back" onClick={() => setShowNewTxModal(false)}>Cancel</button>
+              <button className="btn btn-save" onClick={handleCreateTransaction}>Save</button>
             </div>
+          </div>
+        </div>
+      )}
 
-            <div className="details-content">
-                {activeTab === 'basics' ? (
-                    <>
-                        <div className="section-header">
-                            <div className="section-title">
-                                <div className="glow-icon"></div>
-                                <h3>The Basics</h3>
-                            </div>
-                            <button type="submit" form="details-form" className="save-btn" disabled={saving}>
-                                {saving ? 'Saving...' : 'Save Changes'}
-                            </button>
-                        </div>
-
-                        <form id="details-form" onSubmit={handleSave} className="basics-form">
-                            {error && <div className="alert error">{error}</div>}
-                            {success && <div className="alert success">{success}</div>}
-                            {/* Basics form content continues... */}
-                            <div className="form-group">
-                                <label>Password</label>
-                                <input
-                                    type="text"
-                                    name="password"
-                                    value={formData.password}
-                                    onChange={handleChange}
-                                    placeholder={displayPassword || "Enter new password"}
-                                />
-                            </div>
-
-                            <div className="form-group">
-                                <label>Full Name</label>
-                                <input
-                                    type="text"
-                                    name="fullName"
-                                    value={`${formData.firstName} ${formData.lastName}`.trim()}
-                                    onChange={(e) => {
-                                        const parts = e.target.value.split(' ');
-                                        setFormData(prev => ({
-                                            ...prev,
-                                            firstName: parts[0] || '',
-                                            lastName: parts.slice(1).join(' ') || ''
-                                        }));
-                                    }}
-                                    placeholder="Full Name/Contact Name"
-                                />
-                            </div>
-
-                            <div className="form-group">
-                                <label>Agent Assignment</label>
-                                {['admin', 'master_agent', 'super_agent'].includes(role) ? (
-                                    <div className="select-wrapper">
-                                        <select name="agentId" value={formData.agentId} onChange={handleChange}>
-                                            <option value="">None</option>
-                                            {agents.map(a => (
-                                                <option key={a._id} value={a._id}>{a.username}</option>
-                                            ))}
-                                        </select>
-                                    </div>
-                                ) : (
-                                    <input type="text" value={customer.agentUsername || 'None'} readOnly disabled />
-                                )}
-                            </div>
-
-                            <div className="form-group">
-                                <label>Account Status</label>
-                                <div className="select-wrapper">
-                                    <select name="status" value={formData.status} onChange={handleChange}>
-                                        <option value="active">Active</option>
-                                        <option value="suspended">Suspended</option>
-                                        <option value="closed">Closed</option>
-                                    </select>
-                                </div>
-                            </div>
-
-                            {customer.role === 'user' ? (
-                                <>
-                                    <div className="form-group">
-                                        <label>Min bet:</label>
-                                        <input
-                                            type="text"
-                                            name="minBet"
-                                            value={formData.minBet}
-                                            placeholder="25"
-                                            onChange={(e) => {
-                                                const val = e.target.value.replace(/,/g, '');
-                                                if (!isNaN(val)) setFormData(prev => ({ ...prev, minBet: val }));
-                                            }}
-                                        />
-                                    </div>
-
-                                    <div className="form-group">
-                                        <label>Max bet:</label>
-                                        <input
-                                            type="text"
-                                            name="maxBet"
-                                            value={formData.maxBet}
-                                            placeholder="200"
-                                            onChange={(e) => {
-                                                const val = e.target.value.replace(/,/g, '');
-                                                if (!isNaN(val)) setFormData(prev => ({ ...prev, maxBet: val }));
-                                            }}
-                                        />
-                                    </div>
-
-                                    <div className="form-group">
-                                        <label>Credit limit:</label>
-                                        <input
-                                            type="text"
-                                            name="creditLimit"
-                                            value={formData.creditLimit}
-                                            placeholder="1000"
-                                            onChange={(e) => {
-                                                const val = e.target.value.replace(/,/g, '');
-                                                if (!isNaN(val)) setFormData(prev => ({ ...prev, creditLimit: val }));
-                                            }}
-                                        />
-                                    </div>
-
-                                    <div className="form-group">
-                                        <label>Settle Limit:</label>
-                                        <input
-                                            type="text"
-                                            name="balanceOwed"
-                                            value={formData.balanceOwed}
-                                            onChange={(e) => {
-                                                const val = e.target.value.replace(/,/g, '');
-                                                if (!isNaN(val)) setFormData(prev => ({ ...prev, balanceOwed: val }));
-                                            }}
-                                        />
-                                    </div>
-                                </>
-                            ) : (
-                                <>
-                                    <div className="form-group">
-                                        <label>Min bet:</label>
-                                        <input
-                                            type="text"
-                                            name="defaultMinBet"
-                                            value={formData.defaultMinBet}
-                                            placeholder="25"
-                                            onChange={(e) => {
-                                                const val = e.target.value.replace(/,/g, '');
-                                                if (!isNaN(val)) setFormData(prev => ({ ...prev, defaultMinBet: val }));
-                                            }}
-                                        />
-                                    </div>
-
-                                    <div className="form-group">
-                                        <label>Max bet:</label>
-                                        <input
-                                            type="text"
-                                            name="defaultMaxBet"
-                                            value={formData.defaultMaxBet}
-                                            placeholder="200"
-                                            onChange={(e) => {
-                                                const val = e.target.value.replace(/,/g, '');
-                                                if (!isNaN(val)) setFormData(prev => ({ ...prev, defaultMaxBet: val }));
-                                            }}
-                                        />
-                                    </div>
-
-                                    <div className="form-group">
-                                        <label>Credit limit:</label>
-                                        <input
-                                            type="text"
-                                            name="defaultCreditLimit"
-                                            value={formData.defaultCreditLimit}
-                                            placeholder="1000"
-                                            onChange={(e) => {
-                                                const val = e.target.value.replace(/,/g, '');
-                                                if (!isNaN(val)) setFormData(prev => ({ ...prev, defaultCreditLimit: val }));
-                                            }}
-                                        />
-                                    </div>
-
-                                    <div className="form-group">
-                                        <label>Settle limit:</label>
-                                        <input
-                                            type="text"
-                                            name="defaultSettleLimit"
-                                            value={formData.defaultSettleLimit}
-                                            onChange={(e) => {
-                                                const val = e.target.value.replace(/,/g, '');
-                                                if (!isNaN(val)) setFormData(prev => ({ ...prev, defaultSettleLimit: val }));
-                                            }}
-                                        />
-                                    </div>
-                                </>
-                            )}
-                        </form>
-                    </>
-                ) : (
-                    <div className="freeplay-management">
-                        <div className="section-header">
-                            <div className="section-title">
-                                <div className="glow-icon" style={{ background: '#3b82f6', boxShadow: '0 0 15px #3b82f6' }}></div>
-                                <h3>Freeplay Management</h3>
-                            </div>
-                        </div>
-
-                        <div className="freeplay-card glass-effect">
-                            <div className="card-top">
-                                <div className="balance-info">
-                                    <span className="label">Current Freeplay Balance</span>
-                                    <span className="value">{Number(formData.freeplayBalance || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD' })}</span>
-                                </div>
-                            </div>
-
-                            <div className="adjustment-controls">
-                                <div className="input-group">
-                                    <label>Adjustment Amount</label>
-                                    <div className="amount-input">
-                                        <span className="currency-symbol">$</span>
-                                        <input
-                                            type="number"
-                                            value={freeplayAmount}
-                                            onChange={(e) => setFreeplayAmount(e.target.value)}
-                                            placeholder="0.00"
-                                        />
-                                    </div>
-                                </div>
-
-                                <div className="action-btns">
-                                    <button
-                                        className="adjust-btn add"
-                                        onClick={() => handleAdjustFreeplay('add')}
-                                        disabled={adjustingFreeplay || !freeplayAmount}
-                                    >
-                                        Add Freeplay
-                                    </button>
-                                    <button
-                                        className="adjust-btn remove"
-                                        onClick={() => handleAdjustFreeplay('remove')}
-                                        disabled={adjustingFreeplay || !freeplayAmount}
-                                    >
-                                        Remove Freeplay
-                                    </button>
-                                </div>
-                            </div>
-
-                            {error && <div className="alert error" style={{ marginTop: '20px' }}>{error}</div>}
-                            {success && <div className="alert success" style={{ marginTop: '20px' }}>{success}</div>}
-                        </div>
-
-                        <div className="info-notice">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="12" y1="16" x2="12" y2="12" /><line x1="12" y1="8" x2="12.01" y2="8" /></svg>
-                            <p>Adjustments to freeplay balance are logged as transactions for auditing purposes.</p>
-                        </div>
-                    </div>
-                )}
+      {showNewFreePlayModal && (
+        <div className="modal-overlay" onClick={() => setShowNewFreePlayModal(false)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <h4>New Free Play</h4>
+            <label>Amount</label>
+            <input type="number" value={newFreePlayAmount} onChange={(e) => setNewFreePlayAmount(e.target.value)} placeholder="0.00" />
+            <label>Description</label>
+            <input value={newFreePlayDescription} onChange={(e) => setNewFreePlayDescription(e.target.value)} placeholder="Optional note" />
+            <div className="modal-actions">
+              <button className="btn btn-back" onClick={() => setShowNewFreePlayModal(false)}>Cancel</button>
+              <button className="btn btn-save" onClick={handleCreateFreePlay}>Save</button>
             </div>
+          </div>
+        </div>
+      )}
 
-            <style>{`
-                 .customer-details-view.premium-theme { 
-                     background: #f8fafc; 
-                     min-height: 100vh; 
-                     font-family: 'Inter', system-ui, -apple-system, sans-serif;
-                     color: #1e293b;
-                 }
-                 .details-header { 
-                     background: #ffffff; 
-                     backdrop-filter: blur(12px);
-                     padding: 32px; 
-                     border-bottom: 1px solid #e2e8f0; 
-                     position: sticky;
-                     top: 0;
-                     z-index: 10;
-                     box-shadow: 0 4px 12px rgba(0,0,0,0.03);
-                 }
-                 .header-top { display: flex; gap: 48px; align-items: start; }
-                 .back-btn { 
-                     background: #f1f5f9; 
-                     border: 1px solid #e2e8f0; 
-                     padding: 10px;
-                     border-radius: 12px;
-                     cursor: pointer; 
-                     color: #64748b; 
-                     transition: all 0.2s ease;
-                 }
-                 .back-btn:hover { background: #e2e8f0; color: #1e293b; transform: translateX(-4px); }
-                 
-                 .left-info { flex: 1; display: flex; flex-direction: column; gap: 24px; }
-                 .user-title { display: flex; align-items: center; gap: 20px; }
-                 .user-title h2 { margin: 0; font-size: 32px; font-weight: 800; letter-spacing: -0.5px; color: #0f172a; }
-                 
-                 .login-btn-prof {
-                     background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); 
-                     color: white; 
-                     border: none; 
-                     padding: 8px 24px;
-                     border-radius: 100px; 
-                     font-size: 14px; 
-                     font-weight: 700; 
-                     cursor: pointer;
-                     box-shadow: 0 4px 15px rgba(37, 99, 235, 0.3);
-                     transition: all 0.2s ease;
-                 }
-                 .login-btn-prof:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(37, 99, 235, 0.4); }
-  
-                 .cred-block { display: flex; flex-direction: column; gap: 10px; }
-                 .cred-item { display: flex; align-items: center; gap: 12px; font-size: 14px; }
-                 .cred-item label { color: #64748b; width: 80px; font-weight: 600; }
-                 .cred-item .val { 
-                     color: #334155; 
-                     font-family: 'JetBrains Mono', monospace; 
-                     background: #f1f5f9; 
-                     padding: 4px 12px; 
-                     border-radius: 8px;
-                     border: 1px solid #e2e8f0;
-                     font-weight: 600;
-                 }
-                 .copy-icon { 
-                     background: none; 
-                     border: none; 
-                     cursor: pointer; 
-                     color: #3b82f6; 
-                     opacity: 0.6;
-                     transition: opacity 0.2s;
-                 }
-                 .copy-icon:hover { opacity: 1; }
-  
-                 .betting-limits-block {
-                     display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
-                     background: #ffffff; 
-                     padding: 24px; 
-                     border-radius: 20px; 
-                     border: 1px solid #e2e8f0;
-                     max-width: 440px;
-                     box-shadow: 0 10px 25px rgba(0,0,0,0.05);
-                 }
-                 .limit-row { display: flex; flex-direction: column; gap: 4px; }
-                 .limit-row .label { font-size: 11px; text-transform: uppercase; color: #94a3b8; font-weight: 800; letter-spacing: 0.5px; }
-                 .limit-row .value { font-size: 20px; font-weight: 700; color: #1e293b; }
-                 .limit-row.highlight .value { color: #059669; }
-  
-                 .metrics-stacked {
-                     display: flex; flex-direction: column; gap: 20px; text-align: right;
-                     min-width: 200px; border-left: 1px solid #e2e8f0; padding-left: 40px;
-                 }
-                 .metric-item { display: flex; flex-direction: column; gap: 6px; }
-                 .metric-item label { font-size: 12px; text-transform: uppercase; color: #94a3b8; font-weight: 800; }
-                 .metric-item .value { font-size: 24px; font-weight: 800; color: #0f172a; }
-                 .metric-item .value.negative { color: #dc2626; }
-                 .metric-item .value.positive { color: #059669; }
-                 .metric-item.glass {
-                     background: #f0fdf4;
-                     padding: 12px;
-                     border-radius: 16px;
-                     border: 1px solid #bcf1d3;
-                 }
-                 .metric-item .value.large { font-size: 32px; background: linear-gradient(to bottom, #0f172a, #334155); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-  
-                 .tab-navigation {
-                     display: flex;
-                     gap: 4px;
-                     padding: 0 40px;
-                     margin-top: -1px;
-                     background: #ffffff;
-                     border-bottom: 1px solid #e2e8f0;
-                     box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
-                 }
-                 .tab-btn {
-                     padding: 16px 32px;
-                     background: none;
-                     border: none;
-                     border-bottom: 2px solid transparent;
-                     color: #94a3b8;
-                     font-weight: 700;
-                     font-size: 14px;
-                     cursor: pointer;
-                     transition: all 0.2s;
-                 }
-                 .tab-btn:hover { color: #1e293b; }
-                 .tab-btn.active {
-                     color: #2563eb;
-                     border-bottom-color: #2563eb;
-                 }
-  
-                 .details-content { padding: 40px; max-width: 1000px; margin: 0 auto; }
-                 .section-header {
-                     display: flex; justify-content: space-between; align-items: center;
-                     margin-bottom: 40px; border-bottom: 1px solid #e2e8f0; padding-bottom: 20px;
-                 }
-                 .section-title { display: flex; align-items: center; gap: 16px; }
-                 .glow-icon { width: 12px; height: 12px; background: #3b82f6; border-radius: 50%; box-shadow: 0 0 10px rgba(59, 130, 246, 0.5); }
-                 .section-header h3 { margin: 0; font-size: 24px; font-weight: 800; color: #0f172a; }
-  
-                 .save-btn {
-                     background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%); 
-                     color: #ffffff; border: none; padding: 12px 40px;
-                     border-radius: 12px; font-size: 15px; font-weight: 700; cursor: pointer;
-                     transition: all 0.2s;
-                     box-shadow: 0 4px 15px rgba(79, 70, 229, 0.3);
-                 }
-                 .save-btn:hover { transform: scale(1.05); box-shadow: 0 6px 20px rgba(79, 70, 229, 0.4); }
-                 .save-btn:disabled { background: #94a3b8; color: #ffffff; cursor: not-allowed; box-shadow: none; }
-  
-                 .basics-form { 
-                     display: grid; grid-template-columns: 1fr 1fr; gap: 40px; 
-                     background: #ffffff; 
-                     padding: 40px; 
-                     border-radius: 24px; 
-                     border: 1px solid #e2e8f0;
-                     box-shadow: 0 4px 20px rgba(0,0,0,0.03);
-                 }
-                 .form-group { display: flex; flex-direction: column; gap: 10px; }
-                 .form-group label { font-size: 12px; color: #64748b; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
-                 .form-group input, .form-group select { 
-                     border: 1px solid #e2e8f0; 
-                     padding: 14px 16px; 
-                     font-size: 16px; 
-                     outline: none; 
-                     background: #f8fafc; 
-                     border-radius: 12px;
-                     color: #1e293b;
-                     transition: all 0.2s;
-                 }
-                 .form-group input:focus { border-color: #3b82f6; background: #fff; box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1); }
-                 
-                 .freeplay-card {
-                     background: #ffffff;
-                     padding: 40px;
-                     border-radius: 24px;
-                     border: 1px solid #e2e8f0;
-                     box-shadow: 0 10px 30px rgba(0,0,0,0.05);
-                 }
+      <style>{`
+        .customer-details-v2 { background:#f3f4f6; min-height:100vh; padding:16px; color:#1f2937; }
+        .top-panel { display:flex; justify-content:space-between; align-items:flex-start; background:#fff; border:1px solid #d1d5db; border-radius:12px; padding:16px; box-shadow:0 2px 10px rgba(15, 23, 42, 0.04); }
+        .top-left h2 { margin:0; font-size:18px; line-height:1.2; }
+        .agent-line { margin-top:4px; color:#4b5563; font-size:14px; }
+        .top-actions { display:flex; gap:8px; }
 
-                 .referral-strip {
-                    margin-top: 14px;
-                    display: grid;
-                    grid-template-columns: repeat(3, minmax(0, 1fr));
-                    gap: 10px;
-                 }
-                 .referral-block {
-                    border: 1px solid #d9e6f7;
-                    border-radius: 10px;
-                    background: #f7fbff;
-                    padding: 10px 12px;
-                    display: flex;
-                    flex-direction: column;
-                    gap: 6px;
-                 }
-                 .ref-label {
-                    font-size: 11px;
-                    font-weight: 700;
-                    text-transform: uppercase;
-                    color: #6b7f9e;
-                 }
-                 .ref-value {
-                    font-size: 14px;
-                    font-weight: 700;
-                    color: #1f3f73;
-                 }
-                 .ref-value.ok { color: #0b7f4f; }
-                 .ref-value.pending { color: #9a6b00; }
+        .btn { border:none; border-radius:3px; cursor:pointer; font-weight:600; }
+        .btn-back { background:#3db3d7; color:#fff; padding:8px 14px; }
+        .btn-user { background:#2f7fb6; color:#fff; padding:8px 14px; }
+        .btn-copy-all { background:#139cc9; color:#fff; padding:8px 14px; }
+        .btn-save { background:#35b49f; color:#fff; padding:9px 20px; min-width:130px; font-size:14px; }
 
-                 @media (max-width: 900px) {
-                    .referral-strip { grid-template-columns: 1fr; }
-                 }
-                 .card-top { margin-bottom: 40px; border-bottom: 1px solid #f1f5f9; padding-bottom: 32px; }
-                 .balance-info { display: flex; flex-direction: column; gap: 8px; }
-                 .balance-info .label { font-size: 14px; text-transform: uppercase; color: #64748b; font-weight: 800; letter-spacing: 1px; }
-                 .balance-info .value { font-size: 48px; font-weight: 900; color: #2563eb; }
-  
-                 .adjustment-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; align-items: end; }
-                 .amount-input { position: relative; }
-                 .currency-symbol { position: absolute; left: 16px; top: 14px; color: #64748b; font-weight: 700; }
-                 .amount-input input { padding-left: 32px; width: 100%; box-sizing: border-box; }
-  
-                 .action-btns { display: flex; gap: 16px; }
-                 .adjust-btn {
-                     flex: 1; padding: 14px; border: none; border-radius: 12px; 
-                     font-weight: 800; font-size: 14px; cursor: pointer; transition: all 0.2s;
-                 }
-                 .adjust-btn.add { 
-                     background: linear-gradient(135deg, #10b981 0%, #059669 100%); 
-                     color: white; 
-                     box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2);
-                 }
-                 .adjust-btn.remove { 
-                     background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); 
-                     color: white; 
-                     box-shadow: 0 4px 12px rgba(239, 68, 68, 0.2);
-                 }
-                 .adjust-btn:hover { transform: translateY(-2px); opacity: 0.95; box-shadow: 0 6px 15px rgba(0,0,0,0.1); }
-                 .adjust-btn:disabled { background: #cbd5e1; color: #64748b; cursor: not-allowed; transform: none; box-shadow: none; }
-  
-                 .info-notice {
-                     display: flex; gap: 12px; align-items: center; margin-top: 32px;
-                     background: #f0f7ff; padding: 16px 24px; 
-                     border-radius: 16px; border: 1px solid #d0e7ff;
-                     color: #64748b; font-size: 14px;
-                 }
-                 .info-notice p { margin: 0; }
-  
-                 .alert { grid-column: span 2; padding: 16px; border-radius: 12px; font-size: 14px; font-weight: 500; }
-                 .alert.error { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
-                 .alert.success { background: #f0fdf4; color: #15803d; border: 1px solid #bcf1d3; }
+        .player-card {
+          margin-top: 10px;
+          border: 1px solid #d6e2f3;
+          border-radius: 14px;
+          padding: 12px;
+          background: #f8fbff;
+          max-width: 720px;
+          box-shadow: 0 1px 6px rgba(30, 41, 59, 0.05);
+        }
+        .player-card-head {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 8px;
+          margin-bottom: 10px;
+        }
+        .player-title-wrap {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+        }
+        .player-badge {
+          display: inline-flex;
+          align-items: center;
+          padding: 5px 10px;
+          border-radius: 999px;
+          border: 1px solid #9ec4f2;
+          color: #1f5fb9;
+          font-weight: 700;
+          font-size: 13px;
+        }
+        .creds-box {
+          border: 1px solid #d6e2f3;
+          border-radius: 12px;
+          padding: 10px;
+          background: #f1f6ff;
+        }
+        .creds-row {
+          display: grid;
+          grid-template-columns: 120px 160px 32px;
+          align-items: center;
+          gap: 8px;
+          margin-bottom: 8px;
+        }
+        .creds-row:last-child { margin-bottom: 0; }
+        .creds-row span {
+          font-size: 14px;
+          font-weight: 700;
+          color: #64748b;
+        }
+        .creds-pill {
+          border: 1px solid #cbd5e1;
+          background: #eef2f7;
+          border-radius: 14px;
+          padding: 6px 10px;
+          font-size: 14px;
+          font-weight: 700;
+          color: #334155;
+          line-height: 1.1;
+        }
+        .copy-mini {
+          border: none;
+          background: transparent;
+          color: #5b93ed;
+          cursor: pointer;
+          font-size: 18px;
+          line-height: 1;
+        }
+        .limits-box {
+          margin-top: 12px;
+          border: 1px solid #d6e2f3;
+          border-radius: 12px;
+          padding: 12px;
+          background: #f8fbff;
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 12px 28px;
+        }
+        .limit-item label {
+          display: block;
+          margin: 0 0 4px;
+          text-transform: uppercase;
+          color: #8aa0bc;
+          font-size: 12px;
+          font-weight: 700;
+          letter-spacing: 0.3px;
+        }
+        .limit-item strong {
+          color: #1e293b;
+          font-size: 16px;
+          line-height: 1;
+        }
+        .limit-item .money-green {
+          color: #08916a;
+        }
+        .copy-notice {
+          margin-top: 6px;
+          color: #1f5fb9;
+          font-size: 13px;
+          font-weight: 700;
+        }
+        .mobile-only { display: none; }
 
-                 .customer-details-view.premium-theme .details-header {
-                     position: relative;
-                     top: 0;
-                     border-radius: 14px;
-                     margin: 14px;
-                     padding: 24px;
-                     border: 1px solid #e4edf8;
-                     box-shadow: 0 8px 28px rgba(15, 23, 42, 0.06);
-                 }
-                 .customer-details-view.premium-theme {
-                     font-weight: 400;
-                     color: #1e293b;
-                 }
-                 .customer-details-view.premium-theme .header-top {
-                     display: grid;
-                     grid-template-columns: 1.45fr 1fr;
-                     gap: 22px;
-                     align-items: start;
-                 }
-                 .customer-details-view.premium-theme .back-btn {
-                     display: inline-flex;
-                     align-items: center;
-                     justify-content: center;
-                     width: 42px;
-                     height: 42px;
-                 }
-                 .customer-details-view.premium-theme .left-info {
-                     background: #fff;
-                     border: 1px solid #e4edf8;
-                     border-radius: 12px;
-                     padding: 16px;
-                 }
-                 .customer-details-view.premium-theme .title-wrap {
-                     display: flex;
-                     align-items: center;
-                     gap: 12px;
-                 }
-                 .customer-details-view.premium-theme .user-title {
-                     justify-content: space-between;
-                     align-items: center;
-                     gap: 16px;
-                     flex-wrap: wrap;
-                 }
-                 .customer-details-view.premium-theme .user-title h2 {
-                     font-size: 38px;
-                     letter-spacing: -1px;
-                     font-weight: 600;
-                 }
-                 .customer-details-view.premium-theme .role-chip {
-                     font-size: 11px;
-                     font-weight: 600;
-                     text-transform: uppercase;
-                     border-radius: 999px;
-                     padding: 5px 10px;
-                 }
-                 .customer-details-view.premium-theme .role-chip.role-user {
-                     color: #0b5fc2;
-                     background: #eaf4ff;
-                     border: 1px solid #b8d9fb;
-                 }
-                 .customer-details-view.premium-theme .role-chip.role-agent {
-                     color: #0f766e;
-                     background: #e7fffb;
-                     border: 1px solid #9ce6dc;
-                 }
-                 .customer-details-view.premium-theme .role-chip.role-master_agent,
-                 .customer-details-view.premium-theme .role-chip.role-super_agent {
-                     color: #9a6200;
-                     background: #fff8e9;
-                     border: 1px solid #f3d08b;
-                 }
-                 .customer-details-view.premium-theme .profile-actions {
-                     display: flex;
-                     align-items: center;
-                     gap: 10px;
-                 }
-                 .customer-details-view.premium-theme .login-btn-prof {
-                     height: 40px;
-                     padding: 0 16px;
-                     border-radius: 10px;
-                 }
-                 .customer-details-view.premium-theme .login-btn-prof.secondary {
-                     background: linear-gradient(135deg, #0891b2 0%, #0ea5e9 100%);
-                     box-shadow: 0 4px 14px rgba(14, 165, 233, 0.3);
-                 }
-                 .customer-details-view.premium-theme .cred-block {
-                     background: #f8fbff;
-                     border: 1px solid #e4edf8;
-                     border-radius: 10px;
-                     padding: 12px;
-                 }
-                 .customer-details-view.premium-theme .betting-limits-block {
-                     max-width: none;
-                     border-radius: 12px;
-                     border: 1px solid #e4edf8;
-                     box-shadow: none;
-                     padding: 16px;
-                 }
-                 .customer-details-view.premium-theme .right-summary {
-                     display: flex;
-                     flex-direction: column;
-                     gap: 12px;
-                 }
-                 .customer-details-view.premium-theme .metrics-stacked {
-                     border-left: none;
-                     padding-left: 0;
-                     min-width: 0;
-                     display: grid;
-                     grid-template-columns: repeat(2, minmax(0, 1fr));
-                     gap: 12px;
-                     text-align: left;
-                 }
-                 .customer-details-view.premium-theme .metric-item {
-                     border: 1px solid #e4edf8;
-                     border-radius: 12px;
-                     padding: 10px 12px;
-                     background: #fff;
-                 }
-                 .customer-details-view.premium-theme .metric-item .value {
-                     font-size: 28px;
-                     line-height: 1.1;
-                     font-weight: 600;
-                 }
-                 .customer-details-view.premium-theme .metric-item .value.large {
-                     font-size: 34px;
-                 }
-                 .customer-details-view.premium-theme .metric-item .value.freeplay-val {
-                     color: #1f6fda;
-                 }
-                 .customer-details-view.premium-theme .tab-navigation {
-                     margin: 0 14px;
-                     padding: 6px;
-                     border: 1px solid #e4edf8;
-                     border-top: none;
-                     border-radius: 0 0 12px 12px;
-                     gap: 6px;
-                     box-shadow: none;
-                 }
-                 .customer-details-view.premium-theme .tab-btn {
-                     border-radius: 8px;
-                     border: 1px solid transparent;
-                     padding: 10px 16px;
-                 }
-                 .customer-details-view.premium-theme .tab-btn.active {
-                     background: #edf5ff;
-                     border-color: #c6ddff;
-                     border-bottom-color: #c6ddff;
-                     color: #1257b5;
-                 }
-                 .customer-details-view.premium-theme .details-content {
-                     max-width: 1320px;
-                     padding: 22px 18px 32px;
-                 }
-                 .customer-details-view.premium-theme .section-header {
-                     background: #fff;
-                     border: 1px solid #e4edf8;
-                     border-radius: 12px;
-                     padding: 14px 16px;
-                     margin-bottom: 16px;
-                 }
-                 .customer-details-view.premium-theme .section-header h3 {
-                     font-size: 28px;
-                     letter-spacing: -0.6px;
-                     font-weight: 600;
-                 }
-                 .customer-details-view.premium-theme .save-btn {
-                     height: 42px;
-                     padding: 0 20px;
-                     border-radius: 10px;
-                 }
-                 .customer-details-view.premium-theme .basics-form {
-                     border-radius: 12px;
-                     border: 1px solid #e4edf8;
-                     padding: 20px;
-                     gap: 16px;
-                 }
-                 .customer-details-view.premium-theme .form-group label {
-                     font-weight: 600;
-                     letter-spacing: 0.2px;
-                 }
-                 .customer-details-view.premium-theme .form-group input,
-                 .customer-details-view.premium-theme .form-group select {
-                     font-weight: 400;
-                 }
-                 .customer-details-view.premium-theme .referral-strip {
-                     margin-top: 0;
-                     gap: 10px;
-                 }
+        .top-right { text-align:right; display:flex; flex-direction:column; gap:8px; }
+        .metric {
+          border: none;
+          background: transparent;
+          text-align: right;
+          cursor: pointer;
+          padding: 0;
+        }
+        .metric.metric-active { opacity: 1; }
+        .metric:not(.metric-active) { opacity: 0.95; }
+        .metric span { display:block; font-size:12px; color:#374151; }
+        .metric b { font-size:16px; line-height:1.1; font-weight:700; }
+        .metric .neg { color:#dc2626; }
+        .metric .pos { color:#15803d; }
+        .metric .neutral { color:#111827; }
+        .metric-circle {
+          background: #f0fdf4;
+          border: 1px solid #bbf7d0;
+          border-radius: 999px;
+          padding: 10px 14px;
+          margin-top: 4px;
+        }
 
-                 @media (max-width: 1200px) {
-                     .customer-details-view.premium-theme .header-top {
-                         grid-template-columns: 1fr;
-                     }
-                 }
-                 @media (max-width: 760px) {
-                     .customer-details-view.premium-theme .details-header {
-                         margin: 8px;
-                         padding: 12px;
-                     }
-                     .customer-details-view.premium-theme .user-title h2 {
-                         font-size: 30px;
-                     }
-                     .customer-details-view.premium-theme .profile-actions {
-                         width: 100%;
-                     }
-                     .customer-details-view.premium-theme .profile-actions .login-btn-prof {
-                         flex: 1;
-                     }
-                     .customer-details-view.premium-theme .metrics-stacked {
-                         grid-template-columns: 1fr;
-                     }
-                     .customer-details-view.premium-theme .referral-strip {
-                         grid-template-columns: 1fr;
-                     }
-                     .customer-details-view.premium-theme .details-content {
-                         padding: 12px 10px 24px;
-                     }
-                     .customer-details-view.premium-theme .basics-form {
-                         grid-template-columns: 1fr;
-                     }
-                 }
-             `}</style>
-        </div >
-    );
+        .basics-header { margin-top:8px; background:#fff; border:1px solid #d1d5db; border-radius:10px; padding:10px 12px; display:flex; align-items:center; justify-content:space-between; }
+        .basics-left { display:flex; align-items:center; gap:10px; }
+        .basics-left h3 { margin:0; font-size:22px; line-height:1.1; font-weight:700; }
+        .dot-grid { width:20px; display:grid; grid-template-columns:repeat(3, 4px); gap:3px; }
+        .dot-grid span { width:4px; height:4px; background:#4b5563; border-radius:50%; display:block; }
+        .dot-grid-btn {
+          border: none;
+          background: transparent;
+          padding: 2px;
+          cursor: pointer;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: 4px;
+        }
+        .dot-grid-btn:hover { background: #e5e7eb; }
+
+        .menu-backdrop {
+          position: fixed;
+          inset: 0;
+          z-index: 40;
+          border: none;
+          background: rgba(15, 23, 42, 0.15);
+        }
+        .basics-quick-menu {
+          position: absolute;
+          z-index: 50;
+          left: 24px;
+          top: 245px;
+          width: 300px;
+          height: 300px;
+          max-width: calc(100vw - 48px);
+          background: #ffffff;
+          border: 1px solid #d1d5db;
+          border-radius: 6px;
+          box-shadow: 0 14px 28px rgba(0, 0, 0, 0.2);
+          padding: 10px 8px 10px;
+          overflow: hidden;
+        }
+        .menu-close {
+          border: none;
+          background: #374151;
+          color: #fff;
+          width: 28px;
+          height: 28px;
+          border-radius: 50%;
+          cursor: pointer;
+          margin-left: auto;
+          display: block;
+          font-weight: 700;
+        }
+        .menu-grid {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 14px 10px;
+          padding: 8px 2px 2px;
+          height: 248px;
+          overflow-y: auto;
+        }
+        .menu-item {
+          border: none;
+          background: transparent;
+          text-align: center;
+          cursor: pointer;
+          padding: 4px;
+          color: #1f2937;
+        }
+        .menu-item:hover .menu-icon {
+          transform: translateY(-1px);
+        }
+        .menu-icon {
+          width: 40px;
+          height: 40px;
+          border-radius: 8px;
+          margin: 0 auto 6px;
+          display: grid;
+          place-items: center;
+          font-size: 20px;
+          line-height: 1;
+          color: #1f2937;
+          background: #f3f4f6;
+          transition: transform 0.15s ease;
+        }
+        .menu-item:nth-child(1) .menu-icon { color:#ef4444; }
+        .menu-item:nth-child(2) .menu-icon { color:#65a30d; }
+        .menu-item:nth-child(3) .menu-icon { color:#3b82f6; }
+        .menu-item:nth-child(4) .menu-icon { color:#a16207; }
+        .menu-item:nth-child(5) .menu-icon { color:#0d9488; }
+        .menu-item:nth-child(6) .menu-icon { color:#f97316; }
+        .menu-item:nth-child(7) .menu-icon { color:#111827; }
+        .menu-item:nth-child(8) .menu-icon { color:#1d4ed8; }
+        .menu-item:nth-child(9) .menu-icon { color:#4b5563; }
+        .menu-item:nth-child(10) .menu-icon { color:#0ea5e9; }
+        .menu-item:nth-child(11) .menu-icon { color:#4f46e5; }
+        .menu-item:nth-child(12) .menu-icon { color:#b91c1c; }
+        .menu-item:nth-child(13) .menu-icon { color:#60a5fa; }
+        .menu-item:nth-child(14) .menu-icon { color:#6b7280; }
+        .menu-item:nth-child(15) .menu-icon { color:#84a34a; }
+        .menu-item:nth-child(16) .menu-icon { color:#c084fc; }
+        .menu-item:nth-child(17) .menu-icon { color:#d97706; }
+        .menu-item:nth-child(18) .menu-icon { color:#16a34a; }
+        .menu-label {
+          font-size: 11px;
+          font-weight: 600;
+          line-height: 1.1;
+          display: -webkit-box;
+          -webkit-line-clamp: 2;
+          -webkit-box-orient: vertical;
+          overflow: hidden;
+        }
+
+        .alert { margin-top:8px; padding:10px 12px; border-radius:3px; }
+        .alert.error { background:#fee2e2; color:#991b1b; border:1px solid #fecaca; }
+        .alert.success { background:#dcfce7; color:#166534; border:1px solid #bbf7d0; }
+
+        .transactions-wrap {
+          margin-top: 8px;
+          background: #fff;
+          border: 1px solid #d1d5db;
+          border-radius: 10px;
+          padding: 12px;
+        }
+        .tx-controls {
+          display: grid;
+          grid-template-columns: 1.2fr 1.2fr repeat(4, 1fr);
+          gap: 10px;
+          margin-bottom: 12px;
+        }
+        .tx-field label, .tx-stat label {
+          display: block;
+          color: #4b5563;
+          font-size: 12px;
+          margin-bottom: 4px;
+        }
+        .tx-field select {
+          width: 100%;
+          border: none;
+          border-bottom: 1px solid #6b7280;
+          background: transparent;
+          font-size: 16px;
+          padding: 4px 0;
+          color: #111827;
+          outline: none;
+        }
+        .tx-field input {
+          width: 100%;
+          border: none;
+          border-bottom: 1px solid #6b7280;
+          background: transparent;
+          font-size: 16px;
+          padding: 4px 0;
+          color: #111827;
+          outline: none;
+        }
+        .tx-stat b {
+          display: block;
+          font-size: 22px;
+          line-height: 1.05;
+          font-weight: 500;
+          color: #111827;
+        }
+        .tx-stat .neg { color: #dc2626; }
+        .tx-table-wrap {
+          border: 1px solid #cbd5e1;
+          min-height: 360px;
+          overflow: auto;
+          background: #fff;
+        }
+        .tx-table {
+          width: 100%;
+          border-collapse: collapse;
+        }
+        .tx-table th {
+          background: #1f3345;
+          color: #fff;
+          text-align: left;
+          font-size: 16px;
+          padding: 10px 12px;
+          position: sticky;
+          top: 0;
+        }
+        .tx-table td {
+          border-bottom: 1px solid #e5e7eb;
+          padding: 8px 12px;
+          font-size: 14px;
+          color: #1f2937;
+        }
+        .tx-table tr.selected td { background: #eff6ff; }
+        .tx-table tr { cursor: pointer; }
+        .tx-empty {
+          text-align: center;
+          padding: 24px !important;
+          color: #6b7280 !important;
+        }
+        .btn-danger {
+          margin-top: 10px;
+          background: #dc3f51;
+          color: #fff;
+          padding: 10px 30px;
+        }
+        .btn-danger:disabled {
+          opacity: 0.45;
+          cursor: not-allowed;
+        }
+        .freeplay-controls {
+          grid-template-columns: 1.2fr 1fr 1fr;
+        }
+        .freeplay-bottom-row {
+          margin-top: 10px;
+          display: grid;
+          grid-template-columns: auto 1fr auto;
+          align-items: end;
+          gap: 12px;
+        }
+        .freeplay-settings-btn {
+          justify-self: center;
+          min-width: 320px;
+          text-align: center;
+        }
+        .freeplay-inputs {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 16px;
+          min-width: 360px;
+        }
+
+        .performance-wrap {
+          margin-top: 8px;
+          background: #fff;
+          border: 1px solid #d1d5db;
+          border-radius: 10px;
+          padding: 12px;
+        }
+        .perf-controls {
+          display: grid;
+          grid-template-columns: 220px;
+          gap: 10px;
+          margin-bottom: 10px;
+        }
+        .performance-grid {
+          display: grid;
+          grid-template-columns: 480px 1fr;
+          gap: 16px;
+          min-height: 420px;
+        }
+        .perf-left {
+          border: 1px solid #cbd5e1;
+          max-height: 420px;
+          overflow-y: auto;
+        }
+        .perf-right {
+          border: 1px solid #cbd5e1;
+          padding: 0;
+        }
+        .perf-title-row {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          font-size: 18px;
+          line-height: 1;
+          padding: 8px 0 8px 0;
+        }
+        .perf-title-row b { font-size: 26px; font-weight: 700; }
+        .perf-table {
+          width: 100%;
+          border-collapse: collapse;
+        }
+        .perf-table th {
+          background: #1f3345;
+          color: #fff;
+          text-align: left;
+          font-size: 14px;
+          padding: 8px 10px;
+          position: sticky;
+          top: 0;
+        }
+        .perf-table td {
+          border-bottom: 1px solid #e5e7eb;
+          padding: 8px 10px;
+          font-size: 14px;
+          color: #1f2937;
+        }
+        .perf-table tr.selected td { background: #f1f5f9; }
+
+        .dynamic-live-wrap {
+          margin-top: 8px;
+          background: #fff;
+          border: 1px solid #d1d5db;
+          border-radius: 10px;
+          padding: 12px;
+        }
+        .dl-top-select {
+          width: 220px;
+          margin-bottom: 12px;
+        }
+        .dynamic-live-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr 1fr;
+          gap: 28px;
+        }
+        .dl-col, .dl-col-toggles {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+        }
+        .dl-col label {
+          font-size: 13px;
+          color: #4b5563;
+        }
+        .dl-col input {
+          border: none;
+          border-bottom: 1px solid #6b7280;
+          background: transparent;
+          font-size: 16px;
+          line-height: 1;
+          color: #111827;
+          padding: 2px 0 4px;
+          outline: none;
+        }
+        .dl-col-toggles .switch-row {
+          justify-content: space-between;
+          font-size: 15px;
+          line-height: 1.15;
+          padding: 10px 0;
+        }
+
+        .live-casino-wrap {
+          margin-top: 8px;
+          background: #fff;
+          border: 1px solid #d1d5db;
+          border-radius: 10px;
+          padding: 12px 18px 22px;
+        }
+        .live-casino-grid {
+          display: grid;
+          grid-template-columns: 220px 130px 130px 130px;
+          gap: 10px 20px;
+          align-items: center;
+          max-width: 760px;
+        }
+        .lc-col-head {
+          font-size: 18px;
+          color: #374151;
+          font-weight: 700;
+        }
+        .lc-label {
+          font-size: 14px;
+          color: #374151;
+          font-weight: 600;
+        }
+        .live-casino-grid input {
+          width: 100%;
+          border: 1px solid #d1d5db;
+          background: #fff;
+          border-radius: 4px;
+          font-size: 14px;
+          line-height: 1;
+          padding: 4px 8px;
+          color: #111827;
+        }
+        .lc-note {
+          margin-top: 16px;
+          max-width: 1200px;
+          font-size: 13px;
+          line-height: 1.35;
+          color: #374151;
+        }
+
+        .basics-grid { margin-top:8px; display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; }
+        .col-card { background:#fff; border:1px solid #d1d5db; padding:12px; display:flex; flex-direction:column; min-height:560px; }
+        .col-card label { color:#4b5563; font-size:13px; margin-top:8px; margin-bottom:4px; }
+        .col-card input, .col-card select, .col-card textarea { width:100%; border:none; border-bottom:1px solid #6b7280; background:transparent; font-size:18px; padding:4px 0; color:#111827; outline:none; }
+        .col-card textarea { border:1px solid #6b7280; min-height:160px; font-size:16px; padding:6px; }
+
+        .switch-list { margin-top:8px; }
+        .switch-row { display:flex; align-items:center; justify-content:space-between; padding:6px 0; font-size:16px; }
+        .switch-row.inline-top { margin-top:8px; }
+        .switch {
+          position:relative;
+          display:inline-block;
+          width:58px;
+          height:32px;
+          flex-shrink:0;
+        }
+        .switch input { opacity:0; width:0; height:0; }
+        .slider {
+          position:absolute;
+          cursor:pointer;
+          top:0;
+          left:0;
+          right:0;
+          bottom:0;
+          background-color:#b0b7c3;
+          transition:.2s;
+          border-radius:999px;
+        }
+        .slider:before {
+          position:absolute;
+          content:'';
+          height:24px;
+          width:24px;
+          left:4px;
+          top:4px;
+          background:white;
+          transition:.2s;
+          border-radius:50%;
+        }
+        .switch input:checked + .slider { background:#16a34a; }
+        .switch input:checked + .slider:before { transform:translateX(26px); }
+
+        .bottom-line { margin-top:10px; font-size:14px; color:#374151; display:flex; gap:22px; }
+        .bottom-line .neg { color:#dc2626; }
+        .bottom-line .pos { color:#15803d; }
+
+        .modal-overlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(0, 0, 0, 0.35);
+          z-index: 120;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .modal-card {
+          width: 380px;
+          max-width: calc(100vw - 32px);
+          border-radius: 8px;
+          background: #fff;
+          padding: 16px;
+          border: 1px solid #d1d5db;
+          box-shadow: 0 12px 30px rgba(0,0,0,0.25);
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+        }
+        .modal-card h4 { margin: 0 0 6px; font-size: 18px; }
+        .modal-card label { font-size: 13px; color: #4b5563; }
+        .modal-card input, .modal-card select {
+          border: 1px solid #cbd5e1;
+          border-radius: 4px;
+          padding: 8px 10px;
+          font-size: 14px;
+          color: #111827;
+        }
+        .modal-actions {
+          margin-top: 8px;
+          display: flex;
+          justify-content: flex-end;
+          gap: 8px;
+        }
+
+        @media (max-width: 1300px) {
+          .basics-grid { grid-template-columns:1fr; }
+          .top-panel { flex-direction:column; gap:12px; }
+          .top-right { text-align:left; }
+          .player-card { max-width: 100%; }
+          .player-card-head { flex-direction: column; align-items: flex-start; }
+          .creds-row { grid-template-columns: 90px 1fr 32px; }
+          .limits-box { grid-template-columns: 1fr; }
+          .top-actions { display: none; }
+          .mobile-only { display: flex; margin-top: 8px; }
+          .tx-controls { grid-template-columns: 1fr 1fr; }
+          .tx-stat b { font-size: 20px; }
+          .freeplay-controls { grid-template-columns: 1fr 1fr; }
+          .freeplay-bottom-row { grid-template-columns: 1fr; }
+          .freeplay-inputs { min-width: 0; grid-template-columns: 1fr; }
+          .performance-grid { grid-template-columns: 1fr; }
+          .perf-left { max-height: 300px; }
+          .perf-title-row { font-size: 20px; }
+          .perf-title-row b { font-size: 24px; }
+          .dynamic-live-grid { grid-template-columns: 1fr; }
+          .dl-col input { font-size: 20px; }
+          .dl-col-toggles .switch-row { font-size: 18px; }
+          .live-casino-grid { grid-template-columns: 1fr 1fr; max-width: none; }
+          .lc-col-head, .lc-label, .live-casino-grid input { font-size: 18px; }
+          .lc-note { font-size: 14px; }
+        }
+      `}</style>
+    </div>
+  );
 }
 
 export default CustomerDetailsView;
