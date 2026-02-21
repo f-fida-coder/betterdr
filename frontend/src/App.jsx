@@ -231,13 +231,16 @@ function App() {
   };
 
   const handleSportToggle = (sport) => {
+    const quickFilters = new Set(['up-next', 'featured', 'commercial-live']);
     setSelectedSports(prev => {
       const isSelected = prev.includes(sport);
       if (isSelected) {
         return prev.filter(s => s !== sport);
-      } else {
-        return [...prev, sport];
       }
+      if (quickFilters.has(sport)) {
+        return [sport];
+      }
+      return [...prev.filter(s => !quickFilters.has(s)), sport];
     });
   };
 

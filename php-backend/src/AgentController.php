@@ -69,9 +69,15 @@ final class AgentController
             $username = trim((string) ($body['username'] ?? ''));
             $phoneNumber = trim((string) ($body['phoneNumber'] ?? ''));
             $password = (string) ($body['password'] ?? '');
+            $firstName = trim((string) ($body['firstName'] ?? ''));
+            $lastName = trim((string) ($body['lastName'] ?? ''));
 
             if ($username === '' || $phoneNumber === '' || $password === '') {
                 Response::json(['message' => 'Username, phone number, and password are required'], 400);
+                return;
+            }
+            if ($firstName === '' || $lastName === '') {
+                Response::json(['message' => 'First name and last name are required'], 400);
                 return;
             }
 
@@ -116,8 +122,6 @@ final class AgentController
                 }
             }
 
-            $firstName = trim((string) ($body['firstName'] ?? ''));
-            $lastName = trim((string) ($body['lastName'] ?? ''));
             $fullName = trim((string) ($body['fullName'] ?? ''));
             $generatedFullName = strtoupper($fullName !== '' ? $fullName : (($firstName . ' ' . $lastName) !== ' ' ? trim($firstName . ' ' . $lastName) : $username));
 

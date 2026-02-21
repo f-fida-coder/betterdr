@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import ScoreboardSidebar from './ScoreboardSidebar';
 import SettingsModal from './SettingsModal';
@@ -25,6 +25,18 @@ const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, 
     const [showScoreboard, setShowScoreboard] = useState(false);
     const [showSettingsModal, setShowSettingsModal] = useState(false);
     const [showPersonalizeSidebar, setShowPersonalizeSidebar] = useState(false);
+
+    // Odds format state
+    const [oddsFormat, setOddsFormat] = useState(() => {
+        return localStorage.getItem('oddsFormat') || 'american';
+    });
+
+    // Sync oddsFormat to localStorage
+    useEffect(() => {
+        localStorage.setItem('oddsFormat', oddsFormat);
+        // Optionally, dispatch a global event so other components can listen
+        window.dispatchEvent(new CustomEvent('oddsFormat:change', { detail: oddsFormat }));
+    }, [oddsFormat]);
     const formatMoney = (value) => {
         if (unlimitedBalance) return 'Unlimited';
         if (value === null || value === undefined || value === '') return '—';
@@ -566,22 +578,28 @@ const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, 
                                     borderRadius: '4px',
                                     overflow: 'hidden'
                                 }}>
-                                    <div style={{
-                                        padding: '12px 15px',
-                                        background: '#004d26',
-                                        color: 'white',
-                                        fontWeight: 'bold',
-                                        borderBottom: '1px solid #ccc',
-                                        cursor: 'pointer'
-                                    }}>
+                                    <div
+                                        style={{
+                                            padding: '12px 15px',
+                                            background: oddsFormat === 'american' ? '#004d26' : 'white',
+                                            color: oddsFormat === 'american' ? 'white' : '#333',
+                                            fontWeight: 'bold',
+                                            borderBottom: '1px solid #ccc',
+                                            cursor: 'pointer'
+                                        }}
+                                        onClick={() => setOddsFormat('american')}
+                                    >
                                         American
                                     </div>
-                                    <div style={{
-                                        padding: '12px 15px',
-                                        background: 'white',
-                                        color: '#333',
-                                        cursor: 'pointer'
-                                    }}>
+                                    <div
+                                        style={{
+                                            padding: '12px 15px',
+                                            background: oddsFormat === 'decimal' ? '#004d26' : 'white',
+                                            color: oddsFormat === 'decimal' ? 'white' : '#333',
+                                            cursor: 'pointer'
+                                        }}
+                                        onClick={() => setOddsFormat('decimal')}
+                                    >
                                         Decimal
                                     </div>
                                 </div>

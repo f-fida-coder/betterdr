@@ -76,6 +76,27 @@
   cursor: pointer;
 }
 
+.home-nav-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  line-height: 1;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.home-nav-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+  border-color: rgba(255, 255, 255, 0.55);
+}
+
 .admin-header-right {
   display: flex;
   align-items: center;
@@ -301,30 +322,38 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  padding: 30px 20px;
+  gap: 8px;
+  padding: 16px 12px;
   border: none;
   border-radius: 8px;
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
   font-weight: 600;
   color: white;
-  min-height: 140px;
+  min-height: 112px;
+  border: 1px solid rgba(255, 255, 255, 0.7);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
 .grid-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15);
 }
 
 .card-icon {
+  display: block;
+  line-height: 1;
+}
+
+.card-icon i {
   font-size: 36px;
 }
 
 .card-label {
   font-size: 14px;
   text-align: center;
+  line-height: 1.2;
+  text-shadow: none;
 }
 
 /* Mobile Optimizations */
@@ -810,6 +839,290 @@
   color: #f35f1f;
 }
 
+.alert {
+  padding: 10px 12px;
+  border-radius: 6px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.alert.error {
+  background: #fde8ea;
+  color: #8b1d2c;
+  border: 1px solid #f5c2c7;
+}
+
+.alert.success {
+  background: #e8f7ec;
+  color: #1b6c34;
+  border: 1px solid #b7e4c7;
+}
+
+.cashier-v2 {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.cashier-top-filters {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  background: #f3f4f6;
+  border: 1px solid #d9dde3;
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.cashier-top-filters select {
+  padding: 8px 12px;
+  border: 1px solid #d1a94e;
+  border-radius: 4px;
+  background: #fff;
+  min-width: 170px;
+}
+
+.cashier-agent-filter {
+  display: inline-flex;
+  align-items: center;
+  background: #fff;
+  border: 1px solid #d9dde3;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.cashier-agent-filter span {
+  padding: 8px 10px;
+  background: #eceff4;
+  font-weight: 600;
+  color: #374151;
+  border-right: 1px solid #d9dde3;
+}
+
+.cashier-agent-filter input {
+  border: none;
+  padding: 8px 10px;
+  min-width: 200px;
+}
+
+.cashier-agent-filter input:focus {
+  outline: none;
+}
+
+.cashier-grid-wrap {
+  border: 1px solid #d9dde3;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.cashier-entry-table thead {
+  background: #182d3f;
+}
+
+.cashier-entry-table th {
+  color: #e5edf5;
+  text-transform: none;
+  font-size: 13px;
+  letter-spacing: 0;
+}
+
+.cashier-entry-table td {
+  vertical-align: top;
+}
+
+.cashier-entry-table input,
+.cashier-entry-table select {
+  width: 100%;
+  min-width: 120px;
+  padding: 7px 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  background: #fff;
+}
+
+.cashier-customer-cell {
+  display: flex;
+  align-items: stretch;
+  min-width: 240px;
+}
+
+.cashier-find-btn {
+  border: 1px solid #aeb6c2;
+  border-right: none;
+  background: #f0f2f5;
+  color: #334155;
+  min-width: 48px;
+  padding: 0 8px;
+  border-radius: 4px 0 0 4px;
+  cursor: default;
+}
+
+.cashier-customer-search {
+  position: relative;
+  flex: 1;
+}
+
+.cashier-customer-search input {
+  border-radius: 0 4px 4px 0;
+}
+
+.cashier-search-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 35;
+  background: #fff;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+}
+
+.cashier-search-item {
+  width: 100%;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cashier-search-item:hover {
+  background: #eff6ff;
+}
+
+.cashier-search-item span {
+  font-weight: 700;
+  color: #0f172a;
+  font-size: 12px;
+}
+
+.cashier-search-item small {
+  color: #6b7280;
+  font-size: 11px;
+}
+
+.cashier-search-empty {
+  padding: 10px;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.cashier-num {
+  font-weight: 700;
+  color: #1f2937;
+  white-space: nowrap;
+}
+
+.cashier-amount-wrap {
+  display: flex;
+  gap: 8px;
+}
+
+.cashier-amount-wrap input {
+  min-width: 100px;
+}
+
+.cashier-zero-btn {
+  border: none;
+  background: #3ba6d9;
+  color: #fff;
+  border-radius: 4px;
+  padding: 0 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.cashier-continue-btn {
+  border: none;
+  background: #0fb25f;
+  color: #fff;
+  border-radius: 4px;
+  padding: 8px 14px;
+  min-width: 95px;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.cashier-continue-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.cashier-row-error {
+  margin-top: 6px;
+  font-size: 11px;
+  color: #b91c1c;
+}
+
+.cashier-agent-mode {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cashier-agent-card {
+  border: 1px solid #ccd6df;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.cashier-agent-head {
+  width: 100%;
+  border: none;
+  background: #1c3245;
+  color: #f1f5f9;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.cashier-agent-body {
+  padding: 0;
+}
+
+.cashier-empty {
+  padding: 16px;
+  text-align: center;
+  border: 1px dashed #c8d0da;
+  border-radius: 8px;
+  color: #6b7280;
+  background: #fff;
+}
+
+@media (max-width: 900px) {
+  .cashier-top-filters {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .cashier-agent-filter {
+    width: 100%;
+  }
+
+  .cashier-agent-filter input {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .cashier-grid-wrap,
+  .cashier-agent-card {
+    overflow-x: auto;
+  }
+}
+
 /* Messaging View */
 .messaging-container {
   width: 100%;
@@ -1257,7 +1570,11 @@
   }
 
   .card-icon {
-    font-size: 28px;
+    display: block;
+  }
+
+  .card-icon i {
+    font-size: 24px;
   }
 
   .card-label {
@@ -1321,6 +1638,10 @@
     gap: 10px;
   }
 
+  .home-nav-btn span:last-child {
+    display: none;
+  }
+
   .admin-title {
     font-size: 18px;
   }
@@ -1355,7 +1676,11 @@
   }
 
   .card-icon {
-    font-size: 24px;
+    display: block;
+  }
+
+  .card-icon i {
+    font-size: 20px;
   }
 
   .card-label {

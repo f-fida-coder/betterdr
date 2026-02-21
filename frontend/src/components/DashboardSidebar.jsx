@@ -14,12 +14,16 @@ const SidebarItem = ({
     const isSelected = selectedIds.includes(item.id);
     const hasChildren = (item.children && item.children.length > 0) || item.hasChildren;
 
-    const handleExpandClick = (e) => {
+    const handleExpandClick = () => {
+        const isSelectable = item.selectable !== false;
         if (hasChildren) {
             onToggleExpand(item.id);
-        } else {
-            onToggle(item.id);
+            if (isSelectable) {
+                onToggle(item.id);
+            }
+            return;
         }
+        onToggle(item.id);
     };
 
     const handleCheckboxChange = (e) => {

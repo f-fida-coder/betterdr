@@ -146,6 +146,30 @@ function CustomerAdminView({ onViewChange }) {
         setError('Please login to create users.');
         return;
       }
+      const requiredIdentityMissing =
+        !String(newCustomer.username || '').trim() ||
+        !String(newCustomer.firstName || '').trim() ||
+        !String(newCustomer.lastName || '').trim() ||
+        !String(newCustomer.phoneNumber || '').trim() ||
+        !String(newCustomer.password || '').trim();
+
+      if (requiredIdentityMissing) {
+        setError('Username, first name, last name, phone number, and password are required.');
+        return;
+      }
+
+      if (creationType === 'player') {
+        const requiredLimitsMissing =
+          String(newCustomer.minBet ?? '').trim() === '' ||
+          String(newCustomer.maxBet ?? '').trim() === '' ||
+          String(newCustomer.creditLimit ?? '').trim() === '' ||
+          String(newCustomer.balanceOwed ?? '').trim() === '';
+        if (requiredLimitsMissing) {
+          setError('Min bet, max bet, credit limit, and settle limit are required for players.');
+          return;
+        }
+      }
+
       const payload = { ...newCustomer };
       if (payload.balance === '') delete payload.balance;
       if (!payload.referredByUserId) delete payload.referredByUserId;
@@ -414,6 +438,20 @@ function CustomerAdminView({ onViewChange }) {
     if (Number.isNaN(num)) return '—';
     return `$${num.toFixed(2)}`;
   };
+
+  const canCreateCustomer = !viewOnly
+    && !createLoading
+    && !!String(newCustomer.username || '').trim()
+    && !!String(newCustomer.firstName || '').trim()
+    && !!String(newCustomer.lastName || '').trim()
+    && !!String(newCustomer.phoneNumber || '').trim()
+    && !!String(newCustomer.password || '').trim()
+    && (creationType !== 'player' || (
+      String(newCustomer.minBet ?? '').trim() !== ''
+      && String(newCustomer.maxBet ?? '').trim() !== ''
+      && String(newCustomer.creditLimit ?? '').trim() !== ''
+      && String(newCustomer.balanceOwed ?? '').trim() !== ''
+    ));
 
   const handleAdjustBalance = (customer) => {
     setBalanceForm({
@@ -1320,7 +1358,7 @@ function CustomerAdminView({ onViewChange }) {
                   className="btn-primary"
                   style={{ flex: 1 }}
                   onClick={handleCreateCustomer}
-                  disabled={viewOnly || createLoading || !newCustomer.username || !newCustomer.phoneNumber}
+                  disabled={!canCreateCustomer}
                 >
                   {createLoading ? 'Deploying...' : `Create ${creationType === 'player' ? 'Player' : creationType === 'agent' ? 'Agent' : 'Master Agent'}`}
                 </button>

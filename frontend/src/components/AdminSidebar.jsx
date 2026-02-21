@@ -1,7 +1,7 @@
 import React from 'react';
 import { hasViewPermission } from '../utils/adminPermissions';
 
-function AdminSidebar({ activeView, onViewChange, isOpen, role = 'admin', permissions = null }) {
+function AdminSidebar({ activeView, onViewChange, onOpenScoreboard, isOpen, role = 'admin', permissions = null }) {
 
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: '🏠', roles: ['admin', 'agent', 'super_agent', 'master_agent'] },
@@ -50,7 +50,13 @@ function AdminSidebar({ activeView, onViewChange, isOpen, role = 'admin', permis
           <button
             key={item.id}
             className={`nav-item ${activeView === item.id ? 'active' : ''}`}
-            onClick={() => { console.log('AdminSidebar: clicked', item.id); onViewChange(item.id); }}
+            onClick={() => {
+              if (item.id === 'scores' && typeof onOpenScoreboard === 'function') {
+                onOpenScoreboard();
+                return;
+              }
+              onViewChange(item.id);
+            }}
             title={item.label}
           >
             <span className="nav-icon">{item.icon}</span>

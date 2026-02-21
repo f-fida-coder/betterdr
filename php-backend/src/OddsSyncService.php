@@ -36,18 +36,22 @@ final class OddsSyncService
         $scoresByExternalId = [];
 
         if ($scoresEnabled) {
+            $scoreUrlsBySport = [];
             foreach ($sports as $sportKey) {
                 $scoreQuery = ['apiKey' => $apiKey, 'dateFormat' => 'iso'];
                 if ($scoresDaysFrom > 0) {
                     $scoreQuery['daysFrom'] = $scoresDaysFrom;
                 }
 
-                $scoreUrl = $apiBase . '/sports/' . rawurlencode($sportKey) . '/scores?' . http_build_query($scoreQuery);
-                $scoreRaw = self::httpGet($scoreUrl);
+                $scoreUrlsBySport[$sportKey] = $apiBase . '/sports/' . rawurlencode($sportKey) . '/scores?' . http_build_query($scoreQuery);
+            }
+
+            $scoreResponses = self::httpGetMany($scoreUrlsBySport);
+            foreach ($scoreResponses as $sportKey => $scoreRaw) {
+                $result['apiCalls']++;
                 if ($scoreRaw === null) {
                     continue;
                 }
-                $result['apiCalls']++;
 
                 $scoreRows = json_decode($scoreRaw, true);
                 if (!is_array($scoreRows)) {
@@ -62,6 +66,7 @@ final class OddsSyncService
             }
         }
 
+        $oddsUrlsBySport = [];
         foreach ($sports as $sportKey) {
             $query = [
                 'apiKey' => $apiKey,
@@ -73,8 +78,11 @@ final class OddsSyncService
                 $query['bookmakers'] = $bookmakers;
             }
 
-            $url = $apiBase . '/sports/' . rawurlencode($sportKey) . '/odds?' . http_build_query($query);
-            $raw = self::httpGet($url);
+            $oddsUrlsBySport[$sportKey] = $apiBase . '/sports/' . rawurlencode($sportKey) . '/odds?' . http_build_query($query);
+        }
+
+        $oddsResponses = self::httpGetMany($oddsUrlsBySport);
+        foreach ($oddsResponses as $sportKey => $raw) {
             $result['apiCalls']++;
             if ($raw === null) {
                 continue;
@@ -154,6 +162,83 @@ final class OddsSyncService
         }
 
         return $result;
+    }
+
+    /**
+     * @param array<string, string> $urlsByKey
+     * @return array<string, string|null>
+     */
+    private static function httpGetMany(array $urlsByKey): array
+    {
+        $responses = [];
+        if ($urlsByKey === []) {
+            return $responses;
+        }
+
+        $multi = curl_multi_init();
+        if ($multi === false) {
+            foreach ($urlsByKey as $key => $url) {
+                $responses[$key] = self::httpGet($url);
+            }
+            return $responses;
+        }
+
+        $handles = [];
+        try {
+            foreach ($urlsByKey as $key => $url) {
+                $ch = curl_init($url);
+                if ($ch === false) {
+                    $responses[$key] = null;
+                    continue;
+                }
+
+                curl_setopt_array($ch, [
+                    CURLOPT_RETURNTRANSFER => true,
+                    CURLOPT_TIMEOUT => 20,
+                    CURLOPT_CONNECTTIMEOUT => 5,
+                ]);
+
+                $handles[$key] = $ch;
+                curl_multi_add_handle($multi, $ch);
+            }
+
+            do {
+                $status = curl_multi_exec($multi, $running);
+                if ($status > CURLM_OK) {
+                    break;
+                }
+                if ($running > 0) {
+                    $selectResult = curl_multi_select($multi, 1.0);
+                    if ($selectResult === -1) {
+                        usleep(10000);
+                    }
+                }
+            } while ($running > 0);
+
+            foreach ($handles as $key => $ch) {
+                $raw = curl_multi_getcontent($ch);
+                $statusCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                if ($raw === false || $statusCode >= 400) {
+                    $responses[$key] = null;
+                } else {
+                    $responses[$key] = (string) $raw;
+                }
+            }
+        } finally {
+            foreach ($handles as $ch) {
+                curl_multi_remove_handle($multi, $ch);
+                curl_close($ch);
+            }
+            curl_multi_close($multi);
+        }
+
+        foreach ($urlsByKey as $key => $_url) {
+            if (!array_key_exists($key, $responses)) {
+                $responses[$key] = null;
+            }
+        }
+
+        return $responses;
     }
 
     private static function httpGet(string $url): ?string

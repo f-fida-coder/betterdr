@@ -3360,9 +3360,15 @@ final class AdminCoreController
             $username = trim((string) ($body['username'] ?? ''));
             $phoneNumber = trim((string) ($body['phoneNumber'] ?? ''));
             $password = (string) ($body['password'] ?? '');
+            $firstNameRaw = trim((string) ($body['firstName'] ?? ''));
+            $lastNameRaw = trim((string) ($body['lastName'] ?? ''));
 
             if ($username === '' || $phoneNumber === '' || $password === '') {
                 Response::json(['message' => 'Username, phone number, and password are required'], 400);
+                return;
+            }
+            if ($firstNameRaw === '' || $lastNameRaw === '') {
+                Response::json(['message' => 'First name and last name are required'], 400);
                 return;
             }
             if ($this->existsUsernameOrPhone($username, $phoneNumber)) {
@@ -3419,8 +3425,8 @@ final class AdminCoreController
                 }
             }
 
-            $firstName = strtoupper(trim((string) ($body['firstName'] ?? '')));
-            $lastName = strtoupper(trim((string) ($body['lastName'] ?? '')));
+            $firstName = strtoupper($firstNameRaw);
+            $lastName = strtoupper($lastNameRaw);
             $fullName = strtoupper(trim((string) ($body['fullName'] ?? '')));
             if ($fullName === '') {
                 $fullName = strtoupper(trim(($firstName . ' ' . $lastName)) !== '' ? trim($firstName . ' ' . $lastName) : $username);
@@ -3603,6 +3609,18 @@ final class AdminCoreController
             $nextBalance = max(0, (float) $body['balance']);
             $balanceBefore = $this->num($user['balance'] ?? 0);
             $diff = $nextBalance - $balanceBefore;
+            $requestedType = strtolower(trim((string) ($body['type'] ?? 'adjustment')));
+            $txType = in_array($requestedType, ['adjustment', 'deposit', 'withdrawal'], true) ? $requestedType : 'adjustment';
+            $txReason = trim((string) ($body['reason'] ?? ''));
+            if ($txReason === '') {
+                $txReason = 'ADMIN_BALANCE_ADJUSTMENT';
+            }
+            $txDescription = trim((string) ($body['description'] ?? ''));
+            if ($txDescription === '') {
+                $txDescription = is_array($agent)
+                    ? ('Agent ' . (string) ($agent['username'] ?? '') . ' updated user balance')
+                    : 'Admin updated user balance';
+            }
 
             if (is_array($agent)) {
                 $agentBalance = $this->num($agent['balance'] ?? 0);
@@ -3625,15 +3643,13 @@ final class AdminCoreController
                 'userId' => new ObjectId($id),
                 'adminId' => new ObjectId((string) ($actor['_id'] ?? '')),
                 'amount' => abs($diff),
-                'type' => 'adjustment',
+                'type' => $txType,
                 'status' => 'completed',
                 'balanceBefore' => $balanceBefore,
                 'balanceAfter' => $nextBalance,
                 'referenceType' => 'Adjustment',
-                'reason' => 'ADMIN_BALANCE_ADJUSTMENT',
-                'description' => is_array($agent)
-                    ? ('Agent ' . (string) ($agent['username'] ?? '') . ' updated user balance')
-                    : 'Admin updated user balance',
+                'reason' => $txReason,
+                'description' => $txDescription,
                 'createdAt' => MongoRepository::nowUtc(),
                 'updatedAt' => MongoRepository::nowUtc(),
             ]);

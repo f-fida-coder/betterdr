@@ -96,8 +96,17 @@ function AdminHeader({ onMenuToggle, onLogout, onViewChange }) {
 
   return (
     <div className="admin-header">
-      <div className="admin-header-top">
+        <div className="admin-header-top">
         <div className="admin-header-left">
+          <button
+            type="button"
+            className="home-nav-btn"
+            onClick={() => handleViewChange('dashboard')}
+            aria-label="Go to admin home"
+          >
+            <span aria-hidden="true">🏠</span>
+            <span>Home</span>
+          </button>
           <button className="mobile-menu-toggle" onClick={onMenuToggle}>
             ☰
           </button>

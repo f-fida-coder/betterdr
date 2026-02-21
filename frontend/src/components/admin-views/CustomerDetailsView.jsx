@@ -17,6 +17,8 @@ const DEFAULT_FORM = {
   password: '',
   firstName: '',
   lastName: '',
+  phoneNumber: '',
+  minBet: 0,
   agentId: '',
   status: 'active',
   creditLimit: 0,
@@ -183,6 +185,8 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
           password: '',
           firstName: user.firstName || '',
           lastName: user.lastName || '',
+          phoneNumber: user.phoneNumber || '',
+          minBet: Number(user.minBet || 0),
           agentId: user.agentId?._id || user.agentId || '',
           status: (user.status || 'active').toLowerCase(),
           creditLimit: Number(user.creditLimit || 0),
@@ -490,8 +494,10 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
       const payload = {
         firstName: form.firstName.trim(),
         lastName: form.lastName.trim(),
+        phoneNumber: form.phoneNumber.trim(),
         fullName: fullName,
         status: form.status,
+        minBet: Number(form.minBet || 0),
         creditLimit: Number(form.creditLimit || 0),
         maxBet: Number(form.wagerLimit || 0),
         wagerLimit: Number(form.wagerLimit || 0),
@@ -1319,21 +1325,32 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
 
       <div className="basics-grid">
         <div className="col-card">
+          <label>First Name</label>
+          <input
+            value={form.firstName}
+            placeholder="Enter first name"
+            onChange={(e) => setField('firstName', e.target.value)}
+          />
+
+          <label>Last Name</label>
+          <input
+            value={form.lastName}
+            placeholder="Enter last name"
+            onChange={(e) => setField('lastName', e.target.value)}
+          />
+
+          <label>Phone Number</label>
+          <input
+            type="tel"
+            value={form.phoneNumber}
+            placeholder="Enter phone number"
+            onChange={(e) => setField('phoneNumber', e.target.value)}
+          />
+
           <label>Password</label>
           <input value={form.password} placeholder={displayPassword} onChange={(e) => setField('password', e.target.value)} />
 
-          <label>Name</label>
-          <input
-            value={fullName}
-            placeholder="Enter full name"
-            onChange={(e) => {
-              const parts = e.target.value.trim().split(/\s+/).filter(Boolean);
-              setField('firstName', parts[0] || '');
-              setField('lastName', parts.slice(1).join(' '));
-            }}
-          />
-
-          <label>Agent</label>
+          <label>Master Agent</label>
           {['admin', 'super_agent', 'master_agent'].includes(role) ? (
             <select value={form.agentId} onChange={(e) => setField('agentId', e.target.value)}>
               <option value="">None</option>
@@ -1376,11 +1393,14 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
             <option value="post_up">Post Up</option>
           </select>
 
+          <label>Min bet</label>
+          <input type="number" value={form.minBet} onChange={(e) => setField('minBet', e.target.value)} />
+
+          <label>Max bet</label>
+          <input type="number" value={form.wagerLimit} onChange={(e) => setField('wagerLimit', e.target.value)} />
+
           <label>Credit Limit</label>
           <input type="number" value={form.creditLimit} onChange={(e) => setField('creditLimit', e.target.value)} />
-
-          <label>Wager Limit</label>
-          <input type="number" value={form.wagerLimit} onChange={(e) => setField('wagerLimit', e.target.value)} />
 
           <label>Settle Limit</label>
           <input type="number" value={form.settleLimit} onChange={(e) => setField('settleLimit', e.target.value)} />
@@ -1394,9 +1414,6 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
 
           <label>Temporary Credit</label>
           <input type="number" value={form.tempCredit} onChange={(e) => setField('tempCredit', e.target.value)} />
-
-          <label>Expires On</label>
-          <input type="date" value={form.expiresOn} onChange={(e) => setField('expiresOn', e.target.value)} />
         </div>
 
         <div className="col-card">
@@ -1417,6 +1434,9 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
             <option value="bonus_credit">Bonus Credit</option>
             <option value="none">None</option>
           </select>
+
+          <label>Expires On</label>
+          <input type="date" value={form.expiresOn} onChange={(e) => setField('expiresOn', e.target.value)} />
 
           <label>Player Notes</label>
           <textarea rows={9} placeholder="For agent reference only" value={form.playerNotes} onChange={(e) => setField('playerNotes', e.target.value)} />

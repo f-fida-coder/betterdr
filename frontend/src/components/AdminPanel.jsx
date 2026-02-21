@@ -32,6 +32,7 @@ import FAQView from './admin-views/FAQView';
 import UserManualView from './admin-views/UserManualView';
 import SystemMonitorView from './admin-views/SystemMonitorView';
 import ProfileView from './admin-views/ProfileView';
+import ScoreboardSidebar from './ScoreboardSidebar';
 import '../admin.css';
 import { canManageIpTracker, hasViewPermission } from '../utils/adminPermissions';
 
@@ -57,6 +58,7 @@ function AdminPanel({ onExit, role = 'admin' }) {
   const [layoutPref, setLayoutPref] = useState('tiles');
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
   const [permissions, setPermissions] = useState(null);
+  const [showScoreboard, setShowScoreboard] = useState(false);
 
   useEffect(() => {
     const fetchPref = async () => {
@@ -111,7 +113,16 @@ function AdminPanel({ onExit, role = 'admin' }) {
   const renderView = () => {
     switch (adminView) {
       case 'dashboard':
-        return <AdminDashboard onMenuClick={handleViewChange} role={role} layoutPref={layoutPref} isMobile={isMobile} permissions={permissions} />;
+        return (
+          <AdminDashboard
+            onMenuClick={handleViewChange}
+            onOpenScoreboard={() => setShowScoreboard(true)}
+            role={role}
+            layoutPref={layoutPref}
+            isMobile={isMobile}
+            permissions={permissions}
+          />
+        );
       case 'user-details':
         return (
           <CustomerDetailsView
@@ -183,7 +194,7 @@ function AdminPanel({ onExit, role = 'admin' }) {
       case 'monitor':
         return <SystemMonitorView />;
       default:
-        return <AdminDashboard onMenuClick={handleViewChange} role={role} permissions={permissions} />;
+        return <AdminDashboard onMenuClick={handleViewChange} onOpenScoreboard={() => setShowScoreboard(true)} role={role} permissions={permissions} />;
     }
   };
 
@@ -198,6 +209,7 @@ function AdminPanel({ onExit, role = 'admin' }) {
         <AdminSidebar
           activeView={adminView}
           onViewChange={handleViewChange}
+          onOpenScoreboard={() => setShowScoreboard(true)}
           isOpen={mobileSidebarOpen}
           role={role}
           permissions={permissions}
@@ -208,6 +220,7 @@ function AdminPanel({ onExit, role = 'admin' }) {
           </ErrorBoundary>
         </div>
       </div>
+      {showScoreboard && <ScoreboardSidebar onClose={() => setShowScoreboard(false)} />}
     </div>
   );
 }

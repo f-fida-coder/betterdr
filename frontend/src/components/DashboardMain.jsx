@@ -57,6 +57,10 @@ const DashboardMain = ({ selectedSports = [], activeBetMode = 'straight' }) => {
             return [{ sportId: null, filter: null, status: 'upcoming' }];
         }
 
+        if (selectedSports.includes('featured')) {
+            return [{ sportId: null, filter: null, status: 'live-upcoming' }];
+        }
+
         if (selectedSports.includes('commercial-live')) {
             return [{ sportId: null, filter: null, status: 'live' }];
         }
@@ -102,6 +106,15 @@ const DashboardMain = ({ selectedSports = [], activeBetMode = 'straight' }) => {
                 if (!addedSports.has('nfl')) {
                     sections.push({ sportId: 'nfl', filter: id });
                     addedSports.add('nfl');
+                }
+            }
+            else if (id === 'ncaa-football' && !addedSports.has('ncaaf')) {
+                sections.push({ sportId: 'ncaaf', filter: null });
+                addedSports.add('ncaaf');
+            } else if (id.startsWith('ncaa-') && (id.includes('half') || id.includes('quarter'))) {
+                if (!addedSports.has('ncaaf')) {
+                    sections.push({ sportId: 'ncaaf', filter: id });
+                    addedSports.add('ncaaf');
                 }
             }
             else if (id === 'nfl-1st-scoring' || id === 'nfl-1st-td-scorer' || id === 'nfl-anytime-td' || id === 'nfl-margin-victory' || id === 'nfl-player-props') {

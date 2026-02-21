@@ -285,6 +285,314 @@
             border-radius: 1px;
             width: 152px
         }
+
+        .ac-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.55);
+            z-index: 999999;
+            display: none;
+            align-items: flex-start;
+            justify-content: center;
+            padding-top: 110px;
+        }
+
+        .ac-modal {
+            width: 100%;
+            max-width: 520px;
+            background: #fff;
+            border-radius: 4px;
+            box-shadow: 0 14px 30px rgba(0, 0, 0, 0.26);
+            overflow: hidden;
+        }
+
+        .ac-modal-header {
+            background: #004b66;
+            color: #fff;
+            padding: 11px 14px;
+            font-size: 18px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .ac-modal-header button {
+            background: transparent;
+            border: 0;
+            color: #fff;
+            font-size: 22px;
+            cursor: pointer;
+            line-height: 1;
+        }
+
+        .ac-modal-options {
+            padding: 14px;
+            display: grid;
+            gap: 10px;
+        }
+
+        .ac-choice {
+            border: 1px solid #d9d9d9;
+            padding: 14px;
+            display: grid;
+            grid-template-columns: 58px 1fr;
+            gap: 8px;
+            text-align: left;
+            cursor: pointer;
+            background: #fafafa;
+        }
+
+        .ac-choice:hover {
+            background: #f2f7fa;
+            border-color: #9ec3d3;
+        }
+
+        .ac-choice i {
+            font-size: 28px;
+            color: #3f4b53;
+            margin-top: 4px;
+        }
+
+        .ac-choice-title {
+            margin: 0;
+            font-weight: 700;
+            color: #2e3236;
+        }
+
+        .ac-choice-text {
+            margin: 0;
+            color: #444;
+        }
+
+        .ac-page {
+            background: #f2f2f2;
+            border: 1px solid #d8d8d8;
+            margin-bottom: 16px;
+        }
+
+        .ac-page-header {
+            background: #004b66;
+            color: #fff;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 14px;
+            font-size: 16px;
+        }
+
+        .ac-page-body {
+            padding: 14px;
+        }
+
+        .ac-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 14px 16px;
+            align-items: end;
+        }
+
+        .ac-grid-5 {
+            grid-template-columns: repeat(5, minmax(0, 1fr));
+        }
+
+        .ac-field {
+            min-width: 0;
+        }
+
+        .ac-field label {
+            display: block;
+            margin-bottom: 6px;
+            font-size: 14px;
+            color: #3e3e3e;
+        }
+
+        .ac-input,
+        .ac-find-group button {
+            width: 100%;
+            height: 44px;
+            border: 1px solid #c9c9c9;
+            border-radius: 3px;
+            padding: 0 11px;
+            font-size: 14px;
+            background: #fff;
+        }
+
+        .ac-find-group {
+            display: grid;
+            grid-template-columns: 54px 1fr;
+        }
+
+        .ac-find-group button {
+            padding: 0;
+            border-radius: 3px 0 0 3px;
+            border-right: 0;
+            background: #e6e8ea;
+        }
+
+        .ac-find-group .ac-input {
+            border-radius: 0 3px 3px 0;
+        }
+
+        .ac-note {
+            margin: 14px 0 2px;
+            color: #3d3d3d;
+            font-size: 14px;
+        }
+
+        .ac-row-toggle {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            min-height: 44px;
+            white-space: nowrap;
+        }
+
+        .ac-switch {
+            position: relative;
+            width: 54px;
+            height: 28px;
+            display: inline-block;
+        }
+
+        .ac-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .ac-slider {
+            position: absolute;
+            inset: 0;
+            border-radius: 30px;
+            background: #c9ccd1;
+            transition: 0.2s;
+        }
+
+        .ac-slider:before {
+            content: "";
+            position: absolute;
+            width: 22px;
+            height: 22px;
+            left: 3px;
+            top: 3px;
+            border-radius: 50%;
+            background: #fff;
+            transition: 0.2s;
+        }
+
+        .ac-switch input:checked + .ac-slider {
+            background: #10a64b;
+        }
+
+        .ac-switch input:checked + .ac-slider:before {
+            transform: translateX(26px);
+        }
+
+        .ac-btn-continue {
+            border: 0;
+            color: #fff;
+            background: #39b54a;
+            border-radius: 3px;
+            font-size: 14px;
+            height: 36px;
+            min-width: 146px;
+            padding: 0 12px;
+            cursor: pointer;
+        }
+
+        .ac-feedback {
+            margin-top: 10px;
+            padding: 8px 10px;
+            border-radius: 3px;
+            font-size: 13px;
+            display: none;
+        }
+
+        .ac-feedback.success {
+            background: #e6f6ea;
+            color: #1a7f38;
+            border: 1px solid #bde3c6;
+            display: block;
+        }
+
+        .ac-feedback.error {
+            background: #fdeaea;
+            color: #b02020;
+            border: 1px solid #f2c8c8;
+            display: block;
+        }
+
+        .ac-records {
+            border: 1px solid #dadada;
+            background: #fff;
+            margin-bottom: 20px;
+        }
+
+        .ac-records h4 {
+            margin: 0;
+            background: #f4f6f8;
+            border-bottom: 1px solid #dadada;
+            padding: 10px 12px;
+            font-size: 14px;
+        }
+
+        .ac-records table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .ac-records th,
+        .ac-records td {
+            border-bottom: 1px solid #ececec;
+            padding: 8px 10px;
+            font-size: 13px;
+            text-align: left;
+        }
+
+        .ac-records td:last-child,
+        .ac-records th:last-child {
+            text-align: right;
+        }
+
+        .ac-delete {
+            border: 0;
+            background: #d93025;
+            color: #fff;
+            border-radius: 3px;
+            height: 30px;
+            min-width: 74px;
+            font-size: 12px;
+            cursor: pointer;
+        }
+
+        .ac-muted {
+            color: #878787;
+            font-size: 13px;
+            padding: 10px;
+        }
+
+        @media (max-width: 1200px) {
+            .ac-grid,
+            .ac-grid-5 {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+        }
+
+        @media (max-width: 700px) {
+            .ac-overlay {
+                padding: 70px 10px 10px;
+            }
+
+            .ac-grid,
+            .ac-grid-5 {
+                grid-template-columns: 1fr;
+            }
+
+            .ac-page-header {
+                flex-wrap: wrap;
+                gap: 8px;
+            }
+        }
     </style>
 
 </head>
@@ -2281,6 +2589,747 @@
             waitSeconds: 0
         });
         require(['setting/config-manager']);
+    </script>
+    <script>
+        (function () {
+            var STORAGE_KEY = 'betterdr_odds_display_v2';
+            var DEFAULT_FORMAT = 'decimal';
+            var BIND_FLAG = 'data-odds-choice-bound';
+            var observerStarted = false;
+            var applyTimer = null;
+
+            function normalizeFormat(value) {
+                var raw = String(value || '').toLowerCase().trim();
+                if (raw === 'american') {
+                    return 'american';
+                }
+                if (raw === 'decimal') {
+                    return 'decimal';
+                }
+                return '';
+            }
+
+            function getStoredFormat() {
+                var stored = normalizeFormat(localStorage.getItem(STORAGE_KEY));
+                return stored || DEFAULT_FORMAT;
+            }
+
+            function setStoredFormat(format) {
+                var normalized = normalizeFormat(format) || DEFAULT_FORMAT;
+                localStorage.setItem(STORAGE_KEY, normalized);
+                // Mirror likely legacy keys used by older client code.
+                try {
+                    var shortType = normalized === 'american' ? 'A' : 'D';
+                    localStorage.setItem('ODDS-TYPE', shortType);
+                    sessionStorage.setItem('ODDS-TYPE', shortType);
+                    localStorage.setItem('ODDS_TYPE', shortType);
+                    sessionStorage.setItem('ODDS_TYPE', shortType);
+                } catch (err) {}
+                return normalized;
+            }
+
+            function americanToDecimal(value) {
+                var n = parseInt(value, 10);
+                if (!isFinite(n) || n === 0) {
+                    return null;
+                }
+                return n > 0 ? (1 + n / 100) : (1 + 100 / Math.abs(n));
+            }
+
+            function decimalToAmerican(value) {
+                var d = parseFloat(value);
+                if (!isFinite(d) || d <= 1) {
+                    return null;
+                }
+                if (d >= 2) {
+                    return '+' + Math.round((d - 1) * 100);
+                }
+                return String(Math.round(-100 / (d - 1)));
+            }
+
+            function extractDecimalBase(text) {
+                var raw = String(text || '').trim();
+                if (!raw) {
+                    return null;
+                }
+                if (/^[+-]\d{2,5}$/.test(raw)) {
+                    return americanToDecimal(raw);
+                }
+                if (/^\d+(?:\.\d{1,3})?$/.test(raw)) {
+                    var d = parseFloat(raw);
+                    if (d > 1 && d < 100) {
+                        return d;
+                    }
+                }
+                return null;
+            }
+
+            function renderOddsValue(baseDecimal, format) {
+                if (format === 'american') {
+                    return decimalToAmerican(baseDecimal);
+                }
+                return baseDecimal.toFixed(2);
+            }
+
+            function parseOddsToken(token) {
+                var raw = String(token || '').trim();
+                if (!raw) {
+                    return null;
+                }
+
+                if (/^[+-]\d{2,5}$/.test(raw)) {
+                    return americanToDecimal(raw);
+                }
+
+                if (/^\d+(?:\.\d{1,3})?$/.test(raw)) {
+                    var decimal = parseFloat(raw);
+                    if (isFinite(decimal) && decimal > 1 && decimal < 20) {
+                        return decimal;
+                    }
+                }
+
+                return null;
+            }
+
+            function buildOddsTemplate(text) {
+                var raw = String(text || '');
+                var tokens = [];
+                var index = 0;
+
+                function register(match, token) {
+                    var base = parseOddsToken(token);
+                    if (!isFinite(base)) {
+                        return match;
+                    }
+                    var marker = '__ODDS_TOKEN_' + index + '__';
+                    tokens.push({
+                        marker: marker,
+                        baseDecimal: base
+                    });
+                    index += 1;
+                    return match.replace(token, marker);
+                }
+
+                var templated = raw.replace(/\(([+-]?\d+(?:\.\d+)?)\)/g, function (match, token) {
+                    return register(match, token);
+                });
+
+                if (!tokens.length) {
+                    var trimmed = raw.trim();
+                    var baseWhole = parseOddsToken(trimmed);
+                    if (isFinite(baseWhole)) {
+                        var markerWhole = '__ODDS_TOKEN_0__';
+                        return {
+                            template: markerWhole,
+                            tokens: [{
+                                marker: markerWhole,
+                                baseDecimal: baseWhole
+                            }]
+                        };
+                    }
+                }
+
+                return {
+                    template: templated,
+                    tokens: tokens
+                };
+            }
+
+            function renderFromTemplate(oddsTemplate, format) {
+                if (!oddsTemplate || !oddsTemplate.template || !oddsTemplate.tokens || !oddsTemplate.tokens.length) {
+                    return null;
+                }
+                var out = oddsTemplate.template;
+                for (var i = 0; i < oddsTemplate.tokens.length; i += 1) {
+                    var token = oddsTemplate.tokens[i];
+                    var rendered = renderOddsValue(token.baseDecimal, format);
+                    if (!rendered) {
+                        return null;
+                    }
+                    out = out.split(token.marker).join(rendered);
+                }
+                return out;
+            }
+
+            function applyOddsToBoard(format) {
+                var normalized = normalizeFormat(format) || DEFAULT_FORMAT;
+                var selector = [
+                    '[data-odd]',
+                    '[data-odds]',
+                    '[data-price]',
+                    '.odds',
+                    '.odd',
+                    '.price',
+                    '.bet-price',
+                    '.selection-odds',
+                    '.line-odds',
+                    '.event-odds',
+                    'button[data-line]',
+                    '[data-content="main"] td',
+                    '[data-content="main"] a',
+                    '[data-content="main"] button',
+                    '[data-content="main"] span'
+                ].join(',');
+                var candidates = document.querySelectorAll(selector);
+                var seen = new Set();
+
+                for (var i = 0; i < candidates.length; i += 1) {
+                    var el = candidates[i];
+                    if (!el || seen.has(el)) {
+                        continue;
+                    }
+                    seen.add(el);
+                    // Convert only leaf-ish nodes so we do not rewrite large container text.
+                    if (el.childElementCount > 0 && !el.matches('[data-odd], [data-odds], [data-price], .odds, .odd, .price, .bet-price, .selection-odds, .line-odds, .event-odds, button[data-line]')) {
+                        continue;
+                    }
+                    var text = String(el.textContent || '').trim();
+                    if (!text) {
+                        continue;
+                    }
+                    if (text.length > 80) {
+                        continue;
+                    }
+
+                    var templateRaw = el.getAttribute('data-odds-template-v2');
+                    var template;
+                    if (templateRaw) {
+                        try {
+                            template = JSON.parse(templateRaw);
+                        } catch (err) {
+                            template = null;
+                        }
+                    }
+                    if (!template) {
+                        template = buildOddsTemplate(text);
+                        if (!template.tokens.length) {
+                            continue;
+                        }
+                        el.setAttribute('data-odds-template-v2', JSON.stringify(template));
+                    }
+
+                    var renderedText = renderFromTemplate(template, normalized);
+                    if (renderedText && renderedText !== text) {
+                        el.textContent = renderedText;
+                    }
+                }
+            }
+
+            function findOddsModal() {
+                var dialogs = document.querySelectorAll('.modal, [role="dialog"]');
+                for (var i = 0; i < dialogs.length; i += 1) {
+                    var modal = dialogs[i];
+                    if (!modal || !modal.offsetParent) {
+                        continue;
+                    }
+                    if (String(modal.textContent || '').toLowerCase().indexOf('odds display') !== -1) {
+                        return modal;
+                    }
+                }
+                return null;
+            }
+
+            function findChoiceRow(modal, format) {
+                if (!modal) {
+                    return null;
+                }
+                var nodes = modal.querySelectorAll('li, button, a, div, span, label');
+                for (var i = 0; i < nodes.length; i += 1) {
+                    var node = nodes[i];
+                    var text = normalizeFormat(node.textContent);
+                    if (text === format) {
+                        return node;
+                    }
+                }
+                return null;
+            }
+
+            function paintChoice(modal, activeFormat) {
+                var americanNode = findChoiceRow(modal, 'american');
+                var decimalNode = findChoiceRow(modal, 'decimal');
+                var active = normalizeFormat(activeFormat) || DEFAULT_FORMAT;
+                var list = [americanNode, decimalNode];
+
+                for (var i = 0; i < list.length; i += 1) {
+                    var node = list[i];
+                    if (!node) {
+                        continue;
+                    }
+                    var format = normalizeFormat(node.textContent);
+                    node.style.cursor = 'pointer';
+                    node.style.pointerEvents = 'auto';
+                    if (format === active) {
+                        node.style.background = '#005f2f';
+                        node.style.color = '#ffffff';
+                        node.classList.add('active', 'selected');
+                    } else {
+                        node.style.background = '';
+                        node.style.color = '';
+                        node.classList.remove('active', 'selected');
+                    }
+                }
+            }
+
+            function applyFormat(format, modal) {
+                var normalized = setStoredFormat(format);
+                applyOddsToBoard(normalized);
+                paintChoice(modal || findOddsModal(), normalized);
+                var fields = document.querySelectorAll('[data-field="odds-display"], [data-field="oddsDisplay"], [data-field="odds-type"], [name="odds-display"], [name="oddsDisplay"], [name="odds-type"]');
+                for (var i = 0; i < fields.length; i += 1) {
+                    var field = fields[i];
+                    if (field.tagName === 'SELECT') {
+                        for (var j = 0; j < field.options.length; j += 1) {
+                            var value = normalizeFormat(field.options[j].value) || normalizeFormat(field.options[j].textContent);
+                            if (value === normalized) {
+                                field.selectedIndex = j;
+                                if (typeof field.dispatchEvent === 'function') {
+                                    field.dispatchEvent(new Event('change', { bubbles: true }));
+                                }
+                                break;
+                            }
+                        }
+                    } else if ('value' in field) {
+                        field.value = normalized;
+                    }
+                }
+                try {
+                    document.dispatchEvent(new CustomEvent('odds-display:changed', { detail: { format: normalized } }));
+                } catch (err) {}
+            }
+
+            function scheduleReapply() {
+                if (applyTimer !== null) {
+                    clearTimeout(applyTimer);
+                }
+                applyTimer = setTimeout(function () {
+                    applyTimer = null;
+                    applyOddsToBoard(getStoredFormat());
+                    paintChoice(findOddsModal(), getStoredFormat());
+                }, 120);
+            }
+
+            function bindChoiceNode(node, format, modal) {
+                if (!node || node.getAttribute(BIND_FLAG) === '1') {
+                    return;
+                }
+                node.setAttribute(BIND_FLAG, '1');
+                node.style.cursor = 'pointer';
+                node.style.pointerEvents = 'auto';
+                node.addEventListener('click', function () {
+                    applyFormat(format, modal);
+                });
+                node.addEventListener('pointerdown', function () {
+                    applyFormat(format, modal);
+                });
+            }
+
+            function bindModal() {
+                var modal = findOddsModal();
+                if (!modal) {
+                    return;
+                }
+                bindChoiceNode(findChoiceRow(modal, 'american'), 'american', modal);
+                bindChoiceNode(findChoiceRow(modal, 'decimal'), 'decimal', modal);
+                paintChoice(modal, getStoredFormat());
+            }
+
+            function startBoardObserver() {
+                if (observerStarted || !window.MutationObserver) {
+                    return;
+                }
+                observerStarted = true;
+                var root = document.querySelector('[data-content="main"]') || document.body;
+                var observer = new MutationObserver(function () {
+                    scheduleReapply();
+                });
+                observer.observe(root, {
+                    childList: true,
+                    subtree: true,
+                    characterData: true
+                });
+            }
+
+            document.addEventListener('DOMContentLoaded', function () {
+                setStoredFormat(getStoredFormat());
+                applyOddsToBoard(getStoredFormat());
+                bindModal();
+                startBoardObserver();
+                setInterval(bindModal, 300);
+            });
+        }());
+    </script>
+
+    <script>
+        (function () {
+            var STORAGE_KEY = 'manager_add_customer_records_v1';
+            var parentChoices = {
+                agent: ['A1001 - North Agent', 'A1002 - East Agent', 'A1003 - Premium Agent'],
+                master: ['M2001 - Prime Master', 'M2002 - Legacy Master', 'M2003 - Direct Master']
+            };
+            var inheritChoices = ['Default Sports Profile', 'High Limits Profile', 'Casino Focused Profile'];
+            var state = {
+                currentMode: 'player',
+                messageType: '',
+                message: ''
+            };
+
+            function bySel(selector) {
+                return document.querySelector(selector);
+            }
+
+            function getRecords() {
+                try {
+                    var raw = localStorage.getItem(STORAGE_KEY);
+                    return raw ? JSON.parse(raw) : [];
+                } catch (err) {
+                    return [];
+                }
+            }
+
+            function setRecords(records) {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+            }
+
+            function escapeHtml(value) {
+                return String(value)
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;')
+                    .replace(/'/g, '&#39;');
+            }
+
+            function randomPassword() {
+                var chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+                var out = '';
+                for (var i = 0; i < 4; i += 1) {
+                    out += chars.charAt(Math.floor(Math.random() * chars.length));
+                }
+                return out;
+            }
+
+            function findClosestClickTarget(target, selector) {
+                return target && target.closest ? target.closest(selector) : null;
+            }
+
+            function selectorHtml() {
+                return '' +
+                    '<div class="ac-modal" role="dialog" aria-modal="true">' +
+                    '  <div class="ac-modal-header">' +
+                    '    <span>Add Customer</span>' +
+                    '    <button type="button" data-ac-close aria-label="Close">×</button>' +
+                    '  </div>' +
+                    '  <div class="ac-modal-options">' +
+                    '    <button class="ac-choice" type="button" data-ac-mode="player">' +
+                    '      <i class="fa fa-user-plus" aria-hidden="true"></i>' +
+                    '      <div><p class="ac-choice-title">Player</p><p class="ac-choice-text">Add one or many players to an agent.</p></div>' +
+                    '    </button>' +
+                    '    <button class="ac-choice" type="button" data-ac-mode="agent">' +
+                    '      <i class="fa fa-user-plus" aria-hidden="true"></i>' +
+                    '      <div><p class="ac-choice-title">Agent</p><p class="ac-choice-text">Add a new agent account. Agents can have players under them (not agents).</p></div>' +
+                    '    </button>' +
+                    '    <button class="ac-choice" type="button" data-ac-mode="master">' +
+                    '      <i class="fa fa-user-plus" aria-hidden="true"></i>' +
+                    '      <div><p class="ac-choice-title">Master</p><p class="ac-choice-text">Add a new Master agent account. Master agents can have agents under them (not players).</p></div>' +
+                    '    </button>' +
+                    '  </div>' +
+                    '</div>';
+            }
+
+            function recordRowsHtml() {
+                var rows = getRecords();
+                if (!rows.length) {
+                    return '<div class="ac-muted">No customer records created yet.</div>';
+                }
+
+                return '' +
+                    '<table>' +
+                    '  <thead><tr><th>Type</th><th>Username</th><th>Parent</th><th>Created</th><th>Action</th></tr></thead>' +
+                    '  <tbody>' +
+                    rows.map(function (item) {
+                        return '' +
+                            '<tr>' +
+                            '<td>' + escapeHtml(item.type) + '</td>' +
+                            '<td>' + escapeHtml(item.username) + '</td>' +
+                            '<td>' + escapeHtml(item.parent || '-') + '</td>' +
+                            '<td>' + escapeHtml(item.createdAt) + '</td>' +
+                            '<td><button class="ac-delete" type="button" data-ac-delete-record="' + escapeHtml(item.id) + '">Delete</button></td>' +
+                            '</tr>';
+                    }).join('') +
+                    '  </tbody>' +
+                    '</table>';
+            }
+
+            function pageHtml(mode) {
+                var title = mode === 'player' ? 'Add Player' : mode === 'agent' ? 'Add Agent' : 'Add Master Agent';
+                var body = '';
+
+                if (mode === 'player') {
+                    body = '' +
+                        '<div class="ac-grid">' +
+                        '  <div class="ac-field"><label>How many accounts to add?</label><input class="ac-input" id="ac-count" type="number" min="1" max="100" value="1"></div>' +
+                        '  <div class="ac-field"><label>Under which agent?</label><div class="ac-find-group"><button type="button" data-ac-find data-ac-role="agent" data-ac-target="ac-parent-player">Find</button><input class="ac-input" id="ac-parent-player" list="ac-agent-list" placeholder="Search accounts..."></div></div>' +
+                        '  <div class="ac-field"><label>Prefix</label><input class="ac-input" id="ac-prefix" maxlength="3"></div>' +
+                        '  <div class="ac-field"><label>Starting Account #</label><input class="ac-input" id="ac-start" type="number" min="1" value="1001"></div>' +
+                        '  <div class="ac-field"><label>Password base</label><input class="ac-input" id="ac-manual-password" maxlength="12" placeholder="Used when random is OFF"></div>' +
+                        '  <div class="ac-field ac-row-toggle"><label class="ac-switch"><input id="ac-random-toggle" type="checkbox" checked><span class="ac-slider"></span></label><span>Generate random password (ex: A7B3)</span></div>' +
+                        '</div>' +
+                        '<datalist id="ac-agent-list">' +
+                        parentChoices.agent.map(function (item) { return '<option value="' + escapeHtml(item) + '"></option>'; }).join('') +
+                        '</datalist>' +
+                        '<p class="ac-note">Player accounts are generated under a direct agent only.</p>';
+                } else {
+                    var explanation = mode === 'agent'
+                        ? 'You are creating an agent. This agent will be able to have players underneath it but NOT sub-agents. If this is what you want click Continue.'
+                        : 'You are creating a MASTER agent. This agent will be able to have sub-agents underneath it but NOT players. If this is what you want click Continue.';
+                    body = '' +
+                        '<div class="ac-grid ac-grid-5">' +
+                        '  <div class="ac-field"><label>Agent Name</label><input class="ac-input" id="ac-name" maxlength="20"></div>' +
+                        '  <div class="ac-field"><label>Agent Password</label><input class="ac-input" id="ac-password" maxlength="20"></div>' +
+                        (mode === 'agent' ? '<div class="ac-field"><label>Agent Prefix</label><input class="ac-input" id="ac-agent-prefix" maxlength="3"></div>' : '') +
+                        '  <div class="ac-field"><label>Under which Master Agent?</label><div class="ac-find-group"><button type="button" data-ac-find data-ac-role="master" data-ac-target="ac-parent-master">Find</button><input class="ac-input" id="ac-parent-master" list="ac-master-list" placeholder="Search accounts..."></div></div>' +
+                        '  <div class="ac-field"><label>Inherit Settings? <i class="fa fa-info-circle"></i></label><div class="ac-find-group"><button type="button" data-ac-find data-ac-role="inherit" data-ac-target="ac-inherit">Find</button><input class="ac-input" id="ac-inherit" list="ac-inherit-list" placeholder="Search accounts..."></div></div>' +
+                        '</div>' +
+                        '<datalist id="ac-master-list">' +
+                        parentChoices.master.map(function (item) { return '<option value="' + escapeHtml(item) + '"></option>'; }).join('') +
+                        '</datalist>' +
+                        '<datalist id="ac-inherit-list">' +
+                        inheritChoices.map(function (item) { return '<option value="' + escapeHtml(item) + '"></option>'; }).join('') +
+                        '</datalist>' +
+                        '<p class="ac-note">' + escapeHtml(explanation) + '</p>';
+                }
+
+                var feedbackClass = state.messageType ? 'ac-feedback ' + state.messageType : 'ac-feedback';
+
+                return '' +
+                    '<div class="ac-page">' +
+                    '  <div class="ac-page-header">' +
+                    '    <span>' + title + '</span>' +
+                    '    <button class="ac-btn-continue" type="button" data-ac-continue>Continue</button>' +
+                    '  </div>' +
+                    '  <div class="ac-page-body">' +
+                    body +
+                    '    <div id="ac-feedback" class="' + feedbackClass + '">' + escapeHtml(state.message) + '</div>' +
+                    '  </div>' +
+                    '</div>' +
+                    '<div class="ac-records">' +
+                    '  <h4>Recently Added Customers</h4>' +
+                    recordRowsHtml() +
+                    '</div>';
+            }
+
+            function showMessage(type, message) {
+                state.messageType = type;
+                state.message = message;
+                renderPage(state.currentMode);
+            }
+
+            function renderPage(mode) {
+                state.currentMode = mode;
+                var main = bySel('[data-content="main"]');
+                if (!main) {
+                    return;
+                }
+                main.innerHTML = pageHtml(mode);
+                var stats = bySel('[data-panel="stats"]');
+                if (stats) {
+                    stats.style.display = 'none';
+                }
+            }
+
+            function openSelector() {
+                var overlay = bySel('#ac-overlay');
+                if (!overlay) {
+                    overlay = document.createElement('div');
+                    overlay.id = 'ac-overlay';
+                    overlay.className = 'ac-overlay';
+                    overlay.innerHTML = selectorHtml();
+                    document.body.appendChild(overlay);
+                }
+                overlay.style.display = 'flex';
+            }
+
+            function closeSelector() {
+                var overlay = bySel('#ac-overlay');
+                if (overlay) {
+                    overlay.style.display = 'none';
+                }
+            }
+
+            function pickChoice(role, inputId) {
+                var target = bySel('#' + inputId);
+                if (!target) {
+                    return;
+                }
+                var list = role === 'inherit' ? inheritChoices : parentChoices[role] || [];
+                if (!list.length) {
+                    return;
+                }
+                target.value = list[0];
+                target.focus();
+            }
+
+            function validateInList(value, list) {
+                return list.indexOf(value) !== -1;
+            }
+
+            function nowString() {
+                var d = new Date();
+                return d.toLocaleString();
+            }
+
+            function onContinue() {
+                var records = getRecords();
+
+                if (state.currentMode === 'player') {
+                    var count = parseInt((bySel('#ac-count') || {}).value, 10);
+                    var parentAgent = (bySel('#ac-parent-player') || {}).value || '';
+                    var prefix = ((bySel('#ac-prefix') || {}).value || '').trim().toUpperCase();
+                    var start = parseInt((bySel('#ac-start') || {}).value, 10);
+                    var randomOn = !!((bySel('#ac-random-toggle') || {}).checked);
+                    var manualBase = ((bySel('#ac-manual-password') || {}).value || '').trim();
+
+                    if (!(count > 0 && count <= 100)) {
+                        showMessage('error', 'Enter account count between 1 and 100.');
+                        return;
+                    }
+
+                    if (!validateInList(parentAgent, parentChoices.agent)) {
+                        showMessage('error', 'Select a valid agent account.');
+                        return;
+                    }
+
+                    if (!(start > 0)) {
+                        showMessage('error', 'Starting Account # must be greater than zero.');
+                        return;
+                    }
+
+                    if (!randomOn && manualBase.length < 4) {
+                        showMessage('error', 'When random password is OFF, Password base must be at least 4 characters.');
+                        return;
+                    }
+
+                    for (var i = 0; i < count; i += 1) {
+                        var accountNumber = start + i;
+                        var username = (prefix || 'P') + accountNumber;
+                        records.unshift({
+                            id: 'rec_' + Date.now() + '_' + i + '_' + Math.floor(Math.random() * 9999),
+                            type: 'Player',
+                            username: username,
+                            parent: parentAgent,
+                            password: randomOn ? randomPassword() : (manualBase + accountNumber),
+                            createdAt: nowString()
+                        });
+                    }
+                    setRecords(records);
+                    showMessage('success', count + ' player account(s) created. You can delete any row below.');
+                    return;
+                }
+
+                var usernameField = (bySel('#ac-name') || {}).value || '';
+                var password = (bySel('#ac-password') || {}).value || '';
+                var parentMaster = (bySel('#ac-parent-master') || {}).value || '';
+                var inherit = (bySel('#ac-inherit') || {}).value || '';
+                var prefixField = state.currentMode === 'agent' ? (((bySel('#ac-agent-prefix') || {}).value || '').trim().toUpperCase()) : '';
+
+                if (usernameField.trim().length < 3) {
+                    showMessage('error', 'Agent Name must have at least 3 characters.');
+                    return;
+                }
+
+                if (password.trim().length < 4) {
+                    showMessage('error', 'Agent Password must have at least 4 characters.');
+                    return;
+                }
+
+                if (state.currentMode === 'agent' && prefixField.length < 1) {
+                    showMessage('error', 'Agent Prefix is required.');
+                    return;
+                }
+
+                if (!validateInList(parentMaster, parentChoices.master)) {
+                    showMessage('error', 'Select a valid master agent.');
+                    return;
+                }
+
+                if (!validateInList(inherit, inheritChoices)) {
+                    showMessage('error', 'Select a valid inheritance profile.');
+                    return;
+                }
+
+                records.unshift({
+                    id: 'rec_' + Date.now() + '_' + Math.floor(Math.random() * 9999),
+                    type: state.currentMode === 'agent' ? 'Agent' : 'Master Agent',
+                    username: state.currentMode === 'agent' ? (prefixField + '_' + usernameField.trim()) : usernameField.trim(),
+                    parent: parentMaster,
+                    password: password.trim(),
+                    createdAt: nowString()
+                });
+                setRecords(records);
+                showMessage('success', (state.currentMode === 'agent' ? 'Agent' : 'Master agent') + ' created successfully. You can delete it below.');
+            }
+
+            function deleteRecord(id) {
+                var records = getRecords().filter(function (item) { return item.id !== id; });
+                setRecords(records);
+                state.messageType = '';
+                state.message = '';
+                renderPage(state.currentMode);
+            }
+
+            document.addEventListener('click', function (event) {
+                var addTrigger = findClosestClickTarget(event.target, '[data-action="add-account"]');
+                if (addTrigger) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    openSelector();
+                    return;
+                }
+
+                var closeBtn = findClosestClickTarget(event.target, '[data-ac-close]');
+                if (closeBtn) {
+                    event.preventDefault();
+                    closeSelector();
+                    return;
+                }
+
+                var optionBtn = findClosestClickTarget(event.target, '[data-ac-mode]');
+                if (optionBtn) {
+                    event.preventDefault();
+                    closeSelector();
+                    state.messageType = '';
+                    state.message = '';
+                    renderPage(optionBtn.getAttribute('data-ac-mode'));
+                    return;
+                }
+
+                var findBtn = findClosestClickTarget(event.target, '[data-ac-find]');
+                if (findBtn) {
+                    event.preventDefault();
+                    pickChoice(findBtn.getAttribute('data-ac-role'), findBtn.getAttribute('data-ac-target'));
+                    return;
+                }
+
+                var continueBtn = findClosestClickTarget(event.target, '[data-ac-continue]');
+                if (continueBtn) {
+                    event.preventDefault();
+                    onContinue();
+                    return;
+                }
+
+                var deleteBtn = findClosestClickTarget(event.target, '[data-ac-delete-record]');
+                if (deleteBtn) {
+                    event.preventDefault();
+                    deleteRecord(deleteBtn.getAttribute('data-ac-delete-record'));
+                    return;
+                }
+
+                var overlay = bySel('#ac-overlay');
+                if (overlay && event.target === overlay) {
+                    closeSelector();
+                }
+            }, true);
+        }());
     </script>
 
 <script src="/cdn-cgi/scripts/7d0fa10a/cloudflare-static/rocket-loader.min.js" data-cf-settings="064fc7bb9df68eb5149c58fa-|49" defer></script></body>

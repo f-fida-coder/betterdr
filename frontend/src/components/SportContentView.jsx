@@ -3,12 +3,13 @@ import { placeBet } from '../api';
 import useMatches from '../hooks/useMatches';
 import { createFallbackTeamLogoDataUri, fetchTeamBadgeUrl } from '../utils/teamLogos';
 
-const SportContentView = ({ sportId, selectedItems = [], status = 'live-upcoming', activeBetMode = 'straight' }) => {
+const SportContentView = ({ sportId, selectedItems = [], filter = null, status = 'live-upcoming', activeBetMode = 'straight' }) => {
     const [activeTab, setActiveTab] = useState('matches');
     const [teamLogos, setTeamLogos] = useState({});
     const attemptedLogoFetchesRef = React.useRef(new Set());
 
     const [content, setContent] = useState({ name: '', icon: '', matches: [], scoreboards: [] });
+    const [isLoading, setIsLoading] = useState(true);
     const rawMatches = useMatches({ status });
 
     React.useEffect(() => {
@@ -56,14 +57,19 @@ const SportContentView = ({ sportId, selectedItems = [], status = 'live-upcoming
         let resolvedSportId = sportId;
         let periodFilter = null;
 
-        if (sportId) {
-            if (sportId.startsWith('nfl-')) {
+        const effectiveFilter = filter || sportId;
+
+        if (effectiveFilter) {
+            if (effectiveFilter.startsWith('nfl-')) {
                 resolvedSportId = 'nfl';
-                if (sportId.includes('1st-quarter')) periodFilter = 'Q1';
-                if (sportId.includes('2nd-quarter')) periodFilter = 'Q2';
-                if (sportId.includes('1st-half')) periodFilter = 'H1';
-            } else if (sportId.startsWith('ncaa-')) {
+                if (effectiveFilter.includes('1st-quarter')) periodFilter = 'Q1';
+                if (effectiveFilter.includes('2nd-quarter')) periodFilter = 'Q2';
+                if (effectiveFilter.includes('1st-half')) periodFilter = 'H1';
+            } else if (effectiveFilter.startsWith('ncaa-')) {
                 resolvedSportId = 'ncaaf';
+                if (effectiveFilter.includes('1st-quarter')) periodFilter = 'Q1';
+                if (effectiveFilter.includes('2nd-quarter')) periodFilter = 'Q2';
+                if (effectiveFilter.includes('1st-half')) periodFilter = 'H1';
             }
         }
 
@@ -72,6 +78,8 @@ const SportContentView = ({ sportId, selectedItems = [], status = 'live-upcoming
         // Map rawMatches into view-friendly structure and filter by sportId where possible
         const processMatches = () => {
             const matchesData = (rawMatches || []);
+            // Set loading state: if rawMatches is empty, we are still loading (unless it's been a long time)
+            setIsLoading(!rawMatches || (Array.isArray(rawMatches) && rawMatches.length === 0));
             const keywords = getSportKeywords(resolvedSportId);
 
             let filteredMatches = matchesData.filter(m => {
@@ -80,6 +88,18 @@ const SportContentView = ({ sportId, selectedItems = [], status = 'live-upcoming
                 const sportValue = m.sport.toString().toLowerCase();
                 return keywords.some(k => sportValue.includes(k));
             });
+
+            if (periodFilter) {
+                filteredMatches = filteredMatches.filter((m) => {
+                    const period = String(m?.score?.period || '').toUpperCase();
+                    const eventStatus = String(m?.score?.event_status || '').toUpperCase();
+                    if (!period && !eventStatus) return true;
+                    if (periodFilter === 'Q1') return /\bQ1\b|1ST\s*QUARTER/.test(period) || eventStatus.includes('1ST_QUARTER');
+                    if (periodFilter === 'Q2') return /\bQ2\b|2ND\s*QUARTER/.test(period) || eventStatus.includes('2ND_QUARTER');
+                    if (periodFilter === 'H1') return period.includes('H1') || period.includes('1H') || eventStatus.includes('1ST_HALF');
+                    return true;
+                });
+            }
 
             // Fallback removed: If filteredMatches is empty, show empty state instead of all matches.
             // if (resolvedSportId && filteredMatches.length === 0) {
@@ -168,6 +188,8 @@ const SportContentView = ({ sportId, selectedItems = [], status = 'live-upcoming
                 matches: filteredMatches,
                 scoreboards: []
             });
+            // If we have any matches, loading is done
+            if (filteredMatches.length > 0) setIsLoading(false);
         };
 
         processMatches();
@@ -176,7 +198,7 @@ const SportContentView = ({ sportId, selectedItems = [], status = 'live-upcoming
         const interval = setInterval(processMatches, 5000);
         return () => clearInterval(interval);
 
-    }, [sportId, rawMatches]);
+    }, [sportId, filter, rawMatches]);
 
     React.useEffect(() => {
         const names = Array.from(new Set(
@@ -215,6 +237,7 @@ const SportContentView = ({ sportId, selectedItems = [], status = 'live-upcoming
     const showMoneyline = ['straight', 'parlay', 'if_bet', 'reverse'].includes(normalizedMode);
     const showTotals = ['straight', 'parlay', 'teaser', 'if_bet', 'reverse'].includes(normalizedMode);
 
+
     return (
         <div className="sport-content-view">
             <div className="content-header">
@@ -240,7 +263,13 @@ const SportContentView = ({ sportId, selectedItems = [], status = 'live-upcoming
 
             {activeTab === 'matches' && (
                 <div className="matches-section">
-                    {content.matches.length === 0 ? (
+                    {isLoading ? (
+                        <div style={{ padding: '40px', textAlign: 'center', color: '#888', background: '#fff', borderRadius: '8px' }}>
+                            <i className="fa-solid fa-spinner fa-spin" style={{ fontSize: '48px', marginBottom: '16px', opacity: 0.5 }}></i>
+                            <h3>Loading sports data...</h3>
+                            <p>Please wait while we load the latest matches.</p>
+                        </div>
+                    ) : content.matches.length === 0 ? (
                         <div style={{ padding: '40px', textAlign: 'center', color: '#888', background: '#fff', borderRadius: '8px' }}>
                             <i className="fa-solid fa-calendar-xmark" style={{ fontSize: '48px', marginBottom: '16px', opacity: 0.5 }}></i>
                             <h3>No Live or Upcoming Matches Found</h3>
