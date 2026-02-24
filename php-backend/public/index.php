@@ -30,7 +30,14 @@ Env::load($projectRoot, $phpBackendDir);
 
 $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
 $allowedOrigins = array_values(array_filter(array_map('trim', explode(',', Env::get('CORS_ORIGIN', '')))));
-if ($origin !== '' && (count($allowedOrigins) === 0 || in_array($origin, $allowedOrigins, true))) {
+$corsAllowAll = strtolower((string) Env::get('CORS_ALLOW_ALL', 'false')) === 'true';
+$allowOrigin = $origin !== '' && (
+    $corsAllowAll
+    || count($allowedOrigins) === 0
+    || in_array('*', $allowedOrigins, true)
+    || in_array($origin, $allowedOrigins, true)
+);
+if ($allowOrigin) {
     header('Access-Control-Allow-Origin: ' . $origin);
     header('Access-Control-Allow-Credentials: true');
 }
