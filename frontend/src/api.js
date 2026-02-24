@@ -340,7 +340,11 @@ export const getSystemStats = async (token) => {
 };
 
 export const getWeeklyFigures = async (period, token) => {
-    const response = await fetch(`${API_URL}/admin/weekly-figures?period=${encodeURIComponent(period)}`, {
+    const safePeriod = encodeURIComponent(String(period || 'week'));
+    const url = API_URL.includes('?path=')
+        ? `${API_URL}/admin/weekly-figures&period=${safePeriod}`
+        : `${API_URL}/admin/weekly-figures?period=${safePeriod}`;
+    const response = await fetch(url, {
         headers: getHeaders(token)
     });
     return parseJsonResponse(response, 'Failed to fetch weekly figures');
