@@ -1,0 +1,13 @@
+RewriteEngine On
+
+# Never rewrite API requests to index.html.
+RewriteCond %{REQUEST_URI} ^/api(/|$) [NC]
+RewriteRule ^ - [L]
+
+# Serve static files directly.
+RewriteCond %{REQUEST_FILENAME} -f [OR]
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule ^ - [L]
+
+# SPA fallback for frontend routes only.
+RewriteRule ^ index.html [L]
