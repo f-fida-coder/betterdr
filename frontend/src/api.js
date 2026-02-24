@@ -1467,7 +1467,10 @@ export const getNextUsername = async (prefix, token, queryParams = {}) => {
         safeParams.type = safeParams.type.toLowerCase();
     }
     const queryString = new URLSearchParams(safeParams).toString();
-    const url = `${API_URL}/admin/next-username/${encodeURIComponent(safePrefix)}${queryString ? `?${queryString}` : ''}`;
+    const nextPath = `/admin/next-username/${encodeURIComponent(safePrefix)}`;
+    const url = API_URL.includes('?path=')
+        ? `${API_URL}${nextPath}${queryString ? `&${queryString}` : ''}`
+        : `${API_URL}${nextPath}${queryString ? `?${queryString}` : ''}`;
     const response = await fetch(url, {
         headers: getHeaders(token)
     });

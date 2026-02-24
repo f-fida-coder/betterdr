@@ -105,23 +105,23 @@ function CustomerAdminView({ onViewChange }) {
         if ((me?.role || 'admin') === 'agent') {
           const data = await getMyPlayers(token);
           setCustomers(data || []);
-          // Also fetch next username for agent
-          if (me?.username) {
-            const { nextUsername } = await getNextUsername(me.username, token, { type: 'player' });
-            setNewCustomer(prev => ({ ...prev, username: nextUsername }));
-          }
         } else {
           const data = await getUsersAdmin(token);
           setCustomers(data || []);
           const agentsData = await getAgents(token);
           setAgents(agentsData || []);
-          // Fetch next username for admin (direct)
-          if (me?.username) {
-            const { nextUsername } = await getNextUsername(me.username, token, { type: 'player' });
-            setNewCustomer(prev => ({ ...prev, username: nextUsername }));
-          }
         }
         setError('');
+
+        // Keep username prefill non-blocking so user list still loads if this call fails.
+        if (me?.username) {
+          try {
+            const { nextUsername } = await getNextUsername(me.username, token, { type: 'player' });
+            setNewCustomer(prev => ({ ...prev, username: nextUsername }));
+          } catch (usernameErr) {
+            console.error('Failed to prefetch next username:', usernameErr);
+          }
+        }
       } catch (err) {
         console.error('Error fetching users:', err);
         setError('Failed to load users: ' + err.message);
