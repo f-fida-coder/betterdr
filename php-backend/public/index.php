@@ -152,8 +152,17 @@ if (!$authNativeEnabled) {
     exit;
 }
 
+
 if ($nativeError !== null) {
-    Response::json(['message' => 'Core PHP request handling failed'], 500);
+    // Log the full exception details for debugging
+    $logFile = __DIR__ . '/../logs/api-errors.log';
+    $logMsg = date('Y-m-d H:i:s') . " [500] Exception: " . $nativeError->getMessage() . "\n" . $nativeError->getTraceAsString() . "\n";
+    @file_put_contents($logFile, $logMsg, FILE_APPEND);
+    Response::json([
+        'message' => 'Core PHP request handling failed',
+        'error' => $nativeError->getMessage(),
+        'trace' => $nativeError->getTraceAsString()
+    ], 500);
     exit;
 }
 
