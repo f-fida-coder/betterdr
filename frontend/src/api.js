@@ -1474,7 +1474,10 @@ export const getNextUsername = async (prefix, token, queryParams = {}) => {
     const response = await fetch(url, {
         headers: getHeaders(token)
     });
-    if (!response.ok) throw new Error('Failed to fetch next username');
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || 'Failed to fetch next username');
+    }
     return response.json();
 };
 export const impersonateUser = async (userId, token) => {

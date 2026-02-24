@@ -51,6 +51,13 @@ final class MongoRepository
                     break 2;
                 } catch (PDOException $e) {
                     $lastException = $e;
+                    $errorText = strtolower($e->getMessage());
+                    $isNonRetryable = str_contains($errorText, 'sqlstate[hy000] [1045]')
+                        || str_contains($errorText, 'max_connections_per_hour')
+                        || str_contains($errorText, 'sqlstate[hy000] [1226]');
+                    if ($isNonRetryable) {
+                        break 2;
+                    }
                     if ($attempt < 3) {
                         usleep(250000);
                     }
