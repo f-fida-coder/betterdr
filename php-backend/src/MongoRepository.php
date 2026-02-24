@@ -30,7 +30,26 @@ final class MongoRepository
             $pdoOptions[PDO::MYSQL_ATTR_INIT_COMMAND] = 'SET NAMES utf8mb4';
         }
 
-        $hostCandidates = [$host];
+        $hostCandidates = [];
+
+        $rawHostList = (string) Env::get('MYSQL_HOSTS', '');
+        if ($rawHostList !== '') {
+            foreach (explode(',', $rawHostList) as $listHost) {
+                $listHost = trim($listHost);
+                if ($listHost !== '') {
+                    $hostCandidates[] = $listHost;
+                }
+            }
+        }
+
+        $hostCandidates[] = $host;
+
+        // Shared-hosted MySQL setups often only accept localhost from their own web tier.
+        if (!in_array(strtolower($host), ['localhost', '127.0.0.1'], true)) {
+            $hostCandidates[] = 'localhost';
+            $hostCandidates[] = '127.0.0.1';
+        }
+
         $resolvedHost = gethostbyname($host);
         if (
             is_string($resolvedHost)
@@ -40,6 +59,8 @@ final class MongoRepository
         ) {
             $hostCandidates[] = $resolvedHost;
         }
+
+        $hostCandidates = array_values(array_unique($hostCandidates));
 
         $lastException = null;
         foreach ($hostCandidates as $candidateHost) {
