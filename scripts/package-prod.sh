@@ -18,6 +18,8 @@ cp -R "$ROOT_DIR/php-backend" "$DIST_DIR/php-backend"
 if [[ -f "$ROOT_DIR/.env" ]]; then
   cp "$ROOT_DIR/.env" "$DIST_DIR/.env"
   cp "$ROOT_DIR/.env" "$DIST_DIR/php-backend/.env"
+  cp "$ROOT_DIR/.env" "$DIST_DIR/env.runtime"
+  cp "$ROOT_DIR/.env" "$DIST_DIR/php-backend/env.runtime"
 fi
 
 echo "Packaged production bundle with api/ and php-backend/ in $DIST_DIR"

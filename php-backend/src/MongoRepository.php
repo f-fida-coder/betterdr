@@ -13,11 +13,11 @@ final class MongoRepository
         $this->dbName = $dbName;
         $this->tablePrefix = (string) Env::get('MYSQL_TABLE_PREFIX', '');
 
-        $host = (string) Env::get('MYSQL_HOST', '127.0.0.1');
-        $port = (int) Env::get('MYSQL_PORT', '3306');
-        $name = (string) Env::get('MYSQL_DB', $dbName !== '' ? $dbName : 'sports_betting');
-        $user = (string) Env::get('MYSQL_USER', 'root');
-        $pass = (string) Env::get('MYSQL_PASSWORD', '');
+        $host = (string) Env::get('MYSQL_HOST', Env::get('DB_HOST', '127.0.0.1'));
+        $port = (int) Env::get('MYSQL_PORT', Env::get('DB_PORT', '3306'));
+        $name = (string) Env::get('MYSQL_DB', Env::get('DB_NAME', $dbName !== '' ? $dbName : 'sports_betting'));
+        $user = (string) Env::get('MYSQL_USER', Env::get('DB_USER', 'root'));
+        $pass = (string) Env::get('MYSQL_PASSWORD', Env::get('DB_PASSWORD', ''));
 
         $pdoOptions = [
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,

@@ -12,8 +12,16 @@ final class Env
             return;
         }
 
+        // Prefer explicit runtime env files first (non-dotfile variants survive hosts that skip hidden files).
+        self::loadFile($projectRoot . '/env.runtime');
+        self::loadFile($phpBackendDir . '/env.runtime');
+
         self::loadFile($projectRoot . '/.env');
         self::loadFile($phpBackendDir . '/.env');
+
+        // Last-chance fallbacks.
+        self::loadFile($projectRoot . '/.env.copy');
+        self::loadFile($phpBackendDir . '/.env.copy');
 
         self::$loaded = true;
     }
