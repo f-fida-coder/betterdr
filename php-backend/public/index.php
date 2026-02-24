@@ -46,6 +46,18 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') {
 $uriPath = Http::path();
 $method = Http::method();
 
+// Rewrite-independent route mode: /api/index.php?path=/auth/login
+$queryPath = trim((string) ($_GET['path'] ?? ''));
+if ($queryPath !== '') {
+    if (str_starts_with($queryPath, '/api/')) {
+        $uriPath = $queryPath;
+    } elseif ($queryPath === '/api') {
+        $uriPath = '/api';
+    } else {
+        $uriPath = '/api/' . ltrim($queryPath, '/');
+    }
+}
+
 // Support hosts where rewrite rules are skipped and requests come as /api/index.php/*
 if (str_starts_with($uriPath, '/api/index.php/')) {
     $uriPath = '/api' . substr($uriPath, strlen('/api/index.php'));
