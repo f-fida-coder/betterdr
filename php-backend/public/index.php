@@ -46,6 +46,13 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') {
 $uriPath = Http::path();
 $method = Http::method();
 
+// Support hosts where rewrite rules are skipped and requests come as /api/index.php/*
+if (str_starts_with($uriPath, '/api/index.php/')) {
+    $uriPath = '/api' . substr($uriPath, strlen('/api/index.php'));
+} elseif ($uriPath === '/api/index.php') {
+    $uriPath = '/api';
+}
+
 $mongoUri = 'mysql-native';
 $dbName = (string) Env::get('MYSQL_DB', Env::get('DB_NAME', 'sports_betting'));
 if ($dbName === '') {

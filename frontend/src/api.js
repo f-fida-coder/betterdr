@@ -1,8 +1,12 @@
-const DEFAULT_PROD_API_URL = '/api';
+const DEFAULT_PROD_API_URL = '/api/index.php';
 
 const normalizeApiUrl = (url) => {
     if (!url) return '';
-    return String(url).replace(/\/+$/, '').replace(/\/api$/, '') + '/api';
+    const normalized = String(url).replace(/\/+$/, '');
+    if (/\/api\/index\.php$/i.test(normalized) || /\/index\.php$/i.test(normalized) || /\/api$/i.test(normalized)) {
+        return normalized;
+    }
+    return normalized + '/api';
 };
 
 const getBaseUrl = () => {
