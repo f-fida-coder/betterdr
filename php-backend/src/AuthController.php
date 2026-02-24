@@ -119,7 +119,7 @@ final class AuthController
     {
         try {
             $body = Http::jsonBody();
-            $username = strtoupper(trim((string) ($body['username'] ?? '')));
+            $username = trim((string) ($body['username'] ?? ''));
             $password = (string) ($body['password'] ?? '');
 
             $user = $this->db->findOne('users', ['username' => $username]);
@@ -188,7 +188,7 @@ final class AuthController
     {
         try {
             $body = Http::jsonBody();
-            $username = strtoupper(trim((string) ($body['username'] ?? '')));
+            $username = trim((string) ($body['username'] ?? ''));
             $password = (string) ($body['password'] ?? '');
 
             $user = $this->db->findOne('agents', ['username' => $username]);
