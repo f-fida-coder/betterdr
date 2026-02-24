@@ -887,13 +887,27 @@ final class AdminCoreController
                 return;
             }
 
+            $prefix = strtoupper(trim($prefix));
             if ($prefix === '') {
                 Response::json(['message' => 'Prefix is required'], 400);
                 return;
             }
 
-            $suffix = (string) ($_GET['suffix'] ?? '');
-            $type = (string) ($_GET['type'] ?? 'player');
+            if (preg_match('/^[A-Z0-9]+$/', $prefix) !== 1) {
+                Response::json(['message' => 'Prefix may only contain letters and numbers'], 400);
+                return;
+            }
+
+            $suffix = strtoupper(trim((string) ($_GET['suffix'] ?? '')));
+            $type = strtolower(trim((string) ($_GET['type'] ?? 'player')));
+            if ($suffix !== '' && preg_match('/^[A-Z0-9]+$/', $suffix) !== 1) {
+                Response::json(['message' => 'Suffix may only contain letters and numbers'], 400);
+                return;
+            }
+            if (!in_array($type, ['player', 'agent'], true)) {
+                Response::json(['message' => 'Invalid type'], 400);
+                return;
+            }
 
             $safePrefix = preg_quote($prefix, '/');
             $safeSuffix = preg_quote($suffix, '/');

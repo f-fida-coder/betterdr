@@ -1455,8 +1455,19 @@ export const resetAgentPasswordByAdmin = async (id, newPassword, token) => {
 };
 
 export const getNextUsername = async (prefix, token, queryParams = {}) => {
-    const queryString = new URLSearchParams(queryParams).toString();
-    const url = `${API_URL}/admin/next-username/${prefix}${queryString ? `?${queryString}` : ''}`;
+    const safePrefix = String(prefix || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (!safePrefix) {
+        throw new Error('Prefix is required and must contain only letters/numbers');
+    }
+    const safeParams = { ...queryParams };
+    if (typeof safeParams.suffix === 'string') {
+        safeParams.suffix = safeParams.suffix.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    }
+    if (typeof safeParams.type === 'string') {
+        safeParams.type = safeParams.type.toLowerCase();
+    }
+    const queryString = new URLSearchParams(safeParams).toString();
+    const url = `${API_URL}/admin/next-username/${encodeURIComponent(safePrefix)}${queryString ? `?${queryString}` : ''}`;
     const response = await fetch(url, {
         headers: getHeaders(token)
     });

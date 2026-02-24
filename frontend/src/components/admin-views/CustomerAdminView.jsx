@@ -278,7 +278,7 @@ function CustomerAdminView({ onViewChange }) {
   };
 
   const handlePrefixChange = async (prefix) => {
-    const formatted = prefix.toUpperCase();
+    const formatted = prefix.toUpperCase().replace(/[^A-Z0-9]/g, '');
     setNewCustomer(prev => ({ ...prev, agentPrefix: formatted }));
 
     if (formatted.length >= 2) {
@@ -685,16 +685,7 @@ function CustomerAdminView({ onViewChange }) {
   const searchedPlayers = useMemo(() => {
     if (!normalizedCustomerQuery) return allPlayers;
     return allPlayers.filter((c) => {
-      const fields = [
-        c.username,
-        c.firstName,
-        c.lastName,
-        c.fullName,
-        c.phoneNumber,
-        c.rawPassword,
-        c.referredByUsername,
-        c.agentId?.username,
-      ];
+      const fields = [c.username];
       return fields.some((value) => String(value || '').toLowerCase().includes(normalizedCustomerQuery));
     });
   }, [allPlayers, normalizedCustomerQuery]);
@@ -1077,8 +1068,8 @@ function CustomerAdminView({ onViewChange }) {
             type="text"
             value={customerSearchQuery}
             onChange={(e) => setCustomerSearchQuery(e.target.value)}
-            placeholder="Search user, name, phone, agent..."
-            style={{ width: '100%', padding: '10px 12px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(15,23,42,0.6)', color: '#fff' }}
+            placeholder="Search username..."
+            style={{ width: '100%', padding: '10px 12px', borderRadius: '10px', border: '1px solid #d1d5db', background: '#fff', color: '#334155' }}
           />
         </div>
         <div
