@@ -5,6 +5,8 @@ declare(strict_types=1);
 final class Env
 {
     private static bool $loaded = false;
+    /** @var array<string, bool> */
+    private static array $fileManagedKeys = [];
 
     public static function load(string $projectRoot, string $phpBackendDir): void
     {
@@ -16,12 +18,13 @@ final class Env
         self::loadFile($projectRoot . '/env.runtime');
         self::loadFile($phpBackendDir . '/env.runtime');
 
-        self::loadFile($projectRoot . '/.env');
-        self::loadFile($phpBackendDir . '/.env');
+        // Allow .env to override runtime defaults when present.
+        self::loadFile($projectRoot . '/.env', true);
+        self::loadFile($phpBackendDir . '/.env', true);
 
         // Last-chance fallbacks.
-        self::loadFile($projectRoot . '/.env.copy');
-        self::loadFile($phpBackendDir . '/.env.copy');
+        self::loadFile($projectRoot . '/.env.copy', true);
+        self::loadFile($phpBackendDir . '/.env.copy', true);
 
         self::$loaded = true;
     }
@@ -35,7 +38,7 @@ final class Env
         return (string) $value;
     }
 
-    private static function loadFile(string $path): void
+    private static function loadFile(string $path, bool $overwriteFromFiles = false): void
     {
         if (!is_file($path) || !is_readable($path)) {
             return;
@@ -54,7 +57,17 @@ final class Env
 
             [$key, $value] = array_pad(explode('=', $line, 2), 2, '');
             $key = trim($key);
-            if ($key === '' || array_key_exists($key, $_ENV)) {
+            if ($key === '') {
+                continue;
+            }
+
+            $existsInEnv = array_key_exists($key, $_ENV);
+            $managedByFile = isset(self::$fileManagedKeys[$key]);
+            if ($existsInEnv && !$managedByFile) {
+                // Respect environment values injected by the server process.
+                continue;
+            }
+            if ($existsInEnv && !$overwriteFromFiles) {
                 continue;
             }
 
@@ -66,6 +79,7 @@ final class Env
             $_ENV[$key] = $value;
             $_SERVER[$key] = $value;
             putenv($key . '=' . $value);
+            self::$fileManagedKeys[$key] = true;
         }
     }
 }
