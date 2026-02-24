@@ -878,6 +878,19 @@ export const createAgent = async (agentData, token) => {
     }
 };
 
+export const seedWorkflowHierarchy = async (token, payload = {}) => {
+    const response = await fetch(`${API_URL}/admin/seed-workflow-hierarchy`, {
+        method: 'POST',
+        headers: getHeaders(token),
+        body: JSON.stringify({ confirm: true, ...payload })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        throw new Error(data.message || 'Failed to seed workflow hierarchy');
+    }
+    return data;
+};
+
 export const createUserByAdmin = async (userData, token) => {
     try {
         console.log('🔐 createUserByAdmin API called');
@@ -1001,8 +1014,11 @@ export const getMyPlayers = async (token) => {
     return response.json();
 };
 
-export const getUsersAdmin = async (token) => {
-    const response = await fetch(`${API_URL}/admin/users`, {
+export const getUsersAdmin = async (token, params = {}) => {
+    const query = new URLSearchParams();
+    if (params.q) query.set('q', params.q);
+    const suffix = query.toString() ? `?${query.toString()}` : '';
+    const response = await fetch(`${API_URL}/admin/users${suffix}`, {
         headers: getHeaders(token)
     });
     if (!response.ok) {

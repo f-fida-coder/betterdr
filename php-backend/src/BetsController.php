@@ -2,7 +2,6 @@
 
 declare(strict_types=1);
 
-use MongoDB\BSON\ObjectId;
 
 final class BetsController
 {
@@ -156,7 +155,7 @@ final class BetsController
             $newBalance = $balance - $totalRisk;
             $newPending = $pending + $totalRisk;
 
-            $this->db->updateOne('users', ['_id' => new ObjectId((string) $user['_id'])], [
+            $this->db->updateOne('users', ['_id' => MongoRepository::id((string) $user['_id'])], [
                 'balance' => $newBalance,
                 'pendingBalance' => $newPending,
                 'betCount' => ((int) ($user['betCount'] ?? 0)) + ($type === 'reverse' ? 2 : 1),
@@ -167,7 +166,7 @@ final class BetsController
             $ipAddress = IpUtils::clientIp();
             $userAgent = Http::header('user-agent');
             $now = MongoRepository::nowUtc();
-            $userId = new ObjectId((string) $user['_id']);
+            $userId = MongoRepository::id((string) $user['_id']);
 
             $baseBetData = [
                 'userId' => $userId,
@@ -207,7 +206,7 @@ final class BetsController
                 $single = count($validatedSelections) === 1 ? $validatedSelections[0] : null;
                 $doc = array_merge($baseBetData, [
                     'selections' => array_map(fn ($s) => $this->selectionForInsert($s), $validatedSelections),
-                    'matchId' => $single ? new ObjectId((string) $single['matchId']) : null,
+                    'matchId' => $single ? MongoRepository::id((string) $single['matchId']) : null,
                     'selection' => $single ? $single['selection'] : 'MULTI',
                     'odds' => $single ? (float) $single['odds'] : 0,
                     'matchSnapshot' => $single ? ($single['matchSnapshot'] ?? new stdClass()) : new stdClass(),
@@ -223,7 +222,7 @@ final class BetsController
                 'balanceBefore' => $balance,
                 'balanceAfter' => $newBalance,
                 'referenceType' => 'Bet',
-                'referenceId' => new ObjectId($createdBetIds[0]),
+                'referenceId' => MongoRepository::id($createdBetIds[0]),
                 'reason' => 'BET_PLACED',
                 'description' => strtoupper($type) . ' bet placed',
                 'ipAddress' => $ipAddress,
@@ -234,7 +233,7 @@ final class BetsController
 
             $createdBets = [];
             foreach ($createdBetIds as $id) {
-                $found = $this->db->findOne('bets', ['_id' => new ObjectId($id)]);
+                $found = $this->db->findOne('bets', ['_id' => MongoRepository::id($id)]);
                 if ($found !== null) {
                     $createdBets[] = $found;
                 }
@@ -393,7 +392,7 @@ final class BetsController
         foreach ($selections as $sel) {
             $normalized = $sel;
             if (isset($normalized['matchId']) && is_string($normalized['matchId']) && preg_match('/^[a-f0-9]{24}$/i', $normalized['matchId']) === 1) {
-                $normalized['matchId'] = new ObjectId($normalized['matchId']);
+                $normalized['matchId'] = MongoRepository::id($normalized['matchId']);
             }
             $out[] = $normalized;
         }
@@ -412,7 +411,7 @@ final class BetsController
             $limit = isset($_GET['limit']) ? (int) $_GET['limit'] : 50;
             $limit = $limit > 0 ? $limit : 50;
 
-            $query = ['userId' => new ObjectId((string) $user['_id'])];
+            $query = ['userId' => MongoRepository::id((string) $user['_id'])];
             if ($status !== '' && $status !== 'all') {
                 $query['status'] = $status;
             }
@@ -424,7 +423,7 @@ final class BetsController
 
             foreach ($bets as &$bet) {
                 if (isset($bet['matchId']) && is_string($bet['matchId']) && preg_match('/^[a-f0-9]{24}$/i', $bet['matchId']) === 1) {
-                    $match = $this->db->findOne('matches', ['_id' => new ObjectId($bet['matchId'])], [
+                    $match = $this->db->findOne('matches', ['_id' => MongoRepository::id($bet['matchId'])], [
                         'projection' => [
                             'homeTeam' => 1,
                             'awayTeam' => 1,
@@ -452,7 +451,7 @@ final class BetsController
             throw new RuntimeException('Match not found: ' . $matchId);
         }
 
-        $match = $this->db->findOne('matches', ['_id' => new ObjectId($matchId)]);
+        $match = $this->db->findOne('matches', ['_id' => MongoRepository::id($matchId)]);
         if ($match === null) {
             throw new RuntimeException('Match not found: ' . $matchId);
         }
@@ -542,7 +541,7 @@ final class BetsController
     private function selectionForInsert(array $selection): array
     {
         return [
-            'matchId' => new ObjectId((string) $selection['matchId']),
+            'matchId' => MongoRepository::id((string) $selection['matchId']),
             'selection' => $selection['selection'],
             'odds' => (float) $selection['odds'],
             'marketType' => $selection['marketType'] ?? '',
@@ -619,7 +618,7 @@ final class BetsController
         }
 
         $collection = $this->collectionByRole($role);
-        $actor = $this->db->findOne($collection, ['_id' => new ObjectId($id)]);
+        $actor = $this->db->findOne($collection, ['_id' => MongoRepository::id($id)]);
         if ($actor === null) {
             Response::json(['message' => 'Not authorized, user not found'], 403);
             return null;

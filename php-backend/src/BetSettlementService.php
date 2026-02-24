@@ -2,7 +2,6 @@
 
 declare(strict_types=1);
 
-use MongoDB\BSON\ObjectId;
 
 final class BetSettlementService
 {
@@ -12,7 +11,7 @@ final class BetSettlementService
             throw new RuntimeException('Match not found');
         }
 
-        $match = $db->findOne('matches', ['_id' => new ObjectId($matchId)]);
+        $match = $db->findOne('matches', ['_id' => MongoRepository::id($matchId)]);
         if ($match === null) {
             throw new RuntimeException('Match not found');
         }
@@ -20,8 +19,8 @@ final class BetSettlementService
         $pendingBets = $db->findMany('bets', [
             'status' => 'pending',
             '$or' => [
-                ['matchId' => new ObjectId($matchId)],
-                ['selections.matchId' => new ObjectId($matchId)],
+                ['matchId' => MongoRepository::id($matchId)],
+                ['selections.matchId' => MongoRepository::id($matchId)],
             ],
         ]);
 
@@ -46,7 +45,7 @@ final class BetSettlementService
                 continue;
             }
 
-            $user = $db->findOne('users', ['_id' => new ObjectId($bet['userId'])]);
+            $user = $db->findOne('users', ['_id' => MongoRepository::id($bet['userId'])]);
             if ($user === null) {
                 continue;
             }
@@ -106,7 +105,7 @@ final class BetSettlementService
             }
 
             if ($finalStatus === 'pending') {
-                $db->updateOne('bets', ['_id' => new ObjectId((string) $bet['_id'])], [
+                $db->updateOne('bets', ['_id' => MongoRepository::id((string) $bet['_id'])], [
                     'selections' => self::normalizeSelectionsForUpdate($selections),
                     'updatedAt' => MongoRepository::nowUtc(),
                 ]);
@@ -142,7 +141,7 @@ final class BetSettlementService
                 }
             }
 
-            $db->updateOne('bets', ['_id' => new ObjectId((string) $bet['_id'])], [
+            $db->updateOne('bets', ['_id' => MongoRepository::id((string) $bet['_id'])], [
                 'selections' => self::normalizeSelectionsForUpdate($selections),
                 'status' => $finalStatus,
                 'result' => $finalStatus,
@@ -153,7 +152,7 @@ final class BetSettlementService
             ]);
 
             if ($finalStatus === 'void') {
-                $db->updateOne('users', ['_id' => new ObjectId((string) $user['_id'])], [
+                $db->updateOne('users', ['_id' => MongoRepository::id((string) $user['_id'])], [
                     'balance' => $balance + $wager,
                     'pendingBalance' => max(0, $pending - $wager),
                     'updatedAt' => MongoRepository::nowUtc(),
@@ -161,7 +160,7 @@ final class BetSettlementService
                 $results['voided']++;
             } elseif ($finalStatus === 'won') {
                 $newBalance = $balance + $potentialPayout;
-                $db->updateOne('users', ['_id' => new ObjectId((string) $user['_id'])], [
+                $db->updateOne('users', ['_id' => MongoRepository::id((string) $user['_id'])], [
                     'balance' => $newBalance,
                     'pendingBalance' => max(0, $pending - $wager),
                     'totalWinnings' => self::num($user['totalWinnings'] ?? 0) + ($potentialPayout - $wager),
@@ -169,14 +168,14 @@ final class BetSettlementService
                 ]);
 
                 $db->insertOne('transactions', [
-                    'userId' => new ObjectId((string) $user['_id']),
+                    'userId' => MongoRepository::id((string) $user['_id']),
                     'amount' => $potentialPayout,
                     'type' => 'bet_won',
                     'status' => 'completed',
                     'balanceBefore' => $balance,
                     'balanceAfter' => $newBalance,
                     'referenceType' => 'Bet',
-                    'referenceId' => new ObjectId((string) $bet['_id']),
+                    'referenceId' => MongoRepository::id((string) $bet['_id']),
                     'reason' => 'BET_WON',
                     'description' => strtoupper($betType) . ' bet won',
                     'createdAt' => MongoRepository::nowUtc(),
@@ -184,7 +183,7 @@ final class BetSettlementService
                 ]);
                 $results['won']++;
             } else {
-                $db->updateOne('users', ['_id' => new ObjectId((string) $user['_id'])], [
+                $db->updateOne('users', ['_id' => MongoRepository::id((string) $user['_id'])], [
                     'pendingBalance' => max(0, $pending - $wager),
                     'updatedAt' => MongoRepository::nowUtc(),
                 ]);
@@ -282,7 +281,7 @@ final class BetSettlementService
         foreach ($selections as $sel) {
             $normalized = $sel;
             if (isset($normalized['matchId']) && is_string($normalized['matchId']) && preg_match('/^[a-f0-9]{24}$/i', $normalized['matchId']) === 1) {
-                $normalized['matchId'] = new ObjectId($normalized['matchId']);
+                $normalized['matchId'] = MongoRepository::id($normalized['matchId']);
             }
             $out[] = $normalized;
         }

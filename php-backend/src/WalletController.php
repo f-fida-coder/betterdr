@@ -2,7 +2,6 @@
 
 declare(strict_types=1);
 
-use MongoDB\BSON\ObjectId;
 
 final class WalletController
 {
@@ -49,7 +48,7 @@ final class WalletController
                 return;
             }
 
-            $user = $this->db->findOne('users', ['_id' => new ObjectId((string) $actor['_id'])]);
+            $user = $this->db->findOne('users', ['_id' => MongoRepository::id((string) $actor['_id'])]);
             if ($user === null) {
                 Response::json(['message' => 'User not found'], 404);
                 return;
@@ -83,7 +82,7 @@ final class WalletController
             $type = isset($_GET['type']) ? strtolower(trim((string) $_GET['type'])) : '';
             $status = isset($_GET['status']) ? strtolower(trim((string) $_GET['status'])) : '';
 
-            $query = ['userId' => new ObjectId((string) $actor['_id'])];
+            $query = ['userId' => MongoRepository::id((string) $actor['_id'])];
             if ($type !== '') {
                 $query['type'] = $type;
             }
@@ -135,8 +134,8 @@ final class WalletController
 
             $now = MongoRepository::nowUtc();
             $doc = [
-                'userId' => new ObjectId((string) $actor['_id']),
-                'agentId' => $this->toOptionalObjectId($actor['agentId'] ?? null),
+                'userId' => MongoRepository::id((string) $actor['_id']),
+                'agentId' => $this->toOptionalId($actor['agentId'] ?? null),
                 'amount' => $amount,
                 'type' => 'deposit',
                 'status' => 'pending',
@@ -169,7 +168,7 @@ final class WalletController
             $amount = $this->parseAmount($body['amount'] ?? 0);
             $method = strtolower(trim((string) ($body['method'] ?? 'manual')));
 
-            $user = $this->db->findOne('users', ['_id' => new ObjectId((string) $actor['_id'])]);
+            $user = $this->db->findOne('users', ['_id' => MongoRepository::id((string) $actor['_id'])]);
             if ($user === null) {
                 Response::json(['message' => 'User not found'], 404);
                 return;
@@ -188,8 +187,8 @@ final class WalletController
 
             $now = MongoRepository::nowUtc();
             $doc = [
-                'userId' => new ObjectId((string) $actor['_id']),
-                'agentId' => $this->toOptionalObjectId($actor['agentId'] ?? null),
+                'userId' => MongoRepository::id((string) $actor['_id']),
+                'agentId' => $this->toOptionalId($actor['agentId'] ?? null),
                 'amount' => $amount,
                 'type' => 'withdrawal',
                 'status' => 'pending',
@@ -239,7 +238,7 @@ final class WalletController
         }
 
         $collection = $this->collectionByRole($role);
-        $actor = $this->db->findOne($collection, ['_id' => new ObjectId($id)]);
+        $actor = $this->db->findOne($collection, ['_id' => MongoRepository::id($id)]);
         if ($actor === null) {
             Response::json(['message' => 'Not authorized, user not found'], 403);
             return null;
@@ -288,7 +287,7 @@ final class WalletController
         $ownerModel = IpUtils::ownerModelForRole((string) ($actor['role'] ?? 'user'));
 
         return [
-            'userId' => new ObjectId((string) $actor['_id']),
+            'userId' => MongoRepository::id((string) $actor['_id']),
             'ip' => $ip,
             '$or' => [['userModel' => $ownerModel], ['userModel' => ['$exists' => false]]],
         ];
@@ -311,7 +310,7 @@ final class WalletController
         return (float) number_format($amount, 2, '.', '');
     }
 
-    private function toOptionalObjectId(mixed $value): mixed
+    private function toOptionalId(mixed $value): mixed
     {
         if (!is_string($value)) {
             return null;
@@ -319,7 +318,7 @@ final class WalletController
         if (preg_match('/^[a-f0-9]{24}$/i', $value) !== 1) {
             return null;
         }
-        return new ObjectId($value);
+        return MongoRepository::id($value);
     }
 
     private function num(mixed $value): float

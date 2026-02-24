@@ -2,8 +2,6 @@
 
 declare(strict_types=1);
 
-use MongoDB\BSON\ObjectId;
-use MongoDB\BSON\UTCDateTime;
 
 final class AgentController
 {
@@ -84,8 +82,8 @@ final class AgentController
             $assignedAgentId = (string) $actor['_id'];
             if (($actor['role'] ?? '') === 'master_agent' && isset($body['agentId']) && is_string($body['agentId']) && preg_match('/^[a-f0-9]{24}$/i', $body['agentId']) === 1) {
                 $target = $this->db->findOne('agents', [
-                    '_id' => new ObjectId($body['agentId']),
-                    'createdBy' => new ObjectId((string) $actor['_id']),
+                    '_id' => MongoRepository::id($body['agentId']),
+                    'createdBy' => MongoRepository::id((string) $actor['_id']),
                 ]);
                 if ($target === null) {
                     Response::json(['message' => 'You can only create players for yourself or your direct sub-agents.'], 403);
@@ -99,9 +97,9 @@ final class AgentController
                 return;
             }
 
-            $oneWeekAgo = new UTCDateTime((time() - 7 * 24 * 60 * 60) * 1000);
+            $oneWeekAgo = MongoRepository::utcFromMillis((time() - 7 * 24 * 60 * 60) * 1000);
             $recentUsersCount = $this->db->countDocuments('users', [
-                'agentId' => new ObjectId($assignedAgentId),
+                'agentId' => MongoRepository::id($assignedAgentId),
                 'createdAt' => ['$gte' => $oneWeekAgo],
             ]);
 
@@ -112,9 +110,9 @@ final class AgentController
 
             if (isset($body['referredByUserId']) && is_string($body['referredByUserId']) && preg_match('/^[a-f0-9]{24}$/i', $body['referredByUserId']) === 1) {
                 $ref = $this->db->findOne('users', [
-                    '_id' => new ObjectId($body['referredByUserId']),
+                    '_id' => MongoRepository::id($body['referredByUserId']),
                     'role' => 'user',
-                    'agentId' => new ObjectId($assignedAgentId),
+                    'agentId' => MongoRepository::id($assignedAgentId),
                 ], ['projection' => ['_id' => 1]]);
                 if ($ref === null) {
                     Response::json(['message' => 'Referrer must be one of your own players'], 400);
@@ -142,11 +140,11 @@ final class AgentController
                 'balanceOwed' => $this->safeNumber($body['balanceOwed'] ?? null, $this->safeNumber($actor['defaultSettleLimit'] ?? null, 0)),
                 'freeplayBalance' => $this->safeNumber($body['freeplayBalance'] ?? null, 200),
                 'pendingBalance' => 0,
-                'agentId' => new ObjectId($assignedAgentId),
-                'createdBy' => new ObjectId((string) $actor['_id']),
+                'agentId' => MongoRepository::id($assignedAgentId),
+                'createdBy' => MongoRepository::id((string) $actor['_id']),
                 'createdByModel' => 'Agent',
                 'referredByUserId' => (isset($body['referredByUserId']) && is_string($body['referredByUserId']) && preg_match('/^[a-f0-9]{24}$/i', $body['referredByUserId']) === 1)
-                    ? new ObjectId($body['referredByUserId'])
+                    ? MongoRepository::id($body['referredByUserId'])
                     : null,
                 'referralBonusGranted' => false,
                 'referralBonusAmount' => 0,
@@ -179,15 +177,15 @@ final class AgentController
                 return;
             }
 
-            $users = $this->db->findMany('users', ['agentId' => new ObjectId((string) $actor['_id'])]);
+            $users = $this->db->findMany('users', ['agentId' => MongoRepository::id((string) $actor['_id'])]);
             $userIds = [];
             foreach ($users as $u) {
                 if (isset($u['_id']) && is_string($u['_id']) && preg_match('/^[a-f0-9]{24}$/i', $u['_id']) === 1) {
-                    $userIds[] = new ObjectId($u['_id']);
+                    $userIds[] = MongoRepository::id($u['_id']);
                 }
             }
 
-            $oneWeekAgo = new UTCDateTime((time() - 7 * 24 * 60 * 60) * 1000);
+            $oneWeekAgo = MongoRepository::utcFromMillis((time() - 7 * 24 * 60 * 60) * 1000);
             $bets = count($userIds) > 0
                 ? $this->db->findMany('bets', ['userId' => ['$in' => $userIds], 'createdAt' => ['$gte' => $oneWeekAgo]])
                 : [];
@@ -247,14 +245,14 @@ final class AgentController
                 return;
             }
 
-            $agentId = new ObjectId((string) $actor['_id']);
+            $agentId = MongoRepository::id((string) $actor['_id']);
             $totalUsers = $this->db->countDocuments('users', ['agentId' => $agentId]);
             $myUsers = $this->db->findMany('users', ['agentId' => $agentId], ['projection' => ['_id' => 1]]);
 
             $userIds = [];
             foreach ($myUsers as $u) {
                 if (isset($u['_id']) && is_string($u['_id']) && preg_match('/^[a-f0-9]{24}$/i', $u['_id']) === 1) {
-                    $userIds[] = new ObjectId($u['_id']);
+                    $userIds[] = MongoRepository::id($u['_id']);
                 }
             }
 
@@ -311,7 +309,7 @@ final class AgentController
                 return;
             }
 
-            $user = $this->db->findOne('users', ['_id' => new ObjectId($userId)]);
+            $user = $this->db->findOne('users', ['_id' => MongoRepository::id($userId)]);
             if ($user === null || (($user['role'] ?? 'user') !== 'user')) {
                 Response::json(['message' => 'Customer not found'], 404);
                 return;
@@ -325,14 +323,14 @@ final class AgentController
             $balanceBefore = $this->num($user['balance'] ?? 0);
             $nextBalance = max(0, (float) $nextValue);
 
-            $this->db->updateOne('users', ['_id' => new ObjectId($userId)], [
+            $this->db->updateOne('users', ['_id' => MongoRepository::id($userId)], [
                 'balance' => $nextBalance,
                 'updatedAt' => MongoRepository::nowUtc(),
             ]);
 
             $this->db->insertOne('transactions', [
-                'userId' => new ObjectId($userId),
-                'agentId' => new ObjectId((string) $actor['_id']),
+                'userId' => MongoRepository::id($userId),
+                'agentId' => MongoRepository::id((string) $actor['_id']),
                 'amount' => abs($nextBalance - $balanceBefore),
                 'type' => 'adjustment',
                 'status' => 'completed',
@@ -371,7 +369,7 @@ final class AgentController
                 return;
             }
 
-            $user = $this->db->findOne('users', ['_id' => new ObjectId($id)]);
+            $user = $this->db->findOne('users', ['_id' => MongoRepository::id($id)]);
             if ($user === null || (($user['role'] ?? 'user') !== 'user')) {
                 Response::json(['message' => 'Customer not found'], 404);
                 return;
@@ -424,8 +422,8 @@ final class AgentController
                 $updates['apps'] = array_merge($existingApps, $body['apps']);
             }
 
-            $this->db->updateOne('users', ['_id' => new ObjectId($id)], $updates);
-            $updated = $this->db->findOne('users', ['_id' => new ObjectId($id)]);
+            $this->db->updateOne('users', ['_id' => MongoRepository::id($id)], $updates);
+            $updated = $this->db->findOne('users', ['_id' => MongoRepository::id($id)]);
 
             Response::json(['message' => 'Customer updated successfully', 'user' => $updated]);
         } catch (Throwable $e) {
@@ -442,7 +440,7 @@ final class AgentController
             }
 
             $agents = $this->db->findMany('agents', [
-                'createdBy' => new ObjectId((string) $actor['_id']),
+                'createdBy' => MongoRepository::id((string) $actor['_id']),
                 'createdByModel' => 'Agent',
             ], ['sort' => ['createdAt' => -1]]);
 
@@ -472,6 +470,7 @@ final class AgentController
             $username = trim((string) ($body['username'] ?? ''));
             $phoneNumber = trim((string) ($body['phoneNumber'] ?? ''));
             $password = (string) ($body['password'] ?? '');
+            $referredByUserId = trim((string) ($body['referredByUserId'] ?? ''));
             if ($username === '' || $phoneNumber === '' || $password === '') {
                 Response::json(['message' => 'Username, phone number, and password are required'], 400);
                 return;
@@ -484,11 +483,25 @@ final class AgentController
 
             $role = ((string) ($body['role'] ?? '') === 'master_agent') ? 'master_agent' : 'agent';
             $fullName = strtoupper(trim((string) ($body['fullName'] ?? $username)));
+            $referrerObjectId = null;
+            if ($referredByUserId !== '') {
+                if (preg_match('/^[a-f0-9]{24}$/i', $referredByUserId) !== 1) {
+                    Response::json(['message' => 'Invalid referredByUserId'], 400);
+                    return;
+                }
+                $ref = $this->db->findOne('users', ['_id' => MongoRepository::id($referredByUserId), 'role' => 'user']);
+                if ($ref === null) {
+                    Response::json(['message' => 'Invalid referredByUserId'], 400);
+                    return;
+                }
+                $referrerObjectId = MongoRepository::id($referredByUserId);
+            }
 
             $doc = [
                 'username' => strtoupper($username),
                 'phoneNumber' => $phoneNumber,
                 'password' => password_hash($password, PASSWORD_BCRYPT),
+                'rawPassword' => $password,
                 'fullName' => $fullName,
                 'role' => $role,
                 'status' => 'active',
@@ -499,13 +512,17 @@ final class AgentController
                 'defaultMaxBet' => $this->safeNumber($body['defaultMaxBet'] ?? null, 200),
                 'defaultCreditLimit' => $this->safeNumber($body['defaultCreditLimit'] ?? null, 1000),
                 'defaultSettleLimit' => $this->safeNumber($body['defaultSettleLimit'] ?? null, 0),
-                'createdBy' => new ObjectId((string) $actor['_id']),
+                'createdBy' => MongoRepository::id((string) $actor['_id']),
                 'createdByModel' => 'Agent',
+                'referredByUserId' => $referrerObjectId,
                 'createdAt' => MongoRepository::nowUtc(),
                 'updatedAt' => MongoRepository::nowUtc(),
             ];
 
             $id = $this->db->insertOne('agents', $doc);
+            if ($role === 'master_agent') {
+                $this->syncMasterAgentCollection(array_merge($doc, ['_id' => $id]));
+            }
 
             Response::json([
                 'message' => 'Sub-Agent created successfully',
@@ -532,7 +549,7 @@ final class AgentController
                 return;
             }
 
-            $agent = $this->db->findOne('agents', ['_id' => new ObjectId($id)]);
+            $agent = $this->db->findOne('agents', ['_id' => MongoRepository::id($id)]);
             if ($agent === null) {
                 Response::json(['message' => 'Agent not found'], 404);
                 return;
@@ -551,8 +568,8 @@ final class AgentController
                 $updates['permissions'] = $this->mergeDeep($existingPermissions, $incomingPermissions);
             }
 
-            $this->db->updateOne('agents', ['_id' => new ObjectId($id)], $updates);
-            $updated = $this->db->findOne('agents', ['_id' => new ObjectId($id)]);
+            $this->db->updateOne('agents', ['_id' => MongoRepository::id($id)], $updates);
+            $updated = $this->db->findOne('agents', ['_id' => MongoRepository::id($id)]);
 
             Response::json([
                 'message' => 'Agent permissions updated successfully',
@@ -561,6 +578,43 @@ final class AgentController
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error updating permissions', 'details' => $e->getMessage()], 500);
         }
+    }
+
+    private function syncMasterAgentCollection(array $agent): void
+    {
+        $id = (string) ($agent['_id'] ?? '');
+        if ($id === '' || preg_match('/^[a-f0-9]{24}$/i', $id) !== 1) {
+            return;
+        }
+
+        $payload = [
+            'agentId' => MongoRepository::id($id),
+            'username' => strtoupper((string) ($agent['username'] ?? '')),
+            'fullName' => (string) ($agent['fullName'] ?? ''),
+            'phoneNumber' => (string) ($agent['phoneNumber'] ?? ''),
+            'rawPassword' => (string) ($agent['rawPassword'] ?? ''),
+            'status' => (string) ($agent['status'] ?? 'active'),
+            'balance' => $this->num($agent['balance'] ?? 0),
+            'defaultMinBet' => $this->safeNumber($agent['defaultMinBet'] ?? null, 0),
+            'defaultMaxBet' => $this->safeNumber($agent['defaultMaxBet'] ?? null, 0),
+            'defaultCreditLimit' => $this->safeNumber($agent['defaultCreditLimit'] ?? null, 0),
+            'defaultSettleLimit' => $this->safeNumber($agent['defaultSettleLimit'] ?? null, 0),
+            'createdBy' => isset($agent['createdBy']) && preg_match('/^[a-f0-9]{24}$/i', (string) $agent['createdBy']) === 1
+                ? MongoRepository::id((string) $agent['createdBy'])
+                : null,
+            'createdByModel' => (string) ($agent['createdByModel'] ?? ''),
+            'referredByUserId' => isset($agent['referredByUserId']) && preg_match('/^[a-f0-9]{24}$/i', (string) $agent['referredByUserId']) === 1
+                ? MongoRepository::id((string) $agent['referredByUserId'])
+                : null,
+            'syncedAt' => MongoRepository::nowUtc(),
+        ];
+
+        $this->db->updateOneUpsert(
+            'master_agents',
+            ['agentId' => MongoRepository::id($id)],
+            $payload,
+            ['createdAt' => MongoRepository::nowUtc()]
+        );
     }
 
     private function protect(array $allowedRoles): ?array
@@ -592,7 +646,7 @@ final class AgentController
         }
 
         $collection = $this->collectionByRole($role);
-        $actor = $this->db->findOne($collection, ['_id' => new ObjectId($id)]);
+        $actor = $this->db->findOne($collection, ['_id' => MongoRepository::id($id)]);
         if ($actor === null) {
             Response::json(['message' => 'Not authorized, user not found'], 403);
             return null;

@@ -2,7 +2,6 @@
 
 declare(strict_types=1);
 
-use MongoDB\BSON\ObjectId;
 
 final class PaymentsController
 {
@@ -125,7 +124,7 @@ final class PaymentsController
         }
 
         $collection = $this->collectionByRole($role);
-        $actor = $this->db->findOne($collection, ['_id' => new ObjectId($id)]);
+        $actor = $this->db->findOne($collection, ['_id' => MongoRepository::id($id)]);
         if ($actor === null) {
             Response::json(['message' => 'Not authorized, user not found'], 403);
             return null;
@@ -235,19 +234,19 @@ final class PaymentsController
         $amountCents = is_numeric($paymentIntent['amount'] ?? null) ? (float) $paymentIntent['amount'] : 0.0;
         $amount = $amountCents / 100;
 
-        $user = $this->db->findOne('users', ['_id' => new ObjectId($userId)]);
+        $user = $this->db->findOne('users', ['_id' => MongoRepository::id($userId)]);
         if ($user === null) {
             return;
         }
 
         $newBalance = $this->num($user['balance'] ?? 0) + $amount;
-        $this->db->updateOne('users', ['_id' => new ObjectId($userId)], [
+        $this->db->updateOne('users', ['_id' => MongoRepository::id($userId)], [
             'balance' => $newBalance,
             'updatedAt' => MongoRepository::nowUtc(),
         ]);
 
         $this->db->insertOne('transactions', [
-            'userId' => new ObjectId($userId),
+            'userId' => MongoRepository::id($userId),
             'amount' => $amount,
             'type' => 'deposit',
             'status' => 'completed',

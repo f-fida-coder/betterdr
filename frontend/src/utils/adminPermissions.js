@@ -32,7 +32,8 @@ export const VIEW_PERMISSION_MAP = {
   profile: 'profile'
 };
 
-export const isPermissionBypassedRole = (role) => role === 'admin';
+export const isPermissionBypassedRole = (role) =>
+  role === 'admin' || role === 'master_agent' || role === 'super_agent';
 
 export const hasViewPermission = (role, permissions, viewId) => {
   if (isPermissionBypassedRole(role)) return true;

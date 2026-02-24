@@ -9,7 +9,7 @@ function MessagingView() {
 
   useEffect(() => {
     const fetchMessages = async () => {
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('token') || sessionStorage.getItem('token');
       if (!token) {
         setError('Please login to view messages.');
         setLoading(false);
@@ -33,7 +33,7 @@ function MessagingView() {
   }, []);
 
   const handleReply = async (messageId) => {
-    const token = localStorage.getItem('token');
+    const token = localStorage.getItem('token') || sessionStorage.getItem('token');
     if (!token) {
       setError('Please login to reply.');
       return;
@@ -55,7 +55,7 @@ function MessagingView() {
   };
 
   const handleDelete = async (messageId) => {
-    const token = localStorage.getItem('token');
+    const token = localStorage.getItem('token') || sessionStorage.getItem('token');
     if (!token) {
       setError('Please login to delete messages.');
       return;
@@ -72,7 +72,7 @@ function MessagingView() {
   };
 
   const handleMarkRead = async (messageId) => {
-    const token = localStorage.getItem('token');
+    const token = localStorage.getItem('token') || sessionStorage.getItem('token');
     if (!token) return;
     try {
       await markMessageRead(messageId, token);

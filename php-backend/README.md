@@ -4,8 +4,8 @@ This directory is the start of the core-PHP backend migration.
 
 Current mode:
 - `core PHP` handles request entrypoint at `/api/*`
-- `auth` endpoints are natively handled in core PHP when MongoDB extension is available
-- `wallet` endpoints are natively handled in core PHP when MongoDB extension is available
+- `auth` endpoints are natively handled in core PHP via MySQL repository
+- `wallet` endpoints are natively handled in core PHP via MySQL repository
 - `bets` endpoints are natively handled in core PHP (`/place`, `/my-bets`, `/settle`)
 - `betting` rules endpoints are natively handled in core PHP (`/api/betting/rules`, `/api/admin/bet-mode-rules*`)
 - `matches` read endpoints are natively handled in core PHP (`GET /api/matches`, `GET /api/matches/:id`)
@@ -39,17 +39,21 @@ Current mode:
 
 Use existing project `.env` plus optional PHP-specific variable:
 
-- `MONGODB_URI` or `MONGO_URI`
-- `DB_NAME` (optional, parsed from Mongo URI if omitted)
+- `MYSQL_HOST` (default `127.0.0.1`)
+- `MYSQL_PORT` (default `3306`)
+- `MYSQL_DB` (fallbacks to `DB_NAME`)
+- `MYSQL_USER` (default `root`)
+- `MYSQL_PASSWORD`
+- `MYSQL_TABLE_PREFIX` (optional)
 - `JWT_SECRET`
 - `VITE_ENABLE_MATCH_STREAM` (default `true`; frontend subscribes to PHP SSE stream)
 
 ## PHP prerequisites
 
 - PHP 8+
-- `ext-mongodb` enabled for native auth handling
+- `ext-pdo` + `ext-pdo_mysql` enabled for native auth handling
 
-If `ext-mongodb` is not available, the PHP API returns `503`.
+If `ext-pdo_mysql` is not available, the PHP API returns `503`.
 
 ## Local run
 
@@ -75,3 +79,24 @@ Route parity check:
 ```bash
 npm run check-php-routes
 ```
+
+## MongoDB to MySQL data migration
+
+Use the script below to copy all MongoDB collections into MySQL tables (one table per collection, JSON-preserved docs):
+
+```bash
+php php-backend/scripts/mongo-to-mysql.php \
+  --mysql-host=127.0.0.1 \
+  --mysql-port=3306 \
+  --mysql-db=sports_betting \
+  --mysql-user=root \
+  --mysql-pass=YOUR_PASSWORD \
+  --drop-existing
+```
+
+Useful options:
+- `--collections=users,bets,transactions` migrate only specific collections
+- `--table-prefix=mongo_` prefix generated MySQL table names
+- `--batch-size=500` commit in batches (higher can be faster)
+
+By default, Mongo connection values come from `MONGODB_URI`/`MONGO_URI` and `DB_NAME`.

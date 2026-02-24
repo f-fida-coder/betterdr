@@ -24,19 +24,14 @@ if ($manualMode) {
 }
 
 if (!MongoRepository::isAvailable()) {
-    fwrite(STDERR, "mongodb extension is required for odds worker.\n");
+    fwrite(STDERR, "pdo_mysql extension is required for odds worker.\n");
     exit(1);
 }
 
-$mongoUri = (string) Env::get('MONGODB_URI', Env::get('MONGO_URI', 'mongodb://localhost:27017/sports_betting'));
-$dbName = (string) Env::get('DB_NAME', '');
+$mongoUri = 'mysql-native';
+$dbName = (string) Env::get('MYSQL_DB', Env::get('DB_NAME', 'sports_betting'));
 if ($dbName === '') {
-    $parsed = parse_url($mongoUri);
-    $path = (string) ($parsed['path'] ?? '/sports_betting');
-    $dbName = trim($path, '/');
-    if ($dbName === '') {
-        $dbName = 'sports_betting';
-    }
+    $dbName = 'sports_betting';
 }
 
 $minutes = max(1, (int) Env::get('ODDS_CRON_MINUTES', '10'));
@@ -48,7 +43,7 @@ $repo = null;
 try {
     $repo = new MongoRepository($mongoUri, $dbName);
 } catch (Throwable $e) {
-    fwrite(STDERR, "Failed to initialize MongoDB for odds worker: {$e->getMessage()}\n");
+    fwrite(STDERR, "Failed to initialize MySQL repository for odds worker: {$e->getMessage()}\n");
     exit(1);
 }
 while (true) {

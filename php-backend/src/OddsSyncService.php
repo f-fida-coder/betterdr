@@ -2,7 +2,6 @@
 
 declare(strict_types=1);
 
-use MongoDB\BSON\ObjectId;
 
 final class OddsSyncService
 {
@@ -146,8 +145,8 @@ final class OddsSyncService
                         }
                     }
                 } else {
-                    $oldStatus = (string) (($db->findOne('matches', ['_id' => new ObjectId((string) $existing['_id'])], ['projection' => ['status' => 1]])['status'] ?? ''));
-                    $db->updateOne('matches', ['_id' => new ObjectId((string) $existing['_id'])], $doc);
+                    $oldStatus = (string) (($db->findOne('matches', ['_id' => MongoRepository::id((string) $existing['_id'])], ['projection' => ['status' => 1]])['status'] ?? ''));
+                    $db->updateOne('matches', ['_id' => MongoRepository::id((string) $existing['_id'])], $doc);
                     $result['updated']++;
                     if ($doc['status'] === 'finished' && $oldStatus !== 'finished') {
                         try {

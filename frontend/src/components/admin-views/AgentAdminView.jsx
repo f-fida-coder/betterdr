@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { getAgents, createAgent, updateAgent, suspendUser, unsuspendUser, resetAgentPasswordByAdmin, getNextUsername } from '../../api';
+import { getAgents, createAgent, updateAgent, suspendUser, unsuspendUser, resetAgentPasswordByAdmin, getNextUsername, seedWorkflowHierarchy } from '../../api';
 import AgentPermissionModal from './AgentPermissionModal';
 
 function AgentAdminView() {
@@ -15,6 +15,7 @@ function AgentAdminView() {
   const [editForm, setEditForm] = useState({ id: '', phoneNumber: '', password: '', agentBillingRate: '', agentBillingStatus: 'paid' });
   const [error, setError] = useState(null);
   const [creatorFilter, setCreatorFilter] = useState('all'); // 'all', 'admin', 'master_agent'
+  const [seedLoading, setSeedLoading] = useState(false);
 
   const filteredAgents = agents.filter(agent => {
     if (creatorFilter === 'all') return true;
@@ -188,6 +189,30 @@ function AgentAdminView() {
     }
   };
 
+  const handleSeedWorkflowHierarchy = async () => {
+    const accepted = window.confirm(
+      'Create workflow demo hierarchy now?\n\nThis will add:\n- 10 master agents created by admin\n- 5 master agents under the first master agent\n- 10 agents under each master agent\n- 10 players under each agent\n\nThis action adds many records and cannot be undone automatically.'
+    );
+    if (!accepted) return;
+
+    try {
+      setSeedLoading(true);
+      const token = localStorage.getItem('token');
+      if (!token) throw new Error('No token found');
+
+      const result = await seedWorkflowHierarchy(token);
+      const summary = result?.summary || {};
+      alert(
+        `Workflow seed complete.\nBatch: ${result?.batchTag || 'N/A'}\nMasters: ${summary.totalMasters || 0}\nAgents: ${summary.totalAgents || 0}\nPlayers: ${summary.totalPlayers || 0}`
+      );
+      await fetchAgents();
+    } catch (err) {
+      alert('Failed to seed workflow hierarchy: ' + (err.message || 'Unknown error'));
+    } finally {
+      setSeedLoading(false);
+    }
+  };
+
   return (
     <div className="admin-view">
       <div className="view-header">
@@ -202,6 +227,14 @@ function AgentAdminView() {
             <option value="admin">Created by Admin</option>
             <option value="master_agent">Created by Master Agent</option>
           </select>
+          <button
+            className="btn-secondary"
+            onClick={handleSeedWorkflowHierarchy}
+            disabled={seedLoading}
+            title="Create full workflow test hierarchy"
+          >
+            {seedLoading ? 'Seeding...' : 'Seed Workflow Demo'}
+          </button>
           <button className="btn-primary" onClick={() => setShowAddModal(true)}>Add Master Agent</button>
         </div>
       </div>

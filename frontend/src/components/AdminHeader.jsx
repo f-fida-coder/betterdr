@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { getAdminHeaderSummary, getMe } from '../api';
 import AgentTreeView from './admin-views/AgentTreeView';
 
-function AdminHeader({ onMenuToggle, onLogout, onViewChange }) {
+function AdminHeader({ onMenuToggle, onLogout, onViewChange, role = 'admin' }) {
   const [showDropdown, setShowDropdown] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [showAgentTree, setShowAgentTree] = useState(false);
@@ -86,7 +86,25 @@ function AdminHeader({ onMenuToggle, onLogout, onViewChange }) {
     setShowAgentTree(true);
   };
 
-  const displayName = profile?.username ? profile.username.toUpperCase() : 'ADMIN';
+  const displayName = profile?.username
+    ? profile.username.toUpperCase()
+    : (
+        sessionStorage.getItem(`${role}Username`)
+        || sessionStorage.getItem('super_agentUsername')
+        || sessionStorage.getItem('agentUsername')
+        || sessionStorage.getItem('adminUsername')
+        || localStorage.getItem('userRole')
+        || 'USER'
+      ).toUpperCase();
+  const roleKey = (profile?.role || role || 'admin').toLowerCase();
+  const roleLabel = roleKey === 'master_agent'
+    ? 'MASTER'
+    : roleKey === 'super_agent'
+      ? 'MASTER'
+      : roleKey === 'agent'
+        ? 'AGENT'
+        : 'ADMIN';
+  const titleLabel = roleLabel === 'ADMIN' ? 'Admin Manager' : `${roleLabel} Manager`;
   const myBalance = profile?.unlimitedBalance ? 'Unlimited' : (profile?.balance ?? null);
 
   // For Admin, show Total Outstanding from all users. For Agent/User, show their own.
@@ -110,7 +128,7 @@ function AdminHeader({ onMenuToggle, onLogout, onViewChange }) {
           <button className="mobile-menu-toggle" onClick={onMenuToggle}>
             ☰
           </button>
-          <h1 className="admin-title">Admin Manager</h1>
+          <h1 className="admin-title">{titleLabel}</h1>
           <form className="admin-header-search" onSubmit={handleHeaderSearchSubmit}>
             <span className="search-icon" aria-hidden="true">🔍</span>
             <input
@@ -146,7 +164,7 @@ function AdminHeader({ onMenuToggle, onLogout, onViewChange }) {
                 className="user-button"
                 onClick={() => setShowDropdown(!showDropdown)}
               >
-                👤 {displayName} ▼
+                👤 {roleLabel}: {displayName} ▼
               </button>
               {showDropdown && (
                 <div className="dropdown-menu">

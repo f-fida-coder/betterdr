@@ -37,6 +37,7 @@ const AdminLogin = () => {
                     throw new Error('Not authorized: admin role required');
                 }
                 localStorage.setItem('token', result.token);
+                sessionStorage.setItem('token', result.token);
                 localStorage.setItem('userRole', result.role);
                 sessionStorage.setItem('adminAuthenticated', 'true');
                 sessionStorage.setItem('adminUsername', username);
@@ -48,6 +49,7 @@ const AdminLogin = () => {
                     throw new Error('Not authorized: valid agent role required');
                 }
                 localStorage.setItem('token', result.token);
+                sessionStorage.setItem('token', result.token);
                 localStorage.setItem('userRole', result.role);
                 if (result.role === 'master_agent' || result.role === 'super_agent') {
                     sessionStorage.setItem('super_agentAuthenticated', 'true');

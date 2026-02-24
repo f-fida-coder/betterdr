@@ -2,7 +2,6 @@
 
 declare(strict_types=1);
 
-use MongoDB\BSON\ObjectId;
 
 final class AuthController
 {
@@ -73,9 +72,9 @@ final class AuthController
 
             $validAgentId = null;
             if ($agentId !== '' && preg_match('/^[a-f0-9]{24}$/i', $agentId) === 1) {
-                $agent = $this->db->findOne('agents', ['_id' => new ObjectId($agentId)]);
+                $agent = $this->db->findOne('agents', ['_id' => MongoRepository::id($agentId)]);
                 if ($agent !== null) {
-                    $validAgentId = new ObjectId($agentId);
+                    $validAgentId = MongoRepository::id($agentId);
                 }
             }
 
@@ -102,7 +101,7 @@ final class AuthController
             ];
 
             $userId = $this->db->insertOne('users', $insert);
-            $user = $this->db->findOne('users', ['_id' => new ObjectId($userId)]);
+            $user = $this->db->findOne('users', ['_id' => MongoRepository::id($userId)]);
             if ($user === null) {
                 Response::json(['message' => 'Server error'], 500);
                 return;
@@ -242,7 +241,7 @@ final class AuthController
             $dashboardLayout = $body['dashboardLayout'] ?? null;
             if (is_string($dashboardLayout) && $dashboardLayout !== '') {
                 $collection = $this->collectionByRole((string) ($user['role'] ?? 'user'));
-                $this->db->updateOne($collection, ['_id' => new ObjectId((string) $user['_id'])], [
+                $this->db->updateOne($collection, ['_id' => MongoRepository::id((string) $user['_id'])], [
                     'dashboardLayout' => $dashboardLayout,
                     'updatedAt' => MongoRepository::nowUtc(),
                 ]);
@@ -287,7 +286,7 @@ final class AuthController
         }
 
         $collection = $this->collectionByRole($role);
-        $user = $this->db->findOne($collection, ['_id' => new ObjectId($id)]);
+        $user = $this->db->findOne($collection, ['_id' => MongoRepository::id($id)]);
         if ($user === null) {
             Response::json(['message' => 'Not authorized, user not found'], 403);
             return null;
@@ -425,7 +424,7 @@ final class AuthController
                 'ip' => $ip,
                 'status' => ['$in' => ['active', 'whitelisted']],
                 '$nor' => [[
-                    'userId' => new ObjectId((string) $user['_id']),
+                    'userId' => MongoRepository::id((string) $user['_id']),
                     '$or' => [['userModel' => $ownerModel], ['userModel' => ['$exists' => false]]],
                 ]],
             ]);
@@ -478,7 +477,7 @@ final class AuthController
         $ownerModel = IpUtils::ownerModelForRole((string) ($user['role'] ?? 'user'));
 
         return [
-            'userId' => new ObjectId((string) $user['_id']),
+            'userId' => MongoRepository::id((string) $user['_id']),
             'ip' => $ip,
             '$or' => [['userModel' => $ownerModel], ['userModel' => ['$exists' => false]]],
         ];

@@ -46,15 +46,10 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') {
 $uriPath = Http::path();
 $method = Http::method();
 
-$mongoUri = Env::get('MONGODB_URI', Env::get('MONGO_URI', 'mongodb://localhost:27017/sports_betting'));
-$dbName = Env::get('DB_NAME', '');
+$mongoUri = 'mysql-native';
+$dbName = (string) Env::get('MYSQL_DB', Env::get('DB_NAME', 'sports_betting'));
 if ($dbName === '') {
-    $parsed = parse_url($mongoUri);
-    $path = (string) ($parsed['path'] ?? '/sports_betting');
-    $dbName = trim($path, '/');
-    if ($dbName === '') {
-        $dbName = 'sports_betting';
-    }
+    $dbName = 'sports_betting';
 }
 
 $authNativeEnabled = MongoRepository::isAvailable();
@@ -64,7 +59,8 @@ if ($uriPath === '/api/_php/health') {
         'ok' => true,
         'mode' => 'core-php-gateway',
         'authNativeEnabled' => $authNativeEnabled,
-        'mongoDbName' => $dbName,
+        'databaseName' => $dbName,
+        'databaseEngine' => 'mysql',
         'time' => gmdate(DATE_ATOM),
     ]);
     exit;
@@ -133,7 +129,7 @@ if (
 }
 
 if (!$authNativeEnabled) {
-    Response::json(['message' => 'Core PHP backend requires the mongodb extension'], 503);
+    Response::json(['message' => 'Core PHP backend requires the pdo_mysql extension'], 503);
     exit;
 }
 

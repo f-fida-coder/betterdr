@@ -2,7 +2,6 @@
 
 declare(strict_types=1);
 
-use MongoDB\BSON\ObjectId;
 
 final class MatchesController
 {
@@ -61,7 +60,7 @@ final class MatchesController
     private function getMatchById(string $id): void
     {
         try {
-            $match = $this->db->findOne('matches', ['_id' => new ObjectId($id)]);
+            $match = $this->db->findOne('matches', ['_id' => MongoRepository::id($id)]);
             if ($match === null) {
                 Response::json(['message' => 'Match not found'], 404);
                 return;

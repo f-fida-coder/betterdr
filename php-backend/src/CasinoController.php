@@ -2,7 +2,6 @@
 
 declare(strict_types=1);
 
-use MongoDB\BSON\ObjectId;
 
 final class CasinoController
 {
@@ -162,7 +161,7 @@ final class CasinoController
                 return;
             }
 
-            $game = $this->db->findOne('casinogames', ['_id' => new ObjectId($id)]);
+            $game = $this->db->findOne('casinogames', ['_id' => MongoRepository::id($id)]);
             if ($game === null) {
                 Response::json(['message' => 'Casino game not found'], 404);
                 return;
@@ -243,7 +242,7 @@ final class CasinoController
             ];
 
             $id = $this->db->insertOne('casinogames', $doc);
-            $created = $this->db->findOne('casinogames', ['_id' => new ObjectId($id)]);
+            $created = $this->db->findOne('casinogames', ['_id' => MongoRepository::id($id)]);
             Response::json($this->toPublicGame($created ?? array_merge($doc, ['_id' => $id])), 201);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error creating casino game'], 500);
@@ -262,7 +261,7 @@ final class CasinoController
                 return;
             }
 
-            $existing = $this->db->findOne('casinogames', ['_id' => new ObjectId($id)]);
+            $existing = $this->db->findOne('casinogames', ['_id' => MongoRepository::id($id)]);
             if ($existing === null) {
                 Response::json(['message' => 'Casino game not found'], 404);
                 return;
@@ -302,8 +301,8 @@ final class CasinoController
                 }
             }
 
-            $this->db->updateOne('casinogames', ['_id' => new ObjectId($id)], $updates);
-            $updated = $this->db->findOne('casinogames', ['_id' => new ObjectId($id)]);
+            $this->db->updateOne('casinogames', ['_id' => MongoRepository::id($id)], $updates);
+            $updated = $this->db->findOne('casinogames', ['_id' => MongoRepository::id($id)]);
             Response::json($this->toPublicGame($updated ?? array_merge($existing, $updates)));
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error updating casino game'], 500);
@@ -426,7 +425,7 @@ final class CasinoController
                     $this->db->insertOne('casinogames', $mapped);
                     $inserted++;
                 } else {
-                    $this->db->updateOne('casinogames', ['_id' => new ObjectId((string) $existing['_id'])], $mapped);
+                    $this->db->updateOne('casinogames', ['_id' => MongoRepository::id((string) $existing['_id'])], $mapped);
                     $matched++;
                     $modified++;
                 }
@@ -527,7 +526,7 @@ final class CasinoController
         }
 
         $collection = $this->collectionByRole($role);
-        $actor = $this->db->findOne($collection, ['_id' => new ObjectId($id)]);
+        $actor = $this->db->findOne($collection, ['_id' => MongoRepository::id($id)]);
         if ($actor === null) {
             Response::json(['message' => 'Not authorized, user not found'], 403);
             return null;

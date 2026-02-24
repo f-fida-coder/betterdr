@@ -58,6 +58,7 @@ function AdminPanel({ onExit, role = 'admin' }) {
   const [layoutPref, setLayoutPref] = useState('tiles');
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
   const [permissions, setPermissions] = useState(null);
+  const [effectiveRole, setEffectiveRole] = useState(role);
   const [showScoreboard, setShowScoreboard] = useState(false);
 
   useEffect(() => {
@@ -71,6 +72,9 @@ function AdminPanel({ onExit, role = 'admin' }) {
               setLayoutPref(me.dashboardLayout);
             }
             setPermissions(me.permissions || null);
+            if (me.role) {
+              setEffectiveRole(me.role);
+            }
           }
         }
       } catch (e) {
@@ -89,7 +93,7 @@ function AdminPanel({ onExit, role = 'admin' }) {
   }, []);
 
   const handleViewChange = (view, userId = null) => {
-    if (!hasViewPermission(role, permissions, view)) {
+    if (!hasViewPermission(effectiveRole, permissions, view)) {
       return;
     }
     setAdminView(view);
@@ -100,11 +104,11 @@ function AdminPanel({ onExit, role = 'admin' }) {
   };
 
   useEffect(() => {
-    if (!hasViewPermission(role, permissions, adminView)) {
-      const nextView = FALLBACK_VIEW_ORDER.find((viewId) => hasViewPermission(role, permissions, viewId)) || 'dashboard';
+    if (!hasViewPermission(effectiveRole, permissions, adminView)) {
+      const nextView = FALLBACK_VIEW_ORDER.find((viewId) => hasViewPermission(effectiveRole, permissions, viewId)) || 'dashboard';
       setAdminView(nextView);
     }
-  }, [adminView, permissions, role]);
+  }, [adminView, permissions, effectiveRole]);
 
   const handleLogout = () => {
     onExit();
@@ -117,7 +121,7 @@ function AdminPanel({ onExit, role = 'admin' }) {
           <AdminDashboard
             onMenuClick={handleViewChange}
             onOpenScoreboard={() => setShowScoreboard(true)}
-            role={role}
+            role={effectiveRole}
             layoutPref={layoutPref}
             isMobile={isMobile}
             permissions={permissions}
@@ -128,7 +132,7 @@ function AdminPanel({ onExit, role = 'admin' }) {
           <CustomerDetailsView
             userId={selectedUserId}
             onBack={() => setAdminView('customer-admin')}
-            role={role}
+            role={effectiveRole}
           />
         );
       case 'weekly-figures':
@@ -154,7 +158,7 @@ function AdminPanel({ onExit, role = 'admin' }) {
       case 'analysis':
         return <AnalysisView />;
       case 'ip-tracker':
-        return <IPTrackerView canManage={canManageIpTracker(role, permissions)} />;
+        return <IPTrackerView canManage={canManageIpTracker(effectiveRole, permissions)} />;
       case 'transactions-history':
         return <TransactionsHistoryView />;
       case 'collections':
@@ -194,7 +198,7 @@ function AdminPanel({ onExit, role = 'admin' }) {
       case 'monitor':
         return <SystemMonitorView />;
       default:
-        return <AdminDashboard onMenuClick={handleViewChange} onOpenScoreboard={() => setShowScoreboard(true)} role={role} permissions={permissions} />;
+        return <AdminDashboard onMenuClick={handleViewChange} onOpenScoreboard={() => setShowScoreboard(true)} role={effectiveRole} permissions={permissions} />;
     }
   };
 
@@ -204,6 +208,7 @@ function AdminPanel({ onExit, role = 'admin' }) {
         onMenuToggle={() => setMobileSidebarOpen(!mobileSidebarOpen)}
         onLogout={handleLogout}
         onViewChange={handleViewChange}
+        role={effectiveRole}
       />
       <div className="admin-container">
         <AdminSidebar
@@ -211,7 +216,7 @@ function AdminPanel({ onExit, role = 'admin' }) {
           onViewChange={handleViewChange}
           onOpenScoreboard={() => setShowScoreboard(true)}
           isOpen={mobileSidebarOpen}
-          role={role}
+          role={effectiveRole}
           permissions={permissions}
         />
         <div className="admin-content">

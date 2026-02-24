@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { createUserByAdmin, createPlayerByAgent, createAgent, createSubAgent, getAgents, getMyPlayers, getMe, updateUserCredit, updateUserBalanceOwedByAgent, resetUserPasswordByAdmin, updateUserByAdmin, updateUserByAgent, getUserStatistics, getNextUsername, getUsersAdmin, deleteUser, deleteAgent } from '../../api';
 
 function CustomerAdminView({ onViewChange }) {
@@ -69,6 +69,7 @@ function CustomerAdminView({ onViewChange }) {
   const [expandedEditRowId, setExpandedEditRowId] = useState(null);
   const [rowDetailDrafts, setRowDetailDrafts] = useState({});
   const [headerAgentQuery, setHeaderAgentQuery] = useState('');
+  const [customerSearchQuery, setCustomerSearchQuery] = useState('');
   const [headerAgentOpen, setHeaderAgentOpen] = useState(false);
   const [selectedHeaderAgentId, setSelectedHeaderAgentId] = useState('');
   const [agentSearchQuery, setAgentSearchQuery] = useState('');
@@ -89,7 +90,7 @@ function CustomerAdminView({ onViewChange }) {
     const fetchUsers = async () => {
       try {
         setLoading(true);
-        const token = localStorage.getItem('token');
+        const token = localStorage.getItem('token') || sessionStorage.getItem('token');
         if (!token) {
           setCustomers([]);
           setError('Please login to load users.');
@@ -141,7 +142,7 @@ function CustomerAdminView({ onViewChange }) {
   const handleCreateCustomer = async () => {
     try {
       setCreateLoading(true);
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('token') || sessionStorage.getItem('token');
       if (!token) {
         setError('Please login to create users.');
         return;
@@ -173,6 +174,9 @@ function CustomerAdminView({ onViewChange }) {
       const payload = { ...newCustomer };
       if (payload.balance === '') delete payload.balance;
       if (!payload.referredByUserId) delete payload.referredByUserId;
+      if ((creationType === 'agent' || creationType === 'super_agent') && payload.agentId) {
+        payload.parentAgentId = payload.agentId;
+      }
 
       if (creationType === 'player') {
         if (currentRole === 'agent' || currentRole === 'super_agent' || currentRole === 'master_agent') {
@@ -200,6 +204,7 @@ function CustomerAdminView({ onViewChange }) {
 
       alert(`${creationType === 'player' ? 'Player' : creationType === 'agent' ? 'Agent' : 'Master Agent'} initialized successfully!`);
 
+      const createdType = creationType;
       const cleanState = {
         username: '',
         phoneNumber: '',
@@ -210,31 +215,22 @@ function CustomerAdminView({ onViewChange }) {
         agentId: '',
         referredByUserId: '',
         balance: '',
-        minBet: '25',
-        maxBet: '200',
-        creditLimit: '1000',
-        balanceOwed: '200',
-        defaultMinBet: '25',
-        defaultMaxBet: '200',
-        defaultCreditLimit: '1000',
-        defaultSettleLimit: '200',
+        minBet: '',
+        maxBet: '',
+        creditLimit: '',
+        balanceOwed: '',
+        defaultMinBet: '',
+        defaultMaxBet: '',
+        defaultCreditLimit: '',
+        defaultSettleLimit: '',
         agentPrefix: '',
         parentAgentId: ''
       };
 
-      // Reset form state first
       setNewCustomer(cleanState);
-      setCreationType('player');
-
-      // Then fetch next username for reset state (default: admin direct)
-      if (adminUsername) {
-        try {
-          const { nextUsername } = await getNextUsername(adminUsername, token, { type: 'player' });
-          setNewCustomer(prev => ({ ...prev, username: nextUsername }));
-        } catch (e) {
-          console.error("Failed to refresh username after create", e);
-        }
-      }
+      setCreationType(createdType);
+      setAgentSearchQuery('');
+      setAgentSearchOpen(false);
 
       setError('');
       if (currentRole === 'agent') {
@@ -253,7 +249,7 @@ function CustomerAdminView({ onViewChange }) {
   };
 
   const updateCustomerStatus = async (customerId, nextStatus) => {
-    const token = localStorage.getItem('token');
+    const token = localStorage.getItem('token') || sessionStorage.getItem('token');
     if (!token) {
       setError('Please login to update user status.');
       return;
@@ -286,7 +282,7 @@ function CustomerAdminView({ onViewChange }) {
     setNewCustomer(prev => ({ ...prev, agentPrefix: formatted }));
 
     if (formatted.length >= 2) {
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('token') || sessionStorage.getItem('token');
       const suffix = creationType === 'super_agent' ? 'MA' : '';
       try {
         const { nextUsername } = await getNextUsername(formatted, token, { suffix, type: 'agent' });
@@ -300,17 +296,19 @@ function CustomerAdminView({ onViewChange }) {
   };
 
   const handleAgentChange = async (agentId) => {
-    const token = localStorage.getItem('token');
+    const token = localStorage.getItem('token') || sessionStorage.getItem('token');
     if (!token) return;
 
     setNewCustomer(prev => ({ ...prev, agentId, referredByUserId: '' }));
+    const sequenceType = (creationType === 'player') ? 'player' : 'agent';
+    const suffix = (creationType === 'super_agent') ? 'MA' : '';
 
     if (agentId) {
       const selectedAgent = agents.find(a => (a.id || a._id) === agentId);
       if (selectedAgent) {
         setAgentSearchQuery(selectedAgent.username || '');
         try {
-          const { nextUsername } = await getNextUsername(selectedAgent.username, token, { type: 'player' });
+          const { nextUsername } = await getNextUsername(selectedAgent.username, token, { suffix, type: sequenceType });
           setNewCustomer(prev => ({ ...prev, username: nextUsername }));
         } catch (err) {
           console.error('Failed to get next username:', err);
@@ -321,7 +319,7 @@ function CustomerAdminView({ onViewChange }) {
       // Direct assignment - use admin username
       if (adminUsername) {
         try {
-          const { nextUsername } = await getNextUsername(adminUsername, token, { type: 'player' });
+          const { nextUsername } = await getNextUsername(adminUsername, token, { suffix, type: sequenceType });
           setNewCustomer(prev => ({ ...prev, username: nextUsername }));
         } catch (err) {
           console.error('Failed to fetch username for admin:', err);
@@ -475,7 +473,7 @@ function CustomerAdminView({ onViewChange }) {
     }
 
     try {
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('token') || sessionStorage.getItem('token');
       if (!token) {
         setError('Please login to update balance.');
         return;
@@ -531,7 +529,7 @@ function CustomerAdminView({ onViewChange }) {
     if (!draft) return;
 
     try {
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('token') || sessionStorage.getItem('token');
       if (!token) return;
 
       setActionLoadingId(customerId);
@@ -579,7 +577,7 @@ function CustomerAdminView({ onViewChange }) {
     }
 
     try {
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('token') || sessionStorage.getItem('token');
       if (!token) {
         setError('Please login to reset password.');
         return;
@@ -626,7 +624,7 @@ function CustomerAdminView({ onViewChange }) {
     e.preventDefault();
     const customerId = selectedCustomer.id || selectedCustomer._id;
     try {
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('token') || sessionStorage.getItem('token');
       const payload = {};
       if (editForm.phoneNumber.trim()) payload.phoneNumber = editForm.phoneNumber.trim();
       if (editForm.firstName.trim()) payload.firstName = editForm.firstName.trim();
@@ -665,29 +663,49 @@ function CustomerAdminView({ onViewChange }) {
     }
   };
 
-  const assignableAgents = agents.filter((a) => {
+  const assignableAgents = useMemo(() => agents.filter((a) => {
     if (currentRole === 'admin') return true;
     if (currentRole === 'super_agent' || currentRole === 'master_agent') return true;
     return false;
-  });
+  }), [agents, currentRole]);
 
-  const filteredAssignableAgents = assignableAgents.filter((a) => {
+  const filteredAssignableAgents = useMemo(() => assignableAgents.filter((a) => {
     if (!agentSearchQuery.trim()) return true;
     return (a.username || '').toLowerCase().includes(agentSearchQuery.trim().toLowerCase());
-  });
-  const headerFilteredAgents = assignableAgents.filter((a) => {
+  }), [assignableAgents, agentSearchQuery]);
+
+  const headerFilteredAgents = useMemo(() => assignableAgents.filter((a) => {
     if (!headerAgentQuery.trim()) return true;
     return (a.username || '').toLowerCase().includes(headerAgentQuery.trim().toLowerCase());
-  });
+  }), [assignableAgents, headerAgentQuery]);
 
-  const allPlayers = customers.filter((c) => c.role === 'user');
+  const normalizedCustomerQuery = customerSearchQuery.trim().toLowerCase();
+
+  const allPlayers = useMemo(() => customers.filter((c) => c.role === 'user'), [customers]);
+  const searchedPlayers = useMemo(() => {
+    if (!normalizedCustomerQuery) return allPlayers;
+    return allPlayers.filter((c) => {
+      const fields = [
+        c.username,
+        c.firstName,
+        c.lastName,
+        c.fullName,
+        c.phoneNumber,
+        c.rawPassword,
+        c.referredByUsername,
+        c.agentId?.username,
+      ];
+      return fields.some((value) => String(value || '').toLowerCase().includes(normalizedCustomerQuery));
+    });
+  }, [allPlayers, normalizedCustomerQuery]);
+
   const selectedHeaderAgent = assignableAgents.find((a) => String(a.id || a._id) === String(selectedHeaderAgentId));
   const isMasterSelection = !!selectedHeaderAgent && (selectedHeaderAgent.role === 'master_agent' || selectedHeaderAgent.role === 'super_agent');
 
-  const filteredCustomers = (() => {
-    if (!selectedHeaderAgentId) return allPlayers;
+  const filteredCustomers = useMemo(() => {
+    if (!selectedHeaderAgentId) return searchedPlayers;
     if (!isMasterSelection) {
-      return allPlayers.filter((c) => String(c.agentId?._id || c.agentId || '') === String(selectedHeaderAgentId));
+      return searchedPlayers.filter((c) => String(c.agentId?._id || c.agentId || '') === String(selectedHeaderAgentId));
     }
 
     const childAgents = assignableAgents.filter((a) => {
@@ -696,12 +714,12 @@ function CustomerAdminView({ onViewChange }) {
     });
     const childAgentIds = new Set(childAgents.map((a) => String(a.id || a._id)));
 
-    const playersUnderChildren = allPlayers.filter((c) => childAgentIds.has(String(c.agentId?._id || c.agentId || '')));
-    const directUnderMaster = allPlayers.filter((c) => String(c.agentId?._id || c.agentId || '') === String(selectedHeaderAgentId));
+    const playersUnderChildren = searchedPlayers.filter((c) => childAgentIds.has(String(c.agentId?._id || c.agentId || '')));
+    const directUnderMaster = searchedPlayers.filter((c) => String(c.agentId?._id || c.agentId || '') === String(selectedHeaderAgentId));
     return [...playersUnderChildren, ...directUnderMaster];
-  })();
+  }, [selectedHeaderAgentId, isMasterSelection, searchedPlayers, assignableAgents]);
 
-  const displayRows = (() => {
+  const displayRows = useMemo(() => {
     if (!isMasterSelection) {
       return filteredCustomers.map((player) => ({ type: 'player', player }));
     }
@@ -727,7 +745,7 @@ function CustomerAdminView({ onViewChange }) {
     }
 
     return rows;
-  })();
+  }, [isMasterSelection, filteredCustomers, assignableAgents, selectedHeaderAgentId, selectedHeaderAgent]);
 
   const visiblePlayers = filteredCustomers;
 
@@ -761,7 +779,7 @@ function CustomerAdminView({ onViewChange }) {
 
   const applyBulkEdit = async (e) => {
     e.preventDefault();
-    const token = localStorage.getItem('token');
+    const token = localStorage.getItem('token') || sessionStorage.getItem('token');
     if (!token) {
       setError('Please login to update players.');
       return;
@@ -810,7 +828,7 @@ function CustomerAdminView({ onViewChange }) {
 
   const referralOptions = (() => {
     const playersOnly = customers.filter((c) => c.role === 'user');
-    if (creationType !== 'player') return [];
+    if (creationType !== 'player' && creationType !== 'agent' && creationType !== 'super_agent') return [];
 
     if (currentRole === 'agent') {
       return playersOnly;
@@ -842,7 +860,7 @@ function CustomerAdminView({ onViewChange }) {
     }
 
     try {
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('token') || sessionStorage.getItem('token');
       if (!token) {
         setError('Please login to delete.');
         return;
@@ -923,7 +941,7 @@ function CustomerAdminView({ onViewChange }) {
   const saveInlineRow = async (customer) => {
     const customerId = customer.id || customer._id;
     const draft = getRowDetailDraft(customer);
-    const token = localStorage.getItem('token');
+    const token = localStorage.getItem('token') || sessionStorage.getItem('token');
     if (!token) return;
 
     const payload = {
@@ -1000,7 +1018,7 @@ function CustomerAdminView({ onViewChange }) {
 
   const applyQuickEdit = async (e) => {
     e.preventDefault();
-    const token = localStorage.getItem('token');
+    const token = localStorage.getItem('token') || sessionStorage.getItem('token');
     if (!token || !quickEditModal.customerId) return;
 
     try {
@@ -1053,6 +1071,15 @@ function CustomerAdminView({ onViewChange }) {
         <div className="header-icon-title">
           <div className="glow-accent"></div>
           <h2>Administration Console</h2>
+        </div>
+        <div style={{ minWidth: '260px' }}>
+          <input
+            type="text"
+            value={customerSearchQuery}
+            onChange={(e) => setCustomerSearchQuery(e.target.value)}
+            placeholder="Search user, name, phone, agent..."
+            style={{ width: '100%', padding: '10px 12px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(15,23,42,0.6)', color: '#fff' }}
+          />
         </div>
         <div
           className="agent-search-picker header-agent-picker"
@@ -1203,10 +1230,11 @@ function CustomerAdminView({ onViewChange }) {
                 />
               </div>
 
-              {/* Assign to Agent Dropdown for Admin and Master Agent when creating Player */}
-              {creationType === 'player' && (currentRole === 'admin' || currentRole === 'super_agent' || currentRole === 'master_agent') && (
+              {/* Assign to Agent / Master Agent */}
+              {(creationType === 'player' || creationType === 'agent' || creationType === 'super_agent')
+                && (currentRole === 'admin' || currentRole === 'super_agent' || currentRole === 'master_agent') && (
                 <div className="filter-group">
-                  <label>Assign to Agent</label>
+                  <label>{creationType === 'player' ? 'Assign to Agent' : 'Assign to Master Agent'}</label>
                   <div
                     className="agent-search-picker"
                     onFocus={() => setAgentSearchOpen(true)}
@@ -1235,11 +1263,14 @@ function CustomerAdminView({ onViewChange }) {
                             setAgentSearchOpen(false);
                           }}
                         >
-                          <span>Direct (Under Me)</span>
+                          <span>{creationType === 'player' ? 'Direct (Under Me)' : 'Direct (Created By Me)'}</span>
                         </button>
                         {filteredAssignableAgents.map((a) => {
                           const id = a.id || a._id;
                           const isMaster = a.role === 'master_agent' || a.role === 'super_agent';
+                          if ((creationType === 'agent' || creationType === 'super_agent') && !isMaster) {
+                            return null;
+                          }
                           return (
                             <button
                               key={id}
@@ -1264,7 +1295,7 @@ function CustomerAdminView({ onViewChange }) {
                 </div>
               )}
 
-              {creationType === 'player' && (
+              {(creationType === 'player' || creationType === 'agent' || creationType === 'super_agent') && (
                 <>
                   <div className="filter-group">
                     <label>Referred By Player</label>

@@ -42,6 +42,7 @@ createRoot(document.getElementById('root')).render(
                 sessionStorage.removeItem('adminAuthenticated');
                 sessionStorage.removeItem('adminUsername');
                 localStorage.removeItem('token');
+                sessionStorage.removeItem('token');
                 localStorage.removeItem('userRole');
                 window.location.href = '/';
               }} />
@@ -56,6 +57,7 @@ createRoot(document.getElementById('root')).render(
                 sessionStorage.removeItem('agentAuthenticated');
                 sessionStorage.removeItem('agentUsername');
                 localStorage.removeItem('token');
+                sessionStorage.removeItem('token');
                 localStorage.removeItem('userRole');
                 window.location.href = '/';
               }} />
@@ -70,6 +72,7 @@ createRoot(document.getElementById('root')).render(
                 sessionStorage.removeItem('super_agentAuthenticated');
                 sessionStorage.removeItem('super_agentUsername');
                 localStorage.removeItem('token');
+                sessionStorage.removeItem('token');
                 localStorage.removeItem('userRole');
                 window.location.href = '/';
               }} />

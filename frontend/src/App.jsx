@@ -159,6 +159,7 @@ function App() {
       // Store the token from the real backend
       setToken(result.token);
       localStorage.setItem('token', result.token);
+      sessionStorage.setItem('token', result.token);
       localStorage.setItem('userRole', result.role);
 
       // Store user data from the backend response
@@ -200,6 +201,7 @@ function App() {
     setWager('');
     setTeaserPoints('');
     localStorage.removeItem('token');
+    sessionStorage.removeItem('token');
     localStorage.removeItem('userRole');
     document.body.classList.remove('dashboard-mode');
     handleHomeClick();
