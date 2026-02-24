@@ -22,6 +22,7 @@ final class MongoRepository
         $pdoOptions = [
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            PDO::ATTR_TIMEOUT => 5,
         ];
         if (defined('Pdo\\Mysql::ATTR_INIT_COMMAND')) {
             $pdoOptions[\Pdo\Mysql::ATTR_INIT_COMMAND] = 'SET NAMES utf8mb4';
@@ -29,12 +30,25 @@ final class MongoRepository
             $pdoOptions[PDO::MYSQL_ATTR_INIT_COMMAND] = 'SET NAMES utf8mb4';
         }
 
-        $this->pdo = new PDO(
-            "mysql:host={$host};port={$port};dbname={$name};charset=utf8mb4",
-            $user,
-            $pass,
-            $pdoOptions
-        );
+        $dsn = "mysql:host={$host};port={$port};dbname={$name};charset=utf8mb4";
+        $lastException = null;
+        for ($attempt = 1; $attempt <= 3; $attempt++) {
+            try {
+                $this->pdo = new PDO($dsn, $user, $pass, $pdoOptions);
+                $lastException = null;
+                break;
+            } catch (PDOException $e) {
+                $lastException = $e;
+                if ($attempt < 3) {
+                    usleep(250000);
+                    continue;
+                }
+            }
+        }
+
+        if ($lastException instanceof PDOException) {
+            throw $lastException;
+        }
     }
 
     public static function isAvailable(): bool
