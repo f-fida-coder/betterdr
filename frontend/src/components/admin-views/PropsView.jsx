@@ -117,6 +117,7 @@ function PropsView() {
 
     loadReferenceData();
     const interval = setInterval(() => {
+      if (document.hidden) return;
       loadBets({
         agent: searchAgent,
         customer: searchPlayer,
@@ -124,7 +125,7 @@ function PropsView() {
         time: timeFilter,
         type: typeFilter
       });
-    }, 30000);
+    }, 90000);
     return () => clearInterval(interval);
   }, [searchAgent, searchPlayer, amountFilter, timeFilter, typeFilter]);
 

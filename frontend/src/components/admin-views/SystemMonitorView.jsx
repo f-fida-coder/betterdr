@@ -24,8 +24,10 @@ const SystemMonitorView = () => {
 
     useEffect(() => {
         fetchStats();
-        // Auto-refresh every 5 seconds
-        const interval = setInterval(fetchStats, 5000);
+        const interval = setInterval(() => {
+            if (document.hidden) return;
+            fetchStats();
+        }, 60000);
         return () => clearInterval(interval);
     }, []);
 

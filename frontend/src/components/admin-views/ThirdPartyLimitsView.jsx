@@ -56,7 +56,10 @@ function ThirdPartyLimitsView() {
 
   useEffect(() => {
     loadLimits();
-    const interval = setInterval(loadLimits, 30000);
+    const interval = setInterval(() => {
+      if (document.hidden) return;
+      loadLimits();
+    }, 120000);
     return () => clearInterval(interval);
   }, []);
 

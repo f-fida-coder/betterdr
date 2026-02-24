@@ -762,41 +762,44 @@ final class AdminCoreController
             if ($actor === null) {
                 return;
             }
+            $actorId = (string) ($actor['_id'] ?? '');
+            $actorRole = (string) ($actor['role'] ?? '');
+            $this->respondJsonWithCache('system-stats-' . $actorRole, $actorId, 20, function () use ($actor): array {
+                $queryUsers = ['role' => 'user'];
+                $betQuery = [];
 
-            $queryUsers = ['role' => 'user'];
-            $betQuery = [];
-
-            if (($actor['role'] ?? '') === 'agent') {
-                $queryUsers['agentId'] = MongoRepository::id((string) $actor['_id']);
-                $myUsers = $this->db->findMany('users', ['agentId' => MongoRepository::id((string) $actor['_id'])], ['projection' => ['_id' => 1]]);
-                $ids = [];
-                foreach ($myUsers as $u) {
-                    $ids[] = MongoRepository::id((string) $u['_id']);
+                if (($actor['role'] ?? '') === 'agent') {
+                    $queryUsers['agentId'] = MongoRepository::id((string) $actor['_id']);
+                    $myUsers = $this->db->findMany('users', ['agentId' => MongoRepository::id((string) $actor['_id'])], ['projection' => ['_id' => 1]]);
+                    $ids = [];
+                    foreach ($myUsers as $u) {
+                        $ids[] = MongoRepository::id((string) $u['_id']);
+                    }
+                    $betQuery['userId'] = ['$in' => $ids];
                 }
-                $betQuery['userId'] = ['$in' => $ids];
-            }
 
-            $userCount = $this->db->countDocuments('users', $queryUsers);
-            $betCount = $this->db->countDocuments('bets', $betQuery);
-            $matchCount = $this->db->countDocuments('matches', []);
+                $userCount = $this->db->countDocuments('users', $queryUsers);
+                $betCount = $this->db->countDocuments('bets', $betQuery);
+                $matchCount = $this->db->countDocuments('matches', []);
 
-            $liveMatches = $this->db->findMany('matches', [
-                '$or' => [
-                    ['status' => 'live'],
-                    ['score.score_home' => ['$gt' => 0]],
-                    ['score.score_away' => ['$gt' => 0]],
-                ],
-            ], ['sort' => ['lastUpdated' => -1], 'limit' => 20]);
+                $liveMatches = $this->db->findMany('matches', [
+                    '$or' => [
+                        ['status' => 'live'],
+                        ['score.score_home' => ['$gt' => 0]],
+                        ['score.score_away' => ['$gt' => 0]],
+                    ],
+                ], ['sort' => ['lastUpdated' => -1], 'limit' => 20]);
 
-            Response::json([
-                'counts' => [
-                    'users' => $userCount,
-                    'bets' => $betCount,
-                    'matches' => $matchCount,
-                ],
-                'liveMatches' => $liveMatches,
-                'timestamp' => gmdate(DATE_ATOM),
-            ]);
+                return [
+                    'counts' => [
+                        'users' => $userCount,
+                        'bets' => $betCount,
+                        'matches' => $matchCount,
+                    ],
+                    'liveMatches' => $liveMatches,
+                    'timestamp' => gmdate(DATE_ATOM),
+                ];
+            });
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error with system stats'], 500);
         }
@@ -809,74 +812,114 @@ final class AdminCoreController
             if ($actor === null) {
                 return;
             }
+            $actorId = (string) ($actor['_id'] ?? '');
+            $actorRole = (string) ($actor['role'] ?? '');
+            $this->respondJsonWithCache('header-summary-' . $actorRole, $actorId, 15, function () use ($actor): array {
+                $startOfToday = new DateTimeImmutable('today');
+                $startOfWeek = $this->startOfWeek(new DateTimeImmutable('now'));
 
-            $startOfToday = new DateTimeImmutable('today');
-            $startOfWeek = $this->startOfWeek(new DateTimeImmutable('now'));
-
-            $matchUser = [];
-            $myUserIds = null;
-            if (($actor['role'] ?? '') === 'agent') {
-                $myUsers = $this->db->findMany('users', ['agentId' => MongoRepository::id((string) $actor['_id'])], ['projection' => ['_id' => 1]]);
-                $ids = [];
-                foreach ($myUsers as $u) {
-                    $ids[] = MongoRepository::id((string) $u['_id']);
+                $matchUser = [];
+                $myUserIds = null;
+                if (($actor['role'] ?? '') === 'agent') {
+                    $myUsers = $this->db->findMany('users', ['agentId' => MongoRepository::id((string) $actor['_id'])], ['projection' => ['_id' => 1]]);
+                    $ids = [];
+                    foreach ($myUsers as $u) {
+                        $ids[] = MongoRepository::id((string) $u['_id']);
+                    }
+                    $myUserIds = $ids;
+                    $matchUser = ['_id' => ['$in' => $ids]];
                 }
-                $myUserIds = $ids;
-                $matchUser = ['_id' => ['$in' => $ids]];
-            }
 
-            $usersForBalance = $this->db->findMany('users', $matchUser, ['projection' => ['balance' => 1, 'balanceOwed' => 1, 'status' => 1]]);
-            $totalBalance = 0.0;
-            $userOutstanding = 0.0;
-            $activeAccounts = 0;
-            foreach ($usersForBalance as $u) {
-                $totalBalance += $this->num($u['balance'] ?? 0);
-                $userOutstanding += $this->num($u['balanceOwed'] ?? 0);
-                if (($u['status'] ?? '') === 'active') {
-                    $activeAccounts++;
+                $usersForBalance = $this->db->findMany('users', $matchUser, ['projection' => ['balance' => 1, 'balanceOwed' => 1, 'status' => 1]]);
+                $totalBalance = 0.0;
+                $userOutstanding = 0.0;
+                $activeAccounts = 0;
+                foreach ($usersForBalance as $u) {
+                    $totalBalance += $this->num($u['balance'] ?? 0);
+                    $userOutstanding += $this->num($u['balanceOwed'] ?? 0);
+                    if (($u['status'] ?? '') === 'active') {
+                        $activeAccounts++;
+                    }
                 }
-            }
 
-            $agentOutstanding = 0.0;
-            if (($actor['role'] ?? '') === 'admin') {
-                $agents = $this->db->findMany('agents', [], ['projection' => ['balanceOwed' => 1]]);
-                foreach ($agents as $a) {
-                    $agentOutstanding += $this->num($a['balanceOwed'] ?? 0);
+                $agentOutstanding = 0.0;
+                if (($actor['role'] ?? '') === 'admin') {
+                    $agents = $this->db->findMany('agents', [], ['projection' => ['balanceOwed' => 1]]);
+                    foreach ($agents as $a) {
+                        $agentOutstanding += $this->num($a['balanceOwed'] ?? 0);
+                    }
                 }
-            }
 
-            $txQueryToday = [
-                'status' => 'completed',
-                'type' => ['$in' => ['bet_placed', 'bet_won']],
-                'createdAt' => ['$gte' => MongoRepository::utcFromMillis($startOfToday->getTimestamp() * 1000)],
-            ];
-            $txQueryWeek = [
-                'status' => 'completed',
-                'type' => ['$in' => ['bet_placed', 'bet_won']],
-                'createdAt' => ['$gte' => MongoRepository::utcFromMillis($startOfWeek->getTimestamp() * 1000)],
-            ];
+                $txQueryToday = [
+                    'status' => 'completed',
+                    'type' => ['$in' => ['bet_placed', 'bet_won']],
+                    'createdAt' => ['$gte' => MongoRepository::utcFromMillis($startOfToday->getTimestamp() * 1000)],
+                ];
+                $txQueryWeek = [
+                    'status' => 'completed',
+                    'type' => ['$in' => ['bet_placed', 'bet_won']],
+                    'createdAt' => ['$gte' => MongoRepository::utcFromMillis($startOfWeek->getTimestamp() * 1000)],
+                ];
 
-            if (($actor['role'] ?? '') === 'agent' && is_array($myUserIds)) {
-                $txQueryToday['userId'] = ['$in' => $myUserIds];
-                $txQueryWeek['userId'] = ['$in' => $myUserIds];
-            }
+                if (($actor['role'] ?? '') === 'agent' && is_array($myUserIds)) {
+                    $txQueryToday['userId'] = ['$in' => $myUserIds];
+                    $txQueryWeek['userId'] = ['$in' => $myUserIds];
+                }
 
-            $todayTx = $this->db->findMany('transactions', $txQueryToday, ['projection' => ['amount' => 1, 'type' => 1]]);
-            $weekTx = $this->db->findMany('transactions', $txQueryWeek, ['projection' => ['amount' => 1, 'type' => 1]]);
+                $todayTx = $this->db->findMany('transactions', $txQueryToday, ['projection' => ['amount' => 1, 'type' => 1]]);
+                $weekTx = $this->db->findMany('transactions', $txQueryWeek, ['projection' => ['amount' => 1, 'type' => 1]]);
 
-            $todayNetUser = $this->sumSignedTransactions($todayTx);
-            $weekNetUser = $this->sumSignedTransactions($weekTx);
+                $todayNetUser = $this->sumSignedTransactions($todayTx);
+                $weekNetUser = $this->sumSignedTransactions($weekTx);
 
-            Response::json([
-                'totalBalance' => $totalBalance,
-                'totalOutstanding' => $userOutstanding + $agentOutstanding,
-                'todayNet' => $todayNetUser * -1,
-                'weekNet' => $weekNetUser * -1,
-                'activeAccounts' => $activeAccounts,
-            ]);
+                return [
+                    'totalBalance' => $totalBalance,
+                    'totalOutstanding' => $userOutstanding + $agentOutstanding,
+                    'todayNet' => $todayNetUser * -1,
+                    'weekNet' => $weekNetUser * -1,
+                    'activeAccounts' => $activeAccounts,
+                ];
+            });
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error getting header summary'], 500);
         }
+    }
+
+    /**
+     * @param callable():array<string,mixed> $builder
+     */
+    private function respondJsonWithCache(string $namespace, string $actorId, int $ttlSeconds, callable $builder): void
+    {
+        $safeNamespace = preg_replace('/[^a-zA-Z0-9._-]+/', '-', $namespace) ?: 'cache';
+        $safeActor = preg_replace('/[^a-zA-Z0-9._-]+/', '-', $actorId) ?: 'anonymous';
+        $cacheDir = dirname(__DIR__) . '/cache';
+        $cacheFile = $cacheDir . '/' . $safeNamespace . '__' . $safeActor . '.json';
+
+        if ($ttlSeconds > 0 && is_file($cacheFile)) {
+            $ageSeconds = time() - (int) @filemtime($cacheFile);
+            if ($ageSeconds >= 0 && $ageSeconds <= $ttlSeconds) {
+                $raw = @file_get_contents($cacheFile);
+                if (is_string($raw) && $raw !== '') {
+                    $cached = json_decode($raw, true);
+                    if (is_array($cached)) {
+                        Response::json($cached);
+                        return;
+                    }
+                }
+            }
+        }
+
+        $payload = $builder();
+        if (!is_array($payload)) {
+            $payload = [];
+        }
+
+        if (!is_dir($cacheDir)) {
+            @mkdir($cacheDir, 0775, true);
+        }
+        @file_put_contents($cacheFile, json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+
+        Response::json($payload);
     }
 
     private function getNextUsername(string $prefix): void

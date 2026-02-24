@@ -36,7 +36,10 @@ function BetTickerView() {
 
   useEffect(() => {
     fetchBets();
-    const interval = setInterval(fetchBets, 10000); // Poll every 10s
+    const interval = setInterval(() => {
+      if (document.hidden) return;
+      fetchBets();
+    }, 45000);
     return () => clearInterval(interval);
   }, []);
 

@@ -63,7 +63,9 @@ final class MongoRepository
         $hostCandidates = array_values(array_unique($hostCandidates));
 
         $lastException = null;
+        $attemptedHosts = [];
         foreach ($hostCandidates as $candidateHost) {
+            $attemptedHosts[] = $candidateHost;
             $dsn = "mysql:host={$candidateHost};port={$port};dbname={$name};charset=utf8mb4";
             for ($attempt = 1; $attempt <= 3; $attempt++) {
                 try {
@@ -73,10 +75,16 @@ final class MongoRepository
                 } catch (PDOException $e) {
                     $lastException = $e;
                     $errorText = strtolower($e->getMessage());
-                    $isNonRetryable = str_contains($errorText, 'sqlstate[hy000] [1045]')
-                        || str_contains($errorText, 'max_connections_per_hour')
+                    $isAuthError = str_contains($errorText, 'sqlstate[hy000] [1045]');
+                    $isQuotaError = str_contains($errorText, 'max_connections_per_hour')
                         || str_contains($errorText, 'sqlstate[hy000] [1226]');
-                    if ($isNonRetryable) {
+                    if ($isAuthError) {
+                        // Credentials/host grants can differ per host candidate.
+                        // Stop retrying this host, but continue to the next candidate.
+                        break;
+                    }
+                    if ($isQuotaError) {
+                        // Resource limits are account-wide; trying more hosts only burns more attempts.
                         break 2;
                     }
                     if ($attempt < 3) {
@@ -87,6 +95,11 @@ final class MongoRepository
         }
 
         if ($lastException instanceof PDOException) {
+            $message = $lastException->getMessage();
+            if ($attemptedHosts !== []) {
+                $message .= ' | hosts tried: ' . implode(', ', $attemptedHosts);
+            }
+            $lastException = new PDOException($message, (int) $lastException->getCode(), $lastException);
             throw $lastException;
         }
     }

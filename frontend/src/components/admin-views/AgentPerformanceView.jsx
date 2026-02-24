@@ -57,7 +57,10 @@ function AgentPerformanceView() {
 
   useEffect(() => {
     loadPerformance();
-    const interval = setInterval(loadPerformance, 30000);
+    const interval = setInterval(() => {
+      if (document.hidden) return;
+      loadPerformance();
+    }, 120000);
     return () => clearInterval(interval);
   }, [period]);
 
