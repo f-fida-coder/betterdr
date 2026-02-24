@@ -30,18 +30,30 @@ final class MongoRepository
             $pdoOptions[PDO::MYSQL_ATTR_INIT_COMMAND] = 'SET NAMES utf8mb4';
         }
 
-        $dsn = "mysql:host={$host};port={$port};dbname={$name};charset=utf8mb4";
+        $hostCandidates = [$host];
+        $resolvedHost = gethostbyname($host);
+        if (
+            is_string($resolvedHost)
+            && $resolvedHost !== ''
+            && $resolvedHost !== $host
+            && filter_var($resolvedHost, FILTER_VALIDATE_IP) !== false
+        ) {
+            $hostCandidates[] = $resolvedHost;
+        }
+
         $lastException = null;
-        for ($attempt = 1; $attempt <= 3; $attempt++) {
-            try {
-                $this->pdo = new PDO($dsn, $user, $pass, $pdoOptions);
-                $lastException = null;
-                break;
-            } catch (PDOException $e) {
-                $lastException = $e;
-                if ($attempt < 3) {
-                    usleep(250000);
-                    continue;
+        foreach ($hostCandidates as $candidateHost) {
+            $dsn = "mysql:host={$candidateHost};port={$port};dbname={$name};charset=utf8mb4";
+            for ($attempt = 1; $attempt <= 3; $attempt++) {
+                try {
+                    $this->pdo = new PDO($dsn, $user, $pass, $pdoOptions);
+                    $lastException = null;
+                    break 2;
+                } catch (PDOException $e) {
+                    $lastException = $e;
+                    if ($attempt < 3) {
+                        usleep(250000);
+                    }
                 }
             }
         }
