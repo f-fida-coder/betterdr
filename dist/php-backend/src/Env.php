@@ -14,17 +14,18 @@ final class Env
             return;
         }
 
-        // Prefer explicit runtime env files first (non-dotfile variants survive hosts that skip hidden files).
+        // Project root files are authoritative.
+        // Backend-local files are fallback only to avoid accidental overrides from template/example files.
         self::loadFile($projectRoot . '/env.runtime');
         self::loadFile($phpBackendDir . '/env.runtime');
 
-        // Allow .env to override runtime defaults when present.
+        // Root .env may override runtime defaults.
         self::loadFile($projectRoot . '/.env', true);
-        self::loadFile($phpBackendDir . '/.env', true);
+        self::loadFile($phpBackendDir . '/.env');
 
         // Last-chance fallbacks.
-        self::loadFile($projectRoot . '/.env.copy', true);
-        self::loadFile($phpBackendDir . '/.env.copy', true);
+        self::loadFile($projectRoot . '/.env.copy');
+        self::loadFile($phpBackendDir . '/.env.copy');
 
         self::$loaded = true;
     }

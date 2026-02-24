@@ -119,7 +119,7 @@ final class AuthController
     {
         try {
             $body = Http::jsonBody();
-            $username = strtoupper(trim((string) ($body['username'] ?? '')));
+            $username = trim((string) ($body['username'] ?? ''));
             $password = (string) ($body['password'] ?? '');
 
             $user = $this->db->findOne('users', ['username' => $username]);
@@ -140,13 +140,13 @@ final class AuthController
                 return;
             }
 
-            $ipCheck = $this->ensureIpAllowed($user);
+            $ipCheck = $this->ensureIpAllowedSafely($user);
             if ($ipCheck['allowed'] !== true) {
                 Response::json(['message' => $ipCheck['message']], 403);
                 return;
             }
 
-            $this->trackLoginIp($user);
+            $this->trackLoginIpSafely($user);
             Response::json($this->buildAuthPayload($user));
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error', 'error' => $e->getMessage()], 500);
@@ -157,10 +157,19 @@ final class AuthController
     {
         try {
             $body = Http::jsonBody();
-            $username = trim((string) ($body['username'] ?? ''));
+            $usernameRaw = trim((string) ($body['username'] ?? ''));
             $password = (string) ($body['password'] ?? '');
 
-            $user = $this->db->findOne('admins', ['username' => $username]);
+            $user = null;
+            if ($usernameRaw !== '') {
+                $user = $this->db->findOne('admins', ['username' => $usernameRaw]);
+            }
+            if ($user === null && $usernameRaw !== strtoupper($usernameRaw)) {
+                $user = $this->db->findOne('admins', ['username' => strtoupper($usernameRaw)]);
+            }
+            if ($user === null && $usernameRaw !== strtolower($usernameRaw)) {
+                $user = $this->db->findOne('admins', ['username' => strtolower($usernameRaw)]);
+            }
             if ($user === null || !$this->verifyPassword($password, (string) ($user['password'] ?? ''))) {
                 Response::json(['message' => 'Invalid admin credentials'], 401);
                 return;
@@ -171,13 +180,13 @@ final class AuthController
                 return;
             }
 
-            $ipCheck = $this->ensureIpAllowed($user);
+            $ipCheck = $this->ensureIpAllowedSafely($user);
             if ($ipCheck['allowed'] !== true) {
                 Response::json(['message' => $ipCheck['message']], 403);
                 return;
             }
 
-            $this->trackLoginIp($user);
+            $this->trackLoginIpSafely($user);
             Response::json($this->buildAuthPayload($user));
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error', 'error' => $e->getMessage()], 500);
@@ -188,7 +197,7 @@ final class AuthController
     {
         try {
             $body = Http::jsonBody();
-            $username = strtoupper(trim((string) ($body['username'] ?? '')));
+            $username = trim((string) ($body['username'] ?? ''));
             $password = (string) ($body['password'] ?? '');
 
             $user = $this->db->findOne('agents', ['username' => $username]);
@@ -202,13 +211,13 @@ final class AuthController
                 return;
             }
 
-            $ipCheck = $this->ensureIpAllowed($user);
+            $ipCheck = $this->ensureIpAllowedSafely($user);
             if ($ipCheck['allowed'] !== true) {
                 Response::json(['message' => $ipCheck['message']], 403);
                 return;
             }
 
-            $this->trackLoginIp($user);
+            $this->trackLoginIpSafely($user);
             Response::json($this->buildAuthPayload($user));
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error', 'error' => $e->getMessage()], 500);
@@ -470,6 +479,24 @@ final class AuthController
             'status' => 'active',
             'createdAt' => MongoRepository::nowUtc(),
         ]);
+    }
+
+    private function ensureIpAllowedSafely(array $user): array
+    {
+        try {
+            return $this->ensureIpAllowed($user);
+        } catch (Throwable $e) {
+            return ['allowed' => true];
+        }
+    }
+
+    private function trackLoginIpSafely(array $user): void
+    {
+        try {
+            $this->trackLoginIp($user);
+        } catch (Throwable $e) {
+            // Ignore IP tracking failures to avoid blocking authentication.
+        }
     }
 
     private function ownerFilter(array $user, string $ip): array

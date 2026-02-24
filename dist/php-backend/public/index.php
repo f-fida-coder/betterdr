@@ -154,13 +154,35 @@ if (!$authNativeEnabled) {
 
 
 if ($nativeError !== null) {
+    $errorMessage = $nativeError->getMessage();
+    $isDbConnectionError = $nativeError instanceof PDOException
+        || str_contains(strtolower($errorMessage), 'sqlstate')
+        || str_contains(strtolower($errorMessage), 'pdo')
+        || str_contains(strtolower($errorMessage), 'php_network_getaddresses')
+        || str_contains(strtolower($errorMessage), 'getaddrinfo')
+        || str_contains(strtolower($errorMessage), 'connection refused');
+
     // Log the full exception details for debugging
     $logFile = __DIR__ . '/../logs/api-errors.log';
-    $logMsg = date('Y-m-d H:i:s') . " [500] Exception: " . $nativeError->getMessage() . "\n" . $nativeError->getTraceAsString() . "\n";
+    $logDir = dirname($logFile);
+    if (!is_dir($logDir)) {
+        @mkdir($logDir, 0775, true);
+    }
+    $status = $isDbConnectionError ? 503 : 500;
+    $logMsg = date('Y-m-d H:i:s') . " [{$status}] Exception: " . $errorMessage . "\n" . $nativeError->getTraceAsString() . "\n";
     @file_put_contents($logFile, $logMsg, FILE_APPEND);
+
+    if ($isDbConnectionError) {
+        Response::json([
+            'message' => 'Database connection failed',
+            'error' => $errorMessage,
+        ], 503);
+        exit;
+    }
+
     Response::json([
         'message' => 'Core PHP request handling failed',
-        'error' => $nativeError->getMessage(),
+        'error' => $errorMessage,
         'trace' => $nativeError->getTraceAsString()
     ], 500);
     exit;
