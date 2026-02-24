@@ -1,4 +1,4 @@
-const DEFAULT_PROD_API_URL = 'https://betterdr-backend.onrender.com/api';
+const DEFAULT_PROD_API_URL = '/api';
 
 const normalizeApiUrl = (url) => {
     if (!url) return '';
@@ -16,8 +16,6 @@ const getBaseUrl = () => {
         return '/api';
     }
 
-    // In production, never default to relative /api unless explicitly configured.
-    // Many static hosting setups route /api/* to index.html, which causes HTML responses.
     return normalizeApiUrl(DEFAULT_PROD_API_URL);
 };
 
