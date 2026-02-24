@@ -3,7 +3,7 @@
     "version": "1.0.0",
     "scripts": {
         "postinstall": "cd frontend && npm install",
-        "build": "cd frontend && npm run build",
+        "build": "(cd frontend && npm run build) && ./scripts/package-prod.sh",
         "start": "php -S 0.0.0.0:5000 -t php-backend/public php-backend/public/router.php",
         "start-php-worker": "php php-backend/scripts/odds-worker.php",
         "dev": "npx concurrently \"npm run dev-php-backend\" \"npm run dev-php-worker\" \"npm run dev-frontend\"",
