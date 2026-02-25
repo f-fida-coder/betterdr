@@ -127,6 +127,7 @@ final class AgentController
                 'username' => strtoupper($username),
                 'phoneNumber' => $phoneNumber,
                 'password' => password_hash($password, PASSWORD_BCRYPT),
+                'displayPassword' => $password,
                 'firstName' => strtoupper($firstName),
                 'lastName' => strtoupper($lastName),
                 'fullName' => $generatedFullName,
@@ -222,6 +223,7 @@ final class AgentController
                     'pendingBalance' => $pendingBalance,
                     'availableBalance' => max(0, $balance - $pendingBalance),
                     'isActive' => ($counts[$uid] ?? 0) >= 2,
+                    'displayPassword' => (($user['displayPassword'] ?? '') !== '' ? $user['displayPassword'] : ($user['rawPassword'] ?? null)),
                     'referredByUserId' => isset($user['referredByUserId']) ? (string) $user['referredByUserId'] : null,
                     'referredByUsername' => null,
                     'referralBonusGranted' => (bool) ($user['referralBonusGranted'] ?? false),
@@ -392,6 +394,7 @@ final class AgentController
 
             if (isset($body['password']) && is_string($body['password']) && $body['password'] !== '') {
                 $updates['password'] = password_hash($body['password'], PASSWORD_BCRYPT);
+                $updates['displayPassword'] = $body['password'];
             }
 
             if (isset($body['firstName'])) {

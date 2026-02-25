@@ -998,7 +998,7 @@ function CustomerAdminView({ onViewChange }) {
     const customerId = customer.id || customer._id;
     let value = '';
     if (type === 'name') value = `${customer.firstName || ''} ${customer.lastName || ''}`.trim();
-    if (type === 'password') value = '';
+    if (type === 'password') value = customer.displayPassword || '';
     if (type === 'balance') value = String(customer.balance ?? 0);
     setQuickEditModal({
       open: true,
@@ -1032,8 +1032,12 @@ function CustomerAdminView({ onViewChange }) {
           setError('Password must be at least 6 characters.');
           return;
         }
-        if (currentRole === 'admin') await resetUserPasswordByAdmin(quickEditModal.customerId, nextPass, token);
-        else await updateUserByAgent(quickEditModal.customerId, { password: nextPass }, token);
+        if (currentRole === 'admin') {
+          await resetUserPasswordByAdmin(quickEditModal.customerId, nextPass, token);
+        } else {
+          await updateUserByAgent(quickEditModal.customerId, { password: nextPass }, token);
+        }
+        setCustomers((prev) => prev.map((c) => ((c.id || c._id) === quickEditModal.customerId ? { ...c, displayPassword: nextPass } : c)));
       }
 
       if (quickEditModal.type === 'balance') {
@@ -1487,13 +1491,7 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
                                 )}
                               </td>
                               <td className="pass-cell">
-                                <button
-                                  type="button"
-                                  className="link-edit-btn"
-                                  onClick={() => openQuickEditModal(customer, 'password')}
-                                >
-                                  reset
-                                </button>
+                                <span>{customer.displayPassword || '—'}</span>
                               </td>
                               <td>{customer.role === 'user' ? `${customer.firstName || ''} ${customer.lastName || ''}`.trim() || '—' : (customer.fullName || '—')}</td>
                               <td className="highlight-cell">{Number(customer.creditLimit || 1000).toLocaleString()}</td>
@@ -1577,16 +1575,7 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
                                     <div className="detail-card">
                                       <div className="detail-line">
                                         <span>Password</span>
-                                        <span>
-                                          <em>hidden</em>{' '}
-                                          <button
-                                            type="button"
-                                            className="link-edit-btn"
-                                            onClick={() => openQuickEditModal(customer, 'password')}
-                                          >
-                                            reset
-                                          </button>
-                                        </span>
+                                        <span>{customer.displayPassword || '—'}</span>
                                       </div>
                                       <div className="detail-line"><span>Name</span><span>{`${customer.firstName || ''} ${customer.lastName || ''}`.trim() || '—'} <button type="button" className="link-edit-btn" onClick={() => openQuickEditModal(customer, 'name')}>change</button></span></div>
                                       <div className="detail-line"><span>Credit Limit</span><span>{isInlineEdit ? <input type="number" value={detailDraft.creditLimit} onChange={(e) => updateRowDetailDraft(customer, 'creditLimit', e.target.value)} /> : `$${Number(customer.creditLimit || 0).toLocaleString()}`}</span></div>

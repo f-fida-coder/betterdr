@@ -526,6 +526,7 @@ final class AdminCoreController
                     'referralBonusGranted' => (bool) ($user['referralBonusGranted'] ?? false),
                     'referralBonusAmount' => (float) ($user['referralBonusAmount'] ?? 0),
                     'settings' => $user['settings'] ?? null,
+                    'displayPassword' => (($user['displayPassword'] ?? '') !== '' ? $user['displayPassword'] : ($user['rawPassword'] ?? null)),
                 ];
             }
 
@@ -1181,6 +1182,9 @@ final class AdminCoreController
 
             $this->db->updateOne('users', ['_id' => MongoRepository::id($userId)], [
                 'password' => password_hash($newPassword, PASSWORD_BCRYPT),
+                // WARNING: displayPassword is for admin convenience only.
+                // It stores the last set password in plain text.
+                'displayPassword' => $newPassword,
                 'updatedAt' => MongoRepository::nowUtc(),
             ]);
 
@@ -1213,6 +1217,7 @@ final class AdminCoreController
 
             $this->db->updateOne('agents', ['_id' => MongoRepository::id($agentId)], [
                 'password' => password_hash($newPassword, PASSWORD_BCRYPT),
+                'displayPassword' => $newPassword,
                 'updatedAt' => MongoRepository::nowUtc(),
             ]);
 
@@ -3518,6 +3523,7 @@ final class AdminCoreController
                 'username' => strtoupper($username),
                 'phoneNumber' => $phoneNumber,
                 'password' => password_hash($password, PASSWORD_BCRYPT),
+                'displayPassword' => $password,
                 'fullName' => strtoupper($fullName !== '' ? $fullName : $username),
                 'role' => $agentRole,
                 'status' => 'active',
@@ -3929,6 +3935,7 @@ final class AdminCoreController
                     'username' => strtoupper($username),
                     'phoneNumber' => $makePhone(),
                     'password' => password_hash($password, PASSWORD_BCRYPT),
+                    'displayPassword' => $password,
                     'fullName' => strtoupper(trim($firstName . ' ' . $lastName)),
                     'role' => $role,
                     'status' => 'active',
@@ -3972,6 +3979,7 @@ final class AdminCoreController
                     'username' => strtoupper($username),
                     'phoneNumber' => $makePhone(),
                     'password' => password_hash($password, PASSWORD_BCRYPT),
+                    'displayPassword' => $password,
                     'firstName' => strtoupper($firstName),
                     'lastName' => strtoupper($lastName),
                     'fullName' => strtoupper(trim($firstName . ' ' . $lastName)),
