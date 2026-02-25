@@ -339,6 +339,17 @@ export const getSystemStats = async (token) => {
     return response.json();
 };
 
+export const getAdminEntityCatalog = async (token) => {
+    const response = await fetch(`${API_URL}/admin/entity-catalog`, {
+        headers: getHeaders(token)
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || 'Failed to fetch admin entity catalog');
+    }
+    return response.json();
+};
+
 export const getWeeklyFigures = async (period, token) => {
     const safePeriod = encodeURIComponent(String(period || 'week'));
     const url = API_URL.includes('?path=')

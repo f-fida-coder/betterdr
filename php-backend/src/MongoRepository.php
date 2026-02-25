@@ -165,7 +165,7 @@ final class MongoRepository
 
         $normalized = $this->normalizeForStorage($doc);
         $id = $this->extractId($normalized);
-        $normalized['_id'] = $id;
+        unset($normalized['_id']);
 
         $stmt = $this->pdo->prepare("INSERT INTO `{$table}` (`mongo_id`, `doc`, `created_at`, `updated_at`) VALUES (:id, :doc, :created_at, :updated_at) ON DUPLICATE KEY UPDATE `doc`=VALUES(`doc`), `created_at`=VALUES(`created_at`), `updated_at`=VALUES(`updated_at`), `migrated_at`=CURRENT_TIMESTAMP");
         $stmt->execute([
@@ -198,6 +198,7 @@ final class MongoRepository
             $id = $this->newDocumentId();
             $merged['_id'] = $id;
         }
+        unset($merged['_id']);
 
         $stmt = $this->pdo->prepare("UPDATE `{$table}` SET `doc`=:doc, `created_at`=:created_at, `updated_at`=:updated_at, `migrated_at`=CURRENT_TIMESTAMP WHERE `mongo_id`=:id LIMIT 1");
         $stmt->execute([
@@ -254,6 +255,18 @@ final class MongoRepository
     {
         $seconds = (int) floor($milliseconds / 1000);
         return gmdate(DATE_ATOM, $seconds);
+    }
+
+    public function tableNameForCollection(string $collection): string
+    {
+        return $this->tableName($collection);
+    }
+
+    public function tableExists(string $table): bool
+    {
+        $stmt = $this->pdo->prepare("SELECT 1 FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = :table LIMIT 1");
+        $stmt->execute([':table' => $table]);
+        return (bool) $stmt->fetchColumn();
     }
 
     private function tableName(string $collection): string

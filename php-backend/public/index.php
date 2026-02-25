@@ -21,6 +21,7 @@ require_once __DIR__ . '/../src/CasinoController.php';
 require_once __DIR__ . '/../src/AgentController.php';
 require_once __DIR__ . '/../src/PaymentsController.php';
 require_once __DIR__ . '/../src/AdminCoreController.php';
+require_once __DIR__ . '/../src/AdminEntityCatalog.php';
 require_once __DIR__ . '/../src/DebugController.php';
 require_once __DIR__ . '/../src/Response.php';
 

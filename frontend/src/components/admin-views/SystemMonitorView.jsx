@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { getSystemStats, refreshOdds } from '../../api';
+import { getSystemStats, refreshOdds, getAdminEntityCatalog } from '../../api';
 
 const SystemMonitorView = () => {
     const [stats, setStats] = useState(null);
+    const [entityCatalog, setEntityCatalog] = useState(null);
     const [loading, setLoading] = useState(true);
     const [lastUpdated, setLastUpdated] = useState(null);
 
@@ -12,8 +13,12 @@ const SystemMonitorView = () => {
             if (!token) {
                 throw new Error('Please login to view system monitor');
             }
-            const data = await getSystemStats(token);
-            setStats(data);
+            const [statsData, catalogData] = await Promise.all([
+                getSystemStats(token),
+                getAdminEntityCatalog(token),
+            ]);
+            setStats(statsData);
+            setEntityCatalog(catalogData);
             setLastUpdated(new Date());
             setLoading(false);
         } catch (error) {
@@ -35,6 +40,8 @@ const SystemMonitorView = () => {
 
     const counts = stats?.counts || { users: 0, bets: 0, matches: 0 };
     const liveMatches = stats?.liveMatches || [];
+    const catalogItems = entityCatalog?.items || [];
+    const catalogSummary = entityCatalog?.summary || { links: 0, collections: 0, rows: 0 };
 
     const handleRefreshOdds = async () => {
         try {
@@ -134,6 +141,65 @@ const SystemMonitorView = () => {
                                             <span className={`status-badge ${m.status}`}>{m.status}</span>
                                         </td>
                                         <td>{new Date(m.lastUpdated).toLocaleTimeString()}</td>
+                                    </tr>
+                                ))
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div className="admin-content-card" style={{ marginTop: '20px' }}>
+                <div className="card-header">
+                    <h3><i className="fa-solid fa-diagram-project"></i> Dashboard Link to Entity/Table Map</h3>
+                </div>
+                <div style={{ color: '#666', marginBottom: '10px', fontSize: '0.9rem' }}>
+                    Links: {catalogSummary.links} | Collections: {catalogSummary.collections} | Total Rows: {catalogSummary.rows}
+                </div>
+                <div className="table-responsive">
+                    <table className="admin-table">
+                        <thead>
+                            <tr>
+                                <th>Dashboard Link</th>
+                                <th>Collections</th>
+                                <th>Tables / Views</th>
+                                <th>API Routes</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {catalogItems.length === 0 ? (
+                                <tr>
+                                    <td colSpan="4" className="text-center">No entity catalog data found.</td>
+                                </tr>
+                            ) : (
+                                catalogItems.map((item) => (
+                                    <tr key={item.id}>
+                                        <td>
+                                            <strong>{item.label}</strong>
+                                            <div style={{ fontSize: '0.8rem', color: '#666' }}>{item.id}</div>
+                                        </td>
+                                        <td>
+                                            {(item.collections || []).map((col) => (
+                                                <div key={`${item.id}-${col.collection}`} style={{ marginBottom: '4px' }}>
+                                                    <code>{col.collection}</code> ({col.rows})
+                                                </div>
+                                            ))}
+                                        </td>
+                                        <td>
+                                            {(item.collections || []).map((col) => (
+                                                <div key={`${item.id}-${col.collection}-table`} style={{ marginBottom: '4px', fontSize: '0.85rem' }}>
+                                                    <div><code>{col.table}</code> {col.exists ? '' : '(missing)'}</div>
+                                                    <div><code>{col.entityView}</code> | <code>{col.flatTable}</code></div>
+                                                </div>
+                                            ))}
+                                        </td>
+                                        <td>
+                                            {(item.routes || []).map((route) => (
+                                                <div key={`${item.id}-${route}`} style={{ marginBottom: '2px', fontSize: '0.85rem' }}>
+                                                    <code>{route}</code>
+                                                </div>
+                                            ))}
+                                        </td>
                                     </tr>
                                 ))
                             )}

@@ -14,6 +14,7 @@ Current mode:
 - `agent` endpoints are natively handled in core PHP (including `PUT /api/agent/permissions/:id`)
 - `payments` endpoints are native (`POST /api/payments/create-deposit-intent`, `POST /api/payments/webhook`)
 - `admin` core dashboard endpoints are native (`/users`, `/agents`, `/stats`, `/system-stats`, `/header-summary`)
+- `admin` entity mapping endpoint is native (`GET /api/admin/entity-catalog`) for dashboard-link to collection/table/view visibility
 - additional `admin` utility endpoints are native (`/next-username/:prefix`, `/agent-tree`, `/impersonate-user/:id`)
 - `admin` account-maintenance endpoints are native (`PUT /users/:id/freeplay`, `POST /users/:id/reset-password`, `POST /agents/:id/reset-password`)
 - `admin` communication/content endpoints are native (`/messages*`, `/faqs*`, `/manual*`, `/feedback*`)
@@ -100,3 +101,62 @@ Useful options:
 - `--batch-size=500` commit in batches (higher can be faster)
 
 By default, Mongo connection values come from `MONGODB_URI`/`MONGO_URI` and `DB_NAME`.
+
+## Mongo-style entity views in MySQL
+
+If you want phpMyAdmin to show readable, Mongo-like entity fields (instead of only one long `doc` JSON cell), create SQL views:
+
+```bash
+php php-backend/scripts/create-entity-views.php
+```
+
+By default this now uses the admin entity catalog and creates views for collections referenced by dashboard links (for example `users_entity_v`, `agents_entity_v`, `transactions_entity_v`, etc.).
+
+To generate views for all JSON doc collections in the database:
+
+```bash
+php php-backend/scripts/create-entity-views.php --all
+```
+
+Each view auto-expands JSON fields (including nested objects) into normal columns, so Browse shows row/column format instead of one raw `doc` cell.
+
+## Remove legacy `doc._id` keys
+
+Record identity is stored in `mongo_id`. If you want to remove redundant Mongo-style `_id` from JSON docs:
+
+```bash
+php php-backend/scripts/remove-doc-id-field.php --dry-run
+php php-backend/scripts/remove-doc-id-field.php
+```
+
+This keeps `mongo_id` untouched and does not change route IDs.
+
+## Fully flat SQL tables (no JSON doc column)
+
+If you want real MySQL tables with only rows/columns (materialized from `doc` JSON), run:
+
+```bash
+php php-backend/scripts/materialize-flat-tables.php
+```
+
+By default it creates `*_table` for collections used by the admin dashboard entity catalog.
+Generated tables are row/column friendly and do not include `mongo_id` (they use `row_id` auto-increment).
+
+It also removes older generated `*_flat` / `*_table` tables that are not needed.
+
+If you want all collections materialized, run:
+
+```bash
+php php-backend/scripts/materialize-flat-tables.php --all
+```
+
+## 3NF lookup normalization (generated tables)
+
+To further normalize repeated category values (for example `status`, `role`, `type`, `sport`) on generated `*_table` tables:
+
+```bash
+php php-backend/scripts/apply-3nf-lookups.php --dry-run
+php php-backend/scripts/apply-3nf-lookups.php
+```
+
+This creates lookup tables and fills corresponding `*_id` columns on generated tables, without changing core source tables.

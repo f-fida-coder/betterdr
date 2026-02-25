@@ -32,6 +32,10 @@ final class AdminCoreController
             $this->getSystemStats();
             return true;
         }
+        if ($method === 'GET' && $path === '/api/admin/entity-catalog') {
+            $this->getEntityCatalog();
+            return true;
+        }
         if ($method === 'GET' && $path === '/api/admin/header-summary') {
             $this->getHeaderSummary();
             return true;
@@ -802,6 +806,62 @@ final class AdminCoreController
             });
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error with system stats'], 500);
+        }
+    }
+
+    private function getEntityCatalog(): void
+    {
+        try {
+            $actor = $this->protect(['admin', 'agent', 'master_agent', 'super_agent']);
+            if ($actor === null) {
+                return;
+            }
+
+            $items = AdminEntityCatalog::definitions();
+            $countCache = [];
+            $tableCache = [];
+
+            foreach ($items as &$item) {
+                $collections = array_values(array_unique(array_filter(
+                    array_map(static fn ($v): string => trim((string) $v), (array) ($item['collections'] ?? [])),
+                    static fn (string $v): bool => $v !== ''
+                )));
+
+                $resolved = [];
+                foreach ($collections as $collection) {
+                    if (!array_key_exists($collection, $countCache)) {
+                        $countCache[$collection] = $this->db->countDocuments($collection, []);
+                    }
+                    if (!array_key_exists($collection, $tableCache)) {
+                        $table = $this->db->tableNameForCollection($collection);
+                        $tableCache[$collection] = [
+                            'table' => $table,
+                            'exists' => $this->db->tableExists($table),
+                            'entityView' => $table . '_entity_v',
+                            'flatTable' => $table . '_table',
+                        ];
+                    }
+
+                    $resolved[] = array_merge(
+                        ['collection' => $collection, 'rows' => (int) $countCache[$collection]],
+                        $tableCache[$collection]
+                    );
+                }
+
+                $item['collections'] = $resolved;
+            }
+            unset($item);
+
+            Response::json([
+                'items' => $items,
+                'summary' => [
+                    'links' => count($items),
+                    'collections' => count(array_keys($countCache)),
+                    'rows' => array_sum(array_map(static fn ($v): int => (int) $v, $countCache)),
+                ],
+            ]);
+        } catch (Throwable $e) {
+            Response::json(['message' => 'Server error with entity catalog'], 500);
         }
     }
 
