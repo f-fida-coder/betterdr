@@ -751,12 +751,16 @@ function CustomerAdminView({ onViewChange }) {
 
   const getBulkEditLabel = () => {
     switch (bulkEditType) {
+      case 'minBet':
+        return 'Min Bet';
+      case 'maxBet':
+        return 'Max Bet';
       case 'creditLimit':
         return 'Credit Limit';
-      case 'wagerLimit':
-        return 'Wager Limit';
-      case 'settleFigure':
-        return 'Settle Figure';
+      case 'settleLimit':
+        return 'Settle Limit';
+      case 'balanceAdjust':
+        return 'Balance Adjustment';
       case 'status':
         return 'Status';
       default:
@@ -784,18 +788,47 @@ function CustomerAdminView({ onViewChange }) {
     }
 
     let payload = null;
+    const targetPlayerIds = new Set(visiblePlayers.map((p) => p.id || p._id));
     if (bulkEditType === 'status') {
       const nextStatus = bulkEditValue || 'active';
       payload = { status: nextStatus };
+    } else if (bulkEditType === 'balanceAdjust') {
+      const delta = Number(bulkEditValue);
+      if (Number.isNaN(delta)) {
+        setError('Please enter a valid number for balance adjustment.');
+        return;
+      }
+
+      setActionLoadingId('bulk-update');
+      await Promise.all(visiblePlayers.map((player) => {
+        const playerId = player.id || player._id;
+        const nextBalance = Number(player.balance || 0) + delta;
+        if (currentRole === 'agent') return updateUserBalanceOwedByAgent(playerId, nextBalance, token);
+        return updateUserCredit(playerId, { balance: nextBalance }, token);
+      }));
+
+      setCustomers((prev) => prev.map((customer) => {
+        const customerId = customer.id || customer._id;
+        if (!targetPlayerIds.has(customerId)) return customer;
+        return {
+          ...customer,
+          balance: Number(customer.balance || 0) + delta
+        };
+      }));
+      setShowBulkEditModal(false);
+      setError('');
+      setActionLoadingId(null);
+      return;
     } else {
       const numericValue = Number(bulkEditValue);
       if (Number.isNaN(numericValue) || numericValue < 0) {
         setError('Please enter a valid non-negative number.');
         return;
       }
+      if (bulkEditType === 'minBet') payload = { minBet: numericValue };
+      if (bulkEditType === 'maxBet') payload = { maxBet: numericValue, wagerLimit: numericValue };
       if (bulkEditType === 'creditLimit') payload = { creditLimit: numericValue };
-      if (bulkEditType === 'wagerLimit') payload = { wagerLimit: numericValue, maxBet: numericValue };
-      if (bulkEditType === 'settleFigure') payload = { balanceOwed: numericValue };
+      if (bulkEditType === 'settleLimit') payload = { balanceOwed: numericValue };
     }
 
     try {
@@ -807,7 +840,8 @@ function CustomerAdminView({ onViewChange }) {
       }));
 
       setCustomers((prev) => prev.map((customer) => {
-        if (customer.role !== 'user') return customer;
+        const customerId = customer.id || customer._id;
+        if (!targetPlayerIds.has(customerId)) return customer;
         return { ...customer, ...payload };
       }));
       setShowBulkEditModal(false);
@@ -893,9 +927,10 @@ function CustomerAdminView({ onViewChange }) {
       firstName: customer.firstName || '',
       lastName: customer.lastName || '',
       password: '',
+      minBet: String(customer.minBet ?? 0),
+      maxBet: String(customer.wagerLimit ?? customer.maxBet ?? 0),
       creditLimit: String(customer.creditLimit ?? 0),
-      wagerLimit: String(customer.wagerLimit ?? customer.maxBet ?? 0),
-      settleFigure: String(customer.balanceOwed ?? 0),
+      settleLimit: String(customer.balanceOwed ?? 0),
       status: (customer.status || 'active').toLowerCase(),
       sports: customer.settings?.sports ?? true,
       casino: customer.settings?.casino ?? true,
@@ -942,10 +977,11 @@ function CustomerAdminView({ onViewChange }) {
       firstName: draft.firstName.trim(),
       lastName: draft.lastName.trim(),
       fullName: `${draft.firstName.trim()} ${draft.lastName.trim()}`.trim(),
+      minBet: Number(draft.minBet || 0),
+      maxBet: Number(draft.maxBet || 0),
+      wagerLimit: Number(draft.maxBet || 0),
       creditLimit: Number(draft.creditLimit || 0),
-      wagerLimit: Number(draft.wagerLimit || 0),
-      maxBet: Number(draft.wagerLimit || 0),
-      balanceOwed: Number(draft.settleFigure || 0),
+      balanceOwed: Number(draft.settleLimit || 0),
       status: draft.status,
       settings: {
         ...(customer.settings || {}),
@@ -1169,54 +1205,6 @@ function CustomerAdminView({ onViewChange }) {
                 </div>
               )}
 
-              <div className="filter-group">
-                <label>Username</label>
-                <input
-                  type="text"
-                  value={newCustomer.username}
-                  placeholder="Auto-generated"
-                  readOnly
-                  className="readonly-input"
-                />
-              </div>
-
-              <div className="filter-group">
-                <label>First Name</label>
-                <input
-                  type="text"
-                  value={newCustomer.firstName}
-                  onChange={(e) => handleFirstNameChange(e.target.value)}
-                  placeholder="Enter first name"
-                />
-              </div>
-              <div className="filter-group">
-                <label>Last Name</label>
-                <input
-                  type="text"
-                  value={newCustomer.lastName}
-                  onChange={(e) => handleLastNameChange(e.target.value)}
-                  placeholder="Enter last name"
-                />
-              </div>
-              <div className="filter-group">
-                <label>Phone Number</label>
-                <input
-                  type="tel"
-                  value={newCustomer.phoneNumber}
-                  onChange={(e) => handlePhoneChange(e.target.value)}
-                  placeholder="User contact"
-                />
-              </div>
-              <div className="filter-group">
-                <label>Password</label>
-                <input
-                  type="text"
-                  value={newCustomer.password.toUpperCase()}
-                  onChange={(e) => setNewCustomer(prev => ({ ...prev, password: e.target.value.toUpperCase() }))}
-                  placeholder="Set password"
-                />
-              </div>
-
               {/* Assign to Agent / Master Agent */}
               {(creationType === 'player' || creationType === 'agent' || creationType === 'super_agent')
                 && (currentRole === 'admin' || currentRole === 'super_agent' || currentRole === 'master_agent') && (
@@ -1229,7 +1217,7 @@ function CustomerAdminView({ onViewChange }) {
                     tabIndex={0}
                   >
                     <div className="agent-search-head">
-                    <span className="agent-search-label">Agents</span>
+                      <span className="agent-search-label">Agents</span>
                       <input
                         type="text"
                         value={agentSearchQuery}
@@ -1282,25 +1270,56 @@ function CustomerAdminView({ onViewChange }) {
                 </div>
               )}
 
+              <div className="filter-group">
+                <label>Username</label>
+                <input
+                  type="text"
+                  value={newCustomer.username}
+                  placeholder="Auto-generated"
+                  readOnly
+                  className="readonly-input"
+                />
+              </div>
+
+              <div className="filter-group">
+                <label>First Name</label>
+                <input
+                  type="text"
+                  value={newCustomer.firstName}
+                  onChange={(e) => handleFirstNameChange(e.target.value)}
+                  placeholder="Enter first name"
+                />
+              </div>
+              <div className="filter-group">
+                <label>Last Name</label>
+                <input
+                  type="text"
+                  value={newCustomer.lastName}
+                  onChange={(e) => handleLastNameChange(e.target.value)}
+                  placeholder="Enter last name"
+                />
+              </div>
+              <div className="filter-group">
+                <label>Phone Number</label>
+                <input
+                  type="tel"
+                  value={newCustomer.phoneNumber}
+                  onChange={(e) => handlePhoneChange(e.target.value)}
+                  placeholder="User contact"
+                />
+              </div>
+              <div className="filter-group">
+                <label>Password</label>
+                <input
+                  type="text"
+                  value={newCustomer.password.toUpperCase()}
+                  onChange={(e) => setNewCustomer(prev => ({ ...prev, password: e.target.value.toUpperCase() }))}
+                  placeholder="Set password"
+                />
+              </div>
+
               {(creationType === 'player' || creationType === 'agent' || creationType === 'super_agent') && (
                 <>
-                  <div className="filter-group">
-                    <label>Referred By Player</label>
-                    <div className="s-wrapper">
-                      <select
-                        value={newCustomer.referredByUserId}
-                        onChange={(e) => setNewCustomer(prev => ({ ...prev, referredByUserId: e.target.value }))}
-                      >
-                        <option value="">No referral</option>
-                        {referralOptions.map((p) => (
-                          <option key={p.id || p._id} value={p.id || p._id}>
-                            {(p.username || '').toUpperCase()}
-                            {p.fullName ? ` - ${p.fullName}` : ''}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
                   <div className="filter-group">
                     <label>Min bet:</label>
                     <input
@@ -1332,6 +1351,23 @@ function CustomerAdminView({ onViewChange }) {
                       value={newCustomer.balanceOwed}
                       onChange={(e) => setNewCustomer(prev => ({ ...prev, balanceOwed: e.target.value }))}
                     />
+                  </div>
+                  <div className="filter-group">
+                    <label>Referred By Player</label>
+                    <div className="s-wrapper">
+                      <select
+                        value={newCustomer.referredByUserId}
+                        onChange={(e) => setNewCustomer(prev => ({ ...prev, referredByUserId: e.target.value }))}
+                      >
+                        <option value="">No referral</option>
+                        {referralOptions.map((p) => (
+                          <option key={p.id || p._id} value={p.id || p._id}>
+                            {(p.username || '').toUpperCase()}
+                            {p.fullName ? ` - ${p.fullName}` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
                 </>
               )}
@@ -1446,10 +1482,11 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
                       <th>Customer</th>
                       <th>Password</th>
                       <th>Name</th>
+                      <th className="clickable-col-head" onClick={() => openBulkEditModal('minBet')}>Min Bet</th>
+                      <th className="clickable-col-head" onClick={() => openBulkEditModal('maxBet')}>Max Bet</th>
                       <th className="clickable-col-head" onClick={() => openBulkEditModal('creditLimit')}>Credit Limit</th>
-                      <th className="clickable-col-head" onClick={() => openBulkEditModal('wagerLimit')}>Wager Limit</th>
-                      <th className="clickable-col-head" onClick={() => openBulkEditModal('settleFigure')}>Settle Figure</th>
-                      <th>Balance</th>
+                      <th className="clickable-col-head" onClick={() => openBulkEditModal('settleLimit')}>Settle Limit</th>
+                      <th className="clickable-col-head" onClick={() => openBulkEditModal('balanceAdjust')}>Balance</th>
                       <th className="clickable-col-head" onClick={() => openBulkEditModal('status')}>Status</th>
                       <th>Sportsbook</th>
                       <th>Casino</th>
@@ -1459,13 +1496,13 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
                   </thead>
                   <tbody>
                     {displayRows.length === 0 ? (
-                      <tr><td colSpan={12} className="empty-msg">No records found.</td></tr>
+                      <tr><td colSpan={13} className="empty-msg">No records found.</td></tr>
                     ) : (
                       displayRows.map((row, rowIndex) => {
                         if (row.type === 'group') {
                           return (
                             <tr key={`group-${row.label}-${rowIndex}`} className="agent-group-row">
-                              <td colSpan={12}>{row.label}</td>
+                              <td colSpan={13}>{row.label}</td>
                             </tr>
                           );
                         }
@@ -1494,8 +1531,9 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
                                 <span>{customer.displayPassword || '—'}</span>
                               </td>
                               <td>{customer.role === 'user' ? `${customer.firstName || ''} ${customer.lastName || ''}`.trim() || '—' : (customer.fullName || '—')}</td>
-                              <td className="highlight-cell">{Number(customer.creditLimit || 1000).toLocaleString()}</td>
+                              <td>{Number(customer.minBet ?? 0).toLocaleString()}</td>
                               <td>{Number(customer.wagerLimit ?? customer.maxBet ?? 0).toLocaleString()}</td>
+                              <td className="highlight-cell">{Number(customer.creditLimit || 1000).toLocaleString()}</td>
                               <td className="highlight-cell">{Number(customer.balanceOwed || 0).toLocaleString()}</td>
                               <td className={`balance-cell ${Number(customer.balance) < 0 ? 'neg' : 'pos'}`}>
                                 {formatBalance(customer.balance)}
@@ -1570,7 +1608,7 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
                             </tr>
                             {customer.role === 'user' && isExpanded && (
                               <tr className="expanded-detail-row">
-                                <td colSpan={12}>
+                                <td colSpan={13}>
                                   <div className={`expanded-detail-grid ${isInlineEdit ? 'is-editing' : ''}`}>
                                     <div className="detail-card">
                                       <div className="detail-line">
@@ -1578,9 +1616,10 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
                                         <span>{customer.displayPassword || '—'}</span>
                                       </div>
                                       <div className="detail-line"><span>Name</span><span>{`${customer.firstName || ''} ${customer.lastName || ''}`.trim() || '—'} <button type="button" className="link-edit-btn" onClick={() => openQuickEditModal(customer, 'name')}>change</button></span></div>
+                                      <div className="detail-line"><span>Min Bet</span><span>{isInlineEdit ? <input type="number" value={detailDraft.minBet} onChange={(e) => updateRowDetailDraft(customer, 'minBet', e.target.value)} /> : `$${Number(customer.minBet ?? 0).toLocaleString()}`}</span></div>
+                                      <div className="detail-line"><span>Max Bet</span><span>{isInlineEdit ? <input type="number" value={detailDraft.maxBet} onChange={(e) => updateRowDetailDraft(customer, 'maxBet', e.target.value)} /> : `$${Number(customer.wagerLimit ?? customer.maxBet ?? 0).toLocaleString()}`}</span></div>
                                       <div className="detail-line"><span>Credit Limit</span><span>{isInlineEdit ? <input type="number" value={detailDraft.creditLimit} onChange={(e) => updateRowDetailDraft(customer, 'creditLimit', e.target.value)} /> : `$${Number(customer.creditLimit || 0).toLocaleString()}`}</span></div>
-                                      <div className="detail-line"><span>Wager Limit</span><span>{isInlineEdit ? <input type="number" value={detailDraft.wagerLimit} onChange={(e) => updateRowDetailDraft(customer, 'wagerLimit', e.target.value)} /> : `$${Number(customer.wagerLimit ?? customer.maxBet ?? 0).toLocaleString()}`}</span></div>
-                                      <div className="detail-line"><span>Settle Figure</span><span>{isInlineEdit ? <input type="number" value={detailDraft.settleFigure} onChange={(e) => updateRowDetailDraft(customer, 'settleFigure', e.target.value)} /> : `$${Number(customer.balanceOwed || 0).toLocaleString()}`}</span></div>
+                                      <div className="detail-line"><span>Settle Limit</span><span>{isInlineEdit ? <input type="number" value={detailDraft.settleLimit} onChange={(e) => updateRowDetailDraft(customer, 'settleLimit', e.target.value)} /> : `$${Number(customer.balanceOwed || 0).toLocaleString()}`}</span></div>
                                       <div className="detail-line"><span>Balance</span><span className={Number(customer.balance) < 0 ? 'neg' : 'pos'}>{formatBalance(customer.balance)} <button type="button" className="link-edit-btn" onClick={() => openQuickEditModal(customer, 'balance')}>change</button></span></div>
                                     </div>
                                     <div className="detail-card">
@@ -1861,16 +1900,18 @@ I need active players so if you could do me a solid and place a bet today even i
                         <input
                           type="number"
                           step="1"
-                          min="0"
+                          min={bulkEditType === 'balanceAdjust' ? undefined : '0'}
                           value={bulkEditValue}
                           onChange={(e) => setBulkEditValue(e.target.value)}
-                          placeholder="Enter amount"
+                          placeholder={bulkEditType === 'balanceAdjust' ? 'Enter + / - amount' : 'Enter amount'}
                           required
                         />
                       )}
                     </div>
                     <p className="bulk-edit-hint">
-                      This updates all players shown in the current list.
+                      {bulkEditType === 'balanceAdjust'
+                        ? 'This adds or subtracts from balance for all players shown in the current list.'
+                        : 'This updates all players shown in the current list.'}
                     </p>
                     <div className="form-actions">
                       <button type="submit" className="btn-primary" disabled={actionLoadingId === 'bulk-update'}>
