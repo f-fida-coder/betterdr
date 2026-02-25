@@ -526,7 +526,6 @@ final class AdminCoreController
                     'referralBonusGranted' => (bool) ($user['referralBonusGranted'] ?? false),
                     'referralBonusAmount' => (float) ($user['referralBonusAmount'] ?? 0),
                     'settings' => $user['settings'] ?? null,
-                    'rawPassword' => $user['rawPassword'] ?? null,
                 ];
             }
 
@@ -700,7 +699,6 @@ final class AdminCoreController
                     'agentBillingRate' => $billingRate,
                     'agentBillingStatus' => $agent['agentBillingStatus'] ?? null,
                     'viewOnly' => (bool) ($agent['viewOnly'] ?? false) || (($agent['agentBillingStatus'] ?? '') === 'unpaid'),
-                    'rawPassword' => $agent['rawPassword'] ?? null,
                     'permissions' => $agent['permissions'] ?? null,
                     'userCount' => $userCount,
                     'subAgentCount' => $subAgentCount,
@@ -1183,7 +1181,6 @@ final class AdminCoreController
 
             $this->db->updateOne('users', ['_id' => MongoRepository::id($userId)], [
                 'password' => password_hash($newPassword, PASSWORD_BCRYPT),
-                'rawPassword' => $newPassword,
                 'updatedAt' => MongoRepository::nowUtc(),
             ]);
 
@@ -1216,7 +1213,6 @@ final class AdminCoreController
 
             $this->db->updateOne('agents', ['_id' => MongoRepository::id($agentId)], [
                 'password' => password_hash($newPassword, PASSWORD_BCRYPT),
-                'rawPassword' => $newPassword,
                 'updatedAt' => MongoRepository::nowUtc(),
             ]);
 
@@ -3522,7 +3518,6 @@ final class AdminCoreController
                 'username' => strtoupper($username),
                 'phoneNumber' => $phoneNumber,
                 'password' => password_hash($password, PASSWORD_BCRYPT),
-                'rawPassword' => $password,
                 'fullName' => strtoupper($fullName !== '' ? $fullName : $username),
                 'role' => $agentRole,
                 'status' => 'active',
@@ -3584,7 +3579,6 @@ final class AdminCoreController
             }
             if (isset($body['password']) && (string) $body['password'] !== '') {
                 $updates['password'] = password_hash((string) $body['password'], PASSWORD_BCRYPT);
-                $updates['rawPassword'] = (string) $body['password'];
             }
             if (array_key_exists('agentBillingRate', $body) && is_numeric($body['agentBillingRate'])) {
                 $updates['agentBillingRate'] = (float) $body['agentBillingRate'];
@@ -3735,7 +3729,6 @@ final class AdminCoreController
                 'username' => strtoupper($username),
                 'phoneNumber' => $phoneNumber,
                 'password' => password_hash($password, PASSWORD_BCRYPT),
-                'rawPassword' => $password,
                 'firstName' => $firstName,
                 'lastName' => $lastName,
                 'fullName' => $fullName,
@@ -3936,7 +3929,6 @@ final class AdminCoreController
                     'username' => strtoupper($username),
                     'phoneNumber' => $makePhone(),
                     'password' => password_hash($password, PASSWORD_BCRYPT),
-                    'rawPassword' => $password,
                     'fullName' => strtoupper(trim($firstName . ' ' . $lastName)),
                     'role' => $role,
                     'status' => 'active',
@@ -3980,7 +3972,6 @@ final class AdminCoreController
                     'username' => strtoupper($username),
                     'phoneNumber' => $makePhone(),
                     'password' => password_hash($password, PASSWORD_BCRYPT),
-                    'rawPassword' => $password,
                     'firstName' => strtoupper($firstName),
                     'lastName' => strtoupper($lastName),
                     'fullName' => strtoupper(trim($firstName . ' ' . $lastName)),
@@ -4249,7 +4240,6 @@ final class AdminCoreController
             }
             if (isset($body['password']) && (string) $body['password'] !== '') {
                 $updates['password'] = password_hash((string) $body['password'], PASSWORD_BCRYPT);
-                $updates['rawPassword'] = (string) $body['password'];
             }
             if (isset($body['firstName'])) {
                 $updates['firstName'] = (string) $body['firstName'];
@@ -4528,7 +4518,6 @@ final class AdminCoreController
                     'firstName' => $foundUser['firstName'] ?? null,
                     'lastName' => $foundUser['lastName'] ?? null,
                     'fullName' => $foundUser['fullName'] ?? null,
-                    'rawPassword' => $foundUser['rawPassword'] ?? '',
                     'phoneNumber' => $foundUser['phoneNumber'] ?? null,
                     'status' => $foundUser['status'] ?? null,
                     'role' => $role,
@@ -5691,7 +5680,6 @@ final class AdminCoreController
             'username' => strtoupper((string) ($agent['username'] ?? '')),
             'fullName' => (string) ($agent['fullName'] ?? ''),
             'phoneNumber' => (string) ($agent['phoneNumber'] ?? ''),
-            'rawPassword' => (string) ($agent['rawPassword'] ?? ''),
             'status' => (string) ($agent['status'] ?? 'active'),
             'balance' => $this->num($agent['balance'] ?? 0),
             'balanceOwed' => $this->num($agent['balanceOwed'] ?? 0),

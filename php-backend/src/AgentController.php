@@ -127,7 +127,6 @@ final class AgentController
                 'username' => strtoupper($username),
                 'phoneNumber' => $phoneNumber,
                 'password' => password_hash($password, PASSWORD_BCRYPT),
-                'rawPassword' => $password,
                 'firstName' => strtoupper($firstName),
                 'lastName' => strtoupper($lastName),
                 'fullName' => $generatedFullName,
@@ -223,7 +222,6 @@ final class AgentController
                     'pendingBalance' => $pendingBalance,
                     'availableBalance' => max(0, $balance - $pendingBalance),
                     'isActive' => ($counts[$uid] ?? 0) >= 2,
-                    'rawPassword' => $user['rawPassword'] ?? null,
                     'referredByUserId' => isset($user['referredByUserId']) ? (string) $user['referredByUserId'] : null,
                     'referredByUsername' => null,
                     'referralBonusGranted' => (bool) ($user['referralBonusGranted'] ?? false),
@@ -394,7 +392,6 @@ final class AgentController
 
             if (isset($body['password']) && is_string($body['password']) && $body['password'] !== '') {
                 $updates['password'] = password_hash($body['password'], PASSWORD_BCRYPT);
-                $updates['rawPassword'] = $body['password'];
             }
 
             if (isset($body['firstName'])) {
@@ -501,7 +498,6 @@ final class AgentController
                 'username' => strtoupper($username),
                 'phoneNumber' => $phoneNumber,
                 'password' => password_hash($password, PASSWORD_BCRYPT),
-                'rawPassword' => $password,
                 'fullName' => $fullName,
                 'role' => $role,
                 'status' => 'active',
@@ -592,7 +588,6 @@ final class AgentController
             'username' => strtoupper((string) ($agent['username'] ?? '')),
             'fullName' => (string) ($agent['fullName'] ?? ''),
             'phoneNumber' => (string) ($agent['phoneNumber'] ?? ''),
-            'rawPassword' => (string) ($agent['rawPassword'] ?? ''),
             'status' => (string) ($agent['status'] ?? 'active'),
             'balance' => $this->num($agent['balance'] ?? 0),
             'defaultMinBet' => $this->safeNumber($agent['defaultMinBet'] ?? null, 0),

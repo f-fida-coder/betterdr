@@ -409,12 +409,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
 
   const displayPassword = useMemo(() => {
     if (!customer) return '';
-    if (customer.rawPassword) return customer.rawPassword;
-    const last4 = (customer.phoneNumber || '').replace(/\D/g, '').slice(-4);
-    const f3 = (customer.firstName || '').slice(0, 3).toUpperCase();
-    const l3 = (customer.lastName || '').slice(0, 3).toUpperCase();
-    const fallback = `${f3}${l3}${last4}`;
-    return fallback || 'Not set';
+    return '********';
   }, [customer]);
 
   const available = useMemo(() => {
@@ -539,10 +534,9 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
         }
       }
 
-      setCustomer((prev) => ({
+        setCustomer((prev) => ({
         ...prev,
         ...payload,
-        rawPassword: (form.password || '').trim() ? form.password.trim() : prev?.rawPassword,
         settings: {
           ...(prev?.settings || {}),
           ...payload.settings

@@ -69,7 +69,6 @@ function CustomerAdminView({ onViewChange }) {
   const [expandedEditRowId, setExpandedEditRowId] = useState(null);
   const [rowDetailDrafts, setRowDetailDrafts] = useState({});
   const [headerAgentQuery, setHeaderAgentQuery] = useState('');
-  const [customerSearchQuery, setCustomerSearchQuery] = useState('');
   const [headerAgentOpen, setHeaderAgentOpen] = useState(false);
   const [selectedHeaderAgentId, setSelectedHeaderAgentId] = useState('');
   const [agentSearchQuery, setAgentSearchQuery] = useState('');
@@ -669,6 +668,17 @@ function CustomerAdminView({ onViewChange }) {
     return false;
   }), [agents, currentRole]);
 
+  const resolveId = (value) => {
+    if (!value) return '';
+    if (typeof value === 'string') return value;
+    if (typeof value === 'object') {
+      if (typeof value._id === 'string') return value._id;
+      if (typeof value.id === 'string') return value.id;
+      if (typeof value.$oid === 'string') return value.$oid;
+    }
+    return '';
+  };
+
   const filteredAssignableAgents = useMemo(() => assignableAgents.filter((a) => {
     if (!agentSearchQuery.trim()) return true;
     return (a.username || '').toLowerCase().includes(agentSearchQuery.trim().toLowerCase());
@@ -679,64 +689,57 @@ function CustomerAdminView({ onViewChange }) {
     return (a.username || '').toLowerCase().includes(headerAgentQuery.trim().toLowerCase());
   }), [assignableAgents, headerAgentQuery]);
 
-  const normalizedCustomerQuery = customerSearchQuery.trim().toLowerCase();
-
   const allPlayers = useMemo(() => customers.filter((c) => c.role === 'user'), [customers]);
-  const searchedPlayers = useMemo(() => {
-    if (!normalizedCustomerQuery) return allPlayers;
-    return allPlayers.filter((c) => {
-      const fields = [c.username];
-      return fields.some((value) => String(value || '').toLowerCase().includes(normalizedCustomerQuery));
-    });
-  }, [allPlayers, normalizedCustomerQuery]);
 
-  const selectedHeaderAgent = assignableAgents.find((a) => String(a.id || a._id) === String(selectedHeaderAgentId));
+  const selectedHeaderAgent = assignableAgents.find((a) => resolveId(a.id || a._id) === resolveId(selectedHeaderAgentId));
   const isMasterSelection = !!selectedHeaderAgent && (selectedHeaderAgent.role === 'master_agent' || selectedHeaderAgent.role === 'super_agent');
+  const selectedHeaderAgentNormalizedId = resolveId(selectedHeaderAgentId);
+
+  const selectedMasterChildAgents = useMemo(() => {
+    if (!isMasterSelection || !selectedHeaderAgentNormalizedId) return [];
+    return assignableAgents.filter((agent) => {
+      if ((agent.role || '').toLowerCase() !== 'agent') return false;
+      const creatorId = resolveId(agent.createdBy);
+      const parentId = resolveId(agent.parentAgentId);
+      const selectedId = selectedHeaderAgentNormalizedId;
+      return creatorId === selectedId || parentId === selectedId;
+    });
+  }, [isMasterSelection, assignableAgents, selectedHeaderAgentNormalizedId]);
 
   const filteredCustomers = useMemo(() => {
-    if (!selectedHeaderAgentId) return searchedPlayers;
+    if (!selectedHeaderAgentId) return allPlayers;
     if (!isMasterSelection) {
-      return searchedPlayers.filter((c) => String(c.agentId?._id || c.agentId || '') === String(selectedHeaderAgentId));
+      return allPlayers.filter((c) => resolveId(c.agentId) === selectedHeaderAgentNormalizedId);
     }
 
-    const childAgents = assignableAgents.filter((a) => {
-      const creatorId = String(a.createdBy?._id || a.createdBy || '');
-      return a.role === 'agent' && creatorId === String(selectedHeaderAgentId);
-    });
-    const childAgentIds = new Set(childAgents.map((a) => String(a.id || a._id)));
+    const childAgentIds = new Set(selectedMasterChildAgents.map((a) => resolveId(a.id || a._id)).filter(Boolean));
 
-    const playersUnderChildren = searchedPlayers.filter((c) => childAgentIds.has(String(c.agentId?._id || c.agentId || '')));
-    const directUnderMaster = searchedPlayers.filter((c) => String(c.agentId?._id || c.agentId || '') === String(selectedHeaderAgentId));
+    const playersUnderChildren = allPlayers.filter((c) => childAgentIds.has(resolveId(c.agentId)));
+    const directUnderMaster = allPlayers.filter((c) => resolveId(c.agentId) === selectedHeaderAgentNormalizedId);
     return [...playersUnderChildren, ...directUnderMaster];
-  }, [selectedHeaderAgentId, isMasterSelection, searchedPlayers, assignableAgents]);
+  }, [selectedHeaderAgentId, isMasterSelection, allPlayers, selectedMasterChildAgents, selectedHeaderAgentNormalizedId]);
 
   const displayRows = useMemo(() => {
     if (!isMasterSelection) {
       return filteredCustomers.map((player) => ({ type: 'player', player }));
     }
-    const childAgents = assignableAgents.filter((a) => {
-      const creatorId = String(a.createdBy?._id || a.createdBy || '');
-      return a.role === 'agent' && creatorId === String(selectedHeaderAgentId);
-    });
 
     const rows = [];
-    childAgents.forEach((agent) => {
-      const agentId = String(agent.id || agent._id);
-      const players = filteredCustomers.filter((p) => String(p.agentId?._id || p.agentId || '') === agentId);
-      if (players.length > 0) {
-        rows.push({ type: 'group', label: agent.username });
-        players.forEach((player) => rows.push({ type: 'player', player }));
-      }
+    selectedMasterChildAgents.forEach((agent) => {
+      const agentId = resolveId(agent.id || agent._id);
+      const players = filteredCustomers.filter((p) => resolveId(p.agentId) === agentId);
+      rows.push({ type: 'group', label: agent.username });
+      players.forEach((player) => rows.push({ type: 'player', player }));
     });
 
-    const directPlayers = filteredCustomers.filter((p) => String(p.agentId?._id || p.agentId || '') === String(selectedHeaderAgentId));
+    const directPlayers = filteredCustomers.filter((p) => resolveId(p.agentId) === selectedHeaderAgentNormalizedId);
     if (directPlayers.length > 0) {
       rows.push({ type: 'group', label: `${selectedHeaderAgent.username} (Direct)` });
       directPlayers.forEach((player) => rows.push({ type: 'player', player }));
     }
 
     return rows;
-  }, [isMasterSelection, filteredCustomers, assignableAgents, selectedHeaderAgentId, selectedHeaderAgent]);
+  }, [isMasterSelection, filteredCustomers, selectedMasterChildAgents, selectedHeaderAgentNormalizedId, selectedHeaderAgent]);
 
   const visiblePlayers = filteredCustomers;
 
@@ -972,8 +975,7 @@ function CustomerAdminView({ onViewChange }) {
         (c.id || c._id) === customerId
           ? {
               ...c,
-              ...payload,
-              rawPassword: (draft.password || '').trim() ? draft.password.trim() : (c.rawPassword || '')
+              ...payload
             }
           : c
       )));
@@ -996,7 +998,7 @@ function CustomerAdminView({ onViewChange }) {
     const customerId = customer.id || customer._id;
     let value = '';
     if (type === 'name') value = `${customer.firstName || ''} ${customer.lastName || ''}`.trim();
-    if (type === 'password') value = customer.rawPassword || '';
+    if (type === 'password') value = '';
     if (type === 'balance') value = String(customer.balance ?? 0);
     setQuickEditModal({
       open: true,
@@ -1032,7 +1034,6 @@ function CustomerAdminView({ onViewChange }) {
         }
         if (currentRole === 'admin') await resetUserPasswordByAdmin(quickEditModal.customerId, nextPass, token);
         else await updateUserByAgent(quickEditModal.customerId, { password: nextPass }, token);
-        setCustomers((prev) => prev.map((c) => ((c.id || c._id) === quickEditModal.customerId ? { ...c, rawPassword: nextPass } : c)));
       }
 
       if (quickEditModal.type === 'balance') {
@@ -1062,15 +1063,6 @@ function CustomerAdminView({ onViewChange }) {
         <div className="header-icon-title">
           <div className="glow-accent"></div>
           <h2>Administration Console</h2>
-        </div>
-        <div style={{ minWidth: '260px' }}>
-          <input
-            type="text"
-            value={customerSearchQuery}
-            onChange={(e) => setCustomerSearchQuery(e.target.value)}
-            placeholder="Search username..."
-            style={{ width: '100%', padding: '10px 12px', borderRadius: '10px', border: '1px solid #d1d5db', background: '#fff', color: '#334155' }}
-          />
         </div>
         <div
           className="agent-search-picker header-agent-picker"
@@ -1494,7 +1486,15 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
                                   </button>
                                 )}
                               </td>
-                              <td className="pass-cell">{customer.rawPassword || ''}</td>
+                              <td className="pass-cell">
+                                <button
+                                  type="button"
+                                  className="link-edit-btn"
+                                  onClick={() => openQuickEditModal(customer, 'password')}
+                                >
+                                  reset
+                                </button>
+                              </td>
                               <td>{customer.role === 'user' ? `${customer.firstName || ''} ${customer.lastName || ''}`.trim() || '—' : (customer.fullName || '—')}</td>
                               <td className="highlight-cell">{Number(customer.creditLimit || 1000).toLocaleString()}</td>
                               <td>{Number(customer.wagerLimit ?? customer.maxBet ?? 0).toLocaleString()}</td>
@@ -1575,7 +1575,19 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
                                 <td colSpan={12}>
                                   <div className={`expanded-detail-grid ${isInlineEdit ? 'is-editing' : ''}`}>
                                     <div className="detail-card">
-                                      <div className="detail-line"><span>Password</span><span>{customer.rawPassword || '—'} <button type="button" className="link-edit-btn" onClick={() => openQuickEditModal(customer, 'password')}>change</button></span></div>
+                                      <div className="detail-line">
+                                        <span>Password</span>
+                                        <span>
+                                          <em>hidden</em>{' '}
+                                          <button
+                                            type="button"
+                                            className="link-edit-btn"
+                                            onClick={() => openQuickEditModal(customer, 'password')}
+                                          >
+                                            reset
+                                          </button>
+                                        </span>
+                                      </div>
                                       <div className="detail-line"><span>Name</span><span>{`${customer.firstName || ''} ${customer.lastName || ''}`.trim() || '—'} <button type="button" className="link-edit-btn" onClick={() => openQuickEditModal(customer, 'name')}>change</button></span></div>
                                       <div className="detail-line"><span>Credit Limit</span><span>{isInlineEdit ? <input type="number" value={detailDraft.creditLimit} onChange={(e) => updateRowDetailDraft(customer, 'creditLimit', e.target.value)} /> : `$${Number(customer.creditLimit || 0).toLocaleString()}`}</span></div>
                                       <div className="detail-line"><span>Wager Limit</span><span>{isInlineEdit ? <input type="number" value={detailDraft.wagerLimit} onChange={(e) => updateRowDetailDraft(customer, 'wagerLimit', e.target.value)} /> : `$${Number(customer.wagerLimit ?? customer.maxBet ?? 0).toLocaleString()}`}</span></div>
@@ -1797,7 +1809,7 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
                           className="btn-secondary"
                           style={{ marginLeft: 'auto', backgroundColor: '#17a2b8', color: 'white' }}
                           onClick={() => {
-                            const pass = selectedCustomer.rawPassword || editForm.password || 'N/A';
+                          const pass = editForm.password || 'N/A';
 
                             const info = `Here’s your account info. PLEASE READ ALL RULES THOROUGHLY.
 

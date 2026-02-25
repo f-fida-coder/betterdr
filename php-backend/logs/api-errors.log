@@ -1,3 +1,657 @@
 2026-02-24 15:49:39 [401] {"message":"Invalid admin credentials"}
 2026-02-24 15:55:29 [401] {"message":"Invalid admin credentials"}
 2026-02-24 15:55:30 [401] {"message":"Invalid admin credentials"}
+2026-02-24 17:30:30 [401] {"message":"Invalid admin credentials"}
+2026-02-24 17:43:17 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 17:43:17 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 17:43:18 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 17:43:18 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 17:43:19 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 17:43:19 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 17:43:21 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 17:43:21 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 17:43:22 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 17:43:22 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 17:43:24 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 17:43:24 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 17:55:19 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 17:55:19 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 17:55:20 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 17:55:20 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 17:55:50 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 17:55:50 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 17:55:51 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 17:55:51 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 17:55:52 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 17:55:52 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 17:55:54 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 17:55:54 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 17:55:55 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 17:55:55 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 17:55:57 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 17:55:57 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 17:55:58 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 17:55:58 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 17:56:00 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 17:56:00 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 17:56:59 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 17:56:59 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 17:57:00 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 17:57:00 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 17:57:02 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 17:57:02 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 17:57:03 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 17:57:03 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 17:57:05 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 17:57:05 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 17:57:06 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 17:57:06 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 17:57:08 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 17:57:08 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 17:57:09 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 17:57:09 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 17:57:20 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 17:57:20 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 17:57:21 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 17:57:21 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 17:57:23 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 17:57:23 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 17:57:24 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 17:57:24 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 17:57:26 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 17:57:26 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 17:57:27 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 17:57:27 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 17:57:29 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 17:57:29 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 17:57:30 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 17:57:30 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 17:57:31 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 17:57:31 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 17:57:33 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 17:57:33 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 17:57:34 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 17:57:34 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 17:57:59 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 17:57:59 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 17:58:00 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 17:58:00 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 17:58:02 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 17:58:02 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 17:58:03 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 17:58:03 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 18:00:26 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 18:00:26 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 18:01:48 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 18:01:48 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 18:03:12 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 18:03:12 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 18:03:13 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 18:03:13 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 18:03:15 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 18:03:15 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 18:03:16 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 18:03:16 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 18:03:18 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 18:03:18 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 18:03:19 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 18:03:19 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 18:03:21 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 18:03:21 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 18:03:22 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 18:03:22 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 18:03:37 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 18:03:37 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 18:03:39 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 18:03:39 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 18:03:40 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 18:03:40 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 18:03:41 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 18:03:41 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 18:03:43 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 18:03:43 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 18:03:44 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 18:03:44 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 18:03:58 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 18:03:58 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 18:03:59 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 18:03:59 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 18:04:01 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 18:04:01 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 18:04:02 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 18:04:02 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 18:04:04 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 18:04:04 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 18:04:05 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 18:04:05 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 18:04:06 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 18:04:06 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 18:04:08 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 18:04:08 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 18:04:09 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 18:04:09 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 18:04:11 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 18:04:11 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 18:04:13 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 18:04:13 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 18:04:14 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 18:04:14 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 18:04:30 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 18:04:30 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 18:04:36 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 18:04:36 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 18:04:56 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 18:04:56 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 18:06:46 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 18:06:46 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 18:07:06 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 18:07:06 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 18:07:33 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 18:07:33 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 18:08:54 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 18:08:54 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 18:15:53 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 18:15:53 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 18:15:57 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 18:15:57 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 18:15:58 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 18:15:58 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 18:16:00 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 18:16:00 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 18:16:01 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 18:16:01 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 18:18:24 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 18:18:24 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 18:19:13 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 18:19:13 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 18:19:27 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 18:19:27 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 18:32:49 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=148....', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 18:32:49 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'72.255.40.245' (using password: YES)"}
+2026-02-24 19:34:08 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'localhost' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=loca...', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 19:34:08 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'localhost' (using password: YES)"}
+2026-02-24 19:34:08 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'localhost' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=loca...', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 19:34:08 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'localhost' (using password: YES)"}
+2026-02-24 19:34:10 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'localhost' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=loca...', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 19:34:10 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'localhost' (using password: YES)"}
+2026-02-24 19:34:10 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'localhost' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=loca...', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 19:34:10 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'localhost' (using password: YES)"}
+2026-02-24 19:34:13 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'localhost' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=loca...', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 19:34:13 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'localhost' (using password: YES)"}
+2026-02-24 19:34:13 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'localhost' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=loca...', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 19:34:13 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'localhost' (using password: YES)"}
+2026-02-24 19:34:15 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'localhost' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=loca...', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 19:34:15 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'localhost' (using password: YES)"}
+2026-02-24 19:34:15 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'localhost' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=loca...', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 19:34:15 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'localhost' (using password: YES)"}
+2026-02-24 19:34:15 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'localhost' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=loca...', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 19:34:15 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'localhost' (using password: YES)"}
+2026-02-24 19:34:15 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'localhost' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=loca...', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 19:34:15 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'localhost' (using password: YES)"}
+2026-02-24 19:34:15 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'localhost' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=loca...', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 19:34:15 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'localhost' (using password: YES)"}
+2026-02-24 19:34:15 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'localhost' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=loca...', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 19:34:15 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'localhost' (using password: YES)"}
+2026-02-24 19:34:17 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'localhost' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=loca...', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 19:34:17 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'localhost' (using password: YES)"}
+2026-02-24 19:34:17 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'localhost' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=loca...', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 19:34:17 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'localhost' (using password: YES)"}
+2026-02-24 19:34:24 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'localhost' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=loca...', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 19:34:24 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'localhost' (using password: YES)"}
+2026-02-24 19:34:24 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'localhost' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=loca...', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 19:34:24 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'localhost' (using password: YES)"}
+2026-02-24 19:34:26 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'localhost' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=loca...', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 19:34:26 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'localhost' (using password: YES)"}
+2026-02-24 19:34:26 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'localhost' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=loca...', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 19:34:26 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'localhost' (using password: YES)"}
+2026-02-24 19:38:00 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'localhost' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=loca...', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 19:38:00 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'localhost' (using password: YES)"}
+2026-02-24 19:38:00 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'localhost' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=loca...', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 19:38:00 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'localhost' (using password: YES)"}
+2026-02-24 19:38:00 [503] Exception: SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'localhost' (using password: YES)
+#0 /Users/mac/Desktop/betterdr/php-backend/src/MongoRepository.php(49): PDO->__construct('mysql:host=loca...', 'u487877829_bett...', Object(SensitiveParameterValue), Array)
+#1 /Users/mac/Desktop/betterdr/php-backend/public/index.php(113): MongoRepository->__construct('mysql-native', 'u487877829_bett...')
+#2 /Users/mac/Desktop/betterdr/php-backend/public/router.php(12): require('/Users/mac/Desk...')
+#3 {main}
+2026-02-24 19:38:00 [503] {"message":"Database connection failed","error":"SQLSTATE[HY000] [1045] Access denied for user 'u487877829_bettor_bets'@'localhost' (using password: YES)"}
+2026-02-24 19:52:21 [401] {"message":"Not authorized, no token"}
+2026-02-24 19:53:10 [401] {"message":"Not authorized, no token"}
+2026-02-24 19:58:39 [401] {"message":"Invalid credentials"}
+2026-02-24 20:02:41 [401] {"message":"Invalid credentials"}
+2026-02-24 20:10:23 [401] {"message":"Not authorized, no token"}
+2026-02-24 20:10:49 [401] {"message":"Not authorized, no token"}
+2026-02-24 20:10:50 [401] {"message":"Not authorized, no token"}
+2026-02-25 03:15:31 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-02-25 03:15:31 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-02-25 03:15:31 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-02-25 03:15:32 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-02-25 03:15:32 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-02-25 03:15:33 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-02-25 03:57:16 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-02-25 03:57:16 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-02-25 03:57:17 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-02-25 03:57:17 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-02-25 03:57:18 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-02-25 03:57:18 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-02-25 03:57:19 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-02-25 03:57:20 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-02-25 05:38:21 [401] {"message":"Not authorized, token failed: invalid user id"}
+2026-02-25 05:38:22 [401] {"message":"Not authorized, token failed: invalid user id"}
+2026-02-25 05:38:22 [401] {"message":"Not authorized, token failed: invalid user id"}
+2026-02-25 05:39:11 [401] {"message":"Not authorized, token failed: invalid user id"}
+2026-02-25 12:15:13 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-02-25 12:15:13 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-02-25 12:15:16 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-02-25 12:15:16 [401] {"message":"Not authorized, token failed: Token expired"}

@@ -27,6 +27,26 @@ const getBaseUrl = () => {
 };
 
 export const API_URL = getBaseUrl();
+const isPathStyleApi = API_URL.includes('?path=');
+
+const buildApiUrl = (path = '', params = null) => {
+    const normalizedPath = path ? (path.startsWith('/') ? path : `/${path}`) : '';
+    const queryString =
+        params && Object.keys(params).length > 0
+            ? new URLSearchParams(params).toString()
+            : '';
+
+    if (isPathStyleApi) {
+        const baseWithPath = `${API_URL}${normalizedPath}`;
+        if (!queryString) return baseWithPath;
+        return `${baseWithPath}&${queryString}`;
+    }
+
+    const baseWithPath = `${API_URL}${normalizedPath}`;
+    if (!queryString) return baseWithPath;
+    return `${baseWithPath}?${queryString}`;
+};
+
 export const BACKEND_BASE_URL = API_URL.replace(/\/api\/?$/, '');
 export const normalizeBetMode = (mode) => String(mode || 'straight').toLowerCase().replace(/-/g, '_').trim();
 
@@ -75,7 +95,7 @@ const parseJsonResponse = async (response, fallbackMessage) => {
 };
 
 export const loginUser = async (username, password) => {
-    const response = await fetch(`${API_URL}/auth/login`, {
+    const response = await fetch(buildApiUrl('/auth/login'), {
         method: 'POST',
         headers: getHeaders(),
         body: JSON.stringify({ username, password })
@@ -84,7 +104,7 @@ export const loginUser = async (username, password) => {
 };
 
 export const loginAdmin = async (username, password) => {
-    const response = await fetch(`${API_URL}/auth/admin/login`, {
+    const response = await fetch(buildApiUrl('/auth/admin/login'), {
         method: 'POST',
         headers: getHeaders(),
         body: JSON.stringify({ username, password })
@@ -93,7 +113,7 @@ export const loginAdmin = async (username, password) => {
 };
 
 export const loginAgent = async (username, password) => {
-    const response = await fetch(`${API_URL}/auth/agent/login`, {
+    const response = await fetch(buildApiUrl('/auth/agent/login'), {
         method: 'POST',
         headers: getHeaders(),
         body: JSON.stringify({ username, password })
@@ -104,7 +124,7 @@ export const loginAgent = async (username, password) => {
 export const registerUser = async (userData) => {
     try {
         console.log('Calling registerUser API with:', userData.username);
-        const response = await fetch(`${API_URL}/auth/register`, {
+        const response = await fetch(buildApiUrl('/auth/register'), {
             method: 'POST',
             headers: getHeaders(),
             body: JSON.stringify(userData)
@@ -129,7 +149,7 @@ export const registerUser = async (userData) => {
 };
 
 export const getBalance = async (token) => {
-    const response = await fetch(`${API_URL}/wallet/balance`, {
+    const response = await fetch(buildApiUrl('/wallet/balance'), {
         headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch balance');
@@ -137,7 +157,7 @@ export const getBalance = async (token) => {
 };
 
 export const getMe = async (token) => {
-    const response = await fetch(`${API_URL}/auth/me`, {
+    const response = await fetch(buildApiUrl('/auth/me'), {
         headers: getHeaders(token)
     });
     if (!response.ok) {
@@ -150,7 +170,7 @@ export const getMe = async (token) => {
 };
 
 export const updateProfile = async (profileData, token) => {
-    const response = await fetch(`${API_URL}/auth/profile`, {
+    const response = await fetch(buildApiUrl('/auth/profile'), {
         method: 'PUT',
         headers: getHeaders(token),
         body: JSON.stringify(profileData)
@@ -163,13 +183,13 @@ export const updateProfile = async (profileData, token) => {
 };
 
 export const getMatches = async () => {
-    const response = await fetch(`${API_URL}/matches`, { headers: getHeaders() });
+    const response = await fetch(buildApiUrl('/matches'), { headers: getHeaders() });
     if (!response.ok) throw new Error('Failed to fetch matches');
     return response.json();
 };
 
 export const getLiveMatches = async () => {
-    const response = await fetch(`${API_URL}/matches?status=live`, { headers: getHeaders() });
+    const response = await fetch(buildApiUrl('/matches', { status: 'live' }), { headers: getHeaders() });
     if (!response.ok) throw new Error('Failed to fetch live matches');
     return response.json();
 };
@@ -189,7 +209,7 @@ export const placeBet = async (betData, token) => {
         selections: normalizedSelections
     };
 
-    const response = await fetch(`${API_URL}/bets/place`, {
+    const response = await fetch(buildApiUrl('/bets/place'), {
         method: 'POST',
         headers: getHeaders(token),
         body: JSON.stringify(payload)
@@ -202,7 +222,7 @@ export const placeBet = async (betData, token) => {
 };
 
 export const getPublicBetModeRules = async (token) => {
-    const response = await fetch(`${API_URL}/betting/rules`, {
+    const response = await fetch(buildApiUrl('/betting/rules'), {
         headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch bet mode rules');
@@ -210,7 +230,7 @@ export const getPublicBetModeRules = async (token) => {
 };
 
 export const getMyBets = async (token) => {
-    const response = await fetch(`${API_URL}/bets/my-bets`, {
+    const response = await fetch(buildApiUrl('/bets/my-bets'), {
         headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch my bets');
@@ -218,7 +238,7 @@ export const getMyBets = async (token) => {
 };
 
 export const getCasinoCategories = async (token) => {
-    const response = await fetch(`${API_URL}/casino/categories`, {
+    const response = await fetch(buildApiUrl('/casino/categories'), {
         headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch casino categories');
@@ -233,7 +253,7 @@ export const getCasinoGames = async ({ token, category = 'lobby', search = '', f
     params.set('page', String(page));
     params.set('limit', String(limit));
 
-    const response = await fetch(`${API_URL}/casino/games?${params.toString()}`, {
+    const response = await fetch(buildApiUrl('/casino/games', Object.fromEntries(params)), {
         headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch casino games');
@@ -241,7 +261,7 @@ export const getCasinoGames = async ({ token, category = 'lobby', search = '', f
 };
 
 export const launchCasinoGame = async (gameId, token) => {
-    const response = await fetch(`${API_URL}/casino/games/${gameId}/launch`, {
+    const response = await fetch(buildApiUrl(`/casino/games/${gameId}/launch`), {
         method: 'POST',
         headers: getHeaders(token)
     });
@@ -253,7 +273,7 @@ export const launchCasinoGame = async (gameId, token) => {
 };
 
 export const createDeposit = async (amount, token) => {
-    const response = await fetch(`${API_URL}/wallet/request-deposit`, {
+    const response = await fetch(buildApiUrl('/wallet/request-deposit'), {
         method: 'POST',
         headers: getHeaders(token),
         body: JSON.stringify({ amount, method: 'bonus_center' })
@@ -266,7 +286,7 @@ export const createDeposit = async (amount, token) => {
 };
 
 export const requestDeposit = async (amount, method, token) => {
-    const response = await fetch(`${API_URL}/wallet/request-deposit`, {
+    const response = await fetch(buildApiUrl('/wallet/request-deposit'), {
         method: 'POST',
         headers: getHeaders(token),
         body: JSON.stringify({ amount, method })
@@ -279,7 +299,7 @@ export const requestDeposit = async (amount, method, token) => {
 };
 
 export const requestWithdrawal = async (amount, method, token) => {
-    const response = await fetch(`${API_URL}/wallet/request-withdrawal`, {
+    const response = await fetch(buildApiUrl('/wallet/request-withdrawal'), {
         method: 'POST',
         headers: getHeaders(token),
         body: JSON.stringify({ amount, method })
@@ -296,7 +316,7 @@ export const getWalletTransactions = async (token, { type = '', status = '', lim
     if (type) params.set('type', type);
     if (status) params.set('status', status);
     params.set('limit', String(limit));
-    const response = await fetch(`${API_URL}/wallet/transactions?${params.toString()}`, {
+    const response = await fetch(buildApiUrl('/wallet/transactions', Object.fromEntries(params)), {
         headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch wallet transactions');
@@ -305,7 +325,7 @@ export const getWalletTransactions = async (token, { type = '', status = '', lim
 
 // Admin / Agent APIs
 export const getAgents = async (token) => {
-    const response = await fetch(`${API_URL}/admin/agents`, {
+    const response = await fetch(buildApiUrl('/admin/agents'), {
         headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch agents');
@@ -313,7 +333,7 @@ export const getAgents = async (token) => {
 };
 
 export const getBetModeRules = async (token) => {
-    const response = await fetch(`${API_URL}/admin/bet-mode-rules`, {
+    const response = await fetch(buildApiUrl('/admin/bet-mode-rules'), {
         headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch bet mode rules');
@@ -321,7 +341,7 @@ export const getBetModeRules = async (token) => {
 };
 
 export const getAdminHeaderSummary = async (token) => {
-    const response = await fetch(`${API_URL}/admin/header-summary`, {
+    const response = await fetch(buildApiUrl('/admin/header-summary'), {
         headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch admin header summary');
@@ -329,7 +349,7 @@ export const getAdminHeaderSummary = async (token) => {
 };
 
 export const getSystemStats = async (token) => {
-    const response = await fetch(`${API_URL}/admin/system-stats`, {
+    const response = await fetch(buildApiUrl('/admin/system-stats'), {
         headers: getHeaders(token)
     });
     if (!response.ok) {
@@ -340,7 +360,7 @@ export const getSystemStats = async (token) => {
 };
 
 export const getAdminEntityCatalog = async (token) => {
-    const response = await fetch(`${API_URL}/admin/entity-catalog`, {
+    const response = await fetch(buildApiUrl('/admin/entity-catalog'), {
         headers: getHeaders(token)
     });
     if (!response.ok) {
@@ -352,24 +372,21 @@ export const getAdminEntityCatalog = async (token) => {
 
 export const getWeeklyFigures = async (period, token) => {
     const safePeriod = encodeURIComponent(String(period || 'week'));
-    const url = API_URL.includes('?path=')
-        ? `${API_URL}/admin/weekly-figures&period=${safePeriod}`
-        : `${API_URL}/admin/weekly-figures?period=${safePeriod}`;
-    const response = await fetch(url, {
+    const response = await fetch(buildApiUrl('/admin/weekly-figures', { period: safePeriod }), {
         headers: getHeaders(token)
     });
     return parseJsonResponse(response, 'Failed to fetch weekly figures');
 };
 
 export const getPendingItems = async (token) => {
-    const response = await fetch(`${API_URL}/admin/pending`, {
+    const response = await fetch(buildApiUrl('/admin/pending'), {
         headers: getHeaders(token)
     });
     return parseJsonResponse(response, 'Failed to fetch pending items');
 };
 
 export const approvePendingItem = async (transactionId, token) => {
-    const response = await fetch(`${API_URL}/admin/pending/approve`, {
+    const response = await fetch(buildApiUrl('/admin/pending/approve'), {
         method: 'POST',
         headers: getHeaders(token),
         body: JSON.stringify({ transactionId })
@@ -382,7 +399,7 @@ export const approvePendingItem = async (transactionId, token) => {
 };
 
 export const declinePendingItem = async (transactionId, token) => {
-    const response = await fetch(`${API_URL}/admin/pending/decline`, {
+    const response = await fetch(buildApiUrl('/admin/pending/decline'), {
         method: 'POST',
         headers: getHeaders(token),
         body: JSON.stringify({ transactionId })
@@ -395,14 +412,14 @@ export const declinePendingItem = async (transactionId, token) => {
 };
 
 export const getMessages = async (token) => {
-    const response = await fetch(`${API_URL}/admin/messages`, {
+    const response = await fetch(buildApiUrl('/admin/messages'), {
         headers: getHeaders(token)
     });
     return parseJsonResponse(response, 'Failed to fetch messages');
 };
 
 export const markMessageRead = async (messageId, token) => {
-    const response = await fetch(`${API_URL}/admin/messages/${messageId}/read`, {
+    const response = await fetch(buildApiUrl(`/admin/messages/${messageId}/read`), {
         method: 'POST',
         headers: getHeaders(token)
     });
@@ -411,7 +428,7 @@ export const markMessageRead = async (messageId, token) => {
 };
 
 export const replyToMessage = async (messageId, reply, token) => {
-    const response = await fetch(`${API_URL}/admin/messages/${messageId}/reply`, {
+    const response = await fetch(buildApiUrl(`/admin/messages/${messageId}/reply`), {
         method: 'POST',
         headers: getHeaders(token),
         body: JSON.stringify({ reply })
@@ -424,7 +441,7 @@ export const replyToMessage = async (messageId, reply, token) => {
 };
 
 export const deleteMessage = async (messageId, token) => {
-    const response = await fetch(`${API_URL}/admin/messages/${messageId}`, {
+    const response = await fetch(buildApiUrl(`/admin/messages/${messageId}`), {
         method: 'DELETE',
         headers: getHeaders(token)
     });
@@ -433,7 +450,7 @@ export const deleteMessage = async (messageId, token) => {
 };
 
 export const getMyMessages = async (token) => {
-    const response = await fetch(`${API_URL}/messages/me`, {
+    const response = await fetch(buildApiUrl('/messages/me'), {
         headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch messages');
@@ -441,7 +458,7 @@ export const getMyMessages = async (token) => {
 };
 
 export const createMessage = async (subject, body, token) => {
-    const response = await fetch(`${API_URL}/messages`, {
+    const response = await fetch(buildApiUrl('/messages'), {
         method: 'POST',
         headers: getHeaders(token),
         body: JSON.stringify({ subject, body })
@@ -454,7 +471,7 @@ export const createMessage = async (subject, body, token) => {
 };
 
 export const getTutorialsContent = async (token) => {
-    const response = await fetch(`${API_URL}/content/tutorials`, {
+    const response = await fetch(buildApiUrl('/content/tutorials'), {
         headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch tutorials');
@@ -462,7 +479,7 @@ export const getTutorialsContent = async (token) => {
 };
 
 export const getSupportFaqs = async (token) => {
-    const response = await fetch(`${API_URL}/content/faqs`, {
+    const response = await fetch(buildApiUrl('/content/faqs'), {
         headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch FAQs');
@@ -470,14 +487,14 @@ export const getSupportFaqs = async (token) => {
 };
 
 export const getAdminMatches = async (token) => {
-    const response = await fetch(`${API_URL}/admin/matches`, {
+    const response = await fetch(buildApiUrl('/admin/matches'), {
         headers: getHeaders(token)
     });
     return parseJsonResponse(response, 'Failed to fetch matches');
 };
 
 export const createAdminMatch = async (matchData, token) => {
-    const response = await fetch(`${API_URL}/admin/matches`, {
+    const response = await fetch(buildApiUrl('/admin/matches'), {
         method: 'POST',
         headers: getHeaders(token),
         body: JSON.stringify(matchData)
@@ -490,7 +507,7 @@ export const createAdminMatch = async (matchData, token) => {
 };
 
 export const updateAdminMatch = async (matchId, matchData, token) => {
-    const response = await fetch(`${API_URL}/admin/matches/${matchId}`, {
+    const response = await fetch(buildApiUrl(`/admin/matches/${matchId}`), {
         method: 'PUT',
         headers: getHeaders(token),
         body: JSON.stringify(matchData)
@@ -503,7 +520,7 @@ export const updateAdminMatch = async (matchId, matchData, token) => {
 };
 
 export const getCashierSummary = async (token) => {
-    const response = await fetch(`${API_URL}/admin/cashier/summary`, {
+    const response = await fetch(buildApiUrl('/admin/cashier/summary'), {
         headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch cashier summary');
@@ -511,7 +528,7 @@ export const getCashierSummary = async (token) => {
 };
 
 export const getCashierTransactions = async (token, limit = 50) => {
-    const response = await fetch(`${API_URL}/admin/cashier/transactions?limit=${limit}`, {
+    const response = await fetch(buildApiUrl('/admin/cashier/transactions', { limit }), {
         headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch cashier transactions');
@@ -519,7 +536,7 @@ export const getCashierTransactions = async (token, limit = 50) => {
 };
 
 export const getThirdPartyLimits = async (token) => {
-    const response = await fetch(`${API_URL}/admin/third-party-limits`, {
+    const response = await fetch(buildApiUrl('/admin/third-party-limits'), {
         headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch third party limits');
@@ -527,7 +544,7 @@ export const getThirdPartyLimits = async (token) => {
 };
 
 export const updateThirdPartyLimit = async (id, payload, token) => {
-    const response = await fetch(`${API_URL}/admin/third-party-limits/${id}`, {
+    const response = await fetch(buildApiUrl(`/admin/third-party-limits/${id}`), {
         method: 'PUT',
         headers: getHeaders(token),
         body: JSON.stringify(payload)
@@ -540,7 +557,7 @@ export const updateThirdPartyLimit = async (id, payload, token) => {
 };
 
 export const createThirdPartyLimit = async (payload, token) => {
-    const response = await fetch(`${API_URL}/admin/third-party-limits`, {
+    const response = await fetch(buildApiUrl('/admin/third-party-limits'), {
         method: 'POST',
         headers: getHeaders(token),
         body: JSON.stringify(payload)
@@ -554,7 +571,7 @@ export const createThirdPartyLimit = async (payload, token) => {
 
 export const getAdminBets = async (params, token) => {
     const query = new URLSearchParams(params).toString();
-    const response = await fetch(`${API_URL}/admin/bets?${query}`, {
+    const response = await fetch(buildApiUrl('/admin/bets', query ? Object.fromEntries(new URLSearchParams(query)) : {}), {
         headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch admin bets');
@@ -563,7 +580,7 @@ export const getAdminBets = async (params, token) => {
 
 export const getIpTracker = async (params, token) => {
     const query = new URLSearchParams(params).toString();
-    const response = await fetch(`${API_URL}/admin/ip-tracker?${query}`, {
+    const response = await fetch(buildApiUrl('/admin/ip-tracker', query ? Object.fromEntries(new URLSearchParams(query)) : {}), {
         headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch IP tracker');
@@ -596,7 +613,7 @@ export const unblockIp = async (id, token) => {
 
 export const getTransactionsHistory = async (params, token) => {
     const query = new URLSearchParams(params).toString();
-    const response = await fetch(`${API_URL}/admin/transactions?${query}`, {
+    const response = await fetch(buildApiUrl('/admin/transactions', query ? Object.fromEntries(new URLSearchParams(query)) : {}), {
         headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch transactions history');
@@ -618,7 +635,7 @@ export const deleteAdminTransactions = async (ids, token) => {
 
 export const getCollections = async (params, token) => {
     const query = new URLSearchParams(params).toString();
-    const response = await fetch(`${API_URL}/admin/collections?${query}`, {
+    const response = await fetch(buildApiUrl('/admin/collections', query ? Object.fromEntries(new URLSearchParams(query)) : {}), {
         headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch collections');
@@ -627,7 +644,7 @@ export const getCollections = async (params, token) => {
 
 export const getDeletedWagers = async (params, token) => {
     const query = new URLSearchParams(params).toString();
-    const response = await fetch(`${API_URL}/admin/deleted-wagers?${query}`, {
+    const response = await fetch(buildApiUrl('/admin/deleted-wagers', query ? Object.fromEntries(new URLSearchParams(query)) : {}), {
         headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch deleted wagers');
@@ -635,7 +652,7 @@ export const getDeletedWagers = async (params, token) => {
 };
 
 export const restoreDeletedWager = async (id, token) => {
-    const response = await fetch(`${API_URL}/admin/deleted-wagers/${id}/restore`, {
+    const response = await fetch(buildApiUrl(`/admin/deleted-wagers/${id}/restore`), {
         method: 'POST',
         headers: getHeaders(token)
     });
@@ -647,7 +664,7 @@ export const restoreDeletedWager = async (id, token) => {
 };
 
 export const getSportsbookLinks = async (token) => {
-    const response = await fetch(`${API_URL}/admin/sportsbook-links`, {
+    const response = await fetch(buildApiUrl('/admin/sportsbook-links'), {
         headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch sportsbook links');
@@ -655,7 +672,7 @@ export const getSportsbookLinks = async (token) => {
 };
 
 export const createSportsbookLink = async (payload, token) => {
-    const response = await fetch(`${API_URL}/admin/sportsbook-links`, {
+    const response = await fetch(buildApiUrl('/admin/sportsbook-links'), {
         method: 'POST',
         headers: getHeaders(token),
         body: JSON.stringify(payload)
@@ -668,7 +685,7 @@ export const createSportsbookLink = async (payload, token) => {
 };
 
 export const updateSportsbookLink = async (id, payload, token) => {
-    const response = await fetch(`${API_URL}/admin/sportsbook-links/${id}`, {
+    const response = await fetch(buildApiUrl(`/admin/sportsbook-links/${id}`), {
         method: 'PUT',
         headers: getHeaders(token),
         body: JSON.stringify(payload)
@@ -681,7 +698,7 @@ export const updateSportsbookLink = async (id, payload, token) => {
 };
 
 export const whitelistIp = async (id, token) => {
-    const response = await fetch(`${API_URL}/admin/ip-tracker/${id}/whitelist`, {
+    const response = await fetch(buildApiUrl(`/admin/ip-tracker/${id}/whitelist`), {
         method: 'POST',
         headers: {
             Authorization: `Bearer ${token}`
@@ -697,7 +714,7 @@ export const whitelistIp = async (id, token) => {
 };
 
 export const testSportsbookLink = async (id, token) => {
-    const response = await fetch(`${API_URL}/admin/sportsbook-links/${id}/test`, {
+    const response = await fetch(buildApiUrl(`/admin/sportsbook-links/${id}/test`), {
         method: 'POST',
         headers: getHeaders(token)
     });
@@ -709,7 +726,7 @@ export const testSportsbookLink = async (id, token) => {
 };
 
 export const refreshOdds = async (token) => {
-    const response = await fetch(`${API_URL}/admin/refresh-odds`, {
+    const response = await fetch(buildApiUrl('/admin/refresh-odds'), {
         method: 'POST',
         headers: getHeaders(token)
     });
@@ -721,7 +738,7 @@ export const refreshOdds = async (token) => {
 };
 
 export const fetchOddsManual = async () => {
-    const response = await fetch(`${API_URL}/matches/fetch-odds`, {
+    const response = await fetch(buildApiUrl('/matches/fetch-odds'), {
         method: 'POST'
     });
     if (!response.ok) {
@@ -732,7 +749,7 @@ export const fetchOddsManual = async () => {
 };
 
 export const clearCache = async (token) => {
-    const response = await fetch(`${API_URL}/admin/clear-cache`, {
+    const response = await fetch(buildApiUrl('/admin/clear-cache'), {
         method: 'POST',
         headers: getHeaders(token)
     });
@@ -744,7 +761,7 @@ export const clearCache = async (token) => {
 };
 
 export const createCollection = async (payload, token) => {
-    const response = await fetch(`${API_URL}/admin/collections`, {
+    const response = await fetch(buildApiUrl('/admin/collections'), {
         method: 'POST',
         headers: getHeaders(token),
         body: JSON.stringify(payload)
@@ -757,7 +774,7 @@ export const createCollection = async (payload, token) => {
 };
 
 export const collectCollection = async (id, token) => {
-    const response = await fetch(`${API_URL}/admin/collections/${id}/collect`, {
+    const response = await fetch(buildApiUrl(`/admin/collections/${id}/collect`), {
         method: 'POST',
         headers: getHeaders(token)
     });
@@ -769,7 +786,7 @@ export const collectCollection = async (id, token) => {
 };
 
 export const getCollectionById = async (id, token) => {
-    const response = await fetch(`${API_URL}/admin/collections/${id}`, {
+    const response = await fetch(buildApiUrl(`/admin/collections/${id}`), {
         headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch collection');
@@ -777,7 +794,7 @@ export const getCollectionById = async (id, token) => {
 };
 
 export const createAdminBet = async (payload, token) => {
-    const response = await fetch(`${API_URL}/admin/bets`, {
+    const response = await fetch(buildApiUrl('/admin/bets'), {
         method: 'POST',
         headers: getHeaders(token),
         body: JSON.stringify(payload)
@@ -790,7 +807,7 @@ export const createAdminBet = async (payload, token) => {
 };
 
 export const deleteAdminBet = async (id, token) => {
-    const response = await fetch(`${API_URL}/admin/bets/${id}`, {
+    const response = await fetch(buildApiUrl(`/admin/bets/${id}`), {
         method: 'DELETE',
         headers: getHeaders(token)
     });
@@ -802,7 +819,7 @@ export const deleteAdminBet = async (id, token) => {
 };
 
 export const settleMatchBets = async (payload, token) => {
-    const response = await fetch(`${API_URL}/bets/settle`, {
+    const response = await fetch(buildApiUrl('/bets/settle'), {
         method: 'POST',
         headers: getHeaders(token),
         body: JSON.stringify(payload)
@@ -816,7 +833,7 @@ export const settleMatchBets = async (payload, token) => {
 
 export const getAgentPerformance = async (params, token) => {
     const query = new URLSearchParams(params).toString();
-    const response = await fetch(`${API_URL}/admin/agent-performance?${query}`, {
+    const response = await fetch(buildApiUrl('/admin/agent-performance', query ? Object.fromEntries(new URLSearchParams(query)) : {}), {
         headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch agent performance');
@@ -825,7 +842,7 @@ export const getAgentPerformance = async (params, token) => {
 
 export const getAgentPerformanceDetails = async (agentId, params, token) => {
     const query = new URLSearchParams(params || {}).toString();
-    const response = await fetch(`${API_URL}/admin/agent-performance/${agentId}/details?${query}`, {
+    const response = await fetch(buildApiUrl(`/admin/agent-performance/${agentId}/details`, query ? Object.fromEntries(new URLSearchParams(query)) : {}), {
         headers: getHeaders(token)
     });
     if (!response.ok) {
@@ -836,7 +853,7 @@ export const getAgentPerformanceDetails = async (agentId, params, token) => {
 };
 
 export const updateAgentPermissions = async (agentId, permissions, token) => {
-    const response = await fetch(`${API_URL}/agent/permissions/${agentId}`, {
+    const response = await fetch(buildApiUrl(`/agent/permissions/${agentId}`), {
         method: 'PUT',
         headers: getHeaders(token),
         body: JSON.stringify({ permissions })
@@ -867,7 +884,7 @@ export const createAgent = async (agentData, token) => {
             'Authorization': requestHeaders['Authorization'] ? 'Bearer ' + token.substring(0, 30) + '...' : 'NONE'
         });
 
-        const response = await fetch(`${API_URL}/admin/create-agent`, {
+        const response = await fetch(buildApiUrl('/admin/create-agent'), {
             method: 'POST',
             headers: requestHeaders,
             body: JSON.stringify(agentData)
@@ -899,7 +916,7 @@ export const createAgent = async (agentData, token) => {
 };
 
 export const seedWorkflowHierarchy = async (token, payload = {}) => {
-    const response = await fetch(`${API_URL}/admin/seed-workflow-hierarchy`, {
+    const response = await fetch(buildApiUrl('/admin/seed-workflow-hierarchy'), {
         method: 'POST',
         headers: getHeaders(token),
         body: JSON.stringify({ confirm: true, ...payload })
@@ -930,7 +947,7 @@ export const createUserByAdmin = async (userData, token) => {
             'Authorization': requestHeaders['Authorization'] ? 'Bearer ' + token.substring(0, 30) + '...' : 'NONE'
         });
 
-        const response = await fetch(`${API_URL}/admin/create-user`, {
+        const response = await fetch(buildApiUrl('/admin/create-user'), {
             method: 'POST',
             headers: requestHeaders,
             body: JSON.stringify(userData)
@@ -963,7 +980,7 @@ export const createUserByAdmin = async (userData, token) => {
 
 export const updateUserByAdmin = async (userId, userData, token) => {
     try {
-        const response = await fetch(`${API_URL}/admin/users/${userId}`, {
+        const response = await fetch(buildApiUrl(`/admin/users/${userId}`), {
             method: 'PUT',
             headers: getHeaders(token),
             body: JSON.stringify(userData)
@@ -979,7 +996,7 @@ export const updateUserByAdmin = async (userId, userData, token) => {
 
 export const updateUserFreeplay = async (userId, freeplayBalance, token, description = '') => {
     try {
-        const response = await fetch(`${API_URL}/admin/users/${userId}/freeplay`, {
+        const response = await fetch(buildApiUrl(`/admin/users/${userId}/freeplay`), {
             method: 'PUT',
             headers: getHeaders(token),
             body: JSON.stringify({ freeplayBalance, description })
@@ -1001,7 +1018,7 @@ export const createPlayerByAgent = async (userData, token) => {
             throw new Error('No token provided. Please login first.');
         }
 
-        const response = await fetch(`${API_URL}/agent/create-user`, {
+        const response = await fetch(buildApiUrl('/agent/create-user'), {
             method: 'POST',
             headers: getHeaders(token),
             body: JSON.stringify(userData)
@@ -1027,7 +1044,7 @@ export const createPlayerByAgent = async (userData, token) => {
 };
 
 export const getMyPlayers = async (token) => {
-    const response = await fetch(`${API_URL}/agent/my-users`, {
+    const response = await fetch(buildApiUrl('/agent/my-users'), {
         headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch players');
@@ -1037,8 +1054,8 @@ export const getMyPlayers = async (token) => {
 export const getUsersAdmin = async (token, params = {}) => {
     const query = new URLSearchParams();
     if (params.q) query.set('q', params.q);
-    const suffix = query.toString() ? `?${query.toString()}` : '';
-    const response = await fetch(`${API_URL}/admin/users${suffix}`, {
+    const suffixParams = query.toString() ? Object.fromEntries(query) : {};
+    const response = await fetch(buildApiUrl('/admin/users', suffixParams), {
         headers: getHeaders(token)
     });
     if (!response.ok) {
@@ -1049,7 +1066,7 @@ export const getUsersAdmin = async (token, params = {}) => {
 };
 
 export const updateUserCredit = async (userId, payload, token) => {
-    const response = await fetch(`${API_URL}/admin/users/${userId}/credit`, {
+    const response = await fetch(buildApiUrl(`/admin/users/${userId}/credit`), {
         method: 'PUT',
         headers: getHeaders(token),
         body: JSON.stringify(payload)
@@ -1062,7 +1079,7 @@ export const updateUserCredit = async (userId, payload, token) => {
 };
 
 export const updateUserBalanceOwedByAgent = async (userId, balance, token) => {
-    const response = await fetch(`${API_URL}/agent/update-balance-owed`, {
+    const response = await fetch(buildApiUrl('/agent/update-balance-owed'), {
         method: 'POST',
         headers: getHeaders(token),
         body: JSON.stringify({ userId, balance })
@@ -1076,7 +1093,7 @@ export const updateUserBalanceOwedByAgent = async (userId, balance, token) => {
 
 export const updateAgent = async (id, data, token) => {
     try {
-        const response = await fetch(`${API_URL}/admin/agent/${id}`, {
+        const response = await fetch(buildApiUrl(`/admin/agent/${id}`), {
             method: 'PUT',
             headers: getHeaders(token),
             body: JSON.stringify(data)
@@ -1094,7 +1111,7 @@ export const updateAgent = async (id, data, token) => {
 
 export const updateUserByAgent = async (userId, userData, token) => {
     try {
-        const response = await fetch(`${API_URL}/agent/users/${userId}`, {
+        const response = await fetch(buildApiUrl(`/agent/users/${userId}`), {
             method: 'PUT',
             headers: getHeaders(token),
             body: JSON.stringify(userData)
@@ -1110,7 +1127,7 @@ export const updateUserByAgent = async (userId, userData, token) => {
 
 export const createSubAgent = async (agentData, token) => {
     try {
-        const response = await fetch(`${API_URL}/agent/create-sub-agent`, {
+        const response = await fetch(buildApiUrl('/agent/create-sub-agent'), {
             method: 'POST',
             headers: getHeaders(token),
             body: JSON.stringify(agentData)
@@ -1126,7 +1143,7 @@ export const createSubAgent = async (agentData, token) => {
 
 export const getMySubAgents = async (token) => {
     try {
-        const response = await fetch(`${API_URL}/agent/my-sub-agents`, {
+        const response = await fetch(buildApiUrl('/agent/my-sub-agents'), {
             method: 'GET',
             headers: getHeaders(token)
         });
@@ -1141,7 +1158,7 @@ export const getMySubAgents = async (token) => {
 
 export const getUserStatistics = async (userId, token) => {
     try {
-        const response = await fetch(`${API_URL}/admin/users/${userId}/stats`, {
+        const response = await fetch(buildApiUrl(`/admin/users/${userId}/stats`), {
             method: 'GET',
             headers: getHeaders(token)
         });
@@ -1155,7 +1172,7 @@ export const getUserStatistics = async (userId, token) => {
 };
 
 export const createTicketWriterBet = async (payload, token) => {
-    const response = await fetch(`${API_URL}/admin/bets`, {
+    const response = await fetch(buildApiUrl('/admin/bets'), {
         method: 'POST',
         headers: getHeaders(token),
         body: JSON.stringify(payload)
@@ -1168,7 +1185,7 @@ export const createTicketWriterBet = async (payload, token) => {
 };
 
 export const getBillingSummary = async (token) => {
-    const response = await fetch(`${API_URL}/admin/billing/summary`, {
+    const response = await fetch(buildApiUrl('/admin/billing/summary'), {
         headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch billing summary');
@@ -1177,7 +1194,7 @@ export const getBillingSummary = async (token) => {
 
 export const getBillingInvoices = async (params, token) => {
     const query = new URLSearchParams(params).toString();
-    const response = await fetch(`${API_URL}/admin/billing/invoices?${query}`, {
+    const response = await fetch(buildApiUrl('/admin/billing/invoices', query ? Object.fromEntries(new URLSearchParams(query)) : {}), {
         headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch invoices');
@@ -1185,7 +1202,7 @@ export const getBillingInvoices = async (params, token) => {
 };
 
 export const createBillingInvoice = async (payload, token) => {
-    const response = await fetch(`${API_URL}/admin/billing/invoices`, {
+    const response = await fetch(buildApiUrl('/admin/billing/invoices'), {
         method: 'POST',
         headers: getHeaders(token),
         body: JSON.stringify(payload)
@@ -1198,7 +1215,7 @@ export const createBillingInvoice = async (payload, token) => {
 };
 
 export const updateBillingInvoice = async (id, payload, token) => {
-    const response = await fetch(`${API_URL}/admin/billing/invoices/${id}`, {
+    const response = await fetch(buildApiUrl(`/admin/billing/invoices/${id}`), {
         method: 'PUT',
         headers: getHeaders(token),
         body: JSON.stringify(payload)
@@ -1211,7 +1228,7 @@ export const updateBillingInvoice = async (id, payload, token) => {
 };
 
 export const getBillingInvoiceById = async (id, token) => {
-    const response = await fetch(`${API_URL}/admin/billing/invoices/${id}`, {
+    const response = await fetch(buildApiUrl(`/admin/billing/invoices/${id}`), {
         headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch invoice');
@@ -1219,7 +1236,7 @@ export const getBillingInvoiceById = async (id, token) => {
 };
 
 export const getSettings = async (token) => {
-    const response = await fetch(`${API_URL}/admin/settings`, {
+    const response = await fetch(buildApiUrl('/admin/settings'), {
         headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch settings');
@@ -1227,7 +1244,7 @@ export const getSettings = async (token) => {
 };
 
 export const updateSettings = async (payload, token) => {
-    const response = await fetch(`${API_URL}/admin/settings`, {
+    const response = await fetch(buildApiUrl('/admin/settings'), {
         method: 'PUT',
         headers: getHeaders(token),
         body: JSON.stringify(payload)
@@ -1240,7 +1257,7 @@ export const updateSettings = async (payload, token) => {
 };
 
 export const getRules = async (token) => {
-    const response = await fetch(`${API_URL}/admin/rules`, {
+    const response = await fetch(buildApiUrl('/admin/rules'), {
         headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch rules');
@@ -1248,7 +1265,7 @@ export const getRules = async (token) => {
 };
 
 export const createRule = async (payload, token) => {
-    const response = await fetch(`${API_URL}/admin/rules`, {
+    const response = await fetch(buildApiUrl('/admin/rules'), {
         method: 'POST',
         headers: getHeaders(token),
         body: JSON.stringify(payload)
@@ -1261,7 +1278,7 @@ export const createRule = async (payload, token) => {
 };
 
 export const updateRule = async (id, payload, token) => {
-    const response = await fetch(`${API_URL}/admin/rules/${id}`, {
+    const response = await fetch(buildApiUrl(`/admin/rules/${id}`), {
         method: 'PUT',
         headers: getHeaders(token),
         body: JSON.stringify(payload)
@@ -1274,7 +1291,7 @@ export const updateRule = async (id, payload, token) => {
 };
 
 export const deleteRule = async (id, token) => {
-    const response = await fetch(`${API_URL}/admin/rules/${id}`, {
+    const response = await fetch(buildApiUrl(`/admin/rules/${id}`), {
         method: 'DELETE',
         headers: getHeaders(token)
     });
@@ -1287,7 +1304,7 @@ export const deleteRule = async (id, token) => {
 
 export const getFeedback = async (params, token) => {
     const query = new URLSearchParams(params).toString();
-    const response = await fetch(`${API_URL}/admin/feedback?${query}`, {
+    const response = await fetch(buildApiUrl('/admin/feedback', query ? Object.fromEntries(new URLSearchParams(query)) : {}), {
         headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch feedback');
@@ -1295,7 +1312,7 @@ export const getFeedback = async (params, token) => {
 };
 
 export const replyFeedback = async (id, payload, token) => {
-    const response = await fetch(`${API_URL}/admin/feedback/${id}/reply`, {
+    const response = await fetch(buildApiUrl(`/admin/feedback/${id}/reply`), {
         method: 'POST',
         headers: getHeaders(token),
         body: JSON.stringify(payload)
@@ -1308,7 +1325,7 @@ export const replyFeedback = async (id, payload, token) => {
 };
 
 export const markFeedbackReviewed = async (id, token) => {
-    const response = await fetch(`${API_URL}/admin/feedback/${id}/reviewed`, {
+    const response = await fetch(buildApiUrl(`/admin/feedback/${id}/reviewed`), {
         method: 'POST',
         headers: getHeaders(token)
     });
@@ -1320,7 +1337,7 @@ export const markFeedbackReviewed = async (id, token) => {
 };
 
 export const deleteFeedback = async (id, token) => {
-    const response = await fetch(`${API_URL}/admin/feedback/${id}`, {
+    const response = await fetch(buildApiUrl(`/admin/feedback/${id}`), {
         method: 'DELETE',
         headers: getHeaders(token)
     });
@@ -1332,7 +1349,7 @@ export const deleteFeedback = async (id, token) => {
 };
 
 export const getFaqs = async (token) => {
-    const response = await fetch(`${API_URL}/admin/faqs`, {
+    const response = await fetch(buildApiUrl('/admin/faqs'), {
         headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch FAQs');
@@ -1340,7 +1357,7 @@ export const getFaqs = async (token) => {
 };
 
 export const createFaq = async (payload, token) => {
-    const response = await fetch(`${API_URL}/admin/faqs`, {
+    const response = await fetch(buildApiUrl('/admin/faqs'), {
         method: 'POST',
         headers: getHeaders(token),
         body: JSON.stringify(payload)
@@ -1353,7 +1370,7 @@ export const createFaq = async (payload, token) => {
 };
 
 export const updateFaq = async (id, payload, token) => {
-    const response = await fetch(`${API_URL}/admin/faqs/${id}`, {
+    const response = await fetch(buildApiUrl(`/admin/faqs/${id}`), {
         method: 'PUT',
         headers: getHeaders(token),
         body: JSON.stringify(payload)
@@ -1366,7 +1383,7 @@ export const updateFaq = async (id, payload, token) => {
 };
 
 export const deleteFaq = async (id, token) => {
-    const response = await fetch(`${API_URL}/admin/faqs/${id}`, {
+    const response = await fetch(buildApiUrl(`/admin/faqs/${id}`), {
         method: 'DELETE',
         headers: getHeaders(token)
     });
@@ -1378,7 +1395,7 @@ export const deleteFaq = async (id, token) => {
 };
 
 export const getManualSections = async (token) => {
-    const response = await fetch(`${API_URL}/admin/manual`, {
+    const response = await fetch(buildApiUrl('/admin/manual'), {
         headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch manual');
@@ -1386,7 +1403,7 @@ export const getManualSections = async (token) => {
 };
 
 export const createManualSection = async (payload, token) => {
-    const response = await fetch(`${API_URL}/admin/manual`, {
+    const response = await fetch(buildApiUrl('/admin/manual'), {
         method: 'POST',
         headers: getHeaders(token),
         body: JSON.stringify(payload)
@@ -1399,7 +1416,7 @@ export const createManualSection = async (payload, token) => {
 };
 
 export const updateManualSection = async (id, payload, token) => {
-    const response = await fetch(`${API_URL}/admin/manual/${id}`, {
+    const response = await fetch(buildApiUrl(`/admin/manual/${id}`), {
         method: 'PUT',
         headers: getHeaders(token),
         body: JSON.stringify(payload)
@@ -1412,7 +1429,7 @@ export const updateManualSection = async (id, payload, token) => {
 };
 
 export const deleteManualSection = async (id, token) => {
-    const response = await fetch(`${API_URL}/admin/manual/${id}`, {
+    const response = await fetch(buildApiUrl(`/admin/manual/${id}`), {
         method: 'DELETE',
         headers: getHeaders(token)
     });
@@ -1424,7 +1441,7 @@ export const deleteManualSection = async (id, token) => {
 };
 
 export const suspendUser = async (userId, token) => {
-    const response = await fetch(`${API_URL}/admin/suspend`, {
+    const response = await fetch(buildApiUrl('/admin/suspend'), {
         method: 'POST',
         headers: getHeaders(token),
         body: JSON.stringify({ userId })
@@ -1434,7 +1451,7 @@ export const suspendUser = async (userId, token) => {
 };
 
 export const unsuspendUser = async (userId, token) => {
-    const response = await fetch(`${API_URL}/admin/unsuspend`, {
+    const response = await fetch(buildApiUrl('/admin/unsuspend'), {
         method: 'POST',
         headers: getHeaders(token),
         body: JSON.stringify({ userId })
@@ -1443,7 +1460,7 @@ export const unsuspendUser = async (userId, token) => {
     return response.json();
 };
 export const resetUserPasswordByAdmin = async (id, newPassword, token) => {
-    const response = await fetch(`${API_URL}/admin/users/${id}/reset-password`, {
+    const response = await fetch(buildApiUrl(`/admin/users/${id}/reset-password`), {
         method: 'POST',
         headers: getHeaders(token),
         body: JSON.stringify({ newPassword })
@@ -1457,7 +1474,7 @@ export const resetUserPasswordByAdmin = async (id, newPassword, token) => {
 
 
 export const resetAgentPasswordByAdmin = async (id, newPassword, token) => {
-    const response = await fetch(`${API_URL}/admin/agents/${id}/reset-password`, {
+    const response = await fetch(buildApiUrl(`/admin/agents/${id}/reset-password`), {
         method: 'POST',
         headers: getHeaders(token),
         body: JSON.stringify({ newPassword })
@@ -1481,12 +1498,8 @@ export const getNextUsername = async (prefix, token, queryParams = {}) => {
     if (typeof safeParams.type === 'string') {
         safeParams.type = safeParams.type.toLowerCase();
     }
-    const queryString = new URLSearchParams(safeParams).toString();
     const nextPath = `/admin/next-username/${encodeURIComponent(safePrefix)}`;
-    const url = API_URL.includes('?path=')
-        ? `${API_URL}${nextPath}${queryString ? `&${queryString}` : ''}`
-        : `${API_URL}${nextPath}${queryString ? `?${queryString}` : ''}`;
-    const response = await fetch(url, {
+    const response = await fetch(buildApiUrl(nextPath, safeParams), {
         headers: getHeaders(token)
     });
     if (!response.ok) {
@@ -1496,7 +1509,7 @@ export const getNextUsername = async (prefix, token, queryParams = {}) => {
     return response.json();
 };
 export const impersonateUser = async (userId, token) => {
-    const response = await fetch(`${API_URL}/admin/impersonate-user/${userId}`, {
+    const response = await fetch(buildApiUrl(`/admin/impersonate-user/${userId}`), {
         method: 'POST',
         headers: getHeaders(token)
     });
@@ -1508,7 +1521,7 @@ export const impersonateUser = async (userId, token) => {
 };
 
 export const getAgentTree = async (token) => {
-    const response = await fetch(`${API_URL}/admin/agent-tree`, {
+    const response = await fetch(buildApiUrl('/admin/agent-tree'), {
         headers: getHeaders(token)
     });
     if (!response.ok) {
@@ -1519,7 +1532,7 @@ export const getAgentTree = async (token) => {
 };
 
 export const deleteUser = async (userId, token) => {
-    const response = await fetch(`${API_URL}/admin/users/${userId}`, {
+    const response = await fetch(buildApiUrl(`/admin/users/${userId}`), {
         method: 'DELETE',
         headers: getHeaders(token)
     });
@@ -1531,7 +1544,7 @@ export const deleteUser = async (userId, token) => {
 };
 
 export const deleteAgent = async (agentId, token) => {
-    const response = await fetch(`${API_URL}/admin/agents/${agentId}`, {
+    const response = await fetch(buildApiUrl(`/admin/agents/${agentId}`), {
         method: 'DELETE',
         headers: getHeaders(token)
     });
