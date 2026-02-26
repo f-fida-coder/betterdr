@@ -1050,22 +1050,116 @@ final class AdminCoreController
                 return;
             }
 
-            $user = $this->db->findOne('users', ['_id' => MongoRepository::id($userId)]);
-            if ($user === null) {
+            $target = $this->resolveImpersonationTarget($userId);
+            if ($target === null) {
                 Response::json(['message' => 'User not found'], 404);
                 return;
             }
 
-            if (($actor['role'] ?? '') === 'agent' && (string) ($user['agentId'] ?? '') !== (string) ($actor['_id'] ?? '')) {
+            if (!$this->canImpersonateTarget($actor, $target)) {
                 Response::json(['message' => 'Unauthorized to impersonate this user'], 403);
                 return;
             }
 
-            $payload = $this->buildAuthPayload($user);
-            Response::json(array_merge($payload, ['message' => 'Logged in as ' . (string) ($user['username'] ?? 'user')]));
+            $payload = $this->buildAuthPayload($target['doc']);
+            Response::json(array_merge($payload, ['message' => 'Logged in as ' . (string) ($target['doc']['username'] ?? 'user')]));
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error'], 500);
         }
+    }
+
+    private function resolveImpersonationTarget(string $id): ?array
+    {
+        $normalizedId = MongoRepository::id($id);
+        $user = $this->db->findOne('users', ['_id' => $normalizedId]);
+        if (is_array($user)) {
+            return ['doc' => $user, 'collection' => 'users'];
+        }
+
+        $agent = $this->db->findOne('agents', ['_id' => $normalizedId]);
+        if (is_array($agent)) {
+            return ['doc' => $agent, 'collection' => 'agents'];
+        }
+
+        $admin = $this->db->findOne('admins', ['_id' => $normalizedId]);
+        if (is_array($admin)) {
+            return ['doc' => $admin, 'collection' => 'admins'];
+        }
+
+        return null;
+    }
+
+    private function canImpersonateTarget(array $actor, array $target): bool
+    {
+        $actorRole = (string) ($actor['role'] ?? '');
+        $actorId = (string) ($actor['_id'] ?? '');
+        $targetDoc = (array) ($target['doc'] ?? []);
+        $targetCollection = (string) ($target['collection'] ?? '');
+        $targetId = (string) ($targetDoc['_id'] ?? '');
+
+        if ($actorRole === 'admin') {
+            return true;
+        }
+
+        if (!in_array($actorRole, ['agent', 'master_agent', 'super_agent'], true)) {
+            return false;
+        }
+
+        if ($targetCollection === 'admins') {
+            return false;
+        }
+
+        if ($actorRole === 'agent') {
+            if ($targetCollection === 'agents') {
+                return $targetId !== '' && $targetId === $actorId;
+            }
+            if ($targetCollection === 'users') {
+                return (string) ($targetDoc['agentId'] ?? '') === $actorId;
+            }
+            return false;
+        }
+
+        $visibleAgentIds = $this->listManagedAgentIds($actorId);
+        if ($targetCollection === 'agents') {
+            return in_array($targetId, $visibleAgentIds, true);
+        }
+        if ($targetCollection === 'users') {
+            $agentId = (string) ($targetDoc['agentId'] ?? '');
+            return $agentId !== '' && in_array($agentId, $visibleAgentIds, true);
+        }
+
+        return false;
+    }
+
+    /**
+     * @return array<int,string>
+     */
+    private function listManagedAgentIds(string $rootAgentId): array
+    {
+        $seen = [];
+        $queue = [$rootAgentId];
+
+        while (count($queue) > 0) {
+            $currentId = array_shift($queue);
+            if (!is_string($currentId) || $currentId === '' || isset($seen[$currentId])) {
+                continue;
+            }
+
+            $seen[$currentId] = true;
+            $children = $this->db->findMany(
+                'agents',
+                ['createdBy' => MongoRepository::id($currentId), 'createdByModel' => 'Agent'],
+                ['projection' => ['_id' => 1]]
+            );
+            foreach ($children as $child) {
+                $childId = (string) ($child['_id'] ?? '');
+                if ($childId !== '' && !isset($seen[$childId])) {
+                    $queue[] = $childId;
+                }
+            }
+        }
+
+        return array_keys($seen);
     }
 
     private function getAgentTree(): void

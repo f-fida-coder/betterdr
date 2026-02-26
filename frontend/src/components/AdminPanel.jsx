@@ -39,7 +39,7 @@ import { canManageIpTracker, hasViewPermission } from '../utils/adminPermissions
 import CustomerDetailsView from './admin-views/CustomerDetailsView';
 import ErrorBoundary from './ErrorBoundary';
 
-import { getMe } from '../api';
+import { getMe, impersonateUser } from '../api';
 
 const FALLBACK_VIEW_ORDER = [
   'dashboard',
@@ -60,6 +60,7 @@ function AdminPanel({ onExit, role = 'admin' }) {
   const [permissions, setPermissions] = useState(null);
   const [effectiveRole, setEffectiveRole] = useState(role);
   const [showScoreboard, setShowScoreboard] = useState(false);
+  const [baseContextLabel, setBaseContextLabel] = useState('Admin');
 
   useEffect(() => {
     const fetchPref = async () => {
@@ -113,6 +114,71 @@ function AdminPanel({ onExit, role = 'admin' }) {
   const handleLogout = () => {
     onExit();
   };
+
+  const handleSwitchContext = async (targetId) => {
+    try {
+      const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+      if (!token || !targetId) return;
+
+      const baseToken = sessionStorage.getItem('impersonationBaseToken');
+      if (!baseToken) {
+        const me = await getMe(token);
+        const baseRole = String(me?.role || role || 'admin').toLowerCase();
+        const roleLabel = baseRole === 'master_agent' ? 'Master Agent' : baseRole === 'super_agent' ? 'Super Agent' : baseRole === 'agent' ? 'Agent' : 'Admin';
+        sessionStorage.setItem('impersonationBaseToken', token);
+        sessionStorage.setItem('impersonationBaseRole', baseRole);
+        sessionStorage.setItem('impersonationBaseUsername', String(me?.username || roleLabel));
+      }
+
+      const data = await impersonateUser(targetId, token);
+      if (!data?.token) return;
+
+      localStorage.setItem('token', data.token);
+      sessionStorage.setItem('token', data.token);
+      if (data.role) {
+        localStorage.setItem('userRole', data.role);
+      }
+      if (data.username && data.role) {
+        const roleKey = data.role === 'admin' ? 'admin' : (data.role === 'super_agent' || data.role === 'master_agent' ? 'super_agent' : 'agent');
+        sessionStorage.setItem(`${roleKey}Username`, data.username);
+      }
+
+      window.location.reload();
+    } catch (e) {
+      console.error('Context switch failed:', e);
+      alert(e.message || 'Failed to switch context');
+    }
+  };
+
+  const handleRestoreBaseContext = () => {
+    const baseToken = sessionStorage.getItem('impersonationBaseToken');
+    if (!baseToken) return;
+
+    localStorage.setItem('token', baseToken);
+    sessionStorage.setItem('token', baseToken);
+
+    const baseRole = sessionStorage.getItem('impersonationBaseRole');
+    if (baseRole) {
+      localStorage.setItem('userRole', baseRole);
+    }
+
+    sessionStorage.removeItem('impersonationBaseToken');
+    sessionStorage.removeItem('impersonationBaseRole');
+    sessionStorage.removeItem('impersonationBaseUsername');
+
+    window.location.reload();
+  };
+
+  useEffect(() => {
+    const baseRole = sessionStorage.getItem('impersonationBaseRole');
+    const baseUsername = sessionStorage.getItem('impersonationBaseUsername');
+    if (!baseRole) {
+      setBaseContextLabel('Admin');
+      return;
+    }
+    const roleLabel = baseRole === 'master_agent' ? 'Master Agent' : baseRole === 'super_agent' ? 'Super Agent' : baseRole === 'agent' ? 'Agent' : 'Admin';
+    setBaseContextLabel(baseUsername ? `${roleLabel} (${String(baseUsername).toUpperCase()})` : roleLabel);
+  }, []);
 
   const renderView = () => {
     switch (adminView) {
@@ -208,6 +274,10 @@ function AdminPanel({ onExit, role = 'admin' }) {
         onMenuToggle={() => setMobileSidebarOpen(!mobileSidebarOpen)}
         onLogout={handleLogout}
         onViewChange={handleViewChange}
+        onSwitchContext={handleSwitchContext}
+        onRestoreBaseContext={handleRestoreBaseContext}
+        canRestoreBaseContext={Boolean(sessionStorage.getItem('impersonationBaseToken'))}
+        baseContextLabel={baseContextLabel}
         role={effectiveRole}
       />
       <div className="admin-container">

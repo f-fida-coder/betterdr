@@ -409,7 +409,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
 
   const displayPassword = useMemo(() => {
     if (!customer) return '';
-    return '********';
+    return customer.displayPassword || 'Not set';
   }, [customer]);
 
   const available = useMemo(() => {

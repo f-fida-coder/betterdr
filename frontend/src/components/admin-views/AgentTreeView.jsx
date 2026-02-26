@@ -33,6 +33,16 @@ function AgentTreeView({ onClose, onGo, initialQuery = '' }) {
         setSearchQuery(initialQuery || '');
     }, [initialQuery]);
 
+    useEffect(() => {
+        const onKeyDown = (event) => {
+            if (event.key === 'Escape') {
+                onClose?.();
+            }
+        };
+        window.addEventListener('keydown', onKeyDown);
+        return () => window.removeEventListener('keydown', onKeyDown);
+    }, [onClose]);
+
     const toggleNode = (id) => {
         const newSet = new Set(expandedNodes);
         if (newSet.has(id)) {
@@ -91,8 +101,8 @@ function AgentTreeView({ onClose, onGo, initialQuery = '' }) {
     };
 
     return (
-        <div className="agent-tree-overlay" onClick={onClose}>
-            <div className="agent-tree-container glass-effect" onClick={(e) => e.stopPropagation()}>
+        <div className="agent-tree-sidebar-wrap">
+            <aside className="agent-tree-container agent-tree-sidebar glass-effect">
                 <div className="tree-header">
                     <h3>Agent Tree</h3>
                     <button className="close-x" onClick={onClose}>✕</button>
@@ -126,6 +136,9 @@ function AgentTreeView({ onClose, onGo, initialQuery = '' }) {
                                     <span className="node-icon">👑</span>
                                     <span className="node-name">{treeData.root.username.toUpperCase()} (You)</span>
                                 </div>
+                                <button className="node-go-btn" onClick={() => onGo(treeData.root.id, treeData.root.role)}>
+                                    Go
+                                </button>
                             </div>
                             {(expandedNodes.has(treeData.root.id) || searchQuery) && (
                                 <div className="node-children">
@@ -135,7 +148,7 @@ function AgentTreeView({ onClose, onGo, initialQuery = '' }) {
                         </div>
                     ) : null}
                 </div>
-            </div>
+            </aside>
         </div>
     );
 }

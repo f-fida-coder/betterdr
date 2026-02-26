@@ -2,9 +2,17 @@ import React, { useEffect, useState } from 'react';
 import { getAdminHeaderSummary, getMe } from '../api';
 import AgentTreeView from './admin-views/AgentTreeView';
 
-function AdminHeader({ onMenuToggle, onLogout, onViewChange, role = 'admin' }) {
-  const [showDropdown, setShowDropdown] = useState(false);
-  const [showLogoutModal, setShowLogoutModal] = useState(false);
+function AdminHeader({
+  onMenuToggle,
+  onLogout,
+  onViewChange,
+  onSwitchContext,
+  onRestoreBaseContext,
+  canRestoreBaseContext = false,
+  baseContextLabel = 'Admin',
+  role = 'admin'
+}) {
+  const [showUserMenu, setShowUserMenu] = useState(false);
   const [showAgentTree, setShowAgentTree] = useState(false);
   const [headerSearchQuery, setHeaderSearchQuery] = useState('');
   const [agentTreeSearchQuery, setAgentTreeSearchQuery] = useState('');
@@ -60,23 +68,12 @@ function AdminHeader({ onMenuToggle, onLogout, onViewChange, role = 'admin' }) {
   };
 
   const handleLogout = () => {
-    setShowLogoutModal(true);
-  };
-
-  const confirmLogout = () => {
-    setShowLogoutModal(false);
-    setShowDropdown(false);
     if (onLogout) {
       onLogout();
     }
   };
 
-  const cancelLogout = () => {
-    setShowLogoutModal(false);
-  };
-
   const handleViewChange = (view) => {
-    setShowDropdown(false);
     if (onViewChange) onViewChange(view);
   };
 
@@ -104,7 +101,7 @@ function AdminHeader({ onMenuToggle, onLogout, onViewChange, role = 'admin' }) {
       : roleKey === 'agent'
         ? 'AGENT'
         : 'ADMIN';
-  const titleLabel = roleLabel === 'ADMIN' ? 'Admin Manager' : `${roleLabel} Manager`;
+  const mobileUserLabel = displayName;
   const myBalance = profile?.unlimitedBalance ? 'Unlimited' : (profile?.balance ?? null);
 
   // For Admin, show Total Outstanding from all users. For Agent/User, show their own.
@@ -114,7 +111,7 @@ function AdminHeader({ onMenuToggle, onLogout, onViewChange, role = 'admin' }) {
 
   return (
     <div className="admin-header">
-        <div className="admin-header-top">
+      <div className="admin-header-top">
         <div className="admin-header-left">
           <button
             type="button"
@@ -122,13 +119,24 @@ function AdminHeader({ onMenuToggle, onLogout, onViewChange, role = 'admin' }) {
             onClick={() => handleViewChange('dashboard')}
             aria-label="Go to admin home"
           >
-            <span aria-hidden="true">🏠</span>
+            <i className="fa-solid fa-house" aria-hidden="true"></i>
             <span>Home</span>
           </button>
-          <button className="mobile-menu-toggle" onClick={onMenuToggle}>
+          <button
+            type="button"
+            className="mobile-search-toggle"
+            onClick={() => {
+              setAgentTreeSearchQuery(headerSearchQuery.trim());
+              setShowAgentTree(true);
+            }}
+            aria-label="Search accounts"
+            title="Search accounts"
+          >
+            <i className="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+          </button>
+          <button type="button" className="mobile-menu-toggle" onClick={onMenuToggle} aria-label="Toggle menu">
             ☰
           </button>
-          <h1 className="admin-title">{titleLabel}</h1>
           <form className="admin-header-search" onSubmit={handleHeaderSearchSubmit}>
             <span className="search-icon" aria-hidden="true">🔍</span>
             <input
@@ -140,40 +148,43 @@ function AdminHeader({ onMenuToggle, onLogout, onViewChange, role = 'admin' }) {
           </form>
         </div>
         <div className="admin-header-right">
-          <div className="header-actions" style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+          <div className="header-actions">
             <button
+              type="button"
+              className="user-chip"
+              onClick={() => setShowUserMenu((prev) => !prev)}
+              title="Open account menu"
+            >
+              <span className="user-chip-desktop">{roleLabel}: {displayName}</span>
+              <span className="user-chip-mobile">{mobileUserLabel}</span>
+            </button>
+            {showUserMenu && (
+              <div className="dropdown-menu user-chip-menu">
+                <button type="button" onClick={() => { setShowUserMenu(false); handleViewChange('profile'); }}>Profile</button>
+                <button type="button" onClick={() => { setShowUserMenu(false); handleViewChange('settings'); }}>Settings</button>
+                {canRestoreBaseContext && (
+                  <button type="button" onClick={() => { setShowUserMenu(false); onRestoreBaseContext?.(); }}>
+                    Back to {baseContextLabel}
+                  </button>
+                )}
+              </div>
+            )}
+            <button
+              type="button"
               className="tree-view-trigger"
               onClick={() => setShowAgentTree(true)}
-              style={{
-                background: 'rgba(255,255,255,0.1)',
-                border: '1px solid rgba(255,255,255,0.2)',
-                color: 'white',
-                padding: '6px 12px',
-                borderRadius: '6px',
-                cursor: 'pointer',
-                fontSize: '0.85rem',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px'
-              }}
             >
               🌳 Agent Tree
             </button>
-            <div className="user-menu">
-              <button
-                className="user-button"
-                onClick={() => setShowDropdown(!showDropdown)}
-              >
-                👤 {roleLabel}: {displayName} ▼
-              </button>
-              {showDropdown && (
-                <div className="dropdown-menu">
-                  <button type="button" onClick={() => handleViewChange('profile')}>👤 Profile</button>
-                  <button type="button" onClick={() => handleViewChange('settings')}>⚙️ Settings</button>
-                  <button type="button" onClick={handleLogout}>🚪 Logout</button>
-                </div>
-              )}
-            </div>
+            <button
+              type="button"
+              className="power-logout-btn"
+              onClick={handleLogout}
+              aria-label="Log out"
+              title="Log out"
+            >
+              ⏻
+            </button>
           </div>
         </div>
       </div>
@@ -202,30 +213,14 @@ function AdminHeader({ onMenuToggle, onLogout, onViewChange, role = 'admin' }) {
         </div>
       </div>
 
-      {showLogoutModal && (
-        <div className="modal-overlay logout-modal-overlay">
-          <div className="modal-content logout-modal">
-            <h3>Confirm Logout</h3>
-            <p>Are you sure you want to logout from the admin panel?</p>
-            <div className="modal-buttons">
-              <button className="btn-danger" onClick={confirmLogout}>Yes, Logout</button>
-              <button className="btn-secondary" onClick={cancelLogout}>Cancel</button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {showAgentTree && (
         <AgentTreeView
           onClose={() => setShowAgentTree(false)}
           initialQuery={agentTreeSearchQuery}
           onGo={(id, role) => {
             setShowAgentTree(false);
-            if (role === 'player') {
-              handleViewChange('user-details', id);
-            } else {
-              // For agents, we might want to go to sub-agent-admin or a specific agent view if created
-              handleViewChange('sub-agent-admin', id);
+            if (onSwitchContext) {
+              onSwitchContext(id, role);
             }
           }}
         />
