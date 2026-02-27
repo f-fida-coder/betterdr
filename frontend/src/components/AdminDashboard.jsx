@@ -11,6 +11,7 @@ function AdminDashboard({ onMenuClick, onOpenScoreboard, role = 'admin', layoutP
       item.roles.includes(effectiveRole) &&
       hasViewPermission(effectiveRole, permissions, item.id)
   );
+  const groupedCardColors = ['teal', 'light-blue', 'orange'];
 
   if (isMobile && layoutPref === 'sidebar') {
     return (
@@ -26,11 +27,13 @@ function AdminDashboard({ onMenuClick, onOpenScoreboard, role = 'admin', layoutP
   return (
     <div className="admin-dashboard">
       <div className="dashboard-grid">
-        {filteredItems.map(item => (
+        {filteredItems.map((item, index) => {
+          const colorClass = groupedCardColors[Math.min(Math.floor(index / 8), groupedCardColors.length - 1)];
+          return (
           <button
             key={item.id}
             type="button"
-            className={`grid-card ${item.dashboardColor}`}
+            className={`grid-card ${colorClass}`}
             onClick={() => {
               if (item.id === 'scores' && typeof onOpenScoreboard === 'function') {
                 onOpenScoreboard();
@@ -42,7 +45,8 @@ function AdminDashboard({ onMenuClick, onOpenScoreboard, role = 'admin', layoutP
             <div className="card-icon"><i className={item.dashboardIcon}></i></div>
             <div className="card-label">{item.label}</div>
           </button>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

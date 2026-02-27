@@ -20,7 +20,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 15px 30px;
+  padding: 8px 16px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 
@@ -133,6 +133,9 @@
 }
 
 .user-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   background: rgba(255, 255, 255, 0.18);
   color: white;
   border: 1px solid rgba(255, 255, 255, 0.3);
@@ -147,6 +150,16 @@
 
 .user-chip-mobile {
   display: none;
+}
+
+.user-chip-caret {
+  font-size: 10px;
+  opacity: 0.9;
+  transition: transform 0.2s ease;
+}
+
+.user-chip-caret.open {
+  transform: rotate(180deg);
 }
 
 .tree-view-trigger {
@@ -216,7 +229,7 @@
 
 /* Admin Header Bottom - Stats Grid */
 .admin-header-bottom {
-  padding: 15px 30px;
+  padding: 6px 16px 8px;
   background: white;
   /* Or keep transparent if needed, but grid usually looks better on white/light bg in this context if not card based */
   background: transparent;
@@ -225,7 +238,7 @@
 .admin-stats-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 15px;
+  gap: 10px;
   width: 100%;
 }
 
@@ -356,6 +369,20 @@
   background-color: #f5f5f5;
 }
 
+.admin-content.dashboard-view {
+  padding: 0 10px 10px;
+}
+
+.admin-content.dashboard-view .dashboard-grid {
+  gap: 10px;
+  padding: 0;
+  margin-top: 0;
+}
+
+.admin-content.dashboard-view .grid-card {
+  margin: 0;
+}
+
 /* Admin Dashboard Grid */
 .admin-dashboard {
   width: 100%;
@@ -411,7 +438,7 @@
 /* Mobile Optimizations */
 @media (max-width: 768px) {
   .admin-header-top {
-    padding: 10px;
+    padding: 8px 10px;
     gap: 8px;
     align-items: center;
   }
@@ -510,11 +537,11 @@
   }
 
   .admin-header-bottom {
-    padding: 10px 15px;
+    padding: 6px 10px 8px;
   }
 
   .admin-stats-grid {
-    gap: 10px;
+    gap: 8px;
     grid-template-columns: 1fr 1fr;
   }
 
@@ -561,6 +588,15 @@
 
   .admin-content {
     padding: 10px;
+  }
+
+  .admin-content.dashboard-view {
+    padding: 0 8px 8px;
+  }
+
+  .admin-content.dashboard-view .dashboard-grid {
+    gap: 6px;
+    padding: 0;
   }
 }
 
@@ -1714,10 +1750,12 @@
 
   .grid-card {
     min-height: 80px;
-    flex-direction: row;
-    justify-content: flex-start;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
     padding: 15px 20px;
-    gap: 20px;
+    gap: 8px;
   }
 
   .card-icon {
@@ -1730,6 +1768,7 @@
 
   .card-label {
     font-size: 12px;
+    text-align: center;
   }
 
   .data-table {
@@ -1780,7 +1819,7 @@
 
 @media (max-width: 480px) {
   .admin-header-top {
-    padding: 12px 15px;
+    padding: 8px 10px;
   }
 
   .admin-header-left {
@@ -1815,11 +1854,20 @@
   .admin-header-bottom {
     flex-direction: column;
     align-items: flex-start;
-    padding: 12px 15px;
+    padding: 6px 10px 8px;
   }
 
   .admin-content {
     padding: 15px;
+  }
+
+  .admin-content.dashboard-view {
+    padding: 0 6px 8px;
+  }
+
+  .admin-content.dashboard-view .dashboard-grid {
+    gap: 5px;
+    padding: 0;
   }
 
   .view-content {
@@ -1832,6 +1880,10 @@
 
   .grid-card {
     min-height: 100px;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
     padding: 15px 8px;
     gap: 5px;
   }

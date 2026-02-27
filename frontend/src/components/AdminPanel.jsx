@@ -289,7 +289,7 @@ function AdminPanel({ onExit, role = 'admin' }) {
           role={effectiveRole}
           permissions={permissions}
         />
-        <div className="admin-content">
+        <div className={`admin-content ${adminView === 'dashboard' ? 'dashboard-view' : ''}`}>
           <ErrorBoundary>
             {renderView()}
           </ErrorBoundary>

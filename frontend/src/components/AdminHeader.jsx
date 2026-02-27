@@ -154,9 +154,21 @@ function AdminHeader({
               className="user-chip"
               onClick={() => setShowUserMenu((prev) => !prev)}
               title="Open account menu"
+              aria-expanded={showUserMenu}
             >
               <span className="user-chip-desktop">{roleLabel}: {displayName}</span>
               <span className="user-chip-mobile">{mobileUserLabel}</span>
+              <span
+                className={`user-chip-caret ${showAgentTree ? 'open' : ''}`}
+                aria-hidden="true"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowUserMenu(false);
+                  setShowAgentTree((prev) => !prev);
+                }}
+              >
+                ▼
+              </span>
             </button>
             {showUserMenu && (
               <div className="dropdown-menu user-chip-menu">
@@ -169,13 +181,6 @@ function AdminHeader({
                 )}
               </div>
             )}
-            <button
-              type="button"
-              className="tree-view-trigger"
-              onClick={() => setShowAgentTree(true)}
-            >
-              🌳 Agent Tree
-            </button>
             <button
               type="button"
               className="power-logout-btn"
