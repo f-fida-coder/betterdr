@@ -81,7 +81,6 @@ function AdminPanel() {
     e.preventDefault();
     try {
       const result = await createAgent(username, phoneNumber, password, fullName, token);
-      console.log('Agent created:', result);
       alert(`Agent ${result.agent.username} created successfully!`);
       // Reset form
       setUsername('');

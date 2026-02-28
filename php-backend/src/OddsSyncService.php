@@ -5,6 +5,178 @@ declare(strict_types=1);
 
 final class OddsSyncService
 {
+    public static function handleMatchesFallbackRoute(string $method, string $path): bool
+    {
+        if ($method === 'GET' && $path === '/api/matches') {
+            $status = isset($_GET['status']) ? strtolower(trim((string) $_GET['status'])) : '';
+            $active = isset($_GET['active']) ? strtolower(trim((string) $_GET['active'])) : '';
+
+            $matches = self::fetchMatchesSnapshotFromApi();
+            if ($status !== '') {
+                $desired = $status === 'active' ? 'live' : $status;
+                $matches = array_values(array_filter($matches, static fn(array $m): bool => strtolower((string) ($m['status'] ?? '')) === $desired));
+            } elseif ($active === 'true') {
+                $matches = array_values(array_filter($matches, static fn(array $m): bool => strtolower((string) ($m['status'] ?? '')) === 'live'));
+            }
+
+            Response::json($matches);
+            return true;
+        }
+
+        if ($method === 'POST' && $path === '/api/matches/fetch-odds') {
+            $matches = self::fetchMatchesSnapshotFromApi();
+            Response::json([
+                'message' => 'Manual odds fetch completed (API fallback mode)',
+                'results' => [
+                    'created' => 0,
+                    'updated' => 0,
+                    'settled' => 0,
+                    'apiCalls' => count($matches) > 0 ? 1 : 0,
+                    'blocked' => count($matches) === 0,
+                    'fallback' => true,
+                    'matches' => count($matches),
+                ],
+            ]);
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Returns a matches list without touching DB, used when DB is unavailable.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public static function fetchMatchesSnapshotFromApi(): array
+    {
+        $sportsApiEnabled = strtolower((string) Env::get('SPORTS_API_ENABLED', 'true')) === 'true';
+        $apiKey = (string) Env::get('ODDS_API_KEY', '');
+        if (!$sportsApiEnabled || $apiKey === '') {
+            return [];
+        }
+
+        $allowedSportsRaw = (string) Env::get('ODDS_ALLOWED_SPORTS', 'basketball_nba,americanfootball_nfl,soccer_epl,baseball_mlb,icehockey_nhl');
+        $regions = (string) Env::get('ODDS_API_REGIONS', 'us');
+        $markets = (string) Env::get('ODDS_API_MARKETS', 'h2h,spreads,totals');
+        $oddsFormat = (string) Env::get('ODDS_API_ODDS_FORMAT', 'american');
+        $bookmakers = (string) Env::get('ODDS_API_BOOKMAKERS', '');
+        $scoresEnabled = strtolower((string) Env::get('ODDS_SCORES_ENABLED', 'true')) === 'true';
+        $scoresDaysFrom = max(0, (int) Env::get('ODDS_SCORES_DAYS_FROM', '0'));
+        $apiBase = 'https://api.the-odds-api.com/v4';
+
+        $sports = array_values(array_filter(array_map('trim', explode(',', $allowedSportsRaw)), static fn($v) => $v !== ''));
+        if ($sports === []) {
+            return [];
+        }
+
+        $scoresByExternalId = [];
+        if ($scoresEnabled) {
+            $scoreUrlsBySport = [];
+            foreach ($sports as $sportKey) {
+                $scoreQuery = ['apiKey' => $apiKey, 'dateFormat' => 'iso'];
+                if ($scoresDaysFrom > 0) {
+                    $scoreQuery['daysFrom'] = $scoresDaysFrom;
+                }
+                $scoreUrlsBySport[$sportKey] = $apiBase . '/sports/' . rawurlencode($sportKey) . '/scores?' . http_build_query($scoreQuery);
+            }
+
+            $scoreResponses = self::httpGetMany($scoreUrlsBySport);
+            foreach ($scoreResponses as $scoreRaw) {
+                if ($scoreRaw === null) {
+                    continue;
+                }
+                $rows = json_decode($scoreRaw, true);
+                if (!is_array($rows)) {
+                    continue;
+                }
+                foreach ($rows as $scoreEvent) {
+                    if (!is_array($scoreEvent) || !isset($scoreEvent['id'])) {
+                        continue;
+                    }
+                    $scoresByExternalId[(string) $scoreEvent['id']] = $scoreEvent;
+                }
+            }
+        }
+
+        $oddsUrlsBySport = [];
+        foreach ($sports as $sportKey) {
+            $query = [
+                'apiKey' => $apiKey,
+                'regions' => $regions,
+                'markets' => $markets,
+                'oddsFormat' => $oddsFormat,
+            ];
+            if ($bookmakers !== '') {
+                $query['bookmakers'] = $bookmakers;
+            }
+            $oddsUrlsBySport[$sportKey] = $apiBase . '/sports/' . rawurlencode($sportKey) . '/odds?' . http_build_query($query);
+        }
+
+        $snapshot = [];
+        $oddsResponses = self::httpGetMany($oddsUrlsBySport);
+        foreach ($oddsResponses as $sportKey => $raw) {
+            if ($raw === null) {
+                continue;
+            }
+
+            $events = json_decode($raw, true);
+            if (!is_array($events)) {
+                continue;
+            }
+
+            foreach ($events as $event) {
+                if (!is_array($event)) {
+                    continue;
+                }
+
+                $homeTeam = (string) ($event['home_team'] ?? 'Unknown Home');
+                $awayTeam = (string) ($event['away_team'] ?? 'Unknown Away');
+                $externalId = (string) ($event['id'] ?? '');
+                if ($externalId === '') {
+                    $externalId = sha1($sportKey . '|' . (string) ($event['commence_time'] ?? '') . '|' . $homeTeam . '|' . $awayTeam);
+                }
+
+                $mergedEvent = $event;
+                if (isset($scoresByExternalId[$externalId]) && is_array($scoresByExternalId[$externalId])) {
+                    $mergedEvent = array_merge($mergedEvent, $scoresByExternalId[$externalId]);
+                }
+
+                $statusAndScore = self::extractScoreAndStatus($mergedEvent, $homeTeam, $awayTeam);
+
+                $oddsData = [];
+                if (isset($event['bookmakers']) && is_array($event['bookmakers']) && count($event['bookmakers']) > 0 && is_array($event['bookmakers'][0])) {
+                    $main = $event['bookmakers'][0];
+                    $oddsData = [
+                        'bookmaker' => $main['title'] ?? null,
+                        'markets' => $main['markets'] ?? [],
+                    ];
+                }
+
+                $snapshot[] = [
+                    '_id' => $externalId,
+                    'id' => $externalId,
+                    'externalId' => $externalId,
+                    'homeTeam' => $homeTeam,
+                    'awayTeam' => $awayTeam,
+                    'startTime' => $event['commence_time'] ?? null,
+                    'sport' => $event['sport_title'] ?? ($event['sport'] ?? $sportKey),
+                    'status' => $statusAndScore['status'],
+                    'odds' => $oddsData,
+                    'score' => $statusAndScore['score'],
+                    'lastUpdated' => gmdate(DATE_ATOM),
+                    'updatedAt' => gmdate(DATE_ATOM),
+                ];
+            }
+        }
+
+        usort($snapshot, static function (array $a, array $b): int {
+            return strcmp((string) ($a['startTime'] ?? ''), (string) ($b['startTime'] ?? ''));
+        });
+
+        return $snapshot;
+    }
+
     public static function updateMatches(MongoRepository $db): array
     {
         $sportsApiEnabled = strtolower((string) Env::get('SPORTS_API_ENABLED', 'true')) === 'true';

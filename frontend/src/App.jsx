@@ -159,7 +159,6 @@ function App() {
       // Store the token from the real backend
       setToken(result.token);
       localStorage.setItem('token', result.token);
-      sessionStorage.setItem('token', result.token);
       localStorage.setItem('userRole', result.role);
 
       // Store user data from the backend response
@@ -182,9 +181,6 @@ function App() {
       // Sync with explicit admin routes if applicable
       if (result.role === 'admin' || result.role === 'agent' || result.role === 'super_agent' || result.role === 'master_agent') {
         const roleKey = result.role === 'admin' ? 'admin' : ((result.role === 'super_agent' || result.role === 'master_agent') ? 'super_agent' : 'agent');
-        sessionStorage.setItem(`${roleKey}Authenticated`, 'true');
-        sessionStorage.setItem(`${roleKey}Username`, result.username);
-
         // Use React Router navigation for smoother transitions
         navigate(`/${roleKey}/dashboard`);
       }
@@ -201,7 +197,6 @@ function App() {
     setWager('');
     setTeaserPoints('');
     localStorage.removeItem('token');
-    sessionStorage.removeItem('token');
     localStorage.removeItem('userRole');
     document.body.classList.remove('dashboard-mode');
     handleHomeClick();

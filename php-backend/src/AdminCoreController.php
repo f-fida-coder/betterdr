@@ -360,6 +360,10 @@ final class AdminCoreController
             $this->clearCache();
             return true;
         }
+        if ($method === 'POST' && $path === '/api/admin/bulk-create-users') {
+            $this->bulkCreateUsers();
+            return true;
+        }
 
         return false;
     }
@@ -3869,6 +3873,164 @@ final class AdminCoreController
             ], 201);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error creating user: ' . $e->getMessage()], 500);
+        }
+    }
+
+    private function bulkCreateUsers(): void
+    {
+        try {
+            $actor = $this->protect(['admin', 'agent', 'master_agent', 'super_agent']);
+            if ($actor === null) {
+                return;
+            }
+
+            $body = Http::jsonBody();
+            $rows = is_array($body['users'] ?? null) ? $body['users'] : [];
+            if (count($rows) === 0) {
+                Response::json(['message' => 'No users provided'], 400);
+                return;
+            }
+            if (count($rows) > 500) {
+                Response::json(['message' => 'Maximum 500 users per batch'], 400);
+                return;
+            }
+
+            $actorRole = (string) ($actor['role'] ?? '');
+            $actorId = (string) ($actor['_id'] ?? '');
+            $createdByModel = ($actorRole === 'admin') ? 'Admin' : 'Agent';
+            $now = MongoRepository::nowUtc();
+
+            $errors = [];
+            $pendingDocs = [];
+            $seenUsernames = [];
+            $seenPhones = [];
+
+            foreach ($rows as $idx => $row) {
+                $rowNum = $idx + 1;
+                $username = strtoupper(trim((string) ($row['username'] ?? '')));
+                $phoneNumber = trim((string) ($row['phoneNumber'] ?? ''));
+                $password = (string) ($row['password'] ?? '');
+                $firstName = strtoupper(trim((string) ($row['firstName'] ?? '')));
+                $lastName = strtoupper(trim((string) ($row['lastName'] ?? '')));
+
+                if ($username === '' || $phoneNumber === '' || $password === '') {
+                    $errors[] = ['row' => $rowNum, 'username' => $username, 'error' => 'Username, phone number, and password are required'];
+                    continue;
+                }
+
+                if (isset($seenUsernames[$username]) || isset($seenPhones[$phoneNumber])) {
+                    $errors[] = ['row' => $rowNum, 'username' => $username, 'error' => 'Duplicate username or phone number in uploaded file'];
+                    continue;
+                }
+                $seenUsernames[$username] = true;
+                $seenPhones[$phoneNumber] = true;
+
+                if ($this->existsUsernameOrPhone($username, $phoneNumber)) {
+                    $errors[] = ['row' => $rowNum, 'username' => $username, 'error' => 'Username or phone number already exists'];
+                    continue;
+                }
+
+                $assignedAgentId = null;
+                if ($actorRole === 'agent') {
+                    $assignedAgentId = $actorId;
+                } elseif (in_array($actorRole, ['master_agent', 'super_agent'], true)) {
+                    $reqAgent = trim((string) ($row['agentId'] ?? ''));
+                    $assignedAgentId = ($reqAgent !== '' && preg_match('/^[a-f0-9]{24}$/i', $reqAgent) === 1) ? $reqAgent : $actorId;
+                } else {
+                    $reqAgent = trim((string) ($row['agentId'] ?? ''));
+                    if ($reqAgent !== '' && preg_match('/^[a-f0-9]{24}$/i', $reqAgent) === 1) {
+                        $assignedAgentId = $reqAgent;
+                    }
+                }
+
+                $fullName = strtoupper(trim((string) ($row['fullName'] ?? '')));
+                if ($fullName === '') {
+                    $fullName = trim($firstName . ' ' . $lastName);
+                    if ($fullName === '') {
+                        $fullName = $username;
+                    }
+                }
+
+                $pendingDocs[] = [
+                    'row' => $rowNum,
+                    'username' => $username,
+                    'doc' => [
+                        'username' => $username,
+                        'phoneNumber' => $phoneNumber,
+                        'password' => password_hash($password, PASSWORD_BCRYPT),
+                        'firstName' => $firstName,
+                        'lastName' => $lastName,
+                        'fullName' => $fullName,
+                        'role' => 'user',
+                        'status' => 'active',
+                        'balance' => $this->numOr($row['balance'] ?? null, 1000),
+                        'minBet' => $this->numOr($row['minBet'] ?? null, 1),
+                        'maxBet' => $this->numOr($row['maxBet'] ?? null, 5000),
+                        'creditLimit' => $this->numOr($row['creditLimit'] ?? null, 1000),
+                        'balanceOwed' => $this->numOr($row['balanceOwed'] ?? null, 0),
+                        'freeplayBalance' => $this->numOr($row['freeplayBalance'] ?? null, 200),
+                        'pendingBalance' => 0,
+                        'agentId' => ($assignedAgentId !== null && preg_match('/^[a-f0-9]{24}$/i', $assignedAgentId) === 1) ? MongoRepository::id($assignedAgentId) : null,
+                        'createdBy' => MongoRepository::id($actorId),
+                        'createdByModel' => $createdByModel,
+                        'referralBonusGranted' => false,
+                        'referralBonusAmount' => 0,
+                        'createdAt' => $now,
+                        'updatedAt' => $now,
+                    ],
+                ];
+            }
+
+            $totalSubmitted = count($rows);
+            if ($errors !== []) {
+                Response::json([
+                    'message' => 'Bulk create validation failed',
+                    'total' => $totalSubmitted,
+                    'created' => 0,
+                    'failed' => count($errors),
+                    'errors' => $errors,
+                ], 400);
+                return;
+            }
+
+            $createdRows = [];
+            $this->db->beginTransaction();
+            try {
+                foreach ($pendingDocs as $entry) {
+                    $id = $this->db->insertOne('users', $entry['doc']);
+                    $createdRows[] = [
+                        'row' => (int) ($entry['row'] ?? 0),
+                        'id' => $id,
+                        'username' => (string) ($entry['username'] ?? ''),
+                    ];
+                }
+                $this->db->commit();
+            } catch (Throwable $rowErr) {
+                $this->db->rollback();
+                Response::json([
+                    'message' => 'Bulk create failed and was rolled back',
+                    'total' => $totalSubmitted,
+                    'created' => 0,
+                    'failed' => $totalSubmitted,
+                    'errors' => [[
+                        'row' => null,
+                        'username' => null,
+                        'error' => $rowErr->getMessage(),
+                    ]],
+                ], 500);
+                return;
+            }
+
+            Response::json([
+                'message' => count($createdRows) . ' user(s) created',
+                'total' => $totalSubmitted,
+                'created' => count($createdRows),
+                'failed' => 0,
+                'errors' => [],
+                'createdRows' => $createdRows,
+            ], 201);
+        } catch (Throwable $e) {
+            Response::json(['message' => 'Server error during bulk creation: ' . $e->getMessage()], 500);
         }
     }
 

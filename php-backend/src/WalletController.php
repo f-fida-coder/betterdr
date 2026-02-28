@@ -57,12 +57,15 @@ final class WalletController
             $balance = $this->num($user['balance'] ?? 0);
             $pendingBalance = $this->num($user['pendingBalance'] ?? 0);
             $availableBalance = max(0, $balance - $pendingBalance);
+            $limits = is_array($user['gamblingLimits'] ?? null) ? $user['gamblingLimits'] : [];
 
             Response::json([
                 'balance' => $balance,
                 'pendingBalance' => $pendingBalance,
                 'availableBalance' => $availableBalance,
                 'totalWinnings' => $user['totalWinnings'] ?? 0,
+                'gamblingLimits' => $limits,
+                'remainingLimits' => $this->computeRemainingLimits($user, $limits),
             ]);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error', 'error' => $e->getMessage()], 500);
@@ -118,6 +121,10 @@ final class WalletController
     private function requestDeposit(): void
     {
         try {
+            if (RateLimiter::enforce($this->db, 'deposit_request', 3, 60)) {
+                return;
+            }
+
             $actor = $this->protect();
             if ($actor === null) {
                 return;
@@ -129,6 +136,13 @@ final class WalletController
 
             if ($amount < 10 || $amount > 100000) {
                 Response::json(['message' => 'Deposit amount must be between $10 and $100,000'], 400);
+                return;
+            }
+
+            $limits = is_array($actor['gamblingLimits'] ?? null) ? $actor['gamblingLimits'] : [];
+            $depositLimitError = $this->checkDepositLimits($actor, $limits, $amount);
+            if ($depositLimitError !== null) {
+                Response::json(['message' => $depositLimitError], 400);
                 return;
             }
 
@@ -159,6 +173,10 @@ final class WalletController
     private function requestWithdrawal(): void
     {
         try {
+            if (RateLimiter::enforce($this->db, 'withdrawal_request', 3, 60)) {
+                return;
+            }
+
             $actor = $this->protect();
             if ($actor === null) {
                 return;
@@ -345,5 +363,117 @@ final class WalletController
         }
 
         return 0.0;
+    }
+
+    private function checkDepositLimits(array $user, array $limits, float $depositAmount): ?string
+    {
+        $checks = [
+            ['depositDaily', 'daily', '-1 day'],
+            ['depositWeekly', 'weekly', '-7 days'],
+            ['depositMonthly', 'monthly', '-30 days'],
+        ];
+
+        $userId = MongoRepository::id((string) ($user['_id'] ?? ''));
+        foreach ($checks as [$key, $label, $interval]) {
+            $limit = isset($limits[$key]) && is_numeric($limits[$key]) ? (float) $limits[$key] : 0.0;
+            if ($limit <= 0) {
+                continue;
+            }
+
+            $since = gmdate(DATE_ATOM, strtotime($interval));
+            $deposited = $this->sumDepositsSince($userId, $since);
+            if (($deposited + $depositAmount) > $limit) {
+                return "This deposit would exceed your {$label} deposit limit of \${$limit}. Current deposits: \${$deposited}.";
+            }
+        }
+
+        return null;
+    }
+
+    private function computeRemainingLimits(array $user, array $limits): array
+    {
+        $userId = MongoRepository::id((string) ($user['_id'] ?? ''));
+        $remaining = [
+            'depositDaily' => null,
+            'depositWeekly' => null,
+            'depositMonthly' => null,
+            'lossDaily' => null,
+            'lossWeekly' => null,
+            'lossMonthly' => null,
+            'sessionTimeMinutes' => null,
+        ];
+
+        $depositChecks = [
+            ['depositDaily', '-1 day'],
+            ['depositWeekly', '-7 days'],
+            ['depositMonthly', '-30 days'],
+        ];
+        foreach ($depositChecks as [$key, $interval]) {
+            $limit = isset($limits[$key]) && is_numeric($limits[$key]) ? (float) $limits[$key] : 0.0;
+            if ($limit <= 0) {
+                continue;
+            }
+            $since = gmdate(DATE_ATOM, strtotime($interval));
+            $used = $this->sumDepositsSince($userId, $since);
+            $remaining[$key] = max(0.0, $limit - $used);
+        }
+
+        $lossChecks = [
+            ['lossDaily', '-1 day'],
+            ['lossWeekly', '-7 days'],
+            ['lossMonthly', '-30 days'],
+        ];
+        foreach ($lossChecks as [$key, $interval]) {
+            $limit = isset($limits[$key]) && is_numeric($limits[$key]) ? (float) $limits[$key] : 0.0;
+            if ($limit <= 0) {
+                continue;
+            }
+            $since = gmdate(DATE_ATOM, strtotime($interval));
+            $netLoss = $this->sumNetLossSince($userId, $since);
+            $remaining[$key] = max(0.0, $limit - max(0.0, $netLoss));
+        }
+
+        if (isset($limits['sessionTimeMinutes']) && is_numeric($limits['sessionTimeMinutes'])) {
+            $sessionLimit = (float) $limits['sessionTimeMinutes'];
+            if ($sessionLimit > 0) {
+                $remaining['sessionTimeMinutes'] = $sessionLimit;
+            }
+        }
+
+        return $remaining;
+    }
+
+    private function sumDepositsSince(string $userId, string $since): float
+    {
+        $transactions = $this->db->findMany('transactions', [
+            'userId' => $userId,
+            'type' => 'deposit',
+            'status' => ['$in' => ['pending', 'completed']],
+            'createdAt' => ['$gte' => $since],
+        ], ['projection' => ['amount' => 1]]);
+
+        $total = 0.0;
+        foreach ($transactions as $tx) {
+            $total += $this->num($tx['amount'] ?? 0);
+        }
+        return $total;
+    }
+
+    private function sumNetLossSince(string $userId, string $since): float
+    {
+        $bets = $this->db->findMany('bets', [
+            'userId' => $userId,
+            'createdAt' => ['$gte' => $since],
+        ], ['projection' => ['amount' => 1, 'status' => 1, 'potentialPayout' => 1]]);
+
+        $wagered = 0.0;
+        $won = 0.0;
+        foreach ($bets as $bet) {
+            $wagered += $this->num($bet['amount'] ?? 0);
+            if (($bet['status'] ?? '') === 'won') {
+                $won += $this->num($bet['potentialPayout'] ?? 0);
+            }
+        }
+        return $wagered - $won;
     }
 }

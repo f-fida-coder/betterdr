@@ -74,7 +74,7 @@ export default function useMatches(options = {}) {
                     try {
                         await triggerOddsRefreshOnce();
                     } catch (refreshError) {
-                        console.warn('useMatches: odds refresh failed', refreshError);
+                        // Keep fetching matches even if refresh fails.
                     }
                 }
                 const data = (statusFilter === 'live' || statusFilter === 'active')
@@ -97,7 +97,7 @@ export default function useMatches(options = {}) {
                 if (mounted) setMatches(filtered);
                 window.dispatchEvent(new CustomEvent('matches:refresh-completed', { detail: { success: true } }));
             } catch (err) {
-                console.error('useMatches: fetch error', err);
+                if (mounted) setMatches([]);
                 window.dispatchEvent(new CustomEvent('matches:refresh-completed', { detail: { success: false, error: err.message } }));
             }
         };
@@ -122,7 +122,6 @@ export default function useMatches(options = {}) {
                 } catch (e) {
                     return;
                 }
-                console.debug('useMatches: received matchUpdate', updatedMatch);
                 setMatches(prev => {
                     if (!updatedMatch) return prev;
                     let shouldKeep = true;

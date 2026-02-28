@@ -109,6 +109,86 @@ final class MongoRepository
         return extension_loaded('pdo_mysql');
     }
 
+    public function beginTransaction(): void
+    {
+        if (!$this->pdo->inTransaction()) {
+            $this->pdo->beginTransaction();
+        }
+    }
+
+    public function commit(): void
+    {
+        if ($this->pdo->inTransaction()) {
+            $this->pdo->commit();
+        }
+    }
+
+    public function rollback(): void
+    {
+        if ($this->pdo->inTransaction()) {
+            $this->pdo->rollBack();
+        }
+    }
+
+    public function findOneForUpdate(string $collection, array $filter): ?array
+    {
+        $table = $this->tableName($collection);
+        $this->ensureTable($table);
+
+        $candidateIds = [];
+        if (array_key_exists('_id', $filter)) {
+            $idFilter = $filter['_id'];
+            if (is_string($idFilter) || is_int($idFilter) || is_float($idFilter)) {
+                $id = trim((string) $idFilter);
+                if ($id !== '') {
+                    $candidateIds[] = $id;
+                }
+            } elseif (is_array($idFilter) && isset($idFilter['$in']) && is_array($idFilter['$in'])) {
+                foreach ($idFilter['$in'] as $inId) {
+                    if (is_string($inId) || is_int($inId) || is_float($inId)) {
+                        $id = trim((string) $inId);
+                        if ($id !== '') {
+                            $candidateIds[] = $id;
+                        }
+                    }
+                }
+            }
+        }
+
+        if ($candidateIds === []) {
+            $candidate = $this->findOne($collection, $filter, ['projection' => ['_id' => 1]]);
+            $candidateId = trim((string) ($candidate['_id'] ?? ''));
+            if ($candidateId === '') {
+                return null;
+            }
+            $candidateIds[] = $candidateId;
+        }
+
+        $candidateIds = array_values(array_unique($candidateIds));
+        if ($candidateIds === []) {
+            return null;
+        }
+
+        if (count($candidateIds) === 1) {
+            $stmt = $this->pdo->prepare("SELECT `mongo_id`, `doc` FROM `{$table}` WHERE `mongo_id` = :id LIMIT 1 FOR UPDATE");
+            $stmt->execute([':id' => $candidateIds[0]]);
+        } else {
+            $placeholders = implode(',', array_fill(0, count($candidateIds), '?'));
+            $stmt = $this->pdo->prepare("SELECT `mongo_id`, `doc` FROM `{$table}` WHERE `mongo_id` IN ({$placeholders}) FOR UPDATE");
+            $stmt->execute($candidateIds);
+        }
+
+        $rows = $stmt->fetchAll();
+        foreach ($rows as $row) {
+            $decoded = $this->decodeRow($row);
+            if ($decoded !== null && $this->matchesFilter($decoded, $filter)) {
+                return $decoded;
+            }
+        }
+
+        return null;
+    }
+
     public function findOne(string $collection, array $filter, array $options = []): ?array
     {
         $items = $this->findMany($collection, $filter, array_merge($options, ['limit' => 1]));
@@ -306,16 +386,24 @@ KEY `idx_updated_at` (`updated_at`)
         $rows = $this->pdo->query("SELECT `mongo_id`, `doc` FROM `{$table}`")->fetchAll();
         $docs = [];
         foreach ($rows as $row) {
-            $decoded = json_decode((string) ($row['doc'] ?? '{}'), true);
-            if (!is_array($decoded)) {
-                $decoded = [];
+            $decoded = $this->decodeRow($row);
+            if ($decoded !== null) {
+                $docs[] = $decoded;
             }
-            if (!isset($decoded['_id']) || (string) $decoded['_id'] === '') {
-                $decoded['_id'] = (string) ($row['mongo_id'] ?? '');
-            }
-            $docs[] = $decoded;
         }
         return $docs;
+    }
+
+    private function decodeRow(array $row): ?array
+    {
+        $decoded = json_decode((string) ($row['doc'] ?? '{}'), true);
+        if (!is_array($decoded)) {
+            return null;
+        }
+        if (!isset($decoded['_id']) || (string) $decoded['_id'] === '') {
+            $decoded['_id'] = (string) ($row['mongo_id'] ?? '');
+        }
+        return $decoded;
     }
 
     private function encodeDoc(array $doc): string

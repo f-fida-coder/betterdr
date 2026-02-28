@@ -30,6 +30,10 @@ final class PaymentsController
     private function createDepositIntent(): void
     {
         try {
+            if (RateLimiter::enforce($this->db, 'deposit_intent', 3, 60)) {
+                return;
+            }
+
             $actor = $this->protect();
             if ($actor === null) {
                 return;
@@ -182,6 +186,20 @@ final class PaymentsController
             }
 
             if (($event['type'] ?? '') === 'payment_intent.succeeded' && is_array($event['data']['object'] ?? null)) {
+                $eventId = (string) ($event['id'] ?? '');
+                if ($eventId !== '') {
+                    $existing = $this->db->findOne('webhook_events', ['eventId' => $eventId]);
+                    if ($existing !== null) {
+                        Response::json(['received' => true]);
+                        return;
+                    }
+                    $this->db->insertOne('webhook_events', [
+                        'eventId' => $eventId,
+                        'type' => 'payment_intent.succeeded',
+                        'processedAt' => MongoRepository::nowUtc(),
+                    ]);
+                }
+
                 $this->handleSuccessfulDeposit($event['data']['object']);
             }
 
@@ -231,30 +249,49 @@ final class PaymentsController
             return;
         }
 
+        $stripePaymentId = (string) ($paymentIntent['id'] ?? '');
+        if ($stripePaymentId !== '') {
+            $existingTx = $this->db->findOne('transactions', ['stripePaymentId' => $stripePaymentId, 'type' => 'deposit', 'status' => 'completed']);
+            if ($existingTx !== null) {
+                return;
+            }
+        }
+
         $amountCents = is_numeric($paymentIntent['amount'] ?? null) ? (float) $paymentIntent['amount'] : 0.0;
         $amount = $amountCents / 100;
 
-        $user = $this->db->findOne('users', ['_id' => MongoRepository::id($userId)]);
-        if ($user === null) {
-            return;
+        $this->db->beginTransaction();
+        try {
+            $user = $this->db->findOneForUpdate('users', ['_id' => MongoRepository::id($userId)]);
+            if ($user === null) {
+                $this->db->rollback();
+                return;
+            }
+
+            $balanceBefore = $this->num($user['balance'] ?? 0);
+            $newBalance = $balanceBefore + $amount;
+            $this->db->updateOne('users', ['_id' => MongoRepository::id($userId)], [
+                'balance' => $newBalance,
+                'updatedAt' => MongoRepository::nowUtc(),
+            ]);
+
+            $this->db->insertOne('transactions', [
+                'userId' => MongoRepository::id($userId),
+                'amount' => $amount,
+                'type' => 'deposit',
+                'status' => 'completed',
+                'balanceBefore' => $balanceBefore,
+                'balanceAfter' => $newBalance,
+                'stripePaymentId' => $stripePaymentId,
+                'description' => 'Stripe Deposit',
+                'createdAt' => MongoRepository::nowUtc(),
+                'updatedAt' => MongoRepository::nowUtc(),
+            ]);
+
+            $this->db->commit();
+        } catch (Throwable $e) {
+            $this->db->rollback();
         }
-
-        $newBalance = $this->num($user['balance'] ?? 0) + $amount;
-        $this->db->updateOne('users', ['_id' => MongoRepository::id($userId)], [
-            'balance' => $newBalance,
-            'updatedAt' => MongoRepository::nowUtc(),
-        ]);
-
-        $this->db->insertOne('transactions', [
-            'userId' => MongoRepository::id($userId),
-            'amount' => $amount,
-            'type' => 'deposit',
-            'status' => 'completed',
-            'stripePaymentId' => (string) ($paymentIntent['id'] ?? ''),
-            'description' => 'Stripe Deposit',
-            'createdAt' => MongoRepository::nowUtc(),
-            'updatedAt' => MongoRepository::nowUtc(),
-        ]);
     }
 
     private function num(mixed $value): float

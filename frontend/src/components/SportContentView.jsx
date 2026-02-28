@@ -74,12 +74,11 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
         }
 
         const sportInfo = sportMap[resolvedSportId] || { name: 'Sports', icon: 'fa-solid fa-trophy' };
+        setIsLoading(true);
 
         // Map rawMatches into view-friendly structure and filter by sportId where possible
         const processMatches = () => {
             const matchesData = (rawMatches || []);
-            // Set loading state: if rawMatches is empty, we are still loading (unless it's been a long time)
-            setIsLoading(!rawMatches || (Array.isArray(rawMatches) && rawMatches.length === 0));
             const keywords = getSportKeywords(resolvedSportId);
 
             let filteredMatches = matchesData.filter(m => {
@@ -183,14 +182,13 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                 };
             });
 
-            setContent({
-                ...sportInfo,
-                matches: filteredMatches,
-                scoreboards: []
-            });
-            // If we have any matches, loading is done
-            if (filteredMatches.length > 0) setIsLoading(false);
-        };
+                setContent({
+                    ...sportInfo,
+                    matches: filteredMatches,
+                    scoreboards: []
+                });
+                setIsLoading(false);
+            };
 
         processMatches();
 

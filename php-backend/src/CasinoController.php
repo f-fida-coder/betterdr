@@ -18,6 +18,123 @@ final class CasinoController
         ['provider' => 'internal', 'name' => 'Video Keno', 'slug' => 'video-keno', 'category' => 'specialty_games', 'minBet' => 1, 'maxBet' => 100, 'themeColor' => '#0ea5e9', 'icon' => 'fa-solid fa-table-cells-large'],
     ];
 
+    public static function handleFallbackRoute(string $method, string $path, string $jwtSecret): bool
+    {
+        $actor = self::protectFallback($jwtSecret);
+        if ($actor === null) {
+            return true;
+        }
+
+        if ($method === 'GET' && $path === '/api/casino/categories') {
+            $games = self::fallbackGames();
+            $counts = [
+                'table_games' => 0,
+                'slots' => 0,
+                'video_poker' => 0,
+                'specialty_games' => 0,
+            ];
+            foreach ($games as $game) {
+                if (($game['status'] ?? '') !== 'active') {
+                    continue;
+                }
+                $cat = (string) ($game['category'] ?? 'lobby');
+                if (isset($counts[$cat])) {
+                    $counts[$cat]++;
+                }
+            }
+
+            $total = array_sum($counts);
+            Response::json([
+                'categories' => [
+                    ['id' => 'lobby', 'label' => 'Lobby', 'count' => $total],
+                    ['id' => 'table_games', 'label' => 'Table Games', 'count' => $counts['table_games']],
+                    ['id' => 'slots', 'label' => 'Slots', 'count' => $counts['slots']],
+                    ['id' => 'video_poker', 'label' => 'Video Poker', 'count' => $counts['video_poker']],
+                    ['id' => 'specialty_games', 'label' => 'Specialty Games', 'count' => $counts['specialty_games']],
+                ],
+                'fallback' => true,
+            ]);
+            return true;
+        }
+
+        if ($method === 'GET' && $path === '/api/casino/games') {
+            $category = strtolower(trim((string) ($_GET['category'] ?? 'lobby')));
+            $search = trim((string) ($_GET['search'] ?? ''));
+            $featured = strtolower((string) ($_GET['featured'] ?? '')) === 'true';
+            $page = max(1, (int) ($_GET['page'] ?? 1));
+            $limit = min(100, max(1, (int) ($_GET['limit'] ?? 48)));
+            $skip = ($page - 1) * $limit;
+
+            $games = self::fallbackGames();
+            if ($category !== '' && $category !== 'lobby') {
+                $games = array_values(array_filter($games, static fn(array $g): bool => strtolower((string) ($g['category'] ?? '')) === $category));
+            }
+            if ($search !== '') {
+                $needle = strtolower($search);
+                $games = array_values(array_filter($games, static function (array $g) use ($needle): bool {
+                    return str_contains(strtolower((string) ($g['name'] ?? '')), $needle)
+                        || str_contains(strtolower((string) ($g['provider'] ?? '')), $needle)
+                        || str_contains(strtolower((string) implode(' ', is_array($g['tags'] ?? null) ? $g['tags'] : [])), $needle);
+                }));
+            }
+            if ($featured) {
+                $games = array_values(array_filter($games, static fn(array $g): bool => (bool) ($g['isFeatured'] ?? false)));
+            }
+
+            $total = count($games);
+            $paged = array_slice($games, $skip, $limit);
+
+            Response::json([
+                'games' => array_map([self::class, 'toPublicGameStatic'], $paged),
+                'pagination' => [
+                    'page' => $page,
+                    'limit' => $limit,
+                    'total' => $total,
+                    'pages' => max(1, (int) ceil($total / max(1, $limit))),
+                ],
+                'fallback' => true,
+            ]);
+            return true;
+        }
+
+        if ($method === 'POST' && preg_match('#^/api/casino/games/([a-fA-F0-9]{24})/launch$#', $path, $m) === 1) {
+            $id = strtolower($m[1]);
+            $games = self::fallbackGames();
+            $game = null;
+            foreach ($games as $candidate) {
+                if (strtolower((string) ($candidate['_id'] ?? '')) === $id) {
+                    $game = $candidate;
+                    break;
+                }
+            }
+
+            if ($game === null) {
+                Response::json(['message' => 'Casino game not found'], 404);
+                return true;
+            }
+
+            $fallbackLaunch = rtrim((string) Env::get('CASINO_FALLBACK_URL', 'https://example.com/casino'), '/') . '/' . ($game['slug'] ?? 'game');
+            $baseLaunchUrl = (is_string($game['launchUrl'] ?? null) && trim((string) $game['launchUrl']) !== '')
+                ? trim((string) $game['launchUrl'])
+                : $fallbackLaunch;
+
+            $launchUrl = $baseLaunchUrl
+                . (str_contains($baseLaunchUrl, '?') ? '&' : '?')
+                . 'user=' . rawurlencode((string) ($actor['username'] ?? 'user'))
+                . '&gameId=' . rawurlencode((string) ($game['_id'] ?? ''))
+                . '&ts=' . time();
+
+            Response::json([
+                'game' => self::toPublicGameStatic($game),
+                'launchUrl' => $launchUrl,
+                'fallback' => true,
+            ]);
+            return true;
+        }
+
+        return false;
+    }
+
     public function __construct(MongoRepository $db, string $jwtSecret)
     {
         $this->db = $db;
@@ -576,5 +693,92 @@ final class CasinoController
             return $fallback;
         }
         return $parsed;
+    }
+
+    private static function protectFallback(string $jwtSecret): ?array
+    {
+        $auth = Http::header('authorization');
+        if (!str_starts_with($auth, 'Bearer ')) {
+            Response::json(['message' => 'Not authorized, no token'], 401);
+            return null;
+        }
+
+        $token = trim(substr($auth, 7));
+        try {
+            $decoded = Jwt::decode($token, $jwtSecret);
+        } catch (Throwable $e) {
+            Response::json(['message' => 'Not authorized, token failed: ' . $e->getMessage()], 401);
+            return null;
+        }
+
+        return [
+            'id' => (string) ($decoded['id'] ?? ''),
+            'username' => (string) ($decoded['username'] ?? 'user'),
+            'role' => (string) ($decoded['role'] ?? 'user'),
+        ];
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private static function fallbackGames(): array
+    {
+        $now = gmdate(DATE_ATOM);
+        $games = [];
+
+        foreach (self::DEFAULT_CASINO_GAMES as $idx => $game) {
+            $slug = (string) ($game['slug'] ?? ('game-' . ($idx + 1)));
+            $id = substr(sha1('casino-fallback-' . $slug), 0, 24);
+            $games[] = [
+                '_id' => $id,
+                'externalGameId' => null,
+                'provider' => (string) ($game['provider'] ?? 'internal'),
+                'name' => (string) ($game['name'] ?? ('Game ' . ($idx + 1))),
+                'slug' => $slug,
+                'category' => in_array((string) ($game['category'] ?? 'lobby'), self::CASINO_CATEGORIES, true) ? (string) $game['category'] : 'lobby',
+                'icon' => (string) ($game['icon'] ?? 'fa-solid fa-dice'),
+                'themeColor' => (string) ($game['themeColor'] ?? '#0f5db3'),
+                'imageUrl' => (string) ($game['imageUrl'] ?? ''),
+                'launchUrl' => (string) ($game['launchUrl'] ?? ''),
+                'minBet' => is_numeric($game['minBet'] ?? null) ? (float) $game['minBet'] : 1.0,
+                'maxBet' => is_numeric($game['maxBet'] ?? null) ? (float) $game['maxBet'] : 100.0,
+                'rtp' => isset($game['rtp']) && is_numeric($game['rtp']) ? (float) $game['rtp'] : null,
+                'volatility' => $game['volatility'] ?? null,
+                'tags' => is_array($game['tags'] ?? null) ? $game['tags'] : [str_replace('_', ' ', (string) ($game['category'] ?? 'lobby')), 'live casino'],
+                'isFeatured' => (bool) ($game['isFeatured'] ?? false),
+                'status' => 'active',
+                'supportsDemo' => true,
+                'createdAt' => $now,
+                'updatedAt' => $now,
+            ];
+        }
+
+        return $games;
+    }
+
+    private static function toPublicGameStatic(array $game): array
+    {
+        return [
+            'id' => $game['_id'] ?? null,
+            'externalGameId' => $game['externalGameId'] ?? null,
+            'provider' => $game['provider'] ?? null,
+            'name' => $game['name'] ?? null,
+            'slug' => $game['slug'] ?? null,
+            'category' => $game['category'] ?? null,
+            'icon' => $game['icon'] ?? null,
+            'themeColor' => $game['themeColor'] ?? null,
+            'imageUrl' => $game['imageUrl'] ?? null,
+            'minBet' => $game['minBet'] ?? null,
+            'maxBet' => $game['maxBet'] ?? null,
+            'rtp' => $game['rtp'] ?? null,
+            'volatility' => $game['volatility'] ?? null,
+            'tags' => is_array($game['tags'] ?? null) ? $game['tags'] : [],
+            'isFeatured' => (bool) ($game['isFeatured'] ?? false),
+            'status' => $game['status'] ?? null,
+            'supportsDemo' => (bool) ($game['supportsDemo'] ?? false),
+            'launchUrl' => (string) ($game['launchUrl'] ?? ''),
+            'createdAt' => $game['createdAt'] ?? null,
+            'updatedAt' => $game['updatedAt'] ?? null,
+        ];
     }
 }

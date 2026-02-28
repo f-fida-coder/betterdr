@@ -16,7 +16,6 @@ function UserStatisticsView({ userId, onBack }) {
                     return;
                 }
                 const data = await getUserStatistics(userId, token);
-                console.log('User stats data:', data); // Temporary debug
                 setUserStats(data);
                 setError('');
             } catch (err) {

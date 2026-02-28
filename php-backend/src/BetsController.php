@@ -35,6 +35,10 @@ final class BetsController
     private function placeBet(): void
     {
         try {
+            if (RateLimiter::enforce($this->db, 'place_bet', 10, 60)) {
+                return;
+            }
+
             $user = $this->protect();
             if ($user === null) {
                 return;
@@ -125,111 +129,137 @@ final class BetsController
                 }
             }
 
-            $balance = $this->num($user['balance'] ?? 0);
-            $pending = $this->num($user['pendingBalance'] ?? 0);
-            $available = max(0, $balance - $pending);
-            $totalRisk = $type === 'reverse' ? ($betAmount * 2) : $betAmount;
-
-            if ($available < $totalRisk) {
-                Response::json(['message' => 'Insufficient available balance'], 400);
-                return;
-            }
-
-            $potentialPayout = 0.0;
-            if ($type === 'straight') {
-                $potentialPayout = $betAmount * ((float) ($validatedSelections[0]['odds'] ?? 0));
-            } elseif ($type === 'parlay') {
-                $combined = 1.0;
-                foreach ($validatedSelections as $sel) {
-                    $combined *= (float) ($sel['odds'] ?? 0);
+            // Use transaction with row-level lock to prevent race conditions
+            $this->db->beginTransaction();
+            try {
+                $lockedUser = $this->db->findOneForUpdate('users', ['_id' => MongoRepository::id((string) $user['_id'])]);
+                if ($lockedUser === null) {
+                    $this->db->rollback();
+                    Response::json(['message' => 'User not found'], 404);
+                    return;
                 }
-                $potentialPayout = $betAmount * $combined;
-            } elseif ($type === 'teaser') {
-                $potentialPayout = $betAmount * $this->getTeaserMultiplier($modeRule, $legCount);
-            } elseif ($type === 'if_bet' || $type === 'reverse') {
-                $potentialPayout = $betAmount
-                    * ((float) ($validatedSelections[0]['odds'] ?? 0))
-                    * ((float) ($validatedSelections[1]['odds'] ?? 0));
+
+                $balance = $this->num($lockedUser['balance'] ?? 0);
+                $pending = $this->num($lockedUser['pendingBalance'] ?? 0);
+                $available = max(0, $balance - $pending);
+                $totalRisk = $type === 'reverse' ? ($betAmount * 2) : $betAmount;
+
+                if ($available < $totalRisk) {
+                    $this->db->rollback();
+                    Response::json(['message' => 'Insufficient available balance'], 400);
+                    return;
+                }
+
+                // Check gambling loss limits
+                $gamblingLimits = is_array($lockedUser['gamblingLimits'] ?? null) ? $lockedUser['gamblingLimits'] : [];
+                $lossLimitMsg = $this->checkLossLimits($lockedUser, $gamblingLimits, $totalRisk);
+                if ($lossLimitMsg !== null) {
+                    $this->db->rollback();
+                    Response::json(['message' => $lossLimitMsg], 400);
+                    return;
+                }
+
+                $potentialPayout = 0.0;
+                if ($type === 'straight') {
+                    $potentialPayout = $betAmount * ((float) ($validatedSelections[0]['odds'] ?? 0));
+                } elseif ($type === 'parlay') {
+                    $combined = 1.0;
+                    foreach ($validatedSelections as $sel) {
+                        $combined *= (float) ($sel['odds'] ?? 0);
+                    }
+                    $potentialPayout = $betAmount * $combined;
+                } elseif ($type === 'teaser') {
+                    $potentialPayout = $betAmount * $this->getTeaserMultiplier($modeRule, $legCount);
+                } elseif ($type === 'if_bet' || $type === 'reverse') {
+                    $potentialPayout = $betAmount
+                        * ((float) ($validatedSelections[0]['odds'] ?? 0))
+                        * ((float) ($validatedSelections[1]['odds'] ?? 0));
+                }
+
+                $newBalance = $balance - $totalRisk;
+                $newPending = $pending + $totalRisk;
+
+                $this->db->updateOne('users', ['_id' => MongoRepository::id((string) $lockedUser['_id'])], [
+                    'balance' => $newBalance,
+                    'pendingBalance' => $newPending,
+                    'betCount' => ((int) ($lockedUser['betCount'] ?? 0)) + ($type === 'reverse' ? 2 : 1),
+                    'totalWagered' => $this->num($lockedUser['totalWagered'] ?? 0) + $totalRisk,
+                    'updatedAt' => MongoRepository::nowUtc(),
+                ]);
+
+                $ipAddress = IpUtils::clientIp();
+                $userAgent = Http::header('user-agent');
+                $now = MongoRepository::nowUtc();
+                $userId = MongoRepository::id((string) $lockedUser['_id']);
+
+                $baseBetData = [
+                    'userId' => $userId,
+                    'amount' => $betAmount,
+                    'type' => $type,
+                    'potentialPayout' => $potentialPayout,
+                    'status' => 'pending',
+                    'ipAddress' => $ipAddress,
+                    'userAgent' => $userAgent,
+                    'teaserPoints' => $teaserPoints,
+                    'createdAt' => $now,
+                    'updatedAt' => $now,
+                ];
+
+                $createdBetIds = [];
+                if ($type === 'reverse') {
+                    $doc1 = array_merge($baseBetData, [
+                        'type' => 'if_bet',
+                        'selections' => [$this->selectionForInsert($validatedSelections[0]), $this->selectionForInsert($validatedSelections[1])],
+                        'potentialPayout' => $potentialPayout / 2,
+                        'selection' => 'MULTI',
+                        'odds' => 0,
+                        'matchSnapshot' => new stdClass(),
+                    ]);
+                    $doc2 = array_merge($baseBetData, [
+                        'type' => 'if_bet',
+                        'selections' => [$this->selectionForInsert($validatedSelections[1]), $this->selectionForInsert($validatedSelections[0])],
+                        'potentialPayout' => $potentialPayout / 2,
+                        'selection' => 'MULTI',
+                        'odds' => 0,
+                        'matchSnapshot' => new stdClass(),
+                    ]);
+
+                    $createdBetIds[] = $this->db->insertOne('bets', $doc1);
+                    $createdBetIds[] = $this->db->insertOne('bets', $doc2);
+                } else {
+                    $single = count($validatedSelections) === 1 ? $validatedSelections[0] : null;
+                    $doc = array_merge($baseBetData, [
+                        'selections' => array_map(fn ($s) => $this->selectionForInsert($s), $validatedSelections),
+                        'matchId' => $single ? MongoRepository::id((string) $single['matchId']) : null,
+                        'selection' => $single ? $single['selection'] : 'MULTI',
+                        'odds' => $single ? (float) $single['odds'] : 0,
+                        'matchSnapshot' => $single ? ($single['matchSnapshot'] ?? new stdClass()) : new stdClass(),
+                    ]);
+                    $createdBetIds[] = $this->db->insertOne('bets', $doc);
+                }
+
+                $this->db->insertOne('transactions', [
+                    'userId' => $userId,
+                    'amount' => $totalRisk,
+                    'type' => 'bet_placed',
+                    'status' => 'completed',
+                    'balanceBefore' => $balance,
+                    'balanceAfter' => $newBalance,
+                    'referenceType' => 'Bet',
+                    'referenceId' => MongoRepository::id($createdBetIds[0]),
+                    'reason' => 'BET_PLACED',
+                    'description' => strtoupper($type) . ' bet placed',
+                    'ipAddress' => $ipAddress,
+                    'userAgent' => $userAgent,
+                    'createdAt' => $now,
+                    'updatedAt' => $now,
+                ]);
+
+                $this->db->commit();
+            } catch (Throwable $txErr) {
+                $this->db->rollback();
+                throw $txErr;
             }
-
-            $newBalance = $balance - $totalRisk;
-            $newPending = $pending + $totalRisk;
-
-            $this->db->updateOne('users', ['_id' => MongoRepository::id((string) $user['_id'])], [
-                'balance' => $newBalance,
-                'pendingBalance' => $newPending,
-                'betCount' => ((int) ($user['betCount'] ?? 0)) + ($type === 'reverse' ? 2 : 1),
-                'totalWagered' => $this->num($user['totalWagered'] ?? 0) + $totalRisk,
-                'updatedAt' => MongoRepository::nowUtc(),
-            ]);
-
-            $ipAddress = IpUtils::clientIp();
-            $userAgent = Http::header('user-agent');
-            $now = MongoRepository::nowUtc();
-            $userId = MongoRepository::id((string) $user['_id']);
-
-            $baseBetData = [
-                'userId' => $userId,
-                'amount' => $betAmount,
-                'type' => $type,
-                'potentialPayout' => $potentialPayout,
-                'status' => 'pending',
-                'ipAddress' => $ipAddress,
-                'userAgent' => $userAgent,
-                'teaserPoints' => $teaserPoints,
-                'createdAt' => $now,
-                'updatedAt' => $now,
-            ];
-
-            $createdBetIds = [];
-            if ($type === 'reverse') {
-                $doc1 = array_merge($baseBetData, [
-                    'type' => 'if_bet',
-                    'selections' => [$this->selectionForInsert($validatedSelections[0]), $this->selectionForInsert($validatedSelections[1])],
-                    'potentialPayout' => $potentialPayout / 2,
-                    'selection' => 'MULTI',
-                    'odds' => 0,
-                    'matchSnapshot' => new stdClass(),
-                ]);
-                $doc2 = array_merge($baseBetData, [
-                    'type' => 'if_bet',
-                    'selections' => [$this->selectionForInsert($validatedSelections[1]), $this->selectionForInsert($validatedSelections[0])],
-                    'potentialPayout' => $potentialPayout / 2,
-                    'selection' => 'MULTI',
-                    'odds' => 0,
-                    'matchSnapshot' => new stdClass(),
-                ]);
-
-                $createdBetIds[] = $this->db->insertOne('bets', $doc1);
-                $createdBetIds[] = $this->db->insertOne('bets', $doc2);
-            } else {
-                $single = count($validatedSelections) === 1 ? $validatedSelections[0] : null;
-                $doc = array_merge($baseBetData, [
-                    'selections' => array_map(fn ($s) => $this->selectionForInsert($s), $validatedSelections),
-                    'matchId' => $single ? MongoRepository::id((string) $single['matchId']) : null,
-                    'selection' => $single ? $single['selection'] : 'MULTI',
-                    'odds' => $single ? (float) $single['odds'] : 0,
-                    'matchSnapshot' => $single ? ($single['matchSnapshot'] ?? new stdClass()) : new stdClass(),
-                ]);
-                $createdBetIds[] = $this->db->insertOne('bets', $doc);
-            }
-
-            $this->db->insertOne('transactions', [
-                'userId' => $userId,
-                'amount' => $totalRisk,
-                'type' => 'bet_placed',
-                'status' => 'completed',
-                'balanceBefore' => $balance,
-                'balanceAfter' => $newBalance,
-                'referenceType' => 'Bet',
-                'referenceId' => MongoRepository::id($createdBetIds[0]),
-                'reason' => 'BET_PLACED',
-                'description' => strtoupper($type) . ' bet placed',
-                'ipAddress' => $ipAddress,
-                'userAgent' => $userAgent,
-                'createdAt' => $now,
-                'updatedAt' => $now,
-            ]);
 
             $createdBets = [];
             foreach ($createdBetIds as $id) {
@@ -663,5 +693,44 @@ final class BetsController
             return (float) $value->__toString();
         }
         return 0.0;
+    }
+
+    private function checkLossLimits(array $user, array $limits, float $wagerAmount): ?string
+    {
+        $checks = [
+            ['lossDaily', 'daily', '-1 day'],
+            ['lossWeekly', 'weekly', '-7 days'],
+            ['lossMonthly', 'monthly', '-30 days'],
+        ];
+
+        foreach ($checks as [$key, $label, $interval]) {
+            $limit = isset($limits[$key]) && is_numeric($limits[$key]) ? (float) $limits[$key] : 0;
+            if ($limit <= 0) {
+                continue;
+            }
+
+            $since = gmdate(DATE_ATOM, strtotime($interval));
+            $userId = MongoRepository::id((string) $user['_id']);
+            $bets = $this->db->findMany('bets', [
+                'userId' => $userId,
+                'createdAt' => ['$gte' => $since],
+            ]);
+
+            $totalWagered = 0.0;
+            $totalWon = 0.0;
+            foreach ($bets as $bet) {
+                $totalWagered += $this->num($bet['amount'] ?? 0);
+                if (($bet['status'] ?? '') === 'won') {
+                    $totalWon += $this->num($bet['potentialPayout'] ?? 0);
+                }
+            }
+
+            $netLoss = $totalWagered - $totalWon;
+            if (($netLoss + $wagerAmount) > $limit) {
+                return "This bet would exceed your {$label} loss limit of \${$limit}. Current net loss: \${$netLoss}.";
+            }
+        }
+
+        return null;
     }
 }

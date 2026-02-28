@@ -123,7 +123,6 @@ export const loginAgent = async (username, password) => {
 
 export const registerUser = async (userData) => {
     try {
-        console.log('Calling registerUser API with:', userData.username);
         const response = await fetch(buildApiUrl('/auth/register'), {
             method: 'POST',
             headers: getHeaders(),
@@ -133,14 +132,11 @@ export const registerUser = async (userData) => {
         const data = await response.json();
 
         if (!response.ok) {
-            console.error('Registration failed:', data.message);
             throw new Error(data.message || 'Registration failed');
         }
 
-        console.log('Registration successful:', data);
         return data;
     } catch (error) {
-        console.error('RegisterUser error:', error);
         if (error instanceof TypeError) {
             throw new Error('Network error - Unable to reach server');
         }
@@ -156,17 +152,52 @@ export const getBalance = async (token) => {
     return response.json();
 };
 
-export const getMe = async (token) => {
-    const response = await fetch(buildApiUrl('/auth/me'), {
-        headers: getHeaders(token)
-    });
-    if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        const error = new Error(errorData.message || 'Failed to fetch user profile');
-        error.status = response.status;
-        throw error;
+const meRequestCache = new Map();
+
+export const getMe = async (token, options = {}) => {
+    const timeoutMs = Number.isFinite(options?.timeoutMs) ? Number(options.timeoutMs) : 10000;
+    const cacheKey = token || '';
+
+    if (cacheKey && meRequestCache.has(cacheKey)) {
+        return meRequestCache.get(cacheKey);
     }
-    return response.json();
+
+    const requestPromise = (async () => {
+        const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+        const timeoutId = controller ? setTimeout(() => controller.abort(), Math.max(1000, timeoutMs)) : null;
+
+        try {
+            const response = await fetch(buildApiUrl('/auth/me'), {
+                headers: getHeaders(token),
+                signal: controller?.signal
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                const error = new Error(errorData.message || 'Failed to fetch user profile');
+                error.status = response.status;
+                throw error;
+            }
+
+            return await response.json();
+        } catch (error) {
+            if (error?.name === 'AbortError') {
+                const timeoutError = new Error('Session validation timed out. Please try again.');
+                timeoutError.status = 408;
+                throw timeoutError;
+            }
+            throw error;
+        } finally {
+            if (timeoutId) clearTimeout(timeoutId);
+            if (cacheKey) meRequestCache.delete(cacheKey);
+        }
+    })();
+
+    if (cacheKey) {
+        meRequestCache.set(cacheKey, requestPromise);
+    }
+
+    return requestPromise;
 };
 
 export const updateProfile = async (profileData, token) => {
@@ -867,10 +898,6 @@ export const updateAgentPermissions = async (agentId, permissions, token) => {
 
 export const createAgent = async (agentData, token) => {
     try {
-        console.log('🔐 createAgent API called');
-        console.log('📝 Token parameter:', token ? token.substring(0, 50) + '...' : 'NO TOKEN PARAM');
-        console.log('📦 Agent data:', agentData);
-
         if (!token) {
             throw new Error('No token provided. Please login first.');
         }
@@ -879,18 +906,12 @@ export const createAgent = async (agentData, token) => {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${token}`
         };
-        console.log('📨 Request headers:', {
-            'Content-Type': requestHeaders['Content-Type'],
-            'Authorization': requestHeaders['Authorization'] ? 'Bearer ' + token.substring(0, 30) + '...' : 'NONE'
-        });
 
         const response = await fetch(buildApiUrl('/admin/create-agent'), {
             method: 'POST',
             headers: requestHeaders,
             body: JSON.stringify(agentData)
         });
-
-        console.log('📊 Response status:', response.status);
 
         if (!response.ok) {
             let errorMsg = 'Failed to create agent';
@@ -903,9 +924,7 @@ export const createAgent = async (agentData, token) => {
             }
             throw new Error(errorMsg);
         }
-        const result = await response.json();
-        console.log('✅ Agent created:', result);
-        return result;
+        return response.json();
     } catch (error) {
         console.error('❌ Create Agent Error:', error);
         if (error instanceof TypeError) {
@@ -930,10 +949,6 @@ export const seedWorkflowHierarchy = async (token, payload = {}) => {
 
 export const createUserByAdmin = async (userData, token) => {
     try {
-        console.log('🔐 createUserByAdmin API called');
-        console.log('📝 Token parameter:', token ? token.substring(0, 50) + '...' : 'NO TOKEN PARAM');
-        console.log('📦 User data:', userData);
-
         if (!token) {
             throw new Error('No token provided. Please login first.');
         }
@@ -942,18 +957,12 @@ export const createUserByAdmin = async (userData, token) => {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${token}`
         };
-        console.log('📨 Request headers:', {
-            'Content-Type': requestHeaders['Content-Type'],
-            'Authorization': requestHeaders['Authorization'] ? 'Bearer ' + token.substring(0, 30) + '...' : 'NONE'
-        });
 
         const response = await fetch(buildApiUrl('/admin/create-user'), {
             method: 'POST',
             headers: requestHeaders,
             body: JSON.stringify(userData)
         });
-
-        console.log('📊 Response status:', response.status);
 
         if (!response.ok) {
             let errorMsg = 'Failed to create user';
@@ -966,9 +975,7 @@ export const createUserByAdmin = async (userData, token) => {
             }
             throw new Error(errorMsg);
         }
-        const result = await response.json();
-        console.log('✅ User created:', result);
-        return result;
+        return response.json();
     } catch (error) {
         console.error('❌ Create User Error:', error);
         if (error instanceof TypeError) {
@@ -1012,8 +1019,6 @@ export const updateUserFreeplay = async (userId, freeplayBalance, token, descrip
 
 export const createPlayerByAgent = async (userData, token) => {
     try {
-        console.log('createPlayerByAgent called with token:', token ? token.substring(0, 30) + '...' : 'NO TOKEN');
-
         if (!token) {
             throw new Error('No token provided. Please login first.');
         }
@@ -1551,6 +1556,66 @@ export const deleteAgent = async (agentId, token) => {
     if (!response.ok) {
         const error = await response.json();
         throw new Error(error.message || 'Failed to delete agent');
+    }
+    return response.json();
+};
+
+export const bulkCreateUsers = async (users, token) => {
+    const response = await fetch(buildApiUrl('/admin/bulk-create-users'), {
+        method: 'POST',
+        headers: getHeaders(token),
+        body: JSON.stringify({ users })
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || 'Failed to bulk create users');
+    }
+    return response.json();
+};
+
+export const getGamblingLimits = async (token) => {
+    const response = await fetch(buildApiUrl('/auth/gambling-limits'), {
+        headers: getHeaders(token)
+    });
+    if (!response.ok) throw new Error('Failed to fetch gambling limits');
+    return response.json();
+};
+
+export const setGamblingLimits = async (limits, token) => {
+    const response = await fetch(buildApiUrl('/auth/gambling-limits'), {
+        method: 'PUT',
+        headers: getHeaders(token),
+        body: JSON.stringify(limits)
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || 'Failed to update gambling limits');
+    }
+    return response.json();
+};
+
+export const selfExclude = async (days, token) => {
+    const response = await fetch(buildApiUrl('/auth/self-exclude'), {
+        method: 'POST',
+        headers: getHeaders(token),
+        body: JSON.stringify({ days })
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || 'Failed to self-exclude');
+    }
+    return response.json();
+};
+
+export const coolingOff = async (hours, token) => {
+    const response = await fetch(buildApiUrl('/auth/cooling-off'), {
+        method: 'POST',
+        headers: getHeaders(token),
+        body: JSON.stringify({ hours })
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || 'Failed to set cooling off');
     }
     return response.json();
 };

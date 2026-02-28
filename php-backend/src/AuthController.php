@@ -40,6 +40,22 @@ final class AuthController
             $this->updateProfile();
             return true;
         }
+        if ($path === '/api/auth/gambling-limits' && $method === 'GET') {
+            $this->getGamblingLimits();
+            return true;
+        }
+        if ($path === '/api/auth/gambling-limits' && $method === 'PUT') {
+            $this->setGamblingLimits();
+            return true;
+        }
+        if ($path === '/api/auth/self-exclude' && $method === 'POST') {
+            $this->selfExclude();
+            return true;
+        }
+        if ($path === '/api/auth/cooling-off' && $method === 'POST') {
+            $this->coolingOff();
+            return true;
+        }
 
         return false;
     }
@@ -47,6 +63,10 @@ final class AuthController
     private function registerUser(): void
     {
         try {
+            if (RateLimiter::enforce($this->db, 'register', 3, 60)) {
+                return;
+            }
+
             $body = Http::jsonBody();
             $username = trim((string) ($body['username'] ?? ''));
             $phoneNumber = trim((string) ($body['phoneNumber'] ?? ''));
@@ -118,6 +138,10 @@ final class AuthController
     private function loginUser(): void
     {
         try {
+            if (RateLimiter::enforce($this->db, 'login', 5, 60)) {
+                return;
+            }
+
             $body = Http::jsonBody();
             $username = trim((string) ($body['username'] ?? ''));
             $password = (string) ($body['password'] ?? '');
@@ -156,6 +180,10 @@ final class AuthController
     private function loginAdmin(): void
     {
         try {
+            if (RateLimiter::enforce($this->db, 'admin_login', 5, 60)) {
+                return;
+            }
+
             $body = Http::jsonBody();
             $usernameRaw = trim((string) ($body['username'] ?? ''));
             $password = (string) ($body['password'] ?? '');
@@ -196,6 +224,10 @@ final class AuthController
     private function loginAgent(): void
     {
         try {
+            if (RateLimiter::enforce($this->db, 'agent_login', 5, 60)) {
+                return;
+            }
+
             $body = Http::jsonBody();
             $username = trim((string) ($body['username'] ?? ''));
             $password = (string) ($body['password'] ?? '');
@@ -306,6 +338,24 @@ final class AuthController
             return null;
         }
 
+        $selfExcludedUntil = $user['selfExcludedUntil'] ?? null;
+        if (is_string($selfExcludedUntil) && $selfExcludedUntil !== '') {
+            $excludedTs = strtotime($selfExcludedUntil);
+            if ($excludedTs !== false && $excludedTs > time()) {
+                Response::json(['message' => 'Account is self-excluded until ' . $selfExcludedUntil . '. Please contact support if you need assistance.'], 403);
+                return null;
+            }
+        }
+
+        $coolingOffUntil = $user['coolingOffUntil'] ?? null;
+        if (is_string($coolingOffUntil) && $coolingOffUntil !== '') {
+            $coolingTs = strtotime($coolingOffUntil);
+            if ($coolingTs !== false && $coolingTs > time()) {
+                Response::json(['message' => 'Account is in cooling-off period until ' . $coolingOffUntil], 403);
+                return null;
+            }
+        }
+
         $ipBlockingEnabled = strtolower((string) Env::get('IP_BLOCKING_ENABLED', 'true')) === 'true';
         $allowlist = IpUtils::parseAllowlist((string) Env::get('IP_ALLOWLIST', ''));
         $ip = IpUtils::clientIp();
@@ -363,6 +413,10 @@ final class AuthController
             'agentBillingStatus' => $user['agentBillingStatus'] ?? null,
             'dashboardLayout' => $user['dashboardLayout'] ?? null,
             'permissions' => $user['permissions'] ?? null,
+            'gamblingLimits' => is_array($user['gamblingLimits'] ?? null) ? $user['gamblingLimits'] : null,
+            'selfExcludedUntil' => $user['selfExcludedUntil'] ?? null,
+            'coolingOffUntil' => $user['coolingOffUntil'] ?? null,
+            'realityCheckIntervalMinutes' => $user['realityCheckIntervalMinutes'] ?? 60,
             'token' => Jwt::encode([
                 'id' => (string) $user['_id'],
                 'role' => (string) ($user['role'] ?? 'user'),
@@ -396,6 +450,10 @@ final class AuthController
             'agentBillingStatus' => $user['agentBillingStatus'] ?? null,
             'dashboardLayout' => $user['dashboardLayout'] ?? null,
             'permissions' => $user['permissions'] ?? null,
+            'gamblingLimits' => is_array($user['gamblingLimits'] ?? null) ? $user['gamblingLimits'] : null,
+            'selfExcludedUntil' => $user['selfExcludedUntil'] ?? null,
+            'coolingOffUntil' => $user['coolingOffUntil'] ?? null,
+            'realityCheckIntervalMinutes' => $user['realityCheckIntervalMinutes'] ?? 60,
         ];
     }
 
@@ -486,7 +544,13 @@ final class AuthController
         try {
             return $this->ensureIpAllowed($user);
         } catch (Throwable $e) {
-            return ['allowed' => true];
+            $logFile = __DIR__ . '/../logs/security-errors.log';
+            $logDir = dirname($logFile);
+            if (!is_dir($logDir)) {
+                @mkdir($logDir, 0775, true);
+            }
+            @file_put_contents($logFile, date('Y-m-d H:i:s') . ' IP check failed: ' . $e->getMessage() . "\n", FILE_APPEND);
+            return ['allowed' => false, 'message' => 'Security check failed. Please contact support.'];
         }
     }
 
@@ -510,6 +574,140 @@ final class AuthController
         ];
     }
 
+    private function getGamblingLimits(): void
+    {
+        try {
+            $user = $this->protect();
+            if ($user === null) return;
+
+            $limits = is_array($user['gamblingLimits'] ?? null) ? $user['gamblingLimits'] : [];
+            
+            Response::json([
+                'gamblingLimits' => [
+                    'depositDaily' => $limits['depositDaily'] ?? null,
+                    'depositWeekly' => $limits['depositWeekly'] ?? null,
+                    'depositMonthly' => $limits['depositMonthly'] ?? null,
+                    'lossDaily' => $limits['lossDaily'] ?? null,
+                    'lossWeekly' => $limits['lossWeekly'] ?? null,
+                    'lossMonthly' => $limits['lossMonthly'] ?? null,
+                    'sessionTimeMinutes' => $limits['sessionTimeMinutes'] ?? null,
+                ],
+                'selfExcludedUntil' => $user['selfExcludedUntil'] ?? null,
+                'coolingOffUntil' => $user['coolingOffUntil'] ?? null,
+                'realityCheckIntervalMinutes' => $user['realityCheckIntervalMinutes'] ?? 60,
+            ]);
+        } catch (Throwable $e) {
+            Response::json(['message' => 'Server error'], 500);
+        }
+    }
+
+    private function setGamblingLimits(): void
+    {
+        try {
+            $user = $this->protect();
+            if ($user === null) return;
+
+            $body = Http::jsonBody();
+            $currentLimits = is_array($user['gamblingLimits'] ?? null) ? $user['gamblingLimits'] : [];
+            $newLimits = [];
+
+            $fields = ['depositDaily', 'depositWeekly', 'depositMonthly', 'lossDaily', 'lossWeekly', 'lossMonthly', 'sessionTimeMinutes'];
+            foreach ($fields as $field) {
+                if (isset($body[$field]) && is_numeric($body[$field])) {
+                    $val = (float) $body[$field];
+                    if ($val > 0) {
+                        $newLimits[$field] = $val;
+                    }
+                } elseif (isset($currentLimits[$field])) {
+                    $newLimits[$field] = $currentLimits[$field];
+                }
+            }
+
+            $collection = $this->collectionByRole((string) ($user['role'] ?? 'user'));
+            $this->db->updateOne($collection, ['_id' => MongoRepository::id((string) $user['_id'])], [
+                'gamblingLimits' => $newLimits,
+                'realityCheckIntervalMinutes' => isset($body['realityCheckIntervalMinutes']) && is_numeric($body['realityCheckIntervalMinutes']) ? (int) $body['realityCheckIntervalMinutes'] : ($user['realityCheckIntervalMinutes'] ?? 60),
+                'updatedAt' => MongoRepository::nowUtc(),
+            ]);
+
+            Response::json(['message' => 'Gambling limits updated successfully', 'gamblingLimits' => $newLimits]);
+        } catch (Throwable $e) {
+            Response::json(['message' => 'Server error'], 500);
+        }
+    }
+
+    private function selfExclude(): void
+    {
+        try {
+            $user = $this->protect();
+            if ($user === null) return;
+
+            $body = Http::jsonBody();
+            $duration = trim((string) ($body['duration'] ?? ''));
+            
+            $durations = [
+                '24h' => '+1 day',
+                '7d' => '+7 days',
+                '30d' => '+30 days',
+                '6m' => '+6 months',
+                '1y' => '+1 year',
+                'permanent' => '+100 years',
+            ];
+            
+            if (!isset($durations[$duration])) {
+                Response::json(['message' => 'Invalid duration. Options: 24h, 7d, 30d, 6m, 1y, permanent'], 400);
+                return;
+            }
+
+            $until = gmdate(DATE_ATOM, strtotime($durations[$duration]));
+            $collection = $this->collectionByRole((string) ($user['role'] ?? 'user'));
+            $this->db->updateOne($collection, ['_id' => MongoRepository::id((string) $user['_id'])], [
+                'selfExcludedUntil' => $until,
+                'updatedAt' => MongoRepository::nowUtc(),
+            ]);
+
+            Response::json(['message' => 'Self-exclusion activated until ' . $until, 'selfExcludedUntil' => $until]);
+        } catch (Throwable $e) {
+            Response::json(['message' => 'Server error'], 500);
+        }
+    }
+
+    private function coolingOff(): void
+    {
+        try {
+            $user = $this->protect();
+            if ($user === null) return;
+
+            $body = Http::jsonBody();
+            $duration = trim((string) ($body['duration'] ?? ''));
+            
+            $durations = [
+                '24h' => '+1 day',
+                '48h' => '+2 days',
+                '7d' => '+7 days',
+                '14d' => '+14 days',
+                '30d' => '+30 days',
+                '6w' => '+42 days',
+            ];
+            
+            if (!isset($durations[$duration])) {
+                Response::json(['message' => 'Invalid duration. Options: 24h, 48h, 7d, 14d, 30d, 6w'], 400);
+                return;
+            }
+
+            $until = gmdate(DATE_ATOM, strtotime($durations[$duration]));
+            $collection = $this->collectionByRole((string) ($user['role'] ?? 'user'));
+            $this->db->updateOne($collection, ['_id' => MongoRepository::id((string) $user['_id'])], [
+                'coolingOffUntil' => $until,
+                'updatedAt' => MongoRepository::nowUtc(),
+            ]);
+
+            Response::json(['message' => 'Cooling-off period activated until ' . $until, 'coolingOffUntil' => $until]);
+        } catch (Throwable $e) {
+            Response::json(['message' => 'Server error'], 500);
+        }
+    }
+
     private function verifyPassword(string $plain, string $hashed): bool
     {
         if ($hashed === '') {
@@ -518,7 +716,8 @@ final class AuthController
         if (str_starts_with($hashed, '$2')) {
             return password_verify($plain, $hashed);
         }
-        return hash_equals($hashed, $plain);
+        // Plaintext passwords are no longer accepted. Run migrate-plaintext-passwords.php to fix legacy accounts.
+        return false;
     }
 
     private function isSuspended(array $user): bool

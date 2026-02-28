@@ -23,6 +23,7 @@ require_once __DIR__ . '/../src/PaymentsController.php';
 require_once __DIR__ . '/../src/AdminCoreController.php';
 require_once __DIR__ . '/../src/AdminEntityCatalog.php';
 require_once __DIR__ . '/../src/DebugController.php';
+require_once __DIR__ . '/../src/RateLimiter.php';
 require_once __DIR__ . '/../src/Response.php';
 
 $projectRoot = dirname(__DIR__, 2);
@@ -31,13 +32,7 @@ Env::load($projectRoot, $phpBackendDir);
 
 $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
 $allowedOrigins = array_values(array_filter(array_map('trim', explode(',', Env::get('CORS_ORIGIN', '')))));
-$corsAllowAll = strtolower((string) Env::get('CORS_ALLOW_ALL', 'false')) === 'true';
-$allowOrigin = $origin !== '' && (
-    $corsAllowAll
-    || count($allowedOrigins) === 0
-    || in_array('*', $allowedOrigins, true)
-    || in_array($origin, $allowedOrigins, true)
-);
+$allowOrigin = $origin !== '' && count($allowedOrigins) > 0 && in_array($origin, $allowedOrigins, true);
 if ($allowOrigin) {
     header('Access-Control-Allow-Origin: ' . $origin);
     header('Access-Control-Allow-Credentials: true');
@@ -45,6 +40,14 @@ if ($allowOrigin) {
 header('Vary: Origin');
 header('Access-Control-Allow-Headers: Content-Type, Authorization, Bypass-Tunnel-Remainder');
 header('Access-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS');
+
+// Security headers
+header('X-Frame-Options: DENY');
+header('X-Content-Type-Options: nosniff');
+header('Referrer-Policy: strict-origin-when-cross-origin');
+if (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') {
+    header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
+}
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') {
     http_response_code(204);
@@ -162,6 +165,26 @@ if (!$authNativeEnabled) {
 
 
 if ($nativeError !== null) {
+    if (str_starts_with($uriPath, '/api/matches')) {
+        try {
+            if (OddsSyncService::handleMatchesFallbackRoute($method, $uriPath)) {
+                exit;
+            }
+        } catch (Throwable $fallbackError) {
+            // Keep original error handling path below if fallback fails.
+        }
+    }
+
+    if (str_starts_with($uriPath, '/api/casino')) {
+        try {
+            if (CasinoController::handleFallbackRoute($method, $uriPath, Env::get('JWT_SECRET', 'secret'))) {
+                exit;
+            }
+        } catch (Throwable $fallbackError) {
+            // Keep original error handling path below if fallback fails.
+        }
+    }
+
     $errorMessage = $nativeError->getMessage();
     $isDbConnectionError = $nativeError instanceof PDOException
         || str_contains(strtolower($errorMessage), 'sqlstate')
@@ -180,19 +203,23 @@ if ($nativeError !== null) {
     $logMsg = date('Y-m-d H:i:s') . " [{$status}] Exception: " . $errorMessage . "\n" . $nativeError->getTraceAsString() . "\n";
     @file_put_contents($logFile, $logMsg, FILE_APPEND);
 
+    $isDev = strtolower((string) Env::get('APP_ENV', 'production')) === 'development';
+
     if ($isDbConnectionError) {
-        Response::json([
-            'message' => 'Database connection failed',
-            'error' => $errorMessage,
-        ], 503);
+        $response = ['message' => 'Database connection failed. Please try again later.'];
+        if ($isDev) {
+            $response['error'] = $errorMessage;
+        }
+        Response::json($response, 503);
         exit;
     }
 
-    Response::json([
-        'message' => 'Core PHP request handling failed',
-        'error' => $errorMessage,
-        'trace' => $nativeError->getTraceAsString()
-    ], 500);
+    $response = ['message' => 'An internal error occurred. Please try again later.'];
+    if ($isDev) {
+        $response['error'] = $errorMessage;
+        $response['trace'] = $nativeError->getTraceAsString();
+    }
+    Response::json($response, 500);
     exit;
 }
 

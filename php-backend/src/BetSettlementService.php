@@ -29,6 +29,7 @@ final class BetSettlementService
             'won' => 0,
             'lost' => 0,
             'voided' => 0,
+            'errors' => 0,
         ];
 
         if (count($pendingBets) === 0) {
@@ -45,149 +46,193 @@ final class BetSettlementService
                 continue;
             }
 
-            $user = $db->findOne('users', ['_id' => MongoRepository::id($bet['userId'])]);
-            if ($user === null) {
-                continue;
-            }
+            try {
+                $db->beginTransaction();
 
-            $betType = strtolower((string) ($bet['type'] ?? 'straight'));
-            $selections = is_array($bet['selections'] ?? null) ? $bet['selections'] : [];
-            $betDirty = false;
-
-            foreach ($selections as $idx => $leg) {
-                $legMatchId = (string) ($leg['matchId'] ?? '');
-                $legStatus = (string) ($leg['status'] ?? 'pending');
-
-                if ($legMatchId === $matchId && $legStatus === 'pending') {
-                    $res = self::getLegResult($leg, $match, $manualWinner, $isFinished, $scoreHome, $scoreAway, $totalScore);
-                    if ($res !== 'pending') {
-                        $selections[$idx]['status'] = $res;
-                        $betDirty = true;
-                    }
+                $user = $db->findOneForUpdate('users', ['_id' => MongoRepository::id($bet['userId'])]);
+                if ($user === null) {
+                    $db->rollback();
+                    continue;
                 }
-            }
 
-            if (!$betDirty) {
-                continue;
-            }
+                $betType = strtolower((string) ($bet['type'] ?? 'straight'));
+                $selections = is_array($bet['selections'] ?? null) ? $bet['selections'] : [];
+                $betDirty = false;
 
-            $finalStatus = 'pending';
-            if ($betType === 'straight') {
-                $finalStatus = (string) ($selections[0]['status'] ?? 'pending');
-            } elseif ($betType === 'parlay' || $betType === 'teaser') {
-                $legStatuses = array_map(fn ($l) => (string) ($l['status'] ?? 'pending'), $selections);
-                if (in_array('lost', $legStatuses, true)) {
-                    $finalStatus = 'lost';
-                } elseif (self::allWonOrVoid($legStatuses)) {
-                    if (self::allVoid($legStatuses)) {
-                        $finalStatus = 'void';
-                    } elseif (in_array('pending', $legStatuses, true)) {
-                        $finalStatus = 'pending';
-                    } else {
-                        $finalStatus = 'won';
-                    }
-                }
-            } elseif ($betType === 'if_bet') {
-                foreach ($selections as $i => $leg) {
+                foreach ($selections as $idx => $leg) {
+                    $legMatchId = (string) ($leg['matchId'] ?? '');
                     $legStatus = (string) ($leg['status'] ?? 'pending');
-                    if ($legStatus === 'lost') {
-                        $finalStatus = 'lost';
-                        break;
-                    }
-                    if ($legStatus === 'pending') {
-                        $finalStatus = 'pending';
-                        break;
-                    }
-                    if ($i === (count($selections) - 1) && $legStatus === 'won') {
-                        $finalStatus = 'won';
+
+                    if ($legMatchId === $matchId && $legStatus === 'pending') {
+                        $res = self::getLegResult($leg, $match, $manualWinner, $isFinished, $scoreHome, $scoreAway, $totalScore);
+                        if ($res !== 'pending') {
+                            $selections[$idx]['status'] = $res;
+                            $betDirty = true;
+                        }
                     }
                 }
-            }
 
-            if ($finalStatus === 'pending') {
+                if (!$betDirty) {
+                    $db->rollback();
+                    continue;
+                }
+
+                $finalStatus = 'pending';
+                if ($betType === 'straight') {
+                    $finalStatus = (string) ($selections[0]['status'] ?? 'pending');
+                } elseif ($betType === 'parlay' || $betType === 'teaser') {
+                    $legStatuses = array_map(fn ($l) => (string) ($l['status'] ?? 'pending'), $selections);
+                    if (in_array('lost', $legStatuses, true)) {
+                        $finalStatus = 'lost';
+                    } elseif (self::allWonOrVoid($legStatuses)) {
+                        if (self::allVoid($legStatuses)) {
+                            $finalStatus = 'void';
+                        } elseif (in_array('pending', $legStatuses, true)) {
+                            $finalStatus = 'pending';
+                        } else {
+                            $finalStatus = 'won';
+                        }
+                    }
+                } elseif ($betType === 'if_bet') {
+                    foreach ($selections as $i => $leg) {
+                        $legStatus = (string) ($leg['status'] ?? 'pending');
+                        if ($legStatus === 'lost') {
+                            $finalStatus = 'lost';
+                            break;
+                        }
+                        if ($legStatus === 'pending') {
+                            $finalStatus = 'pending';
+                            break;
+                        }
+                        if ($i === (count($selections) - 1) && $legStatus === 'won') {
+                            $finalStatus = 'won';
+                        }
+                    }
+                }
+
+                if ($finalStatus === 'pending') {
+                    $db->updateOne('bets', ['_id' => MongoRepository::id((string) $bet['_id'])], [
+                        'selections' => self::normalizeSelectionsForUpdate($selections),
+                        'updatedAt' => MongoRepository::nowUtc(),
+                    ]);
+                    $db->commit();
+                    continue;
+                }
+
+                $wager = self::num($bet['amount'] ?? 0);
+                $balance = self::num($user['balance'] ?? 0);
+                $pending = self::num($user['pendingBalance'] ?? 0);
+                $potentialPayout = self::num($bet['potentialPayout'] ?? 0);
+
+                if ($finalStatus === 'won' && ($betType === 'parlay' || $betType === 'teaser')) {
+                    $legStatuses = array_map(fn ($l) => (string) ($l['status'] ?? 'pending'), $selections);
+                    if (in_array('void', $legStatuses, true)) {
+                        if ($betType === 'parlay') {
+                            $combined = 1.0;
+                            foreach ($selections as $leg) {
+                                if ((string) ($leg['status'] ?? '') === 'won') {
+                                    $combined *= self::num($leg['odds'] ?? 0);
+                                }
+                            }
+                            $potentialPayout = $wager * $combined;
+                        } else {
+                            $wonCount = 0;
+                            foreach ($selections as $leg) {
+                                if ((string) ($leg['status'] ?? '') === 'won') {
+                                    $wonCount++;
+                                }
+                            }
+                            $teaserRule = self::getTeaserRule($db);
+                            $potentialPayout = $wager * self::getTeaserMultiplier($teaserRule, $wonCount);
+                        }
+                    }
+                }
+
                 $db->updateOne('bets', ['_id' => MongoRepository::id((string) $bet['_id'])], [
                     'selections' => self::normalizeSelectionsForUpdate($selections),
+                    'status' => $finalStatus,
+                    'result' => $finalStatus,
+                    'settledAt' => MongoRepository::nowUtc(),
+                    'settledBy' => $settledBy,
+                    'potentialPayout' => $potentialPayout,
                     'updatedAt' => MongoRepository::nowUtc(),
                 ]);
-                continue;
-            }
 
-            $wager = self::num($bet['amount'] ?? 0);
-            $balance = self::num($user['balance'] ?? 0);
-            $pending = self::num($user['pendingBalance'] ?? 0);
-            $potentialPayout = self::num($bet['potentialPayout'] ?? 0);
+                $now = MongoRepository::nowUtc();
+                $userIdStr = MongoRepository::id((string) $user['_id']);
+                $betIdStr = MongoRepository::id((string) $bet['_id']);
 
-            if ($finalStatus === 'won' && ($betType === 'parlay' || $betType === 'teaser')) {
-                $legStatuses = array_map(fn ($l) => (string) ($l['status'] ?? 'pending'), $selections);
-                if (in_array('void', $legStatuses, true)) {
-                    if ($betType === 'parlay') {
-                        $combined = 1.0;
-                        foreach ($selections as $leg) {
-                            if ((string) ($leg['status'] ?? '') === 'won') {
-                                $combined *= self::num($leg['odds'] ?? 0);
-                            }
-                        }
-                        $potentialPayout = $wager * $combined;
-                    } else {
-                        $wonCount = 0;
-                        foreach ($selections as $leg) {
-                            if ((string) ($leg['status'] ?? '') === 'won') {
-                                $wonCount++;
-                            }
-                        }
-                        $teaserRule = self::getTeaserRule($db);
-                        $potentialPayout = $wager * self::getTeaserMultiplier($teaserRule, $wonCount);
-                    }
+                if ($finalStatus === 'void') {
+                    $newBalance = $balance + $wager;
+                    $db->updateOne('users', ['_id' => $userIdStr], [
+                        'balance' => $newBalance,
+                        'pendingBalance' => max(0, $pending - $wager),
+                        'updatedAt' => $now,
+                    ]);
+                    $db->insertOne('transactions', [
+                        'userId' => $userIdStr,
+                        'amount' => $wager,
+                        'type' => 'bet_void',
+                        'status' => 'completed',
+                        'balanceBefore' => $balance,
+                        'balanceAfter' => $newBalance,
+                        'referenceType' => 'Bet',
+                        'referenceId' => $betIdStr,
+                        'reason' => 'BET_VOID',
+                        'description' => strtoupper($betType) . ' bet voided - wager refunded',
+                        'createdAt' => $now,
+                        'updatedAt' => $now,
+                    ]);
+                    $results['voided']++;
+                } elseif ($finalStatus === 'won') {
+                    $newBalance = $balance + $potentialPayout;
+                    $db->updateOne('users', ['_id' => $userIdStr], [
+                        'balance' => $newBalance,
+                        'pendingBalance' => max(0, $pending - $wager),
+                        'totalWinnings' => self::num($user['totalWinnings'] ?? 0) + ($potentialPayout - $wager),
+                        'updatedAt' => $now,
+                    ]);
+                    $db->insertOne('transactions', [
+                        'userId' => $userIdStr,
+                        'amount' => $potentialPayout,
+                        'type' => 'bet_won',
+                        'status' => 'completed',
+                        'balanceBefore' => $balance,
+                        'balanceAfter' => $newBalance,
+                        'referenceType' => 'Bet',
+                        'referenceId' => $betIdStr,
+                        'reason' => 'BET_WON',
+                        'description' => strtoupper($betType) . ' bet won',
+                        'createdAt' => $now,
+                        'updatedAt' => $now,
+                    ]);
+                    $results['won']++;
+                } else {
+                    $db->updateOne('users', ['_id' => $userIdStr], [
+                        'pendingBalance' => max(0, $pending - $wager),
+                        'updatedAt' => $now,
+                    ]);
+                    $db->insertOne('transactions', [
+                        'userId' => $userIdStr,
+                        'amount' => $wager,
+                        'type' => 'bet_lost',
+                        'status' => 'completed',
+                        'balanceBefore' => $balance,
+                        'balanceAfter' => $balance,
+                        'referenceType' => 'Bet',
+                        'referenceId' => $betIdStr,
+                        'reason' => 'BET_LOST',
+                        'description' => strtoupper($betType) . ' bet lost',
+                        'createdAt' => $now,
+                        'updatedAt' => $now,
+                    ]);
+                    $results['lost']++;
                 }
-            }
 
-            $db->updateOne('bets', ['_id' => MongoRepository::id((string) $bet['_id'])], [
-                'selections' => self::normalizeSelectionsForUpdate($selections),
-                'status' => $finalStatus,
-                'result' => $finalStatus,
-                'settledAt' => MongoRepository::nowUtc(),
-                'settledBy' => $settledBy,
-                'potentialPayout' => $potentialPayout,
-                'updatedAt' => MongoRepository::nowUtc(),
-            ]);
-
-            if ($finalStatus === 'void') {
-                $db->updateOne('users', ['_id' => MongoRepository::id((string) $user['_id'])], [
-                    'balance' => $balance + $wager,
-                    'pendingBalance' => max(0, $pending - $wager),
-                    'updatedAt' => MongoRepository::nowUtc(),
-                ]);
-                $results['voided']++;
-            } elseif ($finalStatus === 'won') {
-                $newBalance = $balance + $potentialPayout;
-                $db->updateOne('users', ['_id' => MongoRepository::id((string) $user['_id'])], [
-                    'balance' => $newBalance,
-                    'pendingBalance' => max(0, $pending - $wager),
-                    'totalWinnings' => self::num($user['totalWinnings'] ?? 0) + ($potentialPayout - $wager),
-                    'updatedAt' => MongoRepository::nowUtc(),
-                ]);
-
-                $db->insertOne('transactions', [
-                    'userId' => MongoRepository::id((string) $user['_id']),
-                    'amount' => $potentialPayout,
-                    'type' => 'bet_won',
-                    'status' => 'completed',
-                    'balanceBefore' => $balance,
-                    'balanceAfter' => $newBalance,
-                    'referenceType' => 'Bet',
-                    'referenceId' => MongoRepository::id((string) $bet['_id']),
-                    'reason' => 'BET_WON',
-                    'description' => strtoupper($betType) . ' bet won',
-                    'createdAt' => MongoRepository::nowUtc(),
-                    'updatedAt' => MongoRepository::nowUtc(),
-                ]);
-                $results['won']++;
-            } else {
-                $db->updateOne('users', ['_id' => MongoRepository::id((string) $user['_id'])], [
-                    'pendingBalance' => max(0, $pending - $wager),
-                    'updatedAt' => MongoRepository::nowUtc(),
-                ]);
-                $results['lost']++;
+                $db->commit();
+            } catch (Throwable $e) {
+                $db->rollback();
+                $results['errors']++;
             }
         }
 

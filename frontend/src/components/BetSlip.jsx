@@ -1,11 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { placeBet } from '../api';
+import { useToast } from '../contexts/ToastContext';
+import BetConfirmationModal from './BetConfirmationModal';
 
 const BetSlip = ({ user, balance, onBetPlaced }) => {
+    const { showToast } = useToast();
     const [selections, setSelections] = useState([]);
     const [wager, setWager] = useState('');
     const [betType, setBetType] = useState('straight');
     const [isOpen, setIsOpen] = useState(true);
+    const [showConfirm, setShowConfirm] = useState(false);
+    const [isPlacing, setIsPlacing] = useState(false);
 
     useEffect(() => {
         const handleAdd = (e) => {
@@ -70,14 +75,51 @@ const BetSlip = ({ user, balance, onBetPlaced }) => {
         return 0;
     };
 
+    const getTotalRisk = () => {
+        const amount = parseFloat(wager) || 0;
+        if (betType === 'reverse') return amount * 2;
+        if (betType === 'straight') return amount * Math.max(1, selections.length);
+        return amount;
+    };
+
     const handlePlaceBet = async () => {
         const token = localStorage.getItem('token');
-        if (!token) return alert("Please login to place bets");
+        if (!token) {
+            showToast('Please login to place bets', 'error');
+            return;
+        }
 
         const amount = parseFloat(wager);
-        if (isNaN(amount) || amount <= 0) return alert("Enter a valid wager amount");
+        if (isNaN(amount) || amount <= 0) {
+            showToast('Enter a valid wager amount', 'warning');
+            return;
+        }
+        const totalRisk = getTotalRisk();
+        if (totalRisk > Number(balance || 0)) {
+            showToast('Insufficient balance', 'error');
+            return;
+        }
+        setShowConfirm(true);
+    };
+
+    const executePlaceBet = async () => {
+        const token = localStorage.getItem('token');
+        if (!token) {
+            showToast('Please login to place bets', 'error');
+            setShowConfirm(false);
+            return;
+        }
+
+        const amount = parseFloat(wager);
+        if (isNaN(amount) || amount <= 0) {
+            showToast('Enter a valid wager amount', 'warning');
+            setShowConfirm(false);
+            return;
+        }
 
         try {
+            setIsPlacing(true);
+            setShowConfirm(false);
             const betData = {
                 amount: amount,
                 type: betType,
@@ -109,12 +151,14 @@ const BetSlip = ({ user, balance, onBetPlaced }) => {
                 await placeBet(betData, token);
             }
 
-            alert("Bet(s) Placed Successfully!");
+            showToast('Bet(s) placed successfully', 'success');
             clearSlip();
             window.dispatchEvent(new Event('user:refresh'));
             if (onBetPlaced) onBetPlaced();
         } catch (e) {
-            alert(`Bet Failed: ${e.message}`);
+            showToast(`Bet failed: ${e.message}`, 'error');
+        } finally {
+            setIsPlacing(false);
         }
     };
 
@@ -160,7 +204,7 @@ const BetSlip = ({ user, balance, onBetPlaced }) => {
                                 key={type}
                                 onClick={() => {
                                     if (selections.length < 2 && type !== 'straight') {
-                                        alert("Select at least 2 matches for this bet type");
+                                        showToast('Select at least 2 matches for this bet type', 'warning');
                                         return;
                                     }
                                     setBetType(type);
@@ -259,11 +303,22 @@ const BetSlip = ({ user, balance, onBetPlaced }) => {
                                 boxShadow: '0 4px 15px rgba(255, 204, 0, 0.3)'
                             }}
                         >
-                            PLACE BET
+                            {isPlacing ? 'PLACING...' : 'PLACE BET'}
                         </button>
                     </div>
                 </>
             )}
+            <BetConfirmationModal
+                isOpen={showConfirm}
+                betType={betType}
+                selections={selections}
+                wager={parseFloat(wager) || 0}
+                totalRisk={getTotalRisk()}
+                potentialPayout={parseFloat(calculatePotentialPayout()) || 0}
+                onCancel={() => setShowConfirm(false)}
+                onConfirm={executePlaceBet}
+                isSubmitting={isPlacing}
+            />
         </div>
     );
 };

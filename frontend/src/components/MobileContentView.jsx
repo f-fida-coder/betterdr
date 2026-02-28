@@ -1,5 +1,4 @@
 import React from 'react';
-import { sportsData } from '../data/sportsData';
 import useMatches from '../hooks/useMatches';
 
 const MobileContentView = ({ selectedSports = [] }) => {

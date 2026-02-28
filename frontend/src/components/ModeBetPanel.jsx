@@ -1,5 +1,7 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { placeBet, normalizeBetMode } from '../api';
+import { useToast } from '../contexts/ToastContext';
+import BetConfirmationModal from './BetConfirmationModal';
 
 const DEFAULT_RULES = {
     straight: { minLegs: 1, maxLegs: 1, teaserPointOptions: [], payoutProfile: { multipliers: {} } },
@@ -42,10 +44,12 @@ const ModeBetPanel = ({
     rulesByMode,
     onBetPlaced
 }) => {
+    const { showToast } = useToast();
     const [message, setMessage] = useState(null);
     const [placing, setPlacing] = useState(false);
     const [isMobile, setIsMobile] = useState(false);
     const [submitAttempted, setSubmitAttempted] = useState(false);
+    const [showConfirm, setShowConfirm] = useState(false);
 
     useEffect(() => {
         const media = window.matchMedia('(max-width: 768px)');
@@ -102,7 +106,11 @@ const ModeBetPanel = ({
         return 0;
     }, [wagerAmount, legCount, normalizedMode, selections, rule]);
 
-    const totalRisk = normalizedMode === 'reverse' ? wagerAmount * 2 : wagerAmount;
+    const totalRisk = normalizedMode === 'reverse'
+        ? wagerAmount * 2
+        : normalizedMode === 'straight'
+            ? wagerAmount * Math.max(1, legCount)
+            : wagerAmount;
     const canPlace = validationErrors.length === 0 && !placing;
     const hasSelections = legCount > 0;
     const [isOpen, setIsOpen] = useState(hasSelections);
@@ -129,11 +137,32 @@ const ModeBetPanel = ({
         if (!token) {
             setSubmitAttempted(true);
             setMessage({ type: 'error', text: 'Please login to place bets' });
+            showToast('Please login to place bets', 'error');
             return;
         }
         setSubmitAttempted(true);
-        if (!canPlace) return;
+        if (!canPlace) {
+            if (validationErrors.length > 0) {
+                showToast(validationErrors[0], 'warning');
+            }
+            return;
+        }
+        if (totalRisk > Number(balance || 0)) {
+            const msg = 'Insufficient balance for this bet.';
+            setMessage({ type: 'error', text: msg });
+            showToast(msg, 'error');
+            return;
+        }
+        setShowConfirm(true);
+    };
 
+    const executePlaceBet = async () => {
+        const token = localStorage.getItem('token');
+        if (!token) {
+            showToast('Please login to place bets', 'error');
+            setShowConfirm(false);
+            return;
+        }
         const payload = {
             type: normalizedMode,
             amount: wagerAmount,
@@ -157,13 +186,18 @@ const ModeBetPanel = ({
 
         try {
             setPlacing(true);
+            setShowConfirm(false);
             const result = await placeBet(payload, token);
-            setMessage({ type: 'success', text: result?.message || 'Bet placed successfully' });
+            const successText = result?.message || 'Bet placed successfully';
+            setMessage({ type: 'success', text: successText });
+            showToast(successText, 'success');
             clearSlip();
             window.dispatchEvent(new Event('user:refresh'));
             if (onBetPlaced) onBetPlaced();
         } catch (error) {
-            setMessage({ type: 'error', text: error.message || 'Failed to place bet' });
+            const errorText = error.message || 'Failed to place bet';
+            setMessage({ type: 'error', text: errorText });
+            showToast(errorText, 'error');
         } finally {
             setPlacing(false);
         }
@@ -365,6 +399,17 @@ const ModeBetPanel = ({
                     {placing ? 'Placing...' : 'Place Bet'}
                 </button>
             </div>
+            <BetConfirmationModal
+                isOpen={showConfirm}
+                betType={normalizedMode}
+                selections={selections}
+                wager={wagerAmount}
+                totalRisk={totalRisk}
+                potentialPayout={potentialPayout}
+                onCancel={() => setShowConfirm(false)}
+                onConfirm={executePlaceBet}
+                isSubmitting={placing}
+            />
         </div>
     );
 };
