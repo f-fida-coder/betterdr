@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { createUserByAdmin, createPlayerByAgent, createAgent, createSubAgent, getAgents, getMyPlayers, getMe, updateUserCredit, updateUserBalanceOwedByAgent, resetUserPasswordByAdmin, updateUserByAdmin, updateUserByAgent, getUserStatistics, getNextUsername, getUsersAdmin, deleteUser, deleteAgent } from '../../api';
+import { createUserByAdmin, createPlayerByAgent, createAgent, createSubAgent, getAgents, getMyPlayers, getMe, updateUserCredit, updateUserBalanceOwedByAgent, resetUserPasswordByAdmin, updateUserByAdmin, updateUserByAgent, getUserStatistics, getNextUsername, getUsersAdmin, deleteUser, deleteAgent, importUsersSpreadsheet } from '../../api';
 
 function CustomerAdminView({ onViewChange }) {
   const [customers, setCustomers] = useState([]);
@@ -8,6 +8,11 @@ function CustomerAdminView({ onViewChange }) {
   const [error, setError] = useState('');
   const [actionLoadingId, setActionLoadingId] = useState(null);
   const [createLoading, setCreateLoading] = useState(false);
+  const [importLoading, setImportLoading] = useState(false);
+  const [importFile, setImportFile] = useState(null);
+  const [importSummary, setImportSummary] = useState('');
+  const [importedUsernames, setImportedUsernames] = useState([]);
+  const [showImportedOnly, setShowImportedOnly] = useState(false);
   const [newCustomer, setNewCustomer] = useState({
     username: '',
     phoneNumber: '',
@@ -95,13 +100,22 @@ function CustomerAdminView({ onViewChange }) {
           setError('Please login to load users.');
           return;
         }
-        const me = await getMe(token);
-        setCurrentRole(me?.role || 'admin');
+        const storedRole = String(localStorage.getItem('userRole') || '').toLowerCase();
+        let me = null;
+
+        try {
+          me = await getMe(token, { timeoutMs: 30000 });
+        } catch (meError) {
+          console.warn('CustomerAdminView: getMe failed, falling back to stored role.', meError);
+        }
+
+        const resolvedRole = String(me?.role || storedRole || 'admin').toLowerCase();
+        setCurrentRole(resolvedRole);
         setAdminUsername(me?.username || '');
         setCurrentUserId(me?.id || me?._id || '');
         setViewOnly(Boolean(me?.viewOnly));
 
-        if ((me?.role || 'admin') === 'agent') {
+        if (resolvedRole === 'agent') {
           const data = await getMyPlayers(token);
           setCustomers(data || []);
         } else {
@@ -244,6 +258,58 @@ function CustomerAdminView({ onViewChange }) {
       setError(err.message || 'Failed to create user');
     } finally {
       setCreateLoading(false);
+    }
+  };
+
+  const handleImportCustomers = async () => {
+    try {
+      setImportLoading(true);
+      setImportSummary('');
+      setImportedUsernames([]);
+      setShowImportedOnly(false);
+      const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+      if (!token) {
+        setError('Please login to import users.');
+        return;
+      }
+      if (!importFile) {
+        setError('Please choose an Excel/CSV file first.');
+        return;
+      }
+
+      const result = await importUsersSpreadsheet(importFile, token, {
+        defaultAgentId: newCustomer.agentId || ''
+      });
+
+      if (currentRole === 'agent') {
+        const data = await getMyPlayers(token);
+        setCustomers(data || []);
+      } else {
+        const data = await getUsersAdmin(token);
+        setCustomers(data || []);
+      }
+
+      const created = Number(result?.created || 0);
+      const failed = Number(result?.failed || 0);
+      setImportSummary(`Import complete: ${created} created, ${failed} failed.`);
+      const createdUsernames = Array.isArray(result?.createdRows)
+        ? result.createdRows
+          .map((row) => String(row?.username || '').toUpperCase())
+          .filter(Boolean)
+        : [];
+      setImportedUsernames(createdUsernames);
+      if (createdUsernames.length > 0) {
+        setShowImportedOnly(true);
+      }
+      setSelectedHeaderAgentId('');
+      setHeaderAgentQuery('');
+      setImportFile(null);
+      setError('');
+    } catch (err) {
+      console.error('Import users failed:', err);
+      setError(err.message || 'Failed to import users');
+    } finally {
+      setImportLoading(false);
     }
   };
 
@@ -707,17 +773,25 @@ function CustomerAdminView({ onViewChange }) {
   }, [isMasterSelection, assignableAgents, selectedHeaderAgentNormalizedId]);
 
   const filteredCustomers = useMemo(() => {
-    if (!selectedHeaderAgentId) return allPlayers;
-    if (!isMasterSelection) {
-      return allPlayers.filter((c) => resolveId(c.agentId) === selectedHeaderAgentNormalizedId);
+    let scopedPlayers = allPlayers;
+    if (selectedHeaderAgentId) {
+      if (!isMasterSelection) {
+        scopedPlayers = allPlayers.filter((c) => resolveId(c.agentId) === selectedHeaderAgentNormalizedId);
+      } else {
+        const childAgentIds = new Set(selectedMasterChildAgents.map((a) => resolveId(a.id || a._id)).filter(Boolean));
+        const playersUnderChildren = allPlayers.filter((c) => childAgentIds.has(resolveId(c.agentId)));
+        const directUnderMaster = allPlayers.filter((c) => resolveId(c.agentId) === selectedHeaderAgentNormalizedId);
+        scopedPlayers = [...playersUnderChildren, ...directUnderMaster];
+      }
     }
 
-    const childAgentIds = new Set(selectedMasterChildAgents.map((a) => resolveId(a.id || a._id)).filter(Boolean));
+    if (!showImportedOnly || importedUsernames.length === 0) {
+      return scopedPlayers;
+    }
 
-    const playersUnderChildren = allPlayers.filter((c) => childAgentIds.has(resolveId(c.agentId)));
-    const directUnderMaster = allPlayers.filter((c) => resolveId(c.agentId) === selectedHeaderAgentNormalizedId);
-    return [...playersUnderChildren, ...directUnderMaster];
-  }, [selectedHeaderAgentId, isMasterSelection, allPlayers, selectedMasterChildAgents, selectedHeaderAgentNormalizedId]);
+    const importedSet = new Set(importedUsernames.map((u) => String(u).toUpperCase()));
+    return scopedPlayers.filter((c) => importedSet.has(String(c.username || '').toUpperCase()));
+  }, [selectedHeaderAgentId, isMasterSelection, allPlayers, selectedMasterChildAgents, selectedHeaderAgentNormalizedId, showImportedOnly, importedUsernames]);
 
   const displayRows = useMemo(() => {
     if (!isMasterSelection) {
@@ -1168,6 +1242,20 @@ function CustomerAdminView({ onViewChange }) {
           <span>Loading Entries...</span>
         </div>}
         {error && <div className="error-state">{error}</div>}
+        {!error && importSummary && <div className="success-state">{importSummary}</div>}
+        {!error && importedUsernames.length > 0 && (
+          <div className="success-state" style={{ marginTop: '8px' }}>
+            Imported usernames: {importedUsernames.slice(0, 20).join(', ')}{importedUsernames.length > 20 ? ` (+${importedUsernames.length - 20} more)` : ''}
+            <button
+              type="button"
+              className="btn-secondary"
+              style={{ marginLeft: '12px', padding: '6px 10px' }}
+              onClick={() => setShowImportedOnly((prev) => !prev)}
+            >
+              {showImportedOnly ? 'Show All Players' : 'Show Imported Only'}
+            </button>
+          </div>
+        )}
 
         {!loading && !error && (
           <>
@@ -1472,6 +1560,26 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
                   Copy Info
                 </button>
               </div>
+              {(currentRole === 'admin' || currentRole === 'master_agent' || currentRole === 'super_agent' || currentRole === 'agent') && (
+                <div className="filter-group" style={{ gridColumn: '1 / -1', display: 'flex', gap: '10px', alignItems: 'end' }}>
+                  <div style={{ flex: 1 }}>
+                    <label>Import Players (.xlsx / .csv)</label>
+                    <input
+                      type="file"
+                      accept=".xlsx,.csv"
+                      onChange={(e) => setImportFile(e.target.files?.[0] || null)}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    onClick={handleImportCustomers}
+                    disabled={!importFile || importLoading}
+                  >
+                    {importLoading ? 'Importing...' : 'Import File'}
+                  </button>
+                </div>
+              )}
             </div>
 
             <div className="table-container">

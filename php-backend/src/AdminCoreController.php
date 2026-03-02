@@ -364,6 +364,10 @@ final class AdminCoreController
             $this->bulkCreateUsers();
             return true;
         }
+        if ($method === 'POST' && $path === '/api/admin/import-users-spreadsheet') {
+            $this->importUsersSpreadsheet();
+            return true;
+        }
 
         return false;
     }
@@ -3886,152 +3890,470 @@ final class AdminCoreController
 
             $body = Http::jsonBody();
             $rows = is_array($body['users'] ?? null) ? $body['users'] : [];
-            if (count($rows) === 0) {
-                Response::json(['message' => 'No users provided'], 400);
+            [$status, $payload] = $this->executeBulkUserCreate($rows, $actor);
+            Response::json($payload, $status);
+        } catch (Throwable $e) {
+            Response::json(['message' => 'Server error during bulk creation: ' . $e->getMessage()], 500);
+        }
+    }
+
+    private function importUsersSpreadsheet(): void
+    {
+        try {
+            $actor = $this->protect(['admin', 'agent', 'master_agent', 'super_agent']);
+            if ($actor === null) {
                 return;
             }
-            if (count($rows) > 500) {
-                Response::json(['message' => 'Maximum 500 users per batch'], 400);
+
+            $file = $_FILES['file'] ?? null;
+            if (!is_array($file)) {
+                Response::json(['message' => 'Spreadsheet file is required under "file" field'], 400);
+                return;
+            }
+            if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+                Response::json(['message' => 'Failed to upload spreadsheet'], 400);
                 return;
             }
 
-            $actorRole = (string) ($actor['role'] ?? '');
-            $actorId = (string) ($actor['_id'] ?? '');
-            $createdByModel = ($actorRole === 'admin') ? 'Admin' : 'Agent';
-            $now = MongoRepository::nowUtc();
+            $tmpPath = (string) ($file['tmp_name'] ?? '');
+            $originalName = (string) ($file['name'] ?? '');
+            $extension = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
 
-            $errors = [];
-            $pendingDocs = [];
-            $seenUsernames = [];
-            $seenPhones = [];
-
-            foreach ($rows as $idx => $row) {
-                $rowNum = $idx + 1;
-                $username = strtoupper(trim((string) ($row['username'] ?? '')));
-                $phoneNumber = trim((string) ($row['phoneNumber'] ?? ''));
-                $password = (string) ($row['password'] ?? '');
-                $firstName = strtoupper(trim((string) ($row['firstName'] ?? '')));
-                $lastName = strtoupper(trim((string) ($row['lastName'] ?? '')));
-
-                if ($username === '' || $phoneNumber === '' || $password === '') {
-                    $errors[] = ['row' => $rowNum, 'username' => $username, 'error' => 'Username, phone number, and password are required'];
-                    continue;
-                }
-
-                if (isset($seenUsernames[$username]) || isset($seenPhones[$phoneNumber])) {
-                    $errors[] = ['row' => $rowNum, 'username' => $username, 'error' => 'Duplicate username or phone number in uploaded file'];
-                    continue;
-                }
-                $seenUsernames[$username] = true;
-                $seenPhones[$phoneNumber] = true;
-
-                if ($this->existsUsernameOrPhone($username, $phoneNumber)) {
-                    $errors[] = ['row' => $rowNum, 'username' => $username, 'error' => 'Username or phone number already exists'];
-                    continue;
-                }
-
-                $assignedAgentId = null;
-                if ($actorRole === 'agent') {
-                    $assignedAgentId = $actorId;
-                } elseif (in_array($actorRole, ['master_agent', 'super_agent'], true)) {
-                    $reqAgent = trim((string) ($row['agentId'] ?? ''));
-                    $assignedAgentId = ($reqAgent !== '' && preg_match('/^[a-f0-9]{24}$/i', $reqAgent) === 1) ? $reqAgent : $actorId;
-                } else {
-                    $reqAgent = trim((string) ($row['agentId'] ?? ''));
-                    if ($reqAgent !== '' && preg_match('/^[a-f0-9]{24}$/i', $reqAgent) === 1) {
-                        $assignedAgentId = $reqAgent;
-                    }
-                }
-
-                $fullName = strtoupper(trim((string) ($row['fullName'] ?? '')));
-                if ($fullName === '') {
-                    $fullName = trim($firstName . ' ' . $lastName);
-                    if ($fullName === '') {
-                        $fullName = $username;
-                    }
-                }
-
-                $pendingDocs[] = [
-                    'row' => $rowNum,
-                    'username' => $username,
-                    'doc' => [
-                        'username' => $username,
-                        'phoneNumber' => $phoneNumber,
-                        'password' => password_hash($password, PASSWORD_BCRYPT),
-                        'firstName' => $firstName,
-                        'lastName' => $lastName,
-                        'fullName' => $fullName,
-                        'role' => 'user',
-                        'status' => 'active',
-                        'balance' => $this->numOr($row['balance'] ?? null, 1000),
-                        'minBet' => $this->numOr($row['minBet'] ?? null, 1),
-                        'maxBet' => $this->numOr($row['maxBet'] ?? null, 5000),
-                        'creditLimit' => $this->numOr($row['creditLimit'] ?? null, 1000),
-                        'balanceOwed' => $this->numOr($row['balanceOwed'] ?? null, 0),
-                        'freeplayBalance' => $this->numOr($row['freeplayBalance'] ?? null, 200),
-                        'pendingBalance' => 0,
-                        'agentId' => ($assignedAgentId !== null && preg_match('/^[a-f0-9]{24}$/i', $assignedAgentId) === 1) ? MongoRepository::id($assignedAgentId) : null,
-                        'createdBy' => MongoRepository::id($actorId),
-                        'createdByModel' => $createdByModel,
-                        'referralBonusGranted' => false,
-                        'referralBonusAmount' => 0,
-                        'createdAt' => $now,
-                        'updatedAt' => $now,
-                    ],
-                ];
+            if (!in_array($extension, ['xlsx', 'csv'], true)) {
+                Response::json(['message' => 'Only .xlsx or .csv files are supported'], 400);
+                return;
             }
 
-            $totalSubmitted = count($rows);
-            if ($errors !== []) {
+            $rawRows = ($extension === 'xlsx')
+                ? $this->parseXlsxRows($tmpPath)
+                : $this->parseCsvRows($tmpPath);
+
+            if (count($rawRows) < 2) {
+                Response::json(['message' => 'Spreadsheet must include a header row and at least one data row'], 400);
+                return;
+            }
+
+            $defaultAgentId = trim((string) ($_POST['defaultAgentId'] ?? ''));
+            $mappedRows = $this->mapSpreadsheetRowsToUsers($rawRows, $defaultAgentId);
+            if ($mappedRows['errors'] !== []) {
                 Response::json([
-                    'message' => 'Bulk create validation failed',
-                    'total' => $totalSubmitted,
+                    'message' => 'Spreadsheet validation failed',
+                    'total' => (int) $mappedRows['total'],
                     'created' => 0,
-                    'failed' => count($errors),
-                    'errors' => $errors,
+                    'failed' => count($mappedRows['errors']),
+                    'errors' => $mappedRows['errors'],
                 ], 400);
                 return;
             }
 
-            $createdRows = [];
-            $this->db->beginTransaction();
-            try {
-                foreach ($pendingDocs as $entry) {
-                    $id = $this->db->insertOne('users', $entry['doc']);
-                    $createdRows[] = [
-                        'row' => (int) ($entry['row'] ?? 0),
-                        'id' => $id,
-                        'username' => (string) ($entry['username'] ?? ''),
-                    ];
-                }
-                $this->db->commit();
-            } catch (Throwable $rowErr) {
-                $this->db->rollback();
-                Response::json([
-                    'message' => 'Bulk create failed and was rolled back',
-                    'total' => $totalSubmitted,
-                    'created' => 0,
-                    'failed' => $totalSubmitted,
-                    'errors' => [[
-                        'row' => null,
-                        'username' => null,
-                        'error' => $rowErr->getMessage(),
-                    ]],
-                ], 500);
-                return;
+            [$status, $payload] = $this->executeBulkUserCreate($mappedRows['rows'], $actor, [
+                'strict' => false,
+                'skipExisting' => true,
+            ]);
+            Response::json($payload, $status);
+        } catch (Throwable $e) {
+            Response::json(['message' => 'Failed to import spreadsheet: ' . $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * @return array{0:int,1:array<string,mixed>}
+     */
+    private function executeBulkUserCreate(array $rows, array $actor, array $options = []): array
+    {
+        $strict = array_key_exists('strict', $options) ? (bool) $options['strict'] : true;
+        $skipExisting = array_key_exists('skipExisting', $options) ? (bool) $options['skipExisting'] : false;
+
+        if (count($rows) === 0) {
+            return [400, ['message' => 'No users provided']];
+        }
+        if (count($rows) > 500) {
+            return [400, ['message' => 'Maximum 500 users per batch']];
+        }
+
+        $actorRole = (string) ($actor['role'] ?? '');
+        $actorId = (string) ($actor['_id'] ?? '');
+        $createdByModel = ($actorRole === 'admin') ? 'Admin' : 'Agent';
+        $now = MongoRepository::nowUtc();
+
+        $errors = [];
+        $skipped = [];
+        $pendingDocs = [];
+        $seenUsernames = [];
+        $seenPhones = [];
+
+        foreach ($rows as $idx => $row) {
+            $rowNum = $idx + 1;
+            $username = strtoupper(trim((string) ($row['username'] ?? '')));
+            $phoneNumber = trim((string) ($row['phoneNumber'] ?? ''));
+            $password = (string) ($row['password'] ?? '');
+            $firstName = strtoupper(trim((string) ($row['firstName'] ?? '')));
+            $lastName = strtoupper(trim((string) ($row['lastName'] ?? '')));
+
+            if ($username === '' || $phoneNumber === '' || $password === '') {
+                $errors[] = ['row' => $rowNum, 'username' => $username, 'error' => 'Username, phone number, and password are required'];
+                continue;
             }
 
-            Response::json([
-                'message' => count($createdRows) . ' user(s) created',
-                'total' => $totalSubmitted,
-                'created' => count($createdRows),
-                'failed' => 0,
-                'errors' => [],
-                'createdRows' => $createdRows,
-            ], 201);
-        } catch (Throwable $e) {
-            Response::json(['message' => 'Server error during bulk creation: ' . $e->getMessage()], 500);
+            if (isset($seenUsernames[$username]) || isset($seenPhones[$phoneNumber])) {
+                if ($strict) {
+                    $errors[] = ['row' => $rowNum, 'username' => $username, 'error' => 'Duplicate username or phone number in uploaded file'];
+                } else {
+                    $skipped[] = ['row' => $rowNum, 'username' => $username, 'reason' => 'duplicate-in-file'];
+                }
+                continue;
+            }
+            $seenUsernames[$username] = true;
+            $seenPhones[$phoneNumber] = true;
+
+            if ($this->existsUsernameOrPhone($username, $phoneNumber)) {
+                if ($skipExisting || !$strict) {
+                    $skipped[] = ['row' => $rowNum, 'username' => $username, 'reason' => 'already-exists'];
+                } else {
+                    $errors[] = ['row' => $rowNum, 'username' => $username, 'error' => 'Username or phone number already exists'];
+                }
+                continue;
+            }
+
+            $assignedAgentId = null;
+            if ($actorRole === 'agent') {
+                $assignedAgentId = $actorId;
+            } elseif (in_array($actorRole, ['master_agent', 'super_agent'], true)) {
+                $reqAgent = trim((string) ($row['agentId'] ?? ''));
+                if ($reqAgent === '' && isset($row['agent']) && trim((string) $row['agent']) !== '') {
+                    $reqAgent = trim((string) $row['agent']);
+                }
+                if ($reqAgent !== '' && preg_match('/^[a-f0-9]{24}$/i', $reqAgent) !== 1) {
+                    $agentByUsername = $this->db->findOne('agents', ['username' => strtoupper($reqAgent)], ['projection' => ['_id' => 1]]);
+                    $reqAgent = (string) ($agentByUsername['_id'] ?? '');
+                }
+                $assignedAgentId = ($reqAgent !== '' && preg_match('/^[a-f0-9]{24}$/i', $reqAgent) === 1) ? $reqAgent : $actorId;
+            } else {
+                $reqAgent = trim((string) ($row['agentId'] ?? ''));
+                if ($reqAgent === '' && isset($row['agent']) && trim((string) $row['agent']) !== '') {
+                    $reqAgent = trim((string) $row['agent']);
+                }
+                if ($reqAgent !== '' && preg_match('/^[a-f0-9]{24}$/i', $reqAgent) !== 1) {
+                    $agentByUsername = $this->db->findOne('agents', ['username' => strtoupper($reqAgent)], ['projection' => ['_id' => 1]]);
+                    $reqAgent = (string) ($agentByUsername['_id'] ?? '');
+                }
+                if ($reqAgent !== '' && preg_match('/^[a-f0-9]{24}$/i', $reqAgent) === 1) {
+                    $assignedAgentId = $reqAgent;
+                }
+            }
+
+            $fullName = strtoupper(trim((string) ($row['fullName'] ?? '')));
+            if ($fullName === '') {
+                $fullName = trim($firstName . ' ' . $lastName);
+                if ($fullName === '') {
+                    $fullName = $username;
+                }
+            }
+
+            $pendingDocs[] = [
+                'row' => $rowNum,
+                'username' => $username,
+                'doc' => [
+                    'username' => $username,
+                    'phoneNumber' => $phoneNumber,
+                    'password' => password_hash($password, PASSWORD_BCRYPT),
+                    'displayPassword' => $password,
+                    'firstName' => $firstName,
+                    'lastName' => $lastName,
+                    'fullName' => $fullName,
+                    'role' => 'user',
+                    'status' => 'active',
+                    'balance' => $this->numOr($row['balance'] ?? null, 1000),
+                    'minBet' => $this->numOr($row['minBet'] ?? null, 1),
+                    'maxBet' => $this->numOr($row['maxBet'] ?? null, 5000),
+                    'creditLimit' => $this->numOr($row['creditLimit'] ?? null, 1000),
+                    'balanceOwed' => $this->numOr($row['balanceOwed'] ?? null, 0),
+                    'freeplayBalance' => $this->numOr($row['freeplayBalance'] ?? null, 200),
+                    'lifetime' => $this->numOr($row['lifetime'] ?? null, 0),
+                    'pendingBalance' => 0,
+                    'agentId' => ($assignedAgentId !== null && preg_match('/^[a-f0-9]{24}$/i', $assignedAgentId) === 1) ? MongoRepository::id($assignedAgentId) : null,
+                    'createdBy' => MongoRepository::id($actorId),
+                    'createdByModel' => $createdByModel,
+                    'referralBonusGranted' => false,
+                    'referralBonusAmount' => 0,
+                    'createdAt' => $now,
+                    'updatedAt' => $now,
+                ],
+            ];
         }
+
+        $totalSubmitted = count($rows);
+        if ($strict && $errors !== []) {
+            return [400, [
+                'message' => 'Bulk create validation failed',
+                'total' => $totalSubmitted,
+                'created' => 0,
+                'failed' => count($errors) + count($skipped),
+                'errors' => $errors,
+                'skipped' => $skipped,
+            ]];
+        }
+
+        $createdRows = [];
+        $this->db->beginTransaction();
+        try {
+            foreach ($pendingDocs as $entry) {
+                $id = $this->db->insertOne('users', $entry['doc']);
+                $createdRows[] = [
+                    'row' => (int) ($entry['row'] ?? 0),
+                    'id' => $id,
+                    'username' => (string) ($entry['username'] ?? ''),
+                ];
+            }
+            $this->db->commit();
+        } catch (Throwable $rowErr) {
+            $this->db->rollback();
+            return [500, [
+                'message' => 'Bulk create failed and was rolled back',
+                'total' => $totalSubmitted,
+                'created' => 0,
+                'failed' => $totalSubmitted,
+                'errors' => [[
+                    'row' => null,
+                    'username' => null,
+                    'error' => $rowErr->getMessage(),
+                ]],
+            ]];
+        }
+
+        return [201, [
+            'message' => count($createdRows) . ' user(s) created',
+            'total' => $totalSubmitted,
+            'created' => count($createdRows),
+            'failed' => count($errors) + count($skipped),
+            'errors' => [],
+            'skipped' => $skipped,
+            'createdRows' => $createdRows,
+        ]];
+    }
+
+    /**
+     * @return list<list<string>>
+     */
+    private function parseCsvRows(string $path): array
+    {
+        $rows = [];
+        $handle = fopen($path, 'rb');
+        if ($handle === false) {
+            throw new RuntimeException('Unable to read CSV file');
+        }
+        while (($cols = fgetcsv($handle)) !== false) {
+            $rows[] = array_map(static fn($v) => trim((string) $v), $cols);
+        }
+        fclose($handle);
+        return $rows;
+    }
+
+    /**
+     * @return list<list<string>>
+     */
+    private function parseXlsxRows(string $path): array
+    {
+        if (!class_exists('ZipArchive')) {
+            throw new RuntimeException('ZipArchive extension is not available');
+        }
+
+        $zip = new ZipArchive();
+        if ($zip->open($path) !== true) {
+            throw new RuntimeException('Unable to open XLSX file');
+        }
+
+        $shared = [];
+        $sharedXml = $zip->getFromName('xl/sharedStrings.xml');
+        if (is_string($sharedXml) && $sharedXml !== '') {
+            $dom = new DOMDocument();
+            if (@$dom->loadXML($sharedXml)) {
+                $xpath = new DOMXPath($dom);
+                $xpath->registerNamespace('x', 'http://schemas.openxmlformats.org/spreadsheetml/2006/main');
+                $siNodes = $xpath->query('//x:si');
+                if ($siNodes !== false) {
+                    foreach ($siNodes as $siNode) {
+                        $shared[] = trim((string) ($siNode->textContent ?? ''));
+                    }
+                }
+            }
+        }
+
+        $sheetXml = null;
+        $sheetPath = null;
+        if ($zip->locateName('xl/worksheets/sheet1.xml') !== false) {
+            $sheetPath = 'xl/worksheets/sheet1.xml';
+        } else {
+            for ($i = 0; $i < $zip->numFiles; $i++) {
+                $name = (string) $zip->getNameIndex($i);
+                if (str_starts_with($name, 'xl/worksheets/sheet') && str_ends_with($name, '.xml')) {
+                    $sheetPath = $name;
+                    break;
+                }
+            }
+        }
+        if ($sheetPath !== null) {
+            $sheetXml = $zip->getFromName($sheetPath);
+        }
+        $zip->close();
+
+        if (!is_string($sheetXml) || $sheetXml === '') {
+            throw new RuntimeException('Could not find worksheet in XLSX file');
+        }
+
+        $sheet = simplexml_load_string($sheetXml);
+        if (!$sheet instanceof SimpleXMLElement || !isset($sheet->sheetData->row)) {
+            throw new RuntimeException('Invalid worksheet data');
+        }
+
+        $rows = [];
+        foreach ($sheet->sheetData->row as $rowNode) {
+            $cells = [];
+            $maxCol = -1;
+            foreach ($rowNode->c as $cell) {
+                $ref = strtoupper((string) ($cell['r'] ?? ''));
+                $colIndex = count($cells);
+                if ($ref !== '' && preg_match('/^([A-Z]+)\d+$/', $ref, $m) === 1) {
+                    $colIndex = $this->xlsxColumnToIndex($m[1]);
+                }
+                $maxCol = max($maxCol, $colIndex);
+
+                $type = (string) ($cell['t'] ?? '');
+                $value = '';
+                if ($type === 's') {
+                    $sharedIdx = (int) ((string) ($cell->v ?? '0'));
+                    $value = (string) ($shared[$sharedIdx] ?? '');
+                } elseif ($type === 'inlineStr') {
+                    $value = trim((string) ($cell->is->t ?? ''));
+                } else {
+                    $value = trim((string) ($cell->v ?? ''));
+                }
+                $cells[$colIndex] = $value;
+            }
+
+            if ($maxCol < 0) {
+                continue;
+            }
+            $line = [];
+            for ($i = 0; $i <= $maxCol; $i++) {
+                $line[] = (string) ($cells[$i] ?? '');
+            }
+            $rows[] = $line;
+        }
+
+        return $rows;
+    }
+
+    private function xlsxColumnToIndex(string $letters): int
+    {
+        $index = 0;
+        $chars = str_split($letters);
+        foreach ($chars as $ch) {
+            $index = ($index * 26) + (ord($ch) - 64);
+        }
+        return max(0, $index - 1);
+    }
+
+    /**
+     * @param list<list<string>> $rawRows
+     * @return array{rows:list<array<string,mixed>>,errors:list<array<string,mixed>>,total:int}
+     */
+    private function mapSpreadsheetRowsToUsers(array $rawRows, string $defaultAgentId = ''): array
+    {
+        $rows = [];
+        $errors = [];
+
+        $headerRow = $rawRows[0] ?? [];
+        $headerMap = [];
+        foreach ($headerRow as $idx => $name) {
+            $canonical = $this->canonicalImportField((string) $name);
+            if ($canonical !== null) {
+                $headerMap[(int) $idx] = $canonical;
+            }
+        }
+
+        if ($headerMap === []) {
+            return [
+                'rows' => [],
+                'errors' => [[
+                    'row' => 1,
+                    'username' => null,
+                    'error' => 'Could not map spreadsheet headers. Include columns like username, phoneNumber, password.',
+                ]],
+                'total' => max(0, count($rawRows) - 1),
+            ];
+        }
+
+        for ($i = 1; $i < count($rawRows); $i++) {
+            $sourceRow = $rawRows[$i] ?? [];
+            $mapped = [];
+            foreach ($headerMap as $col => $field) {
+                $mapped[$field] = trim((string) ($sourceRow[$col] ?? ''));
+            }
+
+            $isEmpty = true;
+            foreach ($mapped as $value) {
+                if ($value !== '') {
+                    $isEmpty = false;
+                    break;
+                }
+            }
+            if ($isEmpty) {
+                continue;
+            }
+
+            if (($mapped['firstName'] ?? '') === '' && ($mapped['lastName'] ?? '') === '' && ($mapped['fullName'] ?? '') !== '') {
+                $parts = preg_split('/\s+/', trim((string) $mapped['fullName'])) ?: [];
+                if (count($parts) > 0) {
+                    $mapped['firstName'] = (string) $parts[0];
+                    $mapped['lastName'] = (string) ($parts[count($parts) - 1] ?? '');
+                }
+            }
+
+            if (($mapped['username'] ?? '') === '' || ($mapped['phoneNumber'] ?? '') === '' || ($mapped['password'] ?? '') === '') {
+                $errors[] = [
+                    'row' => $i + 1,
+                    'username' => $mapped['username'] ?? '',
+                    'error' => 'username, phoneNumber and password are required',
+                ];
+                continue;
+            }
+
+            if (($mapped['agentId'] ?? '') === '' && $defaultAgentId !== '' && preg_match('/^[a-f0-9]{24}$/i', $defaultAgentId) === 1) {
+                $mapped['agentId'] = $defaultAgentId;
+            }
+
+            $rows[] = $mapped;
+        }
+
+        return [
+            'rows' => $rows,
+            'errors' => $errors,
+            'total' => max(0, count($rawRows) - 1),
+        ];
+    }
+
+    private function canonicalImportField(string $header): ?string
+    {
+        $normalized = strtolower(preg_replace('/[^a-z0-9]+/', '', $header) ?? '');
+        return match ($normalized) {
+            'username', 'user', 'login', 'customer' => 'username',
+            'phonenumber', 'phone', 'mobile', 'contact' => 'phoneNumber',
+            'password', 'pass', 'pwd', 'pin' => 'password',
+            'agent' => 'agent',
+            'firstname', 'first' => 'firstName',
+            'lastname', 'last' => 'lastName',
+            'fullname', 'name', 'playername' => 'fullName',
+            'agentid' => 'agentId',
+            'balance' => 'balance',
+            'minbet' => 'minBet',
+            'maxbet', 'pmaxbet' => 'maxBet',
+            'creditlimit', 'credit' => 'creditLimit',
+            'balanceowed', 'settlelimit' => 'balanceOwed',
+            'freeplaybalance', 'freeplay' => 'freeplayBalance',
+            'lifetime', 'lifetimeplusminus' => 'lifetime',
+            default => null,
+        };
     }
 
     private function seedWorkflowHierarchy(): void

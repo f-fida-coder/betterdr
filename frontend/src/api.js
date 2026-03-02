@@ -155,7 +155,7 @@ export const getBalance = async (token) => {
 const meRequestCache = new Map();
 
 export const getMe = async (token, options = {}) => {
-    const timeoutMs = Number.isFinite(options?.timeoutMs) ? Number(options.timeoutMs) : 10000;
+    const timeoutMs = Number.isFinite(options?.timeoutMs) ? Number(options.timeoutMs) : 30000;
     const cacheKey = token || '';
 
     if (cacheKey && meRequestCache.has(cacheKey)) {
@@ -1571,6 +1571,30 @@ export const bulkCreateUsers = async (users, token) => {
         throw new Error(error.message || 'Failed to bulk create users');
     }
     return response.json();
+};
+
+export const importUsersSpreadsheet = async (file, token, options = {}) => {
+    if (!file) {
+        throw new Error('Please select a spreadsheet file first');
+    }
+
+    const formData = new FormData();
+    formData.append('file', file);
+    if (options.defaultAgentId) {
+        formData.append('defaultAgentId', String(options.defaultAgentId));
+    }
+
+    const response = await fetch(buildApiUrl('/admin/import-users-spreadsheet'), {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: formData
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        throw new Error(data.message || 'Failed to import spreadsheet');
+    }
+    return data;
 };
 
 export const getGamblingLimits = async (token) => {
