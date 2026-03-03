@@ -2,6 +2,14 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { createUserByAdmin, createPlayerByAgent, createAgent, createSubAgent, getAgents, getMyPlayers, getMe, updateUserCredit, updateUserBalanceOwedByAgent, resetUserPasswordByAdmin, updateUserByAdmin, updateUserByAgent, getUserStatistics, getNextUsername, getUsersAdmin, deleteUser, deleteAgent, importUsersSpreadsheet } from '../../api';
 
 function CustomerAdminView({ onViewChange }) {
+  const withTimeout = (promise, timeoutMs, message) => {
+    let timeoutId;
+    const timeoutPromise = new Promise((_, reject) => {
+      timeoutId = setTimeout(() => reject(new Error(message)), Math.max(1000, timeoutMs));
+    });
+    return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timeoutId));
+  };
+
   const [customers, setCustomers] = useState([]);
   const [agents, setAgents] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -277,17 +285,14 @@ function CustomerAdminView({ onViewChange }) {
         return;
       }
 
-      const result = await importUsersSpreadsheet(importFile, token, {
-        defaultAgentId: newCustomer.agentId || ''
-      });
-
-      if (currentRole === 'agent') {
-        const data = await getMyPlayers(token);
-        setCustomers(data || []);
-      } else {
-        const data = await getUsersAdmin(token);
-        setCustomers(data || []);
-      }
+      const result = await withTimeout(
+        importUsersSpreadsheet(importFile, token, {
+          defaultAgentId: newCustomer.agentId || '',
+          timeoutMs: 45000
+        }),
+        50000,
+        'Import request timed out. Please try again.'
+      );
 
       const created = Number(result?.created || 0);
       const failed = Number(result?.failed || 0);
@@ -305,6 +310,20 @@ function CustomerAdminView({ onViewChange }) {
       setHeaderAgentQuery('');
       setImportFile(null);
       setError('');
+
+      // Refresh list, but do not block UI forever if this call hangs/fails.
+      try {
+        if (currentRole === 'agent') {
+          const data = await withTimeout(getMyPlayers(token), 15000, 'Players refresh timed out');
+          setCustomers(data || []);
+        } else {
+          const data = await withTimeout(getUsersAdmin(token), 15000, 'Users refresh timed out');
+          setCustomers(data || []);
+        }
+      } catch (refreshErr) {
+        console.warn('Post-import refresh failed:', refreshErr);
+        setError(refreshErr.message || 'Imported, but list refresh failed. Reload page to see updates.');
+      }
     } catch (err) {
       console.error('Import users failed:', err);
       setError(err.message || 'Failed to import users');

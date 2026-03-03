@@ -1578,23 +1578,37 @@ export const importUsersSpreadsheet = async (file, token, options = {}) => {
         throw new Error('Please select a spreadsheet file first');
     }
 
+    const timeoutMs = Number.isFinite(options?.timeoutMs) ? Number(options.timeoutMs) : 45000;
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timeoutId = controller ? setTimeout(() => controller.abort(), Math.max(5000, timeoutMs)) : null;
+
     const formData = new FormData();
     formData.append('file', file);
     if (options.defaultAgentId) {
         formData.append('defaultAgentId', String(options.defaultAgentId));
     }
 
-    const response = await fetch(buildApiUrl('/admin/import-users-spreadsheet'), {
-        method: 'POST',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        body: formData
-    });
+    try {
+        const response = await fetch(buildApiUrl('/admin/import-users-spreadsheet'), {
+            method: 'POST',
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+            body: formData,
+            signal: controller?.signal
+        });
 
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-        throw new Error(data.message || 'Failed to import spreadsheet');
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(data.message || 'Failed to import spreadsheet');
+        }
+        return data;
+    } catch (error) {
+        if (error?.name === 'AbortError') {
+            throw new Error('Import timed out. Please check backend/API logs and try again.');
+        }
+        throw error;
+    } finally {
+        if (timeoutId) clearTimeout(timeoutId);
     }
-    return data;
 };
 
 export const getGamblingLimits = async (token) => {
