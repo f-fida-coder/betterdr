@@ -523,6 +523,8 @@ final class AdminCoreController
                     'pendingBalance' => $pending,
                     'balanceOwed' => $this->num($user['balanceOwed'] ?? 0),
                     'freeplayBalance' => $this->num($user['freeplayBalance'] ?? 0),
+                    'lifetime' => $this->num($user['lifetime'] ?? 0),
+                    'playerNotes' => (string) ($user['playerNotes'] ?? ''),
                     'availableBalance' => max(0, $balance - $pending),
                     'isActive' => ($betCounts[$uid] ?? 0) >= 2,
                     'createdBy' => $cid !== '' && isset($creatorUserMap[$cid])
@@ -3935,7 +3937,7 @@ final class AdminCoreController
 
             $defaultAgentId = trim((string) ($_POST['defaultAgentId'] ?? ''));
             $mappedRows = $this->mapSpreadsheetRowsToUsers($rawRows, $defaultAgentId);
-            if ($mappedRows['errors'] !== []) {
+            if ($mappedRows['rows'] === [] && $mappedRows['errors'] !== []) {
                 Response::json([
                     'message' => 'Spreadsheet validation failed',
                     'total' => (int) $mappedRows['total'],
@@ -3950,6 +3952,14 @@ final class AdminCoreController
                 'strict' => false,
                 'skipExisting' => true,
             ]);
+            if ($mappedRows['errors'] !== []) {
+                $existingErrors = is_array($payload['errors'] ?? null) ? $payload['errors'] : [];
+                $payload['errors'] = array_values(array_merge($existingErrors, $mappedRows['errors']));
+                $payload['failed'] = count($payload['errors']);
+                if (($payload['message'] ?? '') === 'Users created successfully') {
+                    $payload['message'] = 'Users imported with some skipped rows';
+                }
+            }
             Response::json($payload, $status);
         } catch (Throwable $e) {
             Response::json(['message' => 'Failed to import spreadsheet: ' . $e->getMessage()], 500);
@@ -4039,6 +4049,42 @@ final class AdminCoreController
                     $agentIdByUsername[$u] = $id;
                 }
             }
+
+            // Auto-create agents that don't exist yet
+            $now = MongoRepository::nowUtc();
+            foreach ($agentLabels as $label) {
+                if (isset($agentIdByUsername[$label])) {
+                    continue;
+                }
+                $agentUsername = strtoupper($label);
+                $agentPhone = '000-000-' . str_pad((string) (crc32($agentUsername) % 10000), 4, '0', STR_PAD_LEFT);
+                $agentPass = strtoupper(substr($agentUsername, 0, 6)) . '1234';
+                $agentDoc = [
+                    'username' => $agentUsername,
+                    'phoneNumber' => $agentPhone,
+                    'password' => password_hash($agentPass, PASSWORD_BCRYPT),
+                    'displayPassword' => $agentPass,
+                    'fullName' => $agentUsername,
+                    'role' => 'master_agent',
+                    'status' => 'active',
+                    'balance' => 0.0,
+                    'agentBillingRate' => 0.0,
+                    'agentBillingStatus' => 'paid',
+                    'viewOnly' => false,
+                    'defaultMinBet' => 25,
+                    'defaultMaxBet' => 200,
+                    'defaultCreditLimit' => 1000,
+                    'defaultSettleLimit' => 200,
+                    'createdBy' => MongoRepository::id($actorId),
+                    'createdByModel' => $createdByModel,
+                    'referredByUserId' => null,
+                    'createdAt' => $now,
+                    'updatedAt' => $now,
+                ];
+                $newAgentId = $this->db->insertOne('agents', $agentDoc);
+                $agentIdByUsername[$agentUsername] = $newAgentId;
+                $this->syncMasterAgentCollection(array_merge($agentDoc, ['_id' => $newAgentId]));
+            }
         }
 
         $errors = [];
@@ -4050,13 +4096,33 @@ final class AdminCoreController
         foreach ($rows as $idx => $row) {
             $rowNum = $idx + 1;
             $username = strtoupper(trim((string) ($row['username'] ?? '')));
-            $phoneNumber = trim((string) ($row['phoneNumber'] ?? ''));
-            $password = (string) ($row['password'] ?? '');
+            $phoneRaw = preg_replace('/\D/', '', trim((string) ($row['phoneNumber'] ?? '')));
+            // Format phone as XXX-XXX-XXXX (matches frontend handlePhoneChange)
+            if (strlen($phoneRaw) >= 10) {
+                $phoneNumber = substr($phoneRaw, 0, 3) . '-' . substr($phoneRaw, 3, 3) . '-' . substr($phoneRaw, 6, 4);
+            } elseif (strlen($phoneRaw) >= 7) {
+                $phoneNumber = substr($phoneRaw, 0, 3) . '-' . substr($phoneRaw, 3, 3) . '-' . substr($phoneRaw, 6);
+            } elseif (strlen($phoneRaw) >= 4) {
+                $phoneNumber = substr($phoneRaw, 0, 3) . '-' . substr($phoneRaw, 3);
+            } else {
+                $phoneNumber = $phoneRaw;
+            }
             $firstName = strtoupper(trim((string) ($row['firstName'] ?? '')));
             $lastName = strtoupper(trim((string) ($row['lastName'] ?? '')));
 
-            if ($username === '' || $phoneNumber === '' || $password === '') {
-                $errors[] = ['row' => $rowNum, 'username' => $username, 'error' => 'Username, phone number, and password are required'];
+            // Auto-generate password: FIRST3 + LAST3 + LAST4PHONE (matches frontend updateAutoPassword)
+            $password = (string) ($row['password'] ?? '');
+            if ($password === '') {
+                $last4 = strlen($phoneRaw) >= 4 ? substr($phoneRaw, -4) : $phoneRaw;
+                if ($firstName !== '' && $lastName !== '') {
+                    $password = strtoupper(substr($firstName, 0, 3) . substr($lastName, 0, 3)) . $last4;
+                } else {
+                    $password = $username . $last4;
+                }
+            }
+
+            if ($username === '' || $phoneNumber === '') {
+                $errors[] = ['row' => $rowNum, 'username' => $username, 'error' => 'Username and phone number are required'];
                 continue;
             }
 
@@ -4113,6 +4179,8 @@ final class AdminCoreController
                 }
             }
 
+            $playerNotes = trim((string) ($row['playerNotes'] ?? ''));
+
             $pendingDocs[] = [
                 'row' => $rowNum,
                 'username' => $username,
@@ -4133,6 +4201,7 @@ final class AdminCoreController
                     'balanceOwed' => $this->numOr($row['balanceOwed'] ?? null, 0),
                     'freeplayBalance' => $this->numOr($row['freeplayBalance'] ?? null, 200),
                     'lifetime' => $this->numOr($row['lifetime'] ?? null, 0),
+                    'playerNotes' => $playerNotes,
                     'pendingBalance' => 0,
                     'agentId' => ($assignedAgentId !== null && preg_match('/^[a-f0-9]{24}$/i', $assignedAgentId) === 1) ? MongoRepository::id($assignedAgentId) : null,
                     'createdBy' => MongoRepository::id($actorId),
@@ -4162,10 +4231,37 @@ final class AdminCoreController
         try {
             foreach ($pendingDocs as $entry) {
                 $id = $this->db->insertOne('users', $entry['doc']);
+                $doc = $entry['doc'];
+                $agentIdRaw = isset($doc['agentId']) ? (string) $doc['agentId'] : '';
+                $agentUsername = null;
+                if ($agentIdRaw !== '') {
+                    foreach ($agentIdByUsername as $aUser => $aId) {
+                        if ($aId === $agentIdRaw) {
+                            $agentUsername = $aUser;
+                            break;
+                        }
+                    }
+                }
                 $createdRows[] = [
                     'row' => (int) ($entry['row'] ?? 0),
                     'id' => $id,
                     'username' => (string) ($entry['username'] ?? ''),
+                    'phoneNumber' => $doc['phoneNumber'] ?? '',
+                    'firstName' => $doc['firstName'] ?? '',
+                    'lastName' => $doc['lastName'] ?? '',
+                    'fullName' => $doc['fullName'] ?? '',
+                    'displayPassword' => $doc['displayPassword'] ?? '',
+                    'balance' => $this->num($doc['balance'] ?? 0),
+                    'minBet' => $this->num($doc['minBet'] ?? 0),
+                    'maxBet' => $this->num($doc['maxBet'] ?? 0),
+                    'creditLimit' => $this->num($doc['creditLimit'] ?? 0),
+                    'balanceOwed' => $this->num($doc['balanceOwed'] ?? 0),
+                    'freeplayBalance' => $this->num($doc['freeplayBalance'] ?? 0),
+                    'lifetime' => $this->num($doc['lifetime'] ?? 0),
+                    'playerNotes' => $doc['playerNotes'] ?? '',
+                    'agentId' => $agentIdRaw !== '' ? ['_id' => $agentIdRaw, 'username' => $agentUsername] : null,
+                    'role' => 'user',
+                    'status' => 'active',
                 ];
             }
             $this->db->commit();
@@ -4373,11 +4469,25 @@ final class AdminCoreController
                 }
             }
 
-            if (($mapped['username'] ?? '') === '' || ($mapped['phoneNumber'] ?? '') === '' || ($mapped['password'] ?? '') === '') {
+            // Auto-generate password if not provided: FIRST3 + LAST3 + LAST4_PHONE (matches frontend pattern)
+            if (($mapped['password'] ?? '') === '') {
+                $fn = strtoupper(trim((string) ($mapped['firstName'] ?? '')));
+                $ln = strtoupper(trim((string) ($mapped['lastName'] ?? '')));
+                $ph = preg_replace('/\D/', '', trim((string) ($mapped['phoneNumber'] ?? '')));
+                $last4 = strlen($ph) >= 4 ? substr($ph, -4) : $ph;
+                if ($fn !== '' && $ln !== '') {
+                    $mapped['password'] = strtoupper(substr($fn, 0, 3) . substr($ln, 0, 3)) . $last4;
+                } else {
+                    // Fallback: username + last 4 of phone
+                    $mapped['password'] = strtoupper(trim((string) ($mapped['username'] ?? 'USER'))) . $last4;
+                }
+            }
+
+            if (($mapped['username'] ?? '') === '' || ($mapped['phoneNumber'] ?? '') === '') {
                 $errors[] = [
                     'row' => $i + 1,
                     'username' => $mapped['username'] ?? '',
-                    'error' => 'username, phoneNumber and password are required',
+                    'error' => 'username and phoneNumber are required',
                 ];
                 continue;
             }
@@ -4398,7 +4508,7 @@ final class AdminCoreController
 
     private function canonicalImportField(string $header): ?string
     {
-        $normalized = strtolower(preg_replace('/[^a-z0-9]+/', '', $header) ?? '');
+        $normalized = preg_replace('/[^a-z0-9]+/', '', strtolower($header)) ?? '';
         return match ($normalized) {
             'username', 'user', 'login', 'customer' => 'username',
             'phonenumber', 'phone', 'mobile', 'contact' => 'phoneNumber',
@@ -4413,8 +4523,9 @@ final class AdminCoreController
             'maxbet', 'pmaxbet' => 'maxBet',
             'creditlimit', 'credit' => 'creditLimit',
             'balanceowed', 'settlelimit' => 'balanceOwed',
-            'freeplaybalance', 'freeplay' => 'freeplayBalance',
+            'freeplaybalance', 'freeplay', 'fpbalance' => 'freeplayBalance',
             'lifetime', 'lifetimeplusminus' => 'lifetime',
+            'playernotes', 'notes', 'note' => 'playerNotes',
             default => null,
         };
     }

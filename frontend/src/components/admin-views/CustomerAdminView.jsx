@@ -296,9 +296,18 @@ function CustomerAdminView({ onViewChange }) {
         'Import request timed out. Please try again.'
       );
 
-      const created = Number(result?.created || 0);
-      const failed = Number(result?.failed || 0);
-      setImportSummary(`Import complete: ${created} created, ${failed} failed.`);
+      const createdRowsCount = Array.isArray(result?.createdRows) ? result.createdRows.length : 0;
+      const createdFromPayload = Number(result?.created);
+      const failedFromPayload = Number(result?.failed);
+      const created = Number.isFinite(createdFromPayload) ? createdFromPayload : createdRowsCount;
+      const failed = Number.isFinite(failedFromPayload) ? failedFromPayload : 0;
+      const serverMessage = String(result?.message || '').trim();
+
+      if (!Number.isFinite(createdFromPayload) && !Number.isFinite(failedFromPayload)) {
+        setImportSummary(serverMessage || `Import complete: ${created} created, ${failed} failed.`);
+      } else {
+        setImportSummary(`Import complete: ${created} created, ${failed} failed.${serverMessage ? ` ${serverMessage}` : ''}`);
+      }
       const createdUsernames = Array.isArray(result?.createdRows)
         ? result.createdRows
           .map((row) => String(row?.username || '').toUpperCase())
@@ -316,27 +325,28 @@ function CustomerAdminView({ onViewChange }) {
             .map((row) => ({
               id: row?.id || row?._id || '',
               username: String(row?.username || '').toUpperCase(),
-              role: 'user',
-              status: 'active',
-              phoneNumber: '',
-              firstName: '',
-              lastName: '',
-              minBet: 0,
-              maxBet: 0,
-              creditLimit: 0,
-              balanceOwed: 0,
-              freeplayBalance: 0,
-              balance: 0,
+              role: row?.role || 'user',
+              status: row?.status || 'active',
+              phoneNumber: row?.phoneNumber || '',
+              firstName: row?.firstName || '',
+              lastName: row?.lastName || '',
+              fullName: row?.fullName || '',
+              displayPassword: row?.displayPassword || '',
+              minBet: Number(row?.minBet ?? 0),
+              maxBet: Number(row?.maxBet ?? 0),
+              creditLimit: Number(row?.creditLimit ?? 0),
+              balanceOwed: Number(row?.balanceOwed ?? 0),
+              freeplayBalance: Number(row?.freeplayBalance ?? 0),
+              lifetime: Number(row?.lifetime ?? 0),
+              playerNotes: row?.playerNotes || '',
+              balance: Number(row?.balance ?? 0),
               pendingBalance: 0,
-              availableBalance: 0,
-              displayPassword: '',
-              agentId: newCustomer.agentId ? { _id: newCustomer.agentId } : null
+              availableBalance: Math.max(0, Number(row?.balance ?? 0)),
+              agentId: row?.agentId || (newCustomer.agentId ? { _id: newCustomer.agentId } : null)
             }));
           return [...appended, ...prev];
         });
       }
-      setSelectedHeaderAgentId('');
-      setHeaderAgentQuery('');
       setImportFile(null);
       setSelectedImportFileName('');
       setError('');
@@ -349,6 +359,8 @@ function CustomerAdminView({ onViewChange }) {
         } else {
           const data = await withTimeout(getUsersAdmin(token), 15000, 'Users refresh timed out');
           setCustomers(data || []);
+          const agentsData = await withTimeout(getAgents(token), 15000, 'Agents refresh timed out');
+          setAgents(agentsData || []);
         }
       } catch (refreshErr) {
         console.warn('Post-import refresh failed:', refreshErr);
@@ -1133,9 +1145,9 @@ function CustomerAdminView({ onViewChange }) {
       setCustomers((prev) => prev.map((c) => (
         (c.id || c._id) === customerId
           ? {
-              ...c,
-              ...payload
-            }
+            ...c,
+            ...payload
+          }
           : c
       )));
       setExpandedEditRowId(null);
@@ -1345,67 +1357,67 @@ function CustomerAdminView({ onViewChange }) {
               {/* Assign to Agent / Master Agent */}
               {(creationType === 'player' || creationType === 'agent' || creationType === 'super_agent')
                 && (currentRole === 'admin' || currentRole === 'super_agent' || currentRole === 'master_agent') && (
-                <div className="filter-group">
-                  <label>{creationType === 'player' ? 'Assign to Agent' : 'Assign to Master Agent'}</label>
-                  <div
-                    className="agent-search-picker"
-                    onFocus={() => setAgentSearchOpen(true)}
-                    onBlur={() => setTimeout(() => setAgentSearchOpen(false), 120)}
-                    tabIndex={0}
-                  >
-                    <div className="agent-search-head">
-                      <span className="agent-search-label">Agents</span>
-                      <input
-                        type="text"
-                        value={agentSearchQuery}
-                        onChange={(e) => {
-                          setAgentSearchQuery(e.target.value);
-                          setAgentSearchOpen(true);
-                        }}
-                        placeholder="Search agent..."
-                      />
-                    </div>
-                    {agentSearchOpen && (
-                      <div className="agent-search-list">
-                        <button
-                          type="button"
-                          className={`agent-search-item ${newCustomer.agentId ? '' : 'selected'}`}
-                          onClick={() => {
-                            handleAgentChange('');
-                            setAgentSearchOpen(false);
+                  <div className="filter-group">
+                    <label>{creationType === 'player' ? 'Assign to Agent' : 'Assign to Master Agent'}</label>
+                    <div
+                      className="agent-search-picker"
+                      onFocus={() => setAgentSearchOpen(true)}
+                      onBlur={() => setTimeout(() => setAgentSearchOpen(false), 120)}
+                      tabIndex={0}
+                    >
+                      <div className="agent-search-head">
+                        <span className="agent-search-label">Agents</span>
+                        <input
+                          type="text"
+                          value={agentSearchQuery}
+                          onChange={(e) => {
+                            setAgentSearchQuery(e.target.value);
+                            setAgentSearchOpen(true);
                           }}
-                        >
-                          <span>{creationType === 'player' ? 'Direct (Under Me)' : 'Direct (Created By Me)'}</span>
-                        </button>
-                        {filteredAssignableAgents.map((a) => {
-                          const id = a.id || a._id;
-                          const isMaster = a.role === 'master_agent' || a.role === 'super_agent';
-                          if ((creationType === 'agent' || creationType === 'super_agent') && !isMaster) {
-                            return null;
-                          }
-                          return (
-                            <button
-                              key={id}
-                              type="button"
-                              className={`agent-search-item ${String(newCustomer.agentId || '') === String(id) ? 'selected' : ''}`}
-                              onClick={() => {
-                                handleAgentChange(id);
-                                setAgentSearchOpen(false);
-                              }}
-                            >
-                              <span>{a.username}</span>
-                              <span className={`agent-type-badge ${isMaster ? 'master' : 'agent'}`}>{isMaster ? 'M' : 'A'}</span>
-                            </button>
-                          );
-                        })}
-                        {filteredAssignableAgents.length === 0 && (
-                          <div className="agent-search-empty">No matching agents</div>
-                        )}
+                          placeholder="Search agent..."
+                        />
                       </div>
-                    )}
+                      {agentSearchOpen && (
+                        <div className="agent-search-list">
+                          <button
+                            type="button"
+                            className={`agent-search-item ${newCustomer.agentId ? '' : 'selected'}`}
+                            onClick={() => {
+                              handleAgentChange('');
+                              setAgentSearchOpen(false);
+                            }}
+                          >
+                            <span>{creationType === 'player' ? 'Direct (Under Me)' : 'Direct (Created By Me)'}</span>
+                          </button>
+                          {filteredAssignableAgents.map((a) => {
+                            const id = a.id || a._id;
+                            const isMaster = a.role === 'master_agent' || a.role === 'super_agent';
+                            if ((creationType === 'agent' || creationType === 'super_agent') && !isMaster) {
+                              return null;
+                            }
+                            return (
+                              <button
+                                key={id}
+                                type="button"
+                                className={`agent-search-item ${String(newCustomer.agentId || '') === String(id) ? 'selected' : ''}`}
+                                onClick={() => {
+                                  handleAgentChange(id);
+                                  setAgentSearchOpen(false);
+                                }}
+                              >
+                                <span>{a.username}</span>
+                                <span className={`agent-type-badge ${isMaster ? 'master' : 'agent'}`}>{isMaster ? 'M' : 'A'}</span>
+                              </button>
+                            );
+                          })}
+                          {filteredAssignableAgents.length === 0 && (
+                            <div className="agent-search-empty">No matching agents</div>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
 
               <div className="filter-group">
                 <label>Username</label>
@@ -1633,9 +1645,67 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
                     className="btn-primary"
                     onClick={handleImportCustomers}
                     disabled={!importFile || importLoading}
+                    style={{ minWidth: '140px' }}
                   >
-                    {importLoading ? 'Importing...' : 'Import File'}
+                    {importLoading ? (
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'center' }}>
+                        <span className="spinner-mini" style={{ width: 14, height: 14, border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.6s linear infinite', display: 'inline-block' }} />
+                        Importing...
+                      </span>
+                    ) : 'Import File'}
                   </button>
+                  {/* Import feedback right here so user always sees it */}
+                  {importSummary && (
+                    <div style={{
+                      width: '100%',
+                      marginTop: '10px',
+                      padding: '10px 14px',
+                      borderRadius: '8px',
+                      background: importSummary.includes('failed') || importSummary.includes('error') ? 'rgba(239,68,68,0.15)' : 'rgba(34,197,94,0.15)',
+                      border: importSummary.includes('failed') || importSummary.includes('error') ? '1px solid rgba(239,68,68,0.3)' : '1px solid rgba(34,197,94,0.3)',
+                      color: importSummary.includes('failed') || importSummary.includes('error') ? '#fca5a5' : '#86efac',
+                      fontSize: '13px',
+                      fontWeight: 500
+                    }}>
+                      {importSummary}
+                    </div>
+                  )}
+                  {error && !importSummary && importLoading === false && (
+                    <div style={{
+                      width: '100%',
+                      marginTop: '10px',
+                      padding: '10px 14px',
+                      borderRadius: '8px',
+                      background: 'rgba(239,68,68,0.15)',
+                      border: '1px solid rgba(239,68,68,0.3)',
+                      color: '#fca5a5',
+                      fontSize: '13px',
+                      fontWeight: 500
+                    }}>
+                      ⚠️ {error}
+                    </div>
+                  )}
+                  {importedUsernames.length > 0 && (
+                    <div style={{
+                      width: '100%',
+                      marginTop: '8px',
+                      padding: '8px 14px',
+                      borderRadius: '8px',
+                      background: 'rgba(59,130,246,0.1)',
+                      border: '1px solid rgba(59,130,246,0.2)',
+                      color: '#93c5fd',
+                      fontSize: '12px'
+                    }}>
+                      Imported: {importedUsernames.slice(0, 20).join(', ')}{importedUsernames.length > 20 ? ` (+${importedUsernames.length - 20} more)` : ''}
+                      <button
+                        type="button"
+                        style={{ marginLeft: '12px', background: 'rgba(59,130,246,0.3)', border: 'none', color: '#93c5fd', borderRadius: '6px', padding: '3px 10px', cursor: 'pointer', fontSize: '11px' }}
+                        onClick={() => setShowImportedOnly((prev) => !prev)}
+                      >
+                        {showImportedOnly ? 'Show All' : 'Show Imported Only'}
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -2005,7 +2075,7 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
                           className="btn-secondary"
                           style={{ marginLeft: 'auto', backgroundColor: '#17a2b8', color: 'white' }}
                           onClick={() => {
-                          const pass = editForm.password || 'N/A';
+                            const pass = editForm.password || 'N/A';
 
                             const info = `Here’s your account info. PLEASE READ ALL RULES THOROUGHLY.
 

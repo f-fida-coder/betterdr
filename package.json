@@ -10,7 +10,8 @@
         "dev-php-backend": "php -S 127.0.0.1:5000 -t php-backend/public php-backend/public/router.php",
         "dev-php-worker": "php php-backend/scripts/odds-worker.php",
         "dev-frontend": "cd frontend && npm run dev",
-        "check-php-routes": "bash php-backend/scripts/check-route-parity.sh"
+        "check-php-routes": "bash php-backend/scripts/check-route-parity.sh",
+        "sync-online-to-local": "php php-backend/scripts/sync-mysql-db.php"
     },
     "dependencies": {
         "concurrently": "^8.2.2"

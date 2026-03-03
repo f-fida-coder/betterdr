@@ -102,6 +102,25 @@ Useful options:
 
 By default, Mongo connection values come from `MONGODB_URI`/`MONGO_URI` and `DB_NAME`.
 
+## Online MySQL to local MySQL sync
+
+To mirror your online MySQL database into local MySQL (schema + all table data):
+
+```bash
+npm run sync-online-to-local
+```
+
+Defaults:
+- source credentials from project `.env.copy`
+- target credentials from project `.env`
+
+Useful options:
+
+```bash
+php php-backend/scripts/sync-mysql-db.php --include=users,agents,admins
+php php-backend/scripts/sync-mysql-db.php --exclude=large_logs_table --batch-size=1000
+```
+
 ## Mongo-style entity views in MySQL
 
 If you want phpMyAdmin to show readable, Mongo-like entity fields (instead of only one long `doc` JSON cell), create SQL views:

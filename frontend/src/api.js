@@ -1596,12 +1596,31 @@ export const importUsersSpreadsheet = async (file, token, options = {}) => {
             signal: controller?.signal
         });
 
-        const data = await response.json().catch(() => ({}));
+        const contentType = (response.headers.get('content-type') || '').toLowerCase();
+        const rawText = await response.text();
+        const isJson = contentType.includes('application/json');
+        const data = isJson && rawText ? JSON.parse(rawText) : (isJson ? {} : null);
         if (!response.ok) {
-            throw new Error(data.message || 'Failed to import spreadsheet');
+            const backendMessage = data && typeof data === 'object' ? data.message : '';
+            throw new Error(backendMessage || 'Failed to import spreadsheet');
+        }
+
+        if (!data || typeof data !== 'object') {
+            const snippet = (rawText || '').replace(/\s+/g, ' ').trim().slice(0, 140);
+            const looksHtml = /<html|<!doctype/i.test(rawText || '');
+            const reason = looksHtml
+                ? 'Received HTML instead of JSON'
+                : 'Received non-JSON response';
+            throw new Error(
+                `${reason} (status ${response.status}) from ${response.url}.` +
+                (snippet ? ` Response starts with: "${snippet}"` : '')
+            );
         }
         return data;
     } catch (error) {
+        if (error instanceof SyntaxError) {
+            throw new Error('Import returned invalid JSON. Check backend logs for PHP warnings/fatal errors.');
+        }
         if (error?.name === 'AbortError') {
             throw new Error('Import timed out. Please check backend/API logs and try again.');
         }
