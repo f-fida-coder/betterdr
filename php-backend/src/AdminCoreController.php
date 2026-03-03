@@ -3902,6 +3902,7 @@ final class AdminCoreController
     private function importUsersSpreadsheet(): void
     {
         try {
+            $this->refreshExecutionDeadline(300);
             $actor = $this->protect(['admin', 'agent', 'master_agent', 'super_agent']);
             if ($actor === null) {
                 return;
@@ -3929,6 +3930,7 @@ final class AdminCoreController
             $rawRows = ($extension === 'xlsx')
                 ? $this->parseXlsxRows($tmpPath)
                 : $this->parseCsvRows($tmpPath);
+            $this->refreshExecutionDeadline(300);
 
             if (count($rawRows) < 2) {
                 Response::json(['message' => 'Spreadsheet must include a header row and at least one data row'], 400);
@@ -3971,6 +3973,7 @@ final class AdminCoreController
      */
     private function executeBulkUserCreate(array $rows, array $actor, array $options = []): array
     {
+        $this->refreshExecutionDeadline(300);
         $strict = array_key_exists('strict', $options) ? (bool) $options['strict'] : true;
         $skipExisting = array_key_exists('skipExisting', $options) ? (bool) $options['skipExisting'] : false;
 
@@ -3989,7 +3992,10 @@ final class AdminCoreController
         $candidateUsernames = [];
         $candidatePhones = [];
         $candidateAgentLabels = [];
-        foreach ($rows as $row) {
+        foreach ($rows as $idx => $row) {
+            if ($idx % 25 === 0) {
+                $this->refreshExecutionDeadline(300);
+            }
             $u = strtoupper(trim((string) ($row['username'] ?? '')));
             $p = trim((string) ($row['phoneNumber'] ?? ''));
             if ($u !== '') {
@@ -4094,6 +4100,9 @@ final class AdminCoreController
         $seenPhones = [];
 
         foreach ($rows as $idx => $row) {
+            if ($idx % 25 === 0) {
+                $this->refreshExecutionDeadline(300);
+            }
             $rowNum = $idx + 1;
             $username = strtoupper(trim((string) ($row['username'] ?? '')));
             $phoneRaw = preg_replace('/\D/', '', trim((string) ($row['phoneNumber'] ?? '')));
@@ -4229,7 +4238,10 @@ final class AdminCoreController
         $createdRows = [];
         $this->db->beginTransaction();
         try {
-            foreach ($pendingDocs as $entry) {
+            foreach ($pendingDocs as $idx => $entry) {
+                if ($idx % 25 === 0) {
+                    $this->refreshExecutionDeadline(300);
+                }
                 $id = $this->db->insertOne('users', $entry['doc']);
                 $doc = $entry['doc'];
                 $agentIdRaw = isset($doc['agentId']) ? (string) $doc['agentId'] : '';
@@ -4296,13 +4308,19 @@ final class AdminCoreController
      */
     private function parseCsvRows(string $path): array
     {
+        $this->refreshExecutionDeadline(300);
         $rows = [];
         $handle = fopen($path, 'rb');
         if ($handle === false) {
             throw new RuntimeException('Unable to read CSV file');
         }
+        $line = 0;
         while (($cols = fgetcsv($handle)) !== false) {
+            if ($line % 100 === 0) {
+                $this->refreshExecutionDeadline(300);
+            }
             $rows[] = array_map(static fn($v) => trim((string) $v), $cols);
+            $line++;
         }
         fclose($handle);
         return $rows;
@@ -4313,6 +4331,7 @@ final class AdminCoreController
      */
     private function parseXlsxRows(string $path): array
     {
+        $this->refreshExecutionDeadline(300);
         if (!class_exists('ZipArchive')) {
             throw new RuntimeException('ZipArchive extension is not available');
         }
@@ -4331,7 +4350,10 @@ final class AdminCoreController
                 $xpath->registerNamespace('x', 'http://schemas.openxmlformats.org/spreadsheetml/2006/main');
                 $siNodes = $xpath->query('//x:si');
                 if ($siNodes !== false) {
-                    foreach ($siNodes as $siNode) {
+                    foreach ($siNodes as $idx => $siNode) {
+                        if ($idx % 100 === 0) {
+                            $this->refreshExecutionDeadline(300);
+                        }
                         $shared[] = trim((string) ($siNode->textContent ?? ''));
                     }
                 }
@@ -4366,7 +4388,11 @@ final class AdminCoreController
         }
 
         $rows = [];
+        $rowIndex = 0;
         foreach ($sheet->sheetData->row as $rowNode) {
+            if ($rowIndex % 100 === 0) {
+                $this->refreshExecutionDeadline(300);
+            }
             $cells = [];
             $maxCol = -1;
             foreach ($rowNode->c as $cell) {
@@ -4398,9 +4424,19 @@ final class AdminCoreController
                 $line[] = (string) ($cells[$i] ?? '');
             }
             $rows[] = $line;
+            $rowIndex++;
         }
 
         return $rows;
+    }
+
+    private function refreshExecutionDeadline(int $seconds = 300): void
+    {
+        $seconds = max(30, $seconds);
+        if (function_exists('set_time_limit')) {
+            @set_time_limit($seconds);
+        }
+        @ini_set('max_execution_time', (string) $seconds);
     }
 
     private function xlsxColumnToIndex(string $letters): int

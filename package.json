@@ -4,10 +4,10 @@
     "scripts": {
         "postinstall": "cd frontend && npm install",
         "build": "(cd frontend && npm run build) && ./scripts/package-prod.sh",
-        "start": "php -S 0.0.0.0:5000 -t php-backend/public php-backend/public/router.php",
+        "start": "php -d max_execution_time=300 -S 0.0.0.0:5000 -t php-backend/public php-backend/public/router.php",
         "start-php-worker": "php php-backend/scripts/odds-worker.php",
         "dev": "npx concurrently \"npm run dev-php-backend\" \"npm run dev-php-worker\" \"npm run dev-frontend\"",
-        "dev-php-backend": "php -S 127.0.0.1:5000 -t php-backend/public php-backend/public/router.php",
+        "dev-php-backend": "php -d max_execution_time=300 -S 127.0.0.1:5000 -t php-backend/public php-backend/public/router.php",
         "dev-php-worker": "php php-backend/scripts/odds-worker.php",
         "dev-frontend": "cd frontend && npm run dev",
         "check-php-routes": "bash php-backend/scripts/check-route-parity.sh",
