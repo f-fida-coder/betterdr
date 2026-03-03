@@ -3938,7 +3938,35 @@ final class AdminCoreController
             }
 
             $defaultAgentId = trim((string) ($_POST['defaultAgentId'] ?? ''));
+            $forceAgentAssignment = filter_var((string) ($_POST['forceAgentAssignment'] ?? 'false'), FILTER_VALIDATE_BOOLEAN);
+            $actorRole = (string) ($actor['role'] ?? '');
+            $actorId = (string) ($actor['_id'] ?? '');
+
+            if ($actorRole === 'agent') {
+                $defaultAgentId = $actorId;
+                $forceAgentAssignment = true;
+            } elseif (in_array($actorRole, ['master_agent', 'super_agent'], true) && $forceAgentAssignment && $defaultAgentId === '') {
+                $defaultAgentId = $actorId;
+            }
+
+            if ($forceAgentAssignment) {
+                if (preg_match('/^[a-f0-9]{24}$/i', $defaultAgentId) !== 1) {
+                    Response::json(['message' => 'Select a valid agent before importing with forced assignment'], 400);
+                    return;
+                }
+                if (!$this->canActorAssignImportsToAgent($actor, $defaultAgentId)) {
+                    Response::json(['message' => 'Not authorized to assign imports to this agent'], 403);
+                    return;
+                }
+            }
+
             $mappedRows = $this->mapSpreadsheetRowsToUsers($rawRows, $defaultAgentId);
+            if ($forceAgentAssignment && $mappedRows['rows'] !== []) {
+                foreach ($mappedRows['rows'] as &$mappedRow) {
+                    $mappedRow['agentId'] = $defaultAgentId;
+                }
+                unset($mappedRow);
+            }
             if ($mappedRows['rows'] === [] && $mappedRows['errors'] !== []) {
                 Response::json([
                     'message' => 'Spreadsheet validation failed',
@@ -3966,6 +3994,36 @@ final class AdminCoreController
         } catch (Throwable $e) {
             Response::json(['message' => 'Failed to import spreadsheet: ' . $e->getMessage()], 500);
         }
+    }
+
+    private function canActorAssignImportsToAgent(array $actor, string $agentId): bool
+    {
+        if (preg_match('/^[a-f0-9]{24}$/i', $agentId) !== 1) {
+            return false;
+        }
+
+        $role = strtolower((string) ($actor['role'] ?? ''));
+        $actorId = (string) ($actor['_id'] ?? '');
+        if ($role === 'admin') {
+            return true;
+        }
+        if ($role === 'agent') {
+            return $actorId !== '' && $actorId === $agentId;
+        }
+        if ($role === 'master_agent' || $role === 'super_agent') {
+            if ($actorId !== '' && $actorId === $agentId) {
+                return true;
+            }
+            $target = $this->db->findOne('agents', ['_id' => MongoRepository::id($agentId)], ['projection' => ['createdBy' => 1, 'createdByModel' => 1]]);
+            if ($target === null) {
+                return false;
+            }
+            $createdBy = (string) ($target['createdBy'] ?? '');
+            $createdByModel = (string) ($target['createdByModel'] ?? '');
+            return $actorId !== '' && $createdBy === $actorId && $createdByModel === 'Agent';
+        }
+
+        return false;
     }
 
     /**

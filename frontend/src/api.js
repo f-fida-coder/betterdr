@@ -1587,6 +1587,9 @@ export const importUsersSpreadsheet = async (file, token, options = {}) => {
     if (options.defaultAgentId) {
         formData.append('defaultAgentId', String(options.defaultAgentId));
     }
+    if (typeof options.forceAgentAssignment !== 'undefined') {
+        formData.append('forceAgentAssignment', options.forceAgentAssignment ? 'true' : 'false');
+    }
 
     try {
         const response = await fetch(buildApiUrl('/admin/import-users-spreadsheet'), {

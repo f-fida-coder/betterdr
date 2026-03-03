@@ -22,6 +22,7 @@ function CustomerAdminView({ onViewChange }) {
   const [importSummary, setImportSummary] = useState('');
   const [importedUsernames, setImportedUsernames] = useState([]);
   const [showImportedOnly, setShowImportedOnly] = useState(false);
+  const [importForceAgentAssignment, setImportForceAgentAssignment] = useState(true);
   const [newCustomer, setNewCustomer] = useState({
     username: '',
     phoneNumber: '',
@@ -286,11 +287,16 @@ function CustomerAdminView({ onViewChange }) {
         setError('Please choose an Excel/CSV file first.');
         return;
       }
+      if (importForceAgentAssignment && currentRole === 'admin' && !newCustomer.agentId) {
+        setError('Select an agent first, or uncheck "Assign all to selected agent".');
+        return;
+      }
 
       const result = await withTimeout(
         importUsersSpreadsheet(importFile, token, {
           defaultAgentId: newCustomer.agentId || '',
-          timeoutMs: 45000
+          timeoutMs: 45000,
+          forceAgentAssignment: importForceAgentAssignment
         }),
         50000,
         'Import request timed out. Please try again.'
@@ -1637,6 +1643,21 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
                     {selectedImportFileName && (
                       <small style={{ display: 'block', marginTop: '6px', color: '#cbd5e1' }}>
                         Selected file: {selectedImportFileName}
+                      </small>
+                    )}
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px', fontSize: '12px', color: '#cbd5e1' }}>
+                      <input
+                        type="checkbox"
+                        checked={importForceAgentAssignment}
+                        onChange={(e) => setImportForceAgentAssignment(e.target.checked)}
+                      />
+                      {currentRole === 'agent'
+                        ? 'Assign all imported players to me'
+                        : 'Assign all imported players to selected agent'}
+                    </label>
+                    {importForceAgentAssignment && currentRole === 'admin' && !newCustomer.agentId && (
+                      <small style={{ display: 'block', marginTop: '4px', color: '#fca5a5' }}>
+                        Pick an agent in "Assign to Agent" before importing.
                       </small>
                     )}
                   </div>
