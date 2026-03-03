@@ -18,6 +18,7 @@ function CustomerAdminView({ onViewChange }) {
   const [createLoading, setCreateLoading] = useState(false);
   const [importLoading, setImportLoading] = useState(false);
   const [importFile, setImportFile] = useState(null);
+  const [selectedImportFileName, setSelectedImportFileName] = useState('');
   const [importSummary, setImportSummary] = useState('');
   const [importedUsernames, setImportedUsernames] = useState([]);
   const [showImportedOnly, setShowImportedOnly] = useState(false);
@@ -272,6 +273,7 @@ function CustomerAdminView({ onViewChange }) {
   const handleImportCustomers = async () => {
     try {
       setImportLoading(true);
+      setError('');
       setImportSummary('');
       setImportedUsernames([]);
       setShowImportedOnly(false);
@@ -306,9 +308,37 @@ function CustomerAdminView({ onViewChange }) {
       if (createdUsernames.length > 0) {
         setShowImportedOnly(true);
       }
+      if (Array.isArray(result?.createdRows) && result.createdRows.length > 0) {
+        setCustomers((prev) => {
+          const existing = new Set(prev.map((c) => String(c.username || '').toUpperCase()).filter(Boolean));
+          const appended = result.createdRows
+            .filter((row) => !existing.has(String(row?.username || '').toUpperCase()))
+            .map((row) => ({
+              id: row?.id || row?._id || '',
+              username: String(row?.username || '').toUpperCase(),
+              role: 'user',
+              status: 'active',
+              phoneNumber: '',
+              firstName: '',
+              lastName: '',
+              minBet: 0,
+              maxBet: 0,
+              creditLimit: 0,
+              balanceOwed: 0,
+              freeplayBalance: 0,
+              balance: 0,
+              pendingBalance: 0,
+              availableBalance: 0,
+              displayPassword: '',
+              agentId: newCustomer.agentId ? { _id: newCustomer.agentId } : null
+            }));
+          return [...appended, ...prev];
+        });
+      }
       setSelectedHeaderAgentId('');
       setHeaderAgentQuery('');
       setImportFile(null);
+      setSelectedImportFileName('');
       setError('');
 
       // Refresh list, but do not block UI forever if this call hangs/fails.
@@ -322,7 +352,7 @@ function CustomerAdminView({ onViewChange }) {
         }
       } catch (refreshErr) {
         console.warn('Post-import refresh failed:', refreshErr);
-        setError(refreshErr.message || 'Imported, but list refresh failed. Reload page to see updates.');
+        setImportSummary((prev) => `${prev} Imported, but refresh failed: ${refreshErr.message || 'please reload page.'}`);
       }
     } catch (err) {
       console.error('Import users failed:', err);
@@ -1261,8 +1291,8 @@ function CustomerAdminView({ onViewChange }) {
           <span>Loading Entries...</span>
         </div>}
         {error && <div className="error-state">{error}</div>}
-        {!error && importSummary && <div className="success-state">{importSummary}</div>}
-        {!error && importedUsernames.length > 0 && (
+        {importSummary && <div className="success-state">{importSummary}</div>}
+        {importedUsernames.length > 0 && (
           <div className="success-state" style={{ marginTop: '8px' }}>
             Imported usernames: {importedUsernames.slice(0, 20).join(', ')}{importedUsernames.length > 20 ? ` (+${importedUsernames.length - 20} more)` : ''}
             <button
@@ -1276,7 +1306,7 @@ function CustomerAdminView({ onViewChange }) {
           </div>
         )}
 
-        {!loading && !error && (
+        {!loading && (
           <>
             <div className="filter-section" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '20px', alignItems: 'end' }}>
               <div className="filter-group">
@@ -1586,8 +1616,17 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
                     <input
                       type="file"
                       accept=".xlsx,.csv"
-                      onChange={(e) => setImportFile(e.target.files?.[0] || null)}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0] || null;
+                        setImportFile(file);
+                        setSelectedImportFileName(file?.name || '');
+                      }}
                     />
+                    {selectedImportFileName && (
+                      <small style={{ display: 'block', marginTop: '6px', color: '#cbd5e1' }}>
+                        Selected file: {selectedImportFileName}
+                      </small>
+                    )}
                   </div>
                   <button
                     type="button"
