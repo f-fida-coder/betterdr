@@ -3976,6 +3976,71 @@ final class AdminCoreController
         $createdByModel = ($actorRole === 'admin') ? 'Admin' : 'Agent';
         $now = MongoRepository::nowUtc();
 
+        $candidateUsernames = [];
+        $candidatePhones = [];
+        $candidateAgentLabels = [];
+        foreach ($rows as $row) {
+            $u = strtoupper(trim((string) ($row['username'] ?? '')));
+            $p = trim((string) ($row['phoneNumber'] ?? ''));
+            if ($u !== '') {
+                $candidateUsernames[$u] = true;
+            }
+            if ($p !== '') {
+                $candidatePhones[$p] = true;
+            }
+            $aid = trim((string) ($row['agentId'] ?? ''));
+            $agentLabel = trim((string) ($row['agent'] ?? ''));
+            $agentToken = $aid !== '' ? $aid : $agentLabel;
+            if ($agentToken !== '' && preg_match('/^[a-f0-9]{24}$/i', $agentToken) !== 1) {
+                $candidateAgentLabels[strtoupper($agentToken)] = true;
+            }
+        }
+
+        $existingUsernames = [];
+        $existingPhones = [];
+        $usernameList = array_keys($candidateUsernames);
+        $phoneList = array_keys($candidatePhones);
+        if (count($usernameList) > 0 || count($phoneList) > 0) {
+            $existQuery = [];
+            if (count($usernameList) > 0 && count($phoneList) > 0) {
+                $existQuery = ['$or' => [
+                    ['username' => ['$in' => $usernameList]],
+                    ['phoneNumber' => ['$in' => $phoneList]],
+                ]];
+            } elseif (count($usernameList) > 0) {
+                $existQuery = ['username' => ['$in' => $usernameList]];
+            } else {
+                $existQuery = ['phoneNumber' => ['$in' => $phoneList]];
+            }
+
+            foreach (['users', 'admins', 'agents'] as $collection) {
+                $docs = $this->db->findMany($collection, $existQuery, ['projection' => ['username' => 1, 'phoneNumber' => 1]]);
+                foreach ($docs as $doc) {
+                    $u = strtoupper(trim((string) ($doc['username'] ?? '')));
+                    $p = trim((string) ($doc['phoneNumber'] ?? ''));
+                    if ($u !== '') {
+                        $existingUsernames[$u] = true;
+                    }
+                    if ($p !== '') {
+                        $existingPhones[$p] = true;
+                    }
+                }
+            }
+        }
+
+        $agentIdByUsername = [];
+        $agentLabels = array_keys($candidateAgentLabels);
+        if (count($agentLabels) > 0) {
+            $agentsByUsername = $this->db->findMany('agents', ['username' => ['$in' => $agentLabels]], ['projection' => ['_id' => 1, 'username' => 1]]);
+            foreach ($agentsByUsername as $doc) {
+                $u = strtoupper(trim((string) ($doc['username'] ?? '')));
+                $id = (string) ($doc['_id'] ?? '');
+                if ($u !== '' && $id !== '') {
+                    $agentIdByUsername[$u] = $id;
+                }
+            }
+        }
+
         $errors = [];
         $skipped = [];
         $pendingDocs = [];
@@ -4006,7 +4071,7 @@ final class AdminCoreController
             $seenUsernames[$username] = true;
             $seenPhones[$phoneNumber] = true;
 
-            if ($this->existsUsernameOrPhone($username, $phoneNumber)) {
+            if (isset($existingUsernames[$username]) || isset($existingPhones[$phoneNumber])) {
                 if ($skipExisting || !$strict) {
                     $skipped[] = ['row' => $rowNum, 'username' => $username, 'reason' => 'already-exists'];
                 } else {
@@ -4024,8 +4089,7 @@ final class AdminCoreController
                     $reqAgent = trim((string) $row['agent']);
                 }
                 if ($reqAgent !== '' && preg_match('/^[a-f0-9]{24}$/i', $reqAgent) !== 1) {
-                    $agentByUsername = $this->db->findOne('agents', ['username' => strtoupper($reqAgent)], ['projection' => ['_id' => 1]]);
-                    $reqAgent = (string) ($agentByUsername['_id'] ?? '');
+                    $reqAgent = (string) ($agentIdByUsername[strtoupper($reqAgent)] ?? '');
                 }
                 $assignedAgentId = ($reqAgent !== '' && preg_match('/^[a-f0-9]{24}$/i', $reqAgent) === 1) ? $reqAgent : $actorId;
             } else {
@@ -4034,8 +4098,7 @@ final class AdminCoreController
                     $reqAgent = trim((string) $row['agent']);
                 }
                 if ($reqAgent !== '' && preg_match('/^[a-f0-9]{24}$/i', $reqAgent) !== 1) {
-                    $agentByUsername = $this->db->findOne('agents', ['username' => strtoupper($reqAgent)], ['projection' => ['_id' => 1]]);
-                    $reqAgent = (string) ($agentByUsername['_id'] ?? '');
+                    $reqAgent = (string) ($agentIdByUsername[strtoupper($reqAgent)] ?? '');
                 }
                 if ($reqAgent !== '' && preg_match('/^[a-f0-9]{24}$/i', $reqAgent) === 1) {
                     $assignedAgentId = $reqAgent;
