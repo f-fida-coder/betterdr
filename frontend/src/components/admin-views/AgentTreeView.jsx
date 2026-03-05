@@ -2,6 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { getAgentTree } from '../../api';
 
 function AgentTreeView({ onClose, onGo, initialQuery = '' }) {
+    const AGENT_ROLES = new Set(['admin', 'agent', 'master_agent', 'super_agent']);
+    const isAgentNode = (node) => {
+        const nodeType = String(node?.nodeType || '').toLowerCase();
+        if (nodeType === 'agent') return true;
+        if (nodeType === 'player') return false;
+        return AGENT_ROLES.has(String(node?.role || '').toLowerCase());
+    };
     const [loading, setLoading] = useState(true);
     const [treeData, setTreeData] = useState(null);
     const [searchQuery, setSearchQuery] = useState('');
@@ -53,21 +60,32 @@ function AgentTreeView({ onClose, onGo, initialQuery = '' }) {
         setExpandedNodes(newSet);
     };
 
+    const hasMatchingAgentInBranch = (node, query) => {
+        const normalizedQuery = query.trim().toLowerCase();
+        if (!normalizedQuery) return true;
+
+        const isAgent = isAgentNode(node);
+        const nodeName = String(node.username || '').toLowerCase();
+        if (isAgent && nodeName.includes(normalizedQuery)) {
+            return true;
+        }
+
+        return (node.children || []).some((child) => hasMatchingAgentInBranch(child, normalizedQuery));
+    };
+
     const renderNode = (node, depth = 0) => {
+        const isAgent = isAgentNode(node);
+        if (!isAgent) return null;
+
         const isExpanded = expandedNodes.has(node.id);
-        const isAgent = node.role !== 'player';
-        const hasChildren = node.children && node.children.length > 0;
+        const visibleChildren = (node.children || []).filter((child) => isAgentNode(child));
+        const hasChildren = visibleChildren.length > 0;
         const isDead = node.isDead || node.username?.toUpperCase() === 'DEAD';
+        const normalizedSearchQuery = searchQuery.trim().toLowerCase();
 
-        // Filter based on search
-        const matchesSearch = node.username.toLowerCase().includes(searchQuery.toLowerCase());
-        const hasMatchingChild = node.children?.some(child =>
-            child.username.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            child.children?.length > 0 // Simplified: if it has children, just show it for now
-        );
-
-        if (searchQuery && !matchesSearch && !hasMatchingChild) {
-            return null;
+        // Agent tree search should only match/show agent nodes.
+        if (normalizedSearchQuery) {
+            if (!hasMatchingAgentInBranch(node, normalizedSearchQuery)) return null;
         }
 
         return (
@@ -93,7 +111,7 @@ function AgentTreeView({ onClose, onGo, initialQuery = '' }) {
                 </div>
                 {isAgent && (isExpanded || searchQuery) && hasChildren && (
                     <div className="node-children">
-                        {node.children.map(child => renderNode(child, depth + 1))}
+                        {visibleChildren.map(child => renderNode(child, depth + 1))}
                     </div>
                 )}
             </div>

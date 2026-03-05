@@ -52,7 +52,14 @@ const FALLBACK_VIEW_ORDER = [
 ];
 
 function AdminPanel({ onExit, role = 'admin' }) {
-  const [adminView, setAdminView] = useState('dashboard');
+  const [adminView, setAdminView] = useState(() => {
+    const pendingView = sessionStorage.getItem('postSwitchAdminView');
+    if (pendingView) {
+      sessionStorage.removeItem('postSwitchAdminView');
+      return pendingView;
+    }
+    return 'dashboard';
+  });
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState(null);
   const [layoutPref, setLayoutPref] = useState('tiles');
@@ -143,7 +150,11 @@ function AdminPanel({ onExit, role = 'admin' }) {
         sessionStorage.setItem(`${roleKey}Username`, data.username);
       }
 
-      window.location.reload();
+      sessionStorage.setItem('postSwitchAdminView', 'customer-admin');
+      const nextRoleKey = data.role === 'admin'
+        ? 'admin'
+        : ((data.role === 'super_agent' || data.role === 'master_agent') ? 'super_agent' : 'agent');
+      window.location.href = `/${nextRoleKey}/dashboard`;
     } catch (e) {
       console.error('Context switch failed:', e);
       alert(e.message || 'Failed to switch context');
@@ -165,8 +176,10 @@ function AdminPanel({ onExit, role = 'admin' }) {
     sessionStorage.removeItem('impersonationBaseToken');
     sessionStorage.removeItem('impersonationBaseRole');
     sessionStorage.removeItem('impersonationBaseUsername');
-
-    window.location.reload();
+    const nextRoleKey = baseRole === 'admin'
+      ? 'admin'
+      : ((baseRole === 'super_agent' || baseRole === 'master_agent') ? 'super_agent' : 'agent');
+    window.location.href = `/${nextRoleKey}/dashboard`;
   };
 
   useEffect(() => {

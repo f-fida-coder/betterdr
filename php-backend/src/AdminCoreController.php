@@ -1186,6 +1186,7 @@ final class AdminCoreController
                     'username' => $actor['username'] ?? null,
                     'role' => $actor['role'] ?? null,
                     'id' => (string) ($actor['_id'] ?? ''),
+                    'nodeType' => 'agent',
                 ],
                 'tree' => $tree,
             ]);
@@ -6725,6 +6726,7 @@ final class AdminCoreController
                 'id' => $agentId,
                 'username' => $username,
                 'role' => $agent['role'] ?? null,
+                'nodeType' => 'agent',
                 'isDead' => strtoupper($username) === 'DEAD',
                 'children' => $this->buildAgentTree($agentId, 'Agent'),
             ];
@@ -6748,6 +6750,7 @@ final class AdminCoreController
                 'id' => (string) ($player['_id'] ?? ''),
                 'username' => $player['username'] ?? null,
                 'role' => 'player',
+                'nodeType' => 'player',
                 'children' => [],
             ];
         }
