@@ -527,11 +527,13 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
       }
 
       if ((form.password || '').trim() !== '') {
+        const nextPassword = form.password.trim().toUpperCase();
         if (role === 'admin') {
-          await resetUserPasswordByAdmin(userId, form.password.trim(), token);
+          await resetUserPasswordByAdmin(userId, nextPassword, token);
         } else {
-          await updateUserByAgent(userId, { password: form.password.trim() }, token);
+          await updateUserByAgent(userId, { password: nextPassword }, token);
         }
+        setCustomer((prev) => ({ ...(prev || {}), displayPassword: nextPassword }));
       }
 
         setCustomer((prev) => ({
@@ -1342,7 +1344,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
           />
 
           <label>Password</label>
-          <input value={form.password} placeholder={displayPassword} onChange={(e) => setField('password', e.target.value)} />
+          <input value={form.password} placeholder={displayPassword} onChange={(e) => setField('password', e.target.value.toUpperCase())} />
 
           <label>Master Agent</label>
           {['admin', 'super_agent', 'master_agent'].includes(role) ? (

@@ -1267,7 +1267,7 @@ final class AdminCoreController
             }
 
             $body = Http::jsonBody();
-            $newPassword = (string) ($body['newPassword'] ?? '');
+            $newPassword = strtoupper(trim((string) ($body['newPassword'] ?? '')));
             if ($newPassword === '' || strlen($newPassword) < 6) {
                 Response::json(['message' => 'Password must be at least 6 characters long'], 400);
                 return;
@@ -1307,7 +1307,7 @@ final class AdminCoreController
             }
 
             $body = Http::jsonBody();
-            $newPassword = (string) ($body['newPassword'] ?? '');
+            $newPassword = strtoupper(trim((string) ($body['newPassword'] ?? '')));
             if ($newPassword === '' || strlen($newPassword) < 6) {
                 Response::json(['message' => 'Password must be at least 6 characters long'], 400);
                 return;
@@ -3581,7 +3581,7 @@ final class AdminCoreController
             $body = Http::jsonBody();
             $username = trim((string) ($body['username'] ?? ''));
             $phoneNumber = trim((string) ($body['phoneNumber'] ?? ''));
-            $password = (string) ($body['password'] ?? '');
+            $password = strtoupper(trim((string) ($body['password'] ?? '')));
             $fullName = trim((string) ($body['fullName'] ?? ''));
             $role = (string) ($body['role'] ?? '');
             $parentAgentId = trim((string) ($body['parentAgentId'] ?? $body['agentId'] ?? ''));
@@ -3688,7 +3688,9 @@ final class AdminCoreController
                 $updates['phoneNumber'] = trim((string) $body['phoneNumber']);
             }
             if (isset($body['password']) && (string) $body['password'] !== '') {
-                $updates['password'] = password_hash((string) $body['password'], PASSWORD_BCRYPT);
+                $nextPassword = strtoupper(trim((string) $body['password']));
+                $updates['password'] = password_hash($nextPassword, PASSWORD_BCRYPT);
+                $updates['displayPassword'] = $nextPassword;
             }
             if (array_key_exists('agentBillingRate', $body) && is_numeric($body['agentBillingRate'])) {
                 $updates['agentBillingRate'] = (float) $body['agentBillingRate'];
@@ -3760,7 +3762,7 @@ final class AdminCoreController
             $body = Http::jsonBody();
             $username = trim((string) ($body['username'] ?? ''));
             $phoneNumber = trim((string) ($body['phoneNumber'] ?? ''));
-            $password = (string) ($body['password'] ?? '');
+            $password = strtoupper(trim((string) ($body['password'] ?? '')));
             $firstNameRaw = trim((string) ($body['firstName'] ?? ''));
             $lastNameRaw = trim((string) ($body['lastName'] ?? ''));
 
@@ -3839,6 +3841,7 @@ final class AdminCoreController
                 'username' => strtoupper($username),
                 'phoneNumber' => $phoneNumber,
                 'password' => password_hash($password, PASSWORD_BCRYPT),
+                'displayPassword' => $password,
                 'firstName' => $firstName,
                 'lastName' => $lastName,
                 'fullName' => $fullName,
@@ -3967,6 +3970,22 @@ final class AdminCoreController
                 }
                 unset($mappedRow);
             }
+            if ($mappedRows['rows'] !== []) {
+                usort($mappedRows['rows'], static function (array $a, array $b): int {
+                    $userA = strtoupper(trim((string) ($a['username'] ?? '')));
+                    $userB = strtoupper(trim((string) ($b['username'] ?? '')));
+                    if ($userA !== '' && $userB !== '') {
+                        return strnatcasecmp($userA, $userB);
+                    }
+                    if ($userA !== '' || $userB !== '') {
+                        return $userA !== '' ? -1 : 1;
+                    }
+
+                    $nameA = strtoupper(trim(((string) ($a['firstName'] ?? '')) . ' ' . ((string) ($a['lastName'] ?? ''))));
+                    $nameB = strtoupper(trim(((string) ($b['firstName'] ?? '')) . ' ' . ((string) ($b['lastName'] ?? ''))));
+                    return strnatcasecmp($nameA, $nameB);
+                });
+            }
             if ($mappedRows['rows'] === [] && $mappedRows['errors'] !== []) {
                 Response::json([
                     'message' => 'Spreadsheet validation failed',
@@ -4072,6 +4091,8 @@ final class AdminCoreController
 
         $existingUsernames = [];
         $existingPhones = [];
+        $existingUserByUsername = [];
+        $existingUserByPhone = [];
         $usernameList = array_keys($candidateUsernames);
         $phoneList = array_keys($candidatePhones);
         if (count($usernameList) > 0 || count($phoneList) > 0) {
@@ -4088,7 +4109,13 @@ final class AdminCoreController
             }
 
             foreach (['users', 'admins', 'agents'] as $collection) {
-                $docs = $this->db->findMany($collection, $existQuery, ['projection' => ['username' => 1, 'phoneNumber' => 1]]);
+                $projection = ['username' => 1, 'phoneNumber' => 1];
+                if ($collection === 'users') {
+                    $projection['_id'] = 1;
+                    $projection['maxBet'] = 1;
+                    $projection['lifetime'] = 1;
+                }
+                $docs = $this->db->findMany($collection, $existQuery, ['projection' => $projection]);
                 foreach ($docs as $doc) {
                     $u = strtoupper(trim((string) ($doc['username'] ?? '')));
                     $p = trim((string) ($doc['phoneNumber'] ?? ''));
@@ -4097,6 +4124,14 @@ final class AdminCoreController
                     }
                     if ($p !== '') {
                         $existingPhones[$p] = true;
+                    }
+                    if ($collection === 'users') {
+                        if ($u !== '') {
+                            $existingUserByUsername[$u] = $doc;
+                        }
+                        if ($p !== '') {
+                            $existingUserByPhone[$p] = $doc;
+                        }
                     }
                 }
             }
@@ -4150,9 +4185,54 @@ final class AdminCoreController
                 $this->syncMasterAgentCollection(array_merge($agentDoc, ['_id' => $newAgentId]));
             }
         }
+        $agentUsernameById = [];
+        foreach ($agentIdByUsername as $agentUsername => $agentId) {
+            if ($agentId !== '') {
+                $agentUsernameById[$agentId] = $agentUsername;
+            }
+        }
+
+        $usernameSequenceMax = [];
+        $generatedUsernames = [];
+        $nextSequentialUsername = function (string $prefix) use (&$usernameSequenceMax, &$existingUsernames, &$generatedUsernames): string {
+            $normalizedPrefix = strtoupper(preg_replace('/[^A-Z0-9]/', '', $prefix) ?? '');
+            if ($normalizedPrefix === '') {
+                $normalizedPrefix = 'USR';
+            }
+
+            if (!array_key_exists($normalizedPrefix, $usernameSequenceMax)) {
+                $maxNum = 0;
+                $pattern = '/^' . preg_quote($normalizedPrefix, '/') . '([0-9]+)$/i';
+                foreach (['users', 'admins', 'agents'] as $collection) {
+                    $docs = $this->db->findMany($collection, ['username' => ['$regex' => '^' . preg_quote($normalizedPrefix, '/') . '[0-9]+$', '$options' => 'i']], ['projection' => ['username' => 1]]);
+                    foreach ($docs as $doc) {
+                        $existing = strtoupper(trim((string) ($doc['username'] ?? '')));
+                        if ($existing === '') {
+                            continue;
+                        }
+                        if (preg_match($pattern, $existing, $matches) === 1) {
+                            $num = (int) ($matches[1] ?? 0);
+                            if ($num > $maxNum) {
+                                $maxNum = $num;
+                            }
+                        }
+                    }
+                }
+                $usernameSequenceMax[$normalizedPrefix] = $maxNum;
+            }
+
+            do {
+                $usernameSequenceMax[$normalizedPrefix]++;
+                $candidate = $normalizedPrefix . $usernameSequenceMax[$normalizedPrefix];
+            } while (isset($existingUsernames[$candidate]) || isset($generatedUsernames[$candidate]));
+
+            $generatedUsernames[$candidate] = true;
+            return $candidate;
+        };
 
         $errors = [];
         $skipped = [];
+        $updatedRows = [];
         $pendingDocs = [];
         $seenUsernames = [];
         $seenPhones = [];
@@ -4161,8 +4241,7 @@ final class AdminCoreController
             if ($idx % 25 === 0) {
                 $this->refreshExecutionDeadline(300);
             }
-            $rowNum = $idx + 1;
-            $username = strtoupper(trim((string) ($row['username'] ?? '')));
+            $rowNum = (int) ($row['__sourceRow'] ?? ($idx + 1));
             $phoneRaw = preg_replace('/\D/', '', trim((string) ($row['phoneNumber'] ?? '')));
             // Format phone as XXX-XXX-XXXX (matches frontend handlePhoneChange)
             if (strlen($phoneRaw) >= 10) {
@@ -4184,32 +4263,16 @@ final class AdminCoreController
                 if ($firstName !== '' && $lastName !== '') {
                     $password = strtoupper(substr($firstName, 0, 3) . substr($lastName, 0, 3)) . $last4;
                 } else {
-                    $password = $username . $last4;
+                    $fallbackUsername = strtoupper(trim((string) ($row['username'] ?? '')));
+                    if ($fallbackUsername === '') {
+                        $fallbackUsername = 'USER';
+                    }
+                    $password = $fallbackUsername . $last4;
                 }
             }
 
-            if ($username === '' || $phoneNumber === '') {
-                $errors[] = ['row' => $rowNum, 'username' => $username, 'error' => 'Username and phone number are required'];
-                continue;
-            }
-
-            if (isset($seenUsernames[$username]) || isset($seenPhones[$phoneNumber])) {
-                if ($strict) {
-                    $errors[] = ['row' => $rowNum, 'username' => $username, 'error' => 'Duplicate username or phone number in uploaded file'];
-                } else {
-                    $skipped[] = ['row' => $rowNum, 'username' => $username, 'reason' => 'duplicate-in-file'];
-                }
-                continue;
-            }
-            $seenUsernames[$username] = true;
-            $seenPhones[$phoneNumber] = true;
-
-            if (isset($existingUsernames[$username]) || isset($existingPhones[$phoneNumber])) {
-                if ($skipExisting || !$strict) {
-                    $skipped[] = ['row' => $rowNum, 'username' => $username, 'reason' => 'already-exists'];
-                } else {
-                    $errors[] = ['row' => $rowNum, 'username' => $username, 'error' => 'Username or phone number already exists'];
-                }
+            if ($phoneNumber === '') {
+                $errors[] = ['row' => $rowNum, 'username' => '', 'error' => 'Phone number is required'];
                 continue;
             }
 
@@ -4237,6 +4300,98 @@ final class AdminCoreController
                     $assignedAgentId = $reqAgent;
                 }
             }
+
+            $username = strtoupper(trim((string) ($row['username'] ?? '')));
+            if ($username === '') {
+                $generatedPrefix = '';
+                if ($assignedAgentId !== null && preg_match('/^[a-f0-9]{24}$/i', $assignedAgentId) === 1) {
+                    $generatedPrefix = (string) ($agentUsernameById[$assignedAgentId] ?? '');
+                    if ($generatedPrefix === '') {
+                        $agentDoc = $this->db->findOne('agents', ['_id' => MongoRepository::id($assignedAgentId)], ['projection' => ['username' => 1]]);
+                        $generatedPrefix = strtoupper(trim((string) ($agentDoc['username'] ?? '')));
+                        if ($generatedPrefix !== '') {
+                            $agentUsernameById[$assignedAgentId] = $generatedPrefix;
+                        }
+                    }
+                }
+                if ($generatedPrefix === '' && $actorRole !== 'admin') {
+                    $generatedPrefix = strtoupper(trim((string) ($actor['username'] ?? '')));
+                }
+                if ($generatedPrefix === '') {
+                    $generatedPrefix = strtoupper(substr($firstName, 0, 2) . substr($lastName, 0, 2));
+                }
+                $username = $nextSequentialUsername($generatedPrefix);
+            }
+
+            if (isset($seenUsernames[$username]) || isset($seenPhones[$phoneNumber])) {
+                if ($strict) {
+                    $errors[] = ['row' => $rowNum, 'username' => $username, 'error' => 'Duplicate username or phone number in uploaded file'];
+                } else {
+                    $skipped[] = ['row' => $rowNum, 'username' => $username, 'reason' => 'duplicate-in-file'];
+                }
+                continue;
+            }
+            $seenUsernames[$username] = true;
+            $seenPhones[$phoneNumber] = true;
+
+            if (isset($existingUsernames[$username]) || isset($existingPhones[$phoneNumber])) {
+                if ($skipExisting || !$strict) {
+                    $existingUser = null;
+                    if ($username !== '' && isset($existingUserByUsername[$username])) {
+                        $existingUser = $existingUserByUsername[$username];
+                    } elseif ($phoneNumber !== '' && isset($existingUserByPhone[$phoneNumber])) {
+                        $existingUser = $existingUserByPhone[$phoneNumber];
+                    }
+
+                    $canBackfill = is_array($existingUser) && isset($existingUser['_id']);
+                    if ($canBackfill) {
+                        $hasMaxBet = array_key_exists('maxBet', $row) && trim((string) ($row['maxBet'] ?? '')) !== '';
+                        $hasLifetime = array_key_exists('lifetime', $row) && trim((string) ($row['lifetime'] ?? '')) !== '';
+                        $updates = ['updatedAt' => $now];
+                        if ($hasMaxBet) {
+                            $updates['maxBet'] = $this->numOr($row['maxBet'] ?? null, $this->num($existingUser['maxBet'] ?? 0));
+                        }
+                        if ($hasLifetime) {
+                            $updates['lifetime'] = $this->numOr($row['lifetime'] ?? null, $this->num($existingUser['lifetime'] ?? 0));
+                        }
+
+                        if (count($updates) > 1) {
+                            $existingUserId = (string) ($existingUser['_id'] ?? '');
+                            $this->db->updateOne('users', ['_id' => MongoRepository::id($existingUserId)], $updates);
+                            $updatedRows[] = [
+                                'row' => $rowNum,
+                                'id' => $existingUserId,
+                                'username' => $username,
+                                'updatedFields' => array_values(array_diff(array_keys($updates), ['updatedAt'])),
+                                'maxBet' => array_key_exists('maxBet', $updates) ? $this->num($updates['maxBet']) : $this->num($existingUser['maxBet'] ?? 0),
+                                'lifetime' => array_key_exists('lifetime', $updates) ? $this->num($updates['lifetime']) : $this->num($existingUser['lifetime'] ?? 0),
+                            ];
+                            $patched = $existingUser;
+                            if (array_key_exists('maxBet', $updates)) {
+                                $patched['maxBet'] = $updates['maxBet'];
+                            }
+                            if (array_key_exists('lifetime', $updates)) {
+                                $patched['lifetime'] = $updates['lifetime'];
+                            }
+                            if ($username !== '') {
+                                $existingUserByUsername[$username] = $patched;
+                            }
+                            if ($phoneNumber !== '') {
+                                $existingUserByPhone[$phoneNumber] = $patched;
+                            }
+                        } else {
+                            $skipped[] = ['row' => $rowNum, 'username' => $username, 'reason' => 'already-exists'];
+                        }
+                    } else {
+                        $skipped[] = ['row' => $rowNum, 'username' => $username, 'reason' => 'already-exists'];
+                    }
+                } else {
+                    $errors[] = ['row' => $rowNum, 'username' => $username, 'error' => 'Username or phone number already exists'];
+                }
+                continue;
+            }
+            $existingUsernames[$username] = true;
+            $existingPhones[$phoneNumber] = true;
 
             $fullName = strtoupper(trim((string) ($row['fullName'] ?? '')));
             if ($fullName === '') {
@@ -4350,14 +4505,23 @@ final class AdminCoreController
             ]];
         }
 
+        $updatedCount = count($updatedRows);
+        $createdCount = count($createdRows);
+        $message = $createdCount . ' user(s) created';
+        if ($updatedCount > 0) {
+            $message .= ', ' . $updatedCount . ' existing user(s) updated';
+        }
+
         return [201, [
-            'message' => count($createdRows) . ' user(s) created',
+            'message' => $message,
             'total' => $totalSubmitted,
-            'created' => count($createdRows),
+            'created' => $createdCount,
+            'updated' => $updatedCount,
             'failed' => count($errors) + count($skipped),
             'errors' => [],
             'skipped' => $skipped,
             'createdRows' => $createdRows,
+            'updatedRows' => $updatedRows,
         ]];
     }
 
@@ -4577,11 +4741,11 @@ final class AdminCoreController
                 }
             }
 
-            if (($mapped['username'] ?? '') === '' || ($mapped['phoneNumber'] ?? '') === '') {
+            if (($mapped['phoneNumber'] ?? '') === '') {
                 $errors[] = [
                     'row' => $i + 1,
                     'username' => $mapped['username'] ?? '',
-                    'error' => 'username and phoneNumber are required',
+                    'error' => 'phoneNumber is required',
                 ];
                 continue;
             }
@@ -4590,6 +4754,7 @@ final class AdminCoreController
                 $mapped['agentId'] = $defaultAgentId;
             }
 
+            $mapped['__sourceRow'] = $i + 1;
             $rows[] = $mapped;
         }
 
@@ -4614,11 +4779,11 @@ final class AdminCoreController
             'agentid' => 'agentId',
             'balance' => 'balance',
             'minbet' => 'minBet',
-            'maxbet', 'pmaxbet' => 'maxBet',
+            'maxbet', 'pmaxbet', 'maxwager', 'wagerlimit', 'maxwagerlimit' => 'maxBet',
             'creditlimit', 'credit' => 'creditLimit',
             'balanceowed', 'settlelimit' => 'balanceOwed',
             'freeplaybalance', 'freeplay', 'fpbalance' => 'freeplayBalance',
-            'lifetime', 'lifetimeplusminus' => 'lifetime',
+            'lifetime', 'lifetimeplusminus', 'lifeline', 'lifelineplusminus' => 'lifetime',
             'playernotes', 'notes', 'note' => 'playerNotes',
             default => null,
         };
@@ -5093,7 +5258,9 @@ final class AdminCoreController
                 $updates['phoneNumber'] = (string) $body['phoneNumber'];
             }
             if (isset($body['password']) && (string) $body['password'] !== '') {
-                $updates['password'] = password_hash((string) $body['password'], PASSWORD_BCRYPT);
+                $nextPassword = strtoupper(trim((string) $body['password']));
+                $updates['password'] = password_hash($nextPassword, PASSWORD_BCRYPT);
+                $updates['displayPassword'] = $nextPassword;
             }
             if (isset($body['firstName'])) {
                 $updates['firstName'] = (string) $body['firstName'];
@@ -5369,6 +5536,7 @@ final class AdminCoreController
                 'user' => [
                     '_id' => (string) ($foundUser['_id'] ?? $userId),
                     'username' => $foundUser['username'] ?? null,
+                    'displayPassword' => (($foundUser['displayPassword'] ?? '') !== '' ? strtoupper((string) $foundUser['displayPassword']) : (($foundUser['rawPassword'] ?? '') !== '' ? strtoupper((string) $foundUser['rawPassword']) : null)),
                     'firstName' => $foundUser['firstName'] ?? null,
                     'lastName' => $foundUser['lastName'] ?? null,
                     'fullName' => $foundUser['fullName'] ?? null,
@@ -6321,7 +6489,27 @@ final class AdminCoreController
 
     private function numOr(mixed $value, float $fallback): float
     {
-        return is_numeric($value) ? (float) $value : $fallback;
+        if ($value === null) {
+            return $fallback;
+        }
+        if (is_numeric($value)) {
+            return (float) $value;
+        }
+        if (is_string($value)) {
+            $normalized = trim($value);
+            if ($normalized === '') {
+                return $fallback;
+            }
+            // Allow spreadsheet formats like "1,000", "$1,250.50", and "(500)".
+            $normalized = str_replace([',', '$', ' '], '', $normalized);
+            if (preg_match('/^\((.+)\)$/', $normalized, $m) === 1) {
+                $normalized = '-' . $m[1];
+            }
+            if (is_numeric($normalized)) {
+                return (float) $normalized;
+            }
+        }
+        return $fallback;
     }
 
     private function toTimestampSeconds(mixed $value): ?int

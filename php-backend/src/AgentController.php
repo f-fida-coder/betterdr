@@ -66,7 +66,7 @@ final class AgentController
             $body = Http::jsonBody();
             $username = trim((string) ($body['username'] ?? ''));
             $phoneNumber = trim((string) ($body['phoneNumber'] ?? ''));
-            $password = (string) ($body['password'] ?? '');
+            $password = strtoupper(trim((string) ($body['password'] ?? '')));
             $firstName = trim((string) ($body['firstName'] ?? ''));
             $lastName = trim((string) ($body['lastName'] ?? ''));
 
@@ -393,8 +393,9 @@ final class AgentController
             }
 
             if (isset($body['password']) && is_string($body['password']) && $body['password'] !== '') {
-                $updates['password'] = password_hash($body['password'], PASSWORD_BCRYPT);
-                $updates['displayPassword'] = $body['password'];
+                $nextPassword = strtoupper(trim((string) $body['password']));
+                $updates['password'] = password_hash($nextPassword, PASSWORD_BCRYPT);
+                $updates['displayPassword'] = $nextPassword;
             }
 
             if (isset($body['firstName'])) {
@@ -469,7 +470,7 @@ final class AgentController
             $body = Http::jsonBody();
             $username = trim((string) ($body['username'] ?? ''));
             $phoneNumber = trim((string) ($body['phoneNumber'] ?? ''));
-            $password = (string) ($body['password'] ?? '');
+            $password = strtoupper(trim((string) ($body['password'] ?? '')));
             $referredByUserId = trim((string) ($body['referredByUserId'] ?? ''));
             if ($username === '' || $phoneNumber === '' || $password === '') {
                 Response::json(['message' => 'Username, phone number, and password are required'], 400);
@@ -501,6 +502,7 @@ final class AgentController
                 'username' => strtoupper($username),
                 'phoneNumber' => $phoneNumber,
                 'password' => password_hash($password, PASSWORD_BCRYPT),
+                'displayPassword' => $password,
                 'fullName' => $fullName,
                 'role' => $role,
                 'status' => 'active',

@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { createUserByAdmin, createPlayerByAgent, createAgent, createSubAgent, getAgents, getMyPlayers, getMe, updateUserCredit, updateUserBalanceOwedByAgent, resetUserPasswordByAdmin, updateUserByAdmin, updateUserByAgent, getUserStatistics, getNextUsername, getUsersAdmin, deleteUser, deleteAgent, importUsersSpreadsheet } from '../../api';
 
+const alphaNumericCompare = (a, b) => String(a || '').localeCompare(String(b || ''), undefined, { sensitivity: 'base', numeric: true });
+
 function CustomerAdminView({ onViewChange }) {
   const withTimeout = (promise, timeoutMs, message) => {
     let timeoutId;
@@ -318,6 +320,7 @@ function CustomerAdminView({ onViewChange }) {
         ? result.createdRows
           .map((row) => String(row?.username || '').toUpperCase())
           .filter(Boolean)
+          .sort((a, b) => alphaNumericCompare(a, b))
         : [];
       setImportedUsernames(createdUsernames);
       if (createdUsernames.length > 0) {
@@ -699,9 +702,10 @@ function CustomerAdminView({ onViewChange }) {
 
   const handleResetPassword = async (customer) => {
     const customerId = customer.id || customer._id;
-    const newPassword = window.prompt(`Enter new password for ${customer.username}:`, '');
+    const enteredPassword = window.prompt(`Enter new password for ${customer.username}:`, '');
 
-    if (newPassword === null) return;
+    if (enteredPassword === null) return;
+    const newPassword = enteredPassword.toUpperCase();
 
     if (newPassword.length < 6) {
       alert('Password must be at least 6 characters long');
@@ -717,6 +721,9 @@ function CustomerAdminView({ onViewChange }) {
 
       setActionLoadingId(customerId);
       await resetUserPasswordByAdmin(customerId, newPassword, token);
+      setCustomers(prev => prev.map(c => (
+        (c.id || c._id) === customerId ? { ...c, displayPassword: newPassword } : c
+      )));
       alert(`Password for ${customer.username} has been reset successfully.`);
       setError('');
     } catch (err) {
@@ -852,12 +859,14 @@ function CustomerAdminView({ onViewChange }) {
       }
     }
 
-    if (!showImportedOnly || importedUsernames.length === 0) {
-      return scopedPlayers;
-    }
-
     const importedSet = new Set(importedUsernames.map((u) => String(u).toUpperCase()));
-    return scopedPlayers.filter((c) => importedSet.has(String(c.username || '').toUpperCase()));
+    const filtered = (!showImportedOnly || importedUsernames.length === 0)
+      ? scopedPlayers
+      : scopedPlayers.filter((c) => importedSet.has(String(c.username || '').toUpperCase()));
+
+    return [...filtered].sort((a, b) => {
+      return alphaNumericCompare(String(a?.username || ''), String(b?.username || ''));
+    });
   }, [selectedHeaderAgentId, isMasterSelection, allPlayers, selectedMasterChildAgents, selectedHeaderAgentNormalizedId, showImportedOnly, importedUsernames]);
 
   const displayRows = useMemo(() => {
@@ -1141,10 +1150,11 @@ function CustomerAdminView({ onViewChange }) {
       }
 
       if ((draft.password || '').trim() !== '') {
+        const nextDraftPassword = draft.password.trim().toUpperCase();
         if (currentRole === 'admin') {
-          await resetUserPasswordByAdmin(customerId, draft.password.trim(), token);
+          await resetUserPasswordByAdmin(customerId, nextDraftPassword, token);
         } else {
-          await updateUserByAgent(customerId, { password: draft.password.trim() }, token);
+          await updateUserByAgent(customerId, { password: nextDraftPassword }, token);
         }
       }
 
@@ -1152,7 +1162,8 @@ function CustomerAdminView({ onViewChange }) {
         (c.id || c._id) === customerId
           ? {
             ...c,
-            ...payload
+            ...payload,
+            ...(draft.password.trim() !== '' ? { displayPassword: draft.password.trim().toUpperCase() } : {})
           }
           : c
       )));
@@ -1204,7 +1215,7 @@ function CustomerAdminView({ onViewChange }) {
       }
 
       if (quickEditModal.type === 'password') {
-        const nextPass = quickEditModal.value.trim();
+        const nextPass = quickEditModal.value.trim().toUpperCase();
         if (nextPass.length < 6) {
           setError('Password must be at least 6 characters.');
           return;
@@ -1738,8 +1749,7 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
                     <tr>
                       <th>Customer</th>
                       <th>Password</th>
-                      <th>First Name</th>
-                      <th>Last Name</th>
+                      <th>Name</th>
                       <th className="clickable-col-head" onClick={() => openBulkEditModal('minBet')}>Min Bet</th>
                       <th className="clickable-col-head" onClick={() => openBulkEditModal('maxBet')}>Max Bet</th>
                       <th className="clickable-col-head" onClick={() => openBulkEditModal('creditLimit')}>Credit Limit</th>
@@ -1754,13 +1764,13 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
                   </thead>
                   <tbody>
                     {displayRows.length === 0 ? (
-                      <tr><td colSpan={14} className="empty-msg">No records found.</td></tr>
+                      <tr><td colSpan={13} className="empty-msg">No records found.</td></tr>
                     ) : (
                       displayRows.map((row, rowIndex) => {
                         if (row.type === 'group') {
                           return (
                             <tr key={`group-${row.label}-${rowIndex}`} className="agent-group-row">
-                              <td colSpan={14}>{row.label}</td>
+                              <td colSpan={13}>{row.label}</td>
                             </tr>
                           );
                         }
@@ -1788,8 +1798,7 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
                               <td className="pass-cell">
                                 <span>{customer.displayPassword || '—'}</span>
                               </td>
-                              <td>{customer.firstName || '—'}</td>
-                              <td>{customer.lastName || '—'}</td>
+                              <td>{`${customer.firstName || ''} ${customer.lastName || ''}`.trim() || '—'}</td>
                               <td>{Number(customer.minBet ?? 0).toLocaleString()}</td>
                               <td>{Number(customer.wagerLimit ?? customer.maxBet ?? 0).toLocaleString()}</td>
                               <td className="highlight-cell">{Number(customer.creditLimit || 1000).toLocaleString()}</td>
@@ -1867,7 +1876,7 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
                             </tr>
                             {customer.role === 'user' && isExpanded && (
                               <tr className="expanded-detail-row">
-                                <td colSpan={14}>
+                                <td colSpan={13}>
                                   <div className={`expanded-detail-grid ${isInlineEdit ? 'is-editing' : ''}`}>
                                     <div className="detail-card">
                                       <div className="detail-line">
@@ -1998,7 +2007,7 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
                         <input
                           type="password"
                           value={editForm.password}
-                          onChange={e => setEditForm({ ...editForm, password: e.target.value })}
+                          onChange={e => setEditForm({ ...editForm, password: e.target.value.toUpperCase() })}
                         />
                       </div>
 
@@ -2197,7 +2206,7 @@ I need active players so if you could do me a solid and place a bet today even i
                       <input
                         type={quickEditModal.type === 'balance' ? 'number' : 'text'}
                         value={quickEditModal.value}
-                        onChange={(e) => setQuickEditModal((prev) => ({ ...prev, value: e.target.value }))}
+                        onChange={(e) => setQuickEditModal((prev) => ({ ...prev, value: quickEditModal.type === 'password' ? e.target.value.toUpperCase() : e.target.value }))}
                         autoFocus
                         required
                       />
