@@ -298,32 +298,69 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
 
         const data = await getAdminBets({
           customer: customer.username,
-          time: '30d',
+          time: performancePeriod === 'weekly' ? '90d' : performancePeriod === 'yearly' ? 'all' : '30d',
           type: 'all-types',
           limit: 500
         }, token);
         const bets = Array.isArray(data?.bets) ? data.bets : [];
         const grouped = new Map();
 
+        const getIsoWeekNumber = (date) => {
+          const temp = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+          const dayNum = temp.getUTCDay() || 7;
+          temp.setUTCDate(temp.getUTCDate() + 4 - dayNum);
+          const yearStart = new Date(Date.UTC(temp.getUTCFullYear(), 0, 1));
+          return Math.ceil((((temp - yearStart) / 86400000) + 1) / 7);
+        };
+
         for (const bet of bets) {
           const dtRaw = bet?.createdAt;
           const dt = new Date(dtRaw);
           if (Number.isNaN(dt.getTime())) continue;
-          const year = dt.getFullYear();
-          const month = String(dt.getMonth() + 1).padStart(2, '0');
-          const day = String(dt.getDate()).padStart(2, '0');
-          const key = `${year}-${month}-${day}`;
+
+          let key = '';
+          let periodLabel = '';
+          if (performancePeriod === 'daily') {
+            const year = dt.getFullYear();
+            const month = String(dt.getMonth() + 1).padStart(2, '0');
+            const day = String(dt.getDate()).padStart(2, '0');
+            key = `${year}-${month}-${day}`;
+            periodLabel = dt.toLocaleDateString('en-US', {
+              month: '2-digit',
+              day: '2-digit',
+              year: 'numeric',
+              weekday: 'long'
+            });
+          } else if (performancePeriod === 'weekly') {
+            const isoYear = dt.getFullYear();
+            const week = String(getIsoWeekNumber(dt)).padStart(2, '0');
+            key = `${isoYear}-W${week}`;
+            const startOfWeek = new Date(dt);
+            const day = startOfWeek.getDay();
+            const diff = startOfWeek.getDate() - day + (day === 0 ? -6 : 1);
+            startOfWeek.setDate(diff);
+            periodLabel = `Week of ${startOfWeek.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })}`;
+          } else if (performancePeriod === 'monthly') {
+            const year = dt.getFullYear();
+            const month = String(dt.getMonth() + 1).padStart(2, '0');
+            key = `${year}-${month}`;
+            periodLabel = dt.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+          } else {
+            const year = dt.getFullYear();
+            key = `${year}`;
+            periodLabel = `${year}`;
+          }
 
           const amount = Number(bet?.amount || 0);
           const toWin = Number(bet?.potentialPayout || 0);
           const status = String(bet?.status || '').toLowerCase();
           const net = status === 'won' ? Math.max(0, toWin - amount) : status === 'lost' ? -amount : 0;
 
-          if (!grouped.has(key)) grouped.set(key, { date: dt, net: 0, wagers: [] });
+          if (!grouped.has(key)) grouped.set(key, { date: dt, net: 0, wagers: [], periodLabel });
           const row = grouped.get(key);
           row.net += net;
           row.wagers.push({
-            id: bet.id,
+            id: bet.id || `${key}-${row.wagers.length + 1}`,
             label: `${bet?.match?.awayTeam || ''} vs ${bet?.match?.homeTeam || ''}`.trim() || (bet.selection || 'Wager'),
             amount: net
           });
@@ -333,7 +370,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
           .map(([key, value]) => ({
             key,
             date: value.date,
-            periodLabel: value.date.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', weekday: 'long' }),
+            periodLabel: value.periodLabel,
             net: value.net,
             wagers: value.wagers
           }))
@@ -354,7 +391,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
     };
 
     loadPerformance();
-  }, [activeSection, customer?.username]);
+  }, [activeSection, customer?.username, performancePeriod]);
 
   useEffect(() => {
     const loadFreePlay = async () => {
@@ -470,7 +507,8 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
       `Min bet: ${Number(customer?.minBet ?? 0)}`,
       `Max bet: ${Number(customer?.maxBet ?? customer?.wagerLimit ?? form.wagerLimit ?? 0)}`,
       `Credit: ${Number(form.creditLimit || customer?.creditLimit || 0)}`,
-      `Settle: ${Number(form.settleLimit || customer?.balanceOwed || 0)}`
+      `Settle: ${Number(form.settleLimit || customer?.balanceOwed || 0)}`,
+      `Lifetime: ${Number(customer?.lifetime ?? 0)}`
     ].join('\n');
     await copyText(details, 'All details');
   };
@@ -974,6 +1012,10 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
                 <label>Settle:</label>
                 <strong className="money-green">{Number(form.settleLimit || customer.balanceOwed || 0).toLocaleString()}</strong>
               </div>
+              <div className="limit-item">
+                <label>Lifetime:</label>
+                <strong>{Number(customer.lifetime ?? 0).toLocaleString()}</strong>
+              </div>
             </div>
           </div>
           {copyNotice && (
@@ -1001,7 +1043,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
           </button>
           <button type="button" className={`metric ${activeSection === 'performance' ? 'metric-active' : ''}`} onClick={() => openSection('performance')}>
             <span>Lifetime +/-</span>
-            <b className={Number(stats.netProfit || 0) < 0 ? 'neg' : 'pos'}>{formatCurrency(stats.netProfit || 0)}</b>
+            <b className={Number(customer.lifetimePlusMinus ?? customer.lifetime ?? 0) < 0 ? 'neg' : 'pos'}>{formatCurrency(customer.lifetimePlusMinus ?? customer.lifetime ?? 0)}</b>
           </button>
         </div>
       </div>
@@ -1130,6 +1172,9 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
               <label>Time</label>
               <select value={performancePeriod} onChange={(e) => setPerformancePeriod(e.target.value)}>
                 <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+                <option value="yearly">Yearly</option>
               </select>
             </div>
           </div>
@@ -1160,7 +1205,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
               </div>
               <table className="perf-table">
                 <thead>
-                  <tr><th>{activePerformanceRow?.periodLabel || 'Selected Day'}</th><th>Amount</th></tr>
+                  <tr><th>{activePerformanceRow?.periodLabel || 'Selected Period'}</th><th>Amount</th></tr>
                 </thead>
                 <tbody>
                   {performanceDayBets.length === 0 ? (

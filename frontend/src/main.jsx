@@ -18,8 +18,10 @@ const ProtectedRoleRoute = ({ children, allowedRoles }) => {
   useEffect(() => {
     let isMounted = true;
     const validateToken = async () => {
+      const token = localStorage.getItem('token');
+      const storedRole = String(localStorage.getItem('userRole') || '').toLowerCase();
+
       try {
-        const token = localStorage.getItem('token');
         if (!token) {
           if (isMounted) {
             setIsAllowed(false);
@@ -34,11 +36,17 @@ const ProtectedRoleRoute = ({ children, allowedRoles }) => {
           setIsAllowed(allowedRoles.includes(role));
           setIsChecking(false);
         }
-      } catch {
+      } catch (error) {
         if (isMounted) {
-          localStorage.removeItem('token');
-          localStorage.removeItem('userRole');
-          setIsAllowed(false);
+          // Clear session only for invalid/forbidden credentials.
+          if (error?.status === 401 || error?.status === 403) {
+            localStorage.removeItem('token');
+            localStorage.removeItem('userRole');
+            setIsAllowed(false);
+          } else {
+            // Network/timeouts should not instantly bounce valid users to landing.
+            setIsAllowed(Boolean(token) && allowedRoles.includes(storedRole));
+          }
           setIsChecking(false);
         }
       }

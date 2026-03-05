@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { getAdminHeaderSummary, getMe } from '../api';
+import React, { useEffect, useMemo, useState } from 'react';
+import { getAdminHeaderSummary, getMe, getMyPlayers, getUsersAdmin } from '../api';
 import AgentTreeView from './admin-views/AgentTreeView';
 
 function AdminHeader({
@@ -16,6 +16,8 @@ function AdminHeader({
   const [showAgentTree, setShowAgentTree] = useState(false);
   const [headerSearchQuery, setHeaderSearchQuery] = useState('');
   const [agentTreeSearchQuery, setAgentTreeSearchQuery] = useState('');
+  const [headerPlayerOpen, setHeaderPlayerOpen] = useState(false);
+  const [searchablePlayers, setSearchablePlayers] = useState([]);
   const [summary, setSummary] = useState({
     totalBalance: null,
     weekNet: null,
@@ -41,6 +43,13 @@ function AdminHeader({
           activeAccounts: headerData?.activeAccounts ?? 0
         });
         setProfile(meData || null);
+
+        const roleKey = String(meData?.role || role || '').toLowerCase();
+        const users = roleKey === 'agent'
+          ? await getMyPlayers(token)
+          : await getUsersAdmin(token);
+        const onlyPlayers = (Array.isArray(users) ? users : []).filter((u) => String(u?.role || '').toLowerCase() === 'user');
+        setSearchablePlayers(onlyPlayers);
       } catch (error) {
         console.error('Failed to load admin header summary:', error);
       }
@@ -79,9 +88,43 @@ function AdminHeader({
 
   const handleHeaderSearchSubmit = (e) => {
     e.preventDefault();
-    setAgentTreeSearchQuery(headerSearchQuery.trim());
+    const query = headerSearchQuery.trim();
+    if (!query) return;
+    const exact = filteredPlayers.find((player) => String(player.username || '').toLowerCase() === query.toLowerCase());
+    if (exact) {
+      const userId = exact.id || exact._id || exact.mongo_id;
+      if (userId && onViewChange) {
+        onViewChange('user-details', userId);
+      }
+      setHeaderPlayerOpen(false);
+      return;
+    }
+    if (filteredPlayers[0]) {
+      const userId = filteredPlayers[0].id || filteredPlayers[0]._id || filteredPlayers[0].mongo_id;
+      if (userId && onViewChange) {
+        onViewChange('user-details', userId);
+      }
+      setHeaderPlayerOpen(false);
+      return;
+    }
+    setAgentTreeSearchQuery(query);
     setShowAgentTree(true);
   };
+
+  const filteredPlayers = useMemo(() => {
+    const query = headerSearchQuery.trim().toLowerCase();
+    if (!query) return searchablePlayers.slice(0, 10);
+    return searchablePlayers
+      .filter((player) => {
+        const username = String(player?.username || '').toLowerCase();
+        const fullName = String(
+          player?.fullName
+          || `${player?.firstName || ''} ${player?.lastName || ''}`.trim()
+        ).toLowerCase();
+        return username.includes(query) || fullName.includes(query);
+      })
+      .slice(0, 10);
+  }, [searchablePlayers, headerSearchQuery]);
 
   const displayName = profile?.username
     ? profile.username.toUpperCase()
@@ -138,13 +181,51 @@ function AdminHeader({
             ☰
           </button>
           <form className="admin-header-search" onSubmit={handleHeaderSearchSubmit}>
-            <span className="search-icon" aria-hidden="true">🔍</span>
-            <input
-              type="text"
-              placeholder="Search accounts..."
-              value={headerSearchQuery}
-              onChange={(e) => setHeaderSearchQuery(e.target.value)}
-            />
+            <div
+              className="admin-header-player-search"
+              onFocus={() => setHeaderPlayerOpen(true)}
+              onBlur={() => setTimeout(() => setHeaderPlayerOpen(false), 120)}
+            >
+              <span className="search-icon" aria-hidden="true">
+                <i className="fa-solid fa-magnifying-glass"></i>
+              </span>
+              <input
+                type="text"
+                placeholder="Search players..."
+                value={headerSearchQuery}
+                onChange={(e) => {
+                  setHeaderSearchQuery(e.target.value);
+                  setHeaderPlayerOpen(true);
+                }}
+              />
+              {headerPlayerOpen && (
+                <div className="admin-header-search-list">
+                  {filteredPlayers.length > 0 ? filteredPlayers.map((player) => {
+                    const userId = player.id || player._id || player.mongo_id;
+                    const fullName = player.fullName || `${player.firstName || ''} ${player.lastName || ''}`.trim();
+                    return (
+                      <button
+                        key={String(userId || player.username)}
+                        type="button"
+                        className="admin-header-search-item"
+                        onClick={() => {
+                          if (userId && onViewChange) {
+                            onViewChange('user-details', userId);
+                          }
+                          setHeaderSearchQuery(player.username || '');
+                          setHeaderPlayerOpen(false);
+                        }}
+                      >
+                        <span>{String(player.username || '').toUpperCase()}</span>
+                        <span>{fullName || '—'}</span>
+                      </button>
+                    );
+                  }) : (
+                    <div className="admin-header-search-empty">No matching players</div>
+                  )}
+                </div>
+              )}
+            </div>
           </form>
         </div>
         <div className="admin-header-right">

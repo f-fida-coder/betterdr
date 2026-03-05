@@ -1078,7 +1078,7 @@ function CustomerAdminView({ onViewChange }) {
       lastName: customer.lastName || '',
       password: '',
       minBet: String(customer.minBet ?? 0),
-      maxBet: String(customer.wagerLimit ?? customer.maxBet ?? 0),
+      maxBet: String(customer.maxBet ?? customer.wagerLimit ?? 0),
       creditLimit: String(customer.creditLimit ?? 0),
       settleLimit: String(customer.balanceOwed ?? 0),
       status: (customer.status || 'active').toLowerCase(),
@@ -1755,6 +1755,7 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
                       <th className="clickable-col-head" onClick={() => openBulkEditModal('creditLimit')}>Credit Limit</th>
                       <th className="clickable-col-head" onClick={() => openBulkEditModal('settleLimit')}>Settle Limit</th>
                       <th className="clickable-col-head" onClick={() => openBulkEditModal('balanceAdjust')}>Balance</th>
+                      <th>Lifetime</th>
                       <th className="clickable-col-head" onClick={() => openBulkEditModal('status')}>Status</th>
                       <th>Sportsbook</th>
                       <th>Casino</th>
@@ -1764,13 +1765,13 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
                   </thead>
                   <tbody>
                     {displayRows.length === 0 ? (
-                      <tr><td colSpan={13} className="empty-msg">No records found.</td></tr>
+                      <tr><td colSpan={14} className="empty-msg">No records found.</td></tr>
                     ) : (
                       displayRows.map((row, rowIndex) => {
                         if (row.type === 'group') {
                           return (
                             <tr key={`group-${row.label}-${rowIndex}`} className="agent-group-row">
-                              <td colSpan={13}>{row.label}</td>
+                              <td colSpan={14}>{row.label}</td>
                             </tr>
                           );
                         }
@@ -1800,12 +1801,13 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
                               </td>
                               <td>{`${customer.firstName || ''} ${customer.lastName || ''}`.trim() || '—'}</td>
                               <td>{Number(customer.minBet ?? 0).toLocaleString()}</td>
-                              <td>{Number(customer.wagerLimit ?? customer.maxBet ?? 0).toLocaleString()}</td>
+                              <td>{Number(customer.maxBet ?? customer.wagerLimit ?? 0).toLocaleString()}</td>
                               <td className="highlight-cell">{Number(customer.creditLimit || 1000).toLocaleString()}</td>
                               <td className="highlight-cell">{Number(customer.balanceOwed || 0).toLocaleString()}</td>
                               <td className={`balance-cell ${Number(customer.balance) < 0 ? 'neg' : 'pos'}`}>
                                 {formatBalance(customer.balance)}
                               </td>
+                              <td>{Number(customer.lifetime ?? 0).toLocaleString()}</td>
                               <td>{getDisplayStatus(customer.status)}</td>
                               <td>
                                 {customer.role === 'user' ? (
@@ -1876,7 +1878,7 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
                             </tr>
                             {customer.role === 'user' && isExpanded && (
                               <tr className="expanded-detail-row">
-                                <td colSpan={13}>
+                                <td colSpan={14}>
                                   <div className={`expanded-detail-grid ${isInlineEdit ? 'is-editing' : ''}`}>
                                     <div className="detail-card">
                                       <div className="detail-line">
@@ -1885,10 +1887,11 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
                                       </div>
                                       <div className="detail-line"><span>Name</span><span>{`${customer.firstName || ''} ${customer.lastName || ''}`.trim() || '—'} <button type="button" className="link-edit-btn" onClick={() => openQuickEditModal(customer, 'name')}>change</button></span></div>
                                       <div className="detail-line"><span>Min Bet</span><span>{isInlineEdit ? <input type="number" value={detailDraft.minBet} onChange={(e) => updateRowDetailDraft(customer, 'minBet', e.target.value)} /> : `$${Number(customer.minBet ?? 0).toLocaleString()}`}</span></div>
-                                      <div className="detail-line"><span>Max Bet</span><span>{isInlineEdit ? <input type="number" value={detailDraft.maxBet} onChange={(e) => updateRowDetailDraft(customer, 'maxBet', e.target.value)} /> : `$${Number(customer.wagerLimit ?? customer.maxBet ?? 0).toLocaleString()}`}</span></div>
+                                      <div className="detail-line"><span>Max Bet</span><span>{isInlineEdit ? <input type="number" value={detailDraft.maxBet} onChange={(e) => updateRowDetailDraft(customer, 'maxBet', e.target.value)} /> : `$${Number(customer.maxBet ?? customer.wagerLimit ?? 0).toLocaleString()}`}</span></div>
                                       <div className="detail-line"><span>Credit Limit</span><span>{isInlineEdit ? <input type="number" value={detailDraft.creditLimit} onChange={(e) => updateRowDetailDraft(customer, 'creditLimit', e.target.value)} /> : `$${Number(customer.creditLimit || 0).toLocaleString()}`}</span></div>
                                       <div className="detail-line"><span>Settle Limit</span><span>{isInlineEdit ? <input type="number" value={detailDraft.settleLimit} onChange={(e) => updateRowDetailDraft(customer, 'settleLimit', e.target.value)} /> : `$${Number(customer.balanceOwed || 0).toLocaleString()}`}</span></div>
                                       <div className="detail-line"><span>Balance</span><span className={Number(customer.balance) < 0 ? 'neg' : 'pos'}>{formatBalance(customer.balance)} <button type="button" className="link-edit-btn" onClick={() => openQuickEditModal(customer, 'balance')}>change</button></span></div>
+                                      <div className="detail-line"><span>Lifetime</span><span>{Number(customer.lifetime ?? 0).toLocaleString()}</span></div>
                                     </div>
                                     <div className="detail-card">
                                       <div className="detail-line"><span>Pending</span><span>{formatBalance(customer.pendingBalance || 0)}</span></div>

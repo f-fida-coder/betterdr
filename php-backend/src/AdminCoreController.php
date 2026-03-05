@@ -4236,6 +4236,66 @@ final class AdminCoreController
         $pendingDocs = [];
         $seenUsernames = [];
         $seenPhones = [];
+        $applyExistingBackfill = function (array $row, int $rowNum, string $username, string $phoneNumber) use (&$existingUserByUsername, &$existingUserByPhone, &$updatedRows, &$skipped, $now): bool {
+            $existingUser = null;
+            if ($username !== '' && isset($existingUserByUsername[$username])) {
+                $existingUser = $existingUserByUsername[$username];
+            } elseif ($phoneNumber !== '' && isset($existingUserByPhone[$phoneNumber])) {
+                $existingUser = $existingUserByPhone[$phoneNumber];
+            }
+
+            if (!is_array($existingUser) || !isset($existingUser['_id'])) {
+                return false;
+            }
+
+            $hasMaxBet = array_key_exists('maxBet', $row) && trim((string) ($row['maxBet'] ?? '')) !== '';
+            $hasLifetime = array_key_exists('lifetime', $row) && trim((string) ($row['lifetime'] ?? '')) !== '';
+            $updates = ['updatedAt' => $now];
+            $currentMaxBet = $this->num($existingUser['maxBet'] ?? 0);
+            $currentLifetime = $this->num($existingUser['lifetime'] ?? 0);
+            if ($hasMaxBet) {
+                $parsedMaxBet = $this->parseImportNumberOrNull($row['maxBet'] ?? null);
+                if ($parsedMaxBet !== null && abs($parsedMaxBet - $currentMaxBet) > 0.0001) {
+                    $updates['maxBet'] = $parsedMaxBet;
+                }
+            }
+            if ($hasLifetime) {
+                $parsedLifetime = $this->parseImportNumberOrNull($row['lifetime'] ?? null);
+                if ($parsedLifetime !== null && abs($parsedLifetime - $currentLifetime) > 0.0001) {
+                    $updates['lifetime'] = $parsedLifetime;
+                }
+            }
+
+            if (count($updates) > 1) {
+                $existingUserId = (string) ($existingUser['_id'] ?? '');
+                $this->db->updateOne('users', ['_id' => MongoRepository::id($existingUserId)], $updates);
+                $updatedRows[] = [
+                    'row' => $rowNum,
+                    'id' => $existingUserId,
+                    'username' => $username,
+                    'updatedFields' => array_values(array_diff(array_keys($updates), ['updatedAt'])),
+                    'maxBet' => array_key_exists('maxBet', $updates) ? $this->num($updates['maxBet']) : $currentMaxBet,
+                    'lifetime' => array_key_exists('lifetime', $updates) ? $this->num($updates['lifetime']) : $currentLifetime,
+                ];
+                $patched = $existingUser;
+                if (array_key_exists('maxBet', $updates)) {
+                    $patched['maxBet'] = $updates['maxBet'];
+                }
+                if (array_key_exists('lifetime', $updates)) {
+                    $patched['lifetime'] = $updates['lifetime'];
+                }
+                if ($username !== '') {
+                    $existingUserByUsername[$username] = $patched;
+                }
+                if ($phoneNumber !== '') {
+                    $existingUserByPhone[$phoneNumber] = $patched;
+                }
+            } else {
+                $skipped[] = ['row' => $rowNum, 'username' => $username, 'reason' => 'already-exists-no-change'];
+            }
+
+            return true;
+        };
 
         foreach ($rows as $idx => $row) {
             if ($idx % 25 === 0) {
@@ -4257,7 +4317,7 @@ final class AdminCoreController
             $lastName = strtoupper(trim((string) ($row['lastName'] ?? '')));
 
             // Auto-generate password: FIRST3 + LAST3 + LAST4PHONE (matches frontend updateAutoPassword)
-            $password = (string) ($row['password'] ?? '');
+            $password = strtoupper(trim((string) ($row['password'] ?? '')));
             if ($password === '') {
                 $last4 = strlen($phoneRaw) >= 4 ? substr($phoneRaw, -4) : $phoneRaw;
                 if ($firstName !== '' && $lastName !== '') {
@@ -4269,11 +4329,6 @@ final class AdminCoreController
                     }
                     $password = $fallbackUsername . $last4;
                 }
-            }
-
-            if ($phoneNumber === '') {
-                $errors[] = ['row' => $rowNum, 'username' => '', 'error' => 'Phone number is required'];
-                continue;
             }
 
             $assignedAgentId = null;
@@ -4323,6 +4378,14 @@ final class AdminCoreController
                 $username = $nextSequentialUsername($generatedPrefix);
             }
 
+            if ($phoneNumber === '') {
+                if (($skipExisting || !$strict) && $username !== '' && $applyExistingBackfill($row, $rowNum, $username, '')) {
+                    continue;
+                }
+                $errors[] = ['row' => $rowNum, 'username' => $username, 'error' => 'Phone number is required'];
+                continue;
+            }
+
             if (isset($seenUsernames[$username]) || isset($seenPhones[$phoneNumber])) {
                 if ($strict) {
                     $errors[] = ['row' => $rowNum, 'username' => $username, 'error' => 'Duplicate username or phone number in uploaded file'];
@@ -4336,53 +4399,7 @@ final class AdminCoreController
 
             if (isset($existingUsernames[$username]) || isset($existingPhones[$phoneNumber])) {
                 if ($skipExisting || !$strict) {
-                    $existingUser = null;
-                    if ($username !== '' && isset($existingUserByUsername[$username])) {
-                        $existingUser = $existingUserByUsername[$username];
-                    } elseif ($phoneNumber !== '' && isset($existingUserByPhone[$phoneNumber])) {
-                        $existingUser = $existingUserByPhone[$phoneNumber];
-                    }
-
-                    $canBackfill = is_array($existingUser) && isset($existingUser['_id']);
-                    if ($canBackfill) {
-                        $hasMaxBet = array_key_exists('maxBet', $row) && trim((string) ($row['maxBet'] ?? '')) !== '';
-                        $hasLifetime = array_key_exists('lifetime', $row) && trim((string) ($row['lifetime'] ?? '')) !== '';
-                        $updates = ['updatedAt' => $now];
-                        if ($hasMaxBet) {
-                            $updates['maxBet'] = $this->numOr($row['maxBet'] ?? null, $this->num($existingUser['maxBet'] ?? 0));
-                        }
-                        if ($hasLifetime) {
-                            $updates['lifetime'] = $this->numOr($row['lifetime'] ?? null, $this->num($existingUser['lifetime'] ?? 0));
-                        }
-
-                        if (count($updates) > 1) {
-                            $existingUserId = (string) ($existingUser['_id'] ?? '');
-                            $this->db->updateOne('users', ['_id' => MongoRepository::id($existingUserId)], $updates);
-                            $updatedRows[] = [
-                                'row' => $rowNum,
-                                'id' => $existingUserId,
-                                'username' => $username,
-                                'updatedFields' => array_values(array_diff(array_keys($updates), ['updatedAt'])),
-                                'maxBet' => array_key_exists('maxBet', $updates) ? $this->num($updates['maxBet']) : $this->num($existingUser['maxBet'] ?? 0),
-                                'lifetime' => array_key_exists('lifetime', $updates) ? $this->num($updates['lifetime']) : $this->num($existingUser['lifetime'] ?? 0),
-                            ];
-                            $patched = $existingUser;
-                            if (array_key_exists('maxBet', $updates)) {
-                                $patched['maxBet'] = $updates['maxBet'];
-                            }
-                            if (array_key_exists('lifetime', $updates)) {
-                                $patched['lifetime'] = $updates['lifetime'];
-                            }
-                            if ($username !== '') {
-                                $existingUserByUsername[$username] = $patched;
-                            }
-                            if ($phoneNumber !== '') {
-                                $existingUserByPhone[$phoneNumber] = $patched;
-                            }
-                        } else {
-                            $skipped[] = ['row' => $rowNum, 'username' => $username, 'reason' => 'already-exists'];
-                        }
-                    } else {
+                    if (!$applyExistingBackfill($row, $rowNum, $username, $phoneNumber)) {
                         $skipped[] = ['row' => $rowNum, 'username' => $username, 'reason' => 'already-exists'];
                     }
                 } else {
@@ -4739,6 +4756,8 @@ final class AdminCoreController
                     // Fallback: username + last 4 of phone
                     $mapped['password'] = strtoupper(trim((string) ($mapped['username'] ?? 'USER'))) . $last4;
                 }
+            } else {
+                $mapped['password'] = strtoupper(trim((string) $mapped['password']));
             }
 
             if (($mapped['phoneNumber'] ?? '') === '') {
@@ -4779,7 +4798,7 @@ final class AdminCoreController
             'agentid' => 'agentId',
             'balance' => 'balance',
             'minbet' => 'minBet',
-            'maxbet', 'pmaxbet', 'maxwager', 'wagerlimit', 'maxwagerlimit' => 'maxBet',
+            'maxbet', 'maxwager', 'wagerlimit', 'maxwagerlimit' => 'maxBet',
             'creditlimit', 'credit' => 'creditLimit',
             'balanceowed', 'settlelimit' => 'balanceOwed',
             'freeplaybalance', 'freeplay', 'fpbalance' => 'freeplayBalance',
@@ -5552,6 +5571,8 @@ final class AdminCoreController
                     'freeplayBalance' => $foundUser['freeplayBalance'] ?? null,
                     'minBet' => $foundUser['minBet'] ?? null,
                     'maxBet' => $foundUser['maxBet'] ?? null,
+                    'lifetime' => $this->num($foundUser['lifetime'] ?? 0),
+                    'lifetimePlusMinus' => $this->num($foundUser['lifetime'] ?? ($foundUser['lifetimePlusMinus'] ?? 0)),
                     'referredByUserId' => $referredByUserId !== '' ? $referredByUserId : null,
                     'defaultMinBet' => $foundUser['defaultMinBet'] ?? null,
                     'defaultMaxBet' => $foundUser['defaultMaxBet'] ?? null,
@@ -6510,6 +6531,30 @@ final class AdminCoreController
             }
         }
         return $fallback;
+    }
+
+    private function parseImportNumberOrNull(mixed $value): ?float
+    {
+        if ($value === null) {
+            return null;
+        }
+        if (is_numeric($value)) {
+            return (float) $value;
+        }
+        if (is_string($value)) {
+            $normalized = trim($value);
+            if ($normalized === '') {
+                return null;
+            }
+            $normalized = str_replace([',', '$', ' '], '', $normalized);
+            if (preg_match('/^\((.+)\)$/', $normalized, $m) === 1) {
+                $normalized = '-' . $m[1];
+            }
+            if (is_numeric($normalized)) {
+                return (float) $normalized;
+            }
+        }
+        return null;
     }
 
     private function toTimestampSeconds(mixed $value): ?int
