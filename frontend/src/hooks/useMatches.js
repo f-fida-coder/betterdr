@@ -1,30 +1,8 @@
 import { useEffect, useState } from 'react';
-import { getMatches, getLiveMatches, fetchOddsManual, API_URL } from '../api';
+import { getMatches, getLiveMatches, API_URL } from '../api';
 
 const MATCH_STREAM_ENABLED = String(import.meta.env.VITE_ENABLE_MATCH_STREAM || 'true').toLowerCase() === 'true';
 const POLL_INTERVAL_MS = 15000;
-const ODDS_REFRESH_COOLDOWN_MS = 45000;
-let oddsRefreshInFlight = null;
-let lastOddsRefreshAt = 0;
-
-const triggerOddsRefreshOnce = async () => {
-    const now = Date.now();
-    if (oddsRefreshInFlight) {
-        return oddsRefreshInFlight;
-    }
-    if ((now - lastOddsRefreshAt) < ODDS_REFRESH_COOLDOWN_MS) {
-        return null;
-    }
-    oddsRefreshInFlight = fetchOddsManual()
-        .then((result) => {
-            lastOddsRefreshAt = Date.now();
-            return result;
-        })
-        .finally(() => {
-            oddsRefreshInFlight = null;
-        });
-    return oddsRefreshInFlight;
-};
 
 // Hook: fetch initial matches and subscribe to live match updates
 const isLiveMatch = (match) => {
@@ -66,17 +44,9 @@ export default function useMatches(options = {}) {
 
     useEffect(() => {
         let mounted = true;
-        const shouldRefreshOdds = options.refreshOdds !== false;
 
         const fetchMatches = async () => {
             try {
-                if (shouldRefreshOdds) {
-                    try {
-                        await triggerOddsRefreshOnce();
-                    } catch (refreshError) {
-                        // Keep fetching matches even if refresh fails.
-                    }
-                }
                 const data = (statusFilter === 'live' || statusFilter === 'active')
                     ? await getLiveMatches()
                     : await getMatches();
@@ -171,7 +141,7 @@ export default function useMatches(options = {}) {
             }
             window.removeEventListener('matches:refresh', handleRefresh);
         };
-    }, [statusFilter, options.refreshOdds]);
+    }, [statusFilter]);
 
     return matches;
 }

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { createAdminMatch, getAdminMatches, refreshOdds, clearCache, settleMatchBets } from '../../api';
+import { createAdminMatch, getAdminMatches, refreshOdds, clearCache, settleMatchBets, getSettleEligibility } from '../../api';
 
 function GamesEventsView() {
   const [periodFilter, setPeriodFilter] = useState('game');
@@ -189,23 +189,38 @@ function GamesEventsView() {
       return;
     }
 
-    const winnerChoice = window.prompt(
-      `Set winner for ${match.homeTeam} vs ${match.awayTeam}. Type "home" or "away":`,
-      'home'
-    );
-    if (!winnerChoice) return;
-
-    const normalized = winnerChoice.trim().toLowerCase();
-    if (normalized !== 'home' && normalized !== 'away') {
-      setError('Winner must be "home" or "away".');
-      return;
-    }
-
-    const winner = normalized === 'home' ? match.homeTeam : match.awayTeam;
-
     try {
       setActionLoading(`settle-${match.id || match._id}`);
-      await settleMatchBets({ matchId: match.id || match._id, winner }, token);
+      const matchId = match.id || match._id;
+      const modeChoice = window.prompt(
+        `Settlement mode for ${match.homeTeam} vs ${match.awayTeam}:\n` +
+        `- Type "auto" to grade from score (recommended)\n` +
+        `- Type "home" or "away" for manual H2H winner`,
+        'auto'
+      );
+      if (!modeChoice) {
+        setActionLoading('');
+        return;
+      }
+
+      const mode = modeChoice.trim().toLowerCase();
+      if (!['auto', 'home', 'away'].includes(mode)) {
+        setError('Invalid option. Use auto, home, or away.');
+        return;
+      }
+
+      if (mode === 'auto') {
+        await settleMatchBets({ matchId }, token);
+      } else {
+        const eligibility = await getSettleEligibility(matchId, token);
+        if (eligibility?.manualWinnerAllowed !== true) {
+          setError(eligibility?.reason || 'Manual winner mode is blocked for this match.');
+          return;
+        }
+        const winner = mode === 'home' ? match.homeTeam : match.awayTeam;
+        await settleMatchBets({ matchId, winner }, token);
+      }
+
       await loadMatches();
       setError('');
       alert('Match settled successfully.');

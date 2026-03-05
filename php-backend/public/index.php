@@ -127,7 +127,7 @@ if (
             $walletController = new WalletController($repo, $jwtSecret);
             $betsController = new BetsController($repo, $jwtSecret);
             $bettingRulesController = new BettingRulesController($repo, $jwtSecret);
-            $matchesController = new MatchesController($repo);
+            $matchesController = new MatchesController($repo, $jwtSecret);
             $contentController = new ContentController($repo, $jwtSecret);
             $messagesController = new MessagesController($repo, $jwtSecret);
             $casinoController = new CasinoController($repo, $jwtSecret);

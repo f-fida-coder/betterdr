@@ -10,6 +10,7 @@
         "dev-php-backend": "php -d max_execution_time=300 -S 127.0.0.1:5000 -t php-backend/public php-backend/public/router.php",
         "dev-php-worker": "php php-backend/scripts/odds-worker.php",
         "dev-frontend": "cd frontend && npm run dev",
+        "smoke-sportsbook": "php php-backend/scripts/sportsbook-smoke.php",
         "check-php-routes": "bash php-backend/scripts/check-route-parity.sh",
         "sync-online-to-local": "php php-backend/scripts/sync-mysql-db.php"
     },

@@ -1,2 +1,16 @@
-# Intentionally empty: include all files in this repository.
-ok 
+# Environment files with credentials
+.env
+php-backend/.env
+frontend/.env
+
+# Dependencies
+node_modules/
+
+# Build output
+frontend/dist/
+
+# Logs
+php-backend/logs/
+
+# OS files
+.DS_Store

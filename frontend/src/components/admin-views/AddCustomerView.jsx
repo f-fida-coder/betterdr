@@ -148,7 +148,8 @@ function AddCustomerView({ onBack }) {
       if (prefix) {
         try {
           const token = localStorage.getItem('token');
-          const response = await getNextUsername(prefix, token, { type: 'player' });
+          const query = playerForm.agentId ? { type: 'player', agentId: playerForm.agentId } : { type: 'player' };
+          const response = await getNextUsername(prefix, token, query);
           const accountNumber = extractTrailingNumber(response?.nextUsername || '');
           setPlayerForm((prev) => ({ ...prev, prefix, startingAccount: accountNumber || prev.startingAccount }));
         } catch {
@@ -169,7 +170,8 @@ function AddCustomerView({ onBack }) {
       if (prefix) {
         try {
           const token = localStorage.getItem('token');
-          const response = await getNextUsername(prefix, token, { type: 'player' });
+          const query = value ? { type: 'player', agentId: value } : { type: 'player' };
+          const response = await getNextUsername(prefix, token, query);
           const accountNumber = extractTrailingNumber(response?.nextUsername || '');
           if (accountNumber) {
             setPlayerForm((prev) => ({ ...prev, startingAccount: accountNumber }));

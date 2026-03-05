@@ -2,6 +2,19 @@ import React, { useEffect, useMemo, useState } from 'react';
 import '../casino.css';
 import { getCasinoCategories, getCasinoGames, launchCasinoGame } from '../api';
 
+/* ── Local (in-house) games ─────────────────────────────────── */
+const LOCAL_GAMES = [
+    {
+        id: 'local-baccarat',
+        name: 'Baccarat',
+        provider: 'In-House',
+        url: '/games/baccarat/index.html',
+        poster: '/games/baccarat/assets/menuscreen.webp',
+        themeColor: '#1a0a2e',
+        status: 'active',
+    },
+];
+
 const CATEGORY_META = {
     lobby: { label: 'Lobby', icon: 'fa-solid fa-table-cells-large' },
     table_games: { label: 'Table Games', icon: 'fa-solid fa-playing-cards' },
@@ -21,6 +34,7 @@ const CasinoView = () => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [launchingGameId, setLaunchingGameId] = useState(null);
+    const [activeLocalGame, setActiveLocalGame] = useState(null);
 
     const loadCategories = async () => {
         if (!token) return;
@@ -106,8 +120,34 @@ const CasinoView = () => {
 
     const formatLimits = (minBet, maxBet) => `MIN: $${Number(minBet || 0).toFixed(2)} | MAX: $${Number(maxBet || 0).toFixed(2)}`;
 
+    /* ── Filter local games by search ─────────────────────────── */
+    const filteredLocalGames = LOCAL_GAMES.filter((g) => {
+        if (searchValue && !g.name.toLowerCase().includes(searchValue.toLowerCase())) return false;
+        return true;
+    });
+
     return (
         <div className="casino-wrapper">
+            {/* ── Fullscreen game overlay ──────────────────────── */}
+            {activeLocalGame && (
+                <div className="game-iframe-overlay">
+                    <button
+                        className="game-iframe-close-btn"
+                        onClick={() => setActiveLocalGame(null)}
+                        title="Close game"
+                    >
+                        <i className="fa-solid fa-xmark"></i>
+                        <span>Close</span>
+                    </button>
+                    <iframe
+                        src={activeLocalGame.url}
+                        title={activeLocalGame.name}
+                        className="game-iframe"
+                        allowFullScreen
+                    />
+                </div>
+            )}
+
             <div className="casino-subnav-bar">
                 <div className="casino-nav-items">
                     {navItems.map((item) => (
@@ -149,6 +189,49 @@ const CasinoView = () => {
                 </div>
             </div>
 
+            {/* ── Local (in-house) games section ──────────────── */}
+            {filteredLocalGames.length > 0 && (
+                <div className="casino-local-section">
+                    <div className="casino-local-header">
+                        <i className="fa-solid fa-gem"></i>
+                        <span>In-House Games</span>
+                    </div>
+                    <div className="casino-grid">
+                        {filteredLocalGames.map((game) => (
+                            <article
+                                className="casino-card local-game-card"
+                                key={game.id}
+                                onClick={() => setActiveLocalGame(game)}
+                            >
+                                <div
+                                    className="casino-card-image"
+                                    style={{ background: `linear-gradient(135deg, ${game.themeColor || '#0f172a'}, #0f5db3)` }}
+                                >
+                                    <img src={game.poster} alt={game.name} className="casino-game-image" />
+                                    <span className="casino-status active">active</span>
+                                    <span className="casino-inhouse-badge">
+                                        <i className="fa-solid fa-crown"></i> IN-HOUSE
+                                    </span>
+                                    <div className="play-overlay">
+                                        <i className="fa-solid fa-play"></i>
+                                    </div>
+                                </div>
+                                <div className="casino-card-info">
+                                    <div className="casino-card-top">
+                                        <div className="casino-game-title">{game.name}</div>
+                                        <div className="casino-provider inhouse">{game.provider}</div>
+                                    </div>
+                                    <button className="casino-play-btn local">
+                                        <i className="fa-solid fa-play" style={{ marginRight: 6 }}></i>
+                                        Play Now
+                                    </button>
+                                </div>
+                            </article>
+                        ))}
+                    </div>
+                </div>
+            )}
+
             {loading && (
                 <div className="casino-feedback-state">
                     <i className="fa-solid fa-spinner fa-spin"></i>
@@ -163,7 +246,7 @@ const CasinoView = () => {
                 </div>
             )}
 
-            {!loading && !error && games.length === 0 && (
+            {!loading && !error && games.length === 0 && filteredLocalGames.length === 0 && (
                 <div className="casino-feedback-state">
                     <i className="fa-regular fa-folder-open"></i>
                     <span>No games found for this filter.</span>

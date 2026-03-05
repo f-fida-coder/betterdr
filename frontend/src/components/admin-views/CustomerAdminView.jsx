@@ -443,7 +443,10 @@ function CustomerAdminView({ onViewChange }) {
       if (selectedAgent) {
         setAgentSearchQuery(selectedAgent.username || '');
         try {
-          const { nextUsername } = await getNextUsername(selectedAgent.username, token, { suffix, type: sequenceType });
+          const query = (sequenceType === 'player')
+            ? { suffix, type: sequenceType, agentId }
+            : { suffix, type: sequenceType };
+          const { nextUsername } = await getNextUsername(selectedAgent.username, token, query);
           setNewCustomer(prev => ({ ...prev, username: nextUsername }));
         } catch (err) {
           console.error('Failed to get next username:', err);
@@ -807,6 +810,21 @@ function CustomerAdminView({ onViewChange }) {
     if (currentRole === 'super_agent' || currentRole === 'master_agent') return true;
     return false;
   }), [agents, currentRole]);
+
+  useEffect(() => {
+    if (creationType !== 'player') return;
+    const typed = String(agentSearchQuery || '').trim().toLowerCase();
+    if (!typed) return;
+
+    const exact = assignableAgents.find((a) => String(a.username || '').trim().toLowerCase() === typed);
+    if (!exact) return;
+
+    const exactId = String(exact.id || exact._id || '');
+    if (!exactId) return;
+    if (String(newCustomer.agentId || '') === exactId) return;
+
+    handleAgentChange(exactId);
+  }, [agentSearchQuery, assignableAgents, creationType, newCustomer.agentId]);
 
   const resolveId = (value) => {
     if (!value) return '';
@@ -1379,7 +1397,15 @@ function CustomerAdminView({ onViewChange }) {
                     <div
                       className="agent-search-picker"
                       onFocus={() => setAgentSearchOpen(true)}
-                      onBlur={() => setTimeout(() => setAgentSearchOpen(false), 120)}
+                      onBlur={() => {
+                        const typed = String(agentSearchQuery || '').trim().toLowerCase();
+                        const exact = assignableAgents.find((a) => String(a.username || '').trim().toLowerCase() === typed);
+                        const exactId = String(exact?.id || exact?._id || '');
+                        if (exactId && String(newCustomer.agentId || '') !== exactId) {
+                          handleAgentChange(exactId);
+                        }
+                        setTimeout(() => setAgentSearchOpen(false), 120);
+                      }}
                       tabIndex={0}
                     >
                       <div className="agent-search-head">

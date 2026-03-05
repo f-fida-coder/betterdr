@@ -171,9 +171,19 @@ const ModeBetPanel = ({
 
         if (normalizedMode === 'straight') {
             const sel = selections[0];
+            payload.selections = [{
+                matchId: sel.matchId,
+                selection: sel.selection,
+                odds: Number(sel.odds),
+                // Canonical path for backend straight-market validation.
+                type: sel.marketType || 'h2h',
+                marketType: sel.marketType || 'h2h'
+            }];
+            // Keep legacy top-level fields for backward compatibility during migration.
             payload.matchId = sel.matchId;
             payload.selection = sel.selection;
             payload.odds = Number(sel.odds);
+            payload.marketType = sel.marketType || 'h2h';
             payload.type = normalizedMode;
         } else {
             payload.selections = selections.map(sel => ({

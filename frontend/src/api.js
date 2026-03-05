@@ -768,9 +768,10 @@ export const refreshOdds = async (token) => {
     return response.json();
 };
 
-export const fetchOddsManual = async () => {
+export const fetchOddsManual = async (token) => {
     const response = await fetch(buildApiUrl('/matches/fetch-odds'), {
-        method: 'POST'
+        method: 'POST',
+        headers: getHeaders(token)
     });
     if (!response.ok) {
         const error = await response.json().catch(() => ({}));
@@ -858,6 +859,17 @@ export const settleMatchBets = async (payload, token) => {
     if (!response.ok) {
         const error = await response.json().catch(() => ({}));
         throw new Error(error.message || 'Failed to settle bets');
+    }
+    return response.json();
+};
+
+export const getSettleEligibility = async (matchId, token) => {
+    const response = await fetch(buildApiUrl('/bets/settle-eligibility', { matchId }), {
+        headers: getHeaders(token)
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || 'Failed to check settle eligibility');
     }
     return response.json();
 };
@@ -1502,6 +1514,12 @@ export const getNextUsername = async (prefix, token, queryParams = {}) => {
     }
     if (typeof safeParams.type === 'string') {
         safeParams.type = safeParams.type.toLowerCase();
+    }
+    if (typeof safeParams.agentId === 'string') {
+        safeParams.agentId = safeParams.agentId.trim();
+        if (!/^[a-f0-9]{24}$/i.test(safeParams.agentId)) {
+            delete safeParams.agentId;
+        }
     }
     const nextPath = `/admin/next-username/${encodeURIComponent(safePrefix)}`;
     const response = await fetch(buildApiUrl(nextPath, safeParams), {

@@ -1012,6 +1012,7 @@ final class AdminCoreController
 
             $suffix = strtoupper(trim((string) ($_GET['suffix'] ?? '')));
             $type = strtolower(trim((string) ($_GET['type'] ?? 'player')));
+            $agentId = trim((string) ($_GET['agentId'] ?? ''));
             if ($suffix !== '' && preg_match('/^[A-Z0-9]+$/', $suffix) !== 1) {
                 Response::json(['message' => 'Suffix may only contain letters and numbers'], 400);
                 return;
@@ -1020,24 +1021,68 @@ final class AdminCoreController
                 Response::json(['message' => 'Invalid type'], 400);
                 return;
             }
+            if ($agentId !== '' && preg_match('/^[a-f0-9]{24}$/i', $agentId) !== 1) {
+                Response::json(['message' => 'Invalid agentId'], 400);
+                return;
+            }
 
             $safePrefix = preg_quote($prefix, '/');
             $safeSuffix = preg_quote($suffix, '/');
             $pattern = '/^' . $safePrefix . '(\d+)' . $safeSuffix . '$/i';
 
-            $allDocs = array_merge(
-                $this->db->findMany('users', [], ['projection' => ['username' => 1]]),
-                $this->db->findMany('agents', [], ['projection' => ['username' => 1]]),
-                $this->db->findMany('admins', [], ['projection' => ['username' => 1]])
-            );
+            $allDocs = [];
+            $scope = 'global';
+            if ($type === 'player' && $agentId !== '') {
+                $actorRole = (string) ($actor['role'] ?? '');
+                $actorId = (string) ($actor['_id'] ?? '');
+                $allowed = false;
+                if ($actorRole === 'admin') {
+                    $allowed = true;
+                } elseif ($actorRole === 'agent') {
+                    $allowed = $actorId !== '' && $actorId === $agentId;
+                } elseif (in_array($actorRole, ['master_agent', 'super_agent'], true)) {
+                    $allowed = in_array($agentId, $this->listManagedAgentIds($actorId), true);
+                }
+                if (!$allowed) {
+                    Response::json(['message' => 'Not authorized for this agent scope'], 403);
+                    return;
+                }
+
+                $scope = 'agent-player';
+                $agentObjectId = MongoRepository::id($agentId);
+                $allDocs = $this->db->findMany('users', [
+                    'role' => 'user',
+                    '$or' => [
+                        ['agentId' => $agentObjectId],
+                        ['createdBy' => $agentObjectId, 'createdByModel' => 'Agent'],
+                    ],
+                ], ['projection' => ['username' => 1]]);
+            } else {
+                $allDocs = array_merge(
+                    $this->db->findMany('users', [], ['projection' => ['username' => 1]]),
+                    $this->db->findMany('agents', [], ['projection' => ['username' => 1]]),
+                    $this->db->findMany('admins', [], ['projection' => ['username' => 1]])
+                );
+            }
 
             $maxNum = ($type === 'agent') ? 246 : 100;
+            $matchedCount = 0;
+            $agentTrailingMax = 0;
             foreach ($allDocs as $doc) {
                 $username = (string) ($doc['username'] ?? '');
                 if ($username === '') {
                     continue;
                 }
+
+                if ($scope === 'agent-player' && preg_match('/(\d+)$/', $username, $tail) === 1) {
+                    $tailNum = (int) ($tail[1] ?? 0);
+                    if ($tailNum > $agentTrailingMax) {
+                        $agentTrailingMax = $tailNum;
+                    }
+                }
+
                 if (preg_match($pattern, $username, $matches) === 1) {
+                    $matchedCount++;
                     $num = (int) ($matches[1] ?? 0);
                     if ($num > $maxNum) {
                         $maxNum = $num;
@@ -1045,8 +1090,21 @@ final class AdminCoreController
                 }
             }
 
+            $usedTrailingFallback = false;
+            if ($scope === 'agent-player' && $agentTrailingMax > $maxNum) {
+                $maxNum = $agentTrailingMax;
+                $usedTrailingFallback = true;
+            }
+
             $nextUsername = strtoupper($prefix . ($maxNum + 1) . $suffix);
-            Response::json(['nextUsername' => $nextUsername]);
+            Response::json([
+                'nextUsername' => $nextUsername,
+                'currentMax' => $maxNum,
+                'matchedCount' => $matchedCount,
+                'scope' => $scope,
+                'agentTrailingMax' => $agentTrailingMax,
+                'usedTrailingFallback' => $usedTrailingFallback,
+            ]);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error: ' . $e->getMessage()], 500);
         }
@@ -1995,16 +2053,57 @@ final class AdminCoreController
                 $start = $start->modify('-7 days');
             } elseif ($period === 'previous') {
                 $start = $start->modify('-14 days');
+            } elseif (preg_match('/^weeks-ago-(\d+)$/', $period, $matches) === 1) {
+                $weeksAgo = max(0, (int) ($matches[1] ?? 0));
+                $start = $start->modify('-' . ($weeksAgo * 7) . ' days');
             }
             $end = $start->modify('+7 days');
 
-            $query = ['role' => 'user'];
+            $query = ['role' => ['$in' => ['user', 'agent', 'master_agent', 'super_agent']]];
             if (($actor['role'] ?? '') === 'agent') {
-                $query['agentId'] = MongoRepository::id((string) $actor['_id']);
+                $actorId = MongoRepository::id((string) ($actor['_id'] ?? ''));
+                $query['$or'] = [
+                    ['agentId' => $actorId],
+                    ['createdBy' => $actorId, 'createdByModel' => 'Agent'],
+                    ['_id' => $actorId],
+                ];
+            } elseif (in_array((string) ($actor['role'] ?? ''), ['master_agent', 'super_agent'], true)) {
+                $managedAgentIds = $this->listManagedAgentIds((string) ($actor['_id'] ?? ''));
+                $managedAgentObjectIds = [];
+                foreach ($managedAgentIds as $managedAgentId) {
+                    if (preg_match('/^[a-f0-9]{24}$/i', $managedAgentId) === 1) {
+                        $managedAgentObjectIds[] = MongoRepository::id($managedAgentId);
+                    }
+                }
+
+                if (count($managedAgentObjectIds) === 0) {
+                    Response::json([
+                        'period' => $period,
+                        'startDate' => $start->format(DATE_ATOM),
+                        'endDate' => $end->format(DATE_ATOM),
+                        'summary' => [
+                            'totalPlayers' => 0,
+                            'deadAccounts' => 0,
+                            'agentsManagers' => 0,
+                            'days' => [],
+                            'weekTotal' => 0,
+                            'balanceTotal' => 0,
+                            'pendingTotal' => 0,
+                        ],
+                        'customers' => [],
+                    ]);
+                    return;
+                }
+
+                $query['$or'] = [
+                    ['agentId' => ['$in' => $managedAgentObjectIds]],
+                    ['createdBy' => ['$in' => $managedAgentObjectIds], 'createdByModel' => 'Agent'],
+                    ['_id' => ['$in' => $managedAgentObjectIds]],
+                ];
             }
 
             $users = $this->db->findMany('users', $query, [
-                'projection' => ['username' => 1, 'phoneNumber' => 1, 'fullName' => 1, 'balance' => 1, 'pendingBalance' => 1, 'status' => 1, 'createdAt' => 1],
+                'projection' => ['username' => 1, 'phoneNumber' => 1, 'fullName' => 1, 'balance' => 1, 'pendingBalance' => 1, 'balanceOwed' => 1, 'status' => 1, 'createdAt' => 1],
             ]);
             $agentsManagersCount = $this->db->countDocuments('users', ['role' => ['$in' => ['agent', 'admin']]]);
 
@@ -2060,6 +2159,7 @@ final class AdminCoreController
                 $weekTotal = array_sum($daily);
                 $balance = $this->num($user['balance'] ?? 0);
                 $pending = $this->num($user['pendingBalance'] ?? 0);
+                $settleLimit = $this->num($user['balanceOwed'] ?? 0);
                 $carry = $balance - $weekTotal;
 
                 $customers[] = [
@@ -2072,6 +2172,7 @@ final class AdminCoreController
                     'carry' => $carry,
                     'balance' => $balance,
                     'pending' => $pending,
+                    'settleLimit' => $settleLimit,
                     'status' => $user['status'] ?? null,
                 ];
             }
@@ -5910,10 +6011,15 @@ final class AdminCoreController
             $odds = $body['odds'] ?? null;
             $type = (string) ($body['type'] ?? '');
             $selection = (string) ($body['selection'] ?? '');
-            $status = (string) ($body['status'] ?? 'pending');
 
             if ($userId === '' || $matchId === '' || !is_numeric($amount) || !is_numeric($odds) || $type === '' || $selection === '') {
                 Response::json(['message' => 'userId, matchId, amount, odds, type, and selection are required'], 400);
+                return;
+            }
+
+            $status = strtolower(trim((string) ($body['status'] ?? 'pending')));
+            if ($status !== '' && $status !== 'pending') {
+                Response::json(['message' => 'Admin-created bets must start as pending'], 400);
                 return;
             }
 
@@ -5963,21 +6069,82 @@ final class AdminCoreController
                 return;
             }
 
-            $potential = $betAmount * $betOdds;
-            $doc = [
-                'userId' => MongoRepository::id($userId),
-                'matchId' => MongoRepository::id($matchId),
-                'amount' => $betAmount,
-                'odds' => $betOdds,
-                'type' => $type,
-                'selection' => $selection,
-                'potentialPayout' => $potential,
-                'status' => $status === '' ? 'pending' : $status,
-                'createdAt' => MongoRepository::nowUtc(),
-                'updatedAt' => MongoRepository::nowUtc(),
-            ];
-            $id = $this->db->insertOne('bets', $doc);
-            $bet = $this->db->findOne('bets', ['_id' => MongoRepository::id($id)]) ?? array_merge($doc, ['_id' => $id]);
+            $this->db->beginTransaction();
+            try {
+                $lockedUser = $this->db->findOneForUpdate('users', ['_id' => MongoRepository::id($userId)]);
+                if ($lockedUser === null) {
+                    $this->db->rollback();
+                    Response::json(['message' => 'User not found'], 404);
+                    return;
+                }
+
+                $balance = $this->num($lockedUser['balance'] ?? 0);
+                $pendingBalance = $this->num($lockedUser['pendingBalance'] ?? 0);
+                $available = max(0, $balance - $pendingBalance);
+                if ($available < $betAmount) {
+                    $this->db->rollback();
+                    Response::json(['message' => 'Insufficient available balance for this customer'], 400);
+                    return;
+                }
+
+                $potential = $betAmount * $betOdds;
+                $now = MongoRepository::nowUtc();
+                $normalizedType = strtolower(str_replace('-', '_', trim($type)));
+                $marketType = in_array($normalizedType, ['straight', 'h2h', 'moneyline', 'ml'], true) ? 'h2h' : $normalizedType;
+                $doc = [
+                    'userId' => MongoRepository::id($userId),
+                    'matchId' => MongoRepository::id($matchId),
+                    'amount' => $betAmount,
+                    'odds' => $betOdds,
+                    'type' => $type,
+                    'selection' => $selection,
+                    'potentialPayout' => $potential,
+                    'status' => 'pending',
+                    'selections' => [[
+                        'matchId' => MongoRepository::id($matchId),
+                        'selection' => $selection,
+                        'odds' => $betOdds,
+                        'marketType' => $marketType,
+                        'status' => 'pending',
+                        'matchSnapshot' => $match,
+                    ]],
+                    'matchSnapshot' => $match,
+                    'createdAt' => $now,
+                    'updatedAt' => $now,
+                ];
+
+                $newBalance = $balance - $betAmount;
+                $newPendingBalance = $pendingBalance + $betAmount;
+                $this->db->updateOne('users', ['_id' => MongoRepository::id($userId)], [
+                    'balance' => $newBalance,
+                    'pendingBalance' => $newPendingBalance,
+                    'updatedAt' => $now,
+                ]);
+
+                $id = $this->db->insertOne('bets', $doc);
+                $bet = $this->db->findOne('bets', ['_id' => MongoRepository::id($id)]) ?? array_merge($doc, ['_id' => $id]);
+                $this->db->insertOne('transactions', [
+                    'userId' => MongoRepository::id($userId),
+                    'amount' => $betAmount,
+                    'type' => 'bet_placed_admin',
+                    'status' => 'completed',
+                    'balanceBefore' => $balance,
+                    'balanceAfter' => $newBalance,
+                    'referenceType' => 'Bet',
+                    'referenceId' => MongoRepository::id($id),
+                    'reason' => 'BET_PLACED_ADMIN',
+                    'description' => 'Admin/TicketWriter placed pending bet',
+                    'createdBy' => (string) ($actor['_id'] ?? ''),
+                    'createdByRole' => (string) ($actor['role'] ?? ''),
+                    'createdByUsername' => (string) ($actor['username'] ?? ''),
+                    'createdAt' => $now,
+                    'updatedAt' => $now,
+                ]);
+                $this->db->commit();
+            } catch (Throwable $txe) {
+                $this->db->rollback();
+                throw $txe;
+            }
 
             Response::json([
                 'message' => 'Bet created',
@@ -5990,7 +6157,7 @@ final class AdminCoreController
                     'potentialPayout' => $this->num($bet['potentialPayout'] ?? $potential),
                     'type' => $bet['type'] ?? $type,
                     'selection' => $bet['selection'] ?? $selection,
-                    'status' => $bet['status'] ?? $status,
+                    'status' => $bet['status'] ?? 'pending',
                     'createdAt' => $bet['createdAt'] ?? null,
                 ],
             ], 201);
@@ -6018,55 +6185,116 @@ final class AdminCoreController
                 }
             }
 
-            $bet = $this->db->findOne('bets', ['_id' => MongoRepository::id($id)]);
-            if ($bet === null) {
-                Response::json(['message' => 'Bet not found'], 404);
-                return;
-            }
-            if (($bet['status'] ?? '') !== 'pending') {
-                Response::json(['message' => 'Only pending bets can be deleted'], 400);
-                return;
-            }
-
-            $userId = (string) ($bet['userId'] ?? '');
-            $user = $userId !== '' ? $this->db->findOne('users', ['_id' => MongoRepository::id($userId)], ['projection' => ['agentId' => 1, 'username' => 1]]) : null;
-            if (($actor['role'] ?? '') === 'agent' && (string) ($user['agentId'] ?? '') !== (string) ($actor['_id'] ?? '')) {
-                Response::json(['message' => 'You can only delete bets for your own players'], 403);
-                return;
-            }
-            if (in_array((string) ($actor['role'] ?? ''), ['master_agent', 'super_agent'], true)) {
-                $subAgents = $this->db->findMany('agents', ['createdBy' => MongoRepository::id((string) $actor['_id']), 'createdByModel' => 'Agent'], ['projection' => ['_id' => 1]]);
-                $allowed = [(string) $actor['_id']];
-                foreach ($subAgents as $sa) {
-                    $allowed[] = (string) ($sa['_id'] ?? '');
-                }
-                if (!in_array((string) ($user['agentId'] ?? ''), $allowed, true)) {
-                    Response::json(['message' => 'You can only delete bets within your hierarchy'], 403);
+            $this->db->beginTransaction();
+            try {
+                $bet = $this->db->findOneForUpdate('bets', ['_id' => MongoRepository::id($id)]);
+                if ($bet === null) {
+                    $this->db->rollback();
+                    Response::json(['message' => 'Bet not found'], 404);
                     return;
                 }
+                if (($bet['status'] ?? '') !== 'pending') {
+                    $this->db->rollback();
+                    Response::json(['message' => 'Only pending bets can be deleted'], 400);
+                    return;
+                }
+
+                $userId = (string) ($bet['userId'] ?? '');
+                $user = $userId !== '' ? $this->db->findOne('users', ['_id' => MongoRepository::id($userId)], ['projection' => ['_id' => 1, 'agentId' => 1, 'username' => 1, 'balance' => 1, 'pendingBalance' => 1]]) : null;
+                if ($user === null) {
+                    $this->db->rollback();
+                    Response::json(['message' => 'User not found for this bet'], 404);
+                    return;
+                }
+                if (($actor['role'] ?? '') === 'agent' && (string) ($user['agentId'] ?? '') !== (string) ($actor['_id'] ?? '')) {
+                    $this->db->rollback();
+                    Response::json(['message' => 'You can only delete bets for your own players'], 403);
+                    return;
+                }
+                if (in_array((string) ($actor['role'] ?? ''), ['master_agent', 'super_agent'], true)) {
+                    $subAgents = $this->db->findMany('agents', ['createdBy' => MongoRepository::id((string) $actor['_id']), 'createdByModel' => 'Agent'], ['projection' => ['_id' => 1]]);
+                    $allowed = [(string) $actor['_id']];
+                    foreach ($subAgents as $sa) {
+                        $allowed[] = (string) ($sa['_id'] ?? '');
+                    }
+                    if (!in_array((string) ($user['agentId'] ?? ''), $allowed, true)) {
+                        $this->db->rollback();
+                        Response::json(['message' => 'You can only delete bets within your hierarchy'], 403);
+                        return;
+                    }
+                }
+
+                $existingDeleted = $this->db->findOne('deletedwagers', ['betId' => MongoRepository::id($id), 'status' => 'deleted']);
+                if ($existingDeleted !== null) {
+                    $this->db->rollback();
+                    Response::json(['message' => 'Bet deletion was already processed'], 409);
+                    return;
+                }
+
+                $lockedUser = $this->db->findOneForUpdate('users', ['_id' => MongoRepository::id($userId)]);
+                if ($lockedUser === null) {
+                    $this->db->rollback();
+                    Response::json(['message' => 'User not found for this bet'], 404);
+                    return;
+                }
+
+                $stake = $this->num($bet['amount'] ?? 0);
+                $balanceBefore = $this->num($lockedUser['balance'] ?? 0);
+                $pendingBefore = $this->num($lockedUser['pendingBalance'] ?? 0);
+                $balanceAfter = $balanceBefore + $stake;
+                $pendingAfter = max(0, $pendingBefore - $stake);
+                $now = MongoRepository::nowUtc();
+
+                $this->db->updateOne('users', ['_id' => MongoRepository::id($userId)], [
+                    'balance' => $balanceAfter,
+                    'pendingBalance' => $pendingAfter,
+                    'updatedAt' => $now,
+                ]);
+
+                $sport = 'Unknown';
+                $matchId = (string) ($bet['matchId'] ?? '');
+                if ($matchId !== '' && preg_match('/^[a-f0-9]{24}$/i', $matchId) === 1) {
+                    $match = $this->db->findOne('matches', ['_id' => MongoRepository::id($matchId)], ['projection' => ['sport' => 1]]);
+                    $sport = (string) ($match['sport'] ?? 'Unknown');
+                }
+
+                $this->db->insertOne('deletedwagers', [
+                    'userId' => MongoRepository::id($userId),
+                    'betId' => MongoRepository::id($id),
+                    'amount' => $stake,
+                    'sport' => $sport,
+                    'reason' => trim('Deleted by ' . (string) ($actor['role'] ?? '') . ' ' . (string) ($actor['username'] ?? '')),
+                    'status' => 'deleted',
+                    'deletedAt' => $now,
+                    'createdAt' => $now,
+                    'updatedAt' => $now,
+                ]);
+
+                $this->db->insertOne('transactions', [
+                    'userId' => MongoRepository::id($userId),
+                    'amount' => $stake,
+                    'type' => 'bet_void_admin',
+                    'status' => 'completed',
+                    'balanceBefore' => $balanceBefore,
+                    'balanceAfter' => $balanceAfter,
+                    'referenceType' => 'Bet',
+                    'referenceId' => MongoRepository::id($id),
+                    'reason' => 'BET_VOID_ADMIN',
+                    'description' => 'Admin/TicketWriter voided pending bet',
+                    'createdBy' => (string) ($actor['_id'] ?? ''),
+                    'createdByRole' => (string) ($actor['role'] ?? ''),
+                    'createdByUsername' => (string) ($actor['username'] ?? ''),
+                    'createdAt' => $now,
+                    'updatedAt' => $now,
+                ]);
+
+                $this->db->deleteOne('bets', ['_id' => MongoRepository::id($id)]);
+                $this->db->commit();
+                Response::json(['message' => 'Bet deleted successfully', 'id' => $id]);
+            } catch (Throwable $txe) {
+                $this->db->rollback();
+                throw $txe;
             }
-
-            $sport = 'Unknown';
-            $matchId = (string) ($bet['matchId'] ?? '');
-            if ($matchId !== '' && preg_match('/^[a-f0-9]{24}$/i', $matchId) === 1) {
-                $match = $this->db->findOne('matches', ['_id' => MongoRepository::id($matchId)], ['projection' => ['sport' => 1]]);
-                $sport = (string) ($match['sport'] ?? 'Unknown');
-            }
-
-            $this->db->insertOne('deletedwagers', [
-                'userId' => $userId !== '' ? MongoRepository::id($userId) : null,
-                'betId' => MongoRepository::id($id),
-                'amount' => $this->num($bet['amount'] ?? 0),
-                'sport' => $sport,
-                'reason' => trim('Deleted by ' . (string) ($actor['role'] ?? '') . ' ' . (string) ($actor['username'] ?? '')),
-                'status' => 'deleted',
-                'deletedAt' => MongoRepository::nowUtc(),
-                'createdAt' => MongoRepository::nowUtc(),
-                'updatedAt' => MongoRepository::nowUtc(),
-            ]);
-
-            $this->db->deleteOne('bets', ['_id' => MongoRepository::id($id)]);
-            Response::json(['message' => 'Bet deleted successfully', 'id' => $id]);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error deleting bet'], 500);
         }

@@ -990,7 +990,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
               </div>
               <div className="creds-row">
                 <span>Password:</span>
-                <div className="creds-pill">{displayPassword}</div>
+                <div className="creds-pill creds-pill-password">{displayPassword}</div>
                 <button className="copy-mini" onClick={() => copyText(displayPassword, 'Password')}>📋</button>
               </div>
             </div>
@@ -1389,7 +1389,12 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
           />
 
           <label>Password</label>
-          <input value={form.password} placeholder={displayPassword} onChange={(e) => setField('password', e.target.value.toUpperCase())} />
+          <input
+            className="password-input-dark"
+            value={form.password}
+            placeholder={displayPassword}
+            onChange={(e) => setField('password', e.target.value.toUpperCase())}
+          />
 
           <label>Master Agent</label>
           {['admin', 'super_agent', 'master_agent'].includes(role) ? (
@@ -1535,7 +1540,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
       <style>{`
         .customer-details-v2 { background:#f3f4f6; min-height:100vh; padding:16px; color:#1f2937; }
         .top-panel { display:flex; justify-content:space-between; align-items:flex-start; background:#fff; border:1px solid #d1d5db; border-radius:8px; padding:16px; box-shadow:0 1px 6px rgba(15, 23, 42, 0.04); }
-        .top-left h2 { margin:0; font-size:18px; line-height:1.2; }
+        .top-left h2 { margin:0; font-size:18px; line-height:1.2; font-weight: 400; }
         .agent-line { margin-top:4px; color:#4b5563; font-size:14px; }
         .top-actions { display:flex; gap:8px; }
 
@@ -1604,6 +1609,10 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
           font-weight: 700;
           color: #334155;
           line-height: 1.1;
+        }
+        .creds-pill-password {
+          color: #020617;
+          font-weight: 300;
         }
         .copy-mini {
           border: none;
@@ -2037,6 +2046,24 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
         .col-card { background:#fff; border:1px solid #d1d5db; padding:12px; display:flex; flex-direction:column; min-height:560px; }
         .col-card label { color:#4b5563; font-size:13px; margin-top:8px; margin-bottom:4px; }
         .col-card input, .col-card select, .col-card textarea { width:100%; border:none; border-bottom:1px solid #6b7280; background:transparent; font-size:18px; padding:4px 0; color:#111827; outline:none; }
+        .col-card .password-input-dark {
+          background: transparent;
+          color: #020617;
+          border: none;
+          border-bottom: 1px solid #6b7280;
+          border-radius: 0;
+          padding: 4px 0;
+          font-weight: 300;
+        }
+        .col-card .password-input-dark::placeholder {
+          color: #0f172a;
+          opacity: 1;
+          font-weight: 300;
+        }
+        .col-card .password-input-dark:focus {
+          border-bottom-color: #111827;
+          box-shadow: none;
+        }
         .col-card textarea { border:1px solid #6b7280; min-height:160px; font-size:16px; padding:6px; }
 
         .switch-list { margin-top:8px; }

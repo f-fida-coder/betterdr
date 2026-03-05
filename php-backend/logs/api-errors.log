@@ -907,3 +907,11 @@
 2026-03-04 17:41:38 [401] {"message":"Not authorized, no token"}
 2026-03-04 17:41:38 [401] {"message":"Not authorized, no token"}
 2026-03-05 07:51:48 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-03-05 14:11:53 [400] {"message":"Manual winner is H2H-only until the match is finished. Pending spread\/total legs found."}
+2026-03-05 14:28:06 [401] {"message":"Not authorized, no token"}
+2026-03-05 14:28:06 [401] {"message":"Not authorized, no token"}
+2026-03-05 17:31:41 [400] {"message":"Cannot delete user with non-zero balance ($990.00). Please settle first."}
+2026-03-05 17:31:51 [400] {"message":"Cannot delete user with non-zero balance ($990.00). Please settle first."}
+2026-03-05 17:32:14 [400] {"message":"Cannot delete user with pending bets ($10.00)."}
+2026-03-05 17:32:23 [400] {"message":"Cannot delete user with pending bets ($10.00)."}
+2026-03-05 18:34:08 [401] {"message":"Invalid credentials"}

@@ -5,6 +5,76 @@ declare(strict_types=1);
 
 final class BetSettlementService
 {
+    public static function manualWinnerEligibility(MongoRepository $db, string $matchId): array
+    {
+        if (preg_match('/^[a-f0-9]{24}$/i', $matchId) !== 1) {
+            throw new RuntimeException('Match not found');
+        }
+
+        $match = $db->findOne('matches', ['_id' => MongoRepository::id($matchId)]);
+        if ($match === null) {
+            throw new RuntimeException('Match not found');
+        }
+
+        $isFinished = ((string) ($match['status'] ?? '') === 'finished');
+        if ($isFinished) {
+            return [
+                'manualWinnerAllowed' => true,
+                'reason' => null,
+                'isFinished' => true,
+                'blockedLegCount' => 0,
+            ];
+        }
+
+        $pendingBets = $db->findMany('bets', [
+            'status' => 'pending',
+            '$or' => [
+                ['matchId' => MongoRepository::id($matchId)],
+                ['selections.matchId' => MongoRepository::id($matchId)],
+            ],
+        ], [
+            'projection' => ['selections' => 1, 'type' => 1],
+        ]);
+
+        $blockedLegCount = 0;
+        foreach ($pendingBets as $bet) {
+            $selections = is_array($bet['selections'] ?? null) ? $bet['selections'] : [];
+            if (count($selections) === 0) {
+                $legacyType = strtolower((string) ($bet['type'] ?? ''));
+                if (!self::isH2HMarket($legacyType)) {
+                    $blockedLegCount++;
+                }
+                continue;
+            }
+            foreach ($selections as $leg) {
+                $legMatchId = (string) ($leg['matchId'] ?? '');
+                if ($legMatchId !== $matchId) {
+                    continue;
+                }
+                $marketType = strtolower((string) ($leg['marketType'] ?? ''));
+                if (!self::isH2HMarket($marketType)) {
+                    $blockedLegCount++;
+                }
+            }
+        }
+
+        if ($blockedLegCount > 0) {
+            return [
+                'manualWinnerAllowed' => false,
+                'reason' => 'Manual winner is H2H-only until the match is finished. Pending spread/total legs found.',
+                'isFinished' => false,
+                'blockedLegCount' => $blockedLegCount,
+            ];
+        }
+
+        return [
+            'manualWinnerAllowed' => true,
+            'reason' => null,
+            'isFinished' => false,
+            'blockedLegCount' => 0,
+        ];
+    }
+
     public static function settleMatch(MongoRepository $db, string $matchId, ?string $manualWinner = null, string $settledBy = 'system'): array
     {
         if (preg_match('/^[a-f0-9]{24}$/i', $matchId) !== 1) {
@@ -40,6 +110,13 @@ final class BetSettlementService
         $scoreAway = (float) ($match['score']['score_away'] ?? 0);
         $totalScore = $scoreHome + $scoreAway;
         $isFinished = (($match['status'] ?? '') === 'finished');
+
+        if ($manualWinner !== null) {
+            $eligibility = self::manualWinnerEligibility($db, $matchId);
+            if (($eligibility['manualWinnerAllowed'] ?? false) !== true) {
+                throw new RuntimeException((string) ($eligibility['reason'] ?? 'Manual winner is not allowed for this match.'));
+            }
+        }
 
         foreach ($pendingBets as $bet) {
             if (!isset($bet['userId']) || !is_string($bet['userId']) || preg_match('/^[a-f0-9]{24}$/i', $bet['userId']) !== 1) {
@@ -246,7 +323,7 @@ final class BetSettlementService
         $snapshot = is_array($leg['matchSnapshot'] ?? null) ? $leg['matchSnapshot'] : [];
         $snapshotMarkets = is_array($snapshot['odds']['markets'] ?? null) ? $snapshot['odds']['markets'] : [];
 
-        if ($manualWinner !== null) {
+        if ($manualWinner !== null && self::isH2HMarket($marketType)) {
             return $selection === $manualWinner ? 'won' : 'lost';
         }
         if (!$isFinished) {
@@ -318,6 +395,11 @@ final class BetSettlementService
         }
 
         return 'pending';
+    }
+
+    private static function isH2HMarket(string $marketType): bool
+    {
+        return in_array(strtolower(trim($marketType)), ['h2h', 'moneyline', 'ml', 'straight', ''], true);
     }
 
     private static function normalizeSelectionsForUpdate(array $selections): array

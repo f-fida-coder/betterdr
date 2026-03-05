@@ -1986,27 +1986,63 @@
 
 /* Weekly Figures / Summary Styles */
 .period-filter {
+  display: grid;
+  grid-template-columns: minmax(180px, 220px) minmax(180px, 220px);
+  gap: 12px;
+  align-items: center;
+}
+
+.period-filter select {
+  -webkit-appearance: none;
+  appearance: none;
+  background-color: #f4f6f8;
+  border: 1px solid #d8dee4;
+  border-radius: 12px;
+  padding: 12px 40px 12px 14px;
+  min-height: 48px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #0f2433;
+  line-height: 1.2;
+  background-image:
+    linear-gradient(45deg, transparent 50%, #2b3d4b 50%),
+    linear-gradient(135deg, #2b3d4b 50%, transparent 50%);
+  background-position:
+    calc(100% - 20px) calc(50% - 3px),
+    calc(100% - 14px) calc(50% - 3px);
+  background-size: 6px 6px, 6px 6px;
+  background-repeat: no-repeat;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+}
+
+.period-filter select:hover {
+  background-color: #eef3f7;
+  border-color: #9fb3c2;
+}
+
+.period-filter select:focus {
+  outline: none;
+  border-color: #1a5f7a;
+  box-shadow: 0 0 0 3px rgba(26, 95, 122, 0.16);
+}
+
+.customer-identity {
   display: flex;
-  gap: 10px;
+  flex-direction: column;
+  gap: 3px;
+  line-height: 1.2;
 }
 
-.period-filter button {
-  background: white;
-  border: 1px solid #ddd;
-  padding: 8px 16px;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: all 0.2s ease;
+.customer-username {
+  font-weight: 700;
+  color: #1f6fd1;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
-.period-filter button.active {
-  background: #2196F3;
-  color: white;
-  border-color: #2196F3;
-}
-
-.period-filter button:hover {
-  border-color: #2196F3;
+.customer-subname {
+  font-style: italic;
+  opacity: 0.92;
 }
 
 .summary-section {
@@ -2754,7 +2790,14 @@
 
 @media (max-width: 768px) {
   .period-filter {
-    flex-wrap: wrap;
+    grid-template-columns: 1fr;
+    width: 100%;
+  }
+
+  .period-filter select {
+    width: 100%;
+    min-height: 50px;
+    font-size: 17px;
   }
 
   .customer-table thead,
@@ -2812,6 +2855,15 @@
   .section-header {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .period-filter {
+    gap: 10px;
+  }
+
+  .period-filter select {
+    border-radius: 10px;
+    padding: 11px 38px 11px 12px;
   }
 
   .search-input {

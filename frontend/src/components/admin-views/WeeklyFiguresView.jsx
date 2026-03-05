@@ -1,9 +1,18 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { getWeeklyFigures } from '../../api';
+
+const WEEK_OPTIONS = [
+  { value: 'this-week', label: 'This Week' },
+  { value: 'last-week', label: 'Last Week' },
+  ...Array.from({ length: 16 }, (_, index) => {
+    const weeksAgo = index + 2;
+    return { value: `weeks-ago-${weeksAgo}`, label: `${weeksAgo} Week's ago` };
+  }),
+];
 
 function WeeklyFiguresView() {
   const [timePeriod, setTimePeriod] = useState('this-week');
-  const [searchTerm, setSearchTerm] = useState('');
+  const [playerFilter, setPlayerFilter] = useState('over-settle');
   const [summaryData, setSummaryData] = useState(null);
   const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -42,35 +51,68 @@ function WeeklyFiguresView() {
     fetchWeeklyFigures();
   }, [timePeriod]);
 
-  const filteredData = customers.filter(customer =>
-    customer.username?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    customer.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    customer.phoneNumber?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredCustomers = customers.filter((customer) => {
+    const balance = Number(customer.balance || 0);
+    const week = Number(customer.week || 0);
+    const settleLimit = Number(customer.settleLimit || 0);
+    const activeThisWeek = Array.isArray(customer.daily)
+      ? customer.daily.some((value) => Math.abs(Number(value || 0)) > 0.01)
+      : Math.abs(week) > 0.01;
+
+    if (playerFilter === 'with-balance') {
+      return Math.abs(balance) > 0.01;
+    }
+    if (playerFilter === 'active-week') {
+      return activeThisWeek;
+    }
+    if (playerFilter === 'over-settle') {
+      return settleLimit > 0 && Math.abs(balance) > settleLimit;
+    }
+    if (playerFilter === 'big-figures') {
+      return Math.abs(week) >= 1000;
+    }
+    return true;
+  });
+
+  const sortedCustomers = useMemo(() => {
+    const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+    return [...filteredCustomers].sort((a, b) => {
+      const aUsername = String(a?.username || '');
+      const bUsername = String(b?.username || '');
+      return collator.compare(aUsername, bUsername);
+    });
+  }, [filteredCustomers]);
 
   return (
     <div className="admin-view">
       <div className="view-header">
-        <h2>Weekly Figures - Summary & Customer Tracking</h2>
+        <h2>Weekly Figures - Customer Tracking</h2>
         <div className="period-filter">
-          <button
-            className={timePeriod === 'this-week' ? 'active' : ''}
-            onClick={() => setTimePeriod('this-week')}
+          <select
+            value={timePeriod}
+            onChange={(e) => setTimePeriod(e.target.value)}
+            className="weekly-period-select"
+            aria-label="Select week period"
           >
-            This Week
-          </button>
-          <button
-            className={timePeriod === 'last-week' ? 'active' : ''}
-            onClick={() => setTimePeriod('last-week')}
+            {WEEK_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          <select
+            value={playerFilter}
+            onChange={(e) => setPlayerFilter(e.target.value)}
+            className="weekly-filter-select"
+            aria-label="Select player filter"
           >
-            Last Week
-          </button>
-          <button
-            className={timePeriod === 'previous' ? 'active' : ''}
-            onClick={() => setTimePeriod('previous')}
-          >
-            Previous Weeks
-          </button>
+            <option value="with-balance">With A Balance</option>
+            <option value="active-week">Active for the week</option>
+            <option value="over-settle">Over Settle</option>
+            <option value="all-players">All Players</option>
+            <option value="big-figures">Big Figures</option>
+            <option value="summary">Summary</option>
+          </select>
         </div>
       </div>
 
@@ -79,54 +121,10 @@ function WeeklyFiguresView() {
         {error && <div style={{ padding: '20px', color: 'red', textAlign: 'center' }}>{error}</div>}
         {!loading && !error && summaryData && (
           <>
-            <div className="summary-section">
-              <div className="summary-header">
-                <h3>Summary</h3>
-              </div>
-              <table className="summary-table">
-                <thead>
-                  <tr>
-                    <th>Carry</th>
-                    {summaryData.days.map((day, idx) => (
-                      <th key={idx}>{day.day}</th>
-                    ))}
-                    <th>Week</th>
-                    <th>Balance</th>
-                    <th>Pending</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td><strong>{summaryData.totalPlayers} Players</strong></td>
-                    {summaryData.days.map((day, idx) => (
-                      <td key={idx} style={{ color: day.amount < 0 ? '#e74c3c' : '#27ae60' }}>
-                        {formatMoney(day.amount)}
-                      </td>
-                    ))}
-                    <td style={{ color: summaryData.weekTotal < 0 ? '#e74c3c' : '#27ae60' }}>{formatMoney(summaryData.weekTotal)}</td>
-                    <td style={{ color: summaryData.balanceTotal < 0 ? '#e74c3c' : '#27ae60' }}>{formatMoney(summaryData.balanceTotal)}</td>
-                    <td>{formatMoney(summaryData.pendingTotal)}</td>
-                  </tr>
-                </tbody>
-              </table>
-
-              <div className="dead-agents-row">
-                <span><strong>DEAD / AGENTS / MANAGERS</strong></span>
-                <span className="value">{summaryData.deadAccounts} / {summaryData.agentsManagers}</span>
-              </div>
-            </div>
-
             {/* Customer Table Section */}
             <div className="customer-section">
               <div className="section-header">
                 <h3>Customer</h3>
-                <input
-                  type="text"
-                  placeholder="Search accounts..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="search-input"
-                />
               </div>
 
               <div className="table-container scrollable">
@@ -134,8 +132,6 @@ function WeeklyFiguresView() {
                   <thead>
                     <tr>
                       <th>Customer</th>
-                      <th>Name</th>
-                      <th>Phone Number</th>
                       <th>Carry</th>
                       {summaryData.days.map((day, idx) => (
                         <th key={idx}>{day.day}</th>
@@ -146,11 +142,16 @@ function WeeklyFiguresView() {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredData.map((customer, idx) => (
+                    {sortedCustomers.map((customer, idx) => (
                       <tr key={idx}>
-                        <td><strong>{customer.username}</strong></td>
-                        <td>{customer.name}</td>
-                        <td>{customer.phoneNumber}</td>
+                        <td>
+                          <div className="customer-identity">
+                            <strong className="customer-username">{customer.username}</strong>
+                            <span className="customer-subname">
+                              {customer.name || '—'}
+                            </span>
+                          </div>
+                        </td>
                         <td style={{ color: customer.carry < 0 ? '#e74c3c' : '#27ae60' }}>
                           {formatMoney(customer.carry)}
                         </td>

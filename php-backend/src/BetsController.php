@@ -28,6 +28,10 @@ final class BetsController
             $this->settleMatch();
             return true;
         }
+        if ($path === '/api/bets/settle-eligibility' && $method === 'GET') {
+            $this->getSettleEligibility();
+            return true;
+        }
 
         return false;
     }
@@ -50,6 +54,7 @@ final class BetsController
             $odds = $body['odds'] ?? null;
             $amount = $body['amount'] ?? null;
             $type = BetModeRules::normalize((string) ($body['type'] ?? 'straight'));
+            $marketType = BetModeRules::normalize((string) ($body['marketType'] ?? ''));
             $selections = is_array($body['selections'] ?? null) ? $body['selections'] : [];
             $teaserPoints = (float) ($body['teaserPoints'] ?? 0);
 
@@ -82,13 +87,20 @@ final class BetsController
             $selectionInputs = [];
             if ($type === 'straight') {
                 if (count($selections) > 0) {
-                    $selectionInputs = [$selections[0]];
+                    $first = is_array($selections[0]) ? $selections[0] : [];
+                    $selectionInputs = [[
+                        'matchId' => $first['matchId'] ?? null,
+                        'selection' => $first['selection'] ?? null,
+                        'odds' => $first['odds'] ?? null,
+                        // Support both betslip forms: explicit marketType or legacy type field.
+                        'type' => $first['type'] ?? ($first['marketType'] ?? ($marketType !== '' ? $marketType : $type)),
+                    ]];
                 } elseif ($matchId !== '' && $selection !== '') {
                     $selectionInputs = [[
                         'matchId' => $matchId,
                         'selection' => $selection,
                         'odds' => $odds,
-                        'type' => $type,
+                        'type' => $marketType !== '' ? $marketType : $type,
                     ]];
                 } else {
                     Response::json(['message' => 'Straight bet requires one selection'], 400);
@@ -117,7 +129,7 @@ final class BetsController
                     trim((string) ($sel['matchId'] ?? '')),
                     trim((string) ($sel['selection'] ?? '')),
                     $sel['odds'] ?? null,
-                    BetModeRules::normalize((string) ($sel['type'] ?? 'straight'))
+                    BetModeRules::normalize((string) ($sel['type'] ?? ($sel['marketType'] ?? 'straight')))
                 );
             }
 
@@ -302,8 +314,35 @@ final class BetsController
                 'message' => 'Settlement complete',
                 'results' => $results,
             ]);
+        } catch (RuntimeException $e) {
+            Response::json(['message' => $e->getMessage() ?: 'Error settling bets'], 400);
         } catch (Throwable $e) {
             Response::json(['message' => $e->getMessage() ?: 'Error settling bets'], 500);
+        }
+    }
+
+    private function getSettleEligibility(): void
+    {
+        try {
+            $actor = $this->protect();
+            if ($actor === null) {
+                return;
+            }
+            if ((string) ($actor['role'] ?? '') !== 'admin') {
+                Response::json(['message' => 'User role ' . ($actor['role'] ?? 'unknown') . ' is not authorized to access this route'], 403);
+                return;
+            }
+
+            $matchId = trim((string) ($_GET['matchId'] ?? ''));
+            if (preg_match('/^[a-f0-9]{24}$/i', $matchId) !== 1) {
+                Response::json(['message' => 'Valid matchId is required'], 400);
+                return;
+            }
+
+            $eligibility = BetSettlementService::manualWinnerEligibility($this->db, $matchId);
+            Response::json($eligibility);
+        } catch (Throwable $e) {
+            Response::json(['message' => $e->getMessage() ?: 'Error checking settle eligibility'], 500);
         }
     }
 
