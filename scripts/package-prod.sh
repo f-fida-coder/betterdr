@@ -15,11 +15,16 @@ cp -R "$ROOT_DIR/api" "$DIST_DIR/api"
 cp -R "$ROOT_DIR/php-backend" "$DIST_DIR/php-backend"
 
 # Make runtime env available for both lookup paths used by Env::load().
-if [[ -f "$ROOT_DIR/.env" ]]; then
-  cp "$ROOT_DIR/.env" "$DIST_DIR/.env"
-  cp "$ROOT_DIR/.env" "$DIST_DIR/php-backend/.env"
-  cp "$ROOT_DIR/.env" "$DIST_DIR/env.runtime"
-  cp "$ROOT_DIR/.env" "$DIST_DIR/php-backend/env.runtime"
+ENV_SOURCE="$ROOT_DIR/.env"
+if [[ -f "$ROOT_DIR/.env.production" ]]; then
+  ENV_SOURCE="$ROOT_DIR/.env.production"
+fi
+
+if [[ -f "$ENV_SOURCE" ]]; then
+  cp "$ENV_SOURCE" "$DIST_DIR/.env"
+  cp "$ENV_SOURCE" "$DIST_DIR/php-backend/.env"
+  cp "$ENV_SOURCE" "$DIST_DIR/env.runtime"
+  cp "$ENV_SOURCE" "$DIST_DIR/php-backend/env.runtime"
 fi
 
 echo "Packaged production bundle with api/ and php-backend/ in $DIST_DIR"

@@ -14,14 +14,16 @@ final class Env
             return;
         }
 
-        // Project root files are authoritative.
-        // Backend-local files are fallback only to avoid accidental overrides from template/example files.
         self::loadFile($projectRoot . '/env.runtime');
         self::loadFile($phpBackendDir . '/env.runtime');
 
-        // Root .env may override runtime defaults.
-        self::loadFile($projectRoot . '/.env', true);
-        self::loadFile($phpBackendDir . '/.env');
+        $appEnv = self::resolveAppEnv();
+        $primaryEnvFile = $appEnv === 'production' ? '.env.production' : '.env';
+
+        // Project root files are authoritative.
+        // Backend-local files are fallback only to avoid accidental overrides from template/example files.
+        self::loadFile($projectRoot . '/' . $primaryEnvFile, true);
+        self::loadFile($phpBackendDir . '/' . $primaryEnvFile);
 
         // Last-chance fallbacks.
         self::loadFile($projectRoot . '/.env.copy');
@@ -82,5 +84,24 @@ final class Env
             putenv($key . '=' . $value);
             self::$fileManagedKeys[$key] = true;
         }
+    }
+
+    private static function resolveAppEnv(): string
+    {
+        $explicit = strtolower(trim((string) ($_ENV['APP_ENV'] ?? $_SERVER['APP_ENV'] ?? getenv('APP_ENV') ?: '')));
+        if ($explicit !== '') {
+            return $explicit;
+        }
+
+        $host = strtolower(trim((string) ($_SERVER['HTTP_HOST'] ?? $_SERVER['SERVER_NAME'] ?? '')));
+        if ($host !== '') {
+            $normalizedHost = preg_replace('/:\d+$/', '', $host) ?? $host;
+            if ($normalizedHost === 'localhost' || $normalizedHost === '127.0.0.1' || str_ends_with($normalizedHost, '.local')) {
+                return 'development';
+            }
+            return 'production';
+        }
+
+        return 'development';
     }
 }
