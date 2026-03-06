@@ -2506,38 +2506,65 @@ final class AdminCoreController
             }
 
             $matches = $this->db->findMany('matches', [], ['sort' => ['startTime' => 1]]);
-            $bets = $this->db->findMany('bets', [], ['projection' => ['matchId' => 1, 'amount' => 1, 'potentialPayout' => 1, 'status' => 1]]);
+            $bets = $this->db->findMany('bets', [], ['sort' => ['createdAt' => -1]]);
+            $selectionRowsByBetId = $this->loadSelectionRowsByBetId($bets);
 
             $stats = [];
             foreach ($bets as $bet) {
-                $matchId = (string) ($bet['matchId'] ?? '');
-                if ($matchId === '') {
+                $betId = (string) ($bet['_id'] ?? '');
+                if ($betId === '') {
                     continue;
                 }
-                if (!isset($stats[$matchId])) {
-                    $stats[$matchId] = ['totalWagered' => 0.0, 'totalPayouts' => 0.0, 'activeBets' => 0];
+
+                $matchIds = $this->matchIdsForBet($bet, $selectionRowsByBetId[$betId] ?? []);
+                if ($matchIds === []) {
+                    continue;
                 }
-                $stats[$matchId]['totalWagered'] += $this->num($bet['amount'] ?? 0);
-                if (($bet['status'] ?? '') === 'won') {
-                    $stats[$matchId]['totalPayouts'] += $this->num($bet['potentialPayout'] ?? 0);
-                }
-                if (($bet['status'] ?? '') === 'pending') {
-                    $stats[$matchId]['activeBets'] += 1;
+
+                $risk = SportsbookBetSupport::riskAmount($bet);
+                $payout = $this->num($bet['potentialPayout'] ?? 0);
+                $status = (string) ($bet['status'] ?? '');
+
+                foreach ($matchIds as $matchId) {
+                    if (!isset($stats[$matchId])) {
+                        $stats[$matchId] = [
+                            'totalWagered' => 0.0,
+                            'totalPayouts' => 0.0,
+                            'activeBets' => 0,
+                            'pendingExposure' => 0.0,
+                            'pendingToWin' => 0.0,
+                        ];
+                    }
+
+                    $stats[$matchId]['totalWagered'] += $risk;
+                    if ($status === 'won' || $status === 'void') {
+                        $stats[$matchId]['totalPayouts'] += $payout;
+                    }
+                    if ($status === 'pending') {
+                        $stats[$matchId]['activeBets'] += 1;
+                        $stats[$matchId]['pendingExposure'] += $risk;
+                        $stats[$matchId]['pendingToWin'] += $payout;
+                    }
                 }
             }
 
             $response = [];
             foreach ($matches as $match) {
                 $id = (string) ($match['_id'] ?? '');
-                $stat = $stats[$id] ?? ['totalWagered' => 0.0, 'totalPayouts' => 0.0, 'activeBets' => 0];
+                $annotated = SportsMatchStatus::annotate($match);
+                $stat = $stats[$id] ?? ['totalWagered' => 0.0, 'totalPayouts' => 0.0, 'activeBets' => 0, 'pendingExposure' => 0.0, 'pendingToWin' => 0.0];
                 $response[] = [
                     'id' => $id,
-                    'homeTeam' => $match['homeTeam'] ?? null,
-                    'awayTeam' => $match['awayTeam'] ?? null,
-                    'startTime' => $match['startTime'] ?? null,
-                    'status' => $match['status'] ?? null,
-                    'sport' => $match['sport'] ?? null,
+                    'homeTeam' => $annotated['homeTeam'] ?? null,
+                    'awayTeam' => $annotated['awayTeam'] ?? null,
+                    'startTime' => $annotated['startTime'] ?? null,
+                    'status' => $annotated['status'] ?? null,
+                    'sport' => $annotated['sport'] ?? null,
                     'activeBets' => $stat['activeBets'],
+                    'pendingExposure' => $stat['pendingExposure'],
+                    'pendingToWin' => $stat['pendingToWin'],
+                    'totalWagered' => $stat['totalWagered'],
+                    'totalPayouts' => $stat['totalPayouts'],
                     'revenue' => $stat['totalWagered'] - $stat['totalPayouts'],
                 ];
             }
@@ -5857,6 +5884,10 @@ final class AdminCoreController
             $customerQ = (string) ($_GET['customer'] ?? '');
             $typeQ = (string) ($_GET['type'] ?? '');
             $timeQ = (string) ($_GET['time'] ?? '');
+            $statusQ = (string) ($_GET['status'] ?? '');
+            $sportQ = trim((string) ($_GET['sport'] ?? ''));
+            $eventQ = trim((string) ($_GET['event'] ?? ''));
+            $marketQ = trim((string) ($_GET['market'] ?? ''));
             $limit = isset($_GET['limit']) && is_numeric($_GET['limit']) ? (int) $_GET['limit'] : 200;
             $limit = min($limit, 500);
 
@@ -5924,12 +5955,16 @@ final class AdminCoreController
             if ($typeQ !== '' && $typeQ !== 'all-types') {
                 $betQuery['type'] = $typeQ;
             }
+            if ($statusQ !== '' && $statusQ !== 'all-statuses' && $statusQ !== 'all') {
+                $betQuery['status'] = $statusQ;
+            }
             $startDate = $this->getStartDateFromPeriod($timeQ);
             if ($startDate !== null) {
                 $betQuery['createdAt'] = ['$gte' => MongoRepository::utcFromMillis($startDate->getTimestamp() * 1000)];
             }
 
             $bets = $this->db->findMany('bets', $betQuery, ['sort' => ['createdAt' => -1], 'limit' => $limit]);
+            $selectionRowsByBetId = $this->loadSelectionRowsByBetId($bets);
             $matchMap = [];
             $agentMap = [];
             $formatted = [];
@@ -5937,6 +5972,11 @@ final class AdminCoreController
             $totalToWin = 0.0;
 
             foreach ($bets as $bet) {
+                $betId = (string) ($bet['_id'] ?? '');
+                if ($betId === '') {
+                    continue;
+                }
+
                 $uid = (string) ($bet['userId'] ?? '');
                 $user = $userMap[$uid] ?? null;
                 $aid = (string) (($user['agentId'] ?? ''));
@@ -5945,41 +5985,105 @@ final class AdminCoreController
                     $agentMap[$aid] = $this->db->findOne('agents', ['_id' => MongoRepository::id($aid)], ['projection' => ['username' => 1]]);
                 }
 
-                $mid = (string) ($bet['matchId'] ?? '');
-                if ($mid !== '' && !isset($matchMap[$mid]) && preg_match('/^[a-f0-9]{24}$/i', $mid) === 1) {
-                    $matchMap[$mid] = $this->db->findOne('matches', ['_id' => MongoRepository::id($mid)], ['projection' => ['homeTeam' => 1, 'awayTeam' => 1, 'sport' => 1]]);
+                $selectionRows = $selectionRowsByBetId[$betId] ?? [];
+                $enrichedBet = SportsbookBetSupport::enrichBetForResponse($bet, $selectionRows);
+                $matchIds = $this->matchIdsForBet($bet, $selectionRows);
+                $primaryMatch = null;
+                foreach ($matchIds as $mid) {
+                    if (!isset($matchMap[$mid]) && preg_match('/^[a-f0-9]{24}$/i', $mid) === 1) {
+                        $matchMap[$mid] = $this->db->findOne('matches', ['_id' => MongoRepository::id($mid)], ['projection' => ['homeTeam' => 1, 'awayTeam' => 1, 'sport' => 1, 'status' => 1]]);
+                    }
+                    if ($primaryMatch === null) {
+                        $primaryMatch = $matchMap[$mid] ?? null;
+                        if ($primaryMatch !== null) {
+                            $primaryMatch['id'] = $mid;
+                        }
+                    }
                 }
-                $match = $matchMap[$mid] ?? null;
 
-                $risk = $this->num($bet['amount'] ?? 0);
+                $markets = [];
+                foreach ($selectionRows as $row) {
+                    $marketType = strtolower((string) ($row['marketType'] ?? ''));
+                    if ($marketType !== '') {
+                        $markets[$marketType] = true;
+                    }
+                }
+
+                if ($sportQ !== '') {
+                    $matchedSport = false;
+                    foreach ($matchIds as $mid) {
+                        $sportValue = strtolower((string) (($matchMap[$mid]['sport'] ?? '') ?: ''));
+                        if ($sportValue === strtolower($sportQ)) {
+                            $matchedSport = true;
+                            break;
+                        }
+                    }
+                    if (!$matchedSport) {
+                        continue;
+                    }
+                }
+
+                if ($eventQ !== '') {
+                    $haystacks = [(string) ($enrichedBet['description'] ?? '')];
+                    foreach ($matchIds as $mid) {
+                        $home = (string) ($matchMap[$mid]['homeTeam'] ?? '');
+                        $away = (string) ($matchMap[$mid]['awayTeam'] ?? '');
+                        $haystacks[] = trim($home . ' vs ' . $away);
+                    }
+                    $matchedEvent = false;
+                    foreach ($haystacks as $haystack) {
+                        if ($haystack !== '' && stripos($haystack, $eventQ) !== false) {
+                            $matchedEvent = true;
+                            break;
+                        }
+                    }
+                    if (!$matchedEvent) {
+                        continue;
+                    }
+                }
+
+                if ($marketQ !== '' && !isset($markets[strtolower($marketQ)])) {
+                    continue;
+                }
+
+                $risk = SportsbookBetSupport::riskAmount($bet);
                 $toWin = $this->num($bet['potentialPayout'] ?? 0);
                 $totalRisk += $risk;
                 $totalToWin += $toWin;
 
                 $formatted[] = [
-                    'id' => (string) ($bet['_id'] ?? ''),
+                    'id' => $betId,
+                    'ticketId' => (string) ($enrichedBet['ticketId'] ?? $betId),
+                    'requestId' => $bet['requestId'] ?? null,
                     'userId' => $uid !== '' ? $uid : null,
                     'username' => $user['username'] ?? null,
-                    'agent' => $agentMap[$aid]['username'] ?? null,
+                    'customer' => $user['username'] ?? null,
+                    'agent' => $agentMap[$aid]['username'] ?? 'direct',
                     'amount' => $risk,
-                    'odds' => $this->num($bet['odds'] ?? 0),
+                    'odds' => $this->num($enrichedBet['combinedOdds'] ?? ($enrichedBet['odds'] ?? 0)),
+                    'combinedOdds' => $this->num($enrichedBet['combinedOdds'] ?? ($enrichedBet['odds'] ?? 0)),
                     'potentialPayout' => $toWin,
                     'type' => $bet['type'] ?? null,
                     'selection' => $bet['selection'] ?? null,
                     'status' => $bet['status'] ?? null,
                     'createdAt' => $bet['createdAt'] ?? null,
-                    'match' => $match !== null ? [
-                        'id' => $mid,
-                        'homeTeam' => $match['homeTeam'] ?? null,
-                        'awayTeam' => $match['awayTeam'] ?? null,
-                        'sport' => $match['sport'] ?? null,
+                    'accepted' => $bet['createdAt'] ?? null,
+                    'description' => $enrichedBet['description'] ?? '',
+                    'match' => $primaryMatch !== null ? [
+                        'id' => $primaryMatch['id'] ?? null,
+                        'homeTeam' => $primaryMatch['homeTeam'] ?? null,
+                        'awayTeam' => $primaryMatch['awayTeam'] ?? null,
+                        'sport' => $primaryMatch['sport'] ?? null,
+                        'status' => $primaryMatch['status'] ?? null,
                     ] : null,
+                    'markets' => array_keys($markets),
+                    'selections' => $enrichedBet['selections'] ?? [],
                     'risk' => $risk,
                     'toWin' => $toWin,
                 ];
             }
 
-            Response::json(['bets' => $formatted, 'totals' => ['risk' => $totalRisk, 'toWin' => $totalToWin]]);
+            Response::json(['bets' => $formatted, 'totals' => ['risk' => $totalRisk, 'toWin' => $totalToWin, 'count' => count($formatted)]]);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error fetching bets'], 500);
         }
@@ -6287,6 +6391,14 @@ final class AdminCoreController
                     'createdAt' => $now,
                     'updatedAt' => $now,
                 ]);
+
+                $selectionRows = $this->db->findMany('betselections', ['betId' => MongoRepository::id($id)], ['projection' => ['_id' => 1]]);
+                foreach ($selectionRows as $row) {
+                    $selectionId = (string) ($row['_id'] ?? '');
+                    if ($selectionId !== '') {
+                        $this->db->deleteOne('betselections', ['_id' => MongoRepository::id($selectionId)]);
+                    }
+                }
 
                 $this->db->deleteOne('bets', ['_id' => MongoRepository::id($id)]);
                 $this->db->commit();
@@ -7081,6 +7193,67 @@ final class AdminCoreController
             return 'agents';
         }
         return 'users';
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $bets
+     * @return array<string, array<int, array<string, mixed>>>
+     */
+    private function loadSelectionRowsByBetId(array $bets): array
+    {
+        SportsbookBetSupport::backfillSelectionRowsForBets($this->db, $bets);
+
+        $betIds = [];
+        foreach ($bets as $bet) {
+            $betId = (string) ($bet['_id'] ?? '');
+            if ($betId !== '' && preg_match('/^[a-f0-9]{24}$/i', $betId) === 1) {
+                $betIds[] = MongoRepository::id($betId);
+            }
+        }
+
+        if ($betIds === []) {
+            return [];
+        }
+
+        $rows = $this->db->findMany('betselections', ['betId' => ['$in' => $betIds]], ['sort' => ['selectionOrder' => 1]]);
+        $grouped = [];
+        foreach ($rows as $row) {
+            $betId = (string) ($row['betId'] ?? '');
+            if ($betId === '') {
+                continue;
+            }
+            if (!isset($grouped[$betId])) {
+                $grouped[$betId] = [];
+            }
+            $grouped[$betId][] = $row;
+        }
+
+        return $grouped;
+    }
+
+    /**
+     * @param array<string, mixed> $bet
+     * @param array<int, array<string, mixed>> $selectionRows
+     * @return array<int, string>
+     */
+    private function matchIdsForBet(array $bet, array $selectionRows): array
+    {
+        $matchIds = [];
+        foreach ($selectionRows as $row) {
+            $matchId = (string) ($row['matchId'] ?? '');
+            if ($matchId !== '' && preg_match('/^[a-f0-9]{24}$/i', $matchId) === 1) {
+                $matchIds[$matchId] = $matchId;
+            }
+        }
+
+        if ($matchIds === []) {
+            $matchId = (string) ($bet['matchId'] ?? '');
+            if ($matchId !== '' && preg_match('/^[a-f0-9]{24}$/i', $matchId) === 1) {
+                $matchIds[$matchId] = $matchId;
+            }
+        }
+
+        return array_values($matchIds);
     }
 
     private function num(mixed $value): float

@@ -27,9 +27,7 @@ const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, 
     const [showPersonalizeSidebar, setShowPersonalizeSidebar] = useState(false);
 
     // Odds format state
-    const [oddsFormat, setOddsFormat] = useState(() => {
-        return localStorage.getItem('oddsFormat') || 'american';
-    });
+    const [oddsFormat, setOddsFormat] = useState('decimal');
 
     // Sync oddsFormat to localStorage
     useEffect(() => {
@@ -147,7 +145,7 @@ const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, 
                         </div>
                         <div className="usd-item" onClick={() => { setShowOddsModal(true); setShowUserMenu(false); }}>
                             <div className="usd-icon"><i className="fa-solid fa-calculator"></i></div>
-                            <div className="usd-text">ODDS DISPLAY</div>
+                            <div className="usd-text">ODDS FORMAT</div>
                             <div className="usd-right-icon"><i className="fa-solid fa-chevron-right"></i></div>
                         </div>
                         <div className="usd-item" onClick={() => { setShowScoreboard(true); setShowUserMenu(false); }}>
@@ -364,7 +362,7 @@ const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, 
                                 </div>
                                 <div className="usd-item" onClick={() => setShowOddsModal(true)}>
                                     <div className="usd-icon"><i className="fa-solid fa-calculator"></i></div>
-                                    <div className="usd-text">Odds Display</div>
+                                    <div className="usd-text">Odds Format</div>
                                     <div className="usd-right-icon"><i className="fa-solid fa-chevron-right"></i></div>
                                 </div>
                                 <div className="usd-item" onClick={() => setShowScoreboard(true)}>
@@ -565,7 +563,7 @@ const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, 
                                 alignItems: 'center',
                                 borderBottom: '1px solid #eee'
                             }}>
-                                <h3 style={{ margin: 0, color: '#333', fontSize: '18px' }}>Odds Display</h3>
+                                <h3 style={{ margin: 0, color: '#333', fontSize: '18px' }}>Odds Format</h3>
                                 <span
                                     onClick={() => setShowOddsModal(false)}
                                     style={{ cursor: 'pointer', fontSize: '20px', color: '#999' }}
@@ -576,33 +574,23 @@ const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, 
                                 <div style={{
                                     border: '1px solid #ccc',
                                     borderRadius: '4px',
-                                    overflow: 'hidden'
+                                    overflow: 'hidden',
+                                    background: '#f7faf7'
                                 }}>
                                     <div
                                         style={{
                                             padding: '12px 15px',
-                                            background: oddsFormat === 'american' ? '#004d26' : 'white',
-                                            color: oddsFormat === 'american' ? 'white' : '#333',
-                                            fontWeight: 'bold',
-                                            borderBottom: '1px solid #ccc',
-                                            cursor: 'pointer'
+                                            background: '#004d26',
+                                            color: 'white',
+                                            fontWeight: 'bold'
                                         }}
-                                        onClick={() => setOddsFormat('american')}
-                                    >
-                                        American
-                                    </div>
-                                    <div
-                                        style={{
-                                            padding: '12px 15px',
-                                            background: oddsFormat === 'decimal' ? '#004d26' : 'white',
-                                            color: oddsFormat === 'decimal' ? 'white' : '#333',
-                                            cursor: 'pointer'
-                                        }}
-                                        onClick={() => setOddsFormat('decimal')}
                                     >
                                         Decimal
                                     </div>
                                 </div>
+                                <p style={{ margin: '12px 0 0', color: '#52606d', fontSize: '13px', lineHeight: 1.5 }}>
+                                    Sportsbook boards currently use decimal odds only. Alternate odds formats are disabled until the full display conversion is implemented.
+                                </p>
                             </div>
 
                             <div style={{ padding: '15px', display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid #eee' }}>

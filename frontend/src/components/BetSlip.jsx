@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { placeBet } from '../api';
+import React, { useState, useEffect, useRef } from 'react';
+import { placeBet, createRequestId } from '../api';
 import { useToast } from '../contexts/ToastContext';
 import BetConfirmationModal from './BetConfirmationModal';
 
@@ -11,6 +11,7 @@ const BetSlip = ({ user, balance, onBetPlaced }) => {
     const [isOpen, setIsOpen] = useState(true);
     const [showConfirm, setShowConfirm] = useState(false);
     const [isPlacing, setIsPlacing] = useState(false);
+    const pendingRequestIdRef = useRef('');
 
     useEffect(() => {
         const handleAdd = (e) => {
@@ -46,6 +47,7 @@ const BetSlip = ({ user, balance, onBetPlaced }) => {
         setSelections([]);
         setBetType('straight');
         setWager('');
+        pendingRequestIdRef.current = '';
     };
 
     const calculatePotentialPayout = () => {
@@ -66,10 +68,14 @@ const BetSlip = ({ user, balance, onBetPlaced }) => {
             return (amount * teaserOdds).toFixed(2);
         }
 
-        if (betType === 'if_bet' || betType === 'reverse') {
-            // Sequential logic simplified for display
+        if (betType === 'if_bet') {
             const combinedOdds = selections.slice(0, 2).reduce((acc, s) => acc * s.odds, 1);
             return (amount * combinedOdds).toFixed(2);
+        }
+
+        if (betType === 'reverse') {
+            const combinedOdds = selections.slice(0, 2).reduce((acc, s) => acc * s.odds, 1);
+            return (amount * combinedOdds * 2).toFixed(2);
         }
 
         return 0;
@@ -145,17 +151,24 @@ const BetSlip = ({ user, balance, onBetPlaced }) => {
                         matchId: sel.matchId,
                         selection: sel.selection,
                         odds: sel.odds
-                    }, token);
+                    }, token, { requestId: createRequestId() });
                 }
             } else {
-                await placeBet(betData, token);
+                const requestId = pendingRequestIdRef.current || createRequestId();
+                pendingRequestIdRef.current = requestId;
+                await placeBet(betData, token, { requestId });
             }
 
+            pendingRequestIdRef.current = '';
             showToast('Bet(s) placed successfully', 'success');
             clearSlip();
             window.dispatchEvent(new Event('user:refresh'));
             if (onBetPlaced) onBetPlaced();
         } catch (e) {
+            const blockingCodes = ['ODDS_CHANGED', 'INVALID_COMBINATION', 'MATCH_NOT_BETTABLE', 'MARKET_CLOSED', 'SELECTION_CLOSED', 'REQUEST_ID_REUSED'];
+            if (blockingCodes.includes(String(e?.code || ''))) {
+                pendingRequestIdRef.current = '';
+            }
             showToast(`Bet failed: ${e.message}`, 'error');
         } finally {
             setIsPlacing(false);

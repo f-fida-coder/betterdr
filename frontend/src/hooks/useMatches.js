@@ -16,7 +16,7 @@ const isLiveMatch = (match) => {
 const isUpcomingMatch = (match) => {
     if (!match) return false;
     const status = (match.status || '').toString().toLowerCase();
-    if (['scheduled', 'pre-game', 'pregame', 'upcoming', 'pending'].includes(status)) return true;
+    if (status === 'scheduled') return true;
 
     const eventStatus = (match.score?.event_status || '').toString().toUpperCase();
     if (eventStatus.includes('SCHEDULED') || eventStatus.includes('PRE_GAME')) return true;
@@ -32,7 +32,7 @@ const isUpcomingMatch = (match) => {
 const isFinishedMatch = (match) => {
     if (!match) return false;
     const status = (match.status || '').toString().toLowerCase();
-    if (['finished', 'final', 'cancelled', 'canceled', 'closed'].includes(status)) return true;
+    if (['finished', 'final', 'cancelled', 'canceled', 'closed', 'expired', 'suspended'].includes(status)) return true;
 
     const eventStatus = (match.score?.event_status || '').toString().toUpperCase();
     return eventStatus.includes('FINAL') || eventStatus.includes('COMPLETE') || eventStatus.includes('STATUS_CLOSED');

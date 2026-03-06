@@ -1,5 +1,5 @@
-import React, { useMemo, useState, useEffect } from 'react';
-import { placeBet, normalizeBetMode } from '../api';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
+import { placeBet, normalizeBetMode, createRequestId } from '../api';
 import { useToast } from '../contexts/ToastContext';
 import BetConfirmationModal from './BetConfirmationModal';
 
@@ -50,6 +50,7 @@ const ModeBetPanel = ({
     const [isMobile, setIsMobile] = useState(false);
     const [submitAttempted, setSubmitAttempted] = useState(false);
     const [showConfirm, setShowConfirm] = useState(false);
+    const pendingRequestIdRef = useRef('');
 
     useEffect(() => {
         const media = window.matchMedia('(max-width: 768px)');
@@ -99,9 +100,13 @@ const ModeBetPanel = ({
         if (normalizedMode === 'teaser') {
             return wagerAmount * getTeaserMultiplier(rule, legCount);
         }
-        if (normalizedMode === 'if_bet' || normalizedMode === 'reverse') {
+        if (normalizedMode === 'if_bet') {
             const firstTwo = selections.slice(0, 2).reduce((acc, sel) => acc * Number(sel.odds || 1), 1);
             return wagerAmount * firstTwo;
+        }
+        if (normalizedMode === 'reverse') {
+            const firstTwo = selections.slice(0, 2).reduce((acc, sel) => acc * Number(sel.odds || 1), 1);
+            return wagerAmount * firstTwo * 2;
         }
         return 0;
     }, [wagerAmount, legCount, normalizedMode, selections, rule]);
@@ -130,6 +135,7 @@ const ModeBetPanel = ({
         onWagerChange('');
         setMessage(null);
         setSubmitAttempted(false);
+        pendingRequestIdRef.current = '';
     };
 
     const handlePlaceBet = async () => {
@@ -197,14 +203,21 @@ const ModeBetPanel = ({
         try {
             setPlacing(true);
             setShowConfirm(false);
-            const result = await placeBet(payload, token);
+            const requestId = pendingRequestIdRef.current || createRequestId();
+            pendingRequestIdRef.current = requestId;
+            const result = await placeBet(payload, token, { requestId });
             const successText = result?.message || 'Bet placed successfully';
+            pendingRequestIdRef.current = '';
             setMessage({ type: 'success', text: successText });
             showToast(successText, 'success');
             clearSlip();
             window.dispatchEvent(new Event('user:refresh'));
             if (onBetPlaced) onBetPlaced();
         } catch (error) {
+            const blockingCodes = ['ODDS_CHANGED', 'INVALID_COMBINATION', 'MATCH_NOT_BETTABLE', 'MARKET_CLOSED', 'SELECTION_CLOSED', 'REQUEST_ID_REUSED'];
+            if (blockingCodes.includes(String(error?.code || ''))) {
+                pendingRequestIdRef.current = '';
+            }
             const errorText = error.message || 'Failed to place bet';
             setMessage({ type: 'error', text: errorText });
             showToast(errorText, 'error');

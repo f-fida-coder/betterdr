@@ -7,6 +7,10 @@ final class MongoRepository
     private PDO $pdo;
     private string $dbName;
     private string $tablePrefix;
+    /** @var array<string, bool> */
+    private array $columnExistsCache = [];
+    /** @var array<string, bool> */
+    private array $indexExistsCache = [];
 
     public function __construct(string $_uri, string $dbName)
     {
@@ -197,6 +201,11 @@ final class MongoRepository
 
     public function findMany(string $collection, array $filter, array $options = []): array
     {
+        $sqlDocs = $this->findManyViaSql($collection, $filter, $options);
+        if ($sqlDocs !== null) {
+            return $sqlDocs;
+        }
+
         $docs = $this->readCollection($collection);
 
         if ($filter !== []) {
@@ -235,6 +244,11 @@ final class MongoRepository
 
     public function countDocuments(string $collection, array $filter): int
     {
+        $sqlCount = $this->countDocumentsViaSql($collection, $filter);
+        if ($sqlCount !== null) {
+            return $sqlCount;
+        }
+
         return count($this->findMany($collection, $filter));
     }
 
@@ -256,6 +270,26 @@ final class MongoRepository
         ]);
 
         return $id;
+    }
+
+    public function insertOneIfAbsent(string $collection, array $doc): bool
+    {
+        $table = $this->tableName($collection);
+        $this->ensureTable($table);
+
+        $normalized = $this->normalizeForStorage($doc);
+        $id = $this->extractId($normalized);
+        unset($normalized['_id']);
+
+        $stmt = $this->pdo->prepare("INSERT IGNORE INTO `{$table}` (`mongo_id`, `doc`, `created_at`, `updated_at`) VALUES (:id, :doc, :created_at, :updated_at)");
+        $stmt->execute([
+            ':id' => $id,
+            ':doc' => $this->encodeDoc($normalized),
+            ':created_at' => $this->toMysqlDateTime($normalized['createdAt'] ?? null),
+            ':updated_at' => $this->toMysqlDateTime($normalized['updatedAt'] ?? null),
+        ]);
+
+        return ((int) $stmt->rowCount()) === 1;
     }
 
     public function updateOne(string $collection, array $filter, array $set): void
@@ -376,6 +410,7 @@ KEY `idx_created_at` (`created_at`),
 KEY `idx_updated_at` (`updated_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
         $this->pdo->exec($sql);
+        $this->ensureSpecializedSchema($table);
     }
 
     private function readCollection(string $collection): array
@@ -392,6 +427,691 @@ KEY `idx_updated_at` (`updated_at`)
             }
         }
         return $docs;
+    }
+
+    private function findManyViaSql(string $collection, array $filter, array $options): ?array
+    {
+        if (!$this->supportsSqlReadOptimization($collection)) {
+            return null;
+        }
+
+        $table = $this->tableName($collection);
+        $this->ensureTable($table);
+
+        $compiledWhere = $this->compileSqlWhere($collection, $table, $filter);
+        if ($compiledWhere === null) {
+            return null;
+        }
+
+        $orderSql = $this->compileSqlOrder($collection, $table, $options['sort'] ?? null);
+        if ($orderSql === null) {
+            return null;
+        }
+
+        $limitSql = $this->compileSqlLimit($options);
+        $sql = "SELECT `mongo_id`, `doc` FROM `{$table}`{$compiledWhere['sql']}{$orderSql}{$limitSql}";
+
+        $stmt = $this->pdo->prepare($sql);
+        foreach ($compiledWhere['params'] as $param) {
+            $stmt->bindValue($param['name'], $param['value'], $param['type']);
+        }
+        $stmt->execute();
+
+        $rows = $stmt->fetchAll();
+        $docs = [];
+        foreach ($rows as $row) {
+            $decoded = $this->decodeRow($row);
+            if ($decoded !== null) {
+                $docs[] = $decoded;
+            }
+        }
+
+        if (isset($options['projection']) && is_array($options['projection']) && $options['projection'] !== []) {
+            $docs = array_map(fn (array $doc): array => $this->applyProjection($doc, $options['projection']), $docs);
+        }
+
+        return $docs;
+    }
+
+    private function countDocumentsViaSql(string $collection, array $filter): ?int
+    {
+        if (!$this->supportsSqlReadOptimization($collection)) {
+            return null;
+        }
+
+        $table = $this->tableName($collection);
+        $this->ensureTable($table);
+
+        $compiledWhere = $this->compileSqlWhere($collection, $table, $filter);
+        if ($compiledWhere === null) {
+            return null;
+        }
+
+        $stmt = $this->pdo->prepare("SELECT COUNT(*) FROM `{$table}`{$compiledWhere['sql']}");
+        foreach ($compiledWhere['params'] as $param) {
+            $stmt->bindValue($param['name'], $param['value'], $param['type']);
+        }
+        $stmt->execute();
+
+        return (int) $stmt->fetchColumn();
+    }
+
+    private function supportsSqlReadOptimization(string $collection): bool
+    {
+        return in_array($collection, ['casino_bets', 'casino_round_audit', 'transactions', 'casinogames', 'users', 'agents', 'bets', 'betselections', 'matches', 'messages', 'iplogs'], true);
+    }
+
+    /**
+     * @return array{sql: string, params: array<int, array{name: string, value: mixed, type: int}>}|null
+     */
+    private function compileSqlWhere(string $collection, string $table, array $filter): ?array
+    {
+        if ($filter === []) {
+            return ['sql' => '', 'params' => []];
+        }
+
+        $index = 0;
+        $compiled = $this->compileSqlFilterNode($collection, $table, $filter, $index);
+        if ($compiled === null) {
+            return null;
+        }
+        if ($compiled['sql'] === '') {
+            return ['sql' => '', 'params' => []];
+        }
+
+        return ['sql' => ' WHERE ' . $compiled['sql'], 'params' => $compiled['params']];
+    }
+
+    /**
+     * @return array{sql: string, params: array<int, array{name: string, value: mixed, type: int}>}|null
+     */
+    private function compileSqlFilterNode(string $collection, string $table, array $filter, int &$index): ?array
+    {
+        $clauses = [];
+        $params = [];
+
+        foreach ($filter as $field => $condition) {
+            if (!is_string($field) || $field === '') {
+                return null;
+            }
+
+            if (in_array($field, ['$or', '$and', '$nor'], true)) {
+                $compiled = $this->compileSqlLogicalNode($collection, $table, $field, $condition, $index);
+                if ($compiled === null) {
+                    return null;
+                }
+                if ($compiled['sql'] !== '') {
+                    $clauses[] = $compiled['sql'];
+                    $params = array_merge($params, $compiled['params']);
+                }
+                continue;
+            }
+
+            if (str_starts_with($field, '$')) {
+                return null;
+            }
+
+            $compiled = $this->compileSqlFieldCondition($collection, $table, $field, $condition, $index);
+            if ($compiled === null) {
+                return null;
+            }
+            if ($compiled['sql'] !== '') {
+                $clauses[] = $compiled['sql'];
+                $params = array_merge($params, $compiled['params']);
+            }
+        }
+
+        if ($clauses === []) {
+            return ['sql' => '', 'params' => []];
+        }
+
+        return ['sql' => implode(' AND ', array_map(static fn (string $clause): string => '(' . $clause . ')', $clauses)), 'params' => $params];
+    }
+
+    /**
+     * @return array{sql: string, params: array<int, array{name: string, value: mixed, type: int}>}|null
+     */
+    private function compileSqlLogicalNode(string $collection, string $table, string $operator, mixed $condition, int &$index): ?array
+    {
+        if (!is_array($condition)) {
+            return null;
+        }
+
+        $parts = [];
+        $params = [];
+
+        foreach ($condition as $subFilter) {
+            if (!is_array($subFilter)) {
+                return null;
+            }
+
+            $compiled = $this->compileSqlFilterNode($collection, $table, $subFilter, $index);
+            if ($compiled === null) {
+                return null;
+            }
+
+            if ($compiled['sql'] === '') {
+                if ($operator === '$or') {
+                    return ['sql' => '1 = 1', 'params' => []];
+                }
+                if ($operator === '$nor') {
+                    return ['sql' => '0 = 1', 'params' => []];
+                }
+                continue;
+            }
+
+            $parts[] = '(' . $compiled['sql'] . ')';
+            $params = array_merge($params, $compiled['params']);
+        }
+
+        if ($parts === []) {
+            if ($operator === '$or') {
+                return ['sql' => '0 = 1', 'params' => []];
+            }
+            return ['sql' => '', 'params' => []];
+        }
+
+        if ($operator === '$and') {
+            return ['sql' => implode(' AND ', $parts), 'params' => $params];
+        }
+        if ($operator === '$or') {
+            return ['sql' => implode(' OR ', $parts), 'params' => $params];
+        }
+        if ($operator === '$nor') {
+            return ['sql' => 'NOT (' . implode(' OR ', $parts) . ')', 'params' => $params];
+        }
+
+        return null;
+    }
+
+    /**
+     * @return array{sql: string, params: array<int, array{name: string, value: mixed, type: int}>}|null
+     */
+    private function compileSqlFieldCondition(string $collection, string $table, string $field, mixed $condition, int &$index): ?array
+    {
+        $spec = $this->sqlFieldSpec($collection, $table, $field);
+        if ($spec === null) {
+            return null;
+        }
+
+        $compareExpr = $this->sqlComparableExpression($spec['expr'], $spec['type']);
+        if ($compareExpr === null) {
+            return null;
+        }
+
+        if (is_array($condition)) {
+            if (!$this->hasOperatorKeys($condition)) {
+                return null;
+            }
+
+            $clauses = [];
+            $params = [];
+
+            foreach ($condition as $op => $expected) {
+                if ($op === '$options') {
+                    continue;
+                }
+
+                if ($op === '$in') {
+                    if (!is_array($expected)) {
+                        return null;
+                    }
+                    if ($expected === []) {
+                        $clauses[] = '0 = 1';
+                        continue;
+                    }
+
+                    $placeholders = [];
+                    foreach ($expected as $inValue) {
+                        if ($inValue === null || is_array($inValue) || is_object($inValue)) {
+                            return null;
+                        }
+                        $index++;
+                        $paramName = ':w' . $index;
+                        $value = $this->sqlComparableValue($inValue, $spec['type']);
+                        $placeholders[] = $paramName;
+                        $params[] = ['name' => $paramName, 'value' => $value, 'type' => $this->sqlParamType($value)];
+                    }
+                    $clauses[] = $compareExpr . ' IN (' . implode(', ', $placeholders) . ')';
+                    continue;
+                }
+
+                if ($op === '$ne') {
+                    if ($expected === null || is_array($expected) || is_object($expected)) {
+                        return null;
+                    }
+                    $index++;
+                    $paramName = ':w' . $index;
+                    $value = $this->sqlComparableValue($expected, $spec['type']);
+                    $clauses[] = '(' . $compareExpr . " IS NULL OR {$compareExpr} <> {$paramName})";
+                    $params[] = ['name' => $paramName, 'value' => $value, 'type' => $this->sqlParamType($value)];
+                    continue;
+                }
+
+                if (in_array($op, ['$gt', '$gte', '$lt', '$lte'], true)) {
+                    $index++;
+                    $paramName = ':w' . $index;
+                    $value = $this->sqlComparableValue($expected, $spec['type']);
+                    $clauses[] = "{$compareExpr} {$this->sqlOperator($op)} {$paramName}";
+                    $params[] = ['name' => $paramName, 'value' => $value, 'type' => $this->sqlParamType($value)];
+                    continue;
+                }
+
+                if ($op === '$regex') {
+                    if ($spec['type'] !== 'string') {
+                        return null;
+                    }
+                    $literal = $this->regexPatternToLikeLiteral((string) $expected);
+                    if ($literal === null) {
+                        return null;
+                    }
+                    if ($literal === '') {
+                        return ['sql' => '0 = 1', 'params' => []];
+                    }
+
+                    $index++;
+                    $paramName = ':w' . $index;
+                    $pattern = '%' . $this->escapeLikePattern($literal) . '%';
+                    $options = (string) ($condition['$options'] ?? '');
+                    if (str_contains($options, 'i')) {
+                        $clauses[] = 'LOWER(COALESCE(' . $spec['expr'] . ", '')) LIKE LOWER({$paramName}) ESCAPE '\\\\'";
+                    } else {
+                        $clauses[] = 'COALESCE(' . $spec['expr'] . ", '') LIKE {$paramName} ESCAPE '\\\\'";
+                    }
+                    $params[] = ['name' => $paramName, 'value' => $pattern, 'type' => PDO::PARAM_STR];
+                    continue;
+                }
+
+                return null;
+            }
+
+            if ($clauses === []) {
+                return ['sql' => '', 'params' => []];
+            }
+
+            return ['sql' => implode(' AND ', array_map(static fn (string $clause): string => '(' . $clause . ')', $clauses)), 'params' => $params];
+        }
+
+        if ($condition === null || is_object($condition)) {
+            return null;
+        }
+
+        $index++;
+        $paramName = ':w' . $index;
+        $value = $this->sqlComparableValue($condition, $spec['type']);
+        return [
+            'sql' => "{$compareExpr} = {$paramName}",
+            'params' => [['name' => $paramName, 'value' => $value, 'type' => $this->sqlParamType($value)]],
+        ];
+    }
+
+    private function compileSqlOrder(string $collection, string $table, mixed $sort): ?string
+    {
+        if (!is_array($sort) || $sort === []) {
+            return '';
+        }
+
+        $parts = [];
+        foreach ($sort as $field => $dirRaw) {
+            if (!is_string($field) || $field === '' || str_starts_with($field, '$') || str_contains($field, '.')) {
+                return null;
+            }
+
+            $spec = $this->sqlFieldSpec($collection, $table, $field);
+            if ($spec === null) {
+                return null;
+            }
+
+            $expr = $this->sqlComparableExpression($spec['expr'], $spec['type']);
+            if ($expr === null) {
+                return null;
+            }
+
+            $direction = ((int) $dirRaw) >= 0 ? 'ASC' : 'DESC';
+            $parts[] = "{$expr} {$direction}";
+        }
+
+        return $parts === [] ? '' : ' ORDER BY ' . implode(', ', $parts);
+    }
+
+    private function compileSqlLimit(array $options): string
+    {
+        $skip = isset($options['skip']) ? max(0, (int) $options['skip']) : 0;
+        $limit = isset($options['limit']) ? max(0, (int) $options['limit']) : 0;
+
+        if ($limit > 0) {
+            $sql = " LIMIT {$limit}";
+            if ($skip > 0) {
+                $sql .= " OFFSET {$skip}";
+            }
+            return $sql;
+        }
+
+        if ($skip > 0) {
+            return " LIMIT 18446744073709551615 OFFSET {$skip}";
+        }
+
+        return '';
+    }
+
+    /**
+     * @return array{expr: string, type: string}|null
+     */
+    private function sqlFieldSpec(string $collection, string $table, string $field): ?array
+    {
+        if ($field === '_id') {
+            return ['expr' => '`mongo_id`', 'type' => 'string'];
+        }
+        if ($field === 'createdAt') {
+            return ['expr' => '`created_at`', 'type' => 'date'];
+        }
+        if ($field === 'updatedAt') {
+            return ['expr' => '`updated_at`', 'type' => 'date'];
+        }
+
+        $generatedColumns = [
+            'casino_bets' => [
+                'userId' => 'user_id_idx',
+                'roundId' => 'round_id_idx',
+                'requestId' => 'request_id_idx',
+            ],
+            'users' => [
+                'username' => 'j_username',
+                'phoneNumber' => 'j_phone',
+                'agentId' => 'j_agent_id',
+                'role' => 'j_role',
+                'status' => 'j_status',
+            ],
+            'agents' => [
+                'username' => 'j_username',
+                'phoneNumber' => 'j_phone',
+                'createdBy' => 'j_created_by',
+                'role' => 'j_role',
+                'status' => 'j_status',
+            ],
+            'bets' => [
+                'userId' => 'j_user_id',
+                'matchId' => 'j_match_id',
+                'status' => 'j_status',
+                'type' => 'j_type',
+            ],
+            'betselections' => [
+                'betId' => 'j_bet_id',
+                'ticketId' => 'j_ticket_id',
+                'userId' => 'j_user_id',
+                'matchId' => 'j_match_id',
+                'status' => 'j_status',
+                'marketType' => 'j_market_type',
+                'betType' => 'j_bet_type',
+                'selectionOrder' => 'j_selection_order',
+            ],
+            'iplogs' => [
+                'ip' => 'j_ip',
+                'userId' => 'j_user_id',
+                'status' => 'j_status',
+                'lastActive' => 'j_last_active_dt',
+            ],
+            'matches' => [
+                'externalId' => 'j_external_id',
+                'status' => 'j_status',
+                'sport' => 'j_sport',
+                'startTime' => 'j_start_time_dt',
+                'lastUpdated' => 'j_last_updated_dt',
+                'score.score_home' => 'j_score_home',
+                'score.score_away' => 'j_score_away',
+            ],
+            'messages' => [
+                'fromUserId' => 'j_from_user_id',
+                'status' => 'j_status',
+            ],
+            'transactions' => [
+                'userId' => 'user_id_idx',
+                'entryGroupId' => 'entry_group_id_idx',
+                'type' => 'j_type',
+                'status' => 'j_status',
+                'referenceType' => 'j_reference_type',
+                'referenceId' => 'j_reference_id',
+            ],
+        ];
+
+        if (isset($generatedColumns[$collection][$field])) {
+            $column = $generatedColumns[$collection][$field];
+            if ($this->columnExists($table, $column)) {
+                return ['expr' => "`{$column}`", 'type' => $this->inferSqlFieldType($field)];
+            }
+        }
+
+        if (preg_match('/^[A-Za-z0-9_.]+$/', $field) !== 1) {
+            return null;
+        }
+
+        return [
+            'expr' => 'JSON_UNQUOTE(JSON_EXTRACT(`doc`, ' . $this->sqlStringLiteral($this->jsonPathForField($field)) . '))',
+            'type' => $this->inferSqlFieldType($field),
+        ];
+    }
+
+    private function inferSqlFieldType(string $field): string
+    {
+        if (in_array($field, ['amount', 'riskAmount', 'unitStake', 'combinedOdds', 'balanceBefore', 'balanceAfter', 'totalWager', 'totalReturn', 'profit', 'netResult', 'playerTotal', 'bankerTotal', 'latencyMs', 'minBet', 'maxBet', 'sortOrder', 'selectionOrder', 'score.score_home', 'score.score_away'], true)) {
+            return 'numeric';
+        }
+        if (in_array($field, ['isFeatured', 'supportsDemo'], true)) {
+            return 'boolean';
+        }
+        if (in_array($field, ['createdAt', 'updatedAt', 'startTime', 'lastUpdated', 'lastActive'], true)) {
+            return 'date';
+        }
+        return 'string';
+    }
+
+    private function sqlComparableExpression(string $expr, string $type): ?string
+    {
+        if ($type === 'numeric') {
+            return "CAST(COALESCE({$expr}, '0') AS DECIMAL(20, 4))";
+        }
+        if ($type === 'boolean') {
+            return "(CASE WHEN LOWER(COALESCE({$expr}, 'false')) IN ('1', 'true') THEN 1 ELSE 0 END)";
+        }
+        if ($type === 'date') {
+            return $expr;
+        }
+        if ($type === 'string') {
+            return $expr;
+        }
+        return null;
+    }
+
+    private function sqlComparableValue(mixed $value, string $type): mixed
+    {
+        if ($type === 'numeric') {
+            return is_numeric($value) ? (float) $value : 0.0;
+        }
+        if ($type === 'boolean') {
+            return $value ? 1 : 0;
+        }
+        if ($type === 'date') {
+            return $this->toMysqlDateTime($value);
+        }
+        return (string) $value;
+    }
+
+    private function sqlOperator(string $op): string
+    {
+        return match ($op) {
+            '$gt' => '>',
+            '$gte' => '>=',
+            '$lt' => '<',
+            '$lte' => '<=',
+            default => '=',
+        };
+    }
+
+    private function sqlParamType(mixed $value): int
+    {
+        if (is_int($value)) {
+            return PDO::PARAM_INT;
+        }
+        if ($value === null) {
+            return PDO::PARAM_NULL;
+        }
+        return PDO::PARAM_STR;
+    }
+
+    private function escapeLikePattern(string $value): string
+    {
+        return strtr($value, [
+            '\\' => '\\\\',
+            '%' => '\%',
+            '_' => '\_',
+        ]);
+    }
+
+    private function regexPatternToLikeLiteral(string $pattern): ?string
+    {
+        if ($pattern === '') {
+            return '';
+        }
+
+        $literal = '';
+        $length = strlen($pattern);
+        for ($i = 0; $i < $length; $i++) {
+            $char = $pattern[$i];
+            if ($char === '\\') {
+                if ($i + 1 >= $length) {
+                    return null;
+                }
+                $i++;
+                $literal .= $pattern[$i];
+                continue;
+            }
+
+            if (str_contains('^$.|?*+()[]{}', $char)) {
+                return null;
+            }
+
+            $literal .= $char;
+        }
+
+        return $literal;
+    }
+
+    private function jsonPathForField(string $field): string
+    {
+        $parts = explode('.', $field);
+        $path = '$';
+        foreach ($parts as $part) {
+            $segment = trim($part);
+            if ($segment === '') {
+                return '$';
+            }
+            $escaped = str_replace(['\\', '"'], ['\\\\', '\\"'], $segment);
+            $path .= '."' . $escaped . '"';
+        }
+        return $path;
+    }
+
+    private function sqlStringLiteral(string $value): string
+    {
+        return "'" . str_replace(['\\', "'"], ['\\\\', "\\'"], $value) . "'";
+    }
+
+    private function columnExists(string $table, string $column): bool
+    {
+        $cacheKey = $table . '.' . $column;
+        if (array_key_exists($cacheKey, $this->columnExistsCache)) {
+            return $this->columnExistsCache[$cacheKey];
+        }
+
+        $stmt = $this->pdo->prepare("SELECT 1 FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = :table AND column_name = :column LIMIT 1");
+        $stmt->execute([':table' => $table, ':column' => $column]);
+        $exists = (bool) $stmt->fetchColumn();
+        $this->columnExistsCache[$cacheKey] = $exists;
+
+        return $exists;
+    }
+
+    private function indexExists(string $table, string $index): bool
+    {
+        $cacheKey = $table . '.' . $index;
+        if (array_key_exists($cacheKey, $this->indexExistsCache)) {
+            return $this->indexExistsCache[$cacheKey];
+        }
+
+        $stmt = $this->pdo->prepare("SELECT 1 FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = :table AND index_name = :idx LIMIT 1");
+        $stmt->execute([':table' => $table, ':idx' => $index]);
+        $exists = (bool) $stmt->fetchColumn();
+        $this->indexExistsCache[$cacheKey] = $exists;
+        return $exists;
+    }
+
+    private function ensureSpecializedSchema(string $table): void
+    {
+        $collection = $table;
+        if ($this->tablePrefix !== '' && str_starts_with($table, $this->tablePrefix)) {
+            $collection = substr($table, strlen($this->tablePrefix));
+        }
+
+        if ($collection === 'betselections') {
+            $columns = [
+                'j_bet_id' => "ALTER TABLE `{$table}` ADD COLUMN `j_bet_id` VARCHAR(64) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(`doc`, _utf8mb4'$.betId'))) STORED",
+                'j_ticket_id' => "ALTER TABLE `{$table}` ADD COLUMN `j_ticket_id` VARCHAR(64) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(`doc`, _utf8mb4'$.ticketId'))) STORED",
+                'j_user_id' => "ALTER TABLE `{$table}` ADD COLUMN `j_user_id` VARCHAR(64) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(`doc`, _utf8mb4'$.userId'))) STORED",
+                'j_match_id' => "ALTER TABLE `{$table}` ADD COLUMN `j_match_id` VARCHAR(64) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(`doc`, _utf8mb4'$.matchId'))) STORED",
+                'j_status' => "ALTER TABLE `{$table}` ADD COLUMN `j_status` VARCHAR(64) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(`doc`, _utf8mb4'$.status'))) STORED",
+                'j_market_type' => "ALTER TABLE `{$table}` ADD COLUMN `j_market_type` VARCHAR(64) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(`doc`, _utf8mb4'$.marketType'))) STORED",
+                'j_bet_type' => "ALTER TABLE `{$table}` ADD COLUMN `j_bet_type` VARCHAR(64) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(`doc`, _utf8mb4'$.betType'))) STORED",
+                'j_selection_order' => "ALTER TABLE `{$table}` ADD COLUMN `j_selection_order` INT GENERATED ALWAYS AS (CAST(COALESCE(NULLIF(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(`doc`, _utf8mb4'$.selectionOrder')), _utf8mb4''), _utf8mb4'null'), _utf8mb4'0') AS SIGNED)) STORED",
+            ];
+            foreach ($columns as $column => $sql) {
+                if (!$this->columnExists($table, $column)) {
+                    $this->pdo->exec($sql);
+                    $this->columnExistsCache[$table . '.' . $column] = true;
+                }
+            }
+
+            $indexes = [
+                'idx_betselections_bet_id' => "ALTER TABLE `{$table}` ADD KEY `idx_betselections_bet_id` (`j_bet_id`)",
+                'idx_betselections_ticket_id' => "ALTER TABLE `{$table}` ADD KEY `idx_betselections_ticket_id` (`j_ticket_id`)",
+                'idx_betselections_user_id' => "ALTER TABLE `{$table}` ADD KEY `idx_betselections_user_id` (`j_user_id`)",
+                'idx_betselections_match_id' => "ALTER TABLE `{$table}` ADD KEY `idx_betselections_match_id` (`j_match_id`)",
+                'idx_betselections_status' => "ALTER TABLE `{$table}` ADD KEY `idx_betselections_status` (`j_status`)",
+                'idx_betselections_match_status' => "ALTER TABLE `{$table}` ADD KEY `idx_betselections_match_status` (`j_match_id`, `j_status`)",
+                'idx_betselections_bet_order' => "ALTER TABLE `{$table}` ADD KEY `idx_betselections_bet_order` (`j_bet_id`, `j_selection_order`)",
+            ];
+            foreach ($indexes as $index => $sql) {
+                if (!$this->indexExists($table, $index)) {
+                    $this->pdo->exec($sql);
+                    $this->indexExistsCache[$table . '.' . $index] = true;
+                }
+            }
+            return;
+        }
+
+        if ($collection === 'betrequests') {
+            $columns = [
+                'j_user_id' => "ALTER TABLE `{$table}` ADD COLUMN `j_user_id` VARCHAR(64) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(`doc`, _utf8mb4'$.userId'))) STORED",
+                'j_request_id' => "ALTER TABLE `{$table}` ADD COLUMN `j_request_id` VARCHAR(128) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(`doc`, _utf8mb4'$.requestId'))) STORED",
+                'j_status' => "ALTER TABLE `{$table}` ADD COLUMN `j_status` VARCHAR(64) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(`doc`, _utf8mb4'$.status'))) STORED",
+            ];
+            foreach ($columns as $column => $sql) {
+                if (!$this->columnExists($table, $column)) {
+                    $this->pdo->exec($sql);
+                    $this->columnExistsCache[$table . '.' . $column] = true;
+                }
+            }
+
+            $indexes = [
+                'idx_betrequests_user_request' => "ALTER TABLE `{$table}` ADD KEY `idx_betrequests_user_request` (`j_user_id`, `j_request_id`)",
+                'idx_betrequests_status' => "ALTER TABLE `{$table}` ADD KEY `idx_betrequests_status` (`j_status`)",
+            ];
+            foreach ($indexes as $index => $sql) {
+                if (!$this->indexExists($table, $index)) {
+                    $this->pdo->exec($sql);
+                    $this->indexExistsCache[$table . '.' . $index] = true;
+                }
+            }
+        }
     }
 
     private function decodeRow(array $row): ?array

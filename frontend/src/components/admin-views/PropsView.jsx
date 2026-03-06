@@ -47,8 +47,8 @@ function PropsView() {
   };
   const filteredData = bettingData
     .filter(bet => {
-      const agentMatch = bet.agent.toLowerCase().includes(searchAgent.toLowerCase());
-      const customerMatch = bet.customer.toLowerCase().includes(searchPlayer.toLowerCase());
+      const agentMatch = String(bet.agent || '').toLowerCase().includes(searchAgent.toLowerCase());
+      const customerMatch = String(bet.customer || '').toLowerCase().includes(searchPlayer.toLowerCase());
       const riskValue = parseMoney(bet.risk);
       const typeMatch = typeFilter === 'all-types' || getBetType(bet) === typeFilter;
       return agentMatch && customerMatch && typeMatch && matchesAmountRange(riskValue, amountFilter);
@@ -87,9 +87,12 @@ function PropsView() {
       const response = await getAdminBets(params, token);
       const mapped = response.bets.map(bet => ({
         ...bet,
+        agent: String(bet.agent || 'direct'),
+        customer: String(bet.customer || bet.username || ''),
+        description: String(bet.description || bet.selection || ''),
         risk: Number(bet.risk || 0),
         toWin: Number(bet.toWin || 0),
-        accepted: new Date(bet.accepted).toLocaleString()
+        accepted: bet.accepted ? new Date(bet.accepted).toLocaleString() : '—'
       }));
       setBettingData(mapped);
       setError('');
@@ -432,7 +435,7 @@ function PropsView() {
                       <td>{bet.accepted}</td>
                       <td><span className={`badge ${getBetType(bet)}`}>{getBetType(bet)}</span></td>
                       <td className="description-cell">
-                        {bet.description.split('\n').map((line, i) => (
+                        {String(bet.description || '').split('\n').filter(Boolean).map((line, i) => (
                           <div key={i}>{line}</div>
                         ))}
                       </td>

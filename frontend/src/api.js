@@ -49,6 +49,8 @@ const buildApiUrl = (path = '', params = null) => {
 
 export const BACKEND_BASE_URL = API_URL.replace(/\/api\/?$/, '');
 export const normalizeBetMode = (mode) => String(mode || 'straight').toLowerCase().replace(/-/g, '_').trim();
+export const createRequestId = () =>
+    `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 12)}`;
 
 const getHeaders = (token = null) => {
     const headers = {
@@ -225,7 +227,7 @@ export const getLiveMatches = async () => {
     return response.json();
 };
 
-export const placeBet = async (betData, token) => {
+export const placeBet = async (betData, token, { requestId = '' } = {}) => {
     const normalizedType = normalizeBetMode(betData?.type || 'straight');
     const normalizedSelections = Array.isArray(betData?.selections)
         ? betData.selections.map((sel) => ({
@@ -233,23 +235,34 @@ export const placeBet = async (betData, token) => {
             type: normalizeBetMode(sel?.type || sel?.marketType || 'straight')
         }))
         : undefined;
+    const safeRequestId = String(requestId || betData?.requestId || createRequestId()).trim();
 
     const payload = {
         ...betData,
         type: normalizedType,
-        selections: normalizedSelections
+        selections: normalizedSelections,
+        requestId: safeRequestId
     };
 
     const response = await fetch(buildApiUrl('/bets/place'), {
         method: 'POST',
-        headers: getHeaders(token),
+        headers: {
+            ...getHeaders(token),
+            'X-Request-Id': safeRequestId
+        },
         body: JSON.stringify(payload)
     });
     if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || 'Failed to place bet');
+        const error = await response.json().catch(() => ({}));
+        const err = new Error(error.message || 'Failed to place bet');
+        Object.assign(err, error, { requestId: safeRequestId });
+        throw err;
     }
-    return response.json();
+    const result = await response.json();
+    return {
+        ...result,
+        requestId: result?.requestId || safeRequestId
+    };
 };
 
 export const getPublicBetModeRules = async (token) => {
@@ -302,9 +315,6 @@ export const launchCasinoGame = async (gameId, token) => {
     }
     return response.json();
 };
-
-const createRequestId = () =>
-    `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 12)}`;
 
 // ── In-house casino game betting ──────────────────────────
 export const placeCasinoBet = async (game, bets, token, { requestId = '' } = {}) => {

@@ -38,6 +38,8 @@ final class BetsController
 
     private function placeBet(): void
     {
+        $requestDocId = '';
+        $requestDocOwned = false;
         try {
             if (RateLimiter::enforce($this->db, 'place_bet', 10, 60)) {
                 return;
@@ -49,6 +51,13 @@ final class BetsController
             }
 
             $body = Http::jsonBody();
+            $requestId = SportsbookBetSupport::normalizeRequestId((string) (($body['requestId'] ?? '') ?: Http::header('x-request-id')));
+            if ($requestId === '') {
+                throw new ApiException('requestId is required for sportsbook bet placement', 400, [
+                    'code' => 'REQUEST_ID_REQUIRED',
+                ]);
+            }
+
             $matchId = trim((string) ($body['matchId'] ?? ''));
             $selection = trim((string) ($body['selection'] ?? ''));
             $odds = $body['odds'] ?? null;
@@ -60,28 +69,23 @@ final class BetsController
 
             $betAmount = is_numeric($amount) ? (float) $amount : 0.0;
             if (!is_finite($betAmount) || $betAmount <= 0) {
-                Response::json(['message' => 'Bet amount must be positive'], 400);
-                return;
+                throw new ApiException('Bet amount must be positive', 400);
             }
 
             $modeRule = $this->getModeRule($type);
             if ($modeRule === null) {
-                Response::json(['message' => 'Bet mode ' . $type . ' is not supported'], 400);
-                return;
+                throw new ApiException('Bet mode ' . $type . ' is not supported', 400);
             }
 
             if (in_array((string) ($user['status'] ?? ''), ['suspended', 'disabled', 'read only'], true)) {
-                Response::json(['message' => 'Account is suspended, disabled, or read-only'], 400);
-                return;
+                throw new ApiException('Account is suspended, disabled, or read-only', 400);
             }
 
             if (isset($user['minBet']) && $betAmount < (float) $user['minBet']) {
-                Response::json(['message' => 'Minimum bet for your account is ' . $user['minBet']], 400);
-                return;
+                throw new ApiException('Minimum bet for your account is ' . $user['minBet'], 400);
             }
             if (isset($user['maxBet']) && $betAmount > (float) $user['maxBet']) {
-                Response::json(['message' => 'Maximum bet for your account is ' . $user['maxBet']], 400);
-                return;
+                throw new ApiException('Maximum bet for your account is ' . $user['maxBet'], 400);
             }
 
             $selectionInputs = [];
@@ -103,13 +107,11 @@ final class BetsController
                         'type' => $marketType !== '' ? $marketType : $type,
                     ]];
                 } else {
-                    Response::json(['message' => 'Straight bet requires one selection'], 400);
-                    return;
+                    throw new ApiException('Straight bet requires one selection', 400);
                 }
             } else {
                 if (count($selections) === 0) {
-                    Response::json(['message' => strtoupper($type) . ' requires selections'], 400);
-                    return;
+                    throw new ApiException(strtoupper($type) . ' requires selections', 400);
                 }
                 $selectionInputs = $selections;
             }
@@ -119,8 +121,7 @@ final class BetsController
             $maxLegs = (int) ($modeRule['maxLegs'] ?? 1);
             if ($legCount < $minLegs || $legCount > $maxLegs) {
                 $range = $minLegs === $maxLegs ? (string) $minLegs : ($minLegs . '-' . $maxLegs);
-                Response::json(['message' => strtoupper($type) . ' requires ' . $range . ' selections'], 400);
-                return;
+                throw new ApiException(strtoupper($type) . ' requires ' . $range . ' selections', 400);
             }
 
             $validatedSelections = [];
@@ -136,30 +137,111 @@ final class BetsController
             if ($type === 'teaser') {
                 $allowed = $modeRule['teaserPointOptions'] ?? [];
                 if (is_array($allowed) && count($allowed) > 0 && !in_array($teaserPoints, array_map('floatval', $allowed), true)) {
-                    Response::json(['message' => 'Invalid teaser points. Allowed: ' . implode(', ', $allowed)], 400);
-                    return;
+                    throw new ApiException('Invalid teaser points. Allowed: ' . implode(', ', $allowed), 400, [
+                        'code' => 'INVALID_TEASER_POINTS',
+                    ]);
+                }
+                foreach ($validatedSelections as $index => $validatedSelection) {
+                    $validatedSelections[$index] = SportsbookBetSupport::applyTeaserAdjustment($validatedSelection, $teaserPoints);
                 }
             }
 
-            // Use transaction with row-level lock to prevent race conditions
+            SportsbookBetSupport::validateTicketComposition($type, $validatedSelections);
+
+            $requestFingerprint = SportsbookBetSupport::payloadHash([
+                'type' => $type,
+                'amount' => round($betAmount, 2),
+                'teaserPoints' => round($teaserPoints, 2),
+                'selections' => array_map(static function (array $item): array {
+                    return [
+                        'matchId' => (string) ($item['matchId'] ?? ''),
+                        'selection' => (string) ($item['selection'] ?? ''),
+                        'odds' => round((float) ($item['odds'] ?? 0), 4),
+                        'marketType' => (string) ($item['marketType'] ?? ''),
+                        'point' => isset($item['point']) && is_numeric($item['point']) ? round((float) $item['point'], 2) : null,
+                    ];
+                }, $validatedSelections),
+            ]);
+
+            $userId = MongoRepository::id((string) $user['_id']);
+            $requestDocId = SportsbookBetSupport::idempotencyDocumentId('sportsbook_bet', $userId, $requestId);
+            $requestNow = MongoRepository::nowUtc();
+            $requestDoc = [
+                '_id' => $requestDocId,
+                'userId' => $userId,
+                'requestId' => $requestId,
+                'payloadHash' => $requestFingerprint,
+                'status' => 'processing',
+                'createdAt' => $requestNow,
+                'updatedAt' => $requestNow,
+            ];
+
+            if (!$this->db->insertOneIfAbsent('betrequests', $requestDoc)) {
+                $existingRequest = $this->db->findOne('betrequests', ['_id' => MongoRepository::id($requestDocId)]);
+                if ($existingRequest === null) {
+                    throw new ApiException('Unable to lock request id', 409, ['code' => 'REQUEST_CONFLICT']);
+                }
+                if ((string) ($existingRequest['payloadHash'] ?? '') !== $requestFingerprint) {
+                    throw new ApiException('requestId has already been used for a different sportsbook payload', 409, [
+                        'code' => 'REQUEST_ID_REUSED',
+                    ]);
+                }
+
+                $existingStatus = (string) ($existingRequest['status'] ?? 'processing');
+                if ($existingStatus === 'completed') {
+                    $betIds = is_array($existingRequest['betIds'] ?? null) ? $existingRequest['betIds'] : [];
+                    $existingResponse = $this->buildBetPlacementResponse($betIds, [
+                        'requestId' => $requestId,
+                        'balance' => $existingRequest['responseBalance'] ?? ($user['balance'] ?? 0),
+                        'pendingBalance' => $existingRequest['responsePendingBalance'] ?? ($user['pendingBalance'] ?? 0),
+                    ]);
+                    $existingResponse['idempotentReplay'] = true;
+                    Response::json($existingResponse);
+                    return;
+                }
+
+                if ($existingStatus === 'processing') {
+                    throw new ApiException('This sportsbook request is already being processed', 409, [
+                        'code' => 'REQUEST_IN_PROGRESS',
+                    ]);
+                }
+
+                $this->db->updateOne('betrequests', ['_id' => MongoRepository::id($requestDocId)], [
+                    'payloadHash' => $requestFingerprint,
+                    'status' => 'processing',
+                    'error' => null,
+                    'updatedAt' => MongoRepository::nowUtc(),
+                ]);
+            }
+            $requestDocOwned = true;
+
+            $totalRisk = SportsbookBetSupport::ticketRiskAmount($type, $betAmount);
+            $potentialPayout = SportsbookBetSupport::calculatePotentialPayout($type, $betAmount, $validatedSelections, $modeRule);
+            $combinedOdds = SportsbookBetSupport::combinedOdds($totalRisk, $potentialPayout);
+            $ticketId = SportsbookBetSupport::idempotencyDocumentId('sportsbook_ticket', $userId, $requestId);
+            $selectionDocs = array_map(fn (array $selectionRow): array => $this->selectionForInsert($selectionRow), $validatedSelections);
+
+            $createdBetIds = [];
+            $newBalance = 0.0;
+            $newPending = 0.0;
+
             $this->db->beginTransaction();
             try {
                 $lockedUser = $this->db->findOneForUpdate('users', ['_id' => MongoRepository::id((string) $user['_id'])]);
                 if ($lockedUser === null) {
                     $this->db->rollback();
-                    Response::json(['message' => 'User not found'], 404);
-                    return;
+                    throw new ApiException('User not found', 404);
                 }
 
                 $balance = $this->num($lockedUser['balance'] ?? 0);
                 $pending = $this->num($lockedUser['pendingBalance'] ?? 0);
                 $available = max(0, $balance - $pending);
-                $totalRisk = $type === 'reverse' ? ($betAmount * 2) : $betAmount;
 
                 if ($available < $totalRisk) {
                     $this->db->rollback();
-                    Response::json(['message' => 'Insufficient available balance'], 400);
-                    return;
+                    throw new ApiException('Insufficient available balance', 400, [
+                        'code' => 'INSUFFICIENT_BALANCE',
+                    ]);
                 }
 
                 // Check gambling loss limits
@@ -167,25 +249,7 @@ final class BetsController
                 $lossLimitMsg = $this->checkLossLimits($lockedUser, $gamblingLimits, $totalRisk);
                 if ($lossLimitMsg !== null) {
                     $this->db->rollback();
-                    Response::json(['message' => $lossLimitMsg], 400);
-                    return;
-                }
-
-                $potentialPayout = 0.0;
-                if ($type === 'straight') {
-                    $potentialPayout = $betAmount * ((float) ($validatedSelections[0]['odds'] ?? 0));
-                } elseif ($type === 'parlay') {
-                    $combined = 1.0;
-                    foreach ($validatedSelections as $sel) {
-                        $combined *= (float) ($sel['odds'] ?? 0);
-                    }
-                    $potentialPayout = $betAmount * $combined;
-                } elseif ($type === 'teaser') {
-                    $potentialPayout = $betAmount * $this->getTeaserMultiplier($modeRule, $legCount);
-                } elseif ($type === 'if_bet' || $type === 'reverse') {
-                    $potentialPayout = $betAmount
-                        * ((float) ($validatedSelections[0]['odds'] ?? 0))
-                        * ((float) ($validatedSelections[1]['odds'] ?? 0));
+                    throw new ApiException($lossLimitMsg, 400);
                 }
 
                 $newBalance = $balance - $totalRisk;
@@ -194,7 +258,7 @@ final class BetsController
                 $this->db->updateOne('users', ['_id' => MongoRepository::id((string) $lockedUser['_id'])], [
                     'balance' => $newBalance,
                     'pendingBalance' => $newPending,
-                    'betCount' => ((int) ($lockedUser['betCount'] ?? 0)) + ($type === 'reverse' ? 2 : 1),
+                    'betCount' => ((int) ($lockedUser['betCount'] ?? 0)) + 1,
                     'totalWagered' => $this->num($lockedUser['totalWagered'] ?? 0) + $totalRisk,
                     'updatedAt' => MongoRepository::nowUtc(),
                 ]);
@@ -202,53 +266,39 @@ final class BetsController
                 $ipAddress = IpUtils::clientIp();
                 $userAgent = Http::header('user-agent');
                 $now = MongoRepository::nowUtc();
-                $userId = MongoRepository::id((string) $lockedUser['_id']);
 
                 $baseBetData = [
                     'userId' => $userId,
-                    'amount' => $betAmount,
+                    'requestId' => $requestId,
+                    'ticketId' => $ticketId,
+                    'amount' => $totalRisk,
+                    'riskAmount' => $totalRisk,
+                    'unitStake' => $betAmount,
                     'type' => $type,
                     'potentialPayout' => $potentialPayout,
+                    'combinedOdds' => $combinedOdds,
                     'status' => 'pending',
                     'ipAddress' => $ipAddress,
                     'userAgent' => $userAgent,
-                    'teaserPoints' => $teaserPoints,
+                    'teaserPoints' => $type === 'teaser' ? $teaserPoints : 0.0,
                     'createdAt' => $now,
                     'updatedAt' => $now,
                 ];
 
-                $createdBetIds = [];
-                if ($type === 'reverse') {
-                    $doc1 = array_merge($baseBetData, [
-                        'type' => 'if_bet',
-                        'selections' => [$this->selectionForInsert($validatedSelections[0]), $this->selectionForInsert($validatedSelections[1])],
-                        'potentialPayout' => $potentialPayout / 2,
-                        'selection' => 'MULTI',
-                        'odds' => 0,
-                        'matchSnapshot' => new stdClass(),
-                    ]);
-                    $doc2 = array_merge($baseBetData, [
-                        'type' => 'if_bet',
-                        'selections' => [$this->selectionForInsert($validatedSelections[1]), $this->selectionForInsert($validatedSelections[0])],
-                        'potentialPayout' => $potentialPayout / 2,
-                        'selection' => 'MULTI',
-                        'odds' => 0,
-                        'matchSnapshot' => new stdClass(),
-                    ]);
-
-                    $createdBetIds[] = $this->db->insertOne('bets', $doc1);
-                    $createdBetIds[] = $this->db->insertOne('bets', $doc2);
-                } else {
-                    $single = count($validatedSelections) === 1 ? $validatedSelections[0] : null;
-                    $doc = array_merge($baseBetData, [
-                        'selections' => array_map(fn ($s) => $this->selectionForInsert($s), $validatedSelections),
-                        'matchId' => $single ? MongoRepository::id((string) $single['matchId']) : null,
-                        'selection' => $single ? $single['selection'] : 'MULTI',
-                        'odds' => $single ? (float) $single['odds'] : 0,
-                        'matchSnapshot' => $single ? ($single['matchSnapshot'] ?? new stdClass()) : new stdClass(),
-                    ]);
-                    $createdBetIds[] = $this->db->insertOne('bets', $doc);
-                }
+                $single = count($validatedSelections) === 1 ? $validatedSelections[0] : null;
+                $doc = array_merge($baseBetData, [
+                    'selections' => $selectionDocs,
+                    'matchId' => $single ? MongoRepository::id((string) $single['matchId']) : null,
+                    'selection' => $single ? $single['selection'] : 'MULTI',
+                    'odds' => $single ? (float) $single['odds'] : $combinedOdds,
+                    'marketType' => $single ? (string) ($single['marketType'] ?? '') : $type,
+                    'description' => SportsbookBetSupport::descriptionForSelections($selectionDocs),
+                    'matchSnapshot' => $single ? ($single['matchSnapshot'] ?? new stdClass()) : new stdClass(),
+                ]);
+                $betId = $this->db->insertOne('bets', $doc);
+                $createdBetIds[] = $betId;
+                $createdBet = $this->db->findOne('bets', ['_id' => MongoRepository::id($betId)]) ?? array_merge($doc, ['_id' => $betId]);
+                SportsbookBetSupport::upsertSelectionRowsForBet($this->db, $createdBet, $selectionDocs);
 
                 $this->db->insertOne('transactions', [
                     'userId' => $userId,
@@ -273,21 +323,40 @@ final class BetsController
                 throw $txErr;
             }
 
-            $createdBets = [];
-            foreach ($createdBetIds as $id) {
-                $found = $this->db->findOne('bets', ['_id' => MongoRepository::id($id)]);
-                if ($found !== null) {
-                    $createdBets[] = $found;
-                }
-            }
-
-            Response::json([
-                'message' => 'Bet placed successfully',
-                'bets' => $createdBets,
+            $responsePayload = $this->buildBetPlacementResponse($createdBetIds, [
+                'requestId' => $requestId,
                 'balance' => $newBalance,
                 'pendingBalance' => $newPending,
-            ], 201);
+            ]);
+
+            $this->db->updateOne('betrequests', ['_id' => MongoRepository::id($requestDocId)], [
+                'status' => 'completed',
+                'betIds' => $createdBetIds,
+                'ticketId' => $ticketId,
+                'responseBalance' => $newBalance,
+                'responsePendingBalance' => $newPending,
+                'updatedAt' => MongoRepository::nowUtc(),
+            ]);
+            $requestDocOwned = false;
+
+            Response::json($responsePayload, 201);
+        } catch (ApiException $e) {
+            if ($requestDocOwned && $requestDocId !== '') {
+                $this->db->updateOne('betrequests', ['_id' => MongoRepository::id($requestDocId)], [
+                    'status' => 'failed',
+                    'error' => $e->getMessage(),
+                    'updatedAt' => MongoRepository::nowUtc(),
+                ]);
+            }
+            Response::json(array_merge(['message' => $e->getMessage()], $e->payload()), $e->statusCode());
         } catch (Throwable $e) {
+            if ($requestDocOwned && $requestDocId !== '') {
+                $this->db->updateOne('betrequests', ['_id' => MongoRepository::id($requestDocId)], [
+                    'status' => 'failed',
+                    'error' => $e->getMessage(),
+                    'updatedAt' => MongoRepository::nowUtc(),
+                ]);
+            }
             Response::json(['message' => $e->getMessage()], 400);
         }
     }
@@ -490,25 +559,15 @@ final class BetsController
                 'limit' => $limit,
             ]);
 
-            foreach ($bets as &$bet) {
-                if (isset($bet['matchId']) && is_string($bet['matchId']) && preg_match('/^[a-f0-9]{24}$/i', $bet['matchId']) === 1) {
-                    $match = $this->db->findOne('matches', ['_id' => MongoRepository::id($bet['matchId'])], [
-                        'projection' => [
-                            'homeTeam' => 1,
-                            'awayTeam' => 1,
-                            'startTime' => 1,
-                            'sport' => 1,
-                            'league' => 1,
-                        ],
-                    ]);
-                    if ($match !== null) {
-                        $bet['matchId'] = $match;
-                    }
+            $formatted = [];
+            foreach ($bets as $bet) {
+                if (!is_array($bet)) {
+                    continue;
                 }
+                $formatted[] = $this->enrichBetDocument($bet);
             }
-            unset($bet);
 
-            Response::json($bets);
+            Response::json($formatted);
         } catch (Throwable $e) {
             Response::json(['message' => 'Error fetching bets'], 500);
         }
@@ -517,22 +576,20 @@ final class BetsController
     private function validateSelection(string $matchId, string $selection, mixed $odds, string $type): array
     {
         if (preg_match('/^[a-f0-9]{24}$/i', $matchId) !== 1) {
-            throw new RuntimeException('Match not found: ' . $matchId);
+            throw new ApiException('Match not found: ' . $matchId, 404);
         }
 
         $match = $this->db->findOne('matches', ['_id' => MongoRepository::id($matchId)]);
         if ($match === null) {
-            throw new RuntimeException('Match not found: ' . $matchId);
+            throw new ApiException('Match not found: ' . $matchId, 404);
         }
 
-        $status = (string) ($match['status'] ?? '');
-        if (!in_array($status, ['scheduled', 'live'], true)) {
-            throw new RuntimeException('Match ' . ($match['homeTeam'] ?? '') . ' vs ' . ($match['awayTeam'] ?? '') . ' is not open for betting');
-        }
-
-        $startTime = strtotime((string) ($match['startTime'] ?? ''));
-        if ($status === 'scheduled' && $startTime !== false && $startTime <= time()) {
-            throw new RuntimeException('Betting is closed for ' . ($match['homeTeam'] ?? '') . ' vs ' . ($match['awayTeam'] ?? ''));
+        $match = SportsMatchStatus::annotate($match);
+        if (($match['isBettable'] ?? false) !== true) {
+            throw new ApiException((string) (SportsMatchStatus::placementBlockReason($match) ?? 'Match is not open for betting'), 409, [
+                'code' => 'MATCH_NOT_BETTABLE',
+                'matchStatus' => $match['status'] ?? null,
+            ]);
         }
 
         $markets = [];
@@ -566,7 +623,17 @@ final class BetsController
         }
 
         if ($market === null || !is_array($market['outcomes'] ?? null) || count($market['outcomes']) === 0) {
-            throw new RuntimeException('Market ' . $type . ' not available for ' . ($match['homeTeam'] ?? '') . ' vs ' . ($match['awayTeam'] ?? ''));
+            throw new ApiException('Market ' . $type . ' not available for ' . ($match['homeTeam'] ?? '') . ' vs ' . ($match['awayTeam'] ?? ''), 409, [
+                'code' => 'MARKET_UNAVAILABLE',
+            ]);
+        }
+
+        $marketStatus = strtolower((string) ($market['status'] ?? 'active'));
+        $marketActive = !array_key_exists('active', $market) || (bool) $market['active'] === true;
+        if (!$marketActive || in_array($marketStatus, ['suspended', 'closed', 'settled', 'canceled', 'cancelled', 'expired', 'inactive'], true)) {
+            throw new ApiException('Market ' . $type . ' is not open for betting', 409, [
+                'code' => 'MARKET_CLOSED',
+            ]);
         }
 
         $outcome = null;
@@ -583,18 +650,35 @@ final class BetsController
         }
 
         if (!is_array($outcome) || !isset($outcome['price'])) {
-            throw new RuntimeException('Selection ' . $selection . ' not available for ' . ($match['homeTeam'] ?? '') . ' vs ' . ($match['awayTeam'] ?? ''));
+            throw new ApiException('Selection ' . $selection . ' not available for ' . ($match['homeTeam'] ?? '') . ' vs ' . ($match['awayTeam'] ?? ''), 409, [
+                'code' => 'SELECTION_UNAVAILABLE',
+            ]);
+        }
+
+        $outcomeStatus = strtolower((string) ($outcome['status'] ?? 'active'));
+        $outcomeActive = !array_key_exists('active', $outcome) || (bool) $outcome['active'] === true;
+        if (!$outcomeActive || in_array($outcomeStatus, ['suspended', 'closed', 'settled', 'canceled', 'cancelled', 'expired', 'inactive'], true)) {
+            throw new ApiException('Selection ' . $selection . ' is not open for betting', 409, [
+                'code' => 'SELECTION_CLOSED',
+            ]);
         }
 
         $officialOdds = (float) $outcome['price'];
         $clientOdds = is_numeric($odds) ? (float) $odds : 0.0;
         if (!is_finite($officialOdds) || $officialOdds <= 0) {
-            throw new RuntimeException('Invalid odds for selection ' . $selection);
+            throw new ApiException('Invalid odds for selection ' . $selection, 409, [
+                'code' => 'INVALID_ODDS',
+            ]);
         }
 
-        // Keep parity with Node behavior: tolerate mild client odds drift.
-        if ($clientOdds > 0 && abs($officialOdds - $clientOdds) > 0.1) {
-            // tolerated
+        if ($clientOdds > 0 && abs($officialOdds - $clientOdds) > 0.0001) {
+            throw new ApiException('Odds changed. Please review the updated price before placing the bet.', 409, [
+                'code' => 'ODDS_CHANGED',
+                'officialOdds' => $officialOdds,
+                'clientOdds' => $clientOdds,
+                'selection' => (string) ($outcome['name'] ?? $selection),
+                'matchId' => $matchId,
+            ]);
         }
 
         return [
@@ -615,9 +699,75 @@ final class BetsController
             'odds' => (float) $selection['odds'],
             'marketType' => $selection['marketType'] ?? '',
             'point' => $selection['point'] ?? null,
+            'basePoint' => $selection['basePoint'] ?? ($selection['point'] ?? null),
+            'teaserAdjustment' => $selection['teaserAdjustment'] ?? 0.0,
             'status' => 'pending',
             'matchSnapshot' => $selection['matchSnapshot'] ?? new stdClass(),
         ];
+    }
+
+    /**
+     * @param array<int, string> $betIds
+     * @param array<string, mixed> $meta
+     * @return array<string, mixed>
+     */
+    private function buildBetPlacementResponse(array $betIds, array $meta): array
+    {
+        return [
+            'message' => 'Bet placed successfully',
+            'bets' => $this->loadEnrichedBetsByIds($betIds),
+            'requestId' => $meta['requestId'] ?? null,
+            'balance' => $this->num($meta['balance'] ?? 0),
+            'pendingBalance' => $this->num($meta['pendingBalance'] ?? 0),
+        ];
+    }
+
+    /**
+     * @param array<int, string> $betIds
+     * @return array<int, array<string, mixed>>
+     */
+    private function loadEnrichedBetsByIds(array $betIds): array
+    {
+        $bets = [];
+        foreach ($betIds as $betId) {
+            if (!is_string($betId) || preg_match('/^[a-f0-9]{24}$/i', $betId) !== 1) {
+                continue;
+            }
+            $bet = $this->db->findOne('bets', ['_id' => MongoRepository::id($betId)]);
+            if ($bet !== null) {
+                $bets[] = $this->enrichBetDocument($bet);
+            }
+        }
+        return $bets;
+    }
+
+    /**
+     * @param array<string, mixed> $bet
+     * @return array<string, mixed>
+     */
+    private function enrichBetDocument(array $bet): array
+    {
+        $selectionRows = SportsbookBetSupport::ensureSelectionRowsForBet($this->db, $bet);
+        $enriched = SportsbookBetSupport::enrichBetForResponse($bet, $selectionRows);
+
+        $matchId = (string) ($bet['matchId'] ?? '');
+        if ($matchId !== '' && preg_match('/^[a-f0-9]{24}$/i', $matchId) === 1) {
+            $match = $this->db->findOne('matches', ['_id' => MongoRepository::id($matchId)], [
+                'projection' => [
+                    'homeTeam' => 1,
+                    'awayTeam' => 1,
+                    'startTime' => 1,
+                    'sport' => 1,
+                    'league' => 1,
+                    'status' => 1,
+                ],
+            ]);
+            if ($match !== null) {
+                $enriched['match'] = SportsMatchStatus::annotate($match);
+            }
+        }
+
+        return $enriched;
     }
 
     private function getModeRule(string $mode): ?array

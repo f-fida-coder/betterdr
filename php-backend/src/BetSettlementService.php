@@ -2,22 +2,19 @@
 
 declare(strict_types=1);
 
-
 final class BetSettlementService
 {
     public static function manualWinnerEligibility(MongoRepository $db, string $matchId): array
     {
-        if (preg_match('/^[a-f0-9]{24}$/i', $matchId) !== 1) {
-            throw new RuntimeException('Match not found');
-        }
+        self::assertValidMatchId($matchId);
 
         $match = $db->findOne('matches', ['_id' => MongoRepository::id($matchId)]);
         if ($match === null) {
             throw new RuntimeException('Match not found');
         }
 
-        $isFinished = ((string) ($match['status'] ?? '') === 'finished');
-        if ($isFinished) {
+        $match = SportsMatchStatus::annotate($match);
+        if ((string) ($match['status'] ?? '') === 'finished') {
             return [
                 'manualWinnerAllowed' => true,
                 'reason' => null,
@@ -26,35 +23,18 @@ final class BetSettlementService
             ];
         }
 
-        $pendingBets = $db->findMany('bets', [
+        self::backfillPendingSelectionsForMatch($db, $matchId);
+        $pendingSelections = $db->findMany('betselections', [
+            'matchId' => MongoRepository::id($matchId),
             'status' => 'pending',
-            '$or' => [
-                ['matchId' => MongoRepository::id($matchId)],
-                ['selections.matchId' => MongoRepository::id($matchId)],
-            ],
         ], [
-            'projection' => ['selections' => 1, 'type' => 1],
+            'projection' => ['marketType' => 1],
         ]);
 
         $blockedLegCount = 0;
-        foreach ($pendingBets as $bet) {
-            $selections = is_array($bet['selections'] ?? null) ? $bet['selections'] : [];
-            if (count($selections) === 0) {
-                $legacyType = strtolower((string) ($bet['type'] ?? ''));
-                if (!self::isH2HMarket($legacyType)) {
-                    $blockedLegCount++;
-                }
-                continue;
-            }
-            foreach ($selections as $leg) {
-                $legMatchId = (string) ($leg['matchId'] ?? '');
-                if ($legMatchId !== $matchId) {
-                    continue;
-                }
-                $marketType = strtolower((string) ($leg['marketType'] ?? ''));
-                if (!self::isH2HMarket($marketType)) {
-                    $blockedLegCount++;
-                }
+        foreach ($pendingSelections as $selection) {
+            if (!self::isH2HMarket((string) ($selection['marketType'] ?? ''))) {
+                $blockedLegCount++;
             }
         }
 
@@ -77,39 +57,13 @@ final class BetSettlementService
 
     public static function settleMatch(MongoRepository $db, string $matchId, ?string $manualWinner = null, string $settledBy = 'system'): array
     {
-        if (preg_match('/^[a-f0-9]{24}$/i', $matchId) !== 1) {
-            throw new RuntimeException('Match not found');
-        }
+        self::assertValidMatchId($matchId);
 
         $match = $db->findOne('matches', ['_id' => MongoRepository::id($matchId)]);
         if ($match === null) {
             throw new RuntimeException('Match not found');
         }
-
-        $pendingBets = $db->findMany('bets', [
-            'status' => 'pending',
-            '$or' => [
-                ['matchId' => MongoRepository::id($matchId)],
-                ['selections.matchId' => MongoRepository::id($matchId)],
-            ],
-        ]);
-
-        $results = [
-            'total' => count($pendingBets),
-            'won' => 0,
-            'lost' => 0,
-            'voided' => 0,
-            'errors' => 0,
-        ];
-
-        if (count($pendingBets) === 0) {
-            return $results;
-        }
-
-        $scoreHome = (float) ($match['score']['score_home'] ?? 0);
-        $scoreAway = (float) ($match['score']['score_away'] ?? 0);
-        $totalScore = $scoreHome + $scoreAway;
-        $isFinished = (($match['status'] ?? '') === 'finished');
+        $match = SportsMatchStatus::annotate($match);
 
         if ($manualWinner !== null) {
             $eligibility = self::manualWinnerEligibility($db, $matchId);
@@ -118,193 +72,179 @@ final class BetSettlementService
             }
         }
 
-        foreach ($pendingBets as $bet) {
-            if (!isset($bet['userId']) || !is_string($bet['userId']) || preg_match('/^[a-f0-9]{24}$/i', $bet['userId']) !== 1) {
-                continue;
-            }
+        self::backfillPendingSelectionsForMatch($db, $matchId);
+        $pendingSelections = $db->findMany('betselections', [
+            'matchId' => MongoRepository::id($matchId),
+            'status' => 'pending',
+        ], [
+            'projection' => ['betId' => 1],
+        ]);
 
+        $betIds = [];
+        foreach ($pendingSelections as $selection) {
+            $betId = (string) ($selection['betId'] ?? '');
+            if ($betId !== '' && preg_match('/^[a-f0-9]{24}$/i', $betId) === 1) {
+                $betIds[$betId] = true;
+            }
+        }
+
+        $results = [
+            'total' => count($betIds),
+            'won' => 0,
+            'lost' => 0,
+            'voided' => 0,
+            'errors' => 0,
+        ];
+
+        if ($betIds === []) {
+            return $results;
+        }
+
+        $teaserRule = self::getTeaserRule($db);
+        foreach (array_keys($betIds) as $betId) {
             try {
                 $db->beginTransaction();
 
-                $user = $db->findOneForUpdate('users', ['_id' => MongoRepository::id($bet['userId'])]);
+                $bet = $db->findOneForUpdate('bets', ['_id' => MongoRepository::id($betId)]);
+                if ($bet === null || (string) ($bet['status'] ?? '') !== 'pending') {
+                    $db->rollback();
+                    continue;
+                }
+
+                $userId = (string) ($bet['userId'] ?? '');
+                if ($userId === '' || preg_match('/^[a-f0-9]{24}$/i', $userId) !== 1) {
+                    $db->rollback();
+                    continue;
+                }
+
+                $user = $db->findOneForUpdate('users', ['_id' => MongoRepository::id($userId)]);
                 if ($user === null) {
                     $db->rollback();
                     continue;
                 }
 
-                $betType = strtolower((string) ($bet['type'] ?? 'straight'));
-                $selections = is_array($bet['selections'] ?? null) ? $bet['selections'] : [];
-                $betDirty = false;
+                $selectionRows = SportsbookBetSupport::ensureSelectionRowsForBet($db, $bet);
+                $updatedRows = [];
+                $selectionDirty = false;
+                $now = MongoRepository::nowUtc();
 
-                foreach ($selections as $idx => $leg) {
-                    $legMatchId = (string) ($leg['matchId'] ?? '');
-                    $legStatus = (string) ($leg['status'] ?? 'pending');
+                foreach ($selectionRows as $row) {
+                    if (!is_array($row)) {
+                        continue;
+                    }
 
-                    if ($legMatchId === $matchId && $legStatus === 'pending') {
-                        $res = self::getLegResult($leg, $match, $manualWinner, $isFinished, $scoreHome, $scoreAway, $totalScore);
-                        if ($res !== 'pending') {
-                            $selections[$idx]['status'] = $res;
-                            $betDirty = true;
+                    $rowMatchId = (string) ($row['matchId'] ?? '');
+                    $rowStatus = (string) ($row['status'] ?? 'pending');
+                    if ($rowMatchId === $matchId && $rowStatus === 'pending') {
+                        $resolvedStatus = SportsbookBetSupport::selectionResult(
+                            $match,
+                            $row,
+                            self::isH2HMarket((string) ($row['marketType'] ?? '')) ? $manualWinner : null
+                        );
+
+                        if ($resolvedStatus !== $rowStatus) {
+                            $row['status'] = $resolvedStatus;
+                            $row['updatedAt'] = $now;
+                            if ($resolvedStatus !== 'pending') {
+                                $row['settledAt'] = $now;
+                            }
+                            $db->updateOne('betselections', ['_id' => MongoRepository::id((string) ($row['_id'] ?? ''))], [
+                                'status' => $resolvedStatus,
+                                'updatedAt' => $row['updatedAt'],
+                                'settledAt' => $row['settledAt'] ?? null,
+                            ]);
+                            $selectionDirty = true;
                         }
                     }
+
+                    $updatedRows[] = $row;
                 }
 
-                if (!$betDirty) {
+                if (!$selectionDirty) {
                     $db->rollback();
                     continue;
                 }
 
-                $finalStatus = 'pending';
-                if ($betType === 'straight') {
-                    $finalStatus = (string) ($selections[0]['status'] ?? 'pending');
-                } elseif ($betType === 'parlay' || $betType === 'teaser') {
-                    $legStatuses = array_map(fn ($l) => (string) ($l['status'] ?? 'pending'), $selections);
-                    if (in_array('lost', $legStatuses, true)) {
-                        $finalStatus = 'lost';
-                    } elseif (self::allWonOrVoid($legStatuses)) {
-                        if (self::allVoid($legStatuses)) {
-                            $finalStatus = 'void';
-                        } elseif (in_array('pending', $legStatuses, true)) {
-                            $finalStatus = 'pending';
-                        } else {
-                            $finalStatus = 'won';
-                        }
-                    }
-                } elseif ($betType === 'if_bet') {
-                    foreach ($selections as $i => $leg) {
-                        $legStatus = (string) ($leg['status'] ?? 'pending');
-                        if ($legStatus === 'lost') {
-                            $finalStatus = 'lost';
-                            break;
-                        }
-                        if ($legStatus === 'pending') {
-                            $finalStatus = 'pending';
-                            break;
-                        }
-                        if ($i === (count($selections) - 1) && $legStatus === 'won') {
-                            $finalStatus = 'won';
-                        }
-                    }
-                }
+                $normalizedSelections = SportsbookBetSupport::selectionRowsToBetSelections($bet, $updatedRows);
+                $evaluation = SportsbookBetSupport::evaluateTicket(
+                    array_merge($bet, ['selections' => $normalizedSelections]),
+                    $updatedRows,
+                    $teaserRule
+                );
 
-                if ($finalStatus === 'pending') {
-                    $db->updateOne('bets', ['_id' => MongoRepository::id((string) $bet['_id'])], [
-                        'selections' => self::normalizeSelectionsForUpdate($selections),
-                        'updatedAt' => MongoRepository::nowUtc(),
+                $ticketStatus = (string) ($evaluation['status'] ?? 'pending');
+                $ticketPayout = round(self::num($evaluation['payout'] ?? 0), 2);
+
+                if ($ticketStatus === 'pending') {
+                    $db->updateOne('bets', ['_id' => MongoRepository::id($betId)], [
+                        'selections' => $normalizedSelections,
+                        'updatedAt' => $now,
                     ]);
                     $db->commit();
                     continue;
                 }
 
-                $wager = self::num($bet['amount'] ?? 0);
+                $riskAmount = SportsbookBetSupport::riskAmount($bet);
                 $balance = self::num($user['balance'] ?? 0);
-                $pending = self::num($user['pendingBalance'] ?? 0);
-                $potentialPayout = self::num($bet['potentialPayout'] ?? 0);
+                $pendingBalance = self::num($user['pendingBalance'] ?? 0);
+                $newPendingBalance = max(0.0, $pendingBalance - $riskAmount);
+                $acceptedPayout = self::num($bet['acceptedPayout'] ?? ($bet['potentialPayout'] ?? 0));
 
-                if ($finalStatus === 'won' && ($betType === 'parlay' || $betType === 'teaser')) {
-                    $legStatuses = array_map(fn ($l) => (string) ($l['status'] ?? 'pending'), $selections);
-                    if (in_array('void', $legStatuses, true)) {
-                        if ($betType === 'parlay') {
-                            $combined = 1.0;
-                            foreach ($selections as $leg) {
-                                if ((string) ($leg['status'] ?? '') === 'won') {
-                                    $combined *= self::num($leg['odds'] ?? 0);
-                                }
-                            }
-                            $potentialPayout = $wager * $combined;
-                        } else {
-                            $wonCount = 0;
-                            foreach ($selections as $leg) {
-                                if ((string) ($leg['status'] ?? '') === 'won') {
-                                    $wonCount++;
-                                }
-                            }
-                            $teaserRule = self::getTeaserRule($db);
-                            $potentialPayout = $wager * self::getTeaserMultiplier($teaserRule, $wonCount);
-                        }
-                    }
-                }
-
-                $db->updateOne('bets', ['_id' => MongoRepository::id((string) $bet['_id'])], [
-                    'selections' => self::normalizeSelectionsForUpdate($selections),
-                    'status' => $finalStatus,
-                    'result' => $finalStatus,
-                    'settledAt' => MongoRepository::nowUtc(),
+                $db->updateOne('bets', ['_id' => MongoRepository::id($betId)], [
+                    'selections' => $normalizedSelections,
+                    'status' => $ticketStatus,
+                    'result' => $ticketStatus,
+                    'settledAt' => $now,
                     'settledBy' => $settledBy,
-                    'potentialPayout' => $potentialPayout,
-                    'updatedAt' => MongoRepository::nowUtc(),
+                    'acceptedPayout' => $acceptedPayout > 0 ? $acceptedPayout : $ticketPayout,
+                    'potentialPayout' => $ticketPayout,
+                    'combinedOdds' => SportsbookBetSupport::combinedOdds($riskAmount, $ticketPayout),
+                    'updatedAt' => $now,
                 ]);
 
-                $now = MongoRepository::nowUtc();
-                $userIdStr = MongoRepository::id((string) $user['_id']);
-                $betIdStr = MongoRepository::id((string) $bet['_id']);
+                $userUpdate = [
+                    'pendingBalance' => $newPendingBalance,
+                    'updatedAt' => $now,
+                ];
+                $transactionType = 'bet_lost';
+                $transactionAmount = $riskAmount;
+                $balanceAfter = $balance;
+                $description = strtoupper((string) ($bet['type'] ?? 'straight')) . ' bet lost';
 
-                if ($finalStatus === 'void') {
-                    $newBalance = $balance + $wager;
-                    $db->updateOne('users', ['_id' => $userIdStr], [
-                        'balance' => $newBalance,
-                        'pendingBalance' => max(0, $pending - $wager),
-                        'updatedAt' => $now,
-                    ]);
-                    $db->insertOne('transactions', [
-                        'userId' => $userIdStr,
-                        'amount' => $wager,
-                        'type' => 'bet_void',
-                        'status' => 'completed',
-                        'balanceBefore' => $balance,
-                        'balanceAfter' => $newBalance,
-                        'referenceType' => 'Bet',
-                        'referenceId' => $betIdStr,
-                        'reason' => 'BET_VOID',
-                        'description' => strtoupper($betType) . ' bet voided - wager refunded',
-                        'createdAt' => $now,
-                        'updatedAt' => $now,
-                    ]);
+                if ($ticketStatus === 'void') {
+                    $balanceAfter = $balance + $riskAmount;
+                    $userUpdate['balance'] = $balanceAfter;
+                    $transactionType = 'bet_void';
+                    $transactionAmount = $riskAmount;
+                    $description = strtoupper((string) ($bet['type'] ?? 'straight')) . ' bet voided - wager refunded';
                     $results['voided']++;
-                } elseif ($finalStatus === 'won') {
-                    $newBalance = $balance + $potentialPayout;
-                    $db->updateOne('users', ['_id' => $userIdStr], [
-                        'balance' => $newBalance,
-                        'pendingBalance' => max(0, $pending - $wager),
-                        'totalWinnings' => self::num($user['totalWinnings'] ?? 0) + ($potentialPayout - $wager),
-                        'updatedAt' => $now,
-                    ]);
-                    $db->insertOne('transactions', [
-                        'userId' => $userIdStr,
-                        'amount' => $potentialPayout,
-                        'type' => 'bet_won',
-                        'status' => 'completed',
-                        'balanceBefore' => $balance,
-                        'balanceAfter' => $newBalance,
-                        'referenceType' => 'Bet',
-                        'referenceId' => $betIdStr,
-                        'reason' => 'BET_WON',
-                        'description' => strtoupper($betType) . ' bet won',
-                        'createdAt' => $now,
-                        'updatedAt' => $now,
-                    ]);
+                } elseif ($ticketStatus === 'won') {
+                    $balanceAfter = $balance + $ticketPayout;
+                    $userUpdate['balance'] = $balanceAfter;
+                    $userUpdate['totalWinnings'] = self::num($user['totalWinnings'] ?? 0) + max(0, $ticketPayout - $riskAmount);
+                    $transactionType = 'bet_won';
+                    $transactionAmount = $ticketPayout;
+                    $description = strtoupper((string) ($bet['type'] ?? 'straight')) . ' bet won';
                     $results['won']++;
                 } else {
-                    $db->updateOne('users', ['_id' => $userIdStr], [
-                        'pendingBalance' => max(0, $pending - $wager),
-                        'updatedAt' => $now,
-                    ]);
-                    $db->insertOne('transactions', [
-                        'userId' => $userIdStr,
-                        'amount' => $wager,
-                        'type' => 'bet_lost',
-                        'status' => 'completed',
-                        'balanceBefore' => $balance,
-                        'balanceAfter' => $balance,
-                        'referenceType' => 'Bet',
-                        'referenceId' => $betIdStr,
-                        'reason' => 'BET_LOST',
-                        'description' => strtoupper($betType) . ' bet lost',
-                        'createdAt' => $now,
-                        'updatedAt' => $now,
-                    ]);
                     $results['lost']++;
                 }
+
+                $db->updateOne('users', ['_id' => MongoRepository::id($userId)], $userUpdate);
+                $db->insertOne('transactions', [
+                    'userId' => MongoRepository::id($userId),
+                    'amount' => $transactionAmount,
+                    'type' => $transactionType,
+                    'status' => 'completed',
+                    'balanceBefore' => $balance,
+                    'balanceAfter' => $balanceAfter,
+                    'referenceType' => 'Bet',
+                    'referenceId' => MongoRepository::id($betId),
+                    'reason' => strtoupper($transactionType),
+                    'description' => $description,
+                    'createdAt' => $now,
+                    'updatedAt' => $now,
+                ]);
 
                 $db->commit();
             } catch (Throwable $e) {
@@ -316,85 +256,42 @@ final class BetSettlementService
         return $results;
     }
 
-    private static function getLegResult(array $leg, array $matchData, ?string $manualWinner, bool $isFinished, float $scoreHome, float $scoreAway, float $totalScore): string
+    private static function assertValidMatchId(string $matchId): void
     {
-        $selection = (string) ($leg['selection'] ?? '');
-        $marketType = strtolower((string) ($leg['marketType'] ?? ''));
-        $snapshot = is_array($leg['matchSnapshot'] ?? null) ? $leg['matchSnapshot'] : [];
-        $snapshotMarkets = is_array($snapshot['odds']['markets'] ?? null) ? $snapshot['odds']['markets'] : [];
-
-        if ($manualWinner !== null && self::isH2HMarket($marketType)) {
-            return $selection === $manualWinner ? 'won' : 'lost';
+        if (preg_match('/^[a-f0-9]{24}$/i', $matchId) !== 1) {
+            throw new RuntimeException('Match not found');
         }
-        if (!$isFinished) {
-            return 'pending';
-        }
+    }
 
-        $homeTeam = (string) ($matchData['homeTeam'] ?? '');
-        $awayTeam = (string) ($matchData['awayTeam'] ?? '');
-
-        if (in_array($marketType, ['h2h', 'moneyline', 'ml', 'straight'], true)) {
-            if ($scoreHome > $scoreAway) {
-                return $selection === $homeTeam ? 'won' : 'lost';
-            }
-            if ($scoreAway > $scoreHome) {
-                return $selection === $awayTeam ? 'won' : 'lost';
-            }
-            return $selection === 'Draw' ? 'won' : 'lost';
-        }
-
-        if ($marketType === 'spreads') {
-            $market = self::findMarket($snapshotMarkets, 'spreads');
-            $outcome = self::findOutcomeByName(is_array($market['outcomes'] ?? null) ? $market['outcomes'] : [], $selection);
-            if ($outcome !== null && isset($outcome['point'])) {
-                $point = (float) $outcome['point'];
-                if ($selection === $homeTeam) {
-                    $adjusted = $scoreHome + $point;
-                    if ($adjusted > $scoreAway) {
-                        return 'won';
-                    }
-                    if ($adjusted === $scoreAway) {
-                        return 'void';
-                    }
-                    return 'lost';
-                }
-                $adjusted = $scoreAway + $point;
-                if ($adjusted > $scoreHome) {
-                    return 'won';
-                }
-                if ($adjusted === $scoreHome) {
-                    return 'void';
-                }
-                return 'lost';
-            }
-        }
-
-        if ($marketType === 'totals') {
-            $market = self::findMarket($snapshotMarkets, 'totals');
-            $outcome = self::findOutcomeByName(is_array($market['outcomes'] ?? null) ? $market['outcomes'] : [], $selection);
-            if ($outcome !== null && isset($outcome['point'])) {
-                $point = (float) $outcome['point'];
-                $isOver = str_contains(strtolower($selection), 'over');
-                if ($isOver) {
-                    if ($totalScore > $point) {
-                        return 'won';
-                    }
-                    if ($totalScore === $point) {
-                        return 'void';
-                    }
-                    return 'lost';
-                }
-                if ($totalScore < $point) {
-                    return 'won';
-                }
-                if ($totalScore === $point) {
-                    return 'void';
-                }
-                return 'lost';
-            }
-        }
-
-        return 'pending';
+    private static function backfillPendingSelectionsForMatch(MongoRepository $db, string $matchId): void
+    {
+        $pendingBets = $db->findMany('bets', [
+            'status' => 'pending',
+            '$or' => [
+                ['matchId' => MongoRepository::id($matchId)],
+                ['selections.matchId' => MongoRepository::id($matchId)],
+            ],
+        ], [
+            'projection' => [
+                '_id' => 1,
+                'userId' => 1,
+                'ticketId' => 1,
+                'type' => 1,
+                'amount' => 1,
+                'riskAmount' => 1,
+                'unitStake' => 1,
+                'potentialPayout' => 1,
+                'status' => 1,
+                'selections' => 1,
+                'matchId' => 1,
+                'selection' => 1,
+                'odds' => 1,
+                'matchSnapshot' => 1,
+                'createdAt' => 1,
+                'updatedAt' => 1,
+            ],
+        ]);
+        SportsbookBetSupport::backfillSelectionRowsForBets($db, $pendingBets);
     }
 
     private static function isH2HMarket(string $marketType): bool
@@ -402,19 +299,9 @@ final class BetSettlementService
         return in_array(strtolower(trim($marketType)), ['h2h', 'moneyline', 'ml', 'straight', ''], true);
     }
 
-    private static function normalizeSelectionsForUpdate(array $selections): array
-    {
-        $out = [];
-        foreach ($selections as $sel) {
-            $normalized = $sel;
-            if (isset($normalized['matchId']) && is_string($normalized['matchId']) && preg_match('/^[a-f0-9]{24}$/i', $normalized['matchId']) === 1) {
-                $normalized['matchId'] = MongoRepository::id($normalized['matchId']);
-            }
-            $out[] = $normalized;
-        }
-        return $out;
-    }
-
+    /**
+     * @return array<string, mixed>
+     */
     private static function getTeaserRule(MongoRepository $db): array
     {
         $rule = $db->findOne('betmoderules', ['mode' => 'teaser', 'isActive' => true]);
@@ -422,62 +309,6 @@ final class BetSettlementService
             return $rule;
         }
         return BetModeRules::getDefault('teaser') ?? [];
-    }
-
-    private static function getTeaserMultiplier(array $rule, int $legCount): float
-    {
-        $multipliers = $rule['payoutProfile']['multipliers'] ?? [];
-        $key = (string) $legCount;
-        if (is_array($multipliers) && isset($multipliers[$key]) && is_numeric($multipliers[$key])) {
-            $value = (float) $multipliers[$key];
-            if ($value > 0) {
-                return $value;
-            }
-        }
-        return 1.0;
-    }
-
-    private static function allWonOrVoid(array $statuses): bool
-    {
-        foreach ($statuses as $status) {
-            if (!in_array($status, ['won', 'void'], true)) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    private static function allVoid(array $statuses): bool
-    {
-        if (count($statuses) === 0) {
-            return false;
-        }
-        foreach ($statuses as $status) {
-            if ($status !== 'void') {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    private static function findMarket(array $markets, string $key): ?array
-    {
-        foreach ($markets as $market) {
-            if (strtolower((string) ($market['key'] ?? '')) === strtolower($key)) {
-                return is_array($market) ? $market : null;
-            }
-        }
-        return null;
-    }
-
-    private static function findOutcomeByName(array $outcomes, string $selection): ?array
-    {
-        foreach ($outcomes as $outcome) {
-            if ((string) ($outcome['name'] ?? '') === $selection) {
-                return is_array($outcome) ? $outcome : null;
-            }
-        }
-        return null;
     }
 
     private static function num(mixed $value): float

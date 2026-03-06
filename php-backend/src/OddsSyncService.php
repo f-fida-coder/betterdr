@@ -476,15 +476,9 @@ final class OddsSyncService
             $score['event_status'] = $eventStatus;
         }
 
-        $statusToken = strtoupper((string) ($eventStatus ?? ''));
-        if (str_contains($statusToken, 'IN_PROGRESS') || str_contains($statusToken, 'LIVE') || str_contains($statusToken, 'STATUS_IN_PROGRESS')) {
-            $status = 'live';
-        } elseif (str_contains($statusToken, 'FINAL') || str_contains($statusToken, 'COMPLETE') || str_contains($statusToken, 'STATUS_CLOSED')) {
+        $status = SportsMatchStatus::normalize((string) ($event['status'] ?? ''), is_scalar($eventStatus) ? (string) $eventStatus : null);
+        if (($event['completed'] ?? null) === true) {
             $status = 'finished';
-        } elseif (($event['completed'] ?? null) === true) {
-            $status = 'finished';
-        } elseif (($event['status'] ?? '') === 'live') {
-            $status = 'live';
         }
 
         return [

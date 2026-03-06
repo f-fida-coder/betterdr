@@ -44,16 +44,29 @@ final class MatchesController
         try {
             $status = isset($_GET['status']) ? strtolower(trim((string) $_GET['status'])) : '';
             $active = isset($_GET['active']) ? strtolower(trim((string) $_GET['active'])) : '';
-            $filter = [];
-
-            if ($status !== '') {
-                $filter['status'] = $status === 'active' ? 'live' : $status;
-            } elseif ($active === 'true') {
-                $filter['status'] = 'live';
+            $matches = $this->db->findMany('matches', [], ['sort' => ['startTime' => 1]]);
+            $annotated = [];
+            foreach ($matches as $match) {
+                if (!is_array($match)) {
+                    continue;
+                }
+                $row = SportsMatchStatus::annotate($match);
+                if (($row['isPublicVisible'] ?? false) !== true) {
+                    continue;
+                }
+                $annotated[] = $row;
             }
 
-            $matches = $this->db->findMany('matches', $filter, ['sort' => ['startTime' => 1]]);
-            Response::json($matches);
+            $desiredStatus = $status === 'active' ? 'live' : $status;
+            if ($desiredStatus !== '' && $desiredStatus !== 'all') {
+                $annotated = array_values(array_filter($annotated, static function (array $match) use ($desiredStatus): bool {
+                    return strtolower((string) ($match['status'] ?? '')) === $desiredStatus;
+                }));
+            } elseif ($active === 'true') {
+                $annotated = array_values(array_filter($annotated, static fn (array $match): bool => strtolower((string) ($match['status'] ?? '')) === 'live'));
+            }
+
+            Response::json($annotated);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server Error fetching matches'], 500);
         }
@@ -67,7 +80,12 @@ final class MatchesController
                 Response::json(['message' => 'Match not found'], 404);
                 return;
             }
-            Response::json($match);
+            $annotated = SportsMatchStatus::annotate($match);
+            if (($annotated['isPublicVisible'] ?? false) !== true) {
+                Response::json(['message' => 'Match not available'], 404);
+                return;
+            }
+            Response::json($annotated);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server Error fetching match'], 500);
         }
@@ -157,8 +175,15 @@ final class MatchesController
             try {
                 $updated = $this->db->findMany('matches', ['updatedAt' => ['$gte' => $lastSeen]], ['sort' => ['updatedAt' => 1]]);
                 foreach ($updated as $match) {
+                    if (!is_array($match)) {
+                        continue;
+                    }
+                    $annotated = SportsMatchStatus::annotate($match);
+                    if (($annotated['isPublicVisible'] ?? false) !== true) {
+                        continue;
+                    }
                     echo "event: matchUpdate\n";
-                    echo 'data: ' . json_encode($match, JSON_UNESCAPED_SLASHES) . "\n\n";
+                    echo 'data: ' . json_encode($annotated, JSON_UNESCAPED_SLASHES) . "\n\n";
                 }
             } catch (Throwable $e) {
                 // Keep stream alive even if one poll fails.
