@@ -454,3 +454,136 @@
     border: none;
 }
 
+/* ── Baccarat history panel ─────────────────────────────── */
+.casino-history-section {
+    margin: 12px 16px 20px;
+    border: 1px solid var(--casino-border);
+    border-radius: 14px;
+    background: #fff;
+    box-shadow: 0 10px 24px rgba(17, 33, 58, 0.08);
+    padding: 14px;
+}
+
+.casino-history-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.casino-history-header h3 {
+    margin: 0;
+    font-size: 18px;
+    color: #17365c;
+}
+
+.casino-history-header p {
+    margin: 2px 0 0;
+    font-size: 12px;
+    color: #6c86a7;
+}
+
+.casino-history-filters {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 10px;
+    margin-bottom: 12px;
+}
+
+.casino-history-filters label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    color: #385b85;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.casino-history-filters select,
+.casino-history-filters input {
+    border: 1px solid #d7e3f1;
+    border-radius: 8px;
+    background: #fff;
+    color: #213a59;
+    padding: 8px 10px;
+    font-size: 13px;
+}
+
+.casino-history-table-wrap {
+    overflow: auto;
+}
+
+.casino-history-table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 640px;
+}
+
+.casino-history-table th,
+.casino-history-table td {
+    padding: 9px 10px;
+    border-bottom: 1px solid #ebf1f8;
+    font-size: 12px;
+    text-align: left;
+    color: #2d476a;
+}
+
+.casino-history-table th {
+    font-size: 11px;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: #59779c;
+}
+
+.casino-history-empty {
+    text-align: center !important;
+    color: #7890ad !important;
+}
+
+.casino-history-error {
+    margin-bottom: 8px;
+    color: #ad3a3a;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.casino-history-table .net-pos {
+    color: #0f9d6a;
+    font-weight: 800;
+}
+
+.casino-history-table .net-neg {
+    color: #bd2d2d;
+    font-weight: 800;
+}
+
+.casino-history-pagination {
+    margin-top: 10px;
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 8px;
+}
+
+.casino-history-pagination button {
+    border: 1px solid #d4e0ef;
+    background: #fff;
+    color: #355c87;
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.casino-history-pagination button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.casino-history-pagination span {
+    font-size: 12px;
+    color: #5b7392;
+    font-weight: 700;
+}

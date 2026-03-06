@@ -303,6 +303,138 @@ export const launchCasinoGame = async (gameId, token) => {
     return response.json();
 };
 
+const createRequestId = () =>
+    `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 12)}`;
+
+// ── In-house casino game betting ──────────────────────────
+export const placeCasinoBet = async (game, bets, token, { requestId = '' } = {}) => {
+    const safeRequestId = String(requestId || createRequestId()).trim();
+    const response = await fetch(buildApiUrl('/casino/bet'), {
+        method: 'POST',
+        headers: getHeaders(token),
+        body: JSON.stringify({ game, bets, requestId: safeRequestId })
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || 'Failed to place casino bet');
+    }
+    const payload = await response.json();
+    return {
+        ...payload,
+        requestId: payload?.requestId || safeRequestId
+    };
+};
+
+export const getCasinoBetHistory = async (
+    token,
+    {
+        page = 1,
+        limit = 20,
+        from = '',
+        to = '',
+        result = '',
+        minWager = '',
+        maxWager = ''
+    } = {}
+) => {
+    const params = {};
+    params.page = String(page);
+    params.limit = String(limit);
+    if (from) params.from = from;
+    if (to) params.to = to;
+    if (result) params.result = result;
+    if (minWager !== '' && minWager !== null && minWager !== undefined) params.minWager = String(minWager);
+    if (maxWager !== '' && maxWager !== null && maxWager !== undefined) params.maxWager = String(maxWager);
+
+    const response = await fetch(buildApiUrl('/casino/bet/history', params), {
+        headers: getHeaders(token)
+    });
+    if (!response.ok) throw new Error('Failed to fetch casino bet history');
+    return response.json();
+};
+
+export const getCasinoBetDetail = async (roundId, token) => {
+    const response = await fetch(buildApiUrl(`/casino/bet/${roundId}`), {
+        headers: getHeaders(token)
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || 'Failed to fetch casino bet detail');
+    }
+    return response.json();
+};
+
+export const getAdminCasinoBets = async (params = {}, token) => {
+    const query = {};
+    const allowed = ['page', 'limit', 'from', 'to', 'result', 'username', 'userId', 'minWager', 'maxWager', 'format', 'csvLimit'];
+    for (const key of allowed) {
+        const value = params?.[key];
+        if (value !== undefined && value !== null && String(value).trim() !== '') {
+            query[key] = String(value);
+        }
+    }
+    const response = await fetch(buildApiUrl('/admin/casino/bets', query), {
+        headers: getHeaders(token)
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || 'Failed to fetch admin casino bets');
+    }
+    return response.json();
+};
+
+export const downloadAdminCasinoBetsCsv = async (params = {}, token) => {
+    const query = { ...params, format: 'csv' };
+    const response = await fetch(buildApiUrl('/admin/casino/bets', query), {
+        headers: getHeaders(token)
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || 'Failed to download casino bets CSV');
+    }
+
+    const blob = await response.blob();
+    const contentDisposition = response.headers.get('content-disposition') || '';
+    const fileNameMatch = contentDisposition.match(/filename="([^"]+)"/i);
+    const fileName = fileNameMatch?.[1] || `casino-bets-${Date.now()}.csv`;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    a.click();
+    URL.revokeObjectURL(url);
+};
+
+export const getAdminCasinoBetDetail = async (roundId, token) => {
+    const response = await fetch(buildApiUrl(`/admin/casino/bets/${roundId}`), {
+        headers: getHeaders(token)
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || 'Failed to fetch admin casino bet detail');
+    }
+    return response.json();
+};
+
+export const getAdminCasinoSummary = async (params = {}, token) => {
+    const query = {};
+    const allowed = ['from', 'to', 'limit'];
+    for (const key of allowed) {
+        const value = params?.[key];
+        if (value !== undefined && value !== null && String(value).trim() !== '') {
+            query[key] = String(value);
+        }
+    }
+    const response = await fetch(buildApiUrl('/admin/casino/summary', query), {
+        headers: getHeaders(token)
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || 'Failed to fetch admin casino summary');
+    }
+    return response.json();
+};
+
 export const createDeposit = async (amount, token) => {
     const response = await fetch(buildApiUrl('/wallet/request-deposit'), {
         method: 'POST',

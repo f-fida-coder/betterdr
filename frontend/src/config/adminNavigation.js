@@ -4,6 +4,7 @@ export const ADMIN_NAV_ITEMS = [
   { id: 'pending', label: 'Pending', sidebarIcon: '📋', dashboardIcon: 'fa-solid fa-calendar-check', dashboardColor: 'teal', roles: ['admin', 'agent', 'master_agent', 'super_agent'], showInSidebar: true, showInDashboard: true },
   { id: 'messaging', label: 'Messaging', sidebarIcon: '✉️', dashboardIcon: 'fa-solid fa-envelope', dashboardColor: 'teal', roles: ['admin', 'agent', 'master_agent', 'super_agent'], showInSidebar: true, showInDashboard: true },
   { id: 'game-admin', label: 'Game Admin', sidebarIcon: '🎮', dashboardIcon: 'fa-solid fa-gamepad', dashboardColor: 'teal', roles: ['admin', 'agent', 'master_agent', 'super_agent'], showInSidebar: true, showInDashboard: true },
+  { id: 'casino-bets', label: 'Casino Bets', sidebarIcon: '🎰', dashboardIcon: 'fa-solid fa-dice', dashboardColor: 'teal', roles: ['admin', 'agent', 'master_agent', 'super_agent'], showInSidebar: true, showInDashboard: true },
   { id: 'customer-admin', label: 'Customer Admin', sidebarIcon: '👤', dashboardIcon: 'fa-solid fa-user-shield', dashboardColor: 'teal', roles: ['admin', 'agent', 'master_agent', 'super_agent'], showInSidebar: true, showInDashboard: true },
   { id: 'agent-manager', label: 'Agent Management', sidebarIcon: '👨‍👩‍👧‍👦', dashboardIcon: 'fa-solid fa-users-gear', dashboardColor: 'teal', roles: ['admin', 'master_agent', 'super_agent'], showInSidebar: true, showInDashboard: true },
   { id: 'cashier', label: 'Cashier', sidebarIcon: '💰', dashboardIcon: 'fa-solid fa-money-bill-wave', dashboardColor: 'teal', roles: ['admin', 'agent', 'master_agent', 'super_agent'], showInSidebar: true, showInDashboard: true },
@@ -30,4 +31,3 @@ export const ADMIN_NAV_ITEMS = [
   { id: 'faq', label: 'FAQ', sidebarIcon: '❓', dashboardIcon: 'fa-solid fa-circle-question', dashboardColor: 'black', roles: ['admin', 'agent', 'super_agent', 'master_agent'], showInSidebar: true, showInDashboard: true },
   { id: 'user-manual', label: 'User Manual', sidebarIcon: '📖', dashboardIcon: 'fa-solid fa-book', dashboardColor: 'black', roles: ['admin', 'agent', 'super_agent', 'master_agent'], showInSidebar: true, showInDashboard: true },
 ];
-

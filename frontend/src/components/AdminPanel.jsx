@@ -6,6 +6,7 @@ import WeeklyFiguresView from './admin-views/WeeklyFiguresView';
 import PendingView from './admin-views/PendingView';
 import MessagingView from './admin-views/MessagingView';
 import GameAdminView from './admin-views/GameAdminView';
+import CasinoBetsView from './admin-views/CasinoBetsView';
 import CustomerAdminView from './admin-views/CustomerAdminView';
 import CashierView from './admin-views/CashierView';
 import AddCustomerView from './admin-views/AddCustomerView';
@@ -222,6 +223,8 @@ function AdminPanel({ onExit, role = 'admin' }) {
         return <MessagingView />;
       case 'game-admin':
         return <GameAdminView />;
+      case 'casino-bets':
+        return <CasinoBetsView />;
       case 'customer-admin':
         return <CustomerAdminView onViewChange={handleViewChange} />;
       case 'cashier':

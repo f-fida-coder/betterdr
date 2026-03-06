@@ -475,6 +475,15 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
     });
   };
 
+  const formatDetailMoney = (value) => {
+    const num = Number(value || 0);
+    if (Number.isNaN(num)) return '$0';
+    return `$${num.toLocaleString('en-US', {
+      minimumFractionDigits: Number.isInteger(num) ? 0 : 2,
+      maximumFractionDigits: Number.isInteger(num) ? 0 : 2
+    })}`;
+  };
+
   const handleImpersonate = async () => {
     try {
       const token = localStorage.getItem('token');
@@ -501,14 +510,20 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
   };
 
   const copyAllDetails = async () => {
+    const minBet = Number(customer?.minBet ?? 0);
+    const maxBet = Number(customer?.maxBet ?? customer?.wagerLimit ?? form.wagerLimit ?? 0);
+    const credit = Number(form.creditLimit || customer?.creditLimit || 0);
+    const settle = Number(form.settleLimit || customer?.balanceOwed || 0);
+
     const details = [
       `Login: ${customer?.username || ''}`,
       `Password: ${displayPassword || ''}`,
-      `Min bet: ${Number(customer?.minBet ?? 0)}`,
-      `Max bet: ${Number(customer?.maxBet ?? customer?.wagerLimit ?? form.wagerLimit ?? 0)}`,
-      `Credit: ${Number(form.creditLimit || customer?.creditLimit || 0)}`,
-      `Settle: ${Number(form.settleLimit || customer?.balanceOwed || 0)}`,
-      `Lifetime: ${Number(customer?.lifetime ?? 0)}`
+      `Min bet: ${formatDetailMoney(minBet)}`,
+      `Max bet: ${formatDetailMoney(maxBet)}`,
+      `Credit: ${formatDetailMoney(credit)}`,
+      `Settle: +/- ${formatDetailMoney(settle)}`,
+      '',
+      'Bettorplays247.com'
     ].join('\n');
     await copyText(details, 'All details');
   };
@@ -969,7 +984,6 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
     <div className="customer-details-v2">
       <div className="top-panel">
         <div className="top-left">
-          <button className="btn btn-back" onClick={onBack}>Customer Admin</button>
           <div className="player-card">
             <div className="player-card-head">
               <div className="player-title-wrap">
@@ -982,46 +996,20 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
               </div>
             </div>
 
-            <div className="creds-box">
-              <div className="creds-row">
-                <span>Login:</span>
-                <div className="creds-pill">{customer.username || ''}</div>
-                <button className="copy-mini" onClick={() => copyText(customer.username, 'Login')}>📋</button>
-              </div>
-              <div className="creds-row">
-                <span>Password:</span>
-                <div className="creds-pill creds-pill-password">{displayPassword}</div>
-                <button className="copy-mini" onClick={() => copyText(displayPassword, 'Password')}>📋</button>
-              </div>
+            <div className="details-lines">
+              <p><strong>Login:</strong> {customer.username || ''}</p>
+              <p><strong>Password:</strong> {displayPassword}</p>
+              <p><strong>Min bet:</strong> {formatDetailMoney(customer.minBet ?? 0)}</p>
+              <p><strong>Max bet:</strong> {formatDetailMoney(customer.maxBet ?? customer.wagerLimit ?? form.wagerLimit ?? 0)}</p>
+              <p><strong>Credit:</strong> {formatDetailMoney(form.creditLimit || customer.creditLimit || 0)}</p>
+              <p><strong>Settle:</strong> +/- {formatDetailMoney(form.settleLimit || customer.balanceOwed || 0)}</p>
             </div>
 
-            <div className="limits-box">
-              <div className="limit-item">
-                <label>Min bet:</label>
-                <strong>{Number(customer.minBet ?? 0).toLocaleString()}</strong>
-              </div>
-              <div className="limit-item">
-                <label>Max bet:</label>
-                <strong>{Number(customer.maxBet ?? customer.wagerLimit ?? form.wagerLimit ?? 0).toLocaleString()}</strong>
-              </div>
-              <div className="limit-item">
-                <label>Credit:</label>
-                <strong className="money-green">{Number(form.creditLimit || customer.creditLimit || 0).toLocaleString()}</strong>
-              </div>
-              <div className="limit-item">
-                <label>Settle:</label>
-                <strong className="money-green">{Number(form.settleLimit || customer.balanceOwed || 0).toLocaleString()}</strong>
-              </div>
-              <div className="limit-item">
-                <label>Lifetime:</label>
-                <strong>{Number(customer.lifetime ?? 0).toLocaleString()}</strong>
-              </div>
-            </div>
+            <div className="details-domain">Bettorplays247.com</div>
           </div>
           {copyNotice && (
             <div className="copy-notice">{copyNotice}</div>
           )}
-          <div className="agent-line">Agent {customer.agentUsername || customer.agentId?.username || '—'}</div>
           <div className="top-actions mobile-only">
             <button className="btn btn-user" onClick={handleImpersonate}>Login User</button>
             <button className="btn btn-copy-all" onClick={copyAllDetails}>Copy Details</button>
@@ -1551,7 +1539,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
         .btn-save { background:#35b49f; color:#fff; padding:9px 20px; min-width:130px; font-size:14px; }
 
         .player-card {
-          margin-top: 10px;
+          margin-top: 0;
           border: 1px solid #d6e2f3;
           border-radius: 4px;
           padding: 12px;
@@ -1580,6 +1568,30 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
           color: #1f5fb9;
           font-weight: 700;
           font-size: 13px;
+        }
+        .details-lines {
+          margin-top: 4px;
+          padding: 6px 0 0;
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+        }
+        .details-lines p {
+          margin: 0;
+          font-size: 22px;
+          line-height: 1.45;
+          color: #1f2937;
+          font-weight: 400;
+        }
+        .details-lines p strong {
+          font-weight: 500;
+        }
+        .details-domain {
+          margin-top: 26px;
+          font-size: 22px;
+          line-height: 1.2;
+          font-weight: 500;
+          color: #1f2937;
         }
         .creds-box {
           border: 1px solid #d6e2f3;

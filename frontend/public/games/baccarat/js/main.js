@@ -24,6 +24,7 @@ const config = {
 };
 
 const game = new Phaser.Game(config);
+window.game = game;
 
 
 
@@ -40,14 +41,14 @@ window.addEventListener('keydown', (e) => {
 
 // ===== RESIZE OBSERVER (FREE RESIZE: WIDTH & HEIGHT) =====
 // Game resizes freely in both directions (no aspect lock)
-const gameContainer = document.getElementById('game-container');
+const gameContainer = document.getElementById('game');
 
 if (gameContainer && 'ResizeObserver' in window) {
   const resizeObserver = new ResizeObserver(entries => {
     for (const entry of entries) {
-      if (window.game && window.game.scale) {
+      if (game && game.scale) {
         const { width, height } = entry.contentRect;
-        window.game.scale.resize(width, height);
+        game.scale.resize(width, height);
       }
     }
   });

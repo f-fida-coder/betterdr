@@ -109,7 +109,6 @@ export default class MenuScene extends Phaser.Scene {
 
     this.load.image('btn_deal', 'assets/btn_deal.png');
     this.load.image('btn_clear', 'assets/btn_clear.png');
-    this.load.image('btn_clear', 'assets/btn_clear.png');
 
     this.load.image('card_back', 'assets/cards/card_back.png');
     this.load.image('shoe', 'assets/show.png');

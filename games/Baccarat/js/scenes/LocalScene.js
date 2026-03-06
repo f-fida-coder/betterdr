@@ -1,6 +1,60 @@
 export default class LocalScene extends Phaser.Scene {
   constructor() { super({ key: 'LocalScene' }); }
 
+  /* ── postMessage bridge helpers ─────────────────────── */
+  _sendToParent(msg) {
+    try { window.parent.postMessage(msg, window.location.origin); } catch (e) { console.warn('postMessage failed', e); }
+  }
+  _newRequestId() {
+    return `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 12)}`;
+  }
+  _requestBalanceSync() {
+    this._balanceRequestId = this._newRequestId();
+    this._sendToParent({ type: 'getBalance', requestId: this._balanceRequestId });
+  }
+  _setRoundState(state, errorMessage = '') {
+    this.roundState = state;
+    if (!this.roundStatusText) return;
+    let text = 'Round: READY';
+    if (state === 'placing') text = 'Round: PLACING BET...';
+    if (state === 'settling') text = 'Round: SETTLING...';
+    if (state === 'complete') text = 'Round: COMPLETE';
+    if (state === 'error') text = `Round: ERROR ${errorMessage ? `- ${errorMessage}` : ''}`;
+    if (state === 'idle') text = 'Round: READY';
+    this.roundStatusText.setText(text);
+  }
+  _initParentBridge() {
+    window.addEventListener('message', (event) => {
+      if (event.origin !== window.location.origin) return;
+      if (event.source !== window.parent) return;
+      const msg = event.data;
+      if (!msg || typeof msg !== 'object' || !msg.type) return;
+      const incomingRequestId = String(msg.requestId || '');
+
+      if (msg.type === 'balanceUpdate') {
+        if (this._balanceRequestId && incomingRequestId && incomingRequestId !== this._balanceRequestId) return;
+        this._balanceRequestId = '';
+        this.balance = typeof msg.balance === 'number' ? Math.round(msg.balance * 100) / 100 : 0;
+        if (this.balanceText) this.balanceText.setText('Balance: $' + this.balance);
+      }
+
+      if (msg.type === 'betResult') {
+        if (!this._pendingBetRequestId || incomingRequestId !== this._pendingBetRequestId) return;
+        this._pendingBetRequestId = '';
+        this._serverResult = msg;
+        // resolve the pending bet promise if any
+        if (this._betResolve) { this._betResolve(msg); this._betResolve = null; }
+      }
+
+      if (msg.type === 'betError') {
+        if (!this._pendingBetRequestId || incomingRequestId !== this._pendingBetRequestId) return;
+        this._pendingBetRequestId = '';
+        this._serverError = msg.error || 'Bet failed';
+        if (this._betResolve) { this._betResolve(null); this._betResolve = null; }
+      }
+    });
+  }
+
 
 
   create() {
@@ -159,7 +213,7 @@ export default class LocalScene extends Phaser.Scene {
 
 
     // --- Betting state & UI ---
-    this.balance = 100; // starting balance
+    this.balance = 0; // will be set by parent via postMessage
     this.currentBet = { type: null, amount: 0 };
     try {
       if (this.tieBetText) this.tieBetText.setText('$0').setVisible(false);
@@ -168,6 +222,14 @@ export default class LocalScene extends Phaser.Scene {
     } catch (e) { };
 
     this.betPlaced = false;
+    this._pendingBetRequestId = '';
+    this._balanceRequestId = '';
+    this.roundState = 'idle';
+
+    // Initialize parent bridge and request real balance
+    this._initParentBridge();
+    this._balanceRequestId = this._newRequestId();
+    this._sendToParent({ type: 'getBalance', requestId: this._balanceRequestId });
 
     // Balance and bet display
     // Styled balance display: rounded background + centered text (top-left)
@@ -194,6 +256,15 @@ export default class LocalScene extends Phaser.Scene {
     // Group into container for convenience
     this.balanceContainer = this.add.container(0, 0, [balanceBg, this.balanceText]);
     this.balanceContainer.setDepth(50);
+
+    this.roundStatusText = this.add.text(width - 24, 102, 'Round: READY', {
+      fontSize: '18px',
+      color: '#d0e6ff',
+      fontFamily: 'Arial Black',
+      stroke: '#000000',
+      strokeThickness: 3
+    }).setOrigin(1, 0.5).setDepth(50);
+    this._setRoundState('idle');
 
 
     // --- Clickable table bet zones (select-only) ---
@@ -401,9 +472,11 @@ export default class LocalScene extends Phaser.Scene {
         if (zone === 'Banker' && this.bankerBetText) { this.bankerBetText.setText('$' + this.bets.Banker).setVisible(true); }
       } catch (e) { }
 
+      // Deduct from displayed balance locally for immediate visual feedback
       try {
         if (typeof this.balance === 'number') {
           this.balance -= amount;
+          if (this.balance < 0) this.balance = 0;
           if (this.balanceText) this.balanceText.setText('Balance: $' + this.balance);
         }
       } catch (e) { console.warn('balance deduction failed', e); }
@@ -479,6 +552,8 @@ export default class LocalScene extends Phaser.Scene {
     this.clearZone('player');
     this.clearZone('banker');
     this.clearZone('tie');
+    this._setRoundState('idle');
+    try { this.updateDealButtonState && this.updateDealButtonState(); } catch (e) { }
 
   }
   clearZone(zoneKey) {
@@ -566,76 +641,83 @@ export default class LocalScene extends Phaser.Scene {
       if (this.sound) this.sound.play('button_click', { volume: 0.7 });
       this.isDealing = true;
       this.playing = true;
+      this._setRoundState('placing');
+      try { this.updateDealButtonState && this.updateDealButtonState(); } catch (e) { }
       this.clearSprites();
-      if (this.deck.length < 6) this.createDeck();
 
-      const order = ['P', 'B', 'P', 'B'];
+      // ── Send bets to server and wait for result ──
+      this._serverResult = null;
+      this._serverError = null;
+      const requestId = this._newRequestId();
+      this._pendingBetRequestId = requestId;
+      const betPromise = new Promise((resolve) => { this._betResolve = resolve; });
+      this._sendToParent({ type: 'placeBet', requestId, game: 'baccarat', bets: { ...this.bets } });
+      this._setRoundState('settling');
+      const timeoutPromise = new Promise((resolve) => this.time.delayedCall(15000, () => resolve(null)));
 
-      for (let i = 0; i < order.length; i++) {
-        const side = order[i];
-        const card = this.deck.pop();
-        const spr = this.createCardSprite(card.code);
+      const serverData = await Promise.race([betPromise, timeoutPromise]);
+
+      if (!serverData) {
+        // Bet failed/timed out. Re-sync balance from server authority.
+        this._pendingBetRequestId = '';
+        this._setRoundState('error', this._serverError || 'No server response');
+        this._requestBalanceSync();
+        this.isDealing = false;
+        this.playing = false;
+        try { this.updateDealButtonState && this.updateDealButtonState(); } catch (e) { }
+        return;
+      }
+
+      // ── Animate server-provided cards ──
+      const serverPlayerCards = serverData.playerCards || [];
+      const serverBankerCards = serverData.bankerCards || [];
+
+      // Deal initial 4 cards: P, B, P, B
+      const dealOrder = [];
+      if (serverPlayerCards[0]) dealOrder.push({ side: 'P', code: serverPlayerCards[0] });
+      if (serverBankerCards[0]) dealOrder.push({ side: 'B', code: serverBankerCards[0] });
+      if (serverPlayerCards[1]) dealOrder.push({ side: 'P', code: serverPlayerCards[1] });
+      if (serverBankerCards[1]) dealOrder.push({ side: 'B', code: serverBankerCards[1] });
+
+      for (const entry of dealOrder) {
+        const spr = this.createCardSprite(entry.code);
         const pIndex = this.playerSprites.length;
         const bIndex = this.bankerSprites.length;
-        const tx = (side === 'P') ? this.playerPos.x + pIndex * 40 : this.bankerPos.x + bIndex * 40;
-        const ty = (side === 'P') ? this.playerPos.y : this.bankerPos.y;
-
+        const tx = (entry.side === 'P') ? this.playerPos.x + pIndex * 40 : this.bankerPos.x + bIndex * 40;
+        const ty = (entry.side === 'P') ? this.playerPos.y : this.bankerPos.y;
         spr._isDealt = true;
-
         await this.tweenTo(spr, tx, ty, 200);
-
-        if (side === 'P') {
-          this.playerSprites.push(spr);
-        } else {
-          this.bankerSprites.push(spr);
-        }
+        if (entry.side === 'P') this.playerSprites.push(spr);
+        else this.bankerSprites.push(spr);
         this.sound.play('card_flip', { volume: 0.7 });
         await this.revealCard(spr);
         await this.wait(60);
       }
 
-
-      this.playerHand = this.playerSprites.map(s => ({ r: s.cardCode.slice(0, s.cardCode.length - 1), s: s.cardCode.slice(-1), code: s.cardCode }));
-      this.bankerHand = this.bankerSprites.map(s => ({ r: s.cardCode.slice(0, s.cardCode.length - 1), s: s.cardCode.slice(-1), code: s.cardCode }));
-
-      const pTotal = this.handValue(this.playerHand);
-      const bTotal = this.handValue(this.bankerHand);
-
-      if (pTotal >= 8 || bTotal >= 8) { this.finalizeRound(false, false); this.isDealing = false; return; }
-
-      let playerDrew = false; let playerThird = null;
-      if (pTotal <= 5) {
+      // Third cards (if server dealt them)
+      if (serverPlayerCards[2]) {
         this.sound.play('card_flip', { volume: 0.7 });
-        playerThird = this.deck.pop(); playerDrew = true;
-        const spr = this.createCardSprite(playerThird.code);
-        const tx = this.playerPos.x + this.playerSprites.length * 40; const ty = this.playerPos.y;
-        await this.tweenTo(spr, tx, ty, 200); this.playerSprites.push(spr); await this.revealCard(spr);
+        const spr = this.createCardSprite(serverPlayerCards[2]);
+        const tx = this.playerPos.x + this.playerSprites.length * 40;
+        const ty = this.playerPos.y;
+        await this.tweenTo(spr, tx, ty, 200);
+        this.playerSprites.push(spr);
+        await this.revealCard(spr);
+      }
+      if (serverBankerCards[2]) {
+        this.sound.play('card_flip', { volume: 0.7 });
+        const spr = this.createCardSprite(serverBankerCards[2]);
+        const tx = this.bankerPos.x + this.bankerSprites.length * 40;
+        const ty = this.bankerPos.y;
+        await this.tweenTo(spr, tx, ty, 200);
+        this.bankerSprites.push(spr);
+        await this.revealCard(spr);
       }
 
-      let bankerDrew = false; let bankerThird = null;
-      const bTotalAfter = this.handValue(this.bankerHand);
-      if (!playerDrew) {
-        if (bTotalAfter <= 5) {
-          this.sound.play('card_flip', { volume: 0.7 });
-          bankerThird = this.deck.pop(); bankerDrew = true;
-          const spr = this.createCardSprite(bankerThird.code); const tx = this.bankerPos.x + this.bankerSprites.length * 40; const ty = this.bankerPos.y;
-          await this.tweenTo(spr, tx, ty, 200); this.bankerSprites.push(spr); await this.revealCard(spr);
-        }
-      } else {
-        const p3val = this.cardPoint(playerThird);
-        if (bTotalAfter <= 2) { bankerThird = this.deck.pop(); bankerDrew = true; }
-        else if (bTotalAfter === 3) { if (p3val !== 8) { bankerThird = this.deck.pop(); bankerDrew = true; } }
-        else if (bTotalAfter === 4) { if (p3val >= 2 && p3val <= 7) { bankerThird = this.deck.pop(); bankerDrew = true; } }
-        else if (bTotalAfter === 5) { if (p3val >= 4 && p3val <= 7) { bankerThird = this.deck.pop(); bankerDrew = true; } }
-        else if (bTotalAfter === 6) { if (p3val === 6 || p3val === 7) { bankerThird = this.deck.pop(); bankerDrew = true; } }
-        if (bankerDrew) {
-          this.sound.play('card_flip', { volume: 0.7 });
-          const spr = this.createCardSprite(bankerThird.code); const tx = this.bankerPos.x + this.bankerSprites.length * 40; const ty = this.bankerPos.y;
-          await this.tweenTo(spr, tx, ty, 200); this.bankerSprites.push(spr); await this.revealCard(spr);
-        }
-      }
-
-      this.finalizeRound(playerDrew, bankerDrew); this.isDealing = false;
+      // ── Use server result for finalization ──
+      this.finalizeRoundFromServer(serverData);
+      this.isDealing = false;
+      this._setRoundState('complete');
     }
   }
 
@@ -711,41 +793,12 @@ export default class LocalScene extends Phaser.Scene {
     this.bankerText.setText(bFinal);
     let info = ''; info += playerDrew ? 'Player drew a third card. ' : 'Player stood. '; info += bankerDrew ? 'Banker drew a third card. ' : 'Banker stood. '; info += '\nResult: ' + result;
 
-
-
-    // --- Apply betting result (if any) ---
+    // Deprecated: local settlement should never mutate balance.
+    // This method is kept only as a visual fallback and must not credit/debit.
     try {
-      // Use this.bets object for multi-bet payouts. Bets were deducted on placement.
-      let totalReturn = 0; // amount to add back to balance (includes original stakes)
-      let profit = 0;
       const pBet = (this.bets && this.bets.Player) || 0;
       const bBet = (this.bets && this.bets.Banker) || 0;
       const tBet = (this.bets && this.bets.Tie) || 0;
-
-      if (result.indexOf('Player') === 0) {
-        // Player wins: Player bets return 2x (stake + profit). Banker and Tie lose.
-        if (pBet > 0) { totalReturn += pBet * 2; profit += pBet * 1; }
-      } else if (result.indexOf('Banker') === 0) {
-        // Banker wins: Banker bets return 1.95x (stake + 0.95 profit)
-        if (bBet > 0) { totalReturn += bBet * 1.95; profit += bBet * 0.95; }
-      } else { // Tie
-        // Tie bets pay 9x (stake + 8x profit). Player and Banker bets push (refunded).
-        if (tBet > 0) { totalReturn += tBet * 9; profit += tBet * 8; }
-        // Refund Player and Banker stakes (push)
-        if (pBet > 0) { totalReturn += pBet; }
-        if (bBet > 0) { totalReturn += bBet; }
-      }
-
-      // Apply rounding if desired (e.g., to 2 decimals) and update balance
-      if (totalReturn > 0) {
-        // Round to 2 decimals to avoid floating point issues
-        totalReturn = Math.round(totalReturn * 100) / 100;
-        profit = Math.round(profit * 100) / 100;
-        this.balance = (typeof this.balance === 'number') ? (this.balance + totalReturn) : this.balance;
-        if (this.balanceText) this.balanceText.setText('Balance: $' + this.balance);
-      }
-
-
       // Show per-zone results on the right of each betting zone
       try {
         // Player
@@ -785,12 +838,81 @@ export default class LocalScene extends Phaser.Scene {
       } catch (e) { console.warn('zone result display error', e); }
 
 
-      // mark bets cleared for next actions (visuals and flags). Actual numeric clearing handled in resetRound()
       this.betPlaced = false;
-    } catch (e) { console.warn('Bet payout error', e); }
+      this._requestBalanceSync();
+    } catch (e) { console.warn('Legacy local finalize fallback error', e); }
     this.nextBtn.setVisible(true);
 
     // Auto-advance to next round after showing results
+    try {
+      if (this.nextBtn) { try { this.nextBtn.setVisible(false); this.nextBtn.disableInteractive && this.nextBtn.disableInteractive(); } catch (e) { } }
+    } catch (e) { }
+    const _WAIT_MS = 3000;
+    try {
+      this.time.delayedCall(_WAIT_MS, () => { try { this.startNextRound(); } catch (e) { console.error(e); } }, [], this);
+    } catch (e) { /* ignore */ }
+  }
+
+  /* ── Server-driven result finalization ───────────────── */
+  finalizeRoundFromServer(serverData) {
+    const pFinal = serverData.playerTotal;
+    const bFinal = serverData.bankerTotal;
+    const result = serverData.result; // 'Player', 'Banker', or 'Tie'
+
+    this.addResult(pFinal, bFinal);
+    this.resultsPanel.setVisible(true);
+
+    this.playerText.setText(pFinal);
+    this.bankerText.setText(bFinal);
+
+    // Update balance from server (authoritative).
+    if (typeof serverData.newBalance === 'number') {
+      this.balance = serverData.newBalance;
+      if (this.balanceText) this.balanceText.setText('Balance: $' + this.balance);
+    } else {
+      this._requestBalanceSync();
+    }
+
+    // Show per-zone results
+    try {
+      const pBet = (this.bets && this.bets.Player) || 0;
+      const bBet = (this.bets && this.bets.Banker) || 0;
+      const tBet = (this.bets && this.bets.Tie) || 0;
+
+      if (pBet > 0) {
+        if (result === 'Player') {
+          if (this.sound) this.sound.play('win_chime', { volume: 0.7 });
+          this.showZoneResult('Player', 'Won $' + pBet, '#00cc00');
+        } else if (result === 'Tie') {
+          this.showZoneResult('Player', 'Push', '#cccc00');
+        } else {
+          this.showZoneResult('Player', 'Lost $' + pBet, '#ff3333');
+        }
+      }
+      if (bBet > 0) {
+        if (result === 'Banker') {
+          if (this.sound) this.sound.play('win_chime', { volume: 0.7 });
+          const bProfit = Math.round(bBet * 0.95 * 100) / 100;
+          this.showZoneResult('Banker', 'Won $' + bProfit, '#00cc00');
+        } else if (result === 'Tie') {
+          this.showZoneResult('Banker', 'Push', '#cccc00');
+        } else {
+          this.showZoneResult('Banker', 'Lost $' + bBet, '#ff3333');
+        }
+      }
+      if (tBet > 0) {
+        if (result === 'Tie') {
+          if (this.sound) this.sound.play('win_chime', { volume: 0.7 });
+          const tProfit = Math.round(tBet * 8 * 100) / 100;
+          this.showZoneResult('Tie', 'Won $' + tProfit, '#00cc00');
+        } else {
+          this.showZoneResult('Tie', 'Lost $' + tBet, '#ff3333');
+        }
+      }
+    } catch (e) { console.warn('zone result display error', e); }
+
+    this.betPlaced = false;
+    this.nextBtn.setVisible(true);
     try {
       if (this.nextBtn) { try { this.nextBtn.setVisible(false); this.nextBtn.disableInteractive && this.nextBtn.disableInteractive(); } catch (e) { } }
     } catch (e) { }
@@ -887,6 +1009,7 @@ export default class LocalScene extends Phaser.Scene {
       this._startingNextRound = false;
     }
     this.playing = false;
+    this._setRoundState('idle');
 
     this.clearZone('player');
     this.clearZone('banker');
@@ -898,28 +1021,14 @@ export default class LocalScene extends Phaser.Scene {
   // Enable or disable the Deal button based on whether there are active bets.
   updateDealButtonState() {
     try {
-      // expect this.bets to be an object/array holding current bets; fallback to checking bet text fields
-      let hasBet = false;
-      try {
-        if (this.bets) {
-          // bets could be object with amounts: { player: {amount: X}, banker: {...}, tie: {...} }
-          if (Array.isArray(this.bets)) {
-            hasBet = this.bets.some(b => b && b.amount && b.amount > 0);
-          } else if (typeof this.bets === 'object') {
-            for (const k in this.bets) {
-              if (this.bets[k] && this.bets[k].amount && this.bets[k].amount > 0) { hasBet = true; break; }
-            }
-          }
-        }
-      } catch (e) { /* ignore */ }
-      // Fallback: check known bet text elements if present (playerBetText, bankerBetText, tieBetText)
-      if (!hasBet) {
-        try { if (this.playerBetText && parseFloat(this.playerBetText.text) > 0) hasBet = true; } catch (e) { }
-        try { if (this.bankerBetText && parseFloat(this.bankerBetText.text) > 0) hasBet = true; } catch (e) { }
-        try { if (this.tieBetText && parseFloat(this.tieBetText.text) > 0) hasBet = true; } catch (e) { }
+      const totalBet = ((this.bets?.Tie || 0) + (this.bets?.Player || 0) + (this.bets?.Banker || 0));
+      const hasBet = totalBet > 0;
+      const canDeal = hasBet && !this.playing && !this.isDealing;
+      if (this.dealBtn) {
+        this.dealBtn.setAlpha(canDeal ? 1 : 0.45);
+        if (canDeal) this.dealBtn.setInteractive({ useHandCursor: true });
+        else this.dealBtn.disableInteractive();
       }
-
-
     } catch (err) {
       console.error('updateDealButtonState error', err);
     }

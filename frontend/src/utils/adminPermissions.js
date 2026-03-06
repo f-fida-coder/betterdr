@@ -4,6 +4,7 @@ export const VIEW_PERMISSION_MAP = {
   pending: 'pending',
   messaging: 'messaging',
   'game-admin': 'gameAdmin',
+  'casino-bets': 'gameAdmin',
   'customer-admin': 'customerAdmin',
   'agent-manager': 'agentManager',
   cashier: 'cashier',

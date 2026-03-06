@@ -2,6 +2,16 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { createUserByAdmin, createPlayerByAgent, createAgent, createSubAgent, getAgents, getMyPlayers, getMe, updateUserCredit, updateUserBalanceOwedByAgent, resetUserPasswordByAdmin, updateUserByAdmin, updateUserByAgent, getUserStatistics, getNextUsername, getUsersAdmin, deleteUser, deleteAgent, importUsersSpreadsheet } from '../../api';
 
 const alphaNumericCompare = (a, b) => String(a || '').localeCompare(String(b || ''), undefined, { sensitivity: 'base', numeric: true });
+const derivePlayerPrefix = (value) => {
+  const normalized = String(value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (!normalized) return '';
+  const alphaLead = normalized.match(/^[A-Z]+/);
+  if (alphaLead && alphaLead[0]) {
+    return alphaLead[0];
+  }
+  const withoutTrailingDigits = normalized.replace(/\d+$/, '');
+  return withoutTrailingDigits || normalized;
+};
 
 function CustomerAdminView({ onViewChange }) {
   const withTimeout = (promise, timeoutMs, message) => {
@@ -141,7 +151,11 @@ function CustomerAdminView({ onViewChange }) {
         // Keep username prefill non-blocking so user list still loads if this call fails.
         if (me?.username) {
           try {
-            const { nextUsername } = await getNextUsername(me.username, token, { type: 'player' });
+            const playerPrefix = derivePlayerPrefix(me.username);
+            if (!playerPrefix) {
+              return;
+            }
+            const { nextUsername } = await getNextUsername(playerPrefix, token, { type: 'player' });
             setNewCustomer(prev => ({ ...prev, username: nextUsername }));
           } catch (usernameErr) {
             console.error('Failed to prefetch next username:', usernameErr);
@@ -443,11 +457,16 @@ function CustomerAdminView({ onViewChange }) {
       if (selectedAgent) {
         setAgentSearchQuery(selectedAgent.username || '');
         try {
+          const playerPrefix = derivePlayerPrefix(selectedAgent.username);
+          if (!playerPrefix) {
+            setNewCustomer(prev => ({ ...prev, username: '' }));
+            return;
+          }
           const query = (sequenceType === 'player')
             ? { suffix, type: sequenceType, agentId }
             : { suffix, type: sequenceType };
-          const { nextUsername } = await getNextUsername(selectedAgent.username, token, query);
-          setNewCustomer(prev => ({ ...prev, username: nextUsername }));
+          const { nextUsername } = await getNextUsername(playerPrefix, token, query);
+          setNewCustomer(prev => ({ ...prev, username: nextUsername, agentPrefix: playerPrefix }));
         } catch (err) {
           console.error('Failed to get next username:', err);
         }
@@ -457,8 +476,13 @@ function CustomerAdminView({ onViewChange }) {
       // Direct assignment - use admin username
       if (adminUsername) {
         try {
-          const { nextUsername } = await getNextUsername(adminUsername, token, { suffix, type: sequenceType });
-          setNewCustomer(prev => ({ ...prev, username: nextUsername }));
+          const playerPrefix = derivePlayerPrefix(adminUsername);
+          if (!playerPrefix) {
+            setNewCustomer(prev => ({ ...prev, username: '' }));
+            return;
+          }
+          const { nextUsername } = await getNextUsername(playerPrefix, token, { suffix, type: sequenceType });
+          setNewCustomer(prev => ({ ...prev, username: nextUsername, agentPrefix: playerPrefix }));
         } catch (err) {
           console.error('Failed to fetch username for admin:', err);
           setNewCustomer(prev => ({ ...prev, username: '' }));

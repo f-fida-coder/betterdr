@@ -91,7 +91,7 @@ export default class MenuScene extends Phaser.Scene {
   }
   loadLocalAssets() {
 
-    this.load.image('table_bg', '/assets/table.webp');
+    this.load.image('table_bg', 'assets/table.webp');
     // -- sound assets (casino realistic) --
     this.load.audio('chip_place', 'assets/sounds/chip_place.wav');
     this.load.audio('chip_clear', 'assets/sounds/chip_clear.wav');
@@ -109,16 +109,15 @@ export default class MenuScene extends Phaser.Scene {
 
     this.load.image('btn_deal', 'assets/btn_deal.png');
     this.load.image('btn_clear', 'assets/btn_clear.png');
-    this.load.image('btn_clear', 'assets/btn_clear.png');
 
-    this.load.image('card_back', '/assets/cards/card_back.png');
-    this.load.image('shoe', '/assets/show.png');
-    this.load.image('discard_tray', '/assets/discard_tray.png');
+    this.load.image('card_back', 'assets/cards/card_back.png');
+    this.load.image('shoe', 'assets/show.png');
+    this.load.image('discard_tray', 'assets/discard_tray.png');
     const ranks = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
     const suits = ['H', 'D', 'C', 'S'];
     for (let s of suits) {
       for (let r of ranks) {
-        this.load.image(r + s, '/assets/cards/' + r + s + '.png');
+        this.load.image(r + s, 'assets/cards/' + r + s + '.png');
       }
     }
     this.load.image('back_btn', 'assets/back_btn.png');

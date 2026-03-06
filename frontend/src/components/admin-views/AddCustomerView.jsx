@@ -29,6 +29,17 @@ const extractTrailingNumber = (value) => {
   return match[match.length - 1];
 };
 
+const derivePlayerPrefix = (value) => {
+  const normalized = String(value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (!normalized) return '';
+  const alphaLead = normalized.match(/^[A-Z]+/);
+  if (alphaLead && alphaLead[0]) {
+    return alphaLead[0];
+  }
+  const withoutTrailingDigits = normalized.replace(/\d+$/, '');
+  return withoutTrailingDigits || normalized;
+};
+
 const asPhoneWithOffset = (phone, offset) => {
   const digits = String(phone || '').replace(/\D/g, '');
   if (digits.length < 7) return '';
@@ -144,7 +155,7 @@ function AddCustomerView({ onBack }) {
 
     if (nextMode === 'player' && !playerForm.startingAccount) {
       const selectedAgent = agentOnly.find((a) => (a.id || a._id) === playerForm.agentId);
-      const prefix = (selectedAgent?.username || me?.username || '').toUpperCase();
+      const prefix = derivePlayerPrefix(selectedAgent?.username || me?.username || '');
       if (prefix) {
         try {
           const token = localStorage.getItem('token');
@@ -164,7 +175,7 @@ function AddCustomerView({ onBack }) {
 
     if (name === 'agentId') {
       const selected = agentOnly.find((a) => (a.id || a._id) === value);
-      const prefix = (selected?.username || '').toUpperCase();
+      const prefix = derivePlayerPrefix(selected?.username || '');
       setPlayerForm((prev) => ({ ...prev, agentId: value, prefix }));
 
       if (prefix) {
