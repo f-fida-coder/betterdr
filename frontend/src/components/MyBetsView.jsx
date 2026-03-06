@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { getMyBets } from '../api';
+import { useOddsFormat } from '../contexts/OddsFormatContext';
+import { formatLineValue, formatOdds } from '../utils/odds';
 
 const money = (value) => `$${Number(value || 0).toFixed(2)}`;
-const decimal = (value) => Number(value || 0).toFixed(2);
 const formatStatus = (value) => String(value || 'pending').toUpperCase();
 
 const statusColors = (status) => {
@@ -27,13 +28,12 @@ const matchLabel = (bet) => {
 };
 
 const lineLabel = (leg) => {
-    const point = Number(leg?.point);
-    if (!Number.isFinite(point)) return '';
-    const prefix = String(leg?.marketType || '').toLowerCase() === 'spreads' && point > 0 ? '+' : '';
-    return ` (${prefix}${point.toFixed(2)})`;
+    const label = formatLineValue(leg?.point, { signed: String(leg?.marketType || '').toLowerCase() === 'spreads', fallback: '' });
+    return label ? ` (${label})` : '';
 };
 
 const MyBetsView = () => {
+    const { oddsFormat } = useOddsFormat();
     const [bets, setBets] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -114,7 +114,7 @@ const MyBetsView = () => {
                                                     <div style={{ color: '#9aa4b0', fontSize: 12 }}>Unit stake {money(unitStake)} each way</div>
                                                 ) : null}
                                             </td>
-                                            <td style={{ padding: '10px' }}>{decimal(bet.combinedOdds || bet.odds)}</td>
+                                            <td style={{ padding: '10px' }}>{formatOdds(bet.combinedOdds || bet.odds, oddsFormat)}</td>
                                             <td style={{ padding: '10px' }}>{money(bet.potentialPayout)}</td>
                                             <td style={{ padding: '10px' }}>
                                                 <span style={{
@@ -156,7 +156,7 @@ const MyBetsView = () => {
                                                                         {leg.selection || '-'}
                                                                         {lineLabel(leg)}
                                                                     </td>
-                                                                    <td style={{ padding: '7px 0' }}>{decimal(leg.odds)}</td>
+                                                                    <td style={{ padding: '7px 0' }}>{formatOdds(leg.odds, oddsFormat)}</td>
                                                                     <td style={{ padding: '7px 0' }}>{formatStatus(leg.status)}</td>
                                                                 </tr>
                                                             ))}

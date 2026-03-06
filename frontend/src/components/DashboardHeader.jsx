@@ -3,8 +3,10 @@ import { createPortal } from 'react-dom';
 import ScoreboardSidebar from './ScoreboardSidebar';
 import SettingsModal from './SettingsModal';
 import PersonalizeSidebar from './PersonalizeSidebar';
+import { useOddsFormat } from '../contexts/OddsFormatContext';
 
 const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, onViewChange, activeBetMode = 'straight', onBetModeChange, currentView, onToggleSidebar, selectedSports = [], onContinue, onLogout, isMobileSportsSelectionMode = false, onHomeClick, role, unlimitedBalance }) => {
+    const { oddsFormat, setOddsFormat, isUpdatingOddsFormat } = useOddsFormat();
     const [showLiveMenu, setShowLiveMenu] = useState(false);
     const [showMoreMenu, setShowMoreMenu] = useState(false);
     const [showUserMenu, setShowUserMenu] = useState(false);
@@ -25,16 +27,6 @@ const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, 
     const [showScoreboard, setShowScoreboard] = useState(false);
     const [showSettingsModal, setShowSettingsModal] = useState(false);
     const [showPersonalizeSidebar, setShowPersonalizeSidebar] = useState(false);
-
-    // Odds format state
-    const [oddsFormat, setOddsFormat] = useState('decimal');
-
-    // Sync oddsFormat to localStorage
-    useEffect(() => {
-        localStorage.setItem('oddsFormat', oddsFormat);
-        // Optionally, dispatch a global event so other components can listen
-        window.dispatchEvent(new CustomEvent('oddsFormat:change', { detail: oddsFormat }));
-    }, [oddsFormat]);
     const formatMoney = (value) => {
         if (unlimitedBalance) return 'Unlimited';
         if (value === null || value === undefined || value === '') return '—';
@@ -577,19 +569,41 @@ const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, 
                                     overflow: 'hidden',
                                     background: '#f7faf7'
                                 }}>
-                                    <div
-                                        style={{
-                                            padding: '12px 15px',
-                                            background: '#004d26',
-                                            color: 'white',
-                                            fontWeight: 'bold'
-                                        }}
-                                    >
-                                        Decimal
-                                    </div>
+                                    {[
+                                        { id: 'american', label: 'American' },
+                                        { id: 'decimal', label: 'Decimal' },
+                                    ].map((option, index) => {
+                                        const active = oddsFormat === option.id;
+                                        return (
+                                            <button
+                                                key={option.id}
+                                                type="button"
+                                                disabled={isUpdatingOddsFormat && !active}
+                                                onClick={() => {
+                                                    void setOddsFormat(option.id);
+                                                    setShowOddsModal(false);
+                                                }}
+                                                style={{
+                                                    width: '100%',
+                                                    padding: '12px 15px',
+                                                    border: 'none',
+                                                    borderTop: index === 0 ? 'none' : '1px solid #d7e2d7',
+                                                    background: active ? '#004d26' : '#ffffff',
+                                                    color: active ? '#ffffff' : '#333333',
+                                                    fontWeight: active ? 'bold' : '500',
+                                                    textAlign: 'left',
+                                                    cursor: isUpdatingOddsFormat && !active ? 'not-allowed' : 'pointer',
+                                                    opacity: isUpdatingOddsFormat && !active ? 0.65 : 1,
+                                                }}
+                                            >
+                                                {option.label}
+                                            </button>
+                                        );
+                                    })}
                                 </div>
                                 <p style={{ margin: '12px 0 0', color: '#52606d', fontSize: '13px', lineHeight: 1.5 }}>
-                                    Sportsbook boards currently use decimal odds only. Alternate odds formats are disabled until the full display conversion is implemented.
+                                    Current selection: <strong style={{ textTransform: 'capitalize' }}>{oddsFormat}</strong>
+                                    {isUpdatingOddsFormat ? ' (saving to profile...)' : ''}
                                 </p>
                             </div>
 

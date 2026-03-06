@@ -1,8 +1,18 @@
 import React, { useMemo, useState } from 'react';
 import '../primelive.css';
 import useMatches from '../hooks/useMatches';
+import { useOddsFormat } from '../contexts/OddsFormatContext';
+import {
+    formatLineValue,
+    formatOdds,
+    getMatchMarket,
+    getMarketOutcomeByKeyword,
+    getMarketOutcomeByName,
+    parseOddsNumber,
+} from '../utils/odds';
 
 const PrimeLiveView = () => {
+    const { oddsFormat } = useOddsFormat();
     const [feedStatus, setFeedStatus] = useState('live-upcoming');
     const [selectedSport, setSelectedSport] = useState('all');
     const [searchText, setSearchText] = useState('');
@@ -71,30 +81,26 @@ const PrimeLiveView = () => {
         { id: 'upcoming', label: 'Upcoming' }
     ];
 
-    const getMarket = (match, key) => {
-        const markets = match?.odds?.markets || [];
-        return markets.find(m => (m.key || '').toLowerCase() === key) || null;
-    };
-
     const getSpread = (match, teamName) => {
-        const market = getMarket(match, 'spreads');
-        if (!market || !market.outcomes) return { point: '-', price: '-' };
-        const outcome = market.outcomes.find(o => (o.name || '').toLowerCase() === (teamName || '').toLowerCase());
-        return outcome ? { point: outcome.point ?? '-', price: outcome.price ?? '-' } : { point: '-', price: '-' };
+        const market = getMatchMarket(match, 'spreads');
+        const outcome = getMarketOutcomeByName(market, teamName);
+        return outcome
+            ? { point: outcome.point ?? null, price: parseOddsNumber(outcome.price) }
+            : { point: null, price: null };
     };
 
     const getTotal = (match, side) => {
-        const market = getMarket(match, 'totals');
-        if (!market || !market.outcomes) return { point: '-', price: '-' };
-        const outcome = market.outcomes.find(o => (o.name || '').toLowerCase() === side);
-        return outcome ? { point: outcome.point ?? '-', price: outcome.price ?? '-' } : { point: '-', price: '-' };
+        const market = getMatchMarket(match, 'totals');
+        const outcome = getMarketOutcomeByKeyword(market, side);
+        return outcome
+            ? { point: outcome.point ?? null, price: parseOddsNumber(outcome.price) }
+            : { point: null, price: null };
     };
 
     const getMoneyline = (match, teamName) => {
-        const market = getMarket(match, 'h2h');
-        if (!market || !market.outcomes) return '-';
-        const outcome = market.outcomes.find(o => (o.name || '').toLowerCase() === (teamName || '').toLowerCase());
-        return outcome ? (outcome.price ?? '-') : '-';
+        const market = getMatchMarket(match, 'h2h');
+        const outcome = getMarketOutcomeByName(market, teamName);
+        return parseOddsNumber(outcome?.price);
     };
 
     const toggleGroup = (sportKey) => {
@@ -115,7 +121,8 @@ const PrimeLiveView = () => {
     };
 
     const addSelection = ({ match, selection, marketType, odds, marketLabel }) => {
-        if (odds === '-' || odds === undefined || odds === null) return;
+        const parsedOdds = parseOddsNumber(odds);
+        if (parsedOdds === null) return;
         const home = match.homeTeam || match.home_team || 'Home';
         const away = match.awayTeam || match.away_team || 'Away';
         const matchId = match.id || match._id || match.externalId;
@@ -127,7 +134,7 @@ const PrimeLiveView = () => {
                 matchId,
                 selection,
                 marketType,
-                odds: parseFloat(odds),
+                odds: parsedOdds,
                 matchName: `${home} vs ${away}`,
                 marketLabel
             }
@@ -278,19 +285,19 @@ const PrimeLiveView = () => {
                                                             <>
                                                                 <button
                                                                     className={`prime-odd-btn ${selectedOddsKey === `${matchId}-spreads-${home}` ? 'selected' : ''}`}
-                                                                    disabled={homeSpread.price === '-'}
+                                                                    disabled={homeSpread.price == null}
                                                                     onClick={() => addSelection({ match, selection: home, marketType: 'spreads', odds: homeSpread.price, marketLabel: 'Spread' })}
                                                                 >
-                                                                    <span>{homeSpread.point !== '-' ? homeSpread.point : '-'}</span>
-                                                                    <span className="prime-odd-val">{homeSpread.price}</span>
+                                                                    <span>{formatLineValue(homeSpread.point, { signed: true })}</span>
+                                                                    <span className="prime-odd-val">{formatOdds(homeSpread.price, oddsFormat)}</span>
                                                                 </button>
                                                                 <button
                                                                     className={`prime-odd-btn ${selectedOddsKey === `${matchId}-spreads-${away}` ? 'selected' : ''}`}
-                                                                    disabled={awaySpread.price === '-'}
+                                                                    disabled={awaySpread.price == null}
                                                                     onClick={() => addSelection({ match, selection: away, marketType: 'spreads', odds: awaySpread.price, marketLabel: 'Spread' })}
                                                                 >
-                                                                    <span>{awaySpread.point !== '-' ? awaySpread.point : '-'}</span>
-                                                                    <span className="prime-odd-val">{awaySpread.price}</span>
+                                                                    <span>{formatLineValue(awaySpread.point, { signed: true })}</span>
+                                                                    <span className="prime-odd-val">{formatOdds(awaySpread.price, oddsFormat)}</span>
                                                                 </button>
                                                             </>
                                                         )}
@@ -298,19 +305,19 @@ const PrimeLiveView = () => {
                                                             <>
                                                                 <button
                                                                     className={`prime-odd-btn ${selectedOddsKey === `${matchId}-totals-Over` ? 'selected' : ''}`}
-                                                                    disabled={over.price === '-'}
+                                                                    disabled={over.price == null}
                                                                     onClick={() => addSelection({ match, selection: 'Over', marketType: 'totals', odds: over.price, marketLabel: 'Total' })}
                                                                 >
-                                                                    <span>o{over.point !== '-' ? over.point : '-'}</span>
-                                                                    <span className="prime-odd-val">{over.price}</span>
+                                                                    <span>o{formatLineValue(over.point)}</span>
+                                                                    <span className="prime-odd-val">{formatOdds(over.price, oddsFormat)}</span>
                                                                 </button>
                                                                 <button
                                                                     className={`prime-odd-btn ${selectedOddsKey === `${matchId}-totals-Under` ? 'selected' : ''}`}
-                                                                    disabled={under.price === '-'}
+                                                                    disabled={under.price == null}
                                                                     onClick={() => addSelection({ match, selection: 'Under', marketType: 'totals', odds: under.price, marketLabel: 'Total' })}
                                                                 >
-                                                                    <span>u{under.point !== '-' ? under.point : '-'}</span>
-                                                                    <span className="prime-odd-val">{under.price}</span>
+                                                                    <span>u{formatLineValue(under.point)}</span>
+                                                                    <span className="prime-odd-val">{formatOdds(under.price, oddsFormat)}</span>
                                                                 </button>
                                                             </>
                                                         )}
@@ -318,19 +325,19 @@ const PrimeLiveView = () => {
                                                             <>
                                                                 <button
                                                                     className={`prime-odd-btn ${selectedOddsKey === `${matchId}-h2h-${home}` ? 'selected' : ''}`}
-                                                                    disabled={homeMoneyline === '-'}
+                                                                    disabled={homeMoneyline == null}
                                                                     onClick={() => addSelection({ match, selection: home, marketType: 'h2h', odds: homeMoneyline, marketLabel: 'Moneyline' })}
                                                                 >
                                                                     <span>{home}</span>
-                                                                    <span className="prime-odd-val">{homeMoneyline}</span>
+                                                                    <span className="prime-odd-val">{formatOdds(homeMoneyline, oddsFormat)}</span>
                                                                 </button>
                                                                 <button
                                                                     className={`prime-odd-btn ${selectedOddsKey === `${matchId}-h2h-${away}` ? 'selected' : ''}`}
-                                                                    disabled={awayMoneyline === '-'}
+                                                                    disabled={awayMoneyline == null}
                                                                     onClick={() => addSelection({ match, selection: away, marketType: 'h2h', odds: awayMoneyline, marketLabel: 'Moneyline' })}
                                                                 >
                                                                     <span>{away}</span>
-                                                                    <span className="prime-odd-val">{awayMoneyline}</span>
+                                                                    <span className="prime-odd-val">{formatOdds(awayMoneyline, oddsFormat)}</span>
                                                                 </button>
                                                             </>
                                                         )}

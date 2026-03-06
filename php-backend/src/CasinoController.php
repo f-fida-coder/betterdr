@@ -117,6 +117,11 @@ final class CasinoController
                 return true;
             }
 
+            if (strtolower((string) ($game['slug'] ?? '')) === self::BACCARAT_GAME_SLUG) {
+                Response::json(['message' => 'Baccarat is available only from the in-house casino table.'], 409);
+                return true;
+            }
+
             $fallbackLaunch = rtrim((string) Env::get('CASINO_FALLBACK_URL', 'https://example.com/casino'), '/') . '/' . ($game['slug'] ?? 'game');
             $baseLaunchUrl = (is_string($game['launchUrl'] ?? null) && trim((string) $game['launchUrl']) !== '')
                 ? trim((string) $game['launchUrl'])
@@ -315,6 +320,11 @@ final class CasinoController
             }
             if ((string) ($game['status'] ?? '') !== 'active') {
                 Response::json(['message' => 'Game is currently ' . ($game['status'] ?? 'disabled')], 400);
+                return;
+            }
+
+            if (strtolower((string) ($game['slug'] ?? '')) === self::BACCARAT_GAME_SLUG) {
+                Response::json(['message' => 'Baccarat is available only from the in-house casino table.'], 409);
                 return;
             }
 
@@ -675,6 +685,8 @@ final class CasinoController
                 return;
             }
 
+            $this->ensureCasinoSeeded();
+
             $body = Http::jsonBody();
             $requestId = trim((string) ($body['requestId'] ?? ''));
             if (preg_match(self::REQUEST_ID_PATTERN, $requestId) !== 1) {
@@ -686,6 +698,15 @@ final class CasinoController
             if ($game !== self::BACCARAT_GAME_SLUG) {
                 Response::json(['message' => 'Unsupported game: ' . $game], 400);
                 return;
+            }
+
+            $gameConfig = $this->db->findOne('casinogames', ['slug' => self::BACCARAT_GAME_SLUG]);
+            if ($gameConfig !== null) {
+                $gameStatus = strtolower(trim((string) ($gameConfig['status'] ?? 'active')));
+                if ($gameStatus !== '' && $gameStatus !== 'active') {
+                    Response::json(['message' => 'Game is currently ' . ($gameConfig['status'] ?? 'disabled')], 400);
+                    return;
+                }
             }
 
             $bets = is_array($body['bets'] ?? null) ? $body['bets'] : [];
@@ -971,20 +992,20 @@ final class CasinoController
             }
 
             if ($fromRaw !== '') {
-                $fromDt = date_create_immutable($fromRaw);
-                if ($fromDt === false) {
+                try {
+                    $query['createdAt']['$gte'] = $this->normalizeDateFilter($fromRaw, false);
+                } catch (InvalidArgumentException $e) {
                     Response::json(['message' => 'Invalid from date'], 400);
                     return;
                 }
-                $query['createdAt']['$gte'] = $fromDt->format(DATE_ATOM);
             }
             if ($toRaw !== '') {
-                $toDt = date_create_immutable($toRaw);
-                if ($toDt === false) {
+                try {
+                    $query['createdAt']['$lte'] = $this->normalizeDateFilter($toRaw, true);
+                } catch (InvalidArgumentException $e) {
                     Response::json(['message' => 'Invalid to date'], 400);
                     return;
                 }
-                $query['createdAt']['$lte'] = $toDt->format(DATE_ATOM);
             }
 
             $minWager = $this->parseOptionalMoneyFilter($minWagerRaw, 'minWager');
@@ -1090,20 +1111,20 @@ final class CasinoController
                 $query['result'] = $normalizedResult;
             }
             if ($fromRaw !== '') {
-                $fromDt = date_create_immutable($fromRaw);
-                if ($fromDt === false) {
+                try {
+                    $query['createdAt']['$gte'] = $this->normalizeDateFilter($fromRaw, false);
+                } catch (InvalidArgumentException $e) {
                     Response::json(['message' => 'Invalid from date'], 400);
                     return;
                 }
-                $query['createdAt']['$gte'] = $fromDt->format(DATE_ATOM);
             }
             if ($toRaw !== '') {
-                $toDt = date_create_immutable($toRaw);
-                if ($toDt === false) {
+                try {
+                    $query['createdAt']['$lte'] = $this->normalizeDateFilter($toRaw, true);
+                } catch (InvalidArgumentException $e) {
                     Response::json(['message' => 'Invalid to date'], 400);
                     return;
                 }
-                $query['createdAt']['$lte'] = $toDt->format(DATE_ATOM);
             }
             if ($username !== '') {
                 $query['username'] = ['$regex' => $username, '$options' => 'i'];
@@ -1200,29 +1221,27 @@ final class CasinoController
 
             $fromRaw = trim((string) ($_GET['from'] ?? ''));
             $toRaw = trim((string) ($_GET['to'] ?? ''));
-            $sampleLimit = min(20000, max(1, (int) ($_GET['limit'] ?? 5000)));
 
             $query = [];
             if ($fromRaw !== '') {
-                $fromDt = date_create_immutable($fromRaw);
-                if ($fromDt === false) {
+                try {
+                    $query['createdAt']['$gte'] = $this->normalizeDateFilter($fromRaw, false);
+                } catch (InvalidArgumentException $e) {
                     Response::json(['message' => 'Invalid from date'], 400);
                     return;
                 }
-                $query['createdAt']['$gte'] = $fromDt->format(DATE_ATOM);
             }
             if ($toRaw !== '') {
-                $toDt = date_create_immutable($toRaw);
-                if ($toDt === false) {
+                try {
+                    $query['createdAt']['$lte'] = $this->normalizeDateFilter($toRaw, true);
+                } catch (InvalidArgumentException $e) {
                     Response::json(['message' => 'Invalid to date'], 400);
                     return;
                 }
-                $query['createdAt']['$lte'] = $toDt->format(DATE_ATOM);
             }
 
             $rows = $this->db->findMany('casino_bets', $query, [
                 'sort' => ['createdAt' => -1],
-                'limit' => $sampleLimit,
             ]);
 
             $totalWager = 0.0;
@@ -1292,7 +1311,8 @@ final class CasinoController
                 'window' => [
                     'from' => $fromRaw !== '' ? $fromRaw : null,
                     'to' => $toRaw !== '' ? $toRaw : null,
-                    'sampleSize' => $sampleLimit,
+                    'sampleSize' => count($rows),
+                    'sampled' => false,
                 ],
             ]);
         } catch (Throwable $e) {
@@ -1731,6 +1751,34 @@ final class CasinoController
             return null;
         }
         return $this->parseMoneyValue($value, $fieldName);
+    }
+
+    private function normalizeDateFilter(string $raw, bool $endOfDay): string
+    {
+        $value = trim($raw);
+        if ($value === '') {
+            throw new InvalidArgumentException('Date filter cannot be empty');
+        }
+
+        $utc = new DateTimeZone('UTC');
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $value) === 1) {
+            $dt = DateTimeImmutable::createFromFormat('!Y-m-d', $value, $utc);
+            if ($dt === false) {
+                throw new InvalidArgumentException('Invalid date filter');
+            }
+            if ($endOfDay) {
+                $dt = $dt->setTime(23, 59, 59);
+            }
+            return $dt->format(DATE_ATOM);
+        }
+
+        try {
+            $dt = new DateTimeImmutable($value);
+        } catch (Throwable $e) {
+            throw new InvalidArgumentException('Invalid date filter', 0, $e);
+        }
+
+        return $dt->setTimezone($utc)->format(DATE_ATOM);
     }
 
     private function newRoundId(): string

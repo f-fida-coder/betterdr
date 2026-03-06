@@ -2,6 +2,15 @@ import React, { useMemo, useState, useEffect } from 'react';
 import '../ultralive.css';
 import useMatches from '../hooks/useMatches';
 import { getMyBets } from '../api';
+import { useOddsFormat } from '../contexts/OddsFormatContext';
+import {
+    formatLineValue,
+    formatOdds,
+    getMatchMarket,
+    getMarketOutcomeByKeyword,
+    getMarketOutcomeByName,
+    parseOddsNumber,
+} from '../utils/odds';
 
 const NAV_TABS = [
     { id: 'in_play', label: 'In-Play' },
@@ -40,36 +49,28 @@ const isFinishedMatch = (match) => {
 
 const getMatchId = (match) => match?.id || match?._id || match?.externalId;
 
-const getMarket = (match, key) => {
-    const markets = match?.odds?.markets || [];
-    return markets.find(m => (m.key || '').toLowerCase() === key) || null;
-};
-
 const getMoneyline = (match, teamName) => {
-    const market = getMarket(match, 'h2h');
-    if (!market?.outcomes) return '-';
-    const outcome = market.outcomes.find(o => (o.name || '').toLowerCase() === (teamName || '').toLowerCase());
-    return outcome?.price ?? '-';
+    const market = getMatchMarket(match, 'h2h');
+    const outcome = getMarketOutcomeByName(market, teamName);
+    return parseOddsNumber(outcome?.price);
 };
 
 const getSpread = (match, teamName) => {
-    const market = getMarket(match, 'spreads');
-    if (!market?.outcomes) return { label: '-', price: '-' };
-    const outcome = market.outcomes.find(o => (o.name || '').toLowerCase() === (teamName || '').toLowerCase());
-    if (!outcome) return { label: '-', price: '-' };
-    const point = outcome.point ?? '-';
-    return { label: `${point}`, price: outcome.price ?? '-' };
+    const market = getMatchMarket(match, 'spreads');
+    const outcome = getMarketOutcomeByName(market, teamName);
+    if (!outcome) return { point: null, price: null };
+    return { point: outcome.point ?? null, price: parseOddsNumber(outcome.price) };
 };
 
 const getTotal = (match, side) => {
-    const market = getMarket(match, 'totals');
-    if (!market?.outcomes) return { label: '-', price: '-' };
-    const outcome = market.outcomes.find(o => (o.name || '').toLowerCase() === side);
-    if (!outcome) return { label: '-', price: '-' };
-    return { label: `${side === 'over' ? 'O' : 'U'} ${outcome.point ?? '-'}`, price: outcome.price ?? '-' };
+    const market = getMatchMarket(match, 'totals');
+    const outcome = getMarketOutcomeByKeyword(market, side);
+    if (!outcome) return { point: null, price: null };
+    return { point: outcome.point ?? null, price: parseOddsNumber(outcome.price) };
 };
 
 const UltraLiveView = () => {
+    const { oddsFormat } = useOddsFormat();
     const [navTab, setNavTab] = useState('in_play');
     const [selectedSport, setSelectedSport] = useState('all');
     const [selectedMatchId, setSelectedMatchId] = useState(null);
@@ -149,12 +150,12 @@ const UltraLiveView = () => {
     const awayScore = selectedMatch?.score?.score_away ?? '-';
     const period = selectedMatch?.score?.period || (navTab === 'history' ? 'Final' : 'Live');
 
-    const homeSpread = selectedMatch ? getSpread(selectedMatch, home) : { label: '-', price: '-' };
-    const awaySpread = selectedMatch ? getSpread(selectedMatch, away) : { label: '-', price: '-' };
-    const over = selectedMatch ? getTotal(selectedMatch, 'over') : { label: '-', price: '-' };
-    const under = selectedMatch ? getTotal(selectedMatch, 'under') : { label: '-', price: '-' };
-    const homeMoneyline = selectedMatch ? getMoneyline(selectedMatch, home) : '-';
-    const awayMoneyline = selectedMatch ? getMoneyline(selectedMatch, away) : '-';
+    const homeSpread = selectedMatch ? getSpread(selectedMatch, home) : { point: null, price: null };
+    const awaySpread = selectedMatch ? getSpread(selectedMatch, away) : { point: null, price: null };
+    const over = selectedMatch ? getTotal(selectedMatch, 'over') : { point: null, price: null };
+    const under = selectedMatch ? getTotal(selectedMatch, 'under') : { point: null, price: null };
+    const homeMoneyline = selectedMatch ? getMoneyline(selectedMatch, home) : null;
+    const awayMoneyline = selectedMatch ? getMoneyline(selectedMatch, away) : null;
 
     const refreshFeed = () => {
         window.dispatchEvent(new CustomEvent('matches:refresh'));
@@ -165,7 +166,8 @@ const UltraLiveView = () => {
     };
 
     const addSelection = ({ selection, marketType, odds, marketLabel }) => {
-        if (!selectedMatch || odds === '-' || odds === null || odds === undefined) return;
+        const parsedOdds = parseOddsNumber(odds);
+        if (!selectedMatch || parsedOdds === null) return;
         const matchId = getMatchId(selectedMatch);
         const oddsKey = `${matchId}-${marketType}-${selection}`;
         setSelectedOddsKey(oddsKey);
@@ -175,7 +177,7 @@ const UltraLiveView = () => {
                 matchId,
                 selection,
                 marketType,
-                odds: parseFloat(odds),
+                odds: parsedOdds,
                 matchName: `${home} vs ${away}`,
                 marketLabel
             }
@@ -281,19 +283,19 @@ const UltraLiveView = () => {
                                     <div className="ultra-market-row">
                                         <button
                                             className={`ultra-odds-box ${selectedOddsKey === `${getMatchId(selectedMatch)}-h2h-${home}` ? 'selected' : ''}`}
-                                            disabled={homeMoneyline === '-'}
+                                            disabled={homeMoneyline == null}
                                             onClick={() => addSelection({ selection: home, marketType: 'h2h', odds: homeMoneyline, marketLabel: 'Moneyline' })}
                                         >
                                             <span className="ultra-odds-label">{home}</span>
-                                            <span className="ultra-odds-val">{homeMoneyline}</span>
+                                            <span className="ultra-odds-val">{formatOdds(homeMoneyline, oddsFormat)}</span>
                                         </button>
                                         <button
                                             className={`ultra-odds-box ${selectedOddsKey === `${getMatchId(selectedMatch)}-h2h-${away}` ? 'selected' : ''}`}
-                                            disabled={awayMoneyline === '-'}
+                                            disabled={awayMoneyline == null}
                                             onClick={() => addSelection({ selection: away, marketType: 'h2h', odds: awayMoneyline, marketLabel: 'Moneyline' })}
                                         >
                                             <span className="ultra-odds-label">{away}</span>
-                                            <span className="ultra-odds-val">{awayMoneyline}</span>
+                                            <span className="ultra-odds-val">{formatOdds(awayMoneyline, oddsFormat)}</span>
                                         </button>
                                     </div>
                                 </div>
@@ -312,19 +314,19 @@ const UltraLiveView = () => {
                                     <div className="ultra-market-row">
                                         <button
                                             className={`ultra-odds-box ${selectedOddsKey === `${getMatchId(selectedMatch)}-spreads-${home}` ? 'selected' : ''}`}
-                                            disabled={homeSpread.price === '-'}
+                                            disabled={homeSpread.price == null}
                                             onClick={() => addSelection({ selection: home, marketType: 'spreads', odds: homeSpread.price, marketLabel: 'Spread' })}
                                         >
-                                            <span className="ultra-odds-label">{homeSpread.label}</span>
-                                            <span className="ultra-odds-val">{homeSpread.price}</span>
+                                            <span className="ultra-odds-label">{formatLineValue(homeSpread.point, { signed: true })}</span>
+                                            <span className="ultra-odds-val">{formatOdds(homeSpread.price, oddsFormat)}</span>
                                         </button>
                                         <button
                                             className={`ultra-odds-box ${selectedOddsKey === `${getMatchId(selectedMatch)}-spreads-${away}` ? 'selected' : ''}`}
-                                            disabled={awaySpread.price === '-'}
+                                            disabled={awaySpread.price == null}
                                             onClick={() => addSelection({ selection: away, marketType: 'spreads', odds: awaySpread.price, marketLabel: 'Spread' })}
                                         >
-                                            <span className="ultra-odds-label">{awaySpread.label}</span>
-                                            <span className="ultra-odds-val">{awaySpread.price}</span>
+                                            <span className="ultra-odds-label">{formatLineValue(awaySpread.point, { signed: true })}</span>
+                                            <span className="ultra-odds-val">{formatOdds(awaySpread.price, oddsFormat)}</span>
                                         </button>
                                     </div>
                                 </div>
@@ -343,19 +345,19 @@ const UltraLiveView = () => {
                                     <div className="ultra-market-row">
                                         <button
                                             className={`ultra-odds-box ${selectedOddsKey === `${getMatchId(selectedMatch)}-totals-Over` ? 'selected' : ''}`}
-                                            disabled={over.price === '-'}
+                                            disabled={over.price == null}
                                             onClick={() => addSelection({ selection: 'Over', marketType: 'totals', odds: over.price, marketLabel: 'Total' })}
                                         >
-                                            <span className="ultra-odds-label">{over.label}</span>
-                                            <span className="ultra-odds-val">{over.price}</span>
+                                            <span className="ultra-odds-label">{`O ${formatLineValue(over.point)}`}</span>
+                                            <span className="ultra-odds-val">{formatOdds(over.price, oddsFormat)}</span>
                                         </button>
                                         <button
                                             className={`ultra-odds-box ${selectedOddsKey === `${getMatchId(selectedMatch)}-totals-Under` ? 'selected' : ''}`}
-                                            disabled={under.price === '-'}
+                                            disabled={under.price == null}
                                             onClick={() => addSelection({ selection: 'Under', marketType: 'totals', odds: under.price, marketLabel: 'Total' })}
                                         >
-                                            <span className="ultra-odds-label">{under.label}</span>
-                                            <span className="ultra-odds-val">{under.price}</span>
+                                            <span className="ultra-odds-label">{`U ${formatLineValue(under.point)}`}</span>
+                                            <span className="ultra-odds-val">{formatOdds(under.price, oddsFormat)}</span>
                                         </button>
                                     </div>
                                 </div>

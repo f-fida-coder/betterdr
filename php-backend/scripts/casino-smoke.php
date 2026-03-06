@@ -108,6 +108,13 @@ try {
     assertOk($history['status'] === 200, 'History failed');
     assertOk(is_array($history['data']['bets'] ?? null), 'History bets missing');
     assertOk((int) (($history['data']['pagination']['total'] ?? 0)) >= 1, 'History total should be >= 1');
+    $todayHistory = req('GET', $baseUrl . '/casino/bet/history?page=1&limit=10&to=' . gmdate('Y-m-d'), null, $token);
+    assertOk($todayHistory['status'] === 200, 'History to-date filter failed');
+    $todayRoundIds = array_map(
+        static fn(array $bet): string => (string) ($bet['roundId'] ?? $bet['id'] ?? ''),
+        is_array($todayHistory['data']['bets'] ?? null) ? $todayHistory['data']['bets'] : []
+    );
+    assertOk(in_array($roundId, $todayRoundIds, true), 'History to-date filter should include today round');
 
     $detail = req('GET', $baseUrl . '/casino/bet/' . $roundId, null, $token);
     assertOk($detail['status'] === 200, 'Round detail failed');

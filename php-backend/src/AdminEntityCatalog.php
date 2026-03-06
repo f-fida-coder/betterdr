@@ -12,6 +12,7 @@ final class AdminEntityCatalog
             self::item('pending', 'Pending', ['transactions', 'users'], ['GET /api/admin/pending', 'POST /api/admin/pending/approve', 'POST /api/admin/pending/decline']),
             self::item('messaging', 'Messaging', ['messages'], ['GET /api/admin/messages', 'POST /api/admin/messages/:id/reply', 'DELETE /api/admin/messages/:id']),
             self::item('game-admin', 'Game Admin', ['matches', 'bets'], ['GET /api/admin/matches', 'POST /api/admin/matches', 'PUT /api/admin/matches/:id']),
+            self::item('casino-bets', 'Casino Bets', ['casino_bets', 'casino_round_audit', 'transactions', 'users'], ['GET /api/admin/casino/bets', 'GET /api/admin/casino/bets/:id', 'GET /api/admin/casino/summary']),
             self::item('customer-admin', 'Customer Admin', ['users', 'agents'], ['GET /api/admin/users', 'POST /api/admin/create-user', 'PUT /api/admin/users/:id', 'DELETE /api/admin/users/:id']),
             self::item('agent-manager', 'Agent Management', ['agents', 'master_agents'], ['GET /api/admin/agents', 'POST /api/admin/create-agent', 'PUT /api/admin/agent/:id', 'DELETE /api/admin/agents/:id']),
             self::item('cashier', 'Cashier', ['transactions', 'users'], ['GET /api/admin/cashier/summary', 'GET /api/admin/cashier/transactions']),

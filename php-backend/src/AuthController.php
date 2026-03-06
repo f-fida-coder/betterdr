@@ -115,6 +115,7 @@ final class AuthController
                 'viewOnly' => false,
                 'unlimitedBalance' => false,
                 'dashboardLayout' => 'tiles',
+                'settings' => ['oddsFormat' => 'decimal'],
                 'agentBillingStatus' => 'paid',
                 'createdAt' => $now,
                 'updatedAt' => $now,
@@ -279,14 +280,31 @@ final class AuthController
             }
 
             $body = Http::jsonBody();
+            $updates = [
+                'updatedAt' => MongoRepository::nowUtc(),
+            ];
             $dashboardLayout = $body['dashboardLayout'] ?? null;
             if (is_string($dashboardLayout) && $dashboardLayout !== '') {
-                $collection = $this->collectionByRole((string) ($user['role'] ?? 'user'));
-                $this->db->updateOne($collection, ['_id' => MongoRepository::id((string) $user['_id'])], [
-                    'dashboardLayout' => $dashboardLayout,
-                    'updatedAt' => MongoRepository::nowUtc(),
-                ]);
                 $user['dashboardLayout'] = $dashboardLayout;
+                $updates['dashboardLayout'] = $dashboardLayout;
+            }
+
+            $incomingSettings = is_array($body['settings'] ?? null) ? $body['settings'] : [];
+            if (array_key_exists('oddsFormat', $incomingSettings)) {
+                $oddsFormat = strtolower(trim((string) $incomingSettings['oddsFormat']));
+                if (!in_array($oddsFormat, ['american', 'decimal'], true)) {
+                    Response::json(['message' => 'oddsFormat must be either american or decimal'], 400);
+                    return;
+                }
+                $existingSettings = is_array($user['settings'] ?? null) ? $user['settings'] : [];
+                $existingSettings['oddsFormat'] = $oddsFormat;
+                $user['settings'] = $existingSettings;
+                $updates['settings'] = $existingSettings;
+            }
+
+            if (count($updates) > 1) {
+                $collection = $this->collectionByRole((string) ($user['role'] ?? 'user'));
+                $this->db->updateOne($collection, ['_id' => MongoRepository::id((string) $user['_id'])], $updates);
             }
 
             Response::json([
@@ -296,6 +314,7 @@ final class AuthController
                     'username' => $user['username'] ?? null,
                     'role' => $user['role'] ?? null,
                     'dashboardLayout' => $user['dashboardLayout'] ?? null,
+                    'settings' => is_array($user['settings'] ?? null) ? $user['settings'] : null,
                 ],
             ]);
         } catch (Throwable $e) {
@@ -412,6 +431,7 @@ final class AuthController
             'viewOnly' => $user['viewOnly'] ?? null,
             'agentBillingStatus' => $user['agentBillingStatus'] ?? null,
             'dashboardLayout' => $user['dashboardLayout'] ?? null,
+            'settings' => is_array($user['settings'] ?? null) ? $user['settings'] : null,
             'permissions' => $user['permissions'] ?? null,
             'gamblingLimits' => is_array($user['gamblingLimits'] ?? null) ? $user['gamblingLimits'] : null,
             'selfExcludedUntil' => $user['selfExcludedUntil'] ?? null,
@@ -449,6 +469,7 @@ final class AuthController
             'viewOnly' => $user['viewOnly'] ?? null,
             'agentBillingStatus' => $user['agentBillingStatus'] ?? null,
             'dashboardLayout' => $user['dashboardLayout'] ?? null,
+            'settings' => is_array($user['settings'] ?? null) ? $user['settings'] : null,
             'permissions' => $user['permissions'] ?? null,
             'gamblingLimits' => is_array($user['gamblingLimits'] ?? null) ? $user['gamblingLimits'] : null,
             'selfExcludedUntil' => $user['selfExcludedUntil'] ?? null,

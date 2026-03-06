@@ -915,3 +915,519 @@
 2026-03-05 17:32:14 [400] {"message":"Cannot delete user with pending bets ($10.00)."}
 2026-03-05 17:32:23 [400] {"message":"Cannot delete user with pending bets ($10.00)."}
 2026-03-05 18:34:08 [401] {"message":"Invalid credentials"}
+2026-03-05 19:12:23 [400] {"message":"Insufficient balance. Available: $1,000.00"}
+2026-03-05 19:12:23 [401] {"message":"Not authorized, no token"}
+2026-03-05 19:12:23 [400] {"message":"Unsupported game: roulette"}
+2026-03-05 19:56:10 [401] {"message":"Not authorized, no token"}
+2026-03-05 19:56:10 [401] {"message":"Not authorized, no token"}
+2026-03-05 19:56:10 [401] {"message":"Not authorized, no token"}
+2026-03-06 03:52:05 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-03-06 03:52:06 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-03-06 03:52:15 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-03-06 03:52:15 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-03-06 03:52:15 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-03-06 05:26:34 [401] {"message":"Invalid credentials"}
+2026-03-06 05:26:45 [401] {"message":"Invalid credentials"}
+2026-03-06 06:34:18 [404] {"message":"Not Found"}
+2026-03-06 06:45:18 [409] {"message":"Baccarat is available only from the in-house casino table."}
+2026-03-06 07:16:56 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:16:56 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:16:56 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:16:56 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:16:56 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:16:56 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:16:56 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:16:56 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:16:56 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:16:56 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:16:56 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:16:56 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:16:56 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:16:57 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:16:57 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:16:57 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:16:57 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:16:57 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:16:57 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:16:57 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:16:57 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:16:57 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:16:57 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:16:57 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:16:57 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:16:58 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:16:58 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:16:58 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:16:58 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:16:58 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:16:58 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:16:58 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:16:58 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:16:58 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:16:58 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:16:58 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:16:58 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:16:58 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:16:58 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:16:59 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:16:59 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:16:59 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:16:59 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:16:59 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:16:59 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:16:59 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:16:59 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:16:59 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:16:59 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:16:59 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:16:59 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:00 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:00 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:00 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:00 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:00 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:00 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:00 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:00 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:00 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:00 [404] {"message":"Match not found"}
+2026-03-06 07:17:45 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:45 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:46 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:46 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:46 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:46 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:46 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:46 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:46 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:46 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:46 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:46 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:46 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:46 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:46 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:46 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:47 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:47 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:47 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:47 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:47 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:47 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:47 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:47 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:47 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:47 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:47 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:47 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:47 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:48 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:48 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:48 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:48 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:48 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:48 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:48 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:48 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:48 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:48 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:48 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:48 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:48 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:49 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:49 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:49 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:49 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:49 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:49 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:49 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:49 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:49 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:49 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:49 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:49 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:49 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:49 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:50 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:50 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:50 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:50 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:50 [404] {"message":"Match not found"}
+2026-03-06 07:17:56 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:56 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:56 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:56 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:56 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:56 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:56 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:57 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:57 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:57 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:57 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:57 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:57 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:57 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:57 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:57 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:57 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:57 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:57 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:57 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:57 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:58 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:58 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:58 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:58 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:58 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:58 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:58 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:58 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:58 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:58 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:58 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:58 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:58 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:58 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:59 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:59 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:59 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:59 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:59 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:59 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:59 [401] {"message":"Invalid admin credentials"}
+2026-03-06 07:17:59 [401] {"message":"Invalid agent credentials"}
+2026-03-06 07:17:59 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:17:59 [401] {"message":"Invalid credentials"}
+2026-03-06 07:17:59 [400] {"message":"Username, phone number, and password are required"}
+2026-03-06 07:17:59 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:00 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:00 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:00 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:00 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:00 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:00 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:00 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:00 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:00 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:00 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:00 [403] {"message":"Deposits are disabled. Customers use credit only."}
+2026-03-06 07:18:01 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:01 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:01 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:01 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:01 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:01 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:01 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:01 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:01 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:01 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:01 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:01 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:01 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:01 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:02 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:02 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:02 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:02 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:02 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:02 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:40 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:40 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:40 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:40 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:40 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:40 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:40 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:40 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:40 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:40 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:40 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:41 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:41 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:41 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:41 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:41 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:41 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:41 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:41 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:41 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:42 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:42 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:42 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:42 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:42 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:42 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:43 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:43 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:43 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:43 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:43 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:43 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:43 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:43 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:43 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:44 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:44 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:44 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:44 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:44 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:44 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:44 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:44 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:44 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:44 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:44 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:44 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:44 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:44 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:44 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:44 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:44 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:45 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:45 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:45 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:45 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:45 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:45 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:45 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:45 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:45 [404] {"message":"Match not found"}
+2026-03-06 07:18:51 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:51 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:51 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:51 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:51 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:51 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:51 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:51 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:51 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:52 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:52 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:52 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:52 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:52 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:52 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:52 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:52 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:52 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:52 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:52 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:52 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:52 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:52 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:52 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:52 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:53 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:53 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:53 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:53 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:53 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:53 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:53 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:53 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:53 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:53 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:53 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:53 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:53 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:53 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:53 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:54 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:54 [401] {"message":"Invalid admin credentials"}
+2026-03-06 07:18:54 [401] {"message":"Invalid agent credentials"}
+2026-03-06 07:18:54 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:54 [401] {"message":"Invalid credentials"}
+2026-03-06 07:18:54 [400] {"message":"Username, phone number, and password are required"}
+2026-03-06 07:18:54 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:54 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:54 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:54 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:54 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:54 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:54 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:54 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:54 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:54 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:54 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:54 [403] {"message":"Deposits are disabled. Customers use credit only."}
+2026-03-06 07:18:54 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:55 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:55 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:55 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:55 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:55 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:55 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:55 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:55 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:55 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:55 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:55 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:55 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:55 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:55 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:55 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:55 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:55 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:55 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:18:55 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:33 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:33 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:33 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:33 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:33 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:33 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:33 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:33 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:33 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:33 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:33 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:34 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:34 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:34 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:34 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:34 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:34 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:34 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:34 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:34 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:34 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:34 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:34 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:34 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:34 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:34 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:34 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:35 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:35 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:35 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:35 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:35 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:35 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:35 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:35 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:35 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:35 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:35 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:35 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:35 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:35 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:35 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:35 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:36 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:36 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:36 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:36 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:36 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:36 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:36 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:36 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:36 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:36 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:36 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:36 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:36 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:36 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:36 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:36 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:36 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:37 [404] {"message":"Match not found"}
+2026-03-06 07:26:43 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:43 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:43 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:43 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:43 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:43 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:43 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:43 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:43 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:43 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:43 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:43 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:43 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:43 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:43 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:43 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:44 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:44 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:44 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:44 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:44 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:44 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:44 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:44 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:44 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:44 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:44 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:44 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:44 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:44 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:44 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:44 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:44 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:44 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:44 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:45 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:45 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:45 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:45 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:45 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:45 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:45 [401] {"message":"Invalid admin credentials"}
+2026-03-06 07:26:45 [401] {"message":"Invalid agent credentials"}
+2026-03-06 07:26:45 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:45 [401] {"message":"Invalid credentials"}
+2026-03-06 07:26:45 [400] {"message":"Username, phone number, and password are required"}
+2026-03-06 07:26:45 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:45 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:45 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:45 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:45 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:45 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:45 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:46 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:46 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:46 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:46 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:46 [403] {"message":"Deposits are disabled. Customers use credit only."}
+2026-03-06 07:26:46 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:46 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:46 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:46 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:46 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:46 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:46 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:46 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:46 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:47 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:47 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:47 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:47 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:47 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:47 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:47 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:47 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:47 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:47 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:26:47 [401] {"message":"Not authorized, no token"}
+2026-03-06 07:32:34 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-03-06 07:32:34 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-03-06 07:32:38 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-03-06 07:44:13 [400] {"message":"Bet amount must be positive"}
+2026-03-06 07:44:13 [403] {"message":"Not authorized"}
+2026-03-06 07:44:13 [400] {"message":"Match Audit Home 1 vs Audit Away 1 is not open for betting"}
+2026-03-06 07:47:54 [400] {"message":"Bet amount must be positive"}
+2026-03-06 07:47:54 [400] {"message":"Betting is closed for Audit Closed A 1772783274 vs Audit Closed B 1772783274"}
+2026-03-06 07:47:54 [403] {"message":"Not authorized"}
+2026-03-06 08:22:06 [404] {"message":"Match not available"}
+2026-03-06 08:22:25 [409] {"message":"Betting is closed for Brentford vs Arsenal","code":"MATCH_NOT_BETTABLE","matchStatus":"expired"}
+2026-03-06 08:22:25 [400] {"message":"Unsupported same-game combination. Select different events.","code":"INVALID_COMBINATION"}
+2026-03-06 08:22:25 [409] {"message":"Odds changed. Please review the updated price before placing the bet.","code":"ODDS_CHANGED","officialOdds":1.33,"clientOdds":9.99,"selection":"Charlotte Hornets","matchId":"95d92b14547fbe9af53977cf"}
+2026-03-06 08:23:25 [409] {"message":"Odds changed. Please review the updated price before placing the bet.","code":"ODDS_CHANGED","officialOdds":1.09,"clientOdds":1.1,"selection":"Boston Celtics","matchId":"ed78f06a264b743c9aee64ca"}
+2026-03-06 08:23:25 [409] {"message":"Odds changed. Please review the updated price before placing the bet.","code":"ODDS_CHANGED","officialOdds":1.89,"clientOdds":1.88,"selection":"Under","matchId":"ed78f06a264b743c9aee64ca"}
+2026-03-06 08:23:33 [409] {"message":"Odds changed. Please review the updated price before placing the bet.","code":"ODDS_CHANGED","officialOdds":1.09,"clientOdds":1.1,"selection":"Boston Celtics","matchId":"ed78f06a264b743c9aee64ca"}
+2026-03-06 08:23:33 [409] {"message":"Odds changed. Please review the updated price before placing the bet.","code":"ODDS_CHANGED","officialOdds":1.89,"clientOdds":1.88,"selection":"Under","matchId":"ed78f06a264b743c9aee64ca"}
+2026-03-06 09:12:03 [401] {"message":"Not authorized, no token"}
+2026-03-06 09:16:56 [401] {"message":"Not authorized, no token"}
+2026-03-06 09:52:37 [403] {"message":"Not authorized"}
+2026-03-06 09:52:37 [401] {"message":"Not authorized, no token"}
+2026-03-06 09:52:37 [401] {"message":"Not authorized, no token"}
+2026-03-06 09:53:34 [401] {"message":"Invalid admin credentials"}

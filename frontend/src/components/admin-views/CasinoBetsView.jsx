@@ -1,15 +1,17 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { downloadAdminCasinoBetsCsv, getAdminCasinoBetDetail, getAdminCasinoBets, getAdminCasinoSummary } from '../../api';
 
+const EMPTY_FILTERS = {
+  username: '',
+  result: '',
+  from: '',
+  to: '',
+  minWager: '',
+  maxWager: '',
+};
+
 function CasinoBetsView() {
-  const [filters, setFilters] = useState({
-    username: '',
-    result: '',
-    from: '',
-    to: '',
-    minWager: '',
-    maxWager: '',
-  });
+  const [filters, setFilters] = useState(EMPTY_FILTERS);
   const [rows, setRows] = useState([]);
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -74,43 +76,71 @@ function CasinoBetsView() {
     setDetailError('');
   };
 
+  const resetFilters = () => {
+    setPage(1);
+    setFilters(EMPTY_FILTERS);
+  };
+
   const formatMoney = (value) => {
     const num = Number(value || 0);
     if (Number.isNaN(num)) return '$0.00';
     return `$${num.toFixed(2)}`;
   };
 
-  const summaryCards = useMemo(() => ([
-    { label: 'Rounds', value: Number(summary?.rounds || 0).toLocaleString() },
-    { label: 'Total Wager', value: formatMoney(summary?.totalWager) },
-    { label: 'Total Return', value: formatMoney(summary?.totalReturn) },
-    { label: 'GGR', value: formatMoney(summary?.grossGamingRevenue) },
-    { label: 'Payout Ratio', value: `${Number(summary?.payoutRatio || 0).toFixed(2)}%` },
-    { label: 'Error Rate', value: `${Number(summary?.errorRate || 0).toFixed(4)}%` },
-  ]), [summary]);
+  const formatDateTime = (value) => {
+    if (!value) return '—';
+    return new Date(value).toLocaleString();
+  };
+
+  const shortId = (value) => {
+    const next = String(value || '');
+    if (!next) return '—';
+    return `${next.slice(0, 10)}…`;
+  };
+
+  const summaryCards = useMemo(
+    () => ([
+      { label: 'Rounds', value: Number(summary?.rounds || 0).toLocaleString(), tone: 'navy' },
+      { label: 'Total Wager', value: formatMoney(summary?.totalWager), tone: 'blue' },
+      { label: 'Total Return', value: formatMoney(summary?.totalReturn), tone: 'teal' },
+      { label: 'GGR', value: formatMoney(summary?.grossGamingRevenue), tone: 'slate' },
+      { label: 'Payout Ratio', value: `${Number(summary?.payoutRatio || 0).toFixed(2)}%`, tone: 'indigo' },
+      { label: 'Error Rate', value: `${Number(summary?.errorRate || 0).toFixed(4)}%`, tone: 'rose' },
+    ]),
+    [summary]
+  );
 
   return (
-    <div className="admin-view">
-      <div className="view-header">
-        <h2>Casino Bets</h2>
+    <div className="admin-view casino-bets-view">
+      <div className="view-header casino-bets-header">
+        <div>
+          <h2>Casino Bets</h2>
+          <p className="subtitle">Live baccarat reporting, settlement ledger, and round-level audit details.</p>
+        </div>
+        <div className="casino-bets-header-actions">
+          <button type="button" className="btn-small" onClick={fetchData} disabled={loading}>
+            {loading ? 'Refreshing…' : 'Refresh'}
+          </button>
+          <button type="button" className="btn-small btn-accent" onClick={() => downloadAdminCasinoBetsCsv(filters, token)}>
+            Export CSV
+          </button>
+        </div>
       </div>
-      <div className="view-content">
-        {loading && <div style={{ padding: 20, textAlign: 'center' }}>Loading casino bets...</div>}
-        {error && <div style={{ padding: 20, color: 'red', textAlign: 'center' }}>{error}</div>}
+      <div className="view-content casino-bets-content">
+        {loading && <div className="casino-bets-loading">Loading casino bets…</div>}
+        {error && <div className="casino-bets-error">{error}</div>}
         {!loading && !error && (
           <>
-            <div className="stats-grid" style={{ marginBottom: 16 }}>
+            <div className="casino-bets-kpi-grid">
               {summaryCards.map((card) => (
-                <div className="stat-card" key={card.label}>
-                  <div className="stat-info">
-                    <h3>{card.label}</h3>
-                    <p>{card.value}</p>
-                  </div>
+                <div className={`casino-kpi-card tone-${card.tone}`} key={card.label}>
+                  <span className="casino-kpi-label">{card.label}</span>
+                  <strong className="casino-kpi-value">{card.value}</strong>
                 </div>
               ))}
             </div>
 
-            <div className="filter-section">
+            <div className="casino-bets-filters">
               <div className="filter-group">
                 <label>Player</label>
                 <input
@@ -159,20 +189,15 @@ function CasinoBetsView() {
                   placeholder="500.00"
                 />
               </div>
+              <div className="casino-filter-actions">
+                <button type="button" className="btn-small" onClick={resetFilters}>
+                  Clear
+                </button>
+              </div>
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10 }}>
-              <button
-                type="button"
-                className="btn-small"
-                onClick={() => downloadAdminCasinoBetsCsv(filters, token)}
-              >
-                Export CSV
-              </button>
-            </div>
-
-            <div className="table-container scrollable">
-              <table className="data-table">
+            <div className="table-container scrollable casino-bets-table-wrap">
+              <table className="data-table casino-bets-table">
                 <thead>
                   <tr>
                     <th>Round</th>
@@ -189,16 +214,24 @@ function CasinoBetsView() {
                 <tbody>
                   {rows.map((row) => (
                     <tr key={row.roundId || row.id}>
-                      <td>{String(row.roundId || row.id || '').slice(0, 10)}…</td>
+                      <td className="round-id" title={row.roundId || row.id || ''}>{shortId(row.roundId || row.id)}</td>
                       <td>{row.username || '—'}</td>
-                      <td>{row.result || '—'}</td>
+                      <td>
+                        <span className={`casino-result-badge result-${String(row.result || '').toLowerCase()}`}>
+                          {row.result || '—'}
+                        </span>
+                      </td>
                       <td>{formatMoney(row.totalWager)}</td>
                       <td>{formatMoney(row.totalReturn)}</td>
-                      <td className={Number(row.netResult) >= 0 ? 'positive' : 'negative'}>{formatMoney(row.netResult)}</td>
-                      <td>{formatMoney(row.balanceAfter)}</td>
-                      <td>{row.createdAt ? new Date(row.createdAt).toLocaleString() : '—'}</td>
                       <td>
-                        <button className="btn-small" onClick={() => openDetail(row.roundId || row.id)}>
+                        <span className={`casino-net-pill ${Number(row.netResult) >= 0 ? 'is-positive' : 'is-negative'}`}>
+                          {formatMoney(row.netResult)}
+                        </span>
+                      </td>
+                      <td>{formatMoney(row.balanceAfter)}</td>
+                      <td>{formatDateTime(row.createdAt)}</td>
+                      <td>
+                        <button className="btn-small" onClick={() => openDetail(row.roundId || row.id)} type="button">
                           View
                         </button>
                       </td>
@@ -215,7 +248,10 @@ function CasinoBetsView() {
               </table>
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 10 }}>
+            <div className="casino-bets-pagination">
+              <span className="casino-page-meta">
+                {Number(pagination?.total || 0).toLocaleString()} rows
+              </span>
               <button
                 type="button"
                 className="btn-small"
@@ -224,8 +260,8 @@ function CasinoBetsView() {
               >
                 Previous
               </button>
-              <span style={{ alignSelf: 'center', fontSize: 12 }}>
-                Page {pagination?.page || page} / {pagination?.pages || 1} ({Number(pagination?.total || 0).toLocaleString()} rows)
+              <span className="casino-page-index">
+                Page {pagination?.page || page} of {pagination?.pages || 1}
               </span>
               <button
                 type="button"
@@ -242,37 +278,103 @@ function CasinoBetsView() {
 
       {(selectedDetail || detailLoading || detailError) && (
         <div className="modal-overlay" onClick={closeDetail}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 760 }}>
-            <h3>Casino Round Detail</h3>
-            {detailLoading && <div>Loading...</div>}
-            {detailError && <div style={{ color: 'red' }}>{detailError}</div>}
-            {!detailLoading && selectedDetail && (
-              <div className="view-details">
-                <p><strong>Round ID:</strong> {selectedDetail.roundId}</p>
-                <p><strong>User:</strong> {selectedDetail.username} ({selectedDetail.userId})</p>
-                <p><strong>Request ID:</strong> {selectedDetail.requestId}</p>
-                <p><strong>Result:</strong> {selectedDetail.result}</p>
-                <p><strong>Player Cards:</strong> {(selectedDetail.playerCards || []).join(', ') || '—'}</p>
-                <p><strong>Banker Cards:</strong> {(selectedDetail.bankerCards || []).join(', ') || '—'}</p>
-                <p><strong>Total Wager:</strong> {formatMoney(selectedDetail.totalWager)}</p>
-                <p><strong>Total Return:</strong> {formatMoney(selectedDetail.totalReturn)}</p>
-                <p><strong>Net Result:</strong> {formatMoney(selectedDetail.netResult)}</p>
-                <p><strong>Balance:</strong> {formatMoney(selectedDetail.balanceBefore)} → {formatMoney(selectedDetail.balanceAfter)}</p>
-                <p><strong>Integrity Hash:</strong> {selectedDetail.integrityHash || '—'}</p>
-                <p><strong>Decision Time:</strong> {selectedDetail.serverDecisionAt ? new Date(selectedDetail.serverDecisionAt).toLocaleString() : '—'}</p>
-                <h4>Ledger Entries</h4>
-                <ul>
-                  {(selectedDetail.ledgerEntries || []).map((entry) => (
-                    <li key={entry.id}>
-                      {entry.entrySide} {formatMoney(entry.amount)} ({entry.type}) [{formatMoney(entry.balanceBefore)} → {formatMoney(entry.balanceAfter)}]
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            <div className="modal-actions">
+          <div className="modal-content casino-bets-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="casino-bets-modal-head">
+              <h3>Casino Round Detail</h3>
               <button type="button" className="btn-secondary" onClick={closeDetail}>Close</button>
             </div>
+
+            {detailLoading && <div className="casino-bets-loading">Loading round detail…</div>}
+            {detailError && <div className="casino-bets-error">{detailError}</div>}
+            {!detailLoading && selectedDetail && (
+              <div className="casino-bets-detail">
+                <div className="casino-bets-detail-grid">
+                  <section className="casino-detail-card">
+                    <h4>Round</h4>
+                    <div className="casino-detail-row"><span>Round ID</span><code>{selectedDetail.roundId || '—'}</code></div>
+                    <div className="casino-detail-row"><span>Request ID</span><code>{selectedDetail.requestId || '—'}</code></div>
+                    <div className="casino-detail-row">
+                      <span>Result</span>
+                      <span className={`casino-result-badge result-${String(selectedDetail.result || '').toLowerCase()}`}>{selectedDetail.result || '—'}</span>
+                    </div>
+                    <div className="casino-detail-row"><span>Decision</span><span>{formatDateTime(selectedDetail.serverDecisionAt)}</span></div>
+                  </section>
+
+                  <section className="casino-detail-card">
+                    <h4>Player</h4>
+                    <div className="casino-detail-row"><span>Username</span><strong>{selectedDetail.username || '—'}</strong></div>
+                    <div className="casino-detail-row"><span>User ID</span><code>{selectedDetail.userId || '—'}</code></div>
+                    <div className="casino-detail-row"><span>Balance Before</span><strong>{formatMoney(selectedDetail.balanceBefore)}</strong></div>
+                    <div className="casino-detail-row"><span>Balance After</span><strong>{formatMoney(selectedDetail.balanceAfter)}</strong></div>
+                  </section>
+
+                  <section className="casino-detail-card">
+                    <h4>Cards</h4>
+                    <div className="casino-detail-stack">
+                      <span>Player ({selectedDetail.playerTotal})</span>
+                      <div className="casino-card-list">
+                        {(selectedDetail.playerCards || []).length > 0
+                          ? (selectedDetail.playerCards || []).map((card) => <span className="casino-card-chip" key={`p-${card}`}>{card}</span>)
+                          : <span>—</span>}
+                      </div>
+                    </div>
+                    <div className="casino-detail-stack">
+                      <span>Banker ({selectedDetail.bankerTotal})</span>
+                      <div className="casino-card-list">
+                        {(selectedDetail.bankerCards || []).length > 0
+                          ? (selectedDetail.bankerCards || []).map((card) => <span className="casino-card-chip" key={`b-${card}`}>{card}</span>)
+                          : <span>—</span>}
+                      </div>
+                    </div>
+                  </section>
+
+                  <section className="casino-detail-card">
+                    <h4>Settlement</h4>
+                    <div className="casino-detail-row"><span>Total Wager</span><strong>{formatMoney(selectedDetail.totalWager)}</strong></div>
+                    <div className="casino-detail-row"><span>Total Return</span><strong>{formatMoney(selectedDetail.totalReturn)}</strong></div>
+                    <div className="casino-detail-row"><span>Net</span><strong>{formatMoney(selectedDetail.netResult)}</strong></div>
+                    <div className="casino-detail-row"><span>Integrity Hash</span><code>{selectedDetail.integrityHash || '—'}</code></div>
+                  </section>
+                </div>
+
+                <h4 className="casino-ledger-title">Ledger Entries</h4>
+                <div className="casino-ledger-wrap">
+                  <table className="casino-ledger-table">
+                    <thead>
+                      <tr>
+                        <th>Side</th>
+                        <th>Type</th>
+                        <th>Amount</th>
+                        <th>Balance Before</th>
+                        <th>Balance After</th>
+                        <th>Time</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(selectedDetail.ledgerEntries || []).map((entry) => (
+                        <tr key={entry.id}>
+                          <td>
+                            <span className={`casino-ledger-side ${String(entry.entrySide || '').toUpperCase() === 'DEBIT' ? 'side-debit' : 'side-credit'}`}>
+                              {entry.entrySide || '—'}
+                            </span>
+                          </td>
+                          <td>{entry.type || '—'}</td>
+                          <td>{formatMoney(entry.amount)}</td>
+                          <td>{formatMoney(entry.balanceBefore)}</td>
+                          <td>{formatMoney(entry.balanceAfter)}</td>
+                          <td>{formatDateTime(entry.createdAt)}</td>
+                        </tr>
+                      ))}
+                      {(selectedDetail.ledgerEntries || []).length === 0 && (
+                        <tr>
+                          <td colSpan={6} className="casino-ledger-empty">No ledger entries found.</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

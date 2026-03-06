@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { loginUser, getMe, getPublicBetModeRules, normalizeBetMode } from './api';
+import { loginUser, getMe, getPublicBetModeRules, normalizeBetMode, updateProfile } from './api';
 import Header from './components/Header';
 import LeagueNav from './components/LeagueNav';
 import Hero from './components/Hero';
@@ -24,6 +24,9 @@ import MyBetsView from './components/MyBetsView';
 import AdminPanel from './components/AdminPanel';
 import LandingPage from './components/LandingPage';
 import ModeBetPanel from './components/ModeBetPanel';
+import { useToast } from './contexts/ToastContext';
+import { OddsFormatProvider } from './contexts/OddsFormatContext';
+import { normalizeOddsFormat, readStoredOddsFormat, writeStoredOddsFormat } from './utils/odds';
 import './index.css';
 import './dashboard.css';
 
@@ -37,6 +40,7 @@ const DEFAULT_BET_MODE_RULES = {
 
 function App() {
   const navigate = useNavigate();
+  const { showToast } = useToast();
   const [token, setToken] = useState(localStorage.getItem('token') || null);
   const [isLoggedIn, setIsLoggedIn] = useState(Boolean(token));
   const [activeLeague, setActiveLeague] = useState('all');
@@ -55,6 +59,18 @@ function App() {
     && window.matchMedia('(max-width: 768px)').matches;
 
   const [user, setUser] = useState(null); // Store full user object
+  const [oddsFormat, setOddsFormat] = useState(readStoredOddsFormat());
+  const [isUpdatingOddsFormat, setIsUpdatingOddsFormat] = useState(false);
+
+  const applyOddsFormat = (nextFormat, userId = '') => {
+    const normalized = normalizeOddsFormat(nextFormat);
+    setOddsFormat(normalized);
+    writeStoredOddsFormat(normalized, userId);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('oddsFormat:change', { detail: normalized }));
+    }
+    return normalized;
+  };
 
   // Initial Load - Check for token (simplified)
   useEffect(() => {
@@ -69,6 +85,12 @@ function App() {
       document.body.classList.remove('dashboard-mode');
     }
   }, [token]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    const preferredFormat = normalizeOddsFormat(user?.settings?.oddsFormat || readStoredOddsFormat(user.id));
+    applyOddsFormat(preferredFormat, user.id);
+  }, [user?.id, user?.settings?.oddsFormat]);
 
   useEffect(() => {
     const loadBetModeRules = async () => {
@@ -170,7 +192,8 @@ function App() {
         availableBalance: result.availableBalance,
         id: result.id,
         role: result.role,
-        unlimitedBalance: result.unlimitedBalance // Store this
+        unlimitedBalance: result.unlimitedBalance,
+        settings: result.settings || null,
       });
 
       setIsLoggedIn(true);
@@ -241,9 +264,59 @@ function App() {
     });
   };
 
+  const handleOddsFormatChange = async (nextFormat) => {
+    const userId = user?.id || '';
+    const normalized = applyOddsFormat(nextFormat, userId);
+
+    setUser(prev => (
+      prev
+        ? {
+          ...prev,
+          settings: {
+            ...(prev.settings || {}),
+            oddsFormat: normalized,
+          },
+        }
+        : prev
+    ));
+
+    if (!token) return;
+
+    try {
+      setIsUpdatingOddsFormat(true);
+      const response = await updateProfile({ settings: { oddsFormat: normalized } }, token);
+      const persistedSettings = response?.user?.settings;
+      if (persistedSettings && userId) {
+        writeStoredOddsFormat(persistedSettings.oddsFormat || normalized, userId);
+      }
+      if (persistedSettings) {
+        setUser(prev => (
+          prev
+            ? {
+              ...prev,
+              settings: persistedSettings,
+            }
+            : prev
+        ));
+      }
+    } catch (error) {
+      console.error('Failed to persist odds format:', error);
+      showToast('Odds format updated locally, but profile sync failed.', 'warning');
+    } finally {
+      setIsUpdatingOddsFormat(false);
+    }
+  };
+
+  const oddsFormatContextValue = {
+    oddsFormat,
+    setOddsFormat: handleOddsFormatChange,
+    isUpdatingOddsFormat,
+  };
+
 
   return (
-    <div className="app-container">
+    <OddsFormatProvider value={oddsFormatContextValue}>
+      <div className="app-container">
       {/* Standard User Interface */}
       {!isLoggedIn ? (
         <LandingPage onLogin={handleLogin} isLoggedIn={isLoggedIn} />
@@ -395,7 +468,8 @@ function App() {
           </div>
         </div>
       )}
-    </div>
+      </div>
+    </OddsFormatProvider>
   );
 }
 

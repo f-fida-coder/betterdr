@@ -1,7 +1,17 @@
 import React from 'react';
 import useMatches from '../hooks/useMatches';
+import { useOddsFormat } from '../contexts/OddsFormatContext';
+import {
+    formatLineValue,
+    formatOdds,
+    getMatchMarket,
+    getMarketOutcomeByKeyword,
+    getMarketOutcomeByName,
+    parseOddsNumber,
+} from '../utils/odds';
 
 const MobileContentView = ({ selectedSports = [] }) => {
+    const { oddsFormat } = useOddsFormat();
     const getSportName = (id) => {
         const sportMap = {
             'nfl': 'NFL Football',
@@ -69,53 +79,27 @@ const MobileContentView = ({ selectedSports = [] }) => {
     };
 
     const extractOdds = (match, homeName, awayName) => {
-        if (!match || !match.odds) {
-            return {
-                spreadHomePoint: null,
-                spreadAwayPoint: null,
-                spreadHomePrice: null,
-                spreadAwayPrice: null,
-                moneylineHome: null,
-                moneylineAway: null,
-                totalPoint: null,
-                totalOverPrice: null,
-                totalUnderPrice: null
-            };
-        }
+        const h2h = getMatchMarket(match, 'h2h');
+        const spreads = getMatchMarket(match, 'spreads');
+        const totals = getMatchMarket(match, 'totals');
 
-        const markets = Array.isArray(match.odds.markets) ? match.odds.markets : [];
-        const byKey = (key) => markets.find(m => String(m.key || '').toLowerCase() === key);
-
-        const pickOutcome = (market, teamName) => {
-            if (!market || !Array.isArray(market.outcomes)) return null;
-            const exact = market.outcomes.find(o => String(o.name || '').toLowerCase() === String(teamName || '').toLowerCase());
-            if (exact) return exact;
-            return market.outcomes.find(o => String(o.name || '').toLowerCase().includes(String(teamName || '').toLowerCase())) || null;
-        };
-
-        const h2h = byKey('h2h');
-        const spreads = byKey('spreads');
-        const totals = byKey('totals');
-
-        const h2hHome = pickOutcome(h2h, homeName);
-        const h2hAway = pickOutcome(h2h, awayName);
-
-        const spreadHome = pickOutcome(spreads, homeName);
-        const spreadAway = pickOutcome(spreads, awayName);
-
-        const totalOver = totals?.outcomes?.find(o => String(o.name || '').toLowerCase().includes('over')) || null;
-        const totalUnder = totals?.outcomes?.find(o => String(o.name || '').toLowerCase().includes('under')) || null;
+        const h2hHome = getMarketOutcomeByName(h2h, homeName);
+        const h2hAway = getMarketOutcomeByName(h2h, awayName);
+        const spreadHome = getMarketOutcomeByName(spreads, homeName);
+        const spreadAway = getMarketOutcomeByName(spreads, awayName);
+        const totalOver = getMarketOutcomeByKeyword(totals, 'over');
+        const totalUnder = getMarketOutcomeByKeyword(totals, 'under');
 
         return {
             spreadHomePoint: spreadHome?.point ?? null,
             spreadAwayPoint: spreadAway?.point ?? null,
-            spreadHomePrice: spreadHome?.price ?? null,
-            spreadAwayPrice: spreadAway?.price ?? null,
-            moneylineHome: h2hHome?.price ?? null,
-            moneylineAway: h2hAway?.price ?? null,
+            spreadHomePrice: parseOddsNumber(spreadHome?.price),
+            spreadAwayPrice: parseOddsNumber(spreadAway?.price),
+            moneylineHome: parseOddsNumber(h2hHome?.price),
+            moneylineAway: parseOddsNumber(h2hAway?.price),
             totalPoint: totalOver?.point ?? totalUnder?.point ?? null,
-            totalOverPrice: totalOver?.price ?? null,
-            totalUnderPrice: totalUnder?.price ?? null
+            totalOverPrice: parseOddsNumber(totalOver?.price),
+            totalUnderPrice: parseOddsNumber(totalUnder?.price)
         };
     };
 
@@ -231,7 +215,7 @@ const MobileContentView = ({ selectedSports = [] }) => {
                                     color: '#333'
                                 }}>
                                     <span>{match.team1}</span>
-                                    <span>{match.odds.spreadHomePoint ?? '-'}</span>
+                                    <span>{formatLineValue(match.odds.spreadHomePoint, { signed: true })}</span>
                                 </div>
                                 <div style={{
                                     display: 'flex',
@@ -243,7 +227,7 @@ const MobileContentView = ({ selectedSports = [] }) => {
                                     color: '#333'
                                 }}>
                                     <span>{match.team2}</span>
-                                    <span>{match.odds.spreadAwayPoint ?? '-'}</span>
+                                    <span>{formatLineValue(match.odds.spreadAwayPoint, { signed: true })}</span>
                                 </div>
                             </div>
 
@@ -266,7 +250,7 @@ const MobileContentView = ({ selectedSports = [] }) => {
                                     transition: 'all 0.2s',
                                 }}>
                                     Spread<br />
-                                    <span style={{ fontSize: '14px', fontWeight: 'bold', color: '#007bff' }}>{match.odds.spreadHomePrice ?? '-'}</span>
+                                    <span style={{ fontSize: '14px', fontWeight: 'bold', color: '#007bff' }}>{formatOdds(match.odds.spreadHomePrice, oddsFormat)}</span>
                                 </button>
                                 <button style={{
                                     padding: '10px',
@@ -280,7 +264,7 @@ const MobileContentView = ({ selectedSports = [] }) => {
                                     transition: 'all 0.2s',
                                 }}>
                                     Total<br />
-                                    <span style={{ fontSize: '14px', fontWeight: 'bold', color: '#007bff' }}>{match.odds.totalOverPrice ?? '-'}</span>
+                                    <span style={{ fontSize: '14px', fontWeight: 'bold', color: '#007bff' }}>{formatOdds(match.odds.totalOverPrice, oddsFormat)}</span>
                                 </button>
                             </div>
                         </div>

@@ -1,6 +1,8 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { placeBet, normalizeBetMode, createRequestId } from '../api';
 import { useToast } from '../contexts/ToastContext';
+import { useOddsFormat } from '../contexts/OddsFormatContext';
+import { formatOdds } from '../utils/odds';
 import BetConfirmationModal from './BetConfirmationModal';
 
 const DEFAULT_RULES = {
@@ -19,7 +21,7 @@ const MODE_TABS = [
     { id: 'reverse', label: 'REVERSE', icon: 'R' }
 ];
 
-const formatDecimal = (value) => {
+const formatAmount = (value) => {
     const n = Number(value);
     return Number.isFinite(n) ? n.toFixed(2) : '0.00';
 };
@@ -45,12 +47,14 @@ const ModeBetPanel = ({
     onBetPlaced
 }) => {
     const { showToast } = useToast();
+    const { oddsFormat } = useOddsFormat();
     const [message, setMessage] = useState(null);
     const [placing, setPlacing] = useState(false);
     const [isMobile, setIsMobile] = useState(false);
     const [submitAttempted, setSubmitAttempted] = useState(false);
     const [showConfirm, setShowConfirm] = useState(false);
-    const pendingRequestIdRef = useRef('');
+    const requestStateRef = useRef({ requestId: '', signature: '' });
+    const submissionLockRef = useRef(false);
 
     useEffect(() => {
         const media = window.matchMedia('(max-width: 768px)');
@@ -86,6 +90,18 @@ const ModeBetPanel = ({
         }
         return errors;
     }, [legCount, normalizedMode, rule, selections, wagerAmount, teaserValid]);
+
+    const ticketSignature = useMemo(() => JSON.stringify({
+        type: normalizedMode,
+        amount: Number.isFinite(wagerAmount) ? Number(wagerAmount.toFixed(2)) : null,
+        teaserPoints: normalizedMode === 'teaser' ? Number(teaserPointValue.toFixed(2)) : 0,
+        selections: selections.map((sel) => ({
+            matchId: String(sel?.matchId || ''),
+            selection: String(sel?.selection || ''),
+            marketType: String(sel?.marketType || ''),
+            odds: Number.isFinite(Number(sel?.odds)) ? Number(Number(sel.odds).toFixed(4)) : null,
+        })),
+    }), [normalizedMode, selections, teaserPointValue, wagerAmount]);
 
     const potentialPayout = useMemo(() => {
         if (!Number.isFinite(wagerAmount) || wagerAmount <= 0 || legCount === 0) return 0;
@@ -135,10 +151,29 @@ const ModeBetPanel = ({
         onWagerChange('');
         setMessage(null);
         setSubmitAttempted(false);
-        pendingRequestIdRef.current = '';
+        requestStateRef.current = { requestId: '', signature: '' };
+    };
+
+    const getRequestIdForTicket = () => {
+        if (
+            requestStateRef.current.requestId
+            && requestStateRef.current.signature === ticketSignature
+        ) {
+            return requestStateRef.current.requestId;
+        }
+
+        const requestId = createRequestId();
+        requestStateRef.current = {
+            requestId,
+            signature: ticketSignature,
+        };
+        return requestId;
     };
 
     const handlePlaceBet = async () => {
+        if (placing || submissionLockRef.current) {
+            return;
+        }
         const token = localStorage.getItem('token');
         if (!token) {
             setSubmitAttempted(true);
@@ -163,6 +198,9 @@ const ModeBetPanel = ({
     };
 
     const executePlaceBet = async () => {
+        if (submissionLockRef.current) {
+            return;
+        }
         const token = localStorage.getItem('token');
         if (!token) {
             showToast('Please login to place bets', 'error');
@@ -201,27 +239,28 @@ const ModeBetPanel = ({
         }
 
         try {
+            submissionLockRef.current = true;
             setPlacing(true);
             setShowConfirm(false);
-            const requestId = pendingRequestIdRef.current || createRequestId();
-            pendingRequestIdRef.current = requestId;
+            const requestId = getRequestIdForTicket();
             const result = await placeBet(payload, token, { requestId });
             const successText = result?.message || 'Bet placed successfully';
-            pendingRequestIdRef.current = '';
+            requestStateRef.current = { requestId: '', signature: '' };
             setMessage({ type: 'success', text: successText });
             showToast(successText, 'success');
             clearSlip();
             window.dispatchEvent(new Event('user:refresh'));
             if (onBetPlaced) onBetPlaced();
         } catch (error) {
-            const blockingCodes = ['ODDS_CHANGED', 'INVALID_COMBINATION', 'MATCH_NOT_BETTABLE', 'MARKET_CLOSED', 'SELECTION_CLOSED', 'REQUEST_ID_REUSED'];
+            const blockingCodes = ['REQUEST_ID_REQUIRED', 'REQUEST_ID_REUSED'];
             if (blockingCodes.includes(String(error?.code || ''))) {
-                pendingRequestIdRef.current = '';
+                requestStateRef.current = { requestId: '', signature: '' };
             }
             const errorText = error.message || 'Failed to place bet';
             setMessage({ type: 'error', text: errorText });
             showToast(errorText, 'error');
         } finally {
+            submissionLockRef.current = false;
             setPlacing(false);
         }
     };
@@ -342,7 +381,7 @@ const ModeBetPanel = ({
                         <div style={{ fontSize: 13, fontWeight: 700 }}>{sel.selection}</div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4, fontSize: 12 }}>
                             <span>{sel.marketLabel}</span>
-                            <span>{formatDecimal(sel.odds)}</span>
+                            <span>{formatOdds(sel.odds, oddsFormat)}</span>
                         </div>
                         <div style={{ marginTop: 6 }}>
                             <button
@@ -365,7 +404,7 @@ const ModeBetPanel = ({
                         placeholder="0.00"
                         style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid #cfd4dd' }}
                     />
-                    <div style={{ fontSize: 11, color: '#666', marginTop: 4 }}>Balance: ${formatDecimal(balance)}</div>
+                    <div style={{ fontSize: 11, color: '#666', marginTop: 4 }}>Balance: ${formatAmount(balance)}</div>
                 </div>
 
                 {normalizedMode === 'teaser' && Array.isArray(rule.teaserPointOptions) && rule.teaserPointOptions.length > 0 && (
@@ -387,11 +426,11 @@ const ModeBetPanel = ({
                 <div style={{ marginTop: 10, padding: 10, borderRadius: 8, background: '#eef3fa', fontSize: 12 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                         <span>Total Risk</span>
-                        <strong>${formatDecimal(totalRisk)}</strong>
+                        <strong>${formatAmount(totalRisk)}</strong>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}>
                         <span>Potential Payout</span>
-                        <strong>${formatDecimal(potentialPayout)}</strong>
+                        <strong>${formatAmount(potentialPayout)}</strong>
                     </div>
                 </div>
 

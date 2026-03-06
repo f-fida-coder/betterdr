@@ -2,18 +2,15 @@ import React, { useEffect, useMemo, useState, useRef, useCallback } from 'react'
 import '../casino.css';
 import { getCasinoCategories, getCasinoGames, launchCasinoGame, getBalance, placeCasinoBet, getCasinoBetHistory } from '../api';
 
-/* ── Local (in-house) games ─────────────────────────────────── */
-const LOCAL_GAMES = [
-    {
+const LOCAL_GAME_META = {
+    baccarat: {
         id: 'local-baccarat',
-        name: 'Baccarat',
         provider: 'In-House',
         url: '/games/baccarat/index.html',
         poster: '/games/baccarat/assets/menuscreen.webp',
         themeColor: '#1a0a2e',
-        status: 'active',
-    },
-];
+    }
+};
 
 const CATEGORY_META = {
     lobby: { label: 'Lobby', icon: 'fa-solid fa-table-cells-large' },
@@ -225,11 +222,30 @@ const CasinoView = () => {
         setActiveLocalGame(game);
     };
 
-    /* ── Filter local games by search ─────────────────────────── */
-    const filteredLocalGames = LOCAL_GAMES.filter((g) => {
-        if (searchValue && !g.name.toLowerCase().includes(searchValue.toLowerCase())) return false;
-        return true;
-    });
+    const localGames = useMemo(() => {
+        const canShowEmbeddedTableGame = activeCategory === 'lobby' || activeCategory === 'table_games';
+        if (!canShowEmbeddedTableGame) return [];
+
+        return games
+            .filter((game) => game?.slug && LOCAL_GAME_META[game.slug])
+            .map((game) => ({
+                ...LOCAL_GAME_META[game.slug],
+                id: `local-${game.slug}`,
+                backendId: game.id,
+                name: game.name || 'Baccarat',
+                provider: game.provider || LOCAL_GAME_META[game.slug].provider,
+                themeColor: game.themeColor || LOCAL_GAME_META[game.slug].themeColor,
+                status: game.status || 'active',
+                minBet: game.minBet,
+                maxBet: game.maxBet,
+                isFeatured: !!game.isFeatured,
+            }));
+    }, [activeCategory, games]);
+
+    const catalogGames = useMemo(
+        () => games.filter((game) => !(game?.slug && LOCAL_GAME_META[game.slug])),
+        [games]
+    );
 
     return (
         <div className="casino-wrapper">
@@ -296,14 +312,14 @@ const CasinoView = () => {
             </div>
 
             {/* ── Local (in-house) games section ──────────────── */}
-            {filteredLocalGames.length > 0 && (
+            {localGames.length > 0 && (
                 <div className="casino-local-section">
                     <div className="casino-local-header">
                         <i className="fa-solid fa-gem"></i>
                         <span>In-House Games</span>
                     </div>
                     <div className="casino-grid">
-                        {filteredLocalGames.map((game) => (
+                        {localGames.map((game) => (
                             <article
                                 className="casino-card local-game-card"
                                 key={game.id}
@@ -486,16 +502,16 @@ const CasinoView = () => {
                 </div>
             )}
 
-            {!loading && !error && games.length === 0 && filteredLocalGames.length === 0 && (
+            {!loading && !error && catalogGames.length === 0 && localGames.length === 0 && (
                 <div className="casino-feedback-state">
                     <i className="fa-regular fa-folder-open"></i>
                     <span>No games found for this filter.</span>
                 </div>
             )}
 
-            {!loading && !error && games.length > 0 && (
+            {!loading && !error && catalogGames.length > 0 && (
                 <div className="casino-grid">
-                    {games.map((game) => (
+                    {catalogGames.map((game) => (
                         <article className="casino-card" key={game.id}>
                             <div className="casino-card-image" style={{ background: `linear-gradient(135deg, #0f172a, ${game.themeColor || '#0f5db3'})` }}>
                                 {game.imageUrl ? (

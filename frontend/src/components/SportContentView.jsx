@@ -2,8 +2,19 @@ import React, { useState } from 'react';
 import { placeBet } from '../api';
 import useMatches from '../hooks/useMatches';
 import { createFallbackTeamLogoDataUri, fetchTeamBadgeUrl } from '../utils/teamLogos';
+import { useOddsFormat } from '../contexts/OddsFormatContext';
+import {
+    formatOdds,
+    formatSpreadDisplay,
+    formatTotalDisplay,
+    getMatchMarket,
+    getMarketOutcomeByKeyword,
+    getMarketOutcomeByName,
+    parseOddsNumber,
+} from '../utils/odds';
 
 const SportContentView = ({ sportId, selectedItems = [], filter = null, status = 'live-upcoming', activeBetMode = 'straight' }) => {
+    const { oddsFormat } = useOddsFormat();
     const [activeTab, setActiveTab] = useState('matches');
     const [teamLogos, setTeamLogos] = useState({});
     const attemptedLogoFetchesRef = React.useRef(new Set());
@@ -77,9 +88,9 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
         setIsLoading(true);
 
         // Map rawMatches into view-friendly structure and filter by sportId where possible
-        const processMatches = () => {
-            const matchesData = (rawMatches || []);
-            const keywords = getSportKeywords(resolvedSportId);
+            const processMatches = () => {
+                const matchesData = (rawMatches || []);
+                const keywords = getSportKeywords(resolvedSportId);
 
             let filteredMatches = matchesData.filter(m => {
                 if (!resolvedSportId) return true;
@@ -106,56 +117,33 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
             // }
 
             const extractOdds = (match, homeName, awayName) => {
-                if (!match || !match.odds) {
-                    return {
-                        spread: ['-', '-'],
-                        moneyline: ['-', '-'],
-                        total: ['-', '-']
-                    };
-                }
+                const h2h = getMatchMarket(match, 'h2h');
+                const spreads = getMatchMarket(match, 'spreads');
+                const totals = getMatchMarket(match, 'totals');
 
-                if (match.odds.spread && match.odds.moneyline && match.odds.total) {
-                    return match.odds;
-                }
-
-                const markets = Array.isArray(match.odds.markets) ? match.odds.markets : [];
-                const byKey = (key) => markets.find(m => String(m.key || '').toLowerCase() === key);
-
-                const pickOutcome = (market, teamName) => {
-                    if (!market || !Array.isArray(market.outcomes)) return null;
-                    const exact = market.outcomes.find(o => String(o.name || '').toLowerCase() === String(teamName || '').toLowerCase());
-                    if (exact) return exact;
-                    return market.outcomes.find(o => String(o.name || '').toLowerCase().includes(String(teamName || '').toLowerCase())) || null;
-                };
-
-                const h2h = byKey('h2h');
-                const spreads = byKey('spreads');
-                const totals = byKey('totals');
-
-                const h2hHome = pickOutcome(h2h, homeName);
-                const h2hAway = pickOutcome(h2h, awayName);
-
-                const spreadHome = pickOutcome(spreads, homeName);
-                const spreadAway = pickOutcome(spreads, awayName);
-
-                const totalOver = totals?.outcomes?.find(o => String(o.name || '').toLowerCase().includes('over')) || null;
-                const totalUnder = totals?.outcomes?.find(o => String(o.name || '').toLowerCase().includes('under')) || null;
-
-                const spreadPoint = spreadHome?.point ?? spreadAway?.point;
+                const h2hHome = getMarketOutcomeByName(h2h, homeName);
+                const h2hAway = getMarketOutcomeByName(h2h, awayName);
+                const spreadHome = getMarketOutcomeByName(spreads, homeName);
+                const spreadAway = getMarketOutcomeByName(spreads, awayName);
+                const totalOver = getMarketOutcomeByKeyword(totals, 'over');
+                const totalUnder = getMarketOutcomeByKeyword(totals, 'under');
 
                 return {
-                    spread: [
-                        `${spreadPoint ?? '-'} (${spreadHome?.price ?? '-'})`,
-                        `${spreadPoint !== undefined && spreadPoint !== null ? -spreadPoint : '-'} (${spreadAway?.price ?? '-'})`
-                    ],
-                    moneyline: [
-                        `${h2hHome?.price ?? '-'}`,
-                        `${h2hAway?.price ?? '-'}`
-                    ],
-                    total: [
-                        `O ${totalOver?.point ?? totalUnder?.point ?? '-'} (${totalOver?.price ?? '-'})`,
-                        `U ${totalUnder?.point ?? totalOver?.point ?? '-'} (${totalUnder?.price ?? '-'})`
-                    ]
+                    spread: {
+                        homePoint: spreadHome?.point ?? null,
+                        homeOdds: parseOddsNumber(spreadHome?.price),
+                        awayPoint: spreadAway?.point ?? null,
+                        awayOdds: parseOddsNumber(spreadAway?.price),
+                    },
+                    moneyline: {
+                        homeOdds: parseOddsNumber(h2hHome?.price),
+                        awayOdds: parseOddsNumber(h2hAway?.price),
+                    },
+                    total: {
+                        point: totalOver?.point ?? totalUnder?.point ?? null,
+                        overOdds: parseOddsNumber(totalOver?.price),
+                        underOdds: parseOddsNumber(totalUnder?.price),
+                    },
                 };
             };
 
@@ -218,12 +206,14 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
     }, [content.matches]);
 
     const handleAddToSlip = (matchId, selection, marketType, odds, matchName, marketLabel) => {
+        const parsedOdds = parseOddsNumber(odds);
+        if (!matchId || !selection || parsedOdds === null) return;
         window.dispatchEvent(new CustomEvent('betslip:add', {
             detail: {
                 matchId,
                 selection,
                 marketType,
-                odds: parseFloat(odds),
+                odds: parsedOdds,
                 matchName,
                 marketLabel
             }
@@ -338,15 +328,15 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                     <div className="odds-values-group">
                                                         <button
                                                             className="odds-value-btn"
-                                                            onClick={() => handleAddToSlip(match.id, match.team1.name, 'spreads', match.rawMatch.odds?.markets?.find(m => m.key === 'spreads')?.outcomes.find(o => o.name === match.team1.name)?.price, `${match.team1.name} vs ${match.team2.name}`, 'Spread')}
+                                                            onClick={() => handleAddToSlip(match.id, match.team1.name, 'spreads', match.odds.spread.homeOdds, `${match.team1.name} vs ${match.team2.name}`, 'Spread')}
                                                     >
-                                                        {match.odds.spread[0]}
+                                                        {formatSpreadDisplay(match.odds.spread.homePoint, match.odds.spread.homeOdds, oddsFormat)}
                                                     </button>
                                                     <button
                                                         className="odds-value-btn"
-                                                        onClick={() => handleAddToSlip(match.id, match.team2.name, 'spreads', match.rawMatch.odds?.markets?.find(m => m.key === 'spreads')?.outcomes.find(o => o.name === match.team2.name)?.price, `${match.team1.name} vs ${match.team2.name}`, 'Spread')}
+                                                        onClick={() => handleAddToSlip(match.id, match.team2.name, 'spreads', match.odds.spread.awayOdds, `${match.team1.name} vs ${match.team2.name}`, 'Spread')}
                                                     >
-                                                        {match.odds.spread[1]}
+                                                        {formatSpreadDisplay(match.odds.spread.awayPoint, match.odds.spread.awayOdds, oddsFormat)}
                                                     </button>
                                                 </div>
                                                 </div>
@@ -357,15 +347,15 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                     <div className="odds-values-group">
                                                         <button
                                                             className="odds-value-btn"
-                                                            onClick={() => handleAddToSlip(match.id, match.team1.name, 'h2h', match.rawMatch.odds?.markets?.find(m => m.key === 'h2h')?.outcomes.find(o => o.name === match.team1.name)?.price, `${match.team1.name} vs ${match.team2.name}`, 'Moneyline')}
+                                                            onClick={() => handleAddToSlip(match.id, match.team1.name, 'h2h', match.odds.moneyline.homeOdds, `${match.team1.name} vs ${match.team2.name}`, 'Moneyline')}
                                                     >
-                                                        {match.odds.moneyline[0]}
+                                                        {formatOdds(match.odds.moneyline.homeOdds, oddsFormat)}
                                                     </button>
                                                     <button
                                                         className="odds-value-btn"
-                                                        onClick={() => handleAddToSlip(match.id, match.team2.name, 'h2h', match.rawMatch.odds?.markets?.find(m => m.key === 'h2h')?.outcomes.find(o => o.name === match.team2.name)?.price, `${match.team1.name} vs ${match.team2.name}`, 'Moneyline')}
+                                                        onClick={() => handleAddToSlip(match.id, match.team2.name, 'h2h', match.odds.moneyline.awayOdds, `${match.team1.name} vs ${match.team2.name}`, 'Moneyline')}
                                                     >
-                                                        {match.odds.moneyline[1]}
+                                                        {formatOdds(match.odds.moneyline.awayOdds, oddsFormat)}
                                                     </button>
                                                 </div>
                                                 </div>
@@ -376,15 +366,15 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                     <div className="odds-values-group">
                                                         <button
                                                             className="odds-value-btn"
-                                                            onClick={() => handleAddToSlip(match.id, 'Over', 'totals', match.rawMatch.odds?.markets?.find(m => m.key === 'totals')?.outcomes.find(o => o.name.toLowerCase().includes('over'))?.price, `${match.team1.name} vs ${match.team2.name}`, 'Total')}
+                                                            onClick={() => handleAddToSlip(match.id, 'Over', 'totals', match.odds.total.overOdds, `${match.team1.name} vs ${match.team2.name}`, 'Total')}
                                                     >
-                                                        {match.odds.total[0]}
+                                                        {formatTotalDisplay('O', match.odds.total.point, match.odds.total.overOdds, oddsFormat)}
                                                         </button>
                                                         <button
                                                             className="odds-value-btn"
-                                                            onClick={() => handleAddToSlip(match.id, 'Under', 'totals', match.rawMatch.odds?.markets?.find(m => m.key === 'totals')?.outcomes.find(o => o.name.toLowerCase().includes('under'))?.price, `${match.team1.name} vs ${match.team2.name}`, 'Total')}
+                                                            onClick={() => handleAddToSlip(match.id, 'Under', 'totals', match.odds.total.underOdds, `${match.team1.name} vs ${match.team2.name}`, 'Total')}
                                                         >
-                                                            {match.odds.total[1]}
+                                                            {formatTotalDisplay('U', match.odds.total.point, match.odds.total.underOdds, oddsFormat)}
                                                         </button>
                                                     </div>
                                                 </div>

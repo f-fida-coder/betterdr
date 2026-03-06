@@ -49,8 +49,12 @@ const buildApiUrl = (path = '', params = null) => {
 
 export const BACKEND_BASE_URL = API_URL.replace(/\/api\/?$/, '');
 export const normalizeBetMode = (mode) => String(mode || 'straight').toLowerCase().replace(/-/g, '_').trim();
-export const createRequestId = () =>
-    `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 12)}`;
+export const createRequestId = () => {
+    const randomChunk = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID().replace(/-/g, '').slice(0, 20)
+        : Math.random().toString(36).slice(2, 14);
+    return `bet_${Date.now().toString(36)}_${randomChunk}`;
+};
 
 const getHeaders = (token = null) => {
     const headers = {

@@ -11,66 +11,149 @@ if ! command -v php >/dev/null 2>&1; then
   exit 1
 fi
 
-if ! command -v rg >/dev/null 2>&1; then
-  echo "ERROR: rg (ripgrep) is required."
+if ! command -v curl >/dev/null 2>&1; then
+  echo "ERROR: curl is required."
   exit 1
 fi
 
 cd "$ROOT_DIR"
 
-php -S "${HOST}:${PORT}" -t php-backend/public php-backend/public/router.php >/tmp/php_route_parity.log 2>&1 &
-PHP_PID=$!
+route_file="$(mktemp)"
+body_file=""
+
 cleanup() {
-  kill "$PHP_PID" >/dev/null 2>&1 || true
+  if [[ -n "${body_file}" && -f "${body_file}" ]]; then
+    rm -f "${body_file}"
+  fi
+  rm -f "${route_file}"
+  if [[ -n "${PHP_PID:-}" ]]; then
+    kill "${PHP_PID}" >/dev/null 2>&1 || true
+  fi
 }
 trap cleanup EXIT
+
+php -- "$ROOT_DIR" > "$route_file" <<'PHP_ROUTES'
+<?php
+$root = $argv[1];
+$files = glob($root . "/php-backend/src/*Controller.php");
+sort($files);
+$routes = [];
+
+function sample_path(string $pattern): string
+{
+    $path = preg_replace("/\\(\\[a-fA-F0-9\\]\\{24\\}\\)/", "507f1f77bcf86cd799439011", $pattern);
+    $path = preg_replace("/\\(\\[\\^\\/\\]\\+\\)/", "TEST", $path);
+    $path = preg_replace("/\\([^)]*\\)/", "TEST", $path);
+    $path = str_replace(["\\\\/", "\\\\-"], ["/", "-"], $path);
+    return $path;
+}
+
+foreach ($files as $file) {
+    $insideHandle = false;
+    $braceDepth = 0;
+    foreach (file($file) as $line) {
+        if (!$insideHandle && preg_match('/public function handle\(string \$method, string \$path\): bool/', $line) === 1) {
+            $insideHandle = true;
+            $braceDepth = 0;
+            continue;
+        }
+        if (!$insideHandle) {
+            continue;
+        }
+
+        $lineBraceDelta = substr_count($line, "{") - substr_count($line, "}");
+
+        if ($braceDepth === 0) {
+            $braceDepth += $lineBraceDelta;
+            if ($braceDepth <= 0) {
+                continue;
+            }
+            if (trim($line) === "{") {
+                continue;
+            }
+        } else {
+            $braceDepth += $lineBraceDelta;
+        }
+
+        if (preg_match('/\$method\s*===\s*\'([A-Z]+)\'/', $line, $methodMatch) !== 1) {
+            if ($braceDepth <= 0) {
+                $insideHandle = false;
+            }
+            continue;
+        }
+
+        $method = $methodMatch[1];
+
+        if (preg_match('/preg_match\(\'#\^([^\']+)\$#\',\s*\$path/', $line, $pathMatch) === 1) {
+            $route = sample_path($pathMatch[1]);
+            if ($route !== "") {
+                $routes[$method . " " . $route] = true;
+            }
+        } elseif (preg_match_all('/\$path\s*===\s*\'([^\']+)\'/', $line, $pathMatches) > 0) {
+            foreach ($pathMatches[1] as $route) {
+                if ($route !== "") {
+                    $routes[$method . " " . $route] = true;
+                }
+            }
+        }
+
+        if ($braceDepth <= 0) {
+            $insideHandle = false;
+        }
+    }
+}
+
+$out = array_keys($routes);
+sort($out);
+foreach ($out as $route) {
+    echo $route, PHP_EOL;
+}
+PHP_ROUTES
+
+route_count="$(wc -l < "$route_file" | tr -d ' ')"
+if [[ "${route_count}" == "0" ]]; then
+  echo "ERROR: no PHP controller routes were discovered."
+  exit 1
+fi
+
+php -S "${HOST}:${PORT}" -t php-backend/public php-backend/public/router.php >/tmp/php_route_parity.log 2>&1 &
+PHP_PID=$!
 sleep 1
 
 tested=0
 missing=0
 
-while IFS=' ' read -r file method path; do
-  case "$file" in
-    authRoutes.js) base="/api/auth" ;;
-    walletRoutes.js) base="/api/wallet" ;;
-    betRoutes.js) base="/api/bets" ;;
-    adminRoutes.js) base="/api/admin" ;;
-    agentRoutes.js) base="/api/agent" ;;
-    paymentRoutes.js) base="/api/payments" ;;
-    matchRoutes.js) base="/api/matches" ;;
-    bettingRoutes.js) base="/api/betting" ;;
-    debugRoutes.js) base="/api/debug" ;;
-    messageRoutes.js) base="/api/messages" ;;
-    casinoRoutes.js) base="/api/casino" ;;
-    contentRoutes.js) base="/api/content" ;;
-    *) continue ;;
-  esac
-
-  full_path="${base}${path}"
-  full_path="${full_path%/}"
-  if [[ -z "$full_path" ]]; then
-    full_path="$base"
-  fi
-
-  full_path="$(echo "$full_path" | /usr/bin/sed -E 's#:[A-Za-z_]+#507f1f77bcf86cd799439011#g')"
-  full_path="$(echo "$full_path" | /usr/bin/sed 's#/next-username/507f1f77bcf86cd799439011#/next-username/TEST#')"
+while IFS=' ' read -r method path; do
+  [[ -n "${method}" && -n "${path}" ]] || continue
 
   tested=$((tested + 1))
   body_file="$(mktemp)"
   method_upper="$(echo "$method" | tr '[:lower:]' '[:upper:]')"
-  code="$(/usr/bin/curl -sS -o "$body_file" -w "%{http_code}" -X "${method_upper}" "${BASE_URL}${full_path}" -H 'Content-Type: application/json' --data '{}' || echo "000")"
+
+  set +e
+  if [[ "$method_upper" == "GET" ]]; then
+    code="$(curl -sS --max-time 3 -o "$body_file" -w "%{http_code}" -X "${method_upper}" "${BASE_URL}${path}" -H 'Content-Type: application/json' 2>/dev/null)"
+  else
+    code="$(curl -sS --max-time 3 -o "$body_file" -w "%{http_code}" -X "${method_upper}" "${BASE_URL}${path}" -H 'Content-Type: application/json' --data '{}' 2>/dev/null)"
+  fi
+  curl_exit=$?
+  set -e
+
   body="$(cat "$body_file")"
   rm -f "$body_file"
+  body_file=""
+
+  if [[ "$curl_exit" -eq 28 && "$code" != "000" ]]; then
+    continue
+  fi
 
   if [[ "$code" == "000" || "$code" == "502" ]] || ([[ "$code" == "404" ]] && [[ "$body" == *"API route not found"* ]]); then
     missing=$((missing + 1))
-    echo "MISS ${method} ${full_path} -> ${code}"
+    echo "MISS ${method} ${path} -> ${code}"
   fi
-done < <(
-  rg -n "router\.(get|post|put|delete)\('" backend/routes -S \
-    | /usr/bin/sed -E "s#^backend/routes/([^:]+):[0-9]+:router\.(get|post|put|delete)\('([^']+)'.*#\1 \2 \3#"
-)
+done < "$route_file"
 
+echo "Discovered routes: ${route_count}"
 echo "Tested routes: ${tested}"
 echo "Missing routes: ${missing}"
 

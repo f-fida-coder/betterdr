@@ -1,4 +1,6 @@
 import React from 'react';
+import { useOddsFormat } from '../contexts/OddsFormatContext';
+import { formatOdds } from '../utils/odds';
 
 const formatAmount = (value) => {
   const n = Number(value);
@@ -18,6 +20,7 @@ const BetConfirmationModal = ({
   onCancel,
   isSubmitting = false,
 }) => {
+  const { oddsFormat } = useOddsFormat();
   if (!isOpen) return null;
 
   const first = selections[0];
@@ -64,7 +67,7 @@ const BetConfirmationModal = ({
                 }}
               >
                 <div style={{ color: '#d8e2f5' }}>{selection.matchName || selection.matchId}</div>
-                <div style={{ color: '#ffd776', fontWeight: 700 }}>{selection.selection} @ {formatAmount(selection.odds)}</div>
+                <div style={{ color: '#ffd776', fontWeight: 700 }}>{selection.selection} @ {formatOdds(selection.odds, oddsFormat)}</div>
               </div>
             ))}
           </div>
