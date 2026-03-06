@@ -1,15 +1,5 @@
 # Dependencies
 node_modules/
 
-# Local environment files
-.env
-.env.*
-**/.env
-**/.env.*
-!.env.example
-!.env.copy
-!**/.env.example
-!**/.env.copy
-
 # OS files
 .DS_Store
