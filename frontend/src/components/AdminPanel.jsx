@@ -216,7 +216,7 @@ function AdminPanel({ onExit, role = 'admin' }) {
           />
         );
       case 'weekly-figures':
-        return <WeeklyFiguresView />;
+        return <WeeklyFiguresView onViewChange={handleViewChange} />;
       case 'pending':
         return <PendingView />;
       case 'messaging':

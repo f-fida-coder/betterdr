@@ -1247,6 +1247,12 @@ final class AdminCoreController
             }
 
             $tree = $this->buildAgentTree((string) $actor['_id'], (($actor['role'] ?? '') === 'admin') ? 'Admin' : 'Agent');
+            if (($actor['role'] ?? '') === 'admin') {
+                $usernameLinkedNode = $this->buildUsernameLinkedAgentTreeNode((string) ($actor['username'] ?? ''), $tree);
+                if ($usernameLinkedNode !== null) {
+                    array_unshift($tree, $usernameLinkedNode);
+                }
+            }
             Response::json([
                 'root' => [
                     'username' => $actor['username'] ?? null,
@@ -7113,6 +7119,63 @@ final class AdminCoreController
         return $date->setTime(0, 0, 0)->modify('-' . ($weekday - 1) . ' days');
     }
 
+    /**
+     * @param array<int, array<string, mixed>> $existingNodes
+     * @return array<string, mixed>|null
+     */
+    private function buildUsernameLinkedAgentTreeNode(string $parentUsername, array $existingNodes): ?array
+    {
+        $normalizedParent = strtoupper(trim($parentUsername));
+        if ($normalizedParent === '' || !str_ends_with($normalizedParent, 'MA')) {
+            return null;
+        }
+
+        $linkedUsername = substr($normalizedParent, 0, -2);
+        if ($linkedUsername === '') {
+            return null;
+        }
+
+        $existingIds = [];
+        foreach ($existingNodes as $node) {
+            $nodeId = (string) ($node['id'] ?? '');
+            if ($nodeId !== '') {
+                $existingIds[$nodeId] = true;
+            }
+        }
+
+        $agent = $this->db->findOne('agents', ['username' => $linkedUsername]);
+        if ($agent === null) {
+            return null;
+        }
+
+        $agentId = (string) ($agent['_id'] ?? '');
+        $agentRole = strtolower((string) ($agent['role'] ?? ''));
+        if ($agentId === '' || isset($existingIds[$agentId]) || !in_array($agentRole, ['agent', 'master_agent', 'super_agent'], true)) {
+            return null;
+        }
+
+        return $this->formatAgentTreeAgentNode($agent);
+    }
+
+    /**
+     * @param array<string, mixed> $agent
+     * @return array<string, mixed>
+     */
+    private function formatAgentTreeAgentNode(array $agent): array
+    {
+        $agentId = (string) ($agent['_id'] ?? '');
+        $username = (string) ($agent['username'] ?? '');
+
+        return [
+            'id' => $agentId,
+            'username' => $username,
+            'role' => $agent['role'] ?? null,
+            'nodeType' => 'agent',
+            'isDead' => strtoupper($username) === 'DEAD',
+            'children' => $this->buildAgentTree($agentId, 'Agent'),
+        ];
+    }
+
     private function buildAgentTree(string $parentId, string $parentModel): array
     {
         $nodes = [];
@@ -7123,16 +7186,7 @@ final class AdminCoreController
         ], ['sort' => ['username' => 1]]);
 
         foreach ($subAgents as $agent) {
-            $agentId = (string) ($agent['_id'] ?? '');
-            $username = (string) ($agent['username'] ?? '');
-            $nodes[] = [
-                'id' => $agentId,
-                'username' => $username,
-                'role' => $agent['role'] ?? null,
-                'nodeType' => 'agent',
-                'isDead' => strtoupper($username) === 'DEAD',
-                'children' => $this->buildAgentTree($agentId, 'Agent'),
-            ];
+            $nodes[] = $this->formatAgentTreeAgentNode($agent);
         }
 
         $playerQuery = [

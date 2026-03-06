@@ -2040,6 +2040,26 @@
   text-underline-offset: 2px;
 }
 
+.customer-username-button {
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.customer-username-button:hover {
+  color: #1557ab;
+}
+
+.customer-username-button:focus-visible {
+  outline: 2px solid rgba(31, 111, 209, 0.28);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
 .customer-subname {
   font-style: italic;
   opacity: 0.92;
@@ -2086,6 +2106,17 @@
 .summary-table td {
   padding: 10px 12px;
   border-bottom: 1px solid #eee;
+}
+
+.weekly-filter-description {
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: #eef5fa;
+  color: #274863;
+  border: 1px solid #d4e2ec;
+  font-size: 13px;
+  line-height: 1.45;
 }
 
 .summary-table tbody tr:hover {
@@ -2159,6 +2190,13 @@
 
 .customer-table tbody tr:hover {
   background: #f9f9f9;
+}
+
+.weekly-empty-state {
+  padding: 22px 12px;
+  text-align: center;
+  color: #6a7a89;
+  font-style: italic;
 }
 
 .customer-table td:first-child,

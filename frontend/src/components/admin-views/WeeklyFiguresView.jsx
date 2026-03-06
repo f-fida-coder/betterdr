@@ -10,9 +10,37 @@ const WEEK_OPTIONS = [
   }),
 ];
 
-function WeeklyFiguresView() {
+const FILTER_OPTIONS = [
+  {
+    value: 'all-players',
+    label: 'All Players',
+    description: 'Shows every single player in the selected week.',
+  },
+  {
+    value: 'active-week',
+    label: 'Active For The Week',
+    description: 'Shows players with activity in the selected week.',
+  },
+  {
+    value: 'with-balance',
+    label: 'With A Balance',
+    description: 'Shows players with a balance above or below $0.01.',
+  },
+  {
+    value: 'big-figures',
+    label: 'Big Figures',
+    description: 'Shows players up or down at least $1,000 for the week.',
+  },
+  {
+    value: 'summary',
+    label: 'Summary',
+    description: 'Shows the full profit and loss summary for the selected week.',
+  },
+];
+
+function WeeklyFiguresView({ onViewChange = null }) {
   const [timePeriod, setTimePeriod] = useState('this-week');
-  const [playerFilter, setPlayerFilter] = useState('over-settle');
+  const [playerFilter, setPlayerFilter] = useState('all-players');
   const [summaryData, setSummaryData] = useState(null);
   const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -54,7 +82,6 @@ function WeeklyFiguresView() {
   const filteredCustomers = customers.filter((customer) => {
     const balance = Number(customer.balance || 0);
     const week = Number(customer.week || 0);
-    const settleLimit = Number(customer.settleLimit || 0);
     const activeThisWeek = Array.isArray(customer.daily)
       ? customer.daily.some((value) => Math.abs(Number(value || 0)) > 0.01)
       : Math.abs(week) > 0.01;
@@ -65,11 +92,11 @@ function WeeklyFiguresView() {
     if (playerFilter === 'active-week') {
       return activeThisWeek;
     }
-    if (playerFilter === 'over-settle') {
-      return settleLimit > 0 && Math.abs(balance) > settleLimit;
-    }
     if (playerFilter === 'big-figures') {
       return Math.abs(week) >= 1000;
+    }
+    if (playerFilter === 'summary') {
+      return false;
     }
     return true;
   });
@@ -82,6 +109,17 @@ function WeeklyFiguresView() {
       return collator.compare(aUsername, bUsername);
     });
   }, [filteredCustomers]);
+
+  const openCustomerDetails = (customerId) => {
+    if (!customerId || typeof onViewChange !== 'function') {
+      return;
+    }
+    onViewChange('user-details', customerId);
+  };
+
+  const activeFilter = FILTER_OPTIONS.find((option) => option.value === playerFilter) || FILTER_OPTIONS[0];
+  const showSummaryOnly = playerFilter === 'summary';
+  const summaryDays = Array.isArray(summaryData?.days) ? summaryData.days : [];
 
   return (
     <div className="admin-view">
@@ -106,12 +144,11 @@ function WeeklyFiguresView() {
             className="weekly-filter-select"
             aria-label="Select player filter"
           >
-            <option value="with-balance">With A Balance</option>
-            <option value="active-week">Active for the week</option>
-            <option value="over-settle">Over Settle</option>
-            <option value="all-players">All Players</option>
-            <option value="big-figures">Big Figures</option>
-            <option value="summary">Summary</option>
+            {FILTER_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
           </select>
         </div>
       </div>
@@ -121,54 +158,128 @@ function WeeklyFiguresView() {
         {error && <div style={{ padding: '20px', color: 'red', textAlign: 'center' }}>{error}</div>}
         {!loading && !error && summaryData && (
           <>
-            {/* Customer Table Section */}
-            <div className="customer-section">
-              <div className="section-header">
-                <h3>Customer</h3>
-              </div>
+            <div className="weekly-filter-description">{activeFilter.description}</div>
 
-              <div className="table-container scrollable">
-                <table className="data-table customer-table">
-                  <thead>
-                    <tr>
-                      <th>Customer</th>
-                      <th>Carry</th>
-                      {summaryData.days.map((day, idx) => (
-                        <th key={idx}>{day.day}</th>
-                      ))}
-                      <th>Week</th>
-                      <th>Balance</th>
-                      <th>Pending</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {sortedCustomers.map((customer, idx) => (
-                      <tr key={idx}>
-                        <td>
-                          <div className="customer-identity">
-                            <strong className="customer-username">{customer.username}</strong>
-                            <span className="customer-subname">
-                              {customer.name || '—'}
-                            </span>
-                          </div>
-                        </td>
-                        <td style={{ color: customer.carry < 0 ? '#e74c3c' : '#27ae60' }}>
-                          {formatMoney(customer.carry)}
-                        </td>
-                        {customer.daily.map((value, dayIdx) => (
-                          <td key={dayIdx}>{formatMoney(value)}</td>
+            {showSummaryOnly ? (
+              <div className="summary-section">
+                <div className="summary-header">
+                  <h3>Weekly Summary</h3>
+                </div>
+
+                <div className="table-container scrollable">
+                  <table className="summary-table">
+                    <thead>
+                      <tr>
+                        <th>Metric</th>
+                        {summaryDays.map((day, idx) => (
+                          <th key={idx}>{day.day}</th>
                         ))}
-                        <td>{formatMoney(customer.week)}</td>
-                        <td style={{ color: customer.balance < 0 ? '#e74c3c' : '#27ae60' }}>
-                          {formatMoney(customer.balance)}
-                        </td>
-                        <td>{formatMoney(customer.pending)}</td>
+                        <th>Total</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td>Profit / Loss</td>
+                        {summaryDays.map((day, idx) => (
+                          <td key={idx}>{formatMoney(day.amount)}</td>
+                        ))}
+                        <td>{formatMoney(summaryData.weekTotal)}</td>
+                      </tr>
+                      <tr>
+                        <td>Player Balances</td>
+                        {summaryDays.map((_, idx) => (
+                          <td key={idx}>—</td>
+                        ))}
+                        <td>{formatMoney(summaryData.balanceTotal)}</td>
+                      </tr>
+                      <tr>
+                        <td>Pending</td>
+                        {summaryDays.map((_, idx) => (
+                          <td key={idx}>—</td>
+                        ))}
+                        <td>{formatMoney(summaryData.pendingTotal)}</td>
+                      </tr>
+                      <tr>
+                        <td>Total Players</td>
+                        {summaryDays.map((_, idx) => (
+                          <td key={idx}>—</td>
+                        ))}
+                        <td>{summaryData.totalPlayers ?? 0}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="dead-agents-row">
+                  <span>Suspended / Dead Accounts</span>
+                  <span className="value">{summaryData.deadAccounts ?? 0}</span>
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="customer-section">
+                <div className="section-header">
+                  <h3>{activeFilter.label}</h3>
+                </div>
+
+                <div className="table-container scrollable">
+                  <table className="data-table customer-table">
+                    <thead>
+                      <tr>
+                        <th>Customer</th>
+                        <th>Carry</th>
+                        {summaryDays.map((day, idx) => (
+                          <th key={idx}>{day.day}</th>
+                        ))}
+                        <th>Week</th>
+                        <th>Balance</th>
+                        <th>Pending</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sortedCustomers.length > 0 ? sortedCustomers.map((customer, idx) => (
+                        <tr key={idx}>
+                          <td>
+                            <div className="customer-identity">
+                              {customer.id && typeof onViewChange === 'function' ? (
+                                <button
+                                  type="button"
+                                  className="customer-username customer-username-button"
+                                  onClick={() => openCustomerDetails(customer.id)}
+                                >
+                                  {customer.username}
+                                </button>
+                              ) : (
+                                <strong className="customer-username">{customer.username}</strong>
+                              )}
+                              <span className="customer-subname">
+                                {customer.name || '—'}
+                              </span>
+                            </div>
+                          </td>
+                          <td style={{ color: customer.carry < 0 ? '#e74c3c' : '#27ae60' }}>
+                            {formatMoney(customer.carry)}
+                          </td>
+                          {customer.daily.map((value, dayIdx) => (
+                            <td key={dayIdx}>{formatMoney(value)}</td>
+                          ))}
+                          <td>{formatMoney(customer.week)}</td>
+                          <td style={{ color: customer.balance < 0 ? '#e74c3c' : '#27ae60' }}>
+                            {formatMoney(customer.balance)}
+                          </td>
+                          <td>{formatMoney(customer.pending)}</td>
+                        </tr>
+                      )) : (
+                        <tr>
+                          <td colSpan={summaryDays.length + 5} className="weekly-empty-state">
+                            No players matched this filter.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </>
         )}
       </div>

@@ -1431,3 +1431,6 @@
 2026-03-06 09:52:37 [401] {"message":"Not authorized, no token"}
 2026-03-06 09:52:37 [401] {"message":"Not authorized, no token"}
 2026-03-06 09:53:34 [401] {"message":"Invalid admin credentials"}
+2026-03-06 11:36:26 [401] {"message":"Invalid credentials"}
+2026-03-06 11:42:59 [403] {"message":"Not authorized"}
+2026-03-06 11:42:59 [403] {"message":"Not authorized"}
