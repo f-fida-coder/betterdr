@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { createAdminBet, deleteAdminBet, getAdminBets, getAdminMatches, getUsersAdmin } from '../../api';
+import React, { useEffect, useMemo, useState } from 'react';
+import { deleteAdminBet, getAdminBets } from '../../api';
 
 function PropsView() {
   const [activeTab, setActiveTab] = useState('agents');
@@ -8,27 +8,16 @@ function PropsView() {
   const [amountFilter, setAmountFilter] = useState('any');
   const [timeFilter, setTimeFilter] = useState('today');
   const [typeFilter, setTypeFilter] = useState('all-types');
+  const [statusFilter, setStatusFilter] = useState('all-statuses');
 
   const [bettingData, setBettingData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const [customers, setCustomers] = useState([]);
-  const [matches, setMatches] = useState([]);
-  const [createLoading, setCreateLoading] = useState(false);
   const [deleteLoadingId, setDeleteLoadingId] = useState(null);
-  const [createBet, setCreateBet] = useState({
-    userId: '',
-    matchId: '',
-    amount: 50,
-    odds: 1.9,
-    type: 'straight',
-    selection: '',
-    status: 'pending'
-  });
 
   const parseMoney = (value) => Number(String(value).replace(/[^0-9.-]+/g, '')) || 0;
-  const formatMoney = (value) => `$${Number(value || 0).toLocaleString()}`;
+  const formatMoney = (value) => `$${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const matchesAmountRange = (value, range) => {
     if (range === 'any') return true;
     if (range === 'under-100') return value < 100;
@@ -45,26 +34,32 @@ function PropsView() {
     if (text.includes('teaser')) return 'teaser';
     return 'straight';
   };
-  const filteredData = bettingData
-    .filter(bet => {
-      const agentMatch = String(bet.agent || '').toLowerCase().includes(searchAgent.toLowerCase());
-      const customerMatch = String(bet.customer || '').toLowerCase().includes(searchPlayer.toLowerCase());
-      const riskValue = parseMoney(bet.risk);
-      const typeMatch = typeFilter === 'all-types' || getBetType(bet) === typeFilter;
-      return agentMatch && customerMatch && typeMatch && matchesAmountRange(riskValue, amountFilter);
-    })
-    .sort((a, b) => {
-      if (activeTab === 'agents') return a.agent.localeCompare(b.agent);
-      return a.customer.localeCompare(b.customer);
-    });
+
+  const filteredData = useMemo(() => (
+    bettingData
+      .filter(bet => {
+        const agentMatch = String(bet.agent || '').toLowerCase().includes(searchAgent.toLowerCase());
+        const customerMatch = String(bet.customer || '').toLowerCase().includes(searchPlayer.toLowerCase());
+        const riskValue = parseMoney(bet.risk);
+        const typeMatch = typeFilter === 'all-types' || getBetType(bet) === typeFilter;
+        const statusMatch = statusFilter === 'all-statuses' || String(bet.status || '').toLowerCase() === statusFilter;
+        return agentMatch && customerMatch && typeMatch && statusMatch && matchesAmountRange(riskValue, amountFilter);
+      })
+      .sort((a, b) => {
+        if (activeTab === 'agents') return String(a.agent || '').localeCompare(String(b.agent || ''));
+        return String(a.customer || '').localeCompare(String(b.customer || ''));
+      })
+  ), [bettingData, searchAgent, searchPlayer, amountFilter, typeFilter, statusFilter, activeTab]);
 
   const totals = filteredData.reduce(
     (acc, bet) => {
       acc.risk += parseMoney(bet.risk);
       acc.toWin += parseMoney(bet.toWin);
+      const status = String(bet.status || 'pending').toLowerCase();
+      acc.byStatus[status] = (acc.byStatus[status] || 0) + 1;
       return acc;
     },
-    { risk: 0, toWin: 0 }
+    { risk: 0, toWin: 0, byStatus: {} }
   );
 
   const handleResetFilters = () => {
@@ -73,6 +68,7 @@ function PropsView() {
     setAmountFilter('any');
     setTimeFilter('today');
     setTypeFilter('all-types');
+    setStatusFilter('all-statuses');
   };
 
   const loadBets = async (params) => {
@@ -85,13 +81,15 @@ function PropsView() {
         return;
       }
       const response = await getAdminBets(params, token);
-      const mapped = response.bets.map(bet => ({
+      const mapped = (response?.bets || []).map(bet => ({
         ...bet,
         agent: String(bet.agent || 'direct'),
         customer: String(bet.customer || bet.username || ''),
         description: String(bet.description || bet.selection || ''),
         risk: Number(bet.risk || 0),
         toWin: Number(bet.toWin || 0),
+        event: bet?.match?.homeTeam && bet?.match?.awayTeam ? `${bet.match.homeTeam} vs ${bet.match.awayTeam}` : '—',
+        markets: Array.isArray(bet.markets) ? bet.markets : [],
         accepted: bet.accepted ? new Date(bet.accepted).toLocaleString() : '—'
       }));
       setBettingData(mapped);
@@ -105,20 +103,7 @@ function PropsView() {
   };
 
   useEffect(() => {
-    loadBets({ time: timeFilter, type: typeFilter, amount: amountFilter });
-    const loadReferenceData = async () => {
-      try {
-        const token = localStorage.getItem('token');
-        if (!token) return;
-        const [usersData, matchesData] = await Promise.all([getUsersAdmin(token), getAdminMatches(token)]);
-        setCustomers(usersData || []);
-        setMatches(matchesData || []);
-      } catch (err) {
-        console.error('Error loading reference data:', err);
-      }
-    };
-
-    loadReferenceData();
+    loadBets({ time: timeFilter, type: typeFilter, status: statusFilter });
     const interval = setInterval(() => {
       if (document.hidden) return;
       loadBets({
@@ -126,59 +111,12 @@ function PropsView() {
         customer: searchPlayer,
         amount: amountFilter,
         time: timeFilter,
-        type: typeFilter
+        type: typeFilter,
+        status: statusFilter
       });
     }, 90000);
     return () => clearInterval(interval);
-  }, [searchAgent, searchPlayer, amountFilter, timeFilter, typeFilter]);
-
-  const handleCreateBet = async () => {
-    try {
-      setCreateLoading(true);
-      setNotice('');
-      const token = localStorage.getItem('token');
-      if (!token) {
-        setError('Please login to create bets.');
-        return;
-      }
-      const payload = {
-        userId: createBet.userId,
-        matchId: createBet.matchId,
-        amount: Number(createBet.amount) || 0,
-        odds: Number(createBet.odds) || 0,
-        type: createBet.type,
-        selection: createBet.selection.trim(),
-        status: createBet.status
-      };
-      if (payload.amount <= 0 || payload.odds <= 0) {
-        throw new Error('Amount and odds must be greater than 0');
-      }
-      await createAdminBet(payload, token);
-      setCreateBet({
-        userId: '',
-        matchId: '',
-        amount: 50,
-        odds: 1.9,
-        type: 'straight',
-        selection: '',
-        status: 'pending'
-      });
-      setError('');
-      setNotice('Bet created successfully.');
-      loadBets({
-        agent: searchAgent,
-        customer: searchPlayer,
-        amount: amountFilter,
-        time: timeFilter,
-        type: typeFilter
-      });
-    } catch (err) {
-      console.error('Error creating bet:', err);
-      setError(err.message || 'Failed to create bet');
-    } finally {
-      setCreateLoading(false);
-    }
-  };
+  }, [searchAgent, searchPlayer, amountFilter, timeFilter, typeFilter, statusFilter]);
 
   const handleDeleteBet = async (betId) => {
     const token = localStorage.getItem('token');
@@ -199,7 +137,8 @@ function PropsView() {
         customer: searchPlayer,
         amount: amountFilter,
         time: timeFilter,
-        type: typeFilter
+        type: typeFilter,
+        status: statusFilter
       });
     } catch (err) {
       setError(err.message || 'Failed to delete bet');
@@ -215,7 +154,8 @@ function PropsView() {
       customer: searchPlayer,
       amount: amountFilter,
       time: timeFilter,
-      type: typeFilter
+      type: typeFilter,
+      status: statusFilter
     });
   };
 
@@ -231,84 +171,11 @@ function PropsView() {
         {notice && <div style={{ padding: '12px 20px', color: '#15803d', textAlign: 'center', fontWeight: 600 }}>{notice}</div>}
         {!loading && (
           <>
-            <div className="filter-section">
-              <div className="filter-group">
-                <label>Customer</label>
-                <select value={createBet.userId} onChange={(e) => setCreateBet(prev => ({ ...prev, userId: e.target.value }))}>
-                  <option value="">Select customer</option>
-                  {customers.map(customer => (
-                    <option key={customer.id || customer._id} value={customer.id || customer._id}>
-                      {customer.username}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="filter-group">
-                <label>Match</label>
-                <select value={createBet.matchId} onChange={(e) => setCreateBet(prev => ({ ...prev, matchId: e.target.value }))}>
-                  <option value="">Select match</option>
-                  {matches.map(match => (
-                    <option key={match.id} value={match.id}>
-                      {match.homeTeam} vs {match.awayTeam}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="filter-group">
-                <label>Amount</label>
-                <input
-                  type="number"
-                  min="0.01"
-                  value={createBet.amount}
-                  onChange={(e) => setCreateBet(prev => ({ ...prev, amount: e.target.value }))}
-                />
-              </div>
-              <div className="filter-group">
-                <label>Odds</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0.01"
-                  value={createBet.odds}
-                  onChange={(e) => setCreateBet(prev => ({ ...prev, odds: e.target.value }))}
-                />
-              </div>
-              <div className="filter-group">
-                <label>Type</label>
-                <select value={createBet.type} onChange={(e) => setCreateBet(prev => ({ ...prev, type: e.target.value }))}>
-                  <option value="straight">Straight</option>
-                  <option value="parlay">Parlay</option>
-                  <option value="teaser">Teaser</option>
-                </select>
-              </div>
-              <div className="filter-group">
-                <label>Selection</label>
-                <input
-                  type="text"
-                  placeholder="Selection"
-                  value={createBet.selection}
-                  onChange={(e) => setCreateBet(prev => ({ ...prev, selection: e.target.value }))}
-                />
-              </div>
-              <button
-                className="btn-primary"
-                onClick={handleCreateBet}
-                disabled={
-                  createLoading ||
-                  !createBet.userId ||
-                  !createBet.matchId ||
-                  !createBet.selection.trim() ||
-                  Number(createBet.amount) <= 0 ||
-                  Number(createBet.odds) <= 0
-                }
-              >
-                {createLoading ? 'Saving...' : 'Create Bet'}
-              </button>
-              {!createBet.userId || !createBet.matchId || !createBet.selection.trim() ? (
-                <div style={{ alignSelf: 'end', color: '#9a3412', fontSize: '12px' }}>
-                  Select customer, match, and selection to create bet.
-                </div>
-              ) : null}
+            <div style={{ padding: '16px 20px', border: '1px solid #dbe4f0', borderRadius: '10px', marginBottom: '18px', background: '#f8fbff' }}>
+              <strong style={{ display: 'block', marginBottom: '6px' }}>Live Sportsbook Tickets</strong>
+              <span style={{ color: '#556274', fontSize: '14px' }}>
+                This screen now shows real sportsbook tickets from the `bets` collection only. Manual dummy bet entry has been removed.
+              </span>
             </div>
 
             <div className="stats-container">
@@ -319,18 +186,20 @@ function PropsView() {
               </div>
               <div className="stat-card">
                 <h3>Total Risk</h3>
-                <div className="amount">${totals.risk.toLocaleString()}</div>
+                <div className="amount">{formatMoney(totals.risk)}</div>
                 <p className="change">Across all tickets</p>
               </div>
               <div className="stat-card">
-                <h3>Total To Win</h3>
-                <div className="amount">${totals.toWin.toLocaleString()}</div>
-                <p className="change">Potential payouts</p>
+                <h3>Potential Payout</h3>
+                <div className="amount">{formatMoney(totals.toWin)}</div>
+                <p className="change">Current ticket payout value</p>
               </div>
               <div className="stat-card">
-                <h3>Average Risk</h3>
-                <div className="amount">${(filteredData.length ? totals.risk / filteredData.length : 0).toFixed(0)}</div>
-                <p className="change">Per ticket</p>
+                <h3>Pending / Won / Lost</h3>
+                <div className="amount">
+                  {(totals.byStatus.pending || 0)} / {(totals.byStatus.won || 0)} / {(totals.byStatus.lost || 0)}
+                </div>
+                <p className="change">Void: {totals.byStatus.void || 0}</p>
               </div>
             </div>
             {/* Filter Section */}
@@ -365,6 +234,17 @@ function PropsView() {
                   <option value="100-500">$100 - $500</option>
                   <option value="500-1000">$500 - $1000</option>
                   <option value="over-1000">Over $1000</option>
+                </select>
+              </div>
+
+              <div className="filter-group">
+                <label>Status</label>
+                <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+                  <option value="all-statuses">All Statuses</option>
+                  <option value="pending">Pending</option>
+                  <option value="won">Won</option>
+                  <option value="lost">Lost</option>
+                  <option value="void">Void</option>
                 </select>
               </div>
 
@@ -428,16 +308,28 @@ function PropsView() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredData.map((bet) => (
+                  {filteredData.length === 0 ? (
+                    <tr>
+                      <td colSpan="8" style={{ textAlign: 'center', padding: '20px' }}>No sportsbook bets found for the current filters.</td>
+                    </tr>
+                  ) : filteredData.map((bet) => (
                     <tr key={bet.id}>
                       <td><strong>{bet.agent}</strong></td>
                       <td><strong>{bet.customer}</strong></td>
-                      <td>{bet.accepted}</td>
+                      <td>
+                        <div>{bet.accepted}</div>
+                        <div style={{ color: '#6b7280', fontSize: '12px' }}>{bet.event}</div>
+                      </td>
                       <td><span className={`badge ${getBetType(bet)}`}>{getBetType(bet)}</span></td>
                       <td className="description-cell">
                         {String(bet.description || '').split('\n').filter(Boolean).map((line, i) => (
                           <div key={i}>{line}</div>
                         ))}
+                        {bet.markets.length > 0 ? (
+                          <div style={{ color: '#6b7280', fontSize: '12px', marginTop: '6px' }}>
+                            Markets: {bet.markets.join(', ')}
+                          </div>
+                        ) : null}
                       </td>
                       <td><span className="amount-risk">{formatMoney(bet.risk)}</span></td>
                       <td><span className="amount-towin">{formatMoney(bet.toWin)}</span></td>
@@ -462,8 +354,8 @@ function PropsView() {
             <div className="summary-footer">
               <span>Total Records: {filteredData.length}</span>
               <span className="risk-summary">
-                Risking: <span className="amount-risk">${totals.risk.toLocaleString()}</span>
-                To Win: <span className="amount-towin">${totals.toWin.toLocaleString()}</span>
+                Risking: <span className="amount-risk">{formatMoney(totals.risk)}</span>
+                Potential Payout: <span className="amount-towin">{formatMoney(totals.toWin)}</span>
               </span>
             </div>
           </>

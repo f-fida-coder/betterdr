@@ -267,6 +267,9 @@ function App() {
   const handleOddsFormatChange = async (nextFormat) => {
     const userId = user?.id || '';
     const normalized = applyOddsFormat(nextFormat, userId);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('matches:refresh'));
+    }
 
     setUser(prev => (
       prev

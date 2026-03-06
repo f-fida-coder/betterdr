@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { createSportsbookLink, getSportsbookLinks, testSportsbookLink, updateSportsbookLink } from '../../api';
+import { createSportsbookLink, deleteSportsbookLink, getSportsbookLinks, testSportsbookLink, updateSportsbookLink } from '../../api';
 
 function SportsBookLinksView() {
   const [links, setLinks] = useState([]);
@@ -91,6 +91,27 @@ function SportsBookLinksView() {
     }
   };
 
+  const handleDelete = async (link) => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setError('Please login to delete links.');
+      return;
+    }
+
+    const confirmed = window.confirm(`Delete sportsbook link "${link.name}"?`);
+    if (!confirmed) return;
+
+    try {
+      setActionLoadingId(link.id);
+      await deleteSportsbookLink(link.id, token);
+      setLinks(prev => prev.filter((row) => row.id !== link.id));
+    } catch (err) {
+      setError(err.message || 'Failed to delete link');
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
   return (
     <div className="admin-view">
       <div className="view-header">
@@ -113,7 +134,11 @@ function SportsBookLinksView() {
               </tr>
             </thead>
             <tbody>
-              {links.map(link => (
+              {links.length === 0 ? (
+                <tr>
+                  <td colSpan="5" style={{ textAlign: 'center', padding: '20px' }}>No sportsbook links found.</td>
+                </tr>
+              ) : links.map(link => (
                 <tr key={link.id}>
                   <td>{link.name}</td>
                   <td className="monospace">{link.url}</td>
@@ -129,6 +154,13 @@ function SportsBookLinksView() {
                       {actionLoadingId === link.id ? 'Working...' : 'Test'}
                     </button>
                     <button className="btn-small" onClick={() => openViewModal(link)}>View</button>
+                    <button
+                      className="btn-small btn-danger"
+                      onClick={() => handleDelete(link)}
+                      disabled={actionLoadingId === link.id}
+                    >
+                      {actionLoadingId === link.id ? 'Working...' : 'Delete'}
+                    </button>
                   </td>
                 </tr>
               ))}

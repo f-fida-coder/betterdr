@@ -1,17 +1,34 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { getMyBets } from '../api';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { formatLineValue, formatOdds } from '../utils/odds';
+import '../mybets.css';
 
 const money = (value) => `$${Number(value || 0).toFixed(2)}`;
-const formatStatus = (value) => String(value || 'pending').toUpperCase();
+const normalizeStatus = (value) => String(value || 'pending').trim().toLowerCase();
 
-const statusColors = (status) => {
-    const normalized = String(status || '').toLowerCase();
-    if (normalized === 'won') return { bg: '#28a745', fg: '#fff' };
-    if (normalized === 'lost') return { bg: '#dc3545', fg: '#fff' };
-    if (normalized === 'void') return { bg: '#6c757d', fg: '#fff' };
-    return { bg: '#ffc107', fg: '#111' };
+const formatStatus = (value) => {
+    const normalized = normalizeStatus(value);
+    if (normalized === 'won') return 'WON';
+    if (normalized === 'lost') return 'LOST';
+    if (normalized === 'void') return 'VOID';
+    return 'PENDING';
+};
+
+const statusLabel = (value) => {
+    const normalized = normalizeStatus(value);
+    if (normalized === 'won') return 'Won';
+    if (normalized === 'lost') return 'Lost';
+    if (normalized === 'void') return 'Void';
+    return 'Pending';
+};
+
+const statusTheme = (value) => {
+    const normalized = normalizeStatus(value);
+    if (normalized === 'won') return 'won';
+    if (normalized === 'lost') return 'lost';
+    if (normalized === 'void') return 'void';
+    return 'pending';
 };
 
 const matchLabel = (bet) => {
@@ -32,146 +49,316 @@ const lineLabel = (leg) => {
     return label ? ` (${label})` : '';
 };
 
+const payoutLabel = (status) => {
+    const normalized = normalizeStatus(status);
+    if (normalized === 'won') return 'Paid Out';
+    if (normalized === 'void') return 'Refund';
+    if (normalized === 'lost') return 'Payout';
+    return 'Potential Payout';
+};
+
+const payoutValue = (bet) => {
+    const status = normalizeStatus(bet?.status);
+    const risk = Number(bet?.riskAmount || bet?.amount || 0);
+    const potential = Number(bet?.potentialPayout || 0);
+
+    if (status === 'won') return potential;
+    if (status === 'void') return risk;
+    if (status === 'lost') return 0;
+    return potential;
+};
+
+const formatTimestamp = (value) => {
+    if (!value) return '—';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '—';
+    return date.toLocaleString();
+};
+
 const MyBetsView = () => {
     const { oddsFormat } = useOddsFormat();
     const [bets, setBets] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const [refreshing, setRefreshing] = useState(false);
+    const [statusFilter, setStatusFilter] = useState('all');
+    const [lastUpdated, setLastUpdated] = useState(null);
+
+    const fetchBets = async ({ silent = false } = {}) => {
+        const token = localStorage.getItem('token');
+        if (!token) {
+            setError('Please login to view your bets.');
+            setLoading(false);
+            return;
+        }
+
+        if (silent) {
+            setRefreshing(true);
+        } else {
+            setLoading(true);
+        }
+
+        try {
+            const data = await getMyBets(token);
+            setBets(Array.isArray(data) ? data : []);
+            setError(null);
+            setLastUpdated(new Date());
+        } catch (err) {
+            console.error('Failed to fetch bets:', err);
+            setError('Failed to load bets.');
+        } finally {
+            setLoading(false);
+            setRefreshing(false);
+        }
+    };
 
     useEffect(() => {
-        const fetchBets = async () => {
-            const token = localStorage.getItem('token');
-            if (!token) {
-                setError('Please login to view your bets');
-                setLoading(false);
-                return;
-            }
+        void fetchBets();
 
-            try {
-                const data = await getMyBets(token);
-                setBets(Array.isArray(data) ? data : []);
-            } catch (err) {
-                console.error('Failed to fetch bets:', err);
-                setError('Failed to load bets');
-            } finally {
-                setLoading(false);
-            }
-        };
+        const interval = window.setInterval(() => {
+            void fetchBets({ silent: true });
+        }, 20000);
 
-        fetchBets();
+        return () => window.clearInterval(interval);
     }, []);
 
-    if (loading) return <div style={{ color: 'white', padding: '20px' }}>Loading history...</div>;
-    if (error) return <div style={{ color: 'red', padding: '20px' }}>{error}</div>;
+    const summary = useMemo(() => {
+        return bets.reduce((acc, bet) => {
+            const status = normalizeStatus(bet?.status);
+            const risk = Number(bet?.riskAmount || bet?.amount || 0);
+
+            acc.total += 1;
+            acc.risk += risk;
+
+            if (status === 'won') acc.won += 1;
+            else if (status === 'lost') acc.lost += 1;
+            else if (status === 'void') acc.void += 1;
+            else {
+                acc.pending += 1;
+                acc.pendingRisk += risk;
+            }
+
+            return acc;
+        }, {
+            total: 0,
+            pending: 0,
+            won: 0,
+            lost: 0,
+            void: 0,
+            risk: 0,
+            pendingRisk: 0,
+        });
+    }, [bets]);
+
+    const filteredBets = useMemo(() => {
+        if (statusFilter === 'all') return bets;
+        return bets.filter((bet) => normalizeStatus(bet?.status) === statusFilter);
+    }, [bets, statusFilter]);
+
+    if (loading) {
+        return (
+            <div className="my-bets-page">
+                <div className="my-bets-shell">
+                    <div className="my-bets-empty">
+                        <div className="my-bets-empty-icon"><i className="fa-solid fa-ticket"></i></div>
+                        <h3>Loading your bet history...</h3>
+                        <p>Fetching the latest ticket results.</p>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    if (error) {
+        return (
+            <div className="my-bets-page">
+                <div className="my-bets-shell">
+                    <div className="my-bets-empty error">
+                        <div className="my-bets-empty-icon"><i className="fa-solid fa-circle-exclamation"></i></div>
+                        <h3>Unable to load bets</h3>
+                        <p>{error}</p>
+                        <button type="button" className="my-bets-refresh-btn" onClick={() => void fetchBets()}>
+                            Try Again
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     return (
-        <div style={{ padding: '20px', color: 'white' }}>
-            <h2>My Bets History</h2>
-            {bets.length === 0 ? (
-                <p>No bets placed yet.</p>
-            ) : (
-                <div style={{ overflowX: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '10px' }}>
-                        <thead>
-                            <tr style={{ background: '#333', textAlign: 'left' }}>
-                                <th style={{ padding: '10px' }}>Date</th>
-                                <th style={{ padding: '10px' }}>Ticket</th>
-                                <th style={{ padding: '10px' }}>Type</th>
-                                <th style={{ padding: '10px' }}>Selection</th>
-                                <th style={{ padding: '10px' }}>Risk</th>
-                                <th style={{ padding: '10px' }}>Odds</th>
-                                <th style={{ padding: '10px' }}>Payout</th>
-                                <th style={{ padding: '10px' }}>Status</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {bets.map((bet) => {
-                                const betId = bet._id || bet.id || bet.ticketId;
-                                const selections = Array.isArray(bet.selections) ? bet.selections : [];
-                                const summaryLines = String(bet.description || bet.selection || 'MULTI').split('\n').filter(Boolean);
-                                const risk = Number(bet.riskAmount || bet.amount || 0);
-                                const unitStake = Number(bet.unitStake || 0);
-
-                                return (
-                                    <React.Fragment key={betId}>
-                                        <tr style={{ borderBottom: '1px solid #444' }}>
-                                            <td style={{ padding: '10px' }}>{bet.createdAt ? new Date(bet.createdAt).toLocaleString() : '—'}</td>
-                                            <td style={{ padding: '10px' }}>
-                                                <div>{matchLabel(bet)}</div>
-                                                {bet.ticketId ? (
-                                                    <div style={{ color: '#9aa4b0', fontSize: 12 }}>Ticket #{bet.ticketId}</div>
-                                                ) : null}
-                                            </td>
-                                            <td style={{ padding: '10px' }}>{String(bet.type || 'straight').toUpperCase()}</td>
-                                            <td style={{ padding: '10px', color: '#ffd700' }}>
-                                                {summaryLines.length > 0 ? summaryLines.map((line, index) => (
-                                                    <div key={`${betId}-summary-${index}`}>{line}</div>
-                                                )) : 'MULTI'}
-                                            </td>
-                                            <td style={{ padding: '10px' }}>
-                                                <div>{money(risk)}</div>
-                                                {String(bet.type || '').toLowerCase() === 'reverse' && unitStake > 0 ? (
-                                                    <div style={{ color: '#9aa4b0', fontSize: 12 }}>Unit stake {money(unitStake)} each way</div>
-                                                ) : null}
-                                            </td>
-                                            <td style={{ padding: '10px' }}>{formatOdds(bet.combinedOdds || bet.odds, oddsFormat)}</td>
-                                            <td style={{ padding: '10px' }}>{money(bet.potentialPayout)}</td>
-                                            <td style={{ padding: '10px' }}>
-                                                <span style={{
-                                                    padding: '4px 8px',
-                                                    borderRadius: '4px',
-                                                    fontSize: '12px',
-                                                    fontWeight: 'bold',
-                                                    backgroundColor: statusColors(bet.status).bg,
-                                                    color: statusColors(bet.status).fg
-                                                }}>
-                                                    {formatStatus(bet.status)}
-                                                </span>
-                                            </td>
-                                        </tr>
-                                        {selections.length > 1 && (
-                                            <tr style={{ borderBottom: '1px solid #2b2b2b', background: 'rgba(255,255,255,0.03)' }}>
-                                                <td colSpan={8} style={{ padding: '10px 14px' }}>
-                                                    <div style={{ fontWeight: 700, marginBottom: 6, color: '#9ec3ff' }}>Leg Details</div>
-                                                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                                                        <thead>
-                                                            <tr style={{ color: '#9aa4b0', textAlign: 'left' }}>
-                                                                <th style={{ padding: '6px 0' }}>Match</th>
-                                                                <th style={{ padding: '6px 0' }}>Market</th>
-                                                                <th style={{ padding: '6px 0' }}>Selection</th>
-                                                                <th style={{ padding: '6px 0' }}>Odds</th>
-                                                                <th style={{ padding: '6px 0' }}>Leg Status</th>
-                                                            </tr>
-                                                        </thead>
-                                                        <tbody>
-                                                            {selections.map((leg, idx) => (
-                                                                <tr key={`${betId}-leg-${idx}`} style={{ borderTop: '1px solid #2f3742' }}>
-                                                                    <td style={{ padding: '7px 0' }}>
-                                                                        {leg.matchSnapshot?.homeTeam && leg.matchSnapshot?.awayTeam
-                                                                            ? `${leg.matchSnapshot.homeTeam} vs ${leg.matchSnapshot.awayTeam}`
-                                                                            : (leg.matchId || 'Match')}
-                                                                    </td>
-                                                                    <td style={{ padding: '7px 0' }}>{String(leg.marketType || '-').toUpperCase()}</td>
-                                                                    <td style={{ padding: '7px 0', color: '#ffd700' }}>
-                                                                        {leg.selection || '-'}
-                                                                        {lineLabel(leg)}
-                                                                    </td>
-                                                                    <td style={{ padding: '7px 0' }}>{formatOdds(leg.odds, oddsFormat)}</td>
-                                                                    <td style={{ padding: '7px 0' }}>{formatStatus(leg.status)}</td>
-                                                                </tr>
-                                                            ))}
-                                                        </tbody>
-                                                    </table>
-                                                </td>
-                                            </tr>
-                                        )}
-                                    </React.Fragment>
-                                );
-                            })}
-                        </tbody>
-                    </table>
+        <div className="my-bets-page">
+            <div className="my-bets-shell">
+                <div className="my-bets-hero">
+                    <div>
+                        <span className="my-bets-eyebrow">Player Ticket Center</span>
+                        <h2>My Bets</h2>
+                        <p>Track pending slips, settled tickets, and leg-by-leg results without digging through tables.</p>
+                    </div>
+                    <div className="my-bets-hero-actions">
+                        <button
+                            type="button"
+                            className="my-bets-refresh-btn"
+                            onClick={() => void fetchBets({ silent: true })}
+                            disabled={refreshing}
+                        >
+                            {refreshing ? 'Refreshing...' : 'Refresh'}
+                        </button>
+                        <div className="my-bets-updated">Last update: {lastUpdated ? lastUpdated.toLocaleTimeString() : '—'}</div>
+                    </div>
                 </div>
-            )}
+
+                <div className="my-bets-summary-grid">
+                    <div className="my-bets-summary-card">
+                        <span>Total Tickets</span>
+                        <strong>{summary.total}</strong>
+                    </div>
+                    <div className="my-bets-summary-card accent-pending">
+                        <span>Pending</span>
+                        <strong>{summary.pending}</strong>
+                        <small>{money(summary.pendingRisk)} at risk</small>
+                    </div>
+                    <div className="my-bets-summary-card accent-won">
+                        <span>Won</span>
+                        <strong>{summary.won}</strong>
+                    </div>
+                    <div className="my-bets-summary-card accent-lost">
+                        <span>Lost</span>
+                        <strong>{summary.lost}</strong>
+                    </div>
+                    <div className="my-bets-summary-card accent-void">
+                        <span>Void</span>
+                        <strong>{summary.void}</strong>
+                    </div>
+                    <div className="my-bets-summary-card">
+                        <span>Total Risked</span>
+                        <strong>{money(summary.risk)}</strong>
+                    </div>
+                </div>
+
+                <div className="my-bets-filter-row">
+                    {[
+                        { id: 'all', label: 'All' },
+                        { id: 'pending', label: 'Pending' },
+                        { id: 'won', label: 'Won' },
+                        { id: 'lost', label: 'Lost' },
+                        { id: 'void', label: 'Void' },
+                    ].map((option) => (
+                        <button
+                            key={option.id}
+                            type="button"
+                            className={`my-bets-filter-chip ${statusFilter === option.id ? 'active' : ''}`}
+                            onClick={() => setStatusFilter(option.id)}
+                        >
+                            {option.label}
+                        </button>
+                    ))}
+                </div>
+
+                {filteredBets.length === 0 ? (
+                    <div className="my-bets-empty">
+                        <div className="my-bets-empty-icon"><i className="fa-solid fa-receipt"></i></div>
+                        <h3>No bets in this view</h3>
+                        <p>{statusFilter === 'all' ? 'You have not placed any bets yet.' : `No ${statusFilter} tickets found right now.`}</p>
+                    </div>
+                ) : (
+                    <div className="my-bets-list">
+                        {filteredBets.map((bet) => {
+                            const betId = bet._id || bet.id || bet.ticketId;
+                            const selections = Array.isArray(bet.selections) ? bet.selections : [];
+                            const summaryLines = String(bet.description || bet.selection || 'MULTI').split('\n').filter(Boolean);
+                            const risk = Number(bet.riskAmount || bet.amount || 0);
+                            const unitStake = Number(bet.unitStake || 0);
+                            const status = normalizeStatus(bet.status);
+                            const theme = statusTheme(status);
+                            const ticketPayout = payoutValue(bet);
+
+                            return (
+                                <article key={betId} className={`my-bet-card ${theme}`}>
+                                    <div className="my-bet-card-top">
+                                        <div className="my-bet-card-meta">
+                                            <span className={`my-bet-status ${theme}`}>{formatStatus(status)}</span>
+                                            <span className="my-bet-type">{String(bet.type || 'straight').replace(/_/g, ' ').toUpperCase()}</span>
+                                            {bet.ticketId ? <span className="my-bet-ticket">Ticket #{bet.ticketId}</span> : null}
+                                        </div>
+                                        <div className="my-bet-card-time">{formatTimestamp(bet.createdAt)}</div>
+                                    </div>
+
+                                    <div className="my-bet-card-body">
+                                        <div className="my-bet-main">
+                                            <div className="my-bet-match">{matchLabel(bet)}</div>
+                                            <div className="my-bet-subtext">
+                                                <span>{selections.length || 1} leg{(selections.length || 1) > 1 ? 's' : ''}</span>
+                                                <span>{statusLabel(status)} ticket</span>
+                                            </div>
+                                            <div className="my-bet-summary-lines">
+                                                {summaryLines.length > 0 ? summaryLines.map((line, index) => (
+                                                    <div key={`${betId}-summary-${index}`} className="my-bet-summary-line">{line}</div>
+                                                )) : (
+                                                    <div className="my-bet-summary-line">MULTI</div>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        <div className="my-bet-stats">
+                                            <div className="my-bet-stat">
+                                                <span>Risk</span>
+                                                <strong>{money(risk)}</strong>
+                                            </div>
+                                            <div className="my-bet-stat">
+                                                <span>Odds</span>
+                                                <strong>{formatOdds(bet.combinedOdds || bet.odds, oddsFormat)}</strong>
+                                            </div>
+                                            <div className="my-bet-stat">
+                                                <span>{payoutLabel(status)}</span>
+                                                <strong>{money(ticketPayout)}</strong>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {String(bet.type || '').toLowerCase() === 'reverse' && unitStake > 0 ? (
+                                        <div className="my-bet-note">Reverse ticket unit stake: {money(unitStake)} each way</div>
+                                    ) : null}
+
+                                    {selections.length > 0 ? (
+                                        <details className="my-bet-legs" open={selections.length === 1}>
+                                            <summary>
+                                                <span>Leg Details</span>
+                                                <span>{selections.length} total</span>
+                                            </summary>
+                                            <div className="my-bet-leg-list">
+                                                {selections.map((leg, idx) => {
+                                                    const legTheme = statusTheme(leg?.status);
+                                                    return (
+                                                        <div key={`${betId}-leg-${idx}`} className="my-bet-leg-item">
+                                                            <div className="my-bet-leg-main">
+                                                                <div className="my-bet-leg-match">
+                                                                    {leg.matchSnapshot?.homeTeam && leg.matchSnapshot?.awayTeam
+                                                                        ? `${leg.matchSnapshot.homeTeam} vs ${leg.matchSnapshot.awayTeam}`
+                                                                        : (leg.matchId || 'Match')}
+                                                                </div>
+                                                                <div className="my-bet-leg-pick">
+                                                                    {leg.selection || '-'}
+                                                                    {lineLabel(leg)}
+                                                                </div>
+                                                            </div>
+                                                            <div className="my-bet-leg-meta">
+                                                                <span>{String(leg.marketType || '-').toUpperCase()}</span>
+                                                                <span>{formatOdds(leg.odds, oddsFormat)}</span>
+                                                                <span className={`my-bet-leg-status ${legTheme}`}>{formatStatus(leg.status)}</span>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </details>
+                                    ) : null}
+                                </article>
+                            );
+                        })}
+                    </div>
+                )}
+            </div>
         </div>
     );
 };

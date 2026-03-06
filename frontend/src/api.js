@@ -874,6 +874,18 @@ export const updateSportsbookLink = async (id, payload, token) => {
     return response.json();
 };
 
+export const deleteSportsbookLink = async (id, token) => {
+    const response = await fetch(buildApiUrl(`/admin/sportsbook-links/${id}`), {
+        method: 'DELETE',
+        headers: getHeaders(token)
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || 'Failed to delete sportsbook link');
+    }
+    return response.json();
+};
+
 export const whitelistIp = async (id, token) => {
     const response = await fetch(buildApiUrl(`/admin/ip-tracker/${id}/whitelist`), {
         method: 'POST',
@@ -1101,6 +1113,18 @@ export const seedWorkflowHierarchy = async (token, payload = {}) => {
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
         throw new Error(data.message || 'Failed to seed workflow hierarchy');
+    }
+    return data;
+};
+
+export const cleanupWorkflowSeedData = async (token) => {
+    const response = await fetch(buildApiUrl('/admin/cleanup-workflow-seed'), {
+        method: 'POST',
+        headers: getHeaders(token)
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        throw new Error(data.message || 'Failed to clean workflow demo data');
     }
     return data;
 };

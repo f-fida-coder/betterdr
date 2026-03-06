@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { getAgents, createAgent, updateAgent, suspendUser, unsuspendUser, resetAgentPasswordByAdmin, getNextUsername, seedWorkflowHierarchy } from '../../api';
+import { getAgents, createAgent, updateAgent, suspendUser, unsuspendUser, resetAgentPasswordByAdmin, getNextUsername, cleanupWorkflowSeedData } from '../../api';
 import AgentPermissionModal from './AgentPermissionModal';
 
 function AgentAdminView() {
@@ -15,7 +15,8 @@ function AgentAdminView() {
   const [editForm, setEditForm] = useState({ id: '', phoneNumber: '', password: '', agentBillingRate: '', agentBillingStatus: 'paid' });
   const [error, setError] = useState(null);
   const [creatorFilter, setCreatorFilter] = useState('all'); // 'all', 'admin', 'master_agent'
-  const [seedLoading, setSeedLoading] = useState(false);
+  const [cleanupLoading, setCleanupLoading] = useState(false);
+  const currentRole = String(localStorage.getItem('userRole') || '').toLowerCase();
 
   const filteredAgents = agents.filter(agent => {
     if (creatorFilter === 'all') return true;
@@ -189,27 +190,27 @@ function AgentAdminView() {
     }
   };
 
-  const handleSeedWorkflowHierarchy = async () => {
+  const handleCleanupWorkflowSeed = async () => {
     const accepted = window.confirm(
-      'Create workflow demo hierarchy now?\n\nThis will add:\n- 10 master agents created by admin\n- 5 master agents under the first master agent\n- 10 agents under each master agent\n- 10 players under each agent\n\nThis action adds many records and cannot be undone automatically.'
+      'Delete all seeded workflow demo users and agents now?\n\nThis removes demo hierarchy records created for workflow testing.'
     );
     if (!accepted) return;
 
     try {
-      setSeedLoading(true);
+      setCleanupLoading(true);
       const token = localStorage.getItem('token');
       if (!token) throw new Error('No token found');
 
-      const result = await seedWorkflowHierarchy(token);
+      const result = await cleanupWorkflowSeedData(token);
       const summary = result?.summary || {};
       alert(
-        `Workflow seed complete.\nBatch: ${result?.batchTag || 'N/A'}\nMasters: ${summary.totalMasters || 0}\nAgents: ${summary.totalAgents || 0}\nPlayers: ${summary.totalPlayers || 0}`
+        `Seeded demo data deleted.\nUsers: ${summary.usersDeleted || 0}\nAgents: ${summary.agentsDeleted || 0}\nMaster links: ${summary.masterAgentLinksDeleted || 0}`
       );
       await fetchAgents();
     } catch (err) {
-      alert('Failed to seed workflow hierarchy: ' + (err.message || 'Unknown error'));
+      alert('Failed to delete demo workflow data: ' + (err.message || 'Unknown error'));
     } finally {
-      setSeedLoading(false);
+      setCleanupLoading(false);
     }
   };
 
@@ -227,14 +228,16 @@ function AgentAdminView() {
             <option value="admin">Created by Admin</option>
             <option value="master_agent">Created by Master Agent</option>
           </select>
-          <button
-            className="btn-secondary"
-            onClick={handleSeedWorkflowHierarchy}
-            disabled={seedLoading}
-            title="Create full workflow test hierarchy"
-          >
-            {seedLoading ? 'Seeding...' : 'Seed Workflow Demo'}
-          </button>
+          {currentRole === 'admin' && (
+            <button
+              className="btn-secondary"
+              onClick={handleCleanupWorkflowSeed}
+              disabled={cleanupLoading}
+              title="Delete workflow demo accounts"
+            >
+              {cleanupLoading ? 'Deleting Demo Data...' : 'Delete Demo Data'}
+            </button>
+          )}
           <button className="btn-primary" onClick={() => setShowAddModal(true)}>Add Master Agent</button>
         </div>
       </div>

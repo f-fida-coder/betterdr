@@ -248,6 +248,10 @@ final class AdminCoreController
             $this->createSportsbookLink();
             return true;
         }
+        if ($method === 'DELETE' && preg_match('#^/api/admin/sportsbook-links/([a-fA-F0-9]{24})$#', $path, $m) === 1) {
+            $this->deleteSportsbookLink($m[1]);
+            return true;
+        }
         if ($method === 'PUT' && preg_match('#^/api/admin/sportsbook-links/([a-fA-F0-9]{24})$#', $path, $m) === 1) {
             $this->updateSportsbookLink($m[1]);
             return true;
@@ -290,6 +294,10 @@ final class AdminCoreController
         }
         if ($method === 'POST' && $path === '/api/admin/seed-workflow-hierarchy') {
             $this->seedWorkflowHierarchy();
+            return true;
+        }
+        if ($method === 'POST' && $path === '/api/admin/cleanup-workflow-seed') {
+            $this->cleanupWorkflowSeed();
             return true;
         }
         if ($method === 'PUT' && preg_match('#^/api/admin/agent/([a-fA-F0-9]{24})$#', $path, $m) === 1) {
@@ -3392,6 +3400,27 @@ final class AdminCoreController
         }
     }
 
+    private function deleteSportsbookLink(string $id): void
+    {
+        try {
+            $actor = $this->protect(['admin']);
+            if ($actor === null) {
+                return;
+            }
+
+            $link = $this->db->findOne('sportsbooklinks', ['_id' => MongoRepository::id($id)]);
+            if ($link === null) {
+                Response::json(['message' => 'Link not found'], 404);
+                return;
+            }
+
+            $this->db->deleteOne('sportsbooklinks', ['_id' => MongoRepository::id($id)]);
+            Response::json(['message' => 'Link deleted', 'id' => $id]);
+        } catch (Throwable $e) {
+            Response::json(['message' => 'Server error deleting sportsbook link'], 500);
+        }
+    }
+
     private function testSportsbookLink(string $id): void
     {
         try {
@@ -5343,7 +5372,25 @@ final class AdminCoreController
         }
     }
 
-    private function cleanupWorkflowSeedData(): void
+    private function cleanupWorkflowSeed(): void
+    {
+        try {
+            $actor = $this->protect(['admin']);
+            if ($actor === null) {
+                return;
+            }
+
+            $summary = $this->cleanupWorkflowSeedData();
+            Response::json([
+                'message' => 'Seeded workflow data deleted',
+                'summary' => $summary,
+            ]);
+        } catch (Throwable $e) {
+            Response::json(['message' => 'Server error cleaning seeded workflow data: ' . $e->getMessage()], 500);
+        }
+    }
+
+    private function cleanupWorkflowSeedData(): array
     {
         $legacyAgentQuery = [
             '$or' => [
@@ -5362,11 +5409,16 @@ final class AdminCoreController
             ],
         ];
 
+        $deletedUsers = 0;
+        $deletedAgents = 0;
+        $deletedMasterAgentLinks = 0;
+
         $users = $this->db->findMany('users', $legacyUserQuery, ['projection' => ['_id' => 1]]);
         foreach ($users as $u) {
             $id = (string) ($u['_id'] ?? '');
             if ($id !== '' && preg_match('/^[a-f0-9]{24}$/i', $id) === 1) {
                 $this->db->deleteOne('users', ['_id' => MongoRepository::id($id)]);
+                $deletedUsers++;
             }
         }
 
@@ -5374,10 +5426,21 @@ final class AdminCoreController
         foreach ($agents as $a) {
             $id = (string) ($a['_id'] ?? '');
             if ($id !== '' && preg_match('/^[a-f0-9]{24}$/i', $id) === 1) {
+                $masterAgentLink = $this->db->findOne('master_agents', ['agentId' => MongoRepository::id($id)], ['projection' => ['_id' => 1]]);
                 $this->db->deleteOne('master_agents', ['agentId' => MongoRepository::id($id)]);
                 $this->db->deleteOne('agents', ['_id' => MongoRepository::id($id)]);
+                if ($masterAgentLink !== null) {
+                    $deletedMasterAgentLinks++;
+                }
+                $deletedAgents++;
             }
         }
+
+        return [
+            'usersDeleted' => $deletedUsers,
+            'agentsDeleted' => $deletedAgents,
+            'masterAgentLinksDeleted' => $deletedMasterAgentLinks,
+        ];
     }
 
     private function updateUserByAdmin(string $id): void
