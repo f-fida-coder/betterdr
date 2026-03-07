@@ -6,3 +6,13 @@
 [2026-03-06T20:34:58+00:00] [INFO] [2026-03-06T20:34:55+00:00] update ok created=0 updated=63 scoreOnly=17 settled=0 calls=10 failed=0 blocked=false
 [2026-03-07T03:55:00+00:00] [INFO] PHP odds worker started. interval=2m db=betterdr_local once=false
 [2026-03-07T03:55:02+00:00] [INFO] [2026-03-07T03:55:00+00:00] update ok created=0 updated=50 scoreOnly=4 settled=0 calls=10 failed=0 blocked=false
+[2026-03-07T04:59:11+00:00] [INFO] PHP odds worker started. interval=2m db=betterdr_local once=false
+[2026-03-07T04:59:13+00:00] [INFO] [2026-03-07T04:59:11+00:00] update ok created=0 updated=50 scoreOnly=9 settled=0 calls=10 failed=0 blocked=false
+[2026-03-07T05:01:15+00:00] [INFO] [2026-03-07T05:01:11+00:00] update ok created=0 updated=50 scoreOnly=9 settled=0 calls=10 failed=0 blocked=false
+[2026-03-07T05:03:14+00:00] [INFO] [2026-03-07T05:03:11+00:00] update ok created=0 updated=50 scoreOnly=9 settled=0 calls=10 failed=0 blocked=false
+[2026-03-07T05:05:13+00:00] [INFO] [2026-03-07T05:05:11+00:00] update ok created=0 updated=50 scoreOnly=9 settled=0 calls=10 failed=0 blocked=false
+[2026-03-07T05:07:13+00:00] [INFO] [2026-03-07T05:07:10+00:00] update ok created=0 updated=50 scoreOnly=9 settled=0 calls=10 failed=0 blocked=false
+[2026-03-07T05:09:13+00:00] [INFO] [2026-03-07T05:09:10+00:00] update ok created=0 updated=50 scoreOnly=9 settled=0 calls=10 failed=0 blocked=false
+[2026-03-07T05:11:14+00:00] [INFO] [2026-03-07T05:11:11+00:00] update ok created=0 updated=50 scoreOnly=9 settled=0 calls=10 failed=0 blocked=false
+[2026-03-07T05:13:13+00:00] [INFO] [2026-03-07T05:13:11+00:00] update ok created=0 updated=50 scoreOnly=11 settled=0 calls=10 failed=0 blocked=false
+[2026-03-07T05:15:13+00:00] [INFO] [2026-03-07T05:15:11+00:00] update ok created=0 updated=50 scoreOnly=11 settled=0 calls=10 failed=0 blocked=false

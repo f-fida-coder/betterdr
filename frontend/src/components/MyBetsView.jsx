@@ -72,7 +72,12 @@ const formatTimestamp = (value) => {
     if (!value) return '—';
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return '—';
-    return date.toLocaleString();
+    return date.toLocaleString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+    });
 };
 
 const MyBetsView = () => {
@@ -150,6 +155,15 @@ const MyBetsView = () => {
         });
     }, [bets]);
 
+    const filterCounts = useMemo(() => {
+        const counts = { all: bets.length, pending: 0, won: 0, lost: 0, void: 0 };
+        bets.forEach((bet) => {
+            const s = normalizeStatus(bet?.status);
+            if (counts[s] !== undefined) counts[s] += 1;
+        });
+        return counts;
+    }, [bets]);
+
     const filteredBets = useMemo(() => {
         if (statusFilter === 'all') return bets;
         return bets.filter((bet) => normalizeStatus(bet?.status) === statusFilter);
@@ -177,7 +191,7 @@ const MyBetsView = () => {
                         <div className="my-bets-empty-icon"><i className="fa-solid fa-circle-exclamation"></i></div>
                         <h3>Unable to load bets</h3>
                         <p>{error}</p>
-                        <button type="button" className="my-bets-refresh-btn" onClick={() => void fetchBets()}>
+                        <button type="button" className="my-bets-refresh-btn" onClick={() => void fetchBets()} style={{ marginTop: 16 }}>
                             Try Again
                         </button>
                     </div>
@@ -189,11 +203,12 @@ const MyBetsView = () => {
     return (
         <div className="my-bets-page">
             <div className="my-bets-shell">
+                {/* Hero */}
                 <div className="my-bets-hero">
                     <div>
-                        <span className="my-bets-eyebrow">Player Ticket Center</span>
+                        <span className="my-bets-eyebrow">Ticket Center</span>
                         <h2>My Bets</h2>
-                        <p>Track pending slips, settled tickets, and leg-by-leg results without digging through tables.</p>
+                        <p>Track all your pending, settled, and voided tickets in one place.</p>
                     </div>
                     <div className="my-bets-hero-actions">
                         <button
@@ -202,12 +217,14 @@ const MyBetsView = () => {
                             onClick={() => void fetchBets({ silent: true })}
                             disabled={refreshing}
                         >
+                            <i className={`fa-solid fa-arrows-rotate${refreshing ? ' fa-spin' : ''}`} style={{ marginRight: 6 }}></i>
                             {refreshing ? 'Refreshing...' : 'Refresh'}
                         </button>
-                        <div className="my-bets-updated">Last update: {lastUpdated ? lastUpdated.toLocaleTimeString() : '—'}</div>
+                        <div className="my-bets-updated">Updated: {lastUpdated ? lastUpdated.toLocaleTimeString() : '—'}</div>
                     </div>
                 </div>
 
+                {/* Summary Grid */}
                 <div className="my-bets-summary-grid">
                     <div className="my-bets-summary-card">
                         <span>Total Tickets</span>
@@ -236,6 +253,7 @@ const MyBetsView = () => {
                     </div>
                 </div>
 
+                {/* Filter Chips */}
                 <div className="my-bets-filter-row">
                     {[
                         { id: 'all', label: 'All' },
@@ -250,11 +268,12 @@ const MyBetsView = () => {
                             className={`my-bets-filter-chip ${statusFilter === option.id ? 'active' : ''}`}
                             onClick={() => setStatusFilter(option.id)}
                         >
-                            {option.label}
+                            {option.label} ({filterCounts[option.id] || 0})
                         </button>
                     ))}
                 </div>
 
+                {/* Bet Cards */}
                 {filteredBets.length === 0 ? (
                     <div className="my-bets-empty">
                         <div className="my-bets-empty-icon"><i className="fa-solid fa-receipt"></i></div>
@@ -275,25 +294,28 @@ const MyBetsView = () => {
 
                             return (
                                 <article key={betId} className={`my-bet-card ${theme}`}>
+                                    {/* Header Row */}
                                     <div className="my-bet-card-top">
                                         <div className="my-bet-card-meta">
                                             <span className={`my-bet-status ${theme}`}>{formatStatus(status)}</span>
                                             <span className="my-bet-type">{String(bet.type || 'straight').replace(/_/g, ' ').toUpperCase()}</span>
-                                            {bet.ticketId ? <span className="my-bet-ticket">Ticket #{bet.ticketId}</span> : null}
+                                            {bet.ticketId ? <span className="my-bet-ticket">#{bet.ticketId}</span> : null}
                                         </div>
                                         <div className="my-bet-card-time">{formatTimestamp(bet.createdAt)}</div>
                                     </div>
 
+                                    {/* Body */}
                                     <div className="my-bet-card-body">
                                         <div className="my-bet-main">
-                                            <div className="my-bet-match">{matchLabel(bet)}</div>
+                                            <div className="my-bet-match" title={matchLabel(bet)}>{matchLabel(bet)}</div>
                                             <div className="my-bet-subtext">
                                                 <span>{selections.length || 1} leg{(selections.length || 1) > 1 ? 's' : ''}</span>
+                                                <span>•</span>
                                                 <span>{statusLabel(status)} ticket</span>
                                             </div>
                                             <div className="my-bet-summary-lines">
                                                 {summaryLines.length > 0 ? summaryLines.map((line, index) => (
-                                                    <div key={`${betId}-summary-${index}`} className="my-bet-summary-line">{line}</div>
+                                                    <div key={`${betId}-summary-${index}`} className="my-bet-summary-line" title={line}>{line}</div>
                                                 )) : (
                                                     <div className="my-bet-summary-line">MULTI</div>
                                                 )}
@@ -316,14 +338,19 @@ const MyBetsView = () => {
                                         </div>
                                     </div>
 
+                                    {/* Reverse note */}
                                     {String(bet.type || '').toLowerCase() === 'reverse' && unitStake > 0 ? (
                                         <div className="my-bet-note">Reverse ticket unit stake: {money(unitStake)} each way</div>
                                     ) : null}
 
+                                    {/* Leg Details */}
                                     {selections.length > 0 ? (
                                         <details className="my-bet-legs" open={selections.length === 1}>
                                             <summary>
-                                                <span>Leg Details</span>
+                                                <span>
+                                                    <i className="fa-solid fa-list-ul" style={{ marginRight: 6, fontSize: 12 }}></i>
+                                                    Leg Details
+                                                </span>
                                                 <span>{selections.length} total</span>
                                             </summary>
                                             <div className="my-bet-leg-list">

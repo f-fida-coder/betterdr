@@ -1435,3 +1435,7 @@
 2026-03-06 11:42:59 [403] {"message":"Not authorized"}
 2026-03-06 11:42:59 [403] {"message":"Not authorized"}
 2026-03-06 20:34:17 [409] {"message":"Sportsbook odds feed is stale (645s old). Betting is temporarily suspended.","code":"MATCH_NOT_BETTABLE","matchStatus":"scheduled"}
+2026-03-07 05:01:12 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-03-07 05:01:12 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-03-07 05:01:19 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-03-07 05:05:11 [401] {"message":"Invalid credentials"}
