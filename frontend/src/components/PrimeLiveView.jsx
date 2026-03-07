@@ -19,7 +19,7 @@ const PrimeLiveView = () => {
     const [marketView, setMarketView] = useState('all');
     const [collapsedSports, setCollapsedSports] = useState(new Set());
     const [selectedOddsKey, setSelectedOddsKey] = useState(null);
-    const rawMatches = useMatches({ status: feedStatus });
+    const rawMatches = useMatches({ status: feedStatus, scopeKey: selectedSport });
 
     const formatSportLabel = (sport = '') => {
         if (!sport) return 'Unknown';
@@ -142,7 +142,7 @@ const PrimeLiveView = () => {
     };
 
     const refreshFeed = () => {
-        window.dispatchEvent(new CustomEvent('matches:refresh'));
+        window.dispatchEvent(new CustomEvent('matches:refresh', { detail: { reason: 'manual' } }));
     };
 
     return (

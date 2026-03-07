@@ -13,9 +13,9 @@ const SidebarItem = ({
     const isExpanded = expandedIds.has(item.id);
     const isSelected = selectedIds.includes(item.id);
     const hasChildren = (item.children && item.children.length > 0) || item.hasChildren;
+    const isSelectable = item.selectable !== false;
 
     const handleExpandClick = () => {
-        const isSelectable = item.selectable !== false;
         if (hasChildren) {
             onToggleExpand(item.id);
             if (isSelectable) {
@@ -38,7 +38,7 @@ const SidebarItem = ({
     return (
         <div className={`sidebar-tree-node ${className}`}>
             <div
-                className={`sidebar-item-row ${isSelected ? 'selected' : ''} level-${level} item-type-${item.type || 'standard'} icon-${item.id}`}
+                className={`sidebar-item-row ${isSelected ? 'selected' : ''} ${!isSelectable && hasChildren ? 'expander-only' : ''} level-${level} item-type-${item.type || 'standard'} icon-${item.id}`}
                 onClick={handleExpandClick}
                 data-sport-id={item.id}
             >
@@ -140,7 +140,7 @@ const DashboardSidebar = ({ selectedSports = [], onToggleSport, betMode = 'strai
 
             <div className="sidebar-mobile-info mobile-only">
                 <div className="info-item">UP NEXT</div>
-                <div className="info-item">FEATURED</div>
+                <div className="info-item">LIVE NOW</div>
             </div>
 
             <div className="sidebar-content">
@@ -153,7 +153,7 @@ const DashboardSidebar = ({ selectedSports = [], onToggleSport, betMode = 'strai
                             <span className="icon sidebar-main-icon" style={{ color: '#007bff' }}>
                                 <i className="fa-solid fa-desktop"></i>
                             </span>
-                            <span className="sidebar-label-text">COMMERCIAL LIVE</span>
+                            <span className="sidebar-label-text">LIVE NOW</span>
                         </div>
                     </div>
                 </div>
@@ -167,7 +167,7 @@ const DashboardSidebar = ({ selectedSports = [], onToggleSport, betMode = 'strai
                         onToggle={onToggleSport}
                         expandedIds={expandedIds}
                         onToggleExpand={toggleExpand}
-                        className={item.id === 'commercial-live' || item.id === 'up-next' || item.id === 'featured' ? 'desktop-only' : ''}
+                        className={item.id === 'commercial-live' || item.id === 'up-next' ? 'desktop-only' : ''}
                     />
                 ))}
             </div>

@@ -1,10 +1,13 @@
-import { useEffect, useState } from 'react';
-import { getMatches, getLiveMatches, API_URL } from '../api';
+import { useEffect, useRef, useState } from 'react';
+import { getMatches, getLiveMatches, getUpcomingMatches } from '../api';
 
-const MATCH_STREAM_ENABLED = String(import.meta.env.VITE_ENABLE_MATCH_STREAM || 'true').toLowerCase() === 'true';
-const POLL_INTERVAL_MS = 15000;
+const buildClientId = (prefix) => {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+        return `${prefix}-${crypto.randomUUID()}`;
+    }
+    return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+};
 
-// Hook: fetch initial matches and subscribe to live match updates
 const isLiveMatch = (match) => {
     if (!match) return false;
     const status = (match.status || '').toString().toLowerCase();
@@ -38,110 +41,116 @@ const isFinishedMatch = (match) => {
     return eventStatus.includes('FINAL') || eventStatus.includes('COMPLETE') || eventStatus.includes('STATUS_CLOSED');
 };
 
+const filterMatches = (normalized, statusFilter) => {
+    if (statusFilter === 'live' || statusFilter === 'active') {
+        const filtered = normalized.filter(isLiveMatch);
+        return filtered.length === 0 && normalized.length > 0 ? normalized : filtered;
+    }
+
+    if (statusFilter === 'upcoming' || statusFilter === 'scheduled') {
+        return normalized.filter((match) => !isFinishedMatch(match) && isUpcomingMatch(match));
+    }
+
+    if (statusFilter === 'live-upcoming' || statusFilter === 'active-upcoming') {
+        return normalized.filter((match) => !isFinishedMatch(match) && (isLiveMatch(match) || isUpcomingMatch(match) || (!isFinishedMatch(match) && !match.status)));
+    }
+
+    return normalized;
+};
+
 export default function useMatches(options = {}) {
     const [matches, setMatches] = useState([]);
     const statusFilter = (options.status || 'all').toString().toLowerCase();
+    const scopeKey = (options.scopeKey || '').toString();
+    const fetchIdRef = useRef(0);
+    const listenerIdRef = useRef(buildClientId('matches-hook'));
 
     useEffect(() => {
         let mounted = true;
 
-        const fetchMatches = async () => {
-            try {
-                const data = (statusFilter === 'live' || statusFilter === 'active')
-                    ? await getLiveMatches()
-                    : await getMatches();
+        const emitRefreshProgress = (phase, detail) => {
+            if (typeof window === 'undefined') return;
+            window.dispatchEvent(new CustomEvent('matches:refresh-progress', {
+                detail: {
+                    phase,
+                    listenerId: listenerIdRef.current,
+                    statusFilter,
+                    scopeKey,
+                    ...detail,
+                },
+            }));
+        };
 
-                const normalized = Array.isArray(data) ? data : [];
-                let filtered = normalized;
-                if (statusFilter === 'live' || statusFilter === 'active') {
-                    filtered = normalized.filter(isLiveMatch);
-                    if (filtered.length === 0 && normalized.length > 0) {
-                        filtered = normalized;
-                    }
-                } else if (statusFilter === 'upcoming' || statusFilter === 'scheduled') {
-                    filtered = normalized.filter(m => !isFinishedMatch(m) && isUpcomingMatch(m));
-                } else if (statusFilter === 'live-upcoming' || statusFilter === 'active-upcoming') {
-                    filtered = normalized.filter(m => !isFinishedMatch(m) && (isLiveMatch(m) || isUpcomingMatch(m) || (!isFinishedMatch(m) && !m.status)));
+        const fetchMatches = async ({ trigger = 'view', refresh = false, requestId = '' } = {}) => {
+            const fetchId = fetchIdRef.current + 1;
+            fetchIdRef.current = fetchId;
+            const refreshRequestId = requestId ? String(requestId) : '';
+            const emitScopedLifecycle = refresh === true && refreshRequestId !== '';
+            let success = false;
+            let errorMessage = '';
+
+            if (emitScopedLifecycle) {
+                emitRefreshProgress('started', { requestId: refreshRequestId, trigger, refresh: true });
+            }
+
+            try {
+                const requestOptions = { trigger, refresh };
+                const data = (statusFilter === 'live' || statusFilter === 'active')
+                    ? await getLiveMatches(requestOptions)
+                    : (statusFilter === 'upcoming' || statusFilter === 'scheduled')
+                        ? await getUpcomingMatches(requestOptions)
+                        : await getMatches(statusFilter === 'all' ? '' : statusFilter, requestOptions);
+
+                if (!mounted || fetchId !== fetchIdRef.current) {
+                    return;
                 }
 
-                if (mounted) setMatches(filtered);
-                window.dispatchEvent(new CustomEvent('matches:refresh-completed', { detail: { success: true } }));
+                const normalized = Array.isArray(data) ? data : [];
+                setMatches(filterMatches(normalized, statusFilter));
+                success = true;
             } catch (err) {
-                if (mounted) setMatches([]);
-                window.dispatchEvent(new CustomEvent('matches:refresh-completed', { detail: { success: false, error: err.message } }));
+                errorMessage = err?.message || 'Failed to fetch matches';
+                if (mounted && fetchId === fetchIdRef.current) {
+                    setMatches([]);
+                }
+            } finally {
+                window.dispatchEvent(new CustomEvent('matches:refresh-completed', {
+                    detail: {
+                        success,
+                        error: success ? undefined : errorMessage,
+                        trigger,
+                        refresh,
+                        requestId: refreshRequestId || undefined,
+                    }
+                }));
+                if (emitScopedLifecycle) {
+                    emitRefreshProgress('completed', {
+                        requestId: refreshRequestId,
+                        trigger,
+                        refresh: true,
+                        success,
+                        error: success ? undefined : errorMessage,
+                    });
+                }
             }
         };
 
-        fetchMatches();
+        fetchMatches({ trigger: scopeKey ? 'selection' : 'view' });
 
-        const handleRefresh = () => {
-            fetchMatches();
+        const handleRefresh = (event) => {
+            const detail = event?.detail ?? {};
+            const trigger = detail.reason ? String(detail.reason) : 'manual';
+            const requestId = detail.requestId ? String(detail.requestId) : '';
+            fetchMatches({ trigger, refresh: true, requestId });
         };
 
         window.addEventListener('matches:refresh', handleRefresh);
 
-        let eventSource = null;
-        let pollingTimer = null;
-
-        if (MATCH_STREAM_ENABLED && typeof window !== 'undefined' && typeof window.EventSource !== 'undefined') {
-            eventSource = new window.EventSource(`${API_URL}/matches/stream`);
-            eventSource.addEventListener('matchUpdate', (event) => {
-                let updatedMatch = null;
-                try {
-                    updatedMatch = JSON.parse(event.data);
-                } catch (e) {
-                    return;
-                }
-                setMatches(prev => {
-                    if (!updatedMatch) return prev;
-                    let shouldKeep = true;
-                    if (statusFilter === 'live' || statusFilter === 'active') {
-                        shouldKeep = isLiveMatch(updatedMatch);
-                    } else if (statusFilter === 'upcoming' || statusFilter === 'scheduled') {
-                        shouldKeep = !isFinishedMatch(updatedMatch) && isUpcomingMatch(updatedMatch);
-                    } else if (statusFilter === 'live-upcoming' || statusFilter === 'active-upcoming') {
-                        shouldKeep = !isFinishedMatch(updatedMatch) && (isLiveMatch(updatedMatch) || isUpcomingMatch(updatedMatch) || (!isFinishedMatch(updatedMatch) && !updatedMatch?.status));
-                    }
-                    const id = updatedMatch.id || updatedMatch._id || updatedMatch.externalId;
-                    const idx = prev.findIndex(m => (m.id === id) || (m._id === id) || (m.externalId === id));
-                    if (!shouldKeep) {
-                        if (idx >= 0) {
-                            const copy = [...prev];
-                            copy.splice(idx, 1);
-                            return copy;
-                        }
-                        return prev;
-                    }
-                    if (idx >= 0) {
-                        const copy = [...prev];
-                        copy[idx] = { ...copy[idx], ...updatedMatch };
-                        return copy;
-                    }
-                    return [updatedMatch, ...prev];
-                });
-            });
-            eventSource.onerror = () => {
-                if (pollingTimer === null) {
-                    pollingTimer = window.setInterval(fetchMatches, POLL_INTERVAL_MS);
-                }
-            };
-        }
-
-        if (pollingTimer === null) {
-            pollingTimer = window.setInterval(fetchMatches, POLL_INTERVAL_MS);
-        }
-
         return () => {
             mounted = false;
-            if (pollingTimer !== null) {
-                window.clearInterval(pollingTimer);
-            }
-            if (eventSource) {
-                try { eventSource.close(); } catch (e) { }
-            }
             window.removeEventListener('matches:refresh', handleRefresh);
         };
-    }, [statusFilter]);
+    }, [scopeKey, statusFilter]);
 
     return matches;
 }

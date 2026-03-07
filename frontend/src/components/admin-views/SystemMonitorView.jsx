@@ -42,6 +42,9 @@ const SystemMonitorView = () => {
     const liveMatches = stats?.liveMatches || [];
     const catalogItems = entityCatalog?.items || [];
     const catalogSummary = entityCatalog?.summary || { links: 0, collections: 0, rows: 0 };
+    const sportsbookHealth = stats?.sportsbookHealth || {};
+    const oddsHealth = sportsbookHealth?.oddsSync || {};
+    const settlementHealth = sportsbookHealth?.settlement || {};
 
     const handleRefreshOdds = async () => {
         try {
@@ -50,7 +53,10 @@ const SystemMonitorView = () => {
                 throw new Error('Please login first');
             }
             const data = await refreshOdds(token);
-            alert(`Odds Refreshed! Created: ${data.results?.created || 0}, Updated: ${data.results?.updated || 0}`);
+            alert(
+                `Odds Refreshed! Created: ${data.results?.created || 0}, Updated: ${data.results?.updated || 0}, ` +
+                `Score-only updates: ${data.results?.scoreOnlyUpdates || 0}, Settled: ${data.results?.settled || 0}`
+            );
             fetchStats(); // Refresh stats too
         } catch (error) {
             console.error('Refresh error:', error);
@@ -100,10 +106,51 @@ const SystemMonitorView = () => {
                 <div className="stat-card">
                     <div className="stat-icon matches"><i className="fa-solid fa-futbol"></i></div>
                     <div className="stat-info">
-                        <h3>Active Matches</h3>
+                        <h3>Tracked Matches</h3>
                         <p>{counts.matches}</p>
                     </div>
                 </div>
+            </div>
+
+            <div className="admin-content-card" style={{ marginBottom: '20px' }}>
+                <div className="card-header">
+                    <h3><i className="fa-solid fa-heart-pulse"></i> Sportsbook Feed Health</h3>
+                </div>
+                <div className="stats-grid" style={{ marginBottom: 0 }}>
+                    <div className="stat-card">
+                        <div className="stat-icon matches"><i className="fa-solid fa-signal"></i></div>
+                        <div className="stat-info">
+                            <h3>Odds Feed</h3>
+                            <p>{oddsHealth?.bettingSuspended ? 'STALE / CLOSED' : 'OK'}</p>
+                            <small>Last odds sync: {oddsHealth?.lastOddsSuccessAt ? new Date(oddsHealth.lastOddsSuccessAt).toLocaleString() : 'Never'}</small>
+                            <small style={{ display: 'block' }}>Age: {oddsHealth?.syncAgeSeconds ?? '—'}s</small>
+                        </div>
+                    </div>
+                    <div className="stat-card">
+                        <div className="stat-icon bets"><i className="fa-solid fa-flag-checkered"></i></div>
+                        <div className="stat-info">
+                            <h3>Results Feed</h3>
+                            <p>{oddsHealth?.lastScoresSuccessAt ? 'SYNCING' : 'UNKNOWN'}</p>
+                            <small>Last score sync: {oddsHealth?.lastScoresSuccessAt ? new Date(oddsHealth.lastScoresSuccessAt).toLocaleString() : 'Never'}</small>
+                            <small style={{ display: 'block' }}>Failures: {oddsHealth?.consecutiveFailures ?? 0}</small>
+                        </div>
+                    </div>
+                    <div className="stat-card">
+                        <div className="stat-icon users"><i className="fa-solid fa-scale-balanced"></i></div>
+                        <div className="stat-info">
+                            <h3>Settlement</h3>
+                            <p>{settlementHealth?.lastRunStatus || 'unknown'}</p>
+                            <small>Last success: {settlementHealth?.lastSuccessAt ? new Date(settlementHealth.lastSuccessAt).toLocaleString() : 'Never'}</small>
+                            <small style={{ display: 'block' }}>Last match: {settlementHealth?.lastMatchId || '—'}</small>
+                        </div>
+                    </div>
+                </div>
+                {(oddsHealth?.lastError || settlementHealth?.lastError) && (
+                    <div style={{ marginTop: '16px', padding: '12px', borderRadius: '8px', background: 'rgba(255, 80, 80, 0.12)', color: '#ffb3b3' }}>
+                        <div><strong>Last sync error:</strong> {oddsHealth?.lastError || '—'}</div>
+                        <div><strong>Last settlement error:</strong> {settlementHealth?.lastError || '—'}</div>
+                    </div>
+                )}
             </div>
 
             {/* Live Data Inspector */}

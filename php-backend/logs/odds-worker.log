@@ -1,0 +1,8 @@
+[2026-03-06T20:22:56+00:00] [INFO] PHP odds worker started. interval=2m db=betterdr_local once=true
+[2026-03-06T20:22:59+00:00] [INFO] [2026-03-06T20:22:56+00:00] update ok created=13 updated=50 scoreOnly=17 settled=0 calls=10 failed=0 blocked=false
+[2026-03-06T20:23:30+00:00] [INFO] PHP odds worker started. interval=2m db=betterdr_local once=true
+[2026-03-06T20:23:32+00:00] [INFO] [2026-03-06T20:23:30+00:00] update ok created=0 updated=63 scoreOnly=17 settled=0 calls=10 failed=0 blocked=false
+[2026-03-06T20:34:55+00:00] [INFO] PHP odds worker started. interval=2m db=betterdr_local once=true
+[2026-03-06T20:34:58+00:00] [INFO] [2026-03-06T20:34:55+00:00] update ok created=0 updated=63 scoreOnly=17 settled=0 calls=10 failed=0 blocked=false
+[2026-03-07T03:55:00+00:00] [INFO] PHP odds worker started. interval=2m db=betterdr_local once=false
+[2026-03-07T03:55:02+00:00] [INFO] [2026-03-07T03:55:00+00:00] update ok created=0 updated=50 scoreOnly=4 settled=0 calls=10 failed=0 blocked=false

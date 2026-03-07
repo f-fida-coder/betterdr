@@ -87,7 +87,7 @@ const UltraLiveView = () => {
     });
 
     const feedStatus = navTab === 'history' ? 'all' : 'live-upcoming';
-    const rawMatches = useMatches({ status: feedStatus });
+    const rawMatches = useMatches({ status: feedStatus, scopeKey: `${navTab}:${selectedSport}` });
 
     const matches = useMemo(() => {
         const list = Array.isArray(rawMatches) ? rawMatches : [];
@@ -158,7 +158,7 @@ const UltraLiveView = () => {
     const awayMoneyline = selectedMatch ? getMoneyline(selectedMatch, away) : null;
 
     const refreshFeed = () => {
-        window.dispatchEvent(new CustomEvent('matches:refresh'));
+        window.dispatchEvent(new CustomEvent('matches:refresh', { detail: { reason: 'manual' } }));
     };
 
     const toggleMarketSection = (key) => {

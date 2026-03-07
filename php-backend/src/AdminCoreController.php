@@ -810,6 +810,7 @@ final class AdminCoreController
                         ['score.score_away' => ['$gt' => 0]],
                     ],
                 ], ['sort' => ['lastUpdated' => -1], 'limit' => 20]);
+                $liveMatches = array_map(fn (array $match): array => SportsbookHealth::applyBettingAvailability($this->db, $match), array_values(array_filter($liveMatches, 'is_array')));
 
                 return [
                     'counts' => [
@@ -817,6 +818,7 @@ final class AdminCoreController
                         'bets' => $betCount,
                         'matches' => $matchCount,
                     ],
+                    'sportsbookHealth' => SportsbookHealth::sportsbookSnapshot($this->db),
                     'liveMatches' => $liveMatches,
                     'timestamp' => gmdate(DATE_ATOM),
                 ];
@@ -955,6 +957,7 @@ final class AdminCoreController
                     'todayNet' => $todayNetUser * -1,
                     'weekNet' => $weekNetUser * -1,
                     'activeAccounts' => $activeAccounts,
+                    'sportsbookHealth' => SportsbookHealth::sportsbookSnapshot($this->db),
                 ];
             });
         } catch (Throwable $e) {
@@ -6833,10 +6836,10 @@ final class AdminCoreController
             if ($actor === null) {
                 return;
             }
-            $results = OddsSyncService::updateMatches($this->db);
+            $results = OddsSyncService::updateMatches($this->db, 'admin_refresh');
             Response::json(['message' => 'Odds refreshed successfully', 'results' => $results]);
         } catch (Throwable $e) {
-            Response::json(['message' => 'Server error refreshing odds'], 500);
+            Response::json(['message' => $e->getMessage() ?: 'Server error refreshing odds'], 500);
         }
     }
 
@@ -6847,10 +6850,10 @@ final class AdminCoreController
             if ($actor === null) {
                 return;
             }
-            $results = OddsSyncService::updateMatches($this->db);
+            $results = OddsSyncService::updateMatches($this->db, 'admin_manual');
             Response::json(['message' => 'Manual odds fetch completed', 'results' => $results]);
         } catch (Throwable $e) {
-            Response::json(['message' => 'Server error manual odds fetch'], 500);
+            Response::json(['message' => $e->getMessage() ?: 'Server error manual odds fetch'], 500);
         }
     }
 

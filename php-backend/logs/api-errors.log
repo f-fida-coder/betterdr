@@ -1434,3 +1434,4 @@
 2026-03-06 11:36:26 [401] {"message":"Invalid credentials"}
 2026-03-06 11:42:59 [403] {"message":"Not authorized"}
 2026-03-06 11:42:59 [403] {"message":"Not authorized"}
+2026-03-06 20:34:17 [409] {"message":"Sportsbook odds feed is stale (645s old). Betting is temporarily suspended.","code":"MATCH_NOT_BETTABLE","matchStatus":"scheduled"}

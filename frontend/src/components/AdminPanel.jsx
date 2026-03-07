@@ -53,14 +53,7 @@ const FALLBACK_VIEW_ORDER = [
 ];
 
 function AdminPanel({ onExit, role = 'admin' }) {
-  const [adminView, setAdminView] = useState(() => {
-    const pendingView = sessionStorage.getItem('postSwitchAdminView');
-    if (pendingView) {
-      sessionStorage.removeItem('postSwitchAdminView');
-      return pendingView;
-    }
-    return 'dashboard';
-  });
+  const [adminView, setAdminView] = useState('dashboard');
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState(null);
   const [layoutPref, setLayoutPref] = useState('tiles');
@@ -129,6 +122,7 @@ function AdminPanel({ onExit, role = 'admin' }) {
       if (!token || !targetId) return;
 
       const baseToken = sessionStorage.getItem('impersonationBaseToken');
+      const actorToken = baseToken || token;
       if (!baseToken) {
         const me = await getMe(token);
         const baseRole = String(me?.role || role || 'admin').toLowerCase();
@@ -136,9 +130,10 @@ function AdminPanel({ onExit, role = 'admin' }) {
         sessionStorage.setItem('impersonationBaseToken', token);
         sessionStorage.setItem('impersonationBaseRole', baseRole);
         sessionStorage.setItem('impersonationBaseUsername', String(me?.username || roleLabel));
+        sessionStorage.setItem('impersonationBaseId', String(me?.id || me?._id || ''));
       }
 
-      const data = await impersonateUser(targetId, token);
+      const data = await impersonateUser(targetId, actorToken);
       if (!data?.token) return;
 
       localStorage.setItem('token', data.token);
@@ -151,7 +146,7 @@ function AdminPanel({ onExit, role = 'admin' }) {
         sessionStorage.setItem(`${roleKey}Username`, data.username);
       }
 
-      sessionStorage.setItem('postSwitchAdminView', 'customer-admin');
+      sessionStorage.removeItem('postSwitchAdminView');
       const nextRoleKey = data.role === 'admin'
         ? 'admin'
         : ((data.role === 'super_agent' || data.role === 'master_agent') ? 'super_agent' : 'agent');
@@ -177,6 +172,8 @@ function AdminPanel({ onExit, role = 'admin' }) {
     sessionStorage.removeItem('impersonationBaseToken');
     sessionStorage.removeItem('impersonationBaseRole');
     sessionStorage.removeItem('impersonationBaseUsername');
+    sessionStorage.removeItem('impersonationBaseId');
+    sessionStorage.removeItem('postSwitchAdminView');
     const nextRoleKey = baseRole === 'admin'
       ? 'admin'
       : ((baseRole === 'super_agent' || baseRole === 'master_agent') ? 'super_agent' : 'agent');
@@ -230,7 +227,7 @@ function AdminPanel({ onExit, role = 'admin' }) {
       case 'cashier':
         return <CashierView />;
       case 'add-customer':
-        return <AddCustomerView />;
+        return <AddCustomerView onBack={() => setAdminView('customer-admin')} />;
       case 'third-party-limits':
         return <ThirdPartyLimitsView />;
       case 'props':

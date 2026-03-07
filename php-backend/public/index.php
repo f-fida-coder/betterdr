@@ -8,6 +8,7 @@ require_once __DIR__ . '/../src/IpUtils.php';
 require_once __DIR__ . '/../src/Jwt.php';
 require_once __DIR__ . '/../src/ApiException.php';
 require_once __DIR__ . '/../src/SportsMatchStatus.php';
+require_once __DIR__ . '/../src/SportsbookHealth.php';
 require_once __DIR__ . '/../src/SportsbookBetSupport.php';
 require_once __DIR__ . '/../src/MongoRepository.php';
 require_once __DIR__ . '/../src/BetModeRules.php';
@@ -88,12 +89,22 @@ if ($dbName === '') {
 $authNativeEnabled = MongoRepository::isAvailable();
 
 if ($uriPath === '/api/_php/health') {
+    $sportsbookHealth = null;
+    if ($authNativeEnabled) {
+        try {
+            $repo = new MongoRepository($mongoUri, $dbName);
+            $sportsbookHealth = SportsbookHealth::sportsbookSnapshot($repo);
+        } catch (Throwable $e) {
+            $sportsbookHealth = ['error' => $e->getMessage()];
+        }
+    }
     Response::json([
         'ok' => true,
         'mode' => 'core-php-gateway',
         'authNativeEnabled' => $authNativeEnabled,
         'databaseName' => $dbName,
         'databaseEngine' => 'mysql',
+        'sportsbook' => $sportsbookHealth,
         'time' => gmdate(DATE_ATOM),
     ]);
     exit;

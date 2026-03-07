@@ -23,13 +23,13 @@ const Hero = () => {
             <section className="hero-section">
                 <img
                     src={currentBanner.img}
-                    alt="Featured Match"
+                    alt="Sportsbook board"
                     id="heroImage"
                     style={{ animation: 'fadeIn 0.5s ease-in-out' }}
                 />
                 <div className="hero-overlay">
                     <div className="hero-text">
-                        <span className="hero-badge">FEATURED MATCH</span>
+                        <span className="hero-badge">TODAY'S BOARD</span>
                         <h1 id="heroTitle">{currentBanner.title}</h1>
                         <p id="heroSubtitle">{currentBanner.subtitle}</p>
                     </div>

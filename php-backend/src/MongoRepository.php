@@ -134,6 +134,25 @@ final class MongoRepository
         }
     }
 
+    public function acquireNamedLock(string $name, int $timeoutSeconds = 0): bool
+    {
+        $stmt = $this->pdo->prepare('SELECT GET_LOCK(:name, :timeout) AS `lock_status`');
+        $stmt->bindValue(':name', $name, PDO::PARAM_STR);
+        $stmt->bindValue(':timeout', max(0, $timeoutSeconds), PDO::PARAM_INT);
+        $stmt->execute();
+
+        return (int) $stmt->fetchColumn() === 1;
+    }
+
+    public function releaseNamedLock(string $name): bool
+    {
+        $stmt = $this->pdo->prepare('SELECT RELEASE_LOCK(:name) AS `lock_status`');
+        $stmt->bindValue(':name', $name, PDO::PARAM_STR);
+        $stmt->execute();
+
+        return (int) $stmt->fetchColumn() === 1;
+    }
+
     public function findOneForUpdate(string $collection, array $filter): ?array
     {
         $table = $this->tableName($collection);

@@ -74,8 +74,6 @@ function App() {
 
   // Initial Load - Check for token (simplified)
   useEffect(() => {
-    window.dispatchEvent(new CustomEvent('matches:refresh'));
-
     if (token) {
       setIsLoggedIn(true);
       document.body.classList.add('dashboard-mode');
@@ -251,7 +249,7 @@ function App() {
   };
 
   const handleSportToggle = (sport) => {
-    const quickFilters = new Set(['up-next', 'featured', 'commercial-live']);
+    const quickFilters = new Set(['up-next', 'commercial-live']);
     setSelectedSports(prev => {
       const isSelected = prev.includes(sport);
       if (isSelected) {
@@ -267,9 +265,6 @@ function App() {
   const handleOddsFormatChange = async (nextFormat) => {
     const userId = user?.id || '';
     const normalized = applyOddsFormat(nextFormat, userId);
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('matches:refresh'));
-    }
 
     setUser(prev => (
       prev

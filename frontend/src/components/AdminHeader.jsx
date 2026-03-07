@@ -86,11 +86,32 @@ function AdminHeader({
     if (onViewChange) onViewChange(view);
   };
 
+  const normalizeSearchValue = (value) => String(value || '').trim().toLowerCase();
+
+  const playerMatchesHeaderSearch = (player, rawQuery) => {
+    const query = normalizeSearchValue(rawQuery);
+    if (!query) return true;
+
+    const username = normalizeSearchValue(player?.username);
+    const fullName = normalizeSearchValue(
+      player?.fullName
+      || `${player?.firstName || ''} ${player?.lastName || ''}`.trim()
+    );
+    const displayPassword = normalizeSearchValue(player?.displayPassword);
+
+    return username.includes(query) || fullName.includes(query) || displayPassword.includes(query);
+  };
+
   const handleHeaderSearchSubmit = (e) => {
     e.preventDefault();
     const query = headerSearchQuery.trim();
     if (!query) return;
-    const exact = filteredPlayers.find((player) => String(player.username || '').toLowerCase() === query.toLowerCase());
+    const normalizedQuery = normalizeSearchValue(query);
+    const exact = filteredPlayers.find((player) => {
+      const username = normalizeSearchValue(player?.username);
+      const displayPassword = normalizeSearchValue(player?.displayPassword);
+      return username === normalizedQuery || displayPassword === normalizedQuery;
+    });
     if (exact) {
       const userId = exact.id || exact._id || exact.mongo_id;
       if (userId && onViewChange) {
@@ -112,17 +133,10 @@ function AdminHeader({
   };
 
   const filteredPlayers = useMemo(() => {
-    const query = headerSearchQuery.trim().toLowerCase();
+    const query = headerSearchQuery.trim();
     if (!query) return searchablePlayers.slice(0, 10);
     return searchablePlayers
-      .filter((player) => {
-        const username = String(player?.username || '').toLowerCase();
-        const fullName = String(
-          player?.fullName
-          || `${player?.firstName || ''} ${player?.lastName || ''}`.trim()
-        ).toLowerCase();
-        return username.includes(query) || fullName.includes(query);
-      })
+      .filter((player) => playerMatchesHeaderSearch(player, query))
       .slice(0, 10);
   }, [searchablePlayers, headerSearchQuery]);
 
@@ -303,6 +317,9 @@ function AdminHeader({
         <AgentTreeView
           onClose={() => setShowAgentTree(false)}
           initialQuery={agentTreeSearchQuery}
+          onRestoreBaseContext={onRestoreBaseContext}
+          canRestoreBaseContext={canRestoreBaseContext}
+          baseContextLabel={baseContextLabel}
           onGo={(id, role) => {
             setShowAgentTree(false);
             if (onSwitchContext) {

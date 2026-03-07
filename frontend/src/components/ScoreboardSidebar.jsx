@@ -1,10 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { fetchOddsManual, getMatches, getAdminMatches } from '../api';
+import { getMatches, getAdminMatches } from '../api';
 import { createFallbackTeamLogoDataUri, fetchTeamBadgeUrl } from '../utils/teamLogos';
 
 const SCOREBOARD_CACHE_KEY = 'admin_scoreboard_matches_cache_v1';
-const FETCH_ATTEMPTS = 10;
-const FETCH_RETRY_MS = 1500;
 
 const ScoreboardSidebar = ({ onClose }) => {
     const [directMatches, setDirectMatches] = useState([]);
@@ -59,12 +57,7 @@ const ScoreboardSidebar = ({ onClose }) => {
         const loadMatchesNow = async ({ silent = false } = {}) => {
             try {
                 if (mounted && !silent && !hasAnyData) setIsLoadingMatches(true);
-                let finalMatches = [];
-                for (let i = 0; i < FETCH_ATTEMPTS; i += 1) {
-                    finalMatches = await fetchFromApis();
-                    if (finalMatches.length > 0 || i === FETCH_ATTEMPTS - 1) break;
-                    await new Promise((resolve) => window.setTimeout(resolve, FETCH_RETRY_MS));
-                }
+                const finalMatches = await fetchFromApis();
 
                 if (!mounted) return;
                 if (finalMatches.length > 0) {
@@ -84,32 +77,15 @@ const ScoreboardSidebar = ({ onClose }) => {
             }
         };
 
-        const refreshScores = async () => {
-            try {
-                // Best-effort refresh; never block or surface timeout errors to UI.
-                await withTimeout(fetchOddsManual(), 5000, 'Refreshing scores');
-            } catch {
-                // Ignore refresh errors if we already have matches to show.
-            }
-            if (mounted) {
-                await loadMatchesNow({ silent: true });
-            }
-        };
-
         // Avoid premature empty state while slower APIs are still returning.
         const emptyStateGuard = window.setTimeout(() => {
             if (mounted) setCanShowEmptyState(true);
         }, 20000);
         loadMatchesNow();
-        // Pull latest scores in background after panel opens.
-        window.setTimeout(() => { refreshScores(); }, 50);
-        // Keep scores current while the panel stays open.
-        const timer = window.setInterval(refreshScores, 60000);
 
         return () => {
             mounted = false;
             window.clearTimeout(emptyStateGuard);
-            window.clearInterval(timer);
         };
     }, []);
 

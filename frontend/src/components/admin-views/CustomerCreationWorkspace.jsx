@@ -1,0 +1,915 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  createAgent,
+  createPlayerByAgent,
+  createSubAgent,
+  createUserByAdmin,
+  getAgents,
+  getMe,
+  getMyPlayers,
+  getNextUsername,
+  getUsersAdmin,
+  importUsersSpreadsheet
+} from '../../api';
+
+const derivePlayerPrefix = (value) => {
+  const normalized = String(value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (!normalized) return '';
+  const alphaLead = normalized.match(/^[A-Z]+/);
+  if (alphaLead && alphaLead[0]) {
+    return alphaLead[0];
+  }
+  const withoutTrailingDigits = normalized.replace(/\d+$/, '');
+  return withoutTrailingDigits || normalized;
+};
+
+const buildCopyInfo = (creationType, customer) => {
+  const pass = customer.password || 'N/A';
+
+  if (creationType === 'player') {
+    return `Here’s your account info. PLEASE READ ALL RULES THOROUGHLY.
+
+Login: ${customer.username}
+Password: ${pass}
+Min bet: $${customer.minBet || 25}
+Max bet: $${customer.maxBet || 200}
+Credit: $${customer.creditLimit || 1000}
+
+
+PAYOUTS
+PAY-INS are Tuesday and PAY-OUTS are Tuesday/Wednesday by end of day. Week starts Tuesday and ends Monday night. Settle up’s are +/-$200 so anything under $200 will push to the following week. You must bet $500 of your own money to collect your FIRST payout. If your account is inactive for 2 weeks you’ll be required to settle your balance even if it’s under $200. Max weekly payouts are 2-3x your credit limit depending on size. Balance will still be paid out but will roll to the following week.
+
+All we ask for is communication when it comes to payouts so we can get everyone paid quickly and as smoothly as possible. If you can’t pay right away let us know and we can set up a payment schedule. We accept Venmo, Cashapp and Apple Pay. You are REQUIRED to have multiple apps to send or receive payment on. PLEASE DO NOT SEND MONEY without asking where to send first and DO NOT LABEL anything to do with sports or gambling. We will let you know Tuesday where to send. 
+
+We kick back 20% freeplay of all losses if you pay ON TIME and in FULL and 30% if you pay in CASH. If you are a hassle to collect from and don’t respond or don’t pay on time or in full then you will be shown the same reciprocation when it comes to payouts. 
+
+REFFERALS
+$200 freeplay bonuses for any ACTIVE  and TRUSTWORTHY referrals. YOU are responsible for your referrals debt if they DO NOT PAY and vise versa. In order for you to get your free play bonus your refferal must go through one settle up of $200.
+
+RULES
+NO BOTS OR SHARP PLAY. We have IT monitoring to make sure there is no cheating. If we find out you are using a VPN and there are multiple people using your IP address or someone is logging into the same account, or you are using a system to place bets for you, you will be automatically kicked off and we reserve the right to not pay. No excuses. We’ve heard them all so don’t waste your time. 
+
+FREEPLAY
+I start all NEW players off with $200 in freeplay. In order to collect your winnings you have to place $500 of bets with your own money. (This is to prevent everyone who abuses the free play to win free money and leave). When you place a bet you have to click “Use your freeplay balance $” (If you don’t you’re using your own money). Since we are very generous with freeplay unfortunately it is limited to straight bets only and no parlays. I offer 20% free play to anyone above settle to roll your balance to limit transactions. If you chose to roll for free play you must be actively betting with your own money or your free play will not count. 
+
+I need active players so if you could do me a solid and place a bet today even if it’s with freeplay. Good luck! Lmk that you’ve read all the rules and or if you have any questions and need me to adjust anything!
+`;
+  }
+
+  return `Welcome to the team! Here’s your ${creationType === 'agent' ? 'Agent' : 'Master Agent'} administrative account info.
+
+Login: ${customer.username}
+Password: ${pass}
+
+Standard Min bet: $${customer.defaultMinBet || 25}
+Standard Max bet: $${customer.defaultMaxBet || 200}
+Standard Credit: $${customer.defaultCreditLimit || 1000}
+
+Please ensure you manage your sectors responsibly and maintain clear communication with your assigned accounts. Good luck!
+`;
+};
+
+function CustomerCreationWorkspace({ initialType = 'player' }) {
+  const withTimeout = (promise, timeoutMs, message) => {
+    let timeoutId;
+    const timeoutPromise = new Promise((_, reject) => {
+      timeoutId = setTimeout(() => reject(new Error(message)), Math.max(1000, timeoutMs));
+    });
+    return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timeoutId));
+  };
+
+  const [customers, setCustomers] = useState([]);
+  const [agents, setAgents] = useState([]);
+  const [loadingContext, setLoadingContext] = useState(true);
+  const [error, setError] = useState('');
+  const [createLoading, setCreateLoading] = useState(false);
+  const [importLoading, setImportLoading] = useState(false);
+  const [importFile, setImportFile] = useState(null);
+  const [selectedImportFileName, setSelectedImportFileName] = useState('');
+  const [importSummary, setImportSummary] = useState('');
+  const [importedUsernames, setImportedUsernames] = useState([]);
+  const [importForceAgentAssignment, setImportForceAgentAssignment] = useState(true);
+  const [newCustomer, setNewCustomer] = useState({
+    username: '',
+    phoneNumber: '',
+    password: '',
+    firstName: '',
+    lastName: '',
+    fullName: '',
+    agentId: '',
+    referredByUserId: '',
+    balance: '',
+    minBet: '25',
+    maxBet: '200',
+    creditLimit: '1000',
+    balanceOwed: '200',
+    defaultMinBet: '25',
+    defaultMaxBet: '200',
+    defaultCreditLimit: '1000',
+    defaultSettleLimit: '200',
+    agentPrefix: '',
+    parentAgentId: ''
+  });
+  const [creationType, setCreationType] = useState(initialType || 'player');
+  const [currentRole, setCurrentRole] = useState('admin');
+  const [viewOnly, setViewOnly] = useState(false);
+  const [agentSearchQuery, setAgentSearchQuery] = useState('');
+  const [agentSearchOpen, setAgentSearchOpen] = useState(false);
+  const [adminUsername, setAdminUsername] = useState('');
+  const [currentUserId, setCurrentUserId] = useState('');
+
+  useEffect(() => {
+    const fetchContext = async () => {
+      try {
+        setLoadingContext(true);
+        const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+        if (!token) {
+          setCustomers([]);
+          setAgents([]);
+          setError('Please login to load users.');
+          return;
+        }
+
+        const storedRole = String(localStorage.getItem('userRole') || '').toLowerCase();
+        let me = null;
+
+        try {
+          me = await getMe(token, { timeoutMs: 30000 });
+        } catch (meError) {
+          console.warn('CustomerCreationWorkspace: getMe failed, falling back to stored role.', meError);
+        }
+
+        const resolvedRole = String(me?.role || storedRole || 'admin').toLowerCase();
+        setCurrentRole(resolvedRole);
+        setAdminUsername(me?.username || '');
+        setCurrentUserId(me?.id || me?._id || '');
+        setViewOnly(Boolean(me?.viewOnly));
+
+        if (resolvedRole === 'agent') {
+          const data = await getMyPlayers(token);
+          setCustomers(data || []);
+          setAgents([]);
+        } else {
+          const [usersData, agentsData] = await Promise.all([
+            getUsersAdmin(token),
+            getAgents(token)
+          ]);
+          setCustomers(usersData || []);
+          setAgents(agentsData || []);
+        }
+        setError('');
+
+        if (me?.username) {
+          try {
+            const playerPrefix = derivePlayerPrefix(me.username);
+            if (!playerPrefix) return;
+            const { nextUsername } = await getNextUsername(playerPrefix, token, { type: 'player' });
+            setNewCustomer((prev) => ({ ...prev, username: nextUsername }));
+          } catch (usernameErr) {
+            console.error('Failed to prefetch next username:', usernameErr);
+          }
+        }
+      } catch (err) {
+        console.error('Error fetching add-customer context:', err);
+        setError('Failed to load users: ' + err.message);
+      } finally {
+        setLoadingContext(false);
+      }
+    };
+
+    fetchContext();
+  }, []);
+
+  useEffect(() => {
+    if (!initialType || initialType === creationType) return;
+    const run = async () => {
+      await handleCreationTypeChange(initialType);
+    };
+    run();
+  }, [initialType]);
+
+  const handleCreateCustomer = async () => {
+    try {
+      setCreateLoading(true);
+      const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+      if (!token) {
+        setError('Please login to create users.');
+        return;
+      }
+      const requiredIdentityMissing =
+        !String(newCustomer.username || '').trim() ||
+        !String(newCustomer.firstName || '').trim() ||
+        !String(newCustomer.lastName || '').trim() ||
+        !String(newCustomer.phoneNumber || '').trim() ||
+        !String(newCustomer.password || '').trim();
+
+      if (requiredIdentityMissing) {
+        setError('Username, first name, last name, phone number, and password are required.');
+        return;
+      }
+
+      if (creationType === 'player') {
+        const requiredLimitsMissing =
+          String(newCustomer.minBet ?? '').trim() === '' ||
+          String(newCustomer.maxBet ?? '').trim() === '' ||
+          String(newCustomer.creditLimit ?? '').trim() === '' ||
+          String(newCustomer.balanceOwed ?? '').trim() === '';
+        if (requiredLimitsMissing) {
+          setError('Min bet, max bet, credit limit, and settle limit are required for players.');
+          return;
+        }
+      }
+
+      const payload = { ...newCustomer };
+      if (payload.balance === '') delete payload.balance;
+      if (!payload.referredByUserId) delete payload.referredByUserId;
+      if ((creationType === 'agent' || creationType === 'super_agent') && payload.agentId) {
+        payload.parentAgentId = payload.agentId;
+      }
+
+      if (creationType === 'player') {
+        if (currentRole === 'agent' || currentRole === 'super_agent' || currentRole === 'master_agent') {
+          await createPlayerByAgent(payload, token);
+        } else {
+          await createUserByAdmin(payload, token);
+        }
+      } else if (creationType === 'agent') {
+        if (currentRole === 'admin') {
+          await createAgent({ ...payload, role: 'agent' }, token);
+        } else {
+          await createSubAgent({ ...payload, role: 'agent' }, token);
+        }
+      } else if (creationType === 'super_agent') {
+        if (currentRole === 'admin') {
+          await createAgent({ ...payload, role: 'master_agent' }, token);
+        } else {
+          await createSubAgent({ ...payload, role: 'master_agent' }, token);
+        }
+      }
+
+      const createdType = creationType;
+      setError('');
+      setImportSummary('');
+      setImportedUsernames([]);
+
+      const cleanState = {
+        username: '',
+        phoneNumber: '',
+        password: '',
+        firstName: '',
+        lastName: '',
+        fullName: '',
+        agentId: '',
+        referredByUserId: '',
+        balance: '',
+        minBet: '',
+        maxBet: '',
+        creditLimit: '',
+        balanceOwed: '',
+        defaultMinBet: '',
+        defaultMaxBet: '',
+        defaultCreditLimit: '',
+        defaultSettleLimit: '',
+        agentPrefix: '',
+        parentAgentId: ''
+      };
+
+      setNewCustomer(cleanState);
+      setCreationType(createdType);
+      setAgentSearchQuery('');
+      setAgentSearchOpen(false);
+      setImportFile(null);
+      setSelectedImportFileName('');
+      setImportForceAgentAssignment(true);
+      setImportSummary(`${createdType === 'player' ? 'Player' : createdType === 'agent' ? 'Agent' : 'Master Agent'} created successfully.`);
+
+      if (currentRole === 'agent') {
+        const data = await getMyPlayers(token);
+        setCustomers(data || []);
+      } else {
+        const [usersData, agentsData] = await Promise.all([
+          getUsersAdmin(token),
+          getAgents(token)
+        ]);
+        setCustomers(usersData || []);
+        setAgents(agentsData || []);
+      }
+    } catch (err) {
+      console.error('Create user failed:', err);
+      setError(err.message || 'Failed to create user');
+    } finally {
+      setCreateLoading(false);
+    }
+  };
+
+  const handleImportCustomers = async () => {
+    try {
+      setImportLoading(true);
+      setError('');
+      setImportSummary('');
+      setImportedUsernames([]);
+
+      const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+      if (!token) {
+        setError('Please login to import users.');
+        return;
+      }
+      if (!importFile) {
+        setError('Please choose an Excel/CSV file first.');
+        return;
+      }
+      if (importForceAgentAssignment && currentRole === 'admin' && !newCustomer.agentId) {
+        setError('Select an agent first, or uncheck "Assign all to selected agent".');
+        return;
+      }
+
+      const result = await withTimeout(
+        importUsersSpreadsheet(importFile, token, {
+          defaultAgentId: newCustomer.agentId || '',
+          timeoutMs: 45000,
+          forceAgentAssignment: importForceAgentAssignment
+        }),
+        50000,
+        'Import request timed out. Please try again.'
+      );
+
+      const createdRowsCount = Array.isArray(result?.createdRows) ? result.createdRows.length : 0;
+      const createdFromPayload = Number(result?.created);
+      const failedFromPayload = Number(result?.failed);
+      const created = Number.isFinite(createdFromPayload) ? createdFromPayload : createdRowsCount;
+      const failed = Number.isFinite(failedFromPayload) ? failedFromPayload : 0;
+      const serverMessage = String(result?.message || '').trim();
+
+      if (!Number.isFinite(createdFromPayload) && !Number.isFinite(failedFromPayload)) {
+        setImportSummary(serverMessage || `Import complete: ${created} created, ${failed} failed.`);
+      } else {
+        setImportSummary(`Import complete: ${created} created, ${failed} failed.${serverMessage ? ` ${serverMessage}` : ''}`);
+      }
+
+      const createdUsernames = Array.isArray(result?.createdRows)
+        ? result.createdRows
+          .map((row) => String(row?.username || '').toUpperCase())
+          .filter(Boolean)
+        : [];
+      setImportedUsernames(createdUsernames);
+      setImportFile(null);
+      setSelectedImportFileName('');
+
+      try {
+        if (currentRole === 'agent') {
+          const data = await withTimeout(getMyPlayers(token), 15000, 'Players refresh timed out');
+          setCustomers(data || []);
+        } else {
+          const [usersData, agentsData] = await Promise.all([
+            withTimeout(getUsersAdmin(token), 15000, 'Users refresh timed out'),
+            withTimeout(getAgents(token), 15000, 'Agents refresh timed out')
+          ]);
+          setCustomers(usersData || []);
+          setAgents(agentsData || []);
+        }
+      } catch (refreshErr) {
+        console.warn('Post-import refresh failed:', refreshErr);
+        setImportSummary((prev) => `${prev} Imported, but refresh failed: ${refreshErr.message || 'please reload page.'}`);
+      }
+    } catch (err) {
+      console.error('Import users failed:', err);
+      setError(err.message || 'Failed to import users');
+    } finally {
+      setImportLoading(false);
+    }
+  };
+
+  const handlePrefixChange = async (prefix) => {
+    const formatted = prefix.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    setNewCustomer((prev) => ({ ...prev, agentPrefix: formatted }));
+
+    if (formatted.length >= 2) {
+      const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+      const suffix = creationType === 'super_agent' ? 'MA' : '';
+      try {
+        const { nextUsername } = await getNextUsername(formatted, token, { suffix, type: 'agent' });
+        setNewCustomer((prev) => ({ ...prev, username: nextUsername }));
+      } catch (err) {
+        console.error('Failed to get next username from prefix:', err);
+      }
+    } else {
+      setNewCustomer((prev) => ({ ...prev, username: '' }));
+    }
+  };
+
+  const handleAgentChange = async (agentId) => {
+    const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+    if (!token) return;
+
+    setNewCustomer((prev) => ({ ...prev, agentId, referredByUserId: '' }));
+    const sequenceType = creationType === 'player' ? 'player' : 'agent';
+    const suffix = creationType === 'super_agent' ? 'MA' : '';
+
+    if (agentId) {
+      const selectedAgent = agents.find((a) => (a.id || a._id) === agentId);
+      if (selectedAgent) {
+        setAgentSearchQuery(selectedAgent.username || '');
+        try {
+          const playerPrefix = derivePlayerPrefix(selectedAgent.username);
+          if (!playerPrefix) {
+            setNewCustomer((prev) => ({ ...prev, username: '' }));
+            return;
+          }
+          const query = sequenceType === 'player'
+            ? { suffix, type: sequenceType, agentId }
+            : { suffix, type: sequenceType };
+          const { nextUsername } = await getNextUsername(playerPrefix, token, query);
+          setNewCustomer((prev) => ({ ...prev, username: nextUsername, agentPrefix: playerPrefix }));
+        } catch (err) {
+          console.error('Failed to get next username:', err);
+        }
+      }
+    } else {
+      setAgentSearchQuery('');
+      if (adminUsername) {
+        try {
+          const playerPrefix = derivePlayerPrefix(adminUsername);
+          if (!playerPrefix) {
+            setNewCustomer((prev) => ({ ...prev, username: '' }));
+            return;
+          }
+          const { nextUsername } = await getNextUsername(playerPrefix, token, { suffix, type: sequenceType });
+          setNewCustomer((prev) => ({ ...prev, username: nextUsername, agentPrefix: playerPrefix }));
+        } catch (err) {
+          console.error('Failed to fetch username for admin:', err);
+          setNewCustomer((prev) => ({ ...prev, username: '' }));
+        }
+      } else {
+        setNewCustomer((prev) => ({ ...prev, username: '' }));
+      }
+    }
+  };
+
+  const handleCreationTypeChange = async (type) => {
+    setCreationType(type);
+    const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+    if (!token) return;
+
+    if (type === 'super_agent' || type === 'agent') {
+      const suffix = type === 'super_agent' ? 'MA' : '';
+      const prefixToUse = newCustomer.agentPrefix;
+      const sequenceType = 'agent';
+
+      if (prefixToUse) {
+        try {
+          const { nextUsername } = await getNextUsername(prefixToUse, token, { suffix, type: sequenceType });
+          setNewCustomer((prev) => ({ ...prev, username: nextUsername, agentPrefix: prefixToUse }));
+        } catch (e) {
+          console.error('Failed to re-fetch username on type change', e);
+        }
+      } else {
+        setNewCustomer((prev) => ({ ...prev, username: '' }));
+      }
+    } else {
+      await handleAgentChange('');
+      setNewCustomer((prev) => ({ ...prev, referredByUserId: '' }));
+    }
+  };
+
+  const updateAutoPassword = (firstName, lastName, phoneNumber) => {
+    if (firstName && lastName && phoneNumber) {
+      const last4 = phoneNumber.slice(-4);
+      const first3First = firstName.slice(0, 3).toUpperCase();
+      const first3Last = lastName.slice(0, 3).toUpperCase();
+      const autoPass = `${first3First}${first3Last}${last4}`.toUpperCase();
+      setNewCustomer((prev) => ({ ...prev, password: autoPass }));
+    }
+  };
+
+  const handleFirstNameChange = (val) => {
+    const formatted = val.toUpperCase();
+    setNewCustomer((prev) => {
+      const updated = { ...prev, firstName: formatted };
+      updateAutoPassword(formatted, updated.lastName, updated.phoneNumber);
+      return updated;
+    });
+  };
+
+  const handleLastNameChange = (val) => {
+    const formatted = val.toUpperCase();
+    setNewCustomer((prev) => {
+      const updated = { ...prev, lastName: formatted };
+      updateAutoPassword(updated.firstName, formatted, updated.phoneNumber);
+      return updated;
+    });
+  };
+
+  const handlePhoneChange = (val) => {
+    const numeric = val.replace(/\D/g, '');
+    let formatted = numeric;
+
+    if (numeric.length > 0) {
+      if (numeric.length <= 3) {
+        formatted = numeric;
+      } else if (numeric.length <= 6) {
+        formatted = `${numeric.slice(0, 3)}-${numeric.slice(3)}`;
+      } else {
+        formatted = `${numeric.slice(0, 3)}-${numeric.slice(3, 6)}-${numeric.slice(6, 10)}`;
+      }
+    }
+
+    setNewCustomer((prev) => {
+      const updated = { ...prev, phoneNumber: formatted };
+      updateAutoPassword(updated.firstName, updated.lastName, formatted);
+      return updated;
+    });
+  };
+
+  const canCreateCustomer = !viewOnly
+    && !createLoading
+    && !!String(newCustomer.username || '').trim()
+    && !!String(newCustomer.firstName || '').trim()
+    && !!String(newCustomer.lastName || '').trim()
+    && !!String(newCustomer.phoneNumber || '').trim()
+    && !!String(newCustomer.password || '').trim()
+    && (creationType !== 'player' || (
+      String(newCustomer.minBet ?? '').trim() !== ''
+      && String(newCustomer.maxBet ?? '').trim() !== ''
+      && String(newCustomer.creditLimit ?? '').trim() !== ''
+      && String(newCustomer.balanceOwed ?? '').trim() !== ''
+    ));
+
+  const assignableAgents = useMemo(() => agents.filter(() => {
+    if (currentRole === 'admin') return true;
+    if (currentRole === 'super_agent' || currentRole === 'master_agent') return true;
+    return false;
+  }), [agents, currentRole]);
+
+  useEffect(() => {
+    if (creationType !== 'player') return;
+    const typed = String(agentSearchQuery || '').trim().toLowerCase();
+    if (!typed) return;
+
+    const exact = assignableAgents.find((a) => String(a.username || '').trim().toLowerCase() === typed);
+    if (!exact) return;
+
+    const exactId = String(exact.id || exact._id || '');
+    if (!exactId) return;
+    if (String(newCustomer.agentId || '') === exactId) return;
+
+    handleAgentChange(exactId);
+  }, [agentSearchQuery, assignableAgents, creationType, newCustomer.agentId]);
+
+  const filteredAssignableAgents = useMemo(() => assignableAgents.filter((a) => {
+    if (!agentSearchQuery.trim()) return true;
+    return (a.username || '').toLowerCase().includes(agentSearchQuery.trim().toLowerCase());
+  }), [assignableAgents, agentSearchQuery]);
+
+  const referralOptions = (() => {
+    const playersOnly = customers.filter((c) => c.role === 'user');
+    if (creationType !== 'player' && creationType !== 'agent' && creationType !== 'super_agent') return [];
+
+    if (currentRole === 'agent') {
+      return playersOnly;
+    }
+
+    if (newCustomer.agentId) {
+      return playersOnly.filter((p) => String(p.agentId?._id || p.agentId || '') === String(newCustomer.agentId));
+    }
+
+    if (currentRole === 'master_agent' || currentRole === 'super_agent') {
+      return playersOnly.filter((p) => String(p.agentId?._id || p.agentId || '') === String(currentUserId));
+    }
+
+    return playersOnly;
+  })();
+
+  return (
+    <>
+      {loadingContext && (
+        <div className="loading-state">
+          <div className="spinner"></div>
+          <span>Loading setup...</span>
+        </div>
+      )}
+      {!loadingContext && (
+        <>
+          {error && <div className="error-state">{error}</div>}
+          {importSummary && <div className="success-state">{importSummary}</div>}
+          {importedUsernames.length > 0 && (
+            <div className="success-state" style={{ marginTop: '8px' }}>
+              Imported usernames: {importedUsernames.slice(0, 20).join(', ')}{importedUsernames.length > 20 ? ` (+${importedUsernames.length - 20} more)` : ''}
+            </div>
+          )}
+
+          <div className="filter-section" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '20px', alignItems: 'end' }}>
+            <div className="filter-group">
+              <label>Type</label>
+              <div className="s-wrapper">
+                <select
+                  value={creationType}
+                  onChange={(e) => handleCreationTypeChange(e.target.value)}
+                >
+                  <option value="player">Player</option>
+                  {(currentRole === 'admin' || currentRole === 'super_agent' || currentRole === 'master_agent') && (
+                    <>
+                      <option value="agent">Agent</option>
+                      <option value="super_agent">Master Agent</option>
+                    </>
+                  )}
+                </select>
+              </div>
+            </div>
+
+            {(creationType === 'agent' || creationType === 'super_agent') && (currentRole !== 'super_agent' && currentRole !== 'master_agent' || creationType === 'super_agent') && (
+              <div className="filter-group">
+                <label>Prefix</label>
+                <input
+                  type="text"
+                  value={newCustomer.agentPrefix}
+                  onChange={(e) => handlePrefixChange(e.target.value)}
+                  placeholder="Enter prefix"
+                  maxLength={5}
+                />
+              </div>
+            )}
+
+            {(creationType === 'player' || creationType === 'agent' || creationType === 'super_agent')
+              && (currentRole === 'admin' || currentRole === 'super_agent' || currentRole === 'master_agent') && (
+                <div className="filter-group">
+                  <label>{creationType === 'player' ? 'Assign to Agent' : 'Assign to Master Agent'}</label>
+                  <div
+                    className="agent-search-picker"
+                    onFocus={() => setAgentSearchOpen(true)}
+                    onBlur={() => {
+                      const typed = String(agentSearchQuery || '').trim().toLowerCase();
+                      const exact = assignableAgents.find((a) => String(a.username || '').trim().toLowerCase() === typed);
+                      const exactId = String(exact?.id || exact?._id || '');
+                      if (exactId && String(newCustomer.agentId || '') !== exactId) {
+                        handleAgentChange(exactId);
+                      }
+                      setTimeout(() => setAgentSearchOpen(false), 120);
+                    }}
+                    tabIndex={0}
+                  >
+                    <div className="agent-search-head">
+                      <span className="agent-search-label">Agents</span>
+                      <input
+                        type="text"
+                        value={agentSearchQuery}
+                        onChange={(e) => {
+                          setAgentSearchQuery(e.target.value);
+                          setAgentSearchOpen(true);
+                        }}
+                        placeholder="Search agent..."
+                      />
+                    </div>
+                    {agentSearchOpen && (
+                      <div className="agent-search-list">
+                        <button
+                          type="button"
+                          className={`agent-search-item ${newCustomer.agentId ? '' : 'selected'}`}
+                          onClick={() => {
+                            handleAgentChange('');
+                            setAgentSearchOpen(false);
+                          }}
+                        >
+                          <span>{creationType === 'player' ? 'Direct (Under Me)' : 'Direct (Created By Me)'}</span>
+                        </button>
+                        {filteredAssignableAgents.map((a) => {
+                          const id = a.id || a._id;
+                          const isMaster = a.role === 'master_agent' || a.role === 'super_agent';
+                          if ((creationType === 'agent' || creationType === 'super_agent') && !isMaster) {
+                            return null;
+                          }
+                          return (
+                            <button
+                              key={id}
+                              type="button"
+                              className={`agent-search-item ${String(newCustomer.agentId || '') === String(id) ? 'selected' : ''}`}
+                              onClick={() => {
+                                handleAgentChange(id);
+                                setAgentSearchOpen(false);
+                              }}
+                            >
+                              <span>{a.username}</span>
+                              <span className={`agent-type-badge ${isMaster ? 'master' : 'agent'}`}>{isMaster ? 'M' : 'A'}</span>
+                            </button>
+                          );
+                        })}
+                        {filteredAssignableAgents.length === 0 && (
+                          <div className="agent-search-empty">No matching agents</div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+            <div className="filter-group">
+              <label>Username</label>
+              <input
+                type="text"
+                value={newCustomer.username}
+                placeholder="Auto-generated"
+                readOnly
+                className="readonly-input"
+              />
+            </div>
+
+            <div className="filter-group">
+              <label>First Name</label>
+              <input
+                type="text"
+                value={newCustomer.firstName}
+                onChange={(e) => handleFirstNameChange(e.target.value)}
+                placeholder="Enter first name"
+              />
+            </div>
+            <div className="filter-group">
+              <label>Last Name</label>
+              <input
+                type="text"
+                value={newCustomer.lastName}
+                onChange={(e) => handleLastNameChange(e.target.value)}
+                placeholder="Enter last name"
+              />
+            </div>
+            <div className="filter-group">
+              <label>Phone Number</label>
+              <input
+                type="tel"
+                value={newCustomer.phoneNumber}
+                onChange={(e) => handlePhoneChange(e.target.value)}
+                placeholder="User contact"
+              />
+            </div>
+            <div className="filter-group">
+              <label>Password</label>
+              <input
+                type="text"
+                value={newCustomer.password.toUpperCase()}
+                onChange={(e) => setNewCustomer((prev) => ({ ...prev, password: e.target.value.toUpperCase() }))}
+                placeholder="Set password"
+              />
+            </div>
+
+            {(creationType === 'player' || creationType === 'agent' || creationType === 'super_agent') && (
+              <>
+                <div className="filter-group">
+                  <label>Min bet:</label>
+                  <input
+                    type="number"
+                    value={newCustomer.minBet}
+                    onChange={(e) => setNewCustomer((prev) => ({ ...prev, minBet: e.target.value }))}
+                  />
+                </div>
+                <div className="filter-group">
+                  <label>Max bet:</label>
+                  <input
+                    type="number"
+                    value={newCustomer.maxBet}
+                    onChange={(e) => setNewCustomer((prev) => ({ ...prev, maxBet: e.target.value }))}
+                  />
+                </div>
+                <div className="filter-group">
+                  <label>Credit limit:</label>
+                  <input
+                    type="number"
+                    value={newCustomer.creditLimit}
+                    onChange={(e) => setNewCustomer((prev) => ({ ...prev, creditLimit: e.target.value }))}
+                  />
+                </div>
+                <div className="filter-group">
+                  <label>Settle limit:</label>
+                  <input
+                    type="number"
+                    value={newCustomer.balanceOwed}
+                    onChange={(e) => setNewCustomer((prev) => ({ ...prev, balanceOwed: e.target.value }))}
+                  />
+                </div>
+                <div className="filter-group">
+                  <label>Referred By Player</label>
+                  <div className="s-wrapper">
+                    <select
+                      value={newCustomer.referredByUserId}
+                      onChange={(e) => setNewCustomer((prev) => ({ ...prev, referredByUserId: e.target.value }))}
+                    >
+                      <option value="">No referral</option>
+                      {referralOptions.map((p) => (
+                        <option key={p.id || p._id} value={p.id || p._id}>
+                          {(p.username || '').toUpperCase()}
+                          {p.fullName ? ` - ${p.fullName}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </>
+            )}
+            {(creationType === 'agent' || creationType === 'super_agent') && (
+              <>
+                <div className="filter-group">
+                  <label>Min bet: (Standard)</label>
+                  <input
+                    type="number"
+                    value={newCustomer.defaultMinBet}
+                    onChange={(e) => setNewCustomer((prev) => ({ ...prev, defaultMinBet: e.target.value }))}
+                  />
+                </div>
+                <div className="filter-group">
+                  <label>Max bet: (Standard)</label>
+                  <input
+                    type="number"
+                    value={newCustomer.defaultMaxBet}
+                    onChange={(e) => setNewCustomer((prev) => ({ ...prev, defaultMaxBet: e.target.value }))}
+                  />
+                </div>
+                <div className="filter-group">
+                  <label>Credit limit: (Standard)</label>
+                  <input
+                    type="number"
+                    value={newCustomer.defaultCreditLimit}
+                    onChange={(e) => setNewCustomer((prev) => ({ ...prev, defaultCreditLimit: e.target.value }))}
+                  />
+                </div>
+                <div className="filter-group">
+                  <label>Settle limit: (Standard)</label>
+                  <input
+                    type="number"
+                    value={newCustomer.defaultSettleLimit}
+                    onChange={(e) => setNewCustomer((prev) => ({ ...prev, defaultSettleLimit: e.target.value }))}
+                  />
+                </div>
+              </>
+            )}
+
+            <div className="filter-group" style={{ display: 'flex', gap: '10px' }}>
+              <button
+                className="btn-primary"
+                style={{ flex: 1 }}
+                onClick={handleCreateCustomer}
+                disabled={!canCreateCustomer}
+              >
+                {createLoading ? 'Deploying...' : `Create ${creationType === 'player' ? 'Player' : creationType === 'agent' ? 'Agent' : 'Master Agent'}`}
+              </button>
+              <button
+                type="button"
+                className="btn-secondary"
+                style={{ backgroundColor: '#17a2b8', color: 'white', flex: 0.5 }}
+                onClick={() => {
+                  navigator.clipboard.writeText(buildCopyInfo(creationType, newCustomer)).then(() => alert('Copied to clipboard!'));
+                }}
+              >
+                Copy Info
+              </button>
+            </div>
+
+            {(currentRole === 'admin' || currentRole === 'master_agent' || currentRole === 'super_agent' || currentRole === 'agent') && (
+              <div className="filter-group" style={{ gridColumn: '1 / -1', display: 'flex', gap: '10px', alignItems: 'end' }}>
+                <div style={{ flex: 1 }}>
+                  <label>Import Players (.xlsx / .csv)</label>
+                  <input
+                    type="file"
+                    accept=".xlsx,.csv"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0] || null;
+                      setImportFile(file);
+                      setSelectedImportFileName(file?.name || '');
+                    }}
+                  />
+                  {selectedImportFileName && (
+                    <small style={{ display: 'block', marginTop: '6px', color: '#64748b' }}>
+                      Selected file: {selectedImportFileName}
+                    </small>
+                  )}
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px', fontSize: '12px', color: '#64748b' }}>
+                    <input
+                      type="checkbox"
+                      checked={importForceAgentAssignment}
+                      onChange={(e) => setImportForceAgentAssignment(e.target.checked)}
+                    />
+                    {currentRole === 'agent'
+                      ? 'Assign all imported players to me'
+                      : 'Assign all imported players to selected agent'}
+                  </label>
+                  {importForceAgentAssignment && currentRole === 'admin' && !newCustomer.agentId && (
+                    <small style={{ display: 'block', marginTop: '4px', color: '#ef4444' }}>
+                      Pick an agent in "Assign to Agent" before importing.
+                    </small>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={handleImportCustomers}
+                  disabled={!importFile || importLoading}
+                  style={{ minWidth: '140px' }}
+                >
+                  {importLoading ? 'Importing...' : 'Import File'}
+                </button>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </>
+  );
+}
+
+export default CustomerCreationWorkspace;

@@ -4,18 +4,11 @@ export const sportsData = [
         label: 'UP NEXT',
         icon: 'fa-solid fa-clock',
         type: 'main-link',
-        selectable: false
-    },
-    {
-        id: 'featured',
-        label: 'FEATURED',
-        icon: 'fa-solid fa-star',
-        type: 'main-link',
-        selectable: false
+        selectable: true
     },
     {
         id: 'commercial-live',
-        label: 'COMMERCIAL LIVE',
+        label: 'LIVE NOW',
         icon: 'fa-solid fa-tv',
         selectable: true
     },

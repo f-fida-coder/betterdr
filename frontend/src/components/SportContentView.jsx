@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { placeBet } from '../api';
 import useMatches from '../hooks/useMatches';
 import { createFallbackTeamLogoDataUri, fetchTeamBadgeUrl } from '../utils/teamLogos';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
@@ -21,7 +20,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
 
     const [content, setContent] = useState({ name: '', icon: '', matches: [], scoreboards: [] });
     const [isLoading, setIsLoading] = useState(true);
-    const rawMatches = useMatches({ status });
+    const rawMatches = useMatches({ status, scopeKey: `${sportId || 'all'}:${filter || ''}` });
 
     React.useEffect(() => {
         // Determine sport name and icon
@@ -180,10 +179,6 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
 
         processMatches();
 
-        // Auto-refresh every 5 seconds locally (re-process raw matches if they change)
-        const interval = setInterval(processMatches, 5000);
-        return () => clearInterval(interval);
-
     }, [sportId, filter, rawMatches]);
 
     React.useEffect(() => {
@@ -224,6 +219,24 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
     const showSpread = ['straight', 'parlay', 'teaser', 'if_bet', 'reverse'].includes(normalizedMode);
     const showMoneyline = ['straight', 'parlay', 'if_bet', 'reverse'].includes(normalizedMode);
     const showTotals = ['straight', 'parlay', 'teaser', 'if_bet', 'reverse'].includes(normalizedMode);
+
+    const hasValidOdds = (value) => parseOddsNumber(value) !== null;
+
+    const renderOddsButton = ({ label, onClick, available, disabled, reason = '' }) => {
+        if (!available) {
+            return <div className="odds-unavailable">Unavailable</div>;
+        }
+        return (
+            <button
+                className="odds-value-btn"
+                onClick={onClick}
+                disabled={disabled}
+                title={disabled ? reason : ''}
+            >
+                {label}
+            </button>
+        );
+    };
 
 
     return (
@@ -266,7 +279,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                         </div>
                     ) : (
                         content.matches.map((match) => (
-                            <div key={match.id} className="match-card">
+                            <div key={match.id} className={`match-card ${match.rawMatch?.isBettable === false ? 'match-card-closed' : ''}`}>
                                 <div className="match-header">
                                     <div className="match-time">
                                         <span className="time">{match.time}</span>
@@ -326,56 +339,62 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                 <div className="odds-cell">
                                                     <span className="odds-label">Spread</span>
                                                     <div className="odds-values-group">
-                                                        <button
-                                                            className="odds-value-btn"
-                                                            onClick={() => handleAddToSlip(match.id, match.team1.name, 'spreads', match.odds.spread.homeOdds, `${match.team1.name} vs ${match.team2.name}`, 'Spread')}
-                                                    >
-                                                        {formatSpreadDisplay(match.odds.spread.homePoint, match.odds.spread.homeOdds, oddsFormat)}
-                                                    </button>
-                                                    <button
-                                                        className="odds-value-btn"
-                                                        onClick={() => handleAddToSlip(match.id, match.team2.name, 'spreads', match.odds.spread.awayOdds, `${match.team1.name} vs ${match.team2.name}`, 'Spread')}
-                                                    >
-                                                        {formatSpreadDisplay(match.odds.spread.awayPoint, match.odds.spread.awayOdds, oddsFormat)}
-                                                    </button>
-                                                </div>
+                                                        {renderOddsButton({
+                                                            label: formatSpreadDisplay(match.odds.spread.homePoint, match.odds.spread.homeOdds, oddsFormat),
+                                                            onClick: () => handleAddToSlip(match.id, match.team1.name, 'spreads', match.odds.spread.homeOdds, `${match.team1.name} vs ${match.team2.name}`, 'Spread'),
+                                                            available: match.odds.spread.homePoint !== null && hasValidOdds(match.odds.spread.homeOdds),
+                                                            disabled: match.rawMatch?.isBettable === false,
+                                                            reason: match.rawMatch?.bettingBlockedReason || 'Betting unavailable',
+                                                        })}
+                                                        {renderOddsButton({
+                                                            label: formatSpreadDisplay(match.odds.spread.awayPoint, match.odds.spread.awayOdds, oddsFormat),
+                                                            onClick: () => handleAddToSlip(match.id, match.team2.name, 'spreads', match.odds.spread.awayOdds, `${match.team1.name} vs ${match.team2.name}`, 'Spread'),
+                                                            available: match.odds.spread.awayPoint !== null && hasValidOdds(match.odds.spread.awayOdds),
+                                                            disabled: match.rawMatch?.isBettable === false,
+                                                            reason: match.rawMatch?.bettingBlockedReason || 'Betting unavailable',
+                                                        })}
+                                                    </div>
                                                 </div>
                                             )}
                                             {showMoneyline && (
                                                 <div className="odds-cell">
                                                     <span className="odds-label">Moneyline</span>
                                                     <div className="odds-values-group">
-                                                        <button
-                                                            className="odds-value-btn"
-                                                            onClick={() => handleAddToSlip(match.id, match.team1.name, 'h2h', match.odds.moneyline.homeOdds, `${match.team1.name} vs ${match.team2.name}`, 'Moneyline')}
-                                                    >
-                                                        {formatOdds(match.odds.moneyline.homeOdds, oddsFormat)}
-                                                    </button>
-                                                    <button
-                                                        className="odds-value-btn"
-                                                        onClick={() => handleAddToSlip(match.id, match.team2.name, 'h2h', match.odds.moneyline.awayOdds, `${match.team1.name} vs ${match.team2.name}`, 'Moneyline')}
-                                                    >
-                                                        {formatOdds(match.odds.moneyline.awayOdds, oddsFormat)}
-                                                    </button>
-                                                </div>
+                                                        {renderOddsButton({
+                                                            label: formatOdds(match.odds.moneyline.homeOdds, oddsFormat),
+                                                            onClick: () => handleAddToSlip(match.id, match.team1.name, 'h2h', match.odds.moneyline.homeOdds, `${match.team1.name} vs ${match.team2.name}`, 'Moneyline'),
+                                                            available: hasValidOdds(match.odds.moneyline.homeOdds),
+                                                            disabled: match.rawMatch?.isBettable === false,
+                                                            reason: match.rawMatch?.bettingBlockedReason || 'Betting unavailable',
+                                                        })}
+                                                        {renderOddsButton({
+                                                            label: formatOdds(match.odds.moneyline.awayOdds, oddsFormat),
+                                                            onClick: () => handleAddToSlip(match.id, match.team2.name, 'h2h', match.odds.moneyline.awayOdds, `${match.team1.name} vs ${match.team2.name}`, 'Moneyline'),
+                                                            available: hasValidOdds(match.odds.moneyline.awayOdds),
+                                                            disabled: match.rawMatch?.isBettable === false,
+                                                            reason: match.rawMatch?.bettingBlockedReason || 'Betting unavailable',
+                                                        })}
+                                                    </div>
                                                 </div>
                                             )}
                                             {showTotals && (
                                                 <div className="odds-cell">
                                                     <span className="odds-label">Total</span>
                                                     <div className="odds-values-group">
-                                                        <button
-                                                            className="odds-value-btn"
-                                                            onClick={() => handleAddToSlip(match.id, 'Over', 'totals', match.odds.total.overOdds, `${match.team1.name} vs ${match.team2.name}`, 'Total')}
-                                                    >
-                                                        {formatTotalDisplay('O', match.odds.total.point, match.odds.total.overOdds, oddsFormat)}
-                                                        </button>
-                                                        <button
-                                                            className="odds-value-btn"
-                                                            onClick={() => handleAddToSlip(match.id, 'Under', 'totals', match.odds.total.underOdds, `${match.team1.name} vs ${match.team2.name}`, 'Total')}
-                                                        >
-                                                            {formatTotalDisplay('U', match.odds.total.point, match.odds.total.underOdds, oddsFormat)}
-                                                        </button>
+                                                        {renderOddsButton({
+                                                            label: formatTotalDisplay('O', match.odds.total.point, match.odds.total.overOdds, oddsFormat),
+                                                            onClick: () => handleAddToSlip(match.id, 'Over', 'totals', match.odds.total.overOdds, `${match.team1.name} vs ${match.team2.name}`, 'Total'),
+                                                            available: match.odds.total.point !== null && hasValidOdds(match.odds.total.overOdds),
+                                                            disabled: match.rawMatch?.isBettable === false,
+                                                            reason: match.rawMatch?.bettingBlockedReason || 'Betting unavailable',
+                                                        })}
+                                                        {renderOddsButton({
+                                                            label: formatTotalDisplay('U', match.odds.total.point, match.odds.total.underOdds, oddsFormat),
+                                                            onClick: () => handleAddToSlip(match.id, 'Under', 'totals', match.odds.total.underOdds, `${match.team1.name} vs ${match.team2.name}`, 'Total'),
+                                                            available: match.odds.total.point !== null && hasValidOdds(match.odds.total.underOdds),
+                                                            disabled: match.rawMatch?.isBettable === false,
+                                                            reason: match.rawMatch?.bettingBlockedReason || 'Betting unavailable',
+                                                        })}
                                                     </div>
                                                 </div>
                                             )}
@@ -384,7 +403,11 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                 )}
 
                                 <div className="match-footer" style={{ justifyContent: 'center', padding: '10px' }}>
-                                    <span style={{ fontSize: '0.8em', color: '#888' }}>Click any odds to place your bet</span>
+                                    <span style={{ fontSize: '0.8em', color: '#888' }}>
+                                        {match.rawMatch?.isBettable === false
+                                            ? (match.rawMatch?.bettingBlockedReason || 'Betting is temporarily unavailable for this event.')
+                                            : 'Click any odds to place your bet'}
+                                    </span>
                                 </div>
                             </div>
                         ))

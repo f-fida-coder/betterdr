@@ -57,10 +57,6 @@ const DashboardMain = ({ selectedSports = [], activeBetMode = 'straight' }) => {
             return [{ sportId: null, filter: null, status: 'upcoming' }];
         }
 
-        if (selectedSports.includes('featured')) {
-            return [{ sportId: null, filter: null, status: 'live-upcoming' }];
-        }
-
         if (selectedSports.includes('commercial-live')) {
             return [{ sportId: null, filter: null, status: 'live' }];
         }
@@ -69,7 +65,7 @@ const DashboardMain = ({ selectedSports = [], activeBetMode = 'straight' }) => {
         const addedSports = new Set();
 
         selectedSports.forEach(id => {
-            if (id === 'up-next' || id === 'featured' || id === 'commercial-live') {
+            if (id === 'up-next' || id === 'commercial-live') {
                 return;
             }
 

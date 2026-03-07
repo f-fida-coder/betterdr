@@ -5,11 +5,27 @@ declare(strict_types=1);
 require_once __DIR__ . '/../src/Env.php';
 require_once __DIR__ . '/../src/MongoRepository.php';
 require_once __DIR__ . '/../src/BetModeRules.php';
+require_once __DIR__ . '/../src/SportsMatchStatus.php';
+require_once __DIR__ . '/../src/SportsbookHealth.php';
+require_once __DIR__ . '/../src/SportsbookBetSupport.php';
 require_once __DIR__ . '/../src/BetSettlementService.php';
 require_once __DIR__ . '/../src/OddsSyncService.php';
 
 $projectRoot = dirname(__DIR__, 2);
 $phpBackendDir = dirname(__DIR__);
+$runOnce = in_array('--once', $argv ?? [], true);
+
+$logWorker = static function (string $level, string $message) use ($phpBackendDir): void {
+    $line = sprintf("[%s] [%s] %s\n", gmdate(DATE_ATOM), strtoupper($level), $message);
+    $stream = $level === 'error' ? STDERR : STDOUT;
+    fwrite($stream, $line);
+    $logDir = $phpBackendDir . '/logs';
+    if (!is_dir($logDir)) {
+        @mkdir($logDir, 0775, true);
+    }
+    @file_put_contents($logDir . '/odds-worker.log', $line, FILE_APPEND);
+};
+
 $manualRawOverride = getenv('MANUAL_FETCH_MODE');
 Env::load($projectRoot, $phpBackendDir);
 
@@ -19,12 +35,12 @@ if ($manualRaw === false || $manualRaw === null || $manualRaw === '') {
 }
 $manualMode = strtolower((string) $manualRaw) === 'true';
 if ($manualMode) {
-    fwrite(STDOUT, "MANUAL_FETCH_MODE=true, odds worker is disabled.\n");
+    $logWorker('info', 'MANUAL_FETCH_MODE=true, odds worker is disabled.');
     exit(0);
 }
 
 if (!MongoRepository::isAvailable()) {
-    fwrite(STDERR, "pdo_mysql extension is required for odds worker.\n");
+    $logWorker('error', 'pdo_mysql extension is required for odds worker.');
     exit(1);
 }
 
@@ -37,31 +53,33 @@ if ($dbName === '') {
 $minutes = max(1, (int) Env::get('ODDS_CRON_MINUTES', '10'));
 $intervalSeconds = $minutes * 60;
 
-fwrite(STDOUT, "PHP odds worker started. interval={$minutes}m db={$dbName}\n");
+$logWorker('info', "PHP odds worker started. interval={$minutes}m db={$dbName} once=" . ($runOnce ? 'true' : 'false'));
 
-$repo = null;
-try {
-    $repo = new MongoRepository($mongoUri, $dbName);
-} catch (Throwable $e) {
-    fwrite(STDERR, "Failed to initialize MySQL repository for odds worker: {$e->getMessage()}\n");
-    exit(1);
-}
 while (true) {
     $started = microtime(true);
     $ts = gmdate(DATE_ATOM);
     try {
-        $result = OddsSyncService::updateMatches($repo);
-        fwrite(STDOUT, sprintf(
-            "[%s] update ok created=%d updated=%d settled=%d calls=%d blocked=%s\n",
+        $repo = new MongoRepository($mongoUri, $dbName);
+        $result = OddsSyncService::updateMatches($repo, 'worker');
+        $logWorker('info', sprintf(
+            "[%s] update ok created=%d updated=%d scoreOnly=%d settled=%d calls=%d failed=%d blocked=%s",
             $ts,
             (int) ($result['created'] ?? 0),
             (int) ($result['updated'] ?? 0),
+            (int) ($result['scoreOnlyUpdates'] ?? 0),
             (int) ($result['settled'] ?? 0),
             (int) ($result['apiCalls'] ?? 0),
+            (int) ($result['failedCalls'] ?? 0),
             (($result['blocked'] ?? false) ? 'true' : 'false')
         ));
     } catch (Throwable $e) {
-        fwrite(STDERR, sprintf("[%s] update failed: %s\n", $ts, $e->getMessage()));
+        $logWorker('error', sprintf("[%s] update failed: %s", $ts, $e->getMessage()));
+    }
+
+    unset($repo);
+
+    if ($runOnce) {
+        break;
     }
 
     $elapsed = (int) max(0, round(microtime(true) - $started));

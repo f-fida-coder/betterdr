@@ -584,9 +584,9 @@ final class BetsController
             throw new ApiException('Match not found: ' . $matchId, 404);
         }
 
-        $match = SportsMatchStatus::annotate($match);
+        $match = SportsbookHealth::applyBettingAvailability($this->db, $match);
         if (($match['isBettable'] ?? false) !== true) {
-            throw new ApiException((string) (SportsMatchStatus::placementBlockReason($match) ?? 'Match is not open for betting'), 409, [
+            throw new ApiException((string) (($match['bettingBlockedReason'] ?? null) ?: SportsMatchStatus::placementBlockReason($match) ?: 'Match is not open for betting'), 409, [
                 'code' => 'MATCH_NOT_BETTABLE',
                 'matchStatus' => $match['status'] ?? null,
             ]);
@@ -763,7 +763,7 @@ final class BetsController
                 ],
             ]);
             if ($match !== null) {
-                $enriched['match'] = SportsMatchStatus::annotate($match);
+                $enriched['match'] = SportsbookHealth::applyBettingAvailability($this->db, $match);
             }
         }
 

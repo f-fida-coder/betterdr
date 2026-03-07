@@ -133,12 +133,6 @@ const Header = ({ onLogin, isLoggedIn }) => {
                     </div>
                 )}
 
-                {isLoggedIn && (
-                    <div className="info-bar">
-                        <div className="info-bar-item">– UP NEXT –</div>
-                        <div className="info-bar-item">– FEATURED –</div>
-                    </div>
-                )}
             </div>
 
             {

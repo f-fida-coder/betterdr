@@ -850,6 +850,15 @@ body.dashboard-mode {
     background-color: #f0f7f2;
 }
 
+.sidebar-item-row.expander-only {
+    cursor: pointer;
+    background-color: #f6f6f6;
+}
+
+.sidebar-item-row.expander-only .sidebar-label-text {
+    color: #444;
+}
+
 .sidebar-checkbox-wrapper {
     display: flex;
     align-items: center;
@@ -3472,6 +3481,10 @@ body.dashboard-mode {
     border-top: 1px solid #eee;
     display: flex;
     justify-content: flex-end;
+}
+
+.match-card.match-card-closed {
+    box-shadow: 0 2px 8px rgba(120, 120, 120, 0.15);
 }
 
 .bet-btn {

@@ -6,6 +6,7 @@ final class SportsMatchStatus
 {
     private const BETTABLE = ['scheduled', 'live'];
     private const HIDDEN_PUBLIC = ['expired', 'suspended', 'canceled'];
+    private const DEFAULT_SCHEDULED_EXPIRY_GRACE_SECONDS = 12 * 3600;
 
     public static function normalize(?string $statusRaw, ?string $eventStatusRaw = null): string
     {
@@ -94,7 +95,10 @@ final class SportsMatchStatus
 
         if ($source === 'scheduled') {
             if ($startTs !== null && $startTs <= $now) {
-                return 'expired';
+                $expiryGrace = self::envInt('MATCH_SCHEDULED_EXPIRY_GRACE_SECONDS', self::DEFAULT_SCHEDULED_EXPIRY_GRACE_SECONDS);
+                if (($startTs + $expiryGrace) < $now) {
+                    return 'expired';
+                }
             }
             return 'scheduled';
         }
@@ -124,7 +128,7 @@ final class SportsMatchStatus
         $annotated = $match;
         $annotated['sourceStatus'] = (string) ($match['status'] ?? '');
         $annotated['status'] = $effective;
-        $annotated['isBettable'] = in_array($effective, self::BETTABLE, true);
+        $annotated['isBettable'] = self::isBettable($match, $nowTs);
         $annotated['isPublicVisible'] = !in_array($effective, self::HIDDEN_PUBLIC, true);
         $annotated['isStale'] = $effective === 'expired';
         return $annotated;
@@ -135,7 +139,16 @@ final class SportsMatchStatus
      */
     public static function isBettable(array $match, ?int $nowTs = null): bool
     {
-        return in_array(self::effectiveStatus($match, $nowTs), self::BETTABLE, true);
+        $effective = self::effectiveStatus($match, $nowTs);
+        if (!in_array($effective, self::BETTABLE, true)) {
+            return false;
+        }
+
+        if ($effective === 'scheduled' && self::hasStarted($match, $nowTs)) {
+            return false;
+        }
+
+        return true;
     }
 
     /**
@@ -152,6 +165,11 @@ final class SportsMatchStatus
     public static function placementBlockReason(array $match, ?int $nowTs = null): ?string
     {
         $effective = self::effectiveStatus($match, $nowTs);
+        if ($effective === 'scheduled' && self::hasStarted($match, $nowTs)) {
+            $label = trim((string) (($match['homeTeam'] ?? 'Match') . ' vs ' . ($match['awayTeam'] ?? '')));
+            return 'Betting is closed for ' . $label;
+        }
+
         if ($effective === 'scheduled' || $effective === 'live') {
             return null;
         }
@@ -179,5 +197,18 @@ final class SportsMatchStatus
     {
         $raw = Env::get($key, (string) $default);
         return is_numeric($raw) ? max(1, (int) $raw) : $default;
+    }
+
+    /**
+     * @param array<string, mixed> $match
+     */
+    private static function hasStarted(array $match, ?int $nowTs = null): bool
+    {
+        $startTs = self::parseTime($match['startTime'] ?? null);
+        if ($startTs === null) {
+            return false;
+        }
+
+        return $startTs <= ($nowTs ?? time());
     }
 }

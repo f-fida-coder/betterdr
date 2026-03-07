@@ -49,7 +49,7 @@ const MobileContentView = ({ selectedSports = [] }) => {
         : primarySport === 'up-next'
             ? 'upcoming'
             : 'live-upcoming';
-    const rawMatches = useMatches({ status: statusFilter });
+    const rawMatches = useMatches({ status: statusFilter, scopeKey: selectedSports.join('|') });
     const sportName = primarySport ? getSportName(primarySport) : 'Selected Sport';
 
     const getSportKeywords = (id) => {

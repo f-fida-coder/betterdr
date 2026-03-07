@@ -1,9 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import ScoreboardSidebar from './ScoreboardSidebar';
 import SettingsModal from './SettingsModal';
 import PersonalizeSidebar from './PersonalizeSidebar';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
+
+const buildRefreshRequestId = () => {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+        return `matches-refresh-${crypto.randomUUID()}`;
+    }
+    return `matches-refresh-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+};
 
 const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, onViewChange, activeBetMode = 'straight', onBetModeChange, currentView, onToggleSidebar, selectedSports = [], onContinue, onLogout, isMobileSportsSelectionMode = false, onHomeClick, role, unlimitedBalance }) => {
     const { oddsFormat, setOddsFormat, isUpdatingOddsFormat } = useOddsFormat();
@@ -27,6 +34,25 @@ const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, 
     const [showScoreboard, setShowScoreboard] = useState(false);
     const [showSettingsModal, setShowSettingsModal] = useState(false);
     const [showPersonalizeSidebar, setShowPersonalizeSidebar] = useState(false);
+    const activeRefreshRef = useRef({ requestId: '', pendingListeners: new Set(), timeoutId: 0 });
+
+    const clearActiveRefreshTimeout = () => {
+        const timeoutId = activeRefreshRef.current.timeoutId;
+        if (timeoutId) {
+            window.clearTimeout(timeoutId);
+        }
+        activeRefreshRef.current.timeoutId = 0;
+    };
+
+    const finishRefreshRequest = (requestId) => {
+        if (!requestId || activeRefreshRef.current.requestId !== requestId) {
+            return;
+        }
+        clearActiveRefreshTimeout();
+        activeRefreshRef.current = { requestId: '', pendingListeners: new Set(), timeoutId: 0 };
+        setIsRefreshing(false);
+    };
+
     const formatMoney = (value) => {
         if (unlimitedBalance) return 'Unlimited';
         if (value === null || value === undefined || value === '') return '—';
@@ -36,22 +62,56 @@ const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, 
     };
 
     const handleRefreshRequest = () => {
-        if (isRefreshing) return;
+        if (isRefreshing || activeRefreshRef.current.requestId) return;
+        const requestId = buildRefreshRequestId();
         setIsRefreshing(true);
-        window.dispatchEvent(new CustomEvent('matches:refresh'));
+        clearActiveRefreshTimeout();
+        activeRefreshRef.current = {
+            requestId,
+            pendingListeners: new Set(),
+            timeoutId: window.setTimeout(() => {
+                finishRefreshRequest(requestId);
+            }, 30000),
+        };
 
-        // Fallback timeout in case event is missed or backend fails silently
-        setTimeout(() => {
-            setIsRefreshing(false);
-        }, 30000);
+        window.dispatchEvent(new CustomEvent('matches:refresh', { detail: { reason: 'manual', requestId } }));
+
+        if (activeRefreshRef.current.requestId === requestId && activeRefreshRef.current.pendingListeners.size === 0) {
+            finishRefreshRequest(requestId);
+        }
     };
 
     React.useEffect(() => {
-        const handleRefreshCompleted = () => {
-            setIsRefreshing(false);
+        const handleRefreshProgress = (event) => {
+            const detail = event?.detail ?? {};
+            const requestId = detail.requestId ? String(detail.requestId) : '';
+            if (!requestId || requestId !== activeRefreshRef.current.requestId) {
+                return;
+            }
+
+            const listenerId = detail.listenerId ? String(detail.listenerId) : '';
+            if (!listenerId) {
+                return;
+            }
+
+            if (detail.phase === 'started') {
+                activeRefreshRef.current.pendingListeners.add(listenerId);
+                return;
+            }
+
+            if (detail.phase === 'completed') {
+                activeRefreshRef.current.pendingListeners.delete(listenerId);
+                if (activeRefreshRef.current.pendingListeners.size === 0) {
+                    finishRefreshRequest(requestId);
+                }
+            }
         };
-        window.addEventListener('matches:refresh-completed', handleRefreshCompleted);
-        return () => window.removeEventListener('matches:refresh-completed', handleRefreshCompleted);
+
+        window.addEventListener('matches:refresh-progress', handleRefreshProgress);
+        return () => {
+            clearActiveRefreshTimeout();
+            window.removeEventListener('matches:refresh-progress', handleRefreshProgress);
+        };
     }, []);
 
     const languages = [
@@ -191,10 +251,6 @@ const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, 
                     ))}
                 </div>
 
-                <div className="info-bar">
-                    <div className="info-bar-item">– UP NEXT –</div>
-                    <div className="info-bar-item">– FEATURED –</div>
-                </div>
             </div>
 
             <div className="dash-topbar desktop-only">
@@ -326,7 +382,7 @@ const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, 
                         <strong>{formatMoney(balance)}</strong>
                     </div>
                     <div className="dash-balance">
-                        <span>BALANCE OWED</span>
+                        <span>PENDING WAGERS</span>
                         <strong>{formatMoney(pendingBalance)}</strong>
                     </div>
                     <div className="dash-balance">

@@ -1298,61 +1298,66 @@ function CustomerAdminView({ onViewChange }) {
           <div className="glow-accent"></div>
           <h2>Administration Console</h2>
         </div>
-        <div
-          className="agent-search-picker header-agent-picker"
-          onFocus={() => setHeaderAgentOpen(true)}
-          onBlur={() => setTimeout(() => setHeaderAgentOpen(false), 120)}
-          tabIndex={0}
-        >
-          <div className="agent-search-head">
-            <span className="agent-search-label">Agents</span>
-            <input
-              type="text"
-              value={headerAgentQuery}
-              onChange={(e) => {
-                setHeaderAgentQuery(e.target.value);
-                setHeaderAgentOpen(true);
-              }}
-              placeholder="Search agent..."
-            />
-          </div>
-          {headerAgentOpen && (
-            <div className="agent-search-list">
-              <button
-                type="button"
-                className={`agent-search-item ${selectedHeaderAgentId ? '' : 'selected'}`}
-                onClick={() => {
-                  setSelectedHeaderAgentId('');
-                  setHeaderAgentQuery('');
-                  setHeaderAgentOpen(false);
+        <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <button type="button" className="btn-primary" onClick={handleAddCustomer}>
+            Add Customer
+          </button>
+          <div
+            className="agent-search-picker header-agent-picker"
+            onFocus={() => setHeaderAgentOpen(true)}
+            onBlur={() => setTimeout(() => setHeaderAgentOpen(false), 120)}
+            tabIndex={0}
+          >
+            <div className="agent-search-head">
+              <span className="agent-search-label">Agents</span>
+              <input
+                type="text"
+                value={headerAgentQuery}
+                onChange={(e) => {
+                  setHeaderAgentQuery(e.target.value);
+                  setHeaderAgentOpen(true);
                 }}
-              >
-                <span>All Agents</span>
-              </button>
-              {headerFilteredAgents.map((a) => {
-                const id = a.id || a._id;
-                const isMaster = a.role === 'master_agent' || a.role === 'super_agent';
-                return (
-                  <button
-                    key={id}
-                    type="button"
-                    className={`agent-search-item ${String(selectedHeaderAgentId || '') === String(id) ? 'selected' : ''}`}
-                    onClick={() => {
-                      setSelectedHeaderAgentId(id);
-                      setHeaderAgentQuery(a.username || '');
-                      setHeaderAgentOpen(false);
-                    }}
-                  >
-                    <span>{a.username}</span>
-                    <span className={`agent-type-badge ${isMaster ? 'master' : 'agent'}`}>{isMaster ? 'M' : 'A'}</span>
-                  </button>
-                );
-              })}
-              {headerFilteredAgents.length === 0 && (
-                <div className="agent-search-empty">No matching agents</div>
-              )}
+                placeholder="Search agent..."
+              />
             </div>
-          )}
+            {headerAgentOpen && (
+              <div className="agent-search-list">
+                <button
+                  type="button"
+                  className={`agent-search-item ${selectedHeaderAgentId ? '' : 'selected'}`}
+                  onClick={() => {
+                    setSelectedHeaderAgentId('');
+                    setHeaderAgentQuery('');
+                    setHeaderAgentOpen(false);
+                  }}
+                >
+                  <span>All Agents</span>
+                </button>
+                {headerFilteredAgents.map((a) => {
+                  const id = a.id || a._id;
+                  const isMaster = a.role === 'master_agent' || a.role === 'super_agent';
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      className={`agent-search-item ${String(selectedHeaderAgentId || '') === String(id) ? 'selected' : ''}`}
+                      onClick={() => {
+                        setSelectedHeaderAgentId(id);
+                        setHeaderAgentQuery(a.username || '');
+                        setHeaderAgentOpen(false);
+                      }}
+                    >
+                      <span>{a.username}</span>
+                      <span className={`agent-type-badge ${isMaster ? 'master' : 'agent'}`}>{isMaster ? 'M' : 'A'}</span>
+                    </button>
+                  );
+                })}
+                {headerFilteredAgents.length === 0 && (
+                  <div className="agent-search-empty">No matching agents</div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -1379,7 +1384,8 @@ function CustomerAdminView({ onViewChange }) {
 
         {!loading && (
           <>
-            <div className="filter-section" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '20px', alignItems: 'end' }}>
+            {false && (
+              <div className="filter-section" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '20px', alignItems: 'end' }}>
               <div className="filter-group">
                 <label>Type</label>
                 <div className="s-wrapper">
@@ -1790,7 +1796,8 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
                   )}
                 </div>
               )}
-            </div>
+              </div>
+            )}
 
             <div className="table-container">
               <div className="scroll-wrapper">

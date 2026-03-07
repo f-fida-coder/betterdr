@@ -145,7 +145,7 @@ const PropsView = () => {
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                     />
-                    <button className="props-adv-search-btn" onClick={() => window.dispatchEvent(new CustomEvent('matches:refresh'))}>
+                    <button className="props-adv-search-btn" onClick={() => window.dispatchEvent(new CustomEvent('matches:refresh', { detail: { reason: 'manual' } }))}>
                         Refresh Board
                     </button>
                 </div>

@@ -219,17 +219,29 @@ export const updateProfile = async (profileData, token) => {
     return response.json();
 };
 
-export const getMatches = async () => {
-    const response = await fetch(buildApiUrl('/matches'), { headers: getHeaders() });
+const buildMatchesParams = (status = '', options = {}) => {
+    const params = {};
+    if (status) {
+        params.status = status;
+    }
+    if (options?.trigger) {
+        params.trigger = String(options.trigger);
+    }
+    if (options?.refresh) {
+        params.refresh = '1';
+    }
+    return params;
+};
+
+export const getMatches = async (status = '', options = {}) => {
+    const response = await fetch(buildApiUrl('/matches', buildMatchesParams(status, options)), { headers: getHeaders() });
     if (!response.ok) throw new Error('Failed to fetch matches');
     return response.json();
 };
 
-export const getLiveMatches = async () => {
-    const response = await fetch(buildApiUrl('/matches', { status: 'live' }), { headers: getHeaders() });
-    if (!response.ok) throw new Error('Failed to fetch live matches');
-    return response.json();
-};
+export const getLiveMatches = async (options = {}) => getMatches('live', options);
+
+export const getUpcomingMatches = async (options = {}) => getMatches('upcoming', options);
 
 export const placeBet = async (betData, token, { requestId = '' } = {}) => {
     const normalizedType = normalizeBetMode(betData?.type || 'straight');

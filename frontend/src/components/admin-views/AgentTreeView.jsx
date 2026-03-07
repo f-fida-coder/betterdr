@@ -1,7 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { getAgentTree } from '../../api';
+import { getAgentTree, getMe } from '../../api';
 
-function AgentTreeView({ onClose, onGo, initialQuery = '' }) {
+function AgentTreeView({
+    onClose,
+    onGo,
+    initialQuery = '',
+    onRestoreBaseContext,
+    canRestoreBaseContext = false,
+    baseContextLabel = 'Admin'
+}) {
     const AGENT_ROLES = new Set(['admin', 'agent', 'master_agent', 'super_agent']);
     const isAgentNode = (node) => {
         const nodeType = String(node?.nodeType || '').toLowerCase();
@@ -9,23 +16,72 @@ function AgentTreeView({ onClose, onGo, initialQuery = '' }) {
         if (nodeType === 'player') return false;
         return AGENT_ROLES.has(String(node?.role || '').toLowerCase());
     };
+    const normalizeNodeId = (value) => String(value || '').trim();
+    const findNodePath = (node, targetId) => {
+        const normalizedTargetId = normalizeNodeId(targetId);
+        if (!normalizedTargetId || !node) return [];
+
+        const nodeId = normalizeNodeId(node.id);
+        if (nodeId === normalizedTargetId) {
+            return [nodeId];
+        }
+
+        const children = Array.isArray(node.children) ? node.children : [];
+        for (const child of children) {
+            const childPath = findNodePath(child, normalizedTargetId);
+            if (childPath.length > 0) {
+                return [nodeId, ...childPath];
+            }
+        }
+
+        return [];
+    };
     const [loading, setLoading] = useState(true);
     const [treeData, setTreeData] = useState(null);
     const [searchQuery, setSearchQuery] = useState('');
     const [expandedNodes, setExpandedNodes] = useState(new Set());
     const [error, setError] = useState(null);
+    const [currentContext, setCurrentContext] = useState(null);
 
     useEffect(() => {
         const fetchTree = async () => {
             try {
                 setLoading(true);
                 const token = localStorage.getItem('token');
-                const data = await getAgentTree(token);
-                setTreeData(data);
-                // Expand root by default
-                if (data.root) {
-                    setExpandedNodes(new Set([data.root.id]));
+                if (!token) {
+                    setError('Please login to load tree');
+                    setTreeData(null);
+                    setCurrentContext(null);
+                    return;
                 }
+
+                const baseToken = sessionStorage.getItem('impersonationBaseToken');
+                const shouldUseBaseTree = Boolean(canRestoreBaseContext && baseToken && baseToken !== token);
+
+                const meData = await getMe(token);
+                setCurrentContext(meData || null);
+
+                let data;
+                try {
+                    data = await getAgentTree(shouldUseBaseTree ? baseToken : token);
+                } catch (treeError) {
+                    if (!shouldUseBaseTree) {
+                        throw treeError;
+                    }
+                    data = await getAgentTree(token);
+                }
+
+                setTreeData(data);
+                if (data?.root) {
+                    const nextExpanded = new Set([data.root.id]);
+                    const searchRoot = { ...data.root, children: data.tree || [] };
+                    const pathToCurrent = findNodePath(searchRoot, meData?.id);
+                    pathToCurrent.forEach((nodeId) => nextExpanded.add(nodeId));
+                    setExpandedNodes(nextExpanded);
+                } else {
+                    setExpandedNodes(new Set());
+                }
+                setError(null);
             } catch (err) {
                 console.error('Failed to fetch agent tree:', err);
                 setError('Failed to load tree');
@@ -73,6 +129,10 @@ function AgentTreeView({ onClose, onGo, initialQuery = '' }) {
         return (node.children || []).some((child) => hasMatchingAgentInBranch(child, normalizedQuery));
     };
 
+    const currentContextId = normalizeNodeId(currentContext?.id);
+    const treeRootId = normalizeNodeId(treeData?.root?.id);
+    const isViewingOriginTree = Boolean(canRestoreBaseContext && currentContextId && treeRootId && currentContextId !== treeRootId);
+
     const renderNode = (node, depth = 0) => {
         const isAgent = isAgentNode(node);
         if (!isAgent) return null;
@@ -82,7 +142,6 @@ function AgentTreeView({ onClose, onGo, initialQuery = '' }) {
         const hasChildren = visibleChildren.length > 0;
         const isDead = node.isDead || node.username?.toUpperCase() === 'DEAD';
         const normalizedSearchQuery = searchQuery.trim().toLowerCase();
-
         // Agent tree search should only match/show agent nodes.
         if (normalizedSearchQuery) {
             if (!hasMatchingAgentInBranch(node, normalizedSearchQuery)) return null;
@@ -99,9 +158,6 @@ function AgentTreeView({ onClose, onGo, initialQuery = '' }) {
                         ) : (
                             <span className="node-dot">•</span>
                         )}
-                        <span className="node-icon">
-                            {isDead ? '💀' : isAgent ? '📁' : '👤'}
-                        </span>
                         <span className="node-name">{node.username.toUpperCase()}</span>
                         {isDead && <span className="dead-tag">DEAD</span>}
                     </div>
@@ -151,10 +207,18 @@ function AgentTreeView({ onClose, onGo, initialQuery = '' }) {
                                     <span className="node-toggle">
                                         {expandedNodes.has(treeData.root.id) ? '−' : '+'}
                                     </span>
-                                    <span className="node-icon">👑</span>
-                                    <span className="node-name">{treeData.root.username.toUpperCase()} (You)</span>
+                                    <span className="node-name">{treeData.root.username.toUpperCase()}</span>
                                 </div>
-                                <button className="node-go-btn" onClick={() => onGo(treeData.root.id, treeData.root.role)}>
+                                <button
+                                    className="node-go-btn"
+                                    onClick={() => {
+                                        if (isViewingOriginTree && onRestoreBaseContext) {
+                                            onRestoreBaseContext();
+                                            return;
+                                        }
+                                        onGo(treeData.root.id, treeData.root.role);
+                                    }}
+                                >
                                     Go
                                 </button>
                             </div>
