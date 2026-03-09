@@ -921,8 +921,14 @@ export default class LocalScene extends Phaser.Scene {
     this.playerText.setText(pFinal);
     this.bankerText.setText(bFinal);
 
-    // Update balance from server (authoritative).
-    const serverBalance = this._parseMoney(serverData && (serverData.newBalance ?? serverData.balanceAfter));
+    // Update balance from server (authoritative playable balance only).
+    const serverBalance = this._parseMoney(
+      serverData && (
+        serverData.availableBalance
+        ?? serverData.playableBalance
+        ?? serverData.walletBalance
+      )
+    );
     if (serverBalance !== null) {
       this._setDisplayedBalance(serverBalance);
     } else {

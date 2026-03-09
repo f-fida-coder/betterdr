@@ -893,6 +893,7 @@ final class CasinoController
 
                 $balanceAfterDebit = round($balanceBefore - $totalWager, 2);
                 $balanceAfter = round($balanceAfterDebit + $totalReturn, 2);
+                $availableBalanceAfter = round(max(0, $balanceAfter - $pendingBalance), 2);
 
                 $now = MongoRepository::nowUtc();
                 $ipAddress = IpUtils::clientIp();
@@ -989,6 +990,9 @@ final class CasinoController
                     'netResult' => $netResult,
                     'balanceBefore' => $balanceBefore,
                     'balanceAfter' => $balanceAfter,
+                    'availableBalanceBefore' => $availableBalance,
+                    'availableBalanceAfter' => $availableBalanceAfter,
+                    'pendingBalanceSnapshot' => $pendingBalance,
                     'ledgerEntries' => ['debit' => $debitEntryId, 'credit' => $creditEntryId],
                     'rngVersion' => self::BACCARAT_RNG_VERSION,
                     'deckHash' => $deckHash,
@@ -1124,6 +1128,7 @@ final class CasinoController
                 $netResult = round($totalReturn - $totalWager, 2);
                 $balanceAfterDebit = round($balanceSnapshot['balanceBefore'] - $totalWager, 2);
                 $balanceAfter = round($balanceAfterDebit + $totalReturn, 2);
+                $availableBalanceAfter = round(max(0, $balanceAfter - $balanceSnapshot['pendingBalance']), 2);
 
                 $now = MongoRepository::nowUtc();
                 $ipAddress = IpUtils::clientIp();
@@ -1346,6 +1351,7 @@ final class CasinoController
 
                 $balanceAfterDebit = round($balanceSnapshot['balanceBefore'] - $totalWager, 2);
                 $balanceAfter = round($balanceAfterDebit + $totalReturn, 2);
+                $availableBalanceAfter = round(max(0, $balanceAfter - $balanceSnapshot['pendingBalance']), 2);
 
                 $debitEntry = $this->buildCasinoTransactionEntry(
                     $userId,
@@ -1428,6 +1434,9 @@ final class CasinoController
                     'netResult' => $netResult,
                     'balanceBefore' => $balanceSnapshot['balanceBefore'],
                     'balanceAfter' => $balanceAfter,
+                    'availableBalanceBefore' => $balanceSnapshot['availableBalance'],
+                    'availableBalanceAfter' => $availableBalanceAfter,
+                    'pendingBalanceSnapshot' => $balanceSnapshot['pendingBalance'],
                     'ledgerEntries' => ['debit' => $debitEntryId, 'credit' => $creditEntryId],
                     'rngVersion' => self::BLACKJACK_RNG_VERSION,
                     'outcomeSource' => 'client_actions_server_rules',
@@ -4503,6 +4512,17 @@ final class CasinoController
         $mappedLedger = array_map(fn (array $entry): array => $this->mapLedgerEntry($entry), $ledgerEntries);
         $roundId = (string) ($betRecord['roundId'] ?? $betRecord['_id'] ?? '');
         $balanceAfter = $this->num($betRecord['balanceAfter'] ?? 0);
+        $availableBalanceAfter = $this->safeNumber($betRecord['availableBalanceAfter'] ?? null, null);
+        if ($availableBalanceAfter === null) {
+            $pendingBalanceSnapshot = $this->safeNumber($betRecord['pendingBalanceSnapshot'] ?? null, null);
+            if ($pendingBalanceSnapshot !== null) {
+                $availableBalanceAfter = round(max(0, $balanceAfter - $pendingBalanceSnapshot), 2);
+            }
+        }
+        if ($availableBalanceAfter === null) {
+            $availableBalanceAfter = $balanceAfter;
+        }
+        $availableBalanceAfter = round(max(0, $availableBalanceAfter), 2);
 
         return [
             'roundId' => $roundId,
@@ -4535,7 +4555,11 @@ final class CasinoController
             'resultType' => (string) ($betRecord['resultType'] ?? ''),
             'balanceBefore' => $this->num($betRecord['balanceBefore'] ?? 0),
             'balanceAfter' => $balanceAfter,
-            'newBalance' => $balanceAfter,
+            'availableBalance' => $availableBalanceAfter,
+            'walletBalance' => $availableBalanceAfter,
+            'playableBalance' => $availableBalanceAfter,
+            'newBalance' => $availableBalanceAfter,
+            'balanceSource' => 'availableBalance',
             'userId' => (string) ($betRecord['userId'] ?? ''),
             'username' => (string) ($betRecord['username'] ?? ''),
             'rngVersion' => (string) ($betRecord['rngVersion'] ?? ''),

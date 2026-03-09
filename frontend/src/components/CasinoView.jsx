@@ -44,10 +44,24 @@ const normalizeEmbeddedGameSlug = (value) => {
     return '';
 };
 
-const resolveWalletBalance = (payload) => {
-    const rawValue = payload?.availableBalance ?? payload?.balance ?? 0;
-    const amount = Number(rawValue);
-    return Number.isFinite(amount) ? amount : 0;
+const resolveWalletBalance = (payload, fallbackValue = null) => {
+    const fieldPriority = [
+        'availableBalance',
+        'available_balance',
+        'playableBalance',
+        'playable_balance',
+        'walletBalance',
+        'wallet_balance',
+        'availableCredit',
+        'available_credit',
+        'balance',
+    ];
+    for (const field of fieldPriority) {
+        const amount = Number(payload?.[field]);
+        if (Number.isFinite(amount)) return amount;
+    }
+    const fallback = Number(fallbackValue);
+    return Number.isFinite(fallback) ? fallback : null;
 };
 
 const resolveLocalGameOrigin = (gameLike) => {
@@ -128,7 +142,7 @@ const CasinoView = () => {
         }
         try {
             const data = await getBalance(token);
-            sendToGame({ type: 'balanceUpdate', requestId: safeRequestId, balance: resolveWalletBalance(data) });
+            sendToGame({ type: 'balanceUpdate', requestId: safeRequestId, balance: resolveWalletBalance(data, 0) ?? 0 });
         } catch (err) {
             console.error('Failed to get balance for game:', err);
             sendToGame({ type: 'balanceUpdate', requestId: safeRequestId, balance: 0, error: err.message });
@@ -167,11 +181,35 @@ const CasinoView = () => {
             pendingGameRequests.current.add(requestId);
             try {
                 const result = await placeCasinoBet(requestedGame, msg.bets, token, { requestId });
-                sendToGame({ type: 'betResult', requestId, ...result });
+                let settledPlayableBalance = null;
+                try {
+                    const walletData = await getBalance(token);
+                    const resolved = resolveWalletBalance(walletData, NaN);
+                    if (Number.isFinite(resolved)) {
+                        settledPlayableBalance = resolved;
+                    }
+                } catch (walletErr) {
+                    console.error('Failed to refresh playable balance after casino bet:', walletErr);
+                }
+                const gameResult = settledPlayableBalance === null
+                    ? result
+                    : {
+                        ...result,
+                        availableBalance: settledPlayableBalance,
+                        walletBalance: settledPlayableBalance,
+                        playableBalance: settledPlayableBalance,
+                        newBalance: settledPlayableBalance,
+                        balanceSource: 'availableBalance',
+                    };
+                sendToGame({ type: 'betResult', requestId, ...gameResult });
                 // Refresh header balance
                 window.dispatchEvent(new Event('user:refresh'));
                 await loadCasinoHistory();
-                await syncGameBalance();
+                if (settledPlayableBalance === null) {
+                    await syncGameBalance();
+                } else {
+                    sendToGame({ type: 'balanceUpdate', requestId: '', balance: settledPlayableBalance });
+                }
             } catch (err) {
                 console.error('Casino bet failed:', err);
                 sendToGame({ type: 'betError', requestId, error: err.message });
