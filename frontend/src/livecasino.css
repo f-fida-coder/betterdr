@@ -11,6 +11,8 @@
     min-height: calc(100vh - 72px);
     background: radial-gradient(circle at top left, #ffffff 0%, var(--lc-bg) 70%);
     color: var(--lc-text);
+    flex: 1 1 auto;
+    min-height: 0;
 }
 
 .live-hero {

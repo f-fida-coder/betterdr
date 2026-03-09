@@ -388,10 +388,14 @@ function App() {
 
             {dashboardView === 'ultra-live' && <UltraLiveView />}
 
-            {dashboardView === 'casino' && <CasinoView />}
+            {dashboardView === 'casino' && (
+              <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+                <CasinoView />
+              </div>
+            )}
 
             {dashboardView === 'live-casino' && (
-              <div style={{ flex: 1, backgroundColor: '#505050', minHeight: 'calc(100vh - 125px)' }}>
+              <div style={{ flex: 1, backgroundColor: '#505050', minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
                 <LiveCasinoView />
               </div>
             )}

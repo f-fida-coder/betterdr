@@ -2,6 +2,26 @@
     var REQUEST_TIMEOUT_MS = 20000;
     var pendingRequests = {};
     var requestCounter = 0;
+    var parentOrigin = resolveParentOrigin();
+
+    function resolveParentOrigin() {
+        try {
+            if (document.referrer) {
+                var refUrl = new URL(document.referrer, window.location.href);
+                if (refUrl.origin && refUrl.origin !== 'null') {
+                    return refUrl.origin;
+                }
+            }
+        } catch (err) {}
+
+        try {
+            if (window.parent && window.parent.location && window.parent.location.origin && window.parent.location.origin !== 'null') {
+                return window.parent.location.origin;
+            }
+        } catch (err2) {}
+
+        return '*';
+    }
 
     function nextRequestId(prefix) {
         requestCounter += 1;
@@ -39,14 +59,13 @@
             window.parent.postMessage(Object.assign({}, payload, {
                 type: type,
                 requestId: requestId
-            }), window.location.origin);
+            }), parentOrigin);
         });
     }
 
     function handleMessage(event) {
-        if (event.origin !== window.location.origin) {
-            return;
-        }
+        if (event.source !== window.parent) return;
+        if (parentOrigin !== '*' && event.origin !== parentOrigin) return;
 
         var data = event.data;
         if (!data || typeof data !== 'object') {

@@ -13,14 +13,14 @@ const LOCAL_GAME_META = {
     baccarat: {
         id: 'local-baccarat',
         provider: 'In-House',
-        url: '/games/baccarat/index.html?v=20260309a',
+        url: '/games/baccarat/index.html?v=20260309c',
         poster: '/games/baccarat/assets/menuscreen.webp',
         themeColor: '#1a0a2e',
     },
     blackjack: {
         id: 'local-blackjack',
         provider: 'In-House',
-        url: '/games/blackjack/index.html?v=20260309b',
+        url: '/games/blackjack/index.html?v=20260309d',
         poster: '/games/blackjack/src/images/misc/table.png',
         themeColor: '#0b5563',
     }
@@ -48,6 +48,16 @@ const resolveWalletBalance = (payload) => {
     const rawValue = payload?.availableBalance ?? payload?.balance ?? 0;
     const amount = Number(rawValue);
     return Number.isFinite(amount) ? amount : 0;
+};
+
+const resolveLocalGameOrigin = (gameLike) => {
+    const rawUrl = String(gameLike?.url || '').trim();
+    if (!rawUrl) return window.location.origin;
+    try {
+        return new URL(rawUrl, window.location.href).origin;
+    } catch (err) {
+        return window.location.origin;
+    }
 };
 
 const CasinoView = () => {
@@ -104,9 +114,10 @@ const CasinoView = () => {
     }, [token, historyPage, historyFilters.game, historyFilters.result, historyFilters.minWager, historyFilters.maxWager]);
 
     const sendToGame = useCallback((payload) => {
-        if (iframeRef.current?.contentWindow) {
-            iframeRef.current.contentWindow.postMessage(payload, window.location.origin);
-        }
+        const frameWindow = iframeRef.current?.contentWindow;
+        if (!frameWindow) return;
+        const targetOrigin = resolveLocalGameOrigin(activeLocalGameRef.current) || '*';
+        frameWindow.postMessage(payload, targetOrigin);
     }, []);
 
     const syncGameBalance = useCallback(async (requestId = '') => {
@@ -126,8 +137,8 @@ const CasinoView = () => {
 
     /* ── postMessage bridge: iframe ↔ backend API ─────────── */
     const handleGameMessage = useCallback(async (event) => {
-        // Only accept messages from our own origin
-        if (event.origin !== window.location.origin) return;
+        // Source-window validation is authoritative; origin can vary in production
+        // when the site is served behind redirects/canonical host rules.
         const currentIframeWindow = iframeRef.current?.contentWindow;
         if (!currentIframeWindow || event.source !== currentIframeWindow) return;
         const msg = event.data;

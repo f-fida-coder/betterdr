@@ -2,8 +2,24 @@ export default class LocalScene extends Phaser.Scene {
   constructor() { super({ key: 'LocalScene' }); }
 
   /* ── postMessage bridge helpers ─────────────────────── */
+  _resolveParentOrigin() {
+    try {
+      if (document.referrer) {
+        const refUrl = new URL(document.referrer, window.location.href);
+        if (refUrl.origin && refUrl.origin !== 'null') return refUrl.origin;
+      }
+    } catch (e) { /* ignore */ }
+    try {
+      const parentOrigin = window.parent?.location?.origin;
+      if (parentOrigin && parentOrigin !== 'null') return parentOrigin;
+    } catch (e) { /* ignore cross-origin parent access */ }
+    return '*';
+  }
   _sendToParent(msg) {
-    try { window.parent.postMessage(msg, window.location.origin); } catch (e) { console.warn('postMessage failed', e); }
+    try {
+      const targetOrigin = this._parentOrigin || this._resolveParentOrigin();
+      window.parent.postMessage(msg, targetOrigin);
+    } catch (e) { console.warn('postMessage failed', e); }
   }
   _newRequestId() {
     return `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 12)}`;
@@ -40,9 +56,10 @@ export default class LocalScene extends Phaser.Scene {
     this.roundStatusText.setText(text);
   }
   _initParentBridge() {
+    this._parentOrigin = this._resolveParentOrigin();
     window.addEventListener('message', (event) => {
-      if (event.origin !== window.location.origin) return;
       if (event.source !== window.parent) return;
+      if (this._parentOrigin && this._parentOrigin !== '*' && event.origin !== this._parentOrigin) return;
       const msg = event.data;
       if (!msg || typeof msg !== 'object' || !msg.type) return;
       const incomingRequestId = String(msg.requestId || '');
