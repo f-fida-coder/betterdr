@@ -145,25 +145,26 @@ try {
     assertOk((string) ($detail['data']['bet']['roundId'] ?? '') === $roundId, 'Detail round mismatch');
     assertOk(is_array($detail['data']['bet']['ledgerEntries'] ?? null), 'Ledger entries missing in detail');
 
-    echo "6) Place blackjack round and verify native-client settlement...\n";
+    echo "6) Place blackjack round and verify server-rule settlement...\n";
     $blackjackRequestId = 'smoke_blackjack_' . $seed;
     $blackjack = req('POST', $baseUrl . '/casino/bet', [
         'requestId' => $blackjackRequestId,
         'game' => 'blackjack',
         'bets' => [
-            'totalWager' => 9,
-            'totalReturn' => 0,
-            'result' => 'Lose',
             'betBreakdown' => [
-                ['zone' => 'betZone1', 'main' => 9],
+                ['zone' => 'betZone1', 'main' => 9, 'pairs' => 0, 'plus21' => 0, 'royal' => 0, 'superSeven' => 0, 'insurance' => 0],
             ],
+            'hands' => [
+                ['zone' => 'betZone1', 'cards' => ['10:s1', '6:s2'], 'bet' => 9, 'isSplit' => false],
+            ],
+            'dealerCards' => ['10:s3', 'Q:s4'],
         ],
     ], $token);
     assertOk($blackjack['status'] === 200, 'Blackjack bet failed');
     $blackjackRoundId = (string) ($blackjack['data']['roundId'] ?? '');
     assertOk($blackjackRoundId !== '', 'Missing blackjack roundId');
     assertOk((string) ($blackjack['data']['game'] ?? '') === 'blackjack', 'Blackjack response game mismatch');
-    assertOk((string) ($blackjack['data']['outcomeSource'] ?? '') === 'native_client_round', 'Blackjack outcome source must be native_client_round');
+    assertOk((string) ($blackjack['data']['outcomeSource'] ?? '') === 'client_actions_server_rules', 'Blackjack outcome source must be client_actions_server_rules');
     assertSimpleSettlementIntegrity($blackjack['data'], 9.0, 0.0, 'blackjack initial');
 
     echo "7) Replay blackjack requestId (idempotency)...\n";
@@ -171,12 +172,13 @@ try {
         'requestId' => $blackjackRequestId,
         'game' => 'blackjack',
         'bets' => [
-            'totalWager' => 9,
-            'totalReturn' => 18,
-            'result' => 'Win',
             'betBreakdown' => [
-                ['zone' => 'betZone1', 'main' => 9],
+                ['zone' => 'betZone1', 'main' => 9, 'pairs' => 0, 'plus21' => 0, 'royal' => 0, 'superSeven' => 0, 'insurance' => 0],
             ],
+            'hands' => [
+                ['zone' => 'betZone1', 'cards' => ['A:s1', 'K:s2'], 'bet' => 9, 'isSplit' => false],
+            ],
+            'dealerCards' => ['9:s3', '8:s4'],
         ],
     ], $token);
     assertOk($blackjackReplay['status'] === 200, 'Blackjack replay failed');
@@ -217,9 +219,13 @@ try {
         'requestId' => 'smoke_limit_' . $seed,
         'game' => 'blackjack',
         'bets' => [
-            'totalWager' => $lossProbeWager,
-            'totalReturn' => 0,
-            'result' => 'Lose',
+            'betBreakdown' => [
+                ['zone' => 'betZone1', 'main' => $lossProbeWager, 'pairs' => 0, 'plus21' => 0, 'royal' => 0, 'superSeven' => 0, 'insurance' => 0],
+            ],
+            'hands' => [
+                ['zone' => 'betZone1', 'cards' => ['10:s1', '6:s2'], 'bet' => $lossProbeWager, 'isSplit' => false],
+            ],
+            'dealerCards' => ['10:s3', 'Q:s4'],
         ],
     ], $token);
     assertOk(

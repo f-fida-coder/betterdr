@@ -4,6 +4,7 @@ import { downloadAdminCasinoBetsCsv, getAdminCasinoBetDetail, getAdminCasinoBets
 const EMPTY_FILTERS = {
   game: '',
   username: '',
+  userId: '',
   result: '',
   from: '',
   to: '',
@@ -15,6 +16,9 @@ function CasinoBetsView() {
   const [filters, setFilters] = useState(EMPTY_FILTERS);
   const [rows, setRows] = useState([]);
   const [summary, setSummary] = useState(null);
+  const [summaryByGame, setSummaryByGame] = useState([]);
+  const [summaryByUser, setSummaryByUser] = useState([]);
+  const [summaryAnomalies, setSummaryAnomalies] = useState({ count: 0, sample: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [page, setPage] = useState(1);
@@ -36,11 +40,21 @@ function CasinoBetsView() {
       setError('');
       const [betsData, summaryData] = await Promise.all([
         getAdminCasinoBets({ ...filters, page, limit: 50 }, token),
-        getAdminCasinoSummary({ game: filters.game, from: filters.from, to: filters.to }, token),
+        getAdminCasinoSummary({
+          game: filters.game,
+          from: filters.from,
+          to: filters.to,
+          result: filters.result,
+          username: filters.username,
+          userId: filters.userId,
+        }, token),
       ]);
       setRows(Array.isArray(betsData?.bets) ? betsData.bets : []);
       setPagination(betsData?.pagination || { page, pages: 1, total: 0, limit: 50 });
       setSummary(summaryData?.summary || null);
+      setSummaryByGame(Array.isArray(summaryData?.byGame) ? summaryData.byGame : []);
+      setSummaryByUser(Array.isArray(summaryData?.byUser) ? summaryData.byUser : []);
+      setSummaryAnomalies(summaryData?.anomalies || { count: 0, sample: [] });
     } catch (err) {
       console.error('Failed to load admin casino data:', err);
       setError(err.message || 'Failed to load casino bets');
@@ -147,6 +161,8 @@ function CasinoBetsView() {
         return 'Server RNG';
       case 'native_client_round':
         return 'Client Native';
+      case 'client_actions_server_rules':
+        return 'Server Rules';
       case '':
         return '—';
       default:
@@ -199,7 +215,10 @@ function CasinoBetsView() {
       { label: 'Total Wager', value: formatMoney(summary?.totalWager), tone: 'blue' },
       { label: 'Total Return', value: formatMoney(summary?.totalReturn), tone: 'teal' },
       { label: 'GGR', value: formatMoney(summary?.grossGamingRevenue), tone: 'slate' },
+      { label: 'Average Bet', value: formatMoney(summary?.averageBet), tone: 'navy' },
+      { label: 'RTP Estimate', value: `${Number(summary?.rtpEstimate || 0).toFixed(2)}%`, tone: 'indigo' },
       { label: 'Payout Ratio', value: `${Number(summary?.payoutRatio || 0).toFixed(2)}%`, tone: 'indigo' },
+      { label: 'Anomalies', value: Number(summary?.anomalyCount || 0).toLocaleString(), tone: 'rose' },
       { label: 'Error Rate', value: `${Number(summary?.errorRate || 0).toFixed(4)}%`, tone: 'rose' },
     ]),
     [summary]
@@ -235,6 +254,128 @@ function CasinoBetsView() {
               ))}
             </div>
 
+            <div className="casino-bets-filters" style={{ gridTemplateColumns: 'repeat(3, minmax(160px, 1fr))', marginBottom: 12 }}>
+              <div className="filter-group">
+                <label>Biggest Win</label>
+                <div>{summary?.biggestWin ? `${summary.biggestWin.username || '—'} ${formatMoney(summary.biggestWin.netResult)}` : '—'}</div>
+              </div>
+              <div className="filter-group">
+                <label>Biggest Loss</label>
+                <div>{summary?.biggestLoss ? `${summary.biggestLoss.username || '—'} ${formatMoney(summary.biggestLoss.netResult)}` : '—'}</div>
+              </div>
+              <div className="filter-group">
+                <label>Anomaly Sample</label>
+                <div>{Number(summaryAnomalies?.count || 0)} flagged rounds</div>
+              </div>
+            </div>
+
+            {summaryByGame.length > 0 && (
+              <div className="table-container scrollable casino-bets-table-wrap" style={{ marginBottom: 12 }}>
+                <table className="data-table casino-bets-table">
+                  <thead>
+                    <tr>
+                      <th>Game</th>
+                      <th>Rounds</th>
+                      <th>Total Wager</th>
+                      <th>Total Return</th>
+                      <th>GGR</th>
+                      <th>Avg Bet</th>
+                      <th>RTP</th>
+                      <th>Biggest Win</th>
+                      <th>Biggest Loss</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {summaryByGame.map((item) => (
+                      <tr key={item.game}>
+                        <td>{formatGame(item.game)}</td>
+                        <td>{Number(item.rounds || 0).toLocaleString()}</td>
+                        <td>{formatMoney(item.totalWager)}</td>
+                        <td>{formatMoney(item.totalReturn)}</td>
+                        <td>{formatMoney(item.grossGamingRevenue)}</td>
+                        <td>{formatMoney(item.averageBet)}</td>
+                        <td>{Number(item.payoutRatio || 0).toFixed(2)}%</td>
+                        <td>{item.biggestWin !== null && item.biggestWin !== undefined ? formatMoney(item.biggestWin) : '—'}</td>
+                        <td>{item.biggestLoss !== null && item.biggestLoss !== undefined ? formatMoney(item.biggestLoss) : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {summaryByUser.length > 0 && (
+              <div className="table-container scrollable casino-bets-table-wrap" style={{ marginBottom: 12 }}>
+                <table className="data-table casino-bets-table">
+                  <thead>
+                    <tr>
+                      <th>User</th>
+                      <th>User ID</th>
+                      <th>Rounds</th>
+                      <th>Total Wager</th>
+                      <th>Total Return</th>
+                      <th>Net</th>
+                      <th>Avg Bet</th>
+                      <th>Biggest Win</th>
+                      <th>Biggest Loss</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {summaryByUser.map((item) => (
+                      <tr key={`${item.userId || ''}:${item.username || ''}`}>
+                        <td>{item.username || '—'}</td>
+                        <td className="round-id" title={item.userId || ''}>{shortId(item.userId || '')}</td>
+                        <td>{Number(item.rounds || 0).toLocaleString()}</td>
+                        <td>{formatMoney(item.totalWager)}</td>
+                        <td>{formatMoney(item.totalReturn)}</td>
+                        <td><span className={getNetPillClass(item.netResult)}>{formatMoney(item.netResult)}</span></td>
+                        <td>{formatMoney(item.averageBet)}</td>
+                        <td>{item.biggestWin !== null && item.biggestWin !== undefined ? formatMoney(item.biggestWin) : '—'}</td>
+                        <td>{item.biggestLoss !== null && item.biggestLoss !== undefined ? formatMoney(item.biggestLoss) : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {Array.isArray(summaryAnomalies?.sample) && summaryAnomalies.sample.length > 0 && (
+              <div className="table-container scrollable casino-bets-table-wrap" style={{ marginBottom: 12 }}>
+                <table className="data-table casino-bets-table">
+                  <thead>
+                    <tr>
+                      <th>Round</th>
+                      <th>User</th>
+                      <th>Game</th>
+                      <th>Reasons</th>
+                      <th>Wager</th>
+                      <th>Return</th>
+                      <th>Net</th>
+                      <th>Balance Before</th>
+                      <th>Balance After</th>
+                      <th>Time</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {summaryAnomalies.sample.map((item, idx) => (
+                      <tr key={`${item.roundId || 'anomaly'}:${idx}`}>
+                        <td className="round-id" title={item.roundId || ''}>{shortId(item.roundId || '')}</td>
+                        <td>{item.username || '—'}</td>
+                        <td>{formatGame(item.game)}</td>
+                        <td>{Array.isArray(item.reasons) ? item.reasons.join(', ') : '—'}</td>
+                        <td>{formatMoney(item.totalWager)}</td>
+                        <td>{formatMoney(item.totalReturn)}</td>
+                        <td><span className={getNetPillClass(item.netResult)}>{formatMoney(item.netResult)}</span></td>
+                        <td>{formatMoney(item.balanceBefore)}</td>
+                        <td>{formatMoney(item.balanceAfter)}</td>
+                        <td>{formatDateTime(item.createdAt)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
             <div className="casino-bets-filters">
               <div className="filter-group">
                 <label>Game</label>
@@ -251,6 +392,15 @@ function CasinoBetsView() {
                   value={filters.username}
                   onChange={(e) => applyFilter('username', e.target.value)}
                   placeholder="username"
+                />
+              </div>
+              <div className="filter-group">
+                <label>User ID</label>
+                <input
+                  type="text"
+                  value={filters.userId}
+                  onChange={(e) => applyFilter('userId', e.target.value)}
+                  placeholder="user id"
                 />
               </div>
               <div className="filter-group">

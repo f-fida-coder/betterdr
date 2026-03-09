@@ -40,6 +40,17 @@ export default class LocalScene extends Phaser.Scene {
     this.balance = this._normalizeMoney(value);
     if (this.balanceText) this.balanceText.setText('Balance: $' + this._formatMoney(this.balance));
   }
+  _setDisplayedTotalBet(value) {
+    this.totalBet = this._normalizeMoney(value);
+    if (this.totalBetText) this.totalBetText.setText('Total Bet: $' + this._formatMoney(this.totalBet));
+  }
+  _setDisplayedLastWin(value) {
+    this.lastWin = this._normalizeMoney(value);
+    if (this.lastWinText) this.lastWinText.setText('Last Win: $' + this._formatMoney(this.lastWin));
+  }
+  _currentTotalBet() {
+    return this._normalizeMoney((this.bets?.Tie || 0) + (this.bets?.Player || 0) + (this.bets?.Banker || 0));
+  }
   _requestBalanceSync() {
     this._balanceRequestId = this._newRequestId();
     this._sendToParent({ type: 'getBalance', requestId: this._balanceRequestId });
@@ -84,6 +95,7 @@ export default class LocalScene extends Phaser.Scene {
         this._pendingBetRequestId = '';
         this._serverError = msg.error || 'Bet failed';
         this._setRoundState('error', this._serverError);
+        try { this.clearBets(); } catch (e) { console.warn('clearBets after betError failed', e); }
         this._requestBalanceSync();
         if (this._betResolve) { this._betResolve(null); this._betResolve = null; }
       }
@@ -260,6 +272,8 @@ export default class LocalScene extends Phaser.Scene {
     this._pendingBetRequestId = '';
     this._balanceRequestId = '';
     this.roundState = 'idle';
+    this.totalBet = 0;
+    this.lastWin = 0;
 
     // Initialize parent bridge and request real balance
     this._initParentBridge();
@@ -291,6 +305,22 @@ export default class LocalScene extends Phaser.Scene {
     // Group into container for convenience
     this.balanceContainer = this.add.container(0, 0, [balanceBg, this.balanceText]);
     this.balanceContainer.setDepth(50);
+
+    this.totalBetText = this.add.text(balX, balY + balH + 10, 'Total Bet: $0.00', {
+      fontSize: '17px',
+      color: '#e7f2ff',
+      fontFamily: 'Arial Black',
+      stroke: '#000000',
+      strokeThickness: 3
+    }).setOrigin(0, 0).setDepth(50);
+
+    this.lastWinText = this.add.text(balX, balY + balH + 34, 'Last Win: $0.00', {
+      fontSize: '17px',
+      color: '#f5d26d',
+      fontFamily: 'Arial Black',
+      stroke: '#000000',
+      strokeThickness: 3
+    }).setOrigin(0, 0).setDepth(50);
 
     this.roundStatusText = this.add.text(width - 24, 102, 'Round: READY', {
       fontSize: '18px',
@@ -421,19 +451,9 @@ export default class LocalScene extends Phaser.Scene {
 
         this.betAmountButtons.push({ btn, amt });
       });
-      btn.on('pointerdown', () => {
-        this.currentBetAmount = amt;
-        try {
-          this.betAmountButtons.forEach(b => b.btn.setFillStyle(0xffffff));
-          btn.setFillStyle(0x888888);
-        } catch (e) { }
-        if (this.currentBet && this.currentBet.type) {
-          this.currentBet.amount = amt;
-        }
-      });
-      this.betAmountButtons.push({ btn, amt });
-
-      if (this.betAmountButtons[0] && this.betAmountButtons[0].btn.setFillStyle) this.betAmountButtons[0].btn.setFillStyle(0x888888);
+      if (this.betAmountButtons[0] && this.betAmountButtons[0].btn) {
+        this.betAmountButtons[0].btn.setAlpha(0.9);
+      }
     } catch (e) { }
 
 
@@ -513,6 +533,7 @@ export default class LocalScene extends Phaser.Scene {
           this._setDisplayedBalance(Math.max(0, this.balance - amount));
         }
       } catch (e) { console.warn('balance deduction failed', e); }
+      this._setDisplayedTotalBet(this._currentTotalBet());
 
       if (!this._betsByZone) this._betsByZone = {};
       if (!this._betsByZone[zoneKey]) this._betsByZone[zoneKey] = [];
@@ -571,6 +592,7 @@ export default class LocalScene extends Phaser.Scene {
     } catch (e) { console.warn('refund failed', e); }
     // reset internal bets after refund
     try { this.bets = { Tie: 0, Player: 0, Banker: 0 }; } catch (e) { }
+    this._setDisplayedTotalBet(0);
     this.currentBet = { type: null, amount: 0 };
     try {
       if (this.tieBetText) this.tieBetText.setText('$0').setVisible(false);
@@ -673,6 +695,7 @@ export default class LocalScene extends Phaser.Scene {
       if (this.sound) this.sound.play('button_click', { volume: 0.7 });
       this.isDealing = true;
       this.playing = true;
+      this._setDisplayedLastWin(0);
       this._setRoundState('placing');
       try { this.updateDealButtonState && this.updateDealButtonState(); } catch (e) { }
       this.clearSprites();
@@ -693,6 +716,7 @@ export default class LocalScene extends Phaser.Scene {
         // Bet failed/timed out. Re-sync balance from server authority.
         this._pendingBetRequestId = '';
         this._setRoundState('error', this._serverError || 'No server response');
+        try { this.clearBets(); } catch (e) { console.warn('clearBets after timeout failed', e); }
         this._requestBalanceSync();
         this.isDealing = false;
         this.playing = false;
@@ -904,6 +928,11 @@ export default class LocalScene extends Phaser.Scene {
     } else {
       this._requestBalanceSync();
     }
+    const wager = this._parseMoney(serverData && serverData.totalWager);
+    const net = this._parseMoney(serverData && serverData.netResult);
+    const resolvedNet = net !== null ? net : this._normalizeMoney((this._parseMoney(serverData?.totalReturn) ?? 0) - (wager ?? this._currentTotalBet()));
+    this._setDisplayedLastWin(resolvedNet);
+    this._setDisplayedTotalBet(0);
 
     // Show per-zone results
     try {
@@ -970,6 +999,7 @@ export default class LocalScene extends Phaser.Scene {
       if (this.bankerBetText) this.bankerBetText.setText('$0').setVisible(false);
 
       this.betPlaced = false;
+      this._setDisplayedTotalBet(0);
     } catch (e) { console.warn('resetRound clear bets error', e); }
     this.clearSprites();
     this.playerSprites = [];

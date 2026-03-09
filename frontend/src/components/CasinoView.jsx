@@ -352,6 +352,41 @@ const CasinoView = () => {
 
         return row.result || '—';
     };
+    const formatRoundId = (value) => {
+        const raw = String(value || '');
+        if (!raw) return '—';
+        return raw.length > 12 ? `${raw.slice(0, 12)}…` : raw;
+    };
+    const formatBetDetails = (row) => {
+        const game = String(row?.game || '').toLowerCase();
+        if (game === 'baccarat') {
+            const bets = row?.bets && typeof row.bets === 'object' ? row.bets : {};
+            return `P ${formatMoney(bets.Player)} | B ${formatMoney(bets.Banker)} | T ${formatMoney(bets.Tie)}`;
+        }
+
+        if (game === 'blackjack') {
+            const zones = Array.isArray(row?.bets?.zones)
+                ? row.bets.zones
+                : (Array.isArray(row?.bets?.betBreakdown) ? row.bets.betBreakdown : []);
+            if (zones.length > 0) {
+                return zones
+                    .map((zone) => {
+                        const zoneLabel = String(zone?.zone || '').replace('betZone', 'S');
+                        const main = Number(zone?.main || 0);
+                        const side = Number(zone?.pairs || 0)
+                            + Number(zone?.plus21 || 0)
+                            + Number(zone?.royal || 0)
+                            + Number(zone?.superSeven || 0)
+                            + Number(zone?.insurance || 0);
+                        return `${zoneLabel || 'S?'} ${formatMoney(main + side)}`;
+                    })
+                    .join(' | ');
+            }
+            return 'Main + side bets';
+        }
+
+        return '—';
+    };
     const handleLocalGameOpen = (game) => {
         if (!token) {
             alert('Please login to play in-house games.');
@@ -581,21 +616,22 @@ const CasinoView = () => {
                         <thead>
                             <tr>
                                 <th>Time</th>
+                                <th>Round</th>
                                 <th>Game</th>
-                                <th>Status</th>
-                                <th>Source</th>
                                 <th>Outcome</th>
                                 <th>Result</th>
+                                <th>Bet Details</th>
                                 <th>Wager</th>
                                 <th>Return</th>
                                 <th>Net</th>
-                                <th>Balance</th>
+                                <th>Balance Before</th>
+                                <th>Balance After</th>
                             </tr>
                         </thead>
                         <tbody>
                             {!historyLoading && historyRows.length === 0 && (
                                 <tr>
-                                    <td colSpan={10} className="casino-history-empty">
+                                    <td colSpan={11} className="casino-history-empty">
                                         No casino rounds found for these filters.
                                     </td>
                                 </tr>
@@ -603,15 +639,15 @@ const CasinoView = () => {
                             {historyRows.map((row) => (
                                 <tr key={row.roundId || row.id}>
                                     <td>{row.createdAt ? new Date(row.createdAt).toLocaleString() : '—'}</td>
+                                    <td title={row.roundId || row.id || ''}>{formatRoundId(row.roundId || row.id)}</td>
                                     <td>{formatGameLabel(row.game)}</td>
-                                    <td>{row.roundStatus || '—'}</td>
-                                    <td>{formatOutcomeSource(row.outcomeSource)}</td>
                                     <td>
                                         <span className={`casino-history-badge ${getOutcomeClassName(getPlayerOutcome(row))}`}>
                                             {getPlayerOutcome(row)}
                                         </span>
                                     </td>
                                     <td>{formatRoundResult(row)}</td>
+                                    <td>{formatBetDetails(row)}</td>
                                     <td>{formatMoney(row.totalWager)}</td>
                                     <td>{formatMoney(row.totalReturn)}</td>
                                     <td
@@ -625,6 +661,7 @@ const CasinoView = () => {
                                     >
                                         {formatMoney(row.netResult)}
                                     </td>
+                                    <td>{formatMoney(row.balanceBefore)}</td>
                                     <td>{formatMoney(row.balanceAfter)}</td>
                                 </tr>
                             ))}

@@ -519,7 +519,7 @@
 .casino-history-table {
     width: 100%;
     border-collapse: collapse;
-    min-width: 760px;
+    min-width: 1080px;
 }
 
 .casino-history-table th,
@@ -536,6 +536,16 @@
     letter-spacing: 0.03em;
     text-transform: uppercase;
     color: #59779c;
+}
+
+.casino-history-table td:nth-child(2) {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    color: #3d546c;
+}
+
+.casino-history-table td:nth-child(6) {
+    min-width: 210px;
+    color: #314d70;
 }
 
 .casino-history-empty {

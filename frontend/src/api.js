@@ -446,7 +446,7 @@ export const getAdminCasinoBetDetail = async (roundId, token) => {
 
 export const getAdminCasinoSummary = async (params = {}, token) => {
     const query = {};
-    const allowed = ['game', 'from', 'to', 'limit'];
+    const allowed = ['game', 'from', 'to', 'limit', 'result', 'userId', 'username'];
     for (const key of allowed) {
         const value = params?.[key];
         if (value !== undefined && value !== null && String(value).trim() !== '') {
