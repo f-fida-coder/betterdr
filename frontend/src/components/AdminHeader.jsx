@@ -10,10 +10,12 @@ function AdminHeader({
   onRestoreBaseContext,
   canRestoreBaseContext = false,
   baseContextLabel = 'Admin',
-  role = 'admin'
+  role = 'admin',
+  showStats = true
 }) {
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showAgentTree, setShowAgentTree] = useState(false);
+  const [showMobilePlayerSearch, setShowMobilePlayerSearch] = useState(false);
   const [headerSearchQuery, setHeaderSearchQuery] = useState('');
   const [agentTreeSearchQuery, setAgentTreeSearchQuery] = useState('');
   const [headerPlayerOpen, setHeaderPlayerOpen] = useState(false);
@@ -83,8 +85,35 @@ function AdminHeader({
   };
 
   const handleViewChange = (view) => {
+    setShowMobilePlayerSearch(false);
     if (onViewChange) onViewChange(view);
   };
+
+  const openAccountTreeSearch = (seedQuery = '') => {
+    setShowUserMenu(false);
+    setShowMobilePlayerSearch(false);
+    setHeaderPlayerOpen(false);
+    setAgentTreeSearchQuery(String(seedQuery || '').trim());
+    setShowAgentTree(true);
+  };
+
+  const toggleAccountTreeSearch = (seedQuery = '') => {
+    setShowUserMenu(false);
+    setShowMobilePlayerSearch(false);
+    setHeaderPlayerOpen(false);
+    setAgentTreeSearchQuery(String(seedQuery || '').trim());
+    setShowAgentTree((prev) => !prev);
+  };
+
+  const toggleMobilePlayerSearch = () => {
+    setShowUserMenu(false);
+    setShowAgentTree(false);
+    setShowMobilePlayerSearch((prev) => !prev);
+  };
+
+  useEffect(() => {
+    setHeaderPlayerOpen(showMobilePlayerSearch);
+  }, [showMobilePlayerSearch]);
 
   const normalizeSearchValue = (value) => String(value || '').trim().toLowerCase();
 
@@ -128,8 +157,34 @@ function AdminHeader({
       setHeaderPlayerOpen(false);
       return;
     }
-    setAgentTreeSearchQuery(query);
-    setShowAgentTree(true);
+    if (!showMobilePlayerSearch) {
+      openAccountTreeSearch(query);
+    }
+  };
+
+  const handleMobilePlayerSearchSubmit = (e) => {
+    e.preventDefault();
+    const query = headerSearchQuery.trim();
+    if (!query) return;
+
+    const normalizedQuery = normalizeSearchValue(query);
+    const exact = filteredPlayers.find((player) => {
+      const username = normalizeSearchValue(player?.username);
+      const displayPassword = normalizeSearchValue(player?.displayPassword);
+      return username === normalizedQuery || displayPassword === normalizedQuery;
+    });
+    const chosenPlayer = exact || filteredPlayers[0] || null;
+    if (!chosenPlayer) {
+      return;
+    }
+
+    const userId = chosenPlayer.id || chosenPlayer._id || chosenPlayer.mongo_id;
+    if (userId && onViewChange) {
+      onViewChange('user-details', userId);
+    }
+    setHeaderSearchQuery(chosenPlayer.username || '');
+    setHeaderPlayerOpen(false);
+    setShowMobilePlayerSearch(false);
   };
 
   const filteredPlayers = useMemo(() => {
@@ -182,12 +237,9 @@ function AdminHeader({
           <button
             type="button"
             className="mobile-search-toggle"
-            onClick={() => {
-              setAgentTreeSearchQuery(headerSearchQuery.trim());
-              setShowAgentTree(true);
-            }}
-            aria-label="Search accounts"
-            title="Search accounts"
+            onClick={toggleMobilePlayerSearch}
+            aria-label="Search players"
+            title="Search players"
           >
             <i className="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
           </button>
@@ -258,8 +310,7 @@ function AdminHeader({
                 aria-hidden="true"
                 onClick={(e) => {
                   e.stopPropagation();
-                  setShowUserMenu(false);
-                  setShowAgentTree((prev) => !prev);
+                  toggleAccountTreeSearch(headerSearchQuery);
                 }}
               >
                 ▼
@@ -289,29 +340,83 @@ function AdminHeader({
         </div>
       </div>
 
-      <div className="admin-header-bottom">
-        <div className="admin-stats-grid">
-          {/* Row 1 */}
-          <div className="stat-box">
-            <span className="stat-label">Week</span>
-            <span className="stat-value green">{formatCurrency(summary.weekNet)}</span>
-          </div>
-          <div className="stat-box">
-            <span className="stat-label">Today</span>
-            <span className="stat-value green">{formatCurrency(summary.todayNet)}</span>
-          </div>
+      {showMobilePlayerSearch && (
+        <div className="mobile-player-search-sheet" role="dialog" aria-label="Player search">
+          <form className="mobile-player-search-form" onSubmit={handleMobilePlayerSearchSubmit}>
+            <span className="search-icon" aria-hidden="true">
+              <i className="fa-solid fa-magnifying-glass"></i>
+            </span>
+            <input
+              type="text"
+              autoFocus
+              placeholder="Search players..."
+              value={headerSearchQuery}
+              onChange={(e) => setHeaderSearchQuery(e.target.value)}
+            />
+            <button
+              type="button"
+              className="mobile-player-search-close"
+              onClick={() => setShowMobilePlayerSearch(false)}
+              aria-label="Close player search"
+            >
+              ✕
+            </button>
+          </form>
 
-          {/* Row 2 */}
-          <div className="stat-box">
-            <span className="stat-label">Active Accts</span>
-            <span className="stat-value highlight">{formatCount(summary.activeAccounts)}</span>
-          </div>
-          <div className="stat-box">
-            <span className="stat-label">Balance</span>
-            <span className="stat-value">{myBalance === 'Unlimited' ? 'Unlimited' : formatCurrency(myBalance)}</span>
+          <div className="mobile-player-search-results">
+            {filteredPlayers.length > 0 ? filteredPlayers.map((player) => {
+              const userId = player.id || player._id || player.mongo_id;
+              const fullName = player.fullName || `${player.firstName || ''} ${player.lastName || ''}`.trim();
+              return (
+                <button
+                  key={String(userId || player.username)}
+                  type="button"
+                  className="mobile-player-search-item"
+                  onClick={() => {
+                    if (userId && onViewChange) {
+                      onViewChange('user-details', userId);
+                    }
+                    setHeaderSearchQuery(player.username || '');
+                    setHeaderPlayerOpen(false);
+                    setShowMobilePlayerSearch(false);
+                  }}
+                >
+                  <span>{String(player.username || '').toUpperCase()}</span>
+                  <span>{fullName || '—'}</span>
+                </button>
+              );
+            }) : (
+              <div className="admin-header-search-empty">No matching players</div>
+            )}
           </div>
         </div>
-      </div>
+      )}
+
+      {showStats && (
+        <div className="admin-header-bottom">
+          <div className="admin-stats-grid">
+            {/* Row 1 */}
+            <div className="stat-box">
+              <span className="stat-label">Week</span>
+              <span className="stat-value green">{formatCurrency(summary.weekNet)}</span>
+            </div>
+            <div className="stat-box">
+              <span className="stat-label">Today</span>
+              <span className="stat-value green">{formatCurrency(summary.todayNet)}</span>
+            </div>
+
+            {/* Row 2 */}
+            <div className="stat-box">
+              <span className="stat-label">Active Accts</span>
+              <span className="stat-value highlight">{formatCount(summary.activeAccounts)}</span>
+            </div>
+            <div className="stat-box">
+              <span className="stat-label">Balance</span>
+              <span className="stat-value">{myBalance === 'Unlimited' ? 'Unlimited' : formatCurrency(myBalance)}</span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showAgentTree && (
         <AgentTreeView

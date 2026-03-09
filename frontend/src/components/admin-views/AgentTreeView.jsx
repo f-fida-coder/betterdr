@@ -10,6 +10,32 @@ function AgentTreeView({
     baseContextLabel = 'Admin'
 }) {
     const AGENT_ROLES = new Set(['admin', 'agent', 'master_agent', 'super_agent']);
+    const normalizeRole = (role) => String(role || '').trim().toLowerCase();
+    const roleLabelForNode = (node) => {
+        const role = normalizeRole(node?.role);
+        if (role === 'master_agent') return 'MASTER';
+        if (role === 'super_agent') return 'SUPER';
+        if (role === 'agent') return 'AGENT';
+        if (role === 'admin') return 'ADMIN';
+        return String(node?.role || '').replace(/_/g, ' ').toUpperCase() || 'ACCOUNT';
+    };
+    const roleClassForNode = (node) => {
+        const role = normalizeRole(node?.role).replace(/_/g, '-');
+        return role || 'account';
+    };
+    const getNodeSearchText = (node) => {
+        const username = String(node?.username || '').toLowerCase();
+        const roleRaw = normalizeRole(node?.role);
+        const roleText = roleRaw.replace(/_/g, ' ');
+        const roleCompact = roleText.replace(/\s+/g, '');
+        const typeText = String(node?.nodeType || '').toLowerCase();
+        return `${username} ${roleText} ${roleCompact} ${typeText}`.trim();
+    };
+    const nodeMatchesQuery = (node, rawQuery) => {
+        const query = String(rawQuery || '').trim().toLowerCase();
+        if (!query) return true;
+        return getNodeSearchText(node).includes(query);
+    };
     const isAgentNode = (node) => {
         const nodeType = String(node?.nodeType || '').toLowerCase();
         if (nodeType === 'agent') return true;
@@ -117,12 +143,11 @@ function AgentTreeView({
     };
 
     const hasMatchingAgentInBranch = (node, query) => {
-        const normalizedQuery = query.trim().toLowerCase();
+        const normalizedQuery = String(query || '').trim().toLowerCase();
         if (!normalizedQuery) return true;
 
         const isAgent = isAgentNode(node);
-        const nodeName = String(node.username || '').toLowerCase();
-        if (isAgent && nodeName.includes(normalizedQuery)) {
+        if (isAgent && nodeMatchesQuery(node, normalizedQuery)) {
             return true;
         }
 
@@ -142,7 +167,9 @@ function AgentTreeView({
         const hasChildren = visibleChildren.length > 0;
         const isDead = node.isDead || node.username?.toUpperCase() === 'DEAD';
         const normalizedSearchQuery = searchQuery.trim().toLowerCase();
-        // Agent tree search should only match/show agent nodes.
+        const roleLabel = roleLabelForNode(node);
+        const roleClassName = roleClassForNode(node);
+        // Account tree search only matches/show admin/agent hierarchy nodes.
         if (normalizedSearchQuery) {
             if (!hasMatchingAgentInBranch(node, normalizedSearchQuery)) return null;
         }
@@ -159,6 +186,7 @@ function AgentTreeView({
                             <span className="node-dot">•</span>
                         )}
                         <span className="node-name">{node.username.toUpperCase()}</span>
+                        <span className={`node-role-badge role-${roleClassName}`}>{roleLabel}</span>
                         {isDead && <span className="dead-tag">DEAD</span>}
                     </div>
                     <button className="node-go-btn" onClick={() => onGo(node.id, node.role)}>
@@ -178,16 +206,16 @@ function AgentTreeView({
         <div className="agent-tree-sidebar-wrap">
             <aside className="agent-tree-container agent-tree-sidebar glass-effect">
                 <div className="tree-header">
-                    <h3>Agent Tree</h3>
+                    <h3>Account Tree</h3>
                     <button className="close-x" onClick={onClose}>✕</button>
                 </div>
 
                 <div className="tree-search">
                     <div className="search-pill">
-                        <span className="pill-label">Agents</span>
+                        <span className="pill-label">Accounts</span>
                         <input
                             type="text"
-                            placeholder="Search accounts..."
+                            placeholder="Search admin, master, or agent..."
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
                         />
@@ -208,6 +236,9 @@ function AgentTreeView({
                                         {expandedNodes.has(treeData.root.id) ? '−' : '+'}
                                     </span>
                                     <span className="node-name">{treeData.root.username.toUpperCase()}</span>
+                                    <span className={`node-role-badge role-${roleClassForNode(treeData.root)}`}>
+                                        {roleLabelForNode(treeData.root)}
+                                    </span>
                                 </div>
                                 <button
                                     className="node-go-btn"
