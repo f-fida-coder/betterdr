@@ -1,7 +1,7 @@
-import SplashScene from './scenes/SplashScene.js';
-import MenuScene from './scenes/MenuScene.js';
-import LocalScene from './scenes/LocalScene.js';
-import BootScene from './scenes/BootScene.js';
+import SplashScene from './scenes/SplashScene.js?v=20260309e';
+import MenuScene from './scenes/MenuScene.js?v=20260309e';
+import LocalScene from './scenes/LocalScene.js?v=20260309e';
+import BootScene from './scenes/BootScene.js?v=20260309e';
 
 const width = 1280;
 const height = 720;

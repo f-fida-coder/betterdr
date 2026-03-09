@@ -13,14 +13,14 @@ const LOCAL_GAME_META = {
     baccarat: {
         id: 'local-baccarat',
         provider: 'In-House',
-        url: '/games/baccarat/index.html?v=20260309c',
+        url: '/games/baccarat/index.html?v=20260309e',
         poster: '/games/baccarat/assets/menuscreen.webp',
         themeColor: '#1a0a2e',
     },
     blackjack: {
         id: 'local-blackjack',
         provider: 'In-House',
-        url: '/games/blackjack/index.html?v=20260309d',
+        url: '/games/blackjack/index.html?v=20260309f',
         poster: '/games/blackjack/src/images/misc/table.png',
         themeColor: '#0b5563',
     }
