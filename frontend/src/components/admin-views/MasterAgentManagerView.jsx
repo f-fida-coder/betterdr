@@ -273,7 +273,7 @@ function MasterAgentManagerView() {
                                         <button className={`btn-small ${agent.status === 'suspended' ? 'btn-success' : 'btn-danger'}`} onClick={() => handleToggleStatus(agent)}>
                                             {agent.status === 'suspended' ? 'Activate' : 'Deactivate'}
                                         </button>
-                                        <button className="btn-small btn-secondary" onClick={() => handleResetPassword(agent)}>Reset Path</button>
+                                        <button className="btn-small btn-secondary" onClick={() => handleResetPassword(agent)}>Reset Pass</button>
                                     </td>
                                 </tr>
                             ))}
@@ -288,12 +288,28 @@ function MasterAgentManagerView() {
             background: rgba(0,0,0,0.7); display: flex; justify-content: center; align-items: center; z-index: 1000;
         }
         .modal-content {
-            background: #1e1e1e; padding: 2rem; border-radius: 8px; width: 400px; border: 1px solid #333; color: #fff;
+            background: #1e1e1e; padding: 2rem; border-radius: 8px; width: min(400px, calc(100vw - 24px)); border: 1px solid #333; color: #fff; max-height: calc(100vh - 32px); overflow-y: auto;
         }
         .form-group { margin-bottom: 1rem; }
         .form-group label { display: block; margin-bottom: 0.5rem; color: #aaa; }
         .form-group input { width: 100%; padding: 0.5rem; background: #333; border: 1px solid #444; color: #fff; border-radius: 4px; }
-        .modal-actions { display: flex; gap: 1rem; margin-top: 1.5rem; }
+        .modal-actions { display: flex; gap: 1rem; margin-top: 1.5rem; flex-wrap: wrap; }
+        @media (max-width: 768px) {
+          .modal-content {
+            padding: 1rem;
+            border-radius: 10px;
+          }
+          .modal-actions {
+            flex-direction: column;
+          }
+          .modal-actions button {
+            width: 100%;
+          }
+          .table-container .btn-small {
+            width: 100%;
+            margin-bottom: 6px;
+          }
+        }
       `}</style>
         </div >
     );

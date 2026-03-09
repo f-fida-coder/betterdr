@@ -94,6 +94,32 @@ function AdminPanel({ onExit, role = 'admin' }) {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  useEffect(() => {
+    if (!isMobile && mobileSidebarOpen) {
+      setMobileSidebarOpen(false);
+    }
+  }, [isMobile, mobileSidebarOpen]);
+
+  useEffect(() => {
+    if (!isMobile) return undefined;
+    const handleEscape = (event) => {
+      if (event.key === 'Escape') {
+        setMobileSidebarOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, [isMobile]);
+
+  useEffect(() => {
+    if (!isMobile) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = mobileSidebarOpen ? 'hidden' : '';
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isMobile, mobileSidebarOpen]);
+
   const handleViewChange = (view, userId = null) => {
     if (!hasViewPermission(effectiveRole, permissions, view)) {
       return;
@@ -292,13 +318,23 @@ function AdminPanel({ onExit, role = 'admin' }) {
         canRestoreBaseContext={Boolean(sessionStorage.getItem('impersonationBaseToken'))}
         baseContextLabel={baseContextLabel}
         role={effectiveRole}
+        showStats={adminView === 'dashboard'}
       />
       <div className="admin-container">
+        {isMobile && mobileSidebarOpen && (
+          <button
+            type="button"
+            className="admin-sidebar-backdrop"
+            aria-label="Close navigation"
+            onClick={() => setMobileSidebarOpen(false)}
+          />
+        )}
         <AdminSidebar
           activeView={adminView}
           onViewChange={handleViewChange}
           onOpenScoreboard={() => setShowScoreboard(true)}
           isOpen={mobileSidebarOpen}
+          onRequestClose={() => setMobileSidebarOpen(false)}
           role={effectiveRole}
           permissions={permissions}
         />

@@ -76,6 +76,104 @@ const DEFAULT_FORM = {
   casinoPlayerMaxLossWeek: 5000
 };
 
+const TRANSACTION_TYPE_OPTIONS = [
+  {
+    value: 'deposit',
+    label: 'Deposits',
+    balanceDirection: 'credit',
+    apiType: 'deposit',
+    reason: 'ADMIN_DEPOSIT',
+    defaultDescription: 'Deposits'
+  },
+  {
+    value: 'withdrawal',
+    label: 'Withdrawals',
+    balanceDirection: 'debit',
+    apiType: 'withdrawal',
+    reason: 'ADMIN_WITHDRAWAL',
+    defaultDescription: 'Withdrawals'
+  },
+  {
+    value: 'credit_adj',
+    label: 'Credit Adj',
+    balanceDirection: 'credit',
+    apiType: 'adjustment',
+    reason: 'ADMIN_CREDIT_ADJUSTMENT',
+    defaultDescription: 'Credit Adj'
+  },
+  {
+    value: 'debit_adj',
+    label: 'Debit Adj',
+    balanceDirection: 'debit',
+    apiType: 'adjustment',
+    reason: 'ADMIN_DEBIT_ADJUSTMENT',
+    defaultDescription: 'Debit Adj'
+  },
+  {
+    value: 'promotional_credit',
+    label: 'Promotional Credit',
+    balanceDirection: 'credit',
+    apiType: 'adjustment',
+    reason: 'ADMIN_PROMOTIONAL_CREDIT',
+    defaultDescription: 'Promotional Credit'
+  },
+  {
+    value: 'promotional_debit',
+    label: 'Promotional Debit',
+    balanceDirection: 'debit',
+    apiType: 'adjustment',
+    reason: 'ADMIN_PROMOTIONAL_DEBIT',
+    defaultDescription: 'Promotional Debit'
+  }
+];
+
+const TRANSACTION_SUBTYPE_REASON_BY_FILTER = Object.freeze({
+  credit_adj: 'ADMIN_CREDIT_ADJUSTMENT',
+  debit_adj: 'ADMIN_DEBIT_ADJUSTMENT',
+  promotional_credit: 'ADMIN_PROMOTIONAL_CREDIT',
+  promotional_debit: 'ADMIN_PROMOTIONAL_DEBIT'
+});
+
+const TRANSACTION_FILTER_OPTIONS = [
+  { value: 'all', label: 'All' },
+  ...TRANSACTION_TYPE_OPTIONS.map((option) => ({ value: option.value, label: option.label })),
+  { value: 'adjustment', label: 'All Adjustments' },
+  { value: 'wager', label: 'Wagers' },
+  { value: 'payout', label: 'Payouts' },
+  { value: 'casino', label: 'Casino Activity' }
+];
+
+const normalizeTxnValue = (value) => String(value || '').trim().toLowerCase();
+
+const getApiTypeForTransactionFilter = (filterValue) => {
+  const normalizedFilter = normalizeTxnValue(filterValue);
+  if (
+    normalizedFilter === 'credit_adj'
+    || normalizedFilter === 'debit_adj'
+    || normalizedFilter === 'promotional_credit'
+    || normalizedFilter === 'promotional_debit'
+  ) {
+    return 'adjustment';
+  }
+  return normalizedFilter || 'all';
+};
+
+const matchesTransactionFilter = (txn, filterValue) => {
+  const normalizedFilter = normalizeTxnValue(filterValue);
+  if (normalizedFilter === '' || normalizedFilter === 'all') {
+    return true;
+  }
+
+  const txnType = normalizeTxnValue(txn?.type);
+  const expectedReason = TRANSACTION_SUBTYPE_REASON_BY_FILTER[normalizedFilter];
+  if (expectedReason) {
+    const txnReason = String(txn?.reason || '').trim().toUpperCase();
+    return txnType === 'adjustment' && txnReason === expectedReason;
+  }
+
+  return txnType === normalizedFilter;
+};
+
 function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -96,7 +194,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
   const [txStatusFilter, setTxStatusFilter] = useState('all');
   const [selectedTxIds, setSelectedTxIds] = useState([]);
   const [showNewTxModal, setShowNewTxModal] = useState(false);
-  const [newTxType, setNewTxType] = useState('credit');
+  const [newTxType, setNewTxType] = useState('deposit');
   const [newTxAmount, setNewTxAmount] = useState('');
   const [newTxDescription, setNewTxDescription] = useState('');
   const [performancePeriod, setPerformancePeriod] = useState('daily');
@@ -267,13 +365,15 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
 
         const data = await getTransactionsHistory({
           user: customer.username || '',
-          type: txTypeFilter,
+          type: getApiTypeForTransactionFilter(txTypeFilter),
           status: txStatusFilter,
           time: txDisplayFilter,
           limit: 300
         }, token);
         const list = Array.isArray(data?.transactions) ? data.transactions : [];
-        const forCustomer = list.filter((txn) => String(txn.userId || '') === String(userId));
+        const forCustomer = list
+          .filter((txn) => String(txn.userId || '') === String(userId))
+          .filter((txn) => matchesTransactionFilter(txn, txTypeFilter));
         setTransactions(forCustomer);
       } catch (err) {
         setTxError(err.message || 'Failed to load transactions');
@@ -491,7 +591,19 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
       const data = await impersonateUser(userId, token);
       localStorage.setItem('token', data.token);
       localStorage.setItem('user', JSON.stringify(data));
-      window.location.href = '/dashboard';
+      localStorage.setItem('userRole', String(data?.role || 'user'));
+
+      const nextRole = String(data?.role || '').toLowerCase();
+      let nextPath = '/';
+      if (nextRole === 'admin') {
+        nextPath = '/admin/dashboard';
+      } else if (nextRole === 'agent') {
+        nextPath = '/agent/dashboard';
+      } else if (nextRole === 'master_agent' || nextRole === 'super_agent') {
+        nextPath = '/super_agent/dashboard';
+      }
+
+      window.location.href = nextPath;
     } catch (err) {
       setError('Impersonation failed: ' + err.message);
     }
@@ -662,6 +774,14 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
     setDynamicLiveSuccess('');
     setCasinoError('');
     setCasinoSuccess('');
+  };
+
+  const openTransactionSlip = () => {
+    openSection('transactions');
+    setNewTxType('deposit');
+    setNewTxAmount('');
+    setNewTxDescription('');
+    setShowNewTxModal(true);
   };
 
   const activePerformanceRow = useMemo(() => {
@@ -899,13 +1019,17 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
       if (!token) return;
       const data = await getTransactionsHistory({
         user: customer.username || '',
-        type: txTypeFilter,
+        type: getApiTypeForTransactionFilter(txTypeFilter),
         status: txStatusFilter,
         time: txDisplayFilter,
         limit: 300
       }, token);
       const list = Array.isArray(data?.transactions) ? data.transactions : [];
-      setTransactions(list.filter((txn) => String(txn.userId || '') === String(userId)));
+      setTransactions(
+        list
+          .filter((txn) => String(txn.userId || '') === String(userId))
+          .filter((txn) => matchesTransactionFilter(txn, txTypeFilter))
+      );
     } catch (err) {
       setTxError(err.message || 'Failed to refresh transactions');
     } finally {
@@ -925,15 +1049,24 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
         setTxError('Please login again.');
         return;
       }
+      const selectedTxType = TRANSACTION_TYPE_OPTIONS.find((option) => option.value === newTxType)
+        || TRANSACTION_TYPE_OPTIONS[0];
       const currentBalance = Number(customer.balance || 0);
-      const nextBalance = newTxType === 'credit'
+      const nextBalance = selectedTxType.balanceDirection === 'credit'
         ? currentBalance + amount
         : Math.max(0, currentBalance - amount);
-      await updateUserCredit(userId, { balance: nextBalance }, token);
+      const customDescription = newTxDescription.trim();
+      await updateUserCredit(userId, {
+        balance: nextBalance,
+        type: selectedTxType.apiType,
+        reason: selectedTxType.reason,
+        description: customDescription || selectedTxType.defaultDescription
+      }, token);
       setCustomer((prev) => ({ ...prev, balance: nextBalance }));
       setTxSuccess('Transaction saved and balance updated.');
       setTxError('');
       setShowNewTxModal(false);
+      setNewTxType('deposit');
       setNewTxAmount('');
       setNewTxDescription('');
       await refreshTransactions();
@@ -1012,7 +1145,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
           </div>
         </div>
         <div className="top-right">
-          <button type="button" className={`metric ${activeSection === 'transactions' ? 'metric-active' : ''}`} onClick={() => openSection('transactions')}>
+          <button type="button" className={`metric ${activeSection === 'transactions' ? 'metric-active' : ''}`} onClick={openTransactionSlip}>
             <span>Balance</span>
             <b className={Number(customer.balance || 0) < 0 ? 'neg' : 'pos'}>{formatCurrency(customer.balance || 0)}</b>
           </button>
@@ -1049,7 +1182,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
           <h3>{activeSection === 'transactions' ? 'Transactions' : activeSection === 'performance' ? 'Performance' : activeSection === 'freeplays' ? 'Free Play' : activeSection === 'dynamic-live' ? 'Dynamic Live' : activeSection === 'live-casino' ? 'Live Casino' : 'The Basics'}</h3>
         </div>
         {activeSection === 'transactions' ? (
-          <button className="btn btn-back" onClick={() => setShowNewTxModal(true)}>New transaction</button>
+          <button className="btn btn-back" onClick={openTransactionSlip}>New transaction</button>
         ) : activeSection === 'freeplays' ? (
           <button className="btn btn-back" onClick={() => setShowNewFreePlayModal(true)}>New Free Play</button>
         ) : activeSection === 'dynamic-live' ? (
@@ -1098,13 +1231,9 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
             <div className="tx-field">
               <label>Filter Transactions</label>
               <select value={txTypeFilter} onChange={(e) => setTxTypeFilter(e.target.value)}>
-                <option value="all">All</option>
-                <option value="adjustment">Non-Wager</option>
-                <option value="deposit">Deposits</option>
-                <option value="withdrawal">Withdrawals</option>
-                <option value="wager">Wagers</option>
-                <option value="payout">Payouts</option>
-                <option value="casino">Casino Activity</option>
+                {TRANSACTION_FILTER_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
               </select>
             </div>
             <div className="tx-stat"><label>Pending</label><b>{formatCurrency(txSummary.pending)}</b></div>
@@ -1404,7 +1533,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
           </select>
 
           <div className="switch-list">
-            {[['Sportsbook', 'sportsbook'], ['LV Casino', 'casino'], ['Racebook', 'horses'], ['Messaging', 'messaging'], ['Dynamic Live', 'dynamicLive'], ['Prop Plus', 'propPlus'], ['Live Casino', 'liveCasino']].map(([label, key]) => (
+            {[['Sportsbook', 'sportsbook'], ['Digital Casino', 'casino'], ['Racebook', 'horses'], ['Messaging', 'messaging'], ['Dynamic Live', 'dynamicLive'], ['Prop Plus', 'propPlus'], ['Live Casino', 'liveCasino']].map(([label, key]) => (
               <div className="switch-row" key={key}>
                 <span>{label}</span>
                 <label className="switch">
@@ -1491,10 +1620,11 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
         <div className="modal-overlay" onClick={() => setShowNewTxModal(false)}>
           <div className="modal-card" onClick={(e) => e.stopPropagation()}>
             <h4>New transaction</h4>
-            <label>Type</label>
+            <label>Transaction</label>
             <select value={newTxType} onChange={(e) => setNewTxType(e.target.value)}>
-              <option value="credit">Credit</option>
-              <option value="debit">Debit</option>
+              {TRANSACTION_TYPE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
             </select>
             <label>Amount</label>
             <input type="number" value={newTxAmount} onChange={(e) => setNewTxAmount(e.target.value)} placeholder="0.00" />
@@ -2179,6 +2309,60 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
           .live-casino-grid { grid-template-columns: 1fr 1fr; max-width: none; }
           .lc-col-head, .lc-label, .live-casino-grid input { font-size: 18px; }
           .lc-note { font-size: 14px; }
+        }
+
+        @media (max-width: 768px) {
+          .top-panel,
+          .tx-panel,
+          .performance-panel,
+          .dynamic-live-card,
+          .live-casino-card {
+            padding: 12px;
+          }
+
+          .top-actions,
+          .top-right {
+            width: 100%;
+          }
+
+          .tx-controls,
+          .freeplay-controls {
+            grid-template-columns: 1fr;
+          }
+
+          .tx-summary {
+            grid-template-columns: 1fr 1fr;
+          }
+
+          .perf-title-row {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 6px;
+          }
+
+          .player-card {
+            width: 100%;
+            max-width: 100%;
+          }
+
+          .modal-actions {
+            flex-direction: column;
+            justify-content: stretch;
+          }
+
+          .modal-actions button {
+            width: 100%;
+          }
+
+          .live-casino-grid {
+            grid-template-columns: 1fr;
+          }
+        }
+
+        @media (max-width: 480px) {
+          .tx-summary {
+            grid-template-columns: 1fr;
+          }
         }
       `}</style>
     </div>

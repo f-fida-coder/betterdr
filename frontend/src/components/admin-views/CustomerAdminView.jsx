@@ -100,6 +100,7 @@ function CustomerAdminView({ onViewChange }) {
   const [selectedHeaderAgentId, setSelectedHeaderAgentId] = useState('');
   const [agentSearchQuery, setAgentSearchQuery] = useState('');
   const [agentSearchOpen, setAgentSearchOpen] = useState(false);
+  const [referralSearchQuery, setReferralSearchQuery] = useState('');
   const [quickEditModal, setQuickEditModal] = useState({
     open: false,
     type: '',
@@ -172,12 +173,6 @@ function CustomerAdminView({ onViewChange }) {
     fetchUsers();
   }, []);
 
-  const handleAddCustomer = () => {
-    if (onViewChange) {
-      onViewChange('add-customer');
-    }
-  };
-
   const handleCreateCustomer = async () => {
     try {
       setCreateLoading(true);
@@ -212,7 +207,21 @@ function CustomerAdminView({ onViewChange }) {
 
       const payload = { ...newCustomer };
       if (payload.balance === '') delete payload.balance;
-      if (!payload.referredByUserId) delete payload.referredByUserId;
+      if (creationType !== 'player') {
+        delete payload.referredByUserId;
+        delete payload.minBet;
+        delete payload.maxBet;
+        delete payload.creditLimit;
+        delete payload.balanceOwed;
+        if (creationType === 'super_agent') {
+          delete payload.defaultMinBet;
+          delete payload.defaultMaxBet;
+          delete payload.defaultCreditLimit;
+          delete payload.defaultSettleLimit;
+        }
+      } else if (!payload.referredByUserId) {
+        delete payload.referredByUserId;
+      }
       if ((creationType === 'agent' || creationType === 'super_agent') && payload.agentId) {
         payload.parentAgentId = payload.agentId;
       }
@@ -433,8 +442,17 @@ function CustomerAdminView({ onViewChange }) {
     if (formatted.length >= 2) {
       const token = localStorage.getItem('token') || sessionStorage.getItem('token');
       const suffix = creationType === 'super_agent' ? 'MA' : '';
+      const usernameScopeAgentId = (
+        creationType === 'agent'
+          ? (newCustomer.agentId || ((currentRole === 'master_agent' || currentRole === 'super_agent') ? currentUserId : ''))
+          : ''
+      );
       try {
-        const { nextUsername } = await getNextUsername(formatted, token, { suffix, type: 'agent' });
+        const query = { suffix, type: 'agent' };
+        if (usernameScopeAgentId) {
+          query.agentId = usernameScopeAgentId;
+        }
+        const { nextUsername } = await getNextUsername(formatted, token, query);
         setNewCustomer(prev => ({ ...prev, username: nextUsername }));
       } catch (err) {
         console.error('Failed to get next username from prefix:', err);
@@ -464,7 +482,7 @@ function CustomerAdminView({ onViewChange }) {
           }
           const query = (sequenceType === 'player')
             ? { suffix, type: sequenceType, agentId }
-            : { suffix, type: sequenceType };
+            : { suffix, type: sequenceType, ...(creationType === 'agent' ? { agentId } : {}) };
           const { nextUsername } = await getNextUsername(playerPrefix, token, query);
           setNewCustomer(prev => ({ ...prev, username: nextUsername, agentPrefix: playerPrefix }));
         } catch (err) {
@@ -481,7 +499,11 @@ function CustomerAdminView({ onViewChange }) {
             setNewCustomer(prev => ({ ...prev, username: '' }));
             return;
           }
-          const { nextUsername } = await getNextUsername(playerPrefix, token, { suffix, type: sequenceType });
+          const query = { suffix, type: sequenceType };
+          if (sequenceType === 'agent' && creationType === 'agent' && (currentRole === 'master_agent' || currentRole === 'super_agent') && currentUserId) {
+            query.agentId = currentUserId;
+          }
+          const { nextUsername } = await getNextUsername(playerPrefix, token, query);
           setNewCustomer(prev => ({ ...prev, username: nextUsername, agentPrefix: playerPrefix }));
         } catch (err) {
           console.error('Failed to fetch username for admin:', err);
@@ -499,6 +521,8 @@ function CustomerAdminView({ onViewChange }) {
     if (!token) return;
 
     if (type === 'super_agent' || type === 'agent') {
+      setReferralSearchQuery('');
+      setNewCustomer(prev => ({ ...prev, referredByUserId: '' }));
       const suffix = type === 'super_agent' ? 'MA' : '';
       let prefixToUse = newCustomer.agentPrefix; // Default to user input
 
@@ -524,7 +548,13 @@ function CustomerAdminView({ onViewChange }) {
 
       if (prefixToUse) {
         try {
-          const { nextUsername } = await getNextUsername(prefixToUse, token, { suffix, type: sequenceType });
+          const query = { suffix, type: sequenceType };
+          if (type === 'agent' && newCustomer.agentId) {
+            query.agentId = newCustomer.agentId;
+          } else if (type === 'agent' && (currentRole === 'master_agent' || currentRole === 'super_agent') && currentUserId) {
+            query.agentId = currentUserId;
+          }
+          const { nextUsername } = await getNextUsername(prefixToUse, token, query);
           setNewCustomer(prev => ({ ...prev, username: nextUsername, agentPrefix: prefixToUse }));
         } catch (e) {
           console.error("Failed to re-fetch username on type change", e);
@@ -1065,6 +1095,86 @@ function CustomerAdminView({ onViewChange }) {
     return playersOnly;
   })();
 
+  const referralSearchOptions = useMemo(() => (
+    referralOptions
+      .map((player) => {
+        const id = String(player.id || player._id || '').trim();
+        const username = String(player.username || '').trim();
+        const fullName = String(player.fullName || '').trim();
+        if (!id || !username) return null;
+        const label = `${username.toUpperCase()}${fullName ? ` - ${fullName}` : ''}`;
+        return {
+          id,
+          label,
+          labelLower: label.toLowerCase(),
+          usernameLower: username.toLowerCase(),
+        };
+      })
+      .filter(Boolean)
+  ), [referralOptions]);
+
+  const selectedReferralOption = useMemo(() => {
+    const selectedId = String(newCustomer.referredByUserId || '').trim();
+    if (!selectedId) return null;
+    return referralSearchOptions.find((option) => option.id === selectedId) || null;
+  }, [newCustomer.referredByUserId, referralSearchOptions]);
+
+  useEffect(() => {
+    if (selectedReferralOption) {
+      setReferralSearchQuery(selectedReferralOption.label);
+      return;
+    }
+    if (!String(newCustomer.referredByUserId || '').trim()) {
+      setReferralSearchQuery('');
+    }
+  }, [selectedReferralOption, newCustomer.referredByUserId]);
+
+  const handleReferralSearchChange = (value) => {
+    setReferralSearchQuery(value);
+    const typed = String(value || '').trim().toLowerCase();
+    if (!typed) {
+      setNewCustomer(prev => ({ ...prev, referredByUserId: '' }));
+      return;
+    }
+
+    const exactMatch = referralSearchOptions.find(
+      (option) => option.labelLower === typed || option.usernameLower === typed
+    );
+
+    setNewCustomer((prev) => ({
+      ...prev,
+      referredByUserId: exactMatch ? exactMatch.id : '',
+    }));
+  };
+
+  const handleReferralSearchBlur = () => {
+    const typed = String(referralSearchQuery || '').trim().toLowerCase();
+    if (!typed) {
+      setNewCustomer((prev) => ({ ...prev, referredByUserId: '' }));
+      return;
+    }
+
+    const exactMatch = referralSearchOptions.find(
+      (option) => option.labelLower === typed || option.usernameLower === typed
+    );
+    if (exactMatch) {
+      setReferralSearchQuery(exactMatch.label);
+      setNewCustomer((prev) => ({ ...prev, referredByUserId: exactMatch.id }));
+      return;
+    }
+
+    const partialMatches = referralSearchOptions.filter(
+      (option) => option.labelLower.includes(typed) || option.usernameLower.includes(typed)
+    );
+    if (partialMatches.length === 1) {
+      setReferralSearchQuery(partialMatches[0].label);
+      setNewCustomer((prev) => ({ ...prev, referredByUserId: partialMatches[0].id }));
+      return;
+    }
+
+    setNewCustomer((prev) => ({ ...prev, referredByUserId: '' }));
+  };
+
   const handleViewDetails = (customer) => {
     if (onViewChange) {
       onViewChange('user-details', customer.id || customer._id);
@@ -1299,9 +1409,6 @@ function CustomerAdminView({ onViewChange }) {
           <h2>Administration Console</h2>
         </div>
         <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
-          <button type="button" className="btn-primary" onClick={handleAddCustomer}>
-            Add Customer
-          </button>
           <div
             className="agent-search-picker header-agent-picker"
             onFocus={() => setHeaderAgentOpen(true)}
@@ -1540,7 +1647,7 @@ function CustomerAdminView({ onViewChange }) {
                 />
               </div>
 
-              {(creationType === 'player' || creationType === 'agent' || creationType === 'super_agent') && (
+              {creationType === 'player' && (
                 <>
                   <div className="filter-group">
                     <label>Min bet:</label>
@@ -1577,23 +1684,28 @@ function CustomerAdminView({ onViewChange }) {
                   <div className="filter-group">
                     <label>Referred By Player</label>
                     <div className="s-wrapper">
-                      <select
-                        value={newCustomer.referredByUserId}
-                        onChange={(e) => setNewCustomer(prev => ({ ...prev, referredByUserId: e.target.value }))}
-                      >
-                        <option value="">No referral</option>
-                        {referralOptions.map((p) => (
-                          <option key={p.id || p._id} value={p.id || p._id}>
-                            {(p.username || '').toUpperCase()}
-                            {p.fullName ? ` - ${p.fullName}` : ''}
-                          </option>
+                      <input
+                        type="text"
+                        list="referral-player-options-admin"
+                        value={referralSearchQuery}
+                        onChange={(e) => handleReferralSearchChange(e.target.value)}
+                        onBlur={handleReferralSearchBlur}
+                        placeholder="Search player (leave blank for no referral)"
+                        autoComplete="off"
+                      />
+                      <datalist id="referral-player-options-admin">
+                        {referralSearchOptions.map((option) => (
+                          <option key={option.id} value={option.label} />
                         ))}
-                      </select>
+                      </datalist>
                     </div>
+                    <small style={{ display: 'block', marginTop: '6px', color: '#64748b' }}>
+                      {selectedReferralOption ? `Selected: ${selectedReferralOption.label}` : 'No referral selected'}
+                    </small>
                   </div>
                 </>
               )}
-              {(creationType === 'agent' || creationType === 'super_agent') && (
+              {creationType === 'agent' && (
                 <>
                   <div className="filter-group">
                     <label>Min bet: (Standard)</label>
@@ -1676,15 +1788,18 @@ I need active players so if you could do me a solid and place a bet today even i
 `;
                     } else {
                       const typeLabel = creationType === 'agent' ? 'Agent' : 'Master Agent';
+                      const limitsBlock = creationType === 'agent'
+                        ? `
+Standard Min bet: $${newCustomer.defaultMinBet || 25}
+Standard Max bet: $${newCustomer.defaultMaxBet || 200}
+Standard Credit: $${newCustomer.defaultCreditLimit || 1000}
+`
+                        : '';
                       info = `Welcome to the team! Here’s your ${typeLabel} administrative account info.
 
 Login: ${newCustomer.username}
 Password: ${pass}
-
-Standard Min bet: $${newCustomer.defaultMinBet || 25}
-Standard Max bet: $${newCustomer.defaultMaxBet || 200}
-Standard Credit: $${newCustomer.defaultCreditLimit || 1000}
-
+${limitsBlock}
 Please ensure you manage your sectors responsibly and maintain clear communication with your assigned accounts. Good luck!
 `;
                     }
@@ -2660,6 +2775,78 @@ I need active players so if you could do me a solid and place a bet today even i
         .hierarchy-info { display: flex; flex-direction: column; gap: 4px; }
         .capability-mini-grid { display: flex; gap: 4px; }
         .cap-dot { width: 6px; height: 6px; border-radius: 50%; background: #10b981; }
+
+        @media (max-width: 768px) {
+          .premium-admin-theme {
+            padding: 12px;
+          }
+          .premium-toolbar {
+            padding: 14px;
+            border-radius: 14px;
+            margin-bottom: 18px;
+          }
+          .toolbar-section {
+            flex-direction: column;
+            align-items: stretch;
+            gap: 12px;
+          }
+          .t-group,
+          .t-group.small {
+            width: 100%;
+            min-width: 0;
+          }
+          .header-agent-picker {
+            width: 100%;
+            min-width: 0;
+            max-width: none;
+          }
+          .table-glass-container {
+            padding: 12px;
+            border-radius: 14px;
+          }
+          .table-actions {
+            flex-direction: column;
+            align-items: stretch;
+            gap: 10px;
+          }
+          .premium-table th,
+          .premium-table td,
+          .customer-row td {
+            padding: 10px 8px;
+          }
+          .user-link-btn {
+            align-items: flex-start;
+          }
+          .modal-glass-content {
+            max-height: calc(100vh - 24px);
+            overflow-y: auto;
+            padding: 18px;
+            border-radius: 14px;
+          }
+          .p-grid {
+            grid-template-columns: 1fr;
+          }
+          .modal-premium-actions {
+            flex-direction: column;
+            margin-top: 20px;
+          }
+          .btn-save-premium,
+          .btn-cancel-premium {
+            width: 100%;
+          }
+        }
+
+        @media (max-width: 480px) {
+          .view-header h2 {
+            font-size: 22px;
+          }
+          .premium-toolbar {
+            padding: 12px;
+          }
+          .large-val {
+            font-size: 26px;
+          }
+        }
 
       `}</style>
           </>

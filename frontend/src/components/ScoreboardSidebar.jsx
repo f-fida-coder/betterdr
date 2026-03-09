@@ -246,7 +246,7 @@ const ScoreboardSidebar = ({ onClose }) => {
         <div className="scoreboard-overlay">
             <div className="scoreboard-header">
                 <h2>Scoreboard</h2>
-                <span className="close-btn" onClick={onClose}>Close</span>
+                <button type="button" className="close-btn" onClick={onClose}>Close</button>
             </div>
             <div className="scoreboard-content">
                 {(!hasVisibleMatches && isLoadingMatches) ? (
@@ -266,7 +266,7 @@ const ScoreboardSidebar = ({ onClose }) => {
                     position: fixed;
                     top: 0;
                     right: 0;
-                    width: 350px;
+                    width: min(350px, 100vw);
                     height: 100vh;
                     background: #f5f5f5;
                     box-shadow: -5px 0 15px rgba(0,0,0,0.3);
@@ -299,6 +299,8 @@ const ScoreboardSidebar = ({ onClose }) => {
                     cursor: pointer;
                     text-decoration: underline;
                     font-weight: bold;
+                    border: none;
+                    background: transparent;
                 }
                 .scoreboard-content {
                     flex: 1;
@@ -403,6 +405,9 @@ const ScoreboardSidebar = ({ onClose }) => {
                 .text-danger { color: #dc3545; }
                 .fw-bold { font-weight: bold; }
                 @media (max-width: 380px) {
+                    .scoreboard-overlay {
+                        width: 100vw;
+                    }
                     .scoreboard-game-row {
                         grid-template-columns: 1fr;
                     }

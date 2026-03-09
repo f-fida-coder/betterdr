@@ -11,6 +11,29 @@ import { getMe } from './api'
 import { useEffect, useState } from 'react'
 import { ToastProvider } from './contexts/ToastContext.jsx'
 
+const clearAuthSession = () => {
+  localStorage.removeItem('token');
+  localStorage.removeItem('userRole');
+  localStorage.removeItem('user');
+  sessionStorage.removeItem('token');
+  sessionStorage.removeItem('userRole');
+
+  const sessionKeys = [
+    'adminAuthenticated',
+    'adminUsername',
+    'agentAuthenticated',
+    'agentUsername',
+    'super_agentAuthenticated',
+    'super_agentUsername',
+    'impersonationBaseToken',
+    'impersonationBaseRole',
+    'impersonationBaseUsername',
+    'impersonationBaseId',
+    'postSwitchAdminView'
+  ];
+  sessionKeys.forEach((key) => sessionStorage.removeItem(key));
+};
+
 const ProtectedRoleRoute = ({ children, allowedRoles }) => {
   const [isChecking, setIsChecking] = useState(true);
   const [isAllowed, setIsAllowed] = useState(false);
@@ -18,8 +41,8 @@ const ProtectedRoleRoute = ({ children, allowedRoles }) => {
   useEffect(() => {
     let isMounted = true;
     const validateToken = async () => {
-      const token = localStorage.getItem('token');
-      const storedRole = String(localStorage.getItem('userRole') || '').toLowerCase();
+      const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+      const storedRole = String(localStorage.getItem('userRole') || sessionStorage.getItem('userRole') || '').toLowerCase();
 
       try {
         if (!token) {
@@ -30,8 +53,16 @@ const ProtectedRoleRoute = ({ children, allowedRoles }) => {
           return;
         }
 
+        if (!localStorage.getItem('token')) {
+          localStorage.setItem('token', token);
+        }
+
         const me = await getMe(token);
         const role = String(me?.role || '').toLowerCase();
+        if (role) {
+          localStorage.setItem('userRole', role);
+          sessionStorage.setItem('userRole', role);
+        }
         if (isMounted) {
           setIsAllowed(allowedRoles.includes(role));
           setIsChecking(false);
@@ -40,8 +71,7 @@ const ProtectedRoleRoute = ({ children, allowedRoles }) => {
         if (isMounted) {
           // Clear session only for invalid/forbidden credentials.
           if (error?.status === 401 || error?.status === 403) {
-            localStorage.removeItem('token');
-            localStorage.removeItem('userRole');
+            clearAuthSession();
             setIsAllowed(false);
           } else {
             // Network/timeouts should not instantly bounce valid users to landing.
@@ -69,6 +99,11 @@ const RouteShell = ({ children }) => (
   </ErrorBoundary>
 );
 
+const handleExitToHome = () => {
+  clearAuthSession();
+  window.location.href = '/';
+};
+
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <ToastProvider>
@@ -83,11 +118,7 @@ createRoot(document.getElementById('root')).render(
             element={
               <RouteShell>
                 <ProtectedRoleRoute allowedRoles={['admin']}>
-                  <AdminPanel role="admin" onExit={() => {
-                    localStorage.removeItem('token');
-                    localStorage.removeItem('userRole');
-                    window.location.href = '/';
-                  }} />
+                  <AdminPanel role="admin" onExit={handleExitToHome} />
                 </ProtectedRoleRoute>
               </RouteShell>
             }
@@ -97,11 +128,7 @@ createRoot(document.getElementById('root')).render(
             element={
               <RouteShell>
                 <ProtectedRoleRoute allowedRoles={['agent']}>
-                  <AdminPanel role="agent" onExit={() => {
-                    localStorage.removeItem('token');
-                    localStorage.removeItem('userRole');
-                    window.location.href = '/';
-                  }} />
+                  <AdminPanel role="agent" onExit={handleExitToHome} />
                 </ProtectedRoleRoute>
               </RouteShell>
             }
@@ -111,11 +138,7 @@ createRoot(document.getElementById('root')).render(
             element={
               <RouteShell>
                 <ProtectedRoleRoute allowedRoles={['super_agent', 'master_agent']}>
-                  <AdminPanel role="super_agent" onExit={() => {
-                    localStorage.removeItem('token');
-                    localStorage.removeItem('userRole');
-                    window.location.href = '/';
-                  }} />
+                  <AdminPanel role="super_agent" onExit={handleExitToHome} />
                 </ProtectedRoleRoute>
               </RouteShell>
             }

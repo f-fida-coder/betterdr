@@ -66,7 +66,7 @@ const SystemMonitorView = () => {
 
     return (
         <div className="admin-view-container">
-            <div className="admin-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div className="monitor-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <h2 style={{ color: '#fff', margin: 0 }}>System Monitor</h2>
                 <div style={{ color: '#aaa', fontSize: '0.9rem' }}>
                     Last updated: {lastUpdated ? lastUpdated.toLocaleTimeString() : 'Never'}
@@ -256,6 +256,14 @@ const SystemMonitorView = () => {
             </div>
 
             <style>{`
+                .monitor-header {
+                    background: linear-gradient(135deg, #0d3b5c 0%, #1a5f7a 100%);
+                    border-radius: 12px;
+                    padding: 12px;
+                    gap: 10px;
+                    margin-bottom: 16px;
+                    flex-wrap: wrap;
+                }
                 .view-header {
                     display: flex;
                     justify-content: space-between;
@@ -323,6 +331,31 @@ const SystemMonitorView = () => {
                     margin: 0 4px;
                 }
                 .vs { color: #555; font-size: 0.8rem; }
+                .table-responsive {
+                    overflow-x: auto;
+                    -webkit-overflow-scrolling: touch;
+                }
+                .admin-table {
+                    min-width: 640px;
+                    width: 100%;
+                    border-collapse: collapse;
+                }
+                @media (max-width: 768px) {
+                    .monitor-header {
+                        align-items: flex-start !important;
+                    }
+                    .monitor-header button {
+                        width: 100%;
+                        min-height: 42px;
+                    }
+                    .stat-card {
+                        padding: 1rem;
+                        gap: 0.8rem;
+                    }
+                    .stat-info p {
+                        font-size: 1.4rem;
+                    }
+                }
             `}</style>
         </div>
     );
