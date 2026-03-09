@@ -333,21 +333,21 @@ export const launchCasinoGame = async (gameId, token) => {
 };
 
 // ── In-house casino game betting ──────────────────────────
-export const placeCasinoBet = async (game, bets, token, { requestId = '' } = {}) => {
+export const placeCasinoBet = async (game, bets, token, { requestId = '', payload = {} } = {}) => {
     const safeRequestId = String(requestId || createRequestId()).trim();
     const response = await fetch(buildApiUrl('/casino/bet'), {
         method: 'POST',
         headers: getHeaders(token),
-        body: JSON.stringify({ game, bets, requestId: safeRequestId })
+        body: JSON.stringify({ game, bets, requestId: safeRequestId, ...payload })
     });
     if (!response.ok) {
         const error = await response.json().catch(() => ({}));
         throw new Error(error.message || 'Failed to place casino bet');
     }
-    const payload = await response.json();
+    const result = await response.json();
     return {
-        ...payload,
-        requestId: payload?.requestId || safeRequestId
+        ...result,
+        requestId: result?.requestId || safeRequestId
     };
 };
 
@@ -356,6 +356,7 @@ export const getCasinoBetHistory = async (
     {
         page = 1,
         limit = 20,
+        game = '',
         from = '',
         to = '',
         result = '',
@@ -366,6 +367,7 @@ export const getCasinoBetHistory = async (
     const params = {};
     params.page = String(page);
     params.limit = String(limit);
+    if (game) params.game = game;
     if (from) params.from = from;
     if (to) params.to = to;
     if (result) params.result = result;
@@ -392,7 +394,7 @@ export const getCasinoBetDetail = async (roundId, token) => {
 
 export const getAdminCasinoBets = async (params = {}, token) => {
     const query = {};
-    const allowed = ['page', 'limit', 'from', 'to', 'result', 'username', 'userId', 'minWager', 'maxWager', 'format', 'csvLimit'];
+    const allowed = ['page', 'limit', 'game', 'from', 'to', 'result', 'username', 'userId', 'minWager', 'maxWager', 'format', 'csvLimit'];
     for (const key of allowed) {
         const value = params?.[key];
         if (value !== undefined && value !== null && String(value).trim() !== '') {
@@ -444,7 +446,7 @@ export const getAdminCasinoBetDetail = async (roundId, token) => {
 
 export const getAdminCasinoSummary = async (params = {}, token) => {
     const query = {};
-    const allowed = ['from', 'to', 'limit'];
+    const allowed = ['game', 'from', 'to', 'limit'];
     for (const key of allowed) {
         const value = params?.[key];
         if (value !== undefined && value !== null && String(value).trim() !== '') {

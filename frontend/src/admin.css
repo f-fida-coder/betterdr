@@ -3855,6 +3855,8 @@
   font-weight: 700;
   letter-spacing: 0.3px;
   text-transform: uppercase;
+  background: #eef3f9;
+  color: #3d546c;
 }
 
 .casino-result-badge.result-player {
@@ -3870,6 +3872,30 @@
 .casino-result-badge.result-tie {
   background: #efe8fb;
   color: #6041a5;
+}
+
+.casino-result-badge.result-win {
+  background: #e5f5ec;
+  color: #157347;
+}
+
+.casino-result-badge.result-lose,
+.casino-result-badge.result-loss,
+.casino-result-badge.result-dealer {
+  background: #fde8ea;
+  color: #a61f35;
+}
+
+.casino-result-badge.result-push,
+.casino-result-badge.result-draw,
+.casino-result-badge.result-refund {
+  background: #eef2f7;
+  color: #55677d;
+}
+
+.casino-result-badge.result-pending {
+  background: #fff3d9;
+  color: #8a6410;
 }
 
 .casino-net-pill {
@@ -3890,6 +3916,11 @@
 .casino-net-pill.is-negative {
   background: #fde8ea;
   color: #a61f35;
+}
+
+.casino-net-pill.is-neutral {
+  background: #eef2f7;
+  color: #55677d;
 }
 
 .casino-bets-pagination {

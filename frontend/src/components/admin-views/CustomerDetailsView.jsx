@@ -12,6 +12,7 @@ import {
   resetUserPasswordByAdmin,
   impersonateUser
 } from '../../api';
+import { formatTransactionType, isDebitTransaction } from '../../utils/transactionPresentation';
 
 const DEFAULT_FORM = {
   password: '',
@@ -627,21 +628,16 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
     return parsed.toLocaleString();
   };
 
-  const txIsDebit = (txn) => {
-    const type = String(txn?.type || '').toLowerCase();
-    return ['withdrawal', 'bet_placed', 'bet_lost', 'fee', 'debit'].includes(type);
-  };
-
   const openSection = (sectionId) => {
     if (sectionId === 'transactions') {
       setActiveSection('transactions');
       setTxDisplayFilter('7d');
-      setTxTypeFilter('adjustment');
+      setTxTypeFilter('all');
       setTxStatusFilter('all');
     } else if (sectionId === 'pending') {
       setActiveSection('transactions');
       setTxDisplayFilter('7d');
-      setTxTypeFilter('adjustment');
+      setTxTypeFilter('all');
       setTxStatusFilter('pending');
     } else if (sectionId === 'performance') {
       setActiveSection('performance');
@@ -1106,7 +1102,9 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
                 <option value="adjustment">Non-Wager</option>
                 <option value="deposit">Deposits</option>
                 <option value="withdrawal">Withdrawals</option>
-                <option value="bet_placed">Wagers</option>
+                <option value="wager">Wagers</option>
+                <option value="payout">Payouts</option>
+                <option value="casino">Casino Activity</option>
               </select>
             </div>
             <div className="tx-stat"><label>Pending</label><b>{formatCurrency(txSummary.pending)}</b></div>
@@ -1132,18 +1130,19 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
                 ) : transactions.length === 0 ? (
                   <tr><td colSpan={5} className="tx-empty">No transactions found</td></tr>
                 ) : transactions.map((txn) => {
-                  const isDebit = txIsDebit(txn);
+                  const isDebit = isDebitTransaction(txn);
                   const amount = Number(txn.amount || 0);
                   const credit = isDebit ? 0 : amount;
                   const debit = isDebit ? amount : 0;
+                  const balanceAfter = txn.balanceAfter;
                   const selected = selectedTxIds.includes(txn.id);
                   return (
                     <tr key={txn.id} className={selected ? 'selected' : ''} onClick={() => toggleTxSelection(txn.id)}>
                       <td>{toTxDate(txn.date)}</td>
-                      <td>{txn.description || txn.type || 'Transaction'}</td>
+                      <td>{txn.description || formatTransactionType(txn)}</td>
                       <td>{credit > 0 ? formatCurrency(credit) : '—'}</td>
                       <td>{debit > 0 ? formatCurrency(debit) : '—'}</td>
-                      <td className={Number(customer.balance || 0) < 0 ? 'neg' : ''}>{formatCurrency(customer.balance || 0)}</td>
+                      <td className={Number(balanceAfter || 0) < 0 ? 'neg' : ''}>{balanceAfter !== null && balanceAfter !== undefined ? formatCurrency(balanceAfter) : '—'}</td>
                     </tr>
                   );
                 })}

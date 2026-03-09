@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { getTransactionsHistory } from '../../api';
+import { formatTransactionType, isDebitTransaction } from '../../utils/transactionPresentation';
 
 function TransactionsHistoryView() {
   const [transactions, setTransactions] = useState([]);
@@ -81,9 +82,9 @@ function TransactionsHistoryView() {
               <option value="all">All Types</option>
               <option value="deposit">Deposit</option>
               <option value="withdrawal">Withdrawal</option>
-              <option value="bet_placed">Bet Placed</option>
-              <option value="bet_won">Bet Won</option>
-              <option value="bet_refund">Bet Refund</option>
+              <option value="wager">Wagers</option>
+              <option value="payout">Payouts</option>
+              <option value="casino">Casino Activity</option>
             </select>
           </div>
           <div className="filter-group">
@@ -121,9 +122,9 @@ function TransactionsHistoryView() {
             <tbody>
               {transactions.map(txn => (
                 <tr key={txn.id}>
-                  <td>{txn.type}</td>
+                  <td>{formatTransactionType(txn)}</td>
                   <td>{txn.user}</td>
-                  <td className={txn.type === 'withdrawal' || txn.type === 'bet_placed' ? 'negative' : 'positive'}>
+                  <td className={isDebitTransaction(txn) ? 'negative' : 'positive'}>
                     {formatAmount(txn.amount)}
                   </td>
                   <td>{txn.date ? new Date(txn.date).toLocaleString() : '—'}</td>
@@ -145,11 +146,14 @@ function TransactionsHistoryView() {
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <h3>Transaction Details</h3>
             <div className="view-details">
-              <p><strong>Type:</strong> {selectedTxn.type}</p>
+              <p><strong>Type:</strong> {formatTransactionType(selectedTxn)}</p>
               <p><strong>User:</strong> {selectedTxn.user}</p>
               <p><strong>Amount:</strong> {formatAmount(selectedTxn.amount)}</p>
               <p><strong>Status:</strong> {selectedTxn.status}</p>
               <p><strong>Date:</strong> {selectedTxn.date ? new Date(selectedTxn.date).toLocaleString() : '—'}</p>
+              {selectedTxn.balanceBefore !== null && selectedTxn.balanceBefore !== undefined && <p><strong>Balance Before:</strong> {formatAmount(selectedTxn.balanceBefore)}</p>}
+              {selectedTxn.balanceAfter !== null && selectedTxn.balanceAfter !== undefined && <p><strong>Balance After:</strong> {formatAmount(selectedTxn.balanceAfter)}</p>}
+              {selectedTxn.referenceId && <p><strong>Reference:</strong> {selectedTxn.referenceId}</p>}
               {selectedTxn.description && <p><strong>Description:</strong> {selectedTxn.description}</p>}
             </div>
             <div className="modal-actions">

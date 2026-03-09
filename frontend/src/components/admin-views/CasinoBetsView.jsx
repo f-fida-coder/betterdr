@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { downloadAdminCasinoBetsCsv, getAdminCasinoBetDetail, getAdminCasinoBets, getAdminCasinoSummary } from '../../api';
 
 const EMPTY_FILTERS = {
+  game: '',
   username: '',
   result: '',
   from: '',
@@ -35,7 +36,7 @@ function CasinoBetsView() {
       setError('');
       const [betsData, summaryData] = await Promise.all([
         getAdminCasinoBets({ ...filters, page, limit: 50 }, token),
-        getAdminCasinoSummary({ from: filters.from, to: filters.to }, token),
+        getAdminCasinoSummary({ game: filters.game, from: filters.from, to: filters.to }, token),
       ]);
       setRows(Array.isArray(betsData?.bets) ? betsData.bets : []);
       setPagination(betsData?.pagination || { page, pages: 1, total: 0, limit: 50 });
@@ -92,6 +93,100 @@ function CasinoBetsView() {
     return new Date(value).toLocaleString();
   };
 
+  const formatGame = (value) => {
+    switch (String(value || '').toLowerCase()) {
+      case 'stud-poker':
+        return 'Stud Poker';
+      case 'roulette':
+        return 'Roulette';
+      case 'blackjack':
+        return 'Blackjack';
+      case 'baccarat':
+        return 'Baccarat';
+      default:
+        return value || '—';
+    }
+  };
+
+  const getPlayerOutcome = (row) => {
+    const explicitOutcome = String(row?.playerOutcome || '').trim();
+    if (explicitOutcome) return explicitOutcome;
+
+    const roundStatus = String(row?.roundStatus || '').toLowerCase();
+    if (roundStatus && roundStatus !== 'settled') return 'Pending';
+
+    const net = Number(row?.netResult || 0);
+    if (net > 0) return 'Win';
+    if (net < 0) return 'Lose';
+    return 'Push';
+  };
+
+  const toBadgeClass = (value) => {
+    const normalized = String(value || 'unknown')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+
+    return normalized || 'unknown';
+  };
+
+  const formatRoundResult = (row) => {
+    if (!row) return '—';
+
+    if (String(row.game || '').toLowerCase() === 'roulette' && row.rouletteOutcome) {
+      const number = row.rouletteOutcome.number ?? row.result;
+      const color = String(row.rouletteOutcome.color || '').trim();
+      return color ? `${number} ${color}` : `${number}`;
+    }
+
+    return row.result || '—';
+  };
+  const formatOutcomeSource = (value) => {
+    switch (String(value || '').toLowerCase()) {
+      case 'server_rng':
+        return 'Server RNG';
+      case 'native_client_round':
+        return 'Client Native';
+      case '':
+        return '—';
+      default:
+        return value || '—';
+    }
+  };
+
+  const getBetDisplayLabel = (bet) => {
+    const label = String(bet?.label || '').trim();
+    if (label) return label;
+
+    const type = String(bet?.type || '').trim();
+    const value = String(bet?.value || '').trim();
+    if (type && value) return `${type}:${value}`;
+    return type || 'Bet';
+  };
+
+  const getRouletteBets = (row) => (
+    Array.isArray(row?.bets)
+      ? row.bets.filter((bet) => bet && typeof bet === 'object')
+      : []
+  );
+
+  const getWinningRouletteBets = (row) => {
+    const winningKeys = new Set(
+      Array.isArray(row?.winningBetKeys)
+        ? row.winningBetKeys.map((key) => String(key))
+        : []
+    );
+
+    return getRouletteBets(row).filter((bet) => winningKeys.has(String(bet?.key || '')));
+  };
+
+  const getNetPillClass = (value) => {
+    const net = Number(value || 0);
+    if (net > 0) return 'casino-net-pill is-positive';
+    if (net < 0) return 'casino-net-pill is-negative';
+    return 'casino-net-pill is-neutral';
+  };
+
   const shortId = (value) => {
     const next = String(value || '');
     if (!next) return '—';
@@ -115,7 +210,7 @@ function CasinoBetsView() {
       <div className="view-header casino-bets-header">
         <div>
           <h2>Casino Bets</h2>
-          <p className="subtitle">Live baccarat reporting, settlement ledger, and round-level audit details.</p>
+          <p className="subtitle">Server-settled casino reporting, settlement ledger, and round-level audit details.</p>
         </div>
         <div className="casino-bets-header-actions">
           <button type="button" className="btn-small" onClick={fetchData} disabled={loading}>
@@ -142,6 +237,14 @@ function CasinoBetsView() {
 
             <div className="casino-bets-filters">
               <div className="filter-group">
+                <label>Game</label>
+                <select value={filters.game} onChange={(e) => applyFilter('game', e.target.value)}>
+                  <option value="">All</option>
+                  <option value="baccarat">Baccarat</option>
+                  <option value="blackjack">Blackjack</option>
+                </select>
+              </div>
+              <div className="filter-group">
                 <label>Player</label>
                 <input
                   type="text"
@@ -151,13 +254,13 @@ function CasinoBetsView() {
                 />
               </div>
               <div className="filter-group">
-                <label>Result</label>
-                <select value={filters.result} onChange={(e) => applyFilter('result', e.target.value)}>
-                  <option value="">All</option>
-                  <option value="Player">Player</option>
-                  <option value="Banker">Banker</option>
-                  <option value="Tie">Tie</option>
-                </select>
+                <label>Outcome / Result</label>
+                <input
+                  type="text"
+                  value={filters.result}
+                  onChange={(e) => applyFilter('result', e.target.value)}
+                  placeholder="Win / Lose / Push / Pending / Player / Banker / 17"
+                />
               </div>
               <div className="filter-group">
                 <label>From</label>
@@ -202,6 +305,10 @@ function CasinoBetsView() {
                   <tr>
                     <th>Round</th>
                     <th>User</th>
+                    <th>Game</th>
+                    <th>Status</th>
+                    <th>Source</th>
+                    <th>Outcome</th>
                     <th>Result</th>
                     <th>Wager</th>
                     <th>Return</th>
@@ -216,15 +323,23 @@ function CasinoBetsView() {
                     <tr key={row.roundId || row.id}>
                       <td className="round-id" title={row.roundId || row.id || ''}>{shortId(row.roundId || row.id)}</td>
                       <td>{row.username || '—'}</td>
+                      <td>{formatGame(row.game)}</td>
+                      <td>{row.roundStatus || '—'}</td>
+                      <td>{formatOutcomeSource(row.outcomeSource)}</td>
                       <td>
-                        <span className={`casino-result-badge result-${String(row.result || '').toLowerCase()}`}>
-                          {row.result || '—'}
+                        <span className={`casino-result-badge result-${toBadgeClass(getPlayerOutcome(row))}`}>
+                          {getPlayerOutcome(row)}
+                        </span>
+                      </td>
+                      <td>
+                        <span className={`casino-result-badge result-${toBadgeClass(formatRoundResult(row))}`}>
+                          {formatRoundResult(row)}
                         </span>
                       </td>
                       <td>{formatMoney(row.totalWager)}</td>
                       <td>{formatMoney(row.totalReturn)}</td>
                       <td>
-                        <span className={`casino-net-pill ${Number(row.netResult) >= 0 ? 'is-positive' : 'is-negative'}`}>
+                        <span className={getNetPillClass(row.netResult)}>
                           {formatMoney(row.netResult)}
                         </span>
                       </td>
@@ -239,7 +354,7 @@ function CasinoBetsView() {
                   ))}
                   {rows.length === 0 && (
                     <tr>
-                      <td colSpan={9} style={{ textAlign: 'center', padding: 16 }}>
+                      <td colSpan={13} style={{ textAlign: 'center', padding: 16 }}>
                         No casino bet rows found.
                       </td>
                     </tr>
@@ -293,10 +408,22 @@ function CasinoBetsView() {
                     <h4>Round</h4>
                     <div className="casino-detail-row"><span>Round ID</span><code>{selectedDetail.roundId || '—'}</code></div>
                     <div className="casino-detail-row"><span>Request ID</span><code>{selectedDetail.requestId || '—'}</code></div>
+                    <div className="casino-detail-row"><span>Game</span><span>{formatGame(selectedDetail.game)}</span></div>
+                    <div className="casino-detail-row"><span>Status</span><span>{selectedDetail.roundStatus || '—'}</span></div>
+                    <div className="casino-detail-row"><span>Outcome Source</span><span>{formatOutcomeSource(selectedDetail.outcomeSource || selectedDetail?.audit?.outcomeSource)}</span></div>
+                    <div className="casino-detail-row">
+                      <span>Player Outcome</span>
+                      <span className={`casino-result-badge result-${toBadgeClass(getPlayerOutcome(selectedDetail))}`}>
+                        {getPlayerOutcome(selectedDetail)}
+                      </span>
+                    </div>
                     <div className="casino-detail-row">
                       <span>Result</span>
-                      <span className={`casino-result-badge result-${String(selectedDetail.result || '').toLowerCase()}`}>{selectedDetail.result || '—'}</span>
+                      <span className={`casino-result-badge result-${toBadgeClass(formatRoundResult(selectedDetail))}`}>{formatRoundResult(selectedDetail)}</span>
                     </div>
+                    {selectedDetail.playerAction && (
+                      <div className="casino-detail-row"><span>Player Action</span><span>{selectedDetail.playerAction}</span></div>
+                    )}
                     <div className="casino-detail-row"><span>Decision</span><span>{formatDateTime(selectedDetail.serverDecisionAt)}</span></div>
                   </section>
 
@@ -309,30 +436,94 @@ function CasinoBetsView() {
                   </section>
 
                   <section className="casino-detail-card">
-                    <h4>Cards</h4>
-                    <div className="casino-detail-stack">
-                      <span>Player ({selectedDetail.playerTotal})</span>
-                      <div className="casino-card-list">
-                        {(selectedDetail.playerCards || []).length > 0
-                          ? (selectedDetail.playerCards || []).map((card) => <span className="casino-card-chip" key={`p-${card}`}>{card}</span>)
-                          : <span>—</span>}
-                      </div>
-                    </div>
-                    <div className="casino-detail-stack">
-                      <span>Banker ({selectedDetail.bankerTotal})</span>
-                      <div className="casino-card-list">
-                        {(selectedDetail.bankerCards || []).length > 0
-                          ? (selectedDetail.bankerCards || []).map((card) => <span className="casino-card-chip" key={`b-${card}`}>{card}</span>)
-                          : <span>—</span>}
-                      </div>
-                    </div>
+                    <h4>{selectedDetail.game === 'roulette' ? 'Outcome' : 'Cards'}</h4>
+                    {selectedDetail.game === 'roulette' ? (
+                      <>
+                        <div className="casino-detail-row"><span>Number</span><strong>{selectedDetail.rouletteOutcome?.number ?? '—'}</strong></div>
+                        <div className="casino-detail-row"><span>Color</span><span>{selectedDetail.rouletteOutcome?.color || '—'}</span></div>
+                        <div className="casino-detail-row"><span>Parity</span><span>{selectedDetail.rouletteOutcome?.parity || '—'}</span></div>
+                        <div className="casino-detail-row"><span>Range</span><span>{selectedDetail.rouletteOutcome?.range || '—'}</span></div>
+                        <div className="casino-detail-row"><span>Dozen</span><span>{selectedDetail.rouletteOutcome?.dozen || '—'}</span></div>
+                        <div className="casino-detail-row"><span>Column</span><span>{selectedDetail.rouletteOutcome?.column || '—'}</span></div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="casino-detail-stack">
+                          <span>
+                            {selectedDetail.game === 'baccarat' ? `Player (${selectedDetail.playerTotal})` : 'Player'}
+                          </span>
+                          <div className="casino-card-list">
+                            {(selectedDetail.playerCards || []).length > 0
+                              ? (selectedDetail.playerCards || []).map((card) => <span className="casino-card-chip" key={`p-${card}`}>{card}</span>)
+                              : <span>—</span>}
+                          </div>
+                        </div>
+                        {selectedDetail.game === 'baccarat' ? (
+                          <div className="casino-detail-stack">
+                            <span>Banker ({selectedDetail.bankerTotal})</span>
+                            <div className="casino-card-list">
+                              {(selectedDetail.bankerCards || []).length > 0
+                                ? (selectedDetail.bankerCards || []).map((card) => <span className="casino-card-chip" key={`b-${card}`}>{card}</span>)
+                                : <span>—</span>}
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="casino-detail-row"><span>Dealer Up Card</span><strong>{selectedDetail.dealerUpCard || '—'}</strong></div>
+                            <div className="casino-detail-stack">
+                              <span>Dealer</span>
+                              <div className="casino-card-list">
+                                {(selectedDetail.dealerCards || []).length > 0
+                                  ? (selectedDetail.dealerCards || []).map((card) => <span className="casino-card-chip" key={`d-${card}`}>{card}</span>)
+                                  : <span>—</span>}
+                              </div>
+                            </div>
+                          </>
+                        )}
+                      </>
+                    )}
                   </section>
+
+                  {selectedDetail.game === 'roulette' && (
+                    <section className="casino-detail-card">
+                      <h4>Roulette Bets</h4>
+                      <div className="casino-detail-stack">
+                        <span>Placed Bets</span>
+                        <div className="casino-card-list">
+                          {getRouletteBets(selectedDetail).length > 0
+                            ? getRouletteBets(selectedDetail).map((bet) => (
+                              <span className="casino-card-chip" key={String(bet.key || `${bet.type}-${bet.value}`)}>
+                                {getBetDisplayLabel(bet)} {formatMoney(bet.amount)}
+                              </span>
+                            ))
+                            : <span>—</span>}
+                        </div>
+                      </div>
+                      <div className="casino-detail-stack">
+                        <span>Winning Bets</span>
+                        <div className="casino-card-list">
+                          {getWinningRouletteBets(selectedDetail).length > 0
+                            ? getWinningRouletteBets(selectedDetail).map((bet) => (
+                              <span className="casino-card-chip" key={`win-${String(bet.key || `${bet.type}-${bet.value}`)}`}>
+                                {getBetDisplayLabel(bet)} {formatMoney(bet.amount)}
+                              </span>
+                            ))
+                            : <span>No winning bets</span>}
+                        </div>
+                      </div>
+                    </section>
+                  )}
 
                   <section className="casino-detail-card">
                     <h4>Settlement</h4>
                     <div className="casino-detail-row"><span>Total Wager</span><strong>{formatMoney(selectedDetail.totalWager)}</strong></div>
                     <div className="casino-detail-row"><span>Total Return</span><strong>{formatMoney(selectedDetail.totalReturn)}</strong></div>
                     <div className="casino-detail-row"><span>Net</span><strong>{formatMoney(selectedDetail.netResult)}</strong></div>
+                    {selectedDetail.playerHand && <div className="casino-detail-row"><span>Player Hand</span><span>{selectedDetail.playerHand}</span></div>}
+                    {selectedDetail.dealerHand && <div className="casino-detail-row"><span>Dealer Hand</span><span>{selectedDetail.dealerHand}</span></div>}
+                    {selectedDetail.dealerQualifies !== null && selectedDetail.dealerQualifies !== undefined && (
+                      <div className="casino-detail-row"><span>Dealer Qualifies</span><span>{selectedDetail.dealerQualifies ? 'Yes' : 'No'}</span></div>
+                    )}
                     <div className="casino-detail-row"><span>Integrity Hash</span><code>{selectedDetail.integrityHash || '—'}</code></div>
                   </section>
                 </div>

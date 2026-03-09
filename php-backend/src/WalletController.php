@@ -103,9 +103,13 @@ final class WalletController
                     'id' => $tx['_id'] ?? null,
                     'amount' => $this->num($tx['amount'] ?? 0),
                     'type' => $tx['type'] ?? null,
+                    'entrySide' => $tx['entrySide'] ?? null,
                     'status' => $tx['status'] ?? null,
                     'description' => $tx['description'] ?? null,
                     'reason' => $tx['reason'] ?? null,
+                    'sourceType' => $tx['sourceType'] ?? null,
+                    'referenceType' => $tx['referenceType'] ?? null,
+                    'referenceId' => $tx['referenceId'] ?? null,
                     'balanceBefore' => array_key_exists('balanceBefore', $tx) && $tx['balanceBefore'] !== null ? $this->num($tx['balanceBefore']) : null,
                     'balanceAfter' => array_key_exists('balanceAfter', $tx) && $tx['balanceAfter'] !== null ? $this->num($tx['balanceAfter']) : null,
                     'createdAt' => $tx['createdAt'] ?? null,
@@ -474,6 +478,19 @@ final class WalletController
                 $won += $this->num($bet['potentialPayout'] ?? 0);
             }
         }
-        return $wagered - $won;
+
+        $casinoRounds = $this->db->findMany('casino_bets', [
+            'userId' => $userId,
+            'createdAt' => ['$gte' => $since],
+        ], ['projection' => ['totalWager' => 1, 'totalReturn' => 1]]);
+
+        $casinoWagered = 0.0;
+        $casinoReturned = 0.0;
+        foreach ($casinoRounds as $round) {
+            $casinoWagered += $this->num($round['totalWager'] ?? 0);
+            $casinoReturned += $this->num($round['totalReturn'] ?? 0);
+        }
+
+        return ($wagered - $won) + ($casinoWagered - $casinoReturned);
     }
 }

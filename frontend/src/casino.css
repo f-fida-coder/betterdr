@@ -517,7 +517,7 @@
 .casino-history-table {
     width: 100%;
     border-collapse: collapse;
-    min-width: 640px;
+    min-width: 760px;
 }
 
 .casino-history-table th,
@@ -556,6 +556,46 @@
 .casino-history-table .net-neg {
     color: #bd2d2d;
     font-weight: 800;
+}
+
+.casino-history-table .net-zero {
+    color: #5f738b;
+    font-weight: 800;
+}
+
+.casino-history-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 68px;
+    border-radius: 999px;
+    padding: 3px 10px;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    background: #edf3fa;
+    color: #3c566f;
+}
+
+.casino-history-badge.outcome-win {
+    background: #e5f5ec;
+    color: #157347;
+}
+
+.casino-history-badge.outcome-lose {
+    background: #fde8ea;
+    color: #a61f35;
+}
+
+.casino-history-badge.outcome-push {
+    background: #eef2f7;
+    color: #55677d;
+}
+
+.casino-history-badge.outcome-pending {
+    background: #fff3d9;
+    color: #8a6410;
 }
 
 .casino-history-pagination {

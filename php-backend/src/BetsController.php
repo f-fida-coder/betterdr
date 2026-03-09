@@ -567,6 +567,50 @@ final class BetsController
                 $formatted[] = $this->enrichBetDocument($bet);
             }
 
+            $casinoQuery = ['userId' => MongoRepository::id((string) $user['_id'])];
+            $casinoBets = $this->db->findMany('casino_bets', $casinoQuery, [
+                'sort' => ['createdAt' => -1],
+                'limit' => $limit,
+            ]);
+
+            foreach ($casinoBets as $cbet) {
+                if (!is_array($cbet)) {
+                    continue;
+                }
+                $cStatus = ((float) ($cbet['totalReturn'] ?? 0)) > 0 ? 'won' : 'lost';
+                if (((float) ($cbet['totalWager'] ?? 0)) <= 0) {
+                    $cStatus = 'void';
+                }
+
+                if ($status !== '' && $status !== 'all' && $cStatus !== $status) {
+                    continue; // Skip if it doesn't match the frontend filter
+                }
+
+                $formatted[] = [
+                    '_id' => $cbet['_id'],
+                    'ticketId' => ltrim((string) ($cbet['roundId'] ?? ''), 'r_'),
+                    'type' => 'casino_' . ($cbet['game'] ?? 'game'),
+                    'status' => $cStatus,
+                    'createdAt' => $cbet['createdAt'] ?? '',
+                    'amount' => $cbet['totalWager'] ?? 0,
+                    'riskAmount' => $cbet['totalWager'] ?? 0,
+                    'potentialPayout' => max((float) ($cbet['totalWager'] ?? 0), (float) ($cbet['totalReturn'] ?? 0)),
+                    'description' => ucfirst($cbet['game'] ?? 'casino') . ' Round',
+                    'selections' => [],
+                    'combinedOdds' => 1.0,
+                ];
+            }
+
+            usort($formatted, function (array $a, array $b): int {
+                $aTime = strtotime($a['createdAt'] ?? '');
+                $bTime = strtotime($b['createdAt'] ?? '');
+                return $bTime <=> $aTime; // Descending
+            });
+
+            if (count($formatted) > $limit) {
+                $formatted = array_slice($formatted, 0, $limit);
+            }
+
             Response::json($formatted);
         } catch (Throwable $e) {
             Response::json(['message' => 'Error fetching bets'], 500);

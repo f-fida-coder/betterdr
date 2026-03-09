@@ -109,10 +109,7 @@ class RateLimiter
         int $maxAttempts,
         int $windowSeconds
     ): bool {
-        $ip = IpUtils::clientIp();
-        if ($ip === 'unknown') {
-            return false;
-        }
+        $ip = self::resolveClientKey($endpoint);
 
         if (!self::checkLimit($db, $ip, $endpoint, $maxAttempts, $windowSeconds)) {
             $retryAfter = self::getRemainingSeconds($db, $ip, $endpoint, $windowSeconds);
@@ -122,5 +119,25 @@ class RateLimiter
         }
 
         return false;
+    }
+
+    private static function resolveClientKey(string $endpoint): string
+    {
+        $ip = IpUtils::clientIp();
+        if ($ip !== 'unknown') {
+            return $ip;
+        }
+
+        $remoteAddr = trim((string) ($_SERVER['REMOTE_ADDR'] ?? ''));
+        if ($remoteAddr !== '' && filter_var($remoteAddr, FILTER_VALIDATE_IP) !== false) {
+            return $remoteAddr;
+        }
+
+        $userAgent = substr(trim(Http::header('user-agent')), 0, 160);
+        $acceptLanguage = substr(trim(Http::header('accept-language')), 0, 64);
+        $requestUri = trim((string) ($_SERVER['REQUEST_URI'] ?? ''));
+        $fingerprint = $endpoint . '|' . $requestUri . '|' . $userAgent . '|' . $acceptLanguage;
+
+        return 'unknown:' . substr(hash('sha256', $fingerprint), 0, 24);
     }
 }

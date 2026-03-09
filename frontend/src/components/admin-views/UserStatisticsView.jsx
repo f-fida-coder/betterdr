@@ -135,6 +135,8 @@ function UserStatisticsView({ userId, onBack }) {
                             </div>
                         </div>
                         <div className="detail-row" style={{ marginTop: '10px' }}><label>Last Bet:</label> <span>{safeDateTime(stats.lastBetDate)}</span></div>
+                        <div className="detail-row"><label>Sportsbook Bets:</label> <span>{stats.sportsbook?.totalBets || 0}</span></div>
+                        <div className="detail-row"><label>Casino Rounds:</label> <span>{stats.casino?.totalBets || 0}</span></div>
                     </div>
                 </div>
 

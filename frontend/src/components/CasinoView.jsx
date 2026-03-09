@@ -6,8 +6,6 @@ import {
     launchCasinoGame,
     getBalance,
     placeCasinoBet,
-    startStudPokerRound,
-    resolveStudPokerRound,
     getCasinoBetHistory
 } from '../api';
 
@@ -15,23 +13,16 @@ const LOCAL_GAME_META = {
     baccarat: {
         id: 'local-baccarat',
         provider: 'In-House',
-        url: '/games/baccarat/index.html',
+        url: '/games/baccarat/index.html?v=20260309a',
         poster: '/games/baccarat/assets/menuscreen.webp',
         themeColor: '#1a0a2e',
     },
-    'stud-poker': {
-        id: 'local-stud-poker',
+    blackjack: {
+        id: 'local-blackjack',
         provider: 'In-House',
-        url: '/games/stud_poker/index.html',
-        poster: '/games/stud_poker/assets/poster.jpg',
-        themeColor: '#0f5db3',
-    },
-    roulette: {
-        id: 'local-roulette',
-        provider: 'In-House',
-        url: '/games/roulette/index.html?v=20260309a',
-        poster: '/games/roulette/assets/poster.jpg',
-        themeColor: '#b91c1c',
+        url: '/games/blackjack/index.html?v=20260309b',
+        poster: '/games/blackjack/src/images/misc/table.png',
+        themeColor: '#0b5563',
     }
 };
 
@@ -45,6 +36,19 @@ const CATEGORY_META = {
 
 const createRequestId = () =>
     `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 12)}`;
+
+const normalizeEmbeddedGameSlug = (value) => {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (normalized.includes('blackjack')) return 'blackjack';
+    if (normalized.includes('baccarat')) return 'baccarat';
+    return '';
+};
+
+const resolveWalletBalance = (payload) => {
+    const rawValue = payload?.availableBalance ?? payload?.balance ?? 0;
+    const amount = Number(rawValue);
+    return Number.isFinite(amount) ? amount : 0;
+};
 
 const CasinoView = () => {
     const token = localStorage.getItem('token');
@@ -66,6 +70,11 @@ const CasinoView = () => {
     const [historyFilters, setHistoryFilters] = useState({ game: '', result: '', minWager: '', maxWager: '' });
     const iframeRef = useRef(null);
     const pendingGameRequests = useRef(new Set());
+    const activeLocalGameRef = useRef(null);
+
+    useEffect(() => {
+        activeLocalGameRef.current = activeLocalGame;
+    }, [activeLocalGame]);
 
     const loadCasinoHistory = useCallback(async () => {
         if (!token) {
@@ -94,6 +103,27 @@ const CasinoView = () => {
         }
     }, [token, historyPage, historyFilters.game, historyFilters.result, historyFilters.minWager, historyFilters.maxWager]);
 
+    const sendToGame = useCallback((payload) => {
+        if (iframeRef.current?.contentWindow) {
+            iframeRef.current.contentWindow.postMessage(payload, window.location.origin);
+        }
+    }, []);
+
+    const syncGameBalance = useCallback(async (requestId = '') => {
+        const safeRequestId = String(requestId || '');
+        if (!token) {
+            sendToGame({ type: 'balanceUpdate', requestId: safeRequestId, balance: 0, error: 'Please login to access casino balance.' });
+            return;
+        }
+        try {
+            const data = await getBalance(token);
+            sendToGame({ type: 'balanceUpdate', requestId: safeRequestId, balance: resolveWalletBalance(data) });
+        } catch (err) {
+            console.error('Failed to get balance for game:', err);
+            sendToGame({ type: 'balanceUpdate', requestId: safeRequestId, balance: 0, error: err.message });
+        }
+    }, [token, sendToGame]);
+
     /* ── postMessage bridge: iframe ↔ backend API ─────────── */
     const handleGameMessage = useCallback(async (event) => {
         // Only accept messages from our own origin
@@ -103,21 +133,10 @@ const CasinoView = () => {
         const msg = event.data;
         if (!msg || typeof msg !== 'object' || !msg.type) return;
 
-        const sendToGame = (payload) => {
-            if (iframeRef.current?.contentWindow) {
-                iframeRef.current.contentWindow.postMessage(payload, window.location.origin);
-            }
-        };
-
         if (msg.type === 'getBalance') {
             const requestId = String(msg.requestId || '');
-            try {
-                const data = await getBalance(token);
-                sendToGame({ type: 'balanceUpdate', requestId, balance: data.availableBalance ?? data.balance ?? 0 });
-            } catch (err) {
-                console.error('Failed to get balance for game:', err);
-                sendToGame({ type: 'balanceUpdate', requestId, balance: 0, error: err.message });
-            }
+            await syncGameBalance(requestId);
+            return;
         }
 
         if (msg.type === 'placeBet') {
@@ -125,64 +144,46 @@ const CasinoView = () => {
             if (pendingGameRequests.current.has(requestId)) {
                 return;
             }
+            const requestedGame = normalizeEmbeddedGameSlug(msg.game || activeLocalGameRef.current?.name || activeLocalGameRef.current?.id);
+            if (!requestedGame) {
+                sendToGame({ type: 'betError', requestId, error: 'Unsupported in-house game bet request.' });
+                return;
+            }
+            if (!token) {
+                sendToGame({ type: 'betError', requestId, error: 'Please login to place casino bets.' });
+                return;
+            }
             pendingGameRequests.current.add(requestId);
             try {
-                const result = await placeCasinoBet(msg.game || 'baccarat', msg.bets, token, { requestId });
+                const result = await placeCasinoBet(requestedGame, msg.bets, token, { requestId });
                 sendToGame({ type: 'betResult', requestId, ...result });
                 // Refresh header balance
                 window.dispatchEvent(new Event('user:refresh'));
-                loadCasinoHistory();
+                await loadCasinoHistory();
+                await syncGameBalance();
             } catch (err) {
                 console.error('Casino bet failed:', err);
                 sendToGame({ type: 'betError', requestId, error: err.message });
             } finally {
                 pendingGameRequests.current.delete(requestId);
             }
+            return;
         }
 
-        if (msg.type === 'studPokerStartRound') {
-            const requestId = String(msg.requestId || createRequestId());
-            if (pendingGameRequests.current.has(requestId)) {
-                return;
-            }
-            pendingGameRequests.current.add(requestId);
-            try {
-                const result = await startStudPokerRound(msg.anteBet, token, { requestId });
-                sendToGame({ type: 'studPokerRoundStarted', requestId, ...result });
-                window.dispatchEvent(new Event('user:refresh'));
-                loadCasinoHistory();
-            } catch (err) {
-                console.error('Stud poker round start failed:', err);
-                sendToGame({ type: 'studPokerError', requestId, error: err.message });
-            } finally {
-                pendingGameRequests.current.delete(requestId);
-            }
-        }
-
-        if (msg.type === 'studPokerResolveRound') {
-            const requestId = String(msg.requestId || createRequestId());
-            if (pendingGameRequests.current.has(requestId)) {
-                return;
-            }
-            pendingGameRequests.current.add(requestId);
-            try {
-                const result = await resolveStudPokerRound(msg.roundId, msg.action, token, { requestId });
-                sendToGame({ type: 'studPokerRoundResolved', requestId, ...result });
-                window.dispatchEvent(new Event('user:refresh'));
-                loadCasinoHistory();
-            } catch (err) {
-                console.error('Stud poker round resolve failed:', err);
-                sendToGame({ type: 'studPokerError', requestId, error: err.message });
-            } finally {
-                pendingGameRequests.current.delete(requestId);
-            }
-        }
-    }, [token, loadCasinoHistory]);
+    }, [token, loadCasinoHistory, sendToGame, syncGameBalance]);
 
     useEffect(() => {
         window.addEventListener('message', handleGameMessage);
         return () => window.removeEventListener('message', handleGameMessage);
     }, [handleGameMessage]);
+
+    useEffect(() => {
+        pendingGameRequests.current.clear();
+    }, [activeLocalGame?.id]);
+
+    const handleGameIframeLoad = useCallback(() => {
+        syncGameBalance();
+    }, [syncGameBalance]);
 
     const loadCategories = async () => {
         if (!token) return;
@@ -282,6 +283,8 @@ const CasinoView = () => {
                 return 'Stud Poker';
             case 'roulette':
                 return 'Roulette';
+            case 'blackjack':
+                return 'Blackjack';
             case 'baccarat':
                 return 'Baccarat';
             default:
@@ -356,7 +359,7 @@ const CasinoView = () => {
                 ...LOCAL_GAME_META[game.slug],
                 id: `local-${game.slug}`,
                 backendId: game.id,
-                name: game.name || 'Baccarat',
+                name: game.name || 'In-House Game',
                 provider: game.provider || LOCAL_GAME_META[game.slug].provider,
                 themeColor: game.themeColor || LOCAL_GAME_META[game.slug].themeColor,
                 status: game.status || 'active',
@@ -389,6 +392,7 @@ const CasinoView = () => {
                         src={activeLocalGame.url}
                         title={activeLocalGame.name}
                         className="game-iframe"
+                        onLoad={handleGameIframeLoad}
                         allowFullScreen
                     />
                 </div>
@@ -514,8 +518,7 @@ const CasinoView = () => {
                         >
                             <option value="">All</option>
                             <option value="baccarat">Baccarat</option>
-                            <option value="roulette">Roulette</option>
-                            <option value="stud-poker">Stud Poker</option>
+                            <option value="blackjack">Blackjack</option>
                         </select>
                     </label>
                     <label>

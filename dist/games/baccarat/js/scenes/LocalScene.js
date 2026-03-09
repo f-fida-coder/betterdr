@@ -8,6 +8,22 @@ export default class LocalScene extends Phaser.Scene {
   _newRequestId() {
     return `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 12)}`;
   }
+  _parseMoney(value) {
+    const amount = Number(value);
+    if (!Number.isFinite(amount)) return null;
+    return Math.round(amount * 100) / 100;
+  }
+  _normalizeMoney(value) {
+    return this._parseMoney(value) ?? 0;
+  }
+  _formatMoney(value) {
+    const amount = this._normalizeMoney(value);
+    return amount.toFixed(2);
+  }
+  _setDisplayedBalance(value) {
+    this.balance = this._normalizeMoney(value);
+    if (this.balanceText) this.balanceText.setText('Balance: $' + this._formatMoney(this.balance));
+  }
   _requestBalanceSync() {
     this._balanceRequestId = this._newRequestId();
     this._sendToParent({ type: 'getBalance', requestId: this._balanceRequestId });
@@ -34,8 +50,8 @@ export default class LocalScene extends Phaser.Scene {
       if (msg.type === 'balanceUpdate') {
         if (this._balanceRequestId && incomingRequestId && incomingRequestId !== this._balanceRequestId) return;
         this._balanceRequestId = '';
-        this.balance = typeof msg.balance === 'number' ? Math.round(msg.balance * 100) / 100 : 0;
-        if (this.balanceText) this.balanceText.setText('Balance: $' + this.balance);
+        const incomingBalance = this._parseMoney(msg.balance);
+        if (incomingBalance !== null) this._setDisplayedBalance(incomingBalance);
       }
 
       if (msg.type === 'betResult') {
@@ -50,6 +66,8 @@ export default class LocalScene extends Phaser.Scene {
         if (!this._pendingBetRequestId || incomingRequestId !== this._pendingBetRequestId) return;
         this._pendingBetRequestId = '';
         this._serverError = msg.error || 'Bet failed';
+        this._setRoundState('error', this._serverError);
+        this._requestBalanceSync();
         if (this._betResolve) { this._betResolve(null); this._betResolve = null; }
       }
     });
@@ -249,7 +267,7 @@ export default class LocalScene extends Phaser.Scene {
     balanceBg.strokeRoundedRect(balX, balY, balW, balH, balRadius);
 
     // Balance text
-    this.balanceText = this.add.text(balX + balW / 2, balY + balH / 2, 'Balance: $' + this.balance, {
+    this.balanceText = this.add.text(balX + balW / 2, balY + balH / 2, 'Balance: $' + this._formatMoney(this.balance), {
       fontSize: '22px', color: '#5ef45eff', fontFamily: 'Arial Black', stroke: '#000000', strokeThickness: 6
     }).setOrigin(0.5);
 
@@ -475,9 +493,7 @@ export default class LocalScene extends Phaser.Scene {
       // Deduct from displayed balance locally for immediate visual feedback
       try {
         if (typeof this.balance === 'number') {
-          this.balance -= amount;
-          if (this.balance < 0) this.balance = 0;
-          if (this.balanceText) this.balanceText.setText('Balance: $' + this.balance);
+          this._setDisplayedBalance(Math.max(0, this.balance - amount));
         }
       } catch (e) { console.warn('balance deduction failed', e); }
 
@@ -533,8 +549,7 @@ export default class LocalScene extends Phaser.Scene {
     try {
       const totalToRefund = (this.bets && ((this.bets.Tie || 0) + (this.bets.Player || 0) + (this.bets.Banker || 0))) || 0;
       if (typeof this.balance === 'number' && totalToRefund > 0) {
-        this.balance += totalToRefund;
-        if (this.balanceText) this.balanceText.setText('Balance: $' + this.balance);
+        this._setDisplayedBalance(this.balance + totalToRefund);
       }
     } catch (e) { console.warn('refund failed', e); }
     // reset internal bets after refund
@@ -866,9 +881,9 @@ export default class LocalScene extends Phaser.Scene {
     this.bankerText.setText(bFinal);
 
     // Update balance from server (authoritative).
-    if (typeof serverData.newBalance === 'number') {
-      this.balance = serverData.newBalance;
-      if (this.balanceText) this.balanceText.setText('Balance: $' + this.balance);
+    const serverBalance = this._parseMoney(serverData && (serverData.newBalance ?? serverData.balanceAfter));
+    if (serverBalance !== null) {
+      this._setDisplayedBalance(serverBalance);
     } else {
       this._requestBalanceSync();
     }

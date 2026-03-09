@@ -931,12 +931,12 @@ final class AdminCoreController
 
                 $txQueryToday = [
                     'status' => 'completed',
-                    'type' => ['$in' => ['bet_placed', 'bet_won']],
+                    'type' => ['$in' => ['bet_placed', 'bet_won', 'bet_refund', 'casino_bet_debit', 'casino_bet_credit']],
                     'createdAt' => ['$gte' => MongoRepository::utcFromMillis($startOfToday->getTimestamp() * 1000)],
                 ];
                 $txQueryWeek = [
                     'status' => 'completed',
-                    'type' => ['$in' => ['bet_placed', 'bet_won']],
+                    'type' => ['$in' => ['bet_placed', 'bet_won', 'bet_refund', 'casino_bet_debit', 'casino_bet_credit']],
                     'createdAt' => ['$gte' => MongoRepository::utcFromMillis($startOfWeek->getTimestamp() * 1000)],
                 ];
 
@@ -945,8 +945,8 @@ final class AdminCoreController
                     $txQueryWeek['userId'] = ['$in' => $myUserIds];
                 }
 
-                $todayTx = $this->db->findMany('transactions', $txQueryToday, ['projection' => ['amount' => 1, 'type' => 1]]);
-                $weekTx = $this->db->findMany('transactions', $txQueryWeek, ['projection' => ['amount' => 1, 'type' => 1]]);
+                $todayTx = $this->db->findMany('transactions', $txQueryToday, ['projection' => ['amount' => 1, 'type' => 1, 'entrySide' => 1]]);
+                $weekTx = $this->db->findMany('transactions', $txQueryWeek, ['projection' => ['amount' => 1, 'type' => 1, 'entrySide' => 1]]);
 
                 $todayNetUser = $this->sumSignedTransactions($todayTx);
                 $weekNetUser = $this->sumSignedTransactions($weekTx);
@@ -2142,7 +2142,7 @@ final class AdminCoreController
                         '$gte' => MongoRepository::utcFromMillis($start->getTimestamp() * 1000),
                         '$lt' => MongoRepository::utcFromMillis($end->getTimestamp() * 1000),
                     ],
-                ], ['projection' => ['userId' => 1, 'amount' => 1, 'type' => 1, 'createdAt' => 1, 'status' => 1]])
+                ], ['projection' => ['userId' => 1, 'amount' => 1, 'type' => 1, 'entrySide' => 1, 'createdAt' => 1, 'status' => 1]])
                 : [];
 
             $summaryDaily = [0, 0, 0, 0, 0, 0, 0];
@@ -2878,7 +2878,15 @@ final class AdminCoreController
 
             $query = [];
             if ($type !== '' && $type !== 'all') {
-                $query['type'] = $type;
+                if ($type === 'casino') {
+                    $query['type'] = ['$in' => ['casino_bet_debit', 'casino_bet_credit']];
+                } elseif ($type === 'wager') {
+                    $query['type'] = ['$in' => ['bet_placed', 'casino_bet_debit']];
+                } elseif ($type === 'payout') {
+                    $query['type'] = ['$in' => ['bet_won', 'bet_refund', 'casino_bet_credit']];
+                } else {
+                    $query['type'] = $type;
+                }
             }
             if ($status !== '' && $status !== 'all') {
                 $query['status'] = $status;
@@ -2919,10 +2927,16 @@ final class AdminCoreController
                 $formatted[] = [
                     'id' => (string) ($tx['_id'] ?? ''),
                     'type' => $tx['type'] ?? null,
+                    'entrySide' => $tx['entrySide'] ?? null,
+                    'sourceType' => $tx['sourceType'] ?? null,
+                    'referenceType' => $tx['referenceType'] ?? null,
+                    'referenceId' => $tx['referenceId'] ?? null,
                     'user' => $userMap[$uid]['username'] ?? 'Unknown',
                     'userId' => $uid !== '' ? $uid : null,
                     'amount' => $this->num($tx['amount'] ?? 0),
                     'date' => $tx['createdAt'] ?? null,
+                    'balanceBefore' => array_key_exists('balanceBefore', $tx) && $tx['balanceBefore'] !== null ? $this->num($tx['balanceBefore']) : null,
+                    'balanceAfter' => array_key_exists('balanceAfter', $tx) && $tx['balanceAfter'] !== null ? $this->num($tx['balanceAfter']) : null,
                     'status' => $tx['status'] ?? null,
                     'reason' => $tx['reason'] ?? null,
                     'description' => $tx['description'] ?? null,
@@ -5724,6 +5738,19 @@ final class AdminCoreController
             }
 
             $bets = $this->db->findMany('bets', ['userId' => MongoRepository::id($userId)], ['projection' => ['amount' => 1, 'potentialPayout' => 1, 'status' => 1, 'createdAt' => 1]]);
+            $casinoRounds = $this->db->findMany('casino_bets', ['userId' => $userId], ['projection' => ['totalWager' => 1, 'totalReturn' => 1, 'netResult' => 1, 'roundStatus' => 1, 'createdAt' => 1]]);
+            $updateLastBetDate = static function (?string $current, mixed $candidate): ?string {
+                $created = trim((string) $candidate);
+                if ($created === '') {
+                    return $current;
+                }
+
+                if ($current === null || strtotime($created) > strtotime($current)) {
+                    return $created;
+                }
+
+                return $current;
+            };
             $stats = [
                 'totalBets' => 0,
                 'totalWagered' => 0.0,
@@ -5732,24 +5759,84 @@ final class AdminCoreController
                 'losses' => 0,
                 'voids' => 0,
                 'lastBetDate' => null,
+                'sportsbook' => [
+                    'totalBets' => 0,
+                    'totalWagered' => 0.0,
+                    'totalWon' => 0.0,
+                    'wins' => 0,
+                    'losses' => 0,
+                    'voids' => 0,
+                    'lastBetDate' => null,
+                    'netProfit' => 0.0,
+                ],
+                'casino' => [
+                    'totalBets' => 0,
+                    'totalWagered' => 0.0,
+                    'totalWon' => 0.0,
+                    'wins' => 0,
+                    'losses' => 0,
+                    'voids' => 0,
+                    'lastBetDate' => null,
+                    'netProfit' => 0.0,
+                ],
             ];
             foreach ($bets as $bet) {
                 $stats['totalBets']++;
-                $stats['totalWagered'] += $this->num($bet['amount'] ?? 0);
+                $stats['sportsbook']['totalBets']++;
+
+                $wager = $this->num($bet['amount'] ?? 0);
+                $stats['totalWagered'] += $wager;
+                $stats['sportsbook']['totalWagered'] += $wager;
+
                 $status = (string) ($bet['status'] ?? '');
                 if ($status === 'won') {
-                    $stats['totalWon'] += $this->num($bet['potentialPayout'] ?? 0);
+                    $won = $this->num($bet['potentialPayout'] ?? 0);
+                    $stats['totalWon'] += $won;
+                    $stats['sportsbook']['totalWon'] += $won;
                     $stats['wins']++;
+                    $stats['sportsbook']['wins']++;
                 } elseif ($status === 'lost') {
                     $stats['losses']++;
+                    $stats['sportsbook']['losses']++;
                 } elseif ($status === 'void') {
                     $stats['voids']++;
+                    $stats['sportsbook']['voids']++;
                 }
-                $created = (string) ($bet['createdAt'] ?? '');
-                if ($created !== '' && ($stats['lastBetDate'] === null || strtotime($created) > strtotime((string) $stats['lastBetDate']))) {
-                    $stats['lastBetDate'] = $created;
-                }
+                $stats['lastBetDate'] = $updateLastBetDate($stats['lastBetDate'], $bet['createdAt'] ?? null);
+                $stats['sportsbook']['lastBetDate'] = $updateLastBetDate($stats['sportsbook']['lastBetDate'], $bet['createdAt'] ?? null);
             }
+
+            foreach ($casinoRounds as $round) {
+                $wager = $this->num($round['totalWager'] ?? 0);
+                $won = $this->num($round['totalReturn'] ?? 0);
+                $netResult = $this->num($round['netResult'] ?? ($won - $wager));
+
+                $stats['totalBets']++;
+                $stats['casino']['totalBets']++;
+                $stats['totalWagered'] += $wager;
+                $stats['casino']['totalWagered'] += $wager;
+                $stats['totalWon'] += $won;
+                $stats['casino']['totalWon'] += $won;
+
+                if (strtolower(trim((string) ($round['roundStatus'] ?? 'settled'))) === 'settled') {
+                    if ($netResult > 0) {
+                        $stats['wins']++;
+                        $stats['casino']['wins']++;
+                    } elseif ($netResult < 0) {
+                        $stats['losses']++;
+                        $stats['casino']['losses']++;
+                    } else {
+                        $stats['voids']++;
+                        $stats['casino']['voids']++;
+                    }
+                }
+
+                $stats['lastBetDate'] = $updateLastBetDate($stats['lastBetDate'], $round['createdAt'] ?? null);
+                $stats['casino']['lastBetDate'] = $updateLastBetDate($stats['casino']['lastBetDate'], $round['createdAt'] ?? null);
+            }
+
+            $stats['sportsbook']['netProfit'] = $stats['sportsbook']['totalWon'] - $stats['sportsbook']['totalWagered'];
+            $stats['casino']['netProfit'] = $stats['casino']['totalWon'] - $stats['casino']['totalWagered'];
             $stats['netProfit'] = $stats['totalWon'] - $stats['totalWagered'];
 
             Response::json([
@@ -6874,13 +6961,7 @@ final class AdminCoreController
     {
         $sum = 0.0;
         foreach ($transactions as $tx) {
-            $amount = $this->num($tx['amount'] ?? 0);
-            $type = (string) ($tx['type'] ?? '');
-            if (in_array($type, ['withdrawal', 'bet_placed'], true)) {
-                $sum += (-1 * $amount);
-            } else {
-                $sum += $amount;
-            }
+            $sum += $this->getSignedTransactionAmount($tx);
         }
         return $sum;
     }
@@ -6888,9 +6969,17 @@ final class AdminCoreController
     private function getSignedTransactionAmount(array $transaction): float
     {
         $amount = $this->num($transaction['amount'] ?? 0);
+        $entrySide = strtoupper(trim((string) ($transaction['entrySide'] ?? '')));
+        if ($entrySide === 'DEBIT') {
+            return -$amount;
+        }
+        if ($entrySide === 'CREDIT') {
+            return $amount;
+        }
+
         return match ((string) ($transaction['type'] ?? '')) {
-            'deposit', 'bet_won', 'bet_refund' => $amount,
-            'withdrawal', 'bet_placed' => -$amount,
+            'deposit', 'bet_won', 'bet_refund', 'casino_bet_credit' => $amount,
+            'withdrawal', 'bet_placed', 'casino_bet_debit' => -$amount,
             default => 0.0,
         };
     }

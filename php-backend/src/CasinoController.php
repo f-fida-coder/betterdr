@@ -10,13 +10,44 @@ final class CasinoController
 
     private const CASINO_CATEGORIES = ['lobby', 'table_games', 'slots', 'video_poker', 'specialty_games'];
     private const BACCARAT_GAME_SLUG = 'baccarat';
+    private const BLACKJACK_GAME_SLUG = 'blackjack';
+    private const ROULETTE_GAME_SLUG = 'roulette';
+    private const STUD_POKER_GAME_SLUG = 'stud-poker';
+    private const REMOVED_GAME_SLUGS = [
+        self::ROULETTE_GAME_SLUG,
+        self::STUD_POKER_GAME_SLUG,
+    ];
     private const BACCARAT_SOURCE_TYPE = 'casino_baccarat';
+    private const BLACKJACK_SOURCE_TYPE = 'casino_blackjack';
+    private const ROULETTE_SOURCE_TYPE = 'casino_roulette';
+    private const STUD_POKER_SOURCE_TYPE = 'casino_stud_poker';
     private const BACCARAT_RNG_VERSION = 'csprng-v1';
+    private const BLACKJACK_RNG_VERSION = 'native-client-v1';
+    private const ROULETTE_RNG_VERSION = 'csprng-wheel-v2';
+    private const STUD_POKER_RNG_VERSION = 'stud-house-v1';
+    private const IN_HOUSE_OVERLAY_ONLY_GAME_MESSAGES = [
+        self::BACCARAT_GAME_SLUG => 'Baccarat is available only from the in-house casino table.',
+        self::BLACKJACK_GAME_SLUG => 'Blackjack is available only from the in-house casino table.',
+    ];
     private const REQUEST_ID_PATTERN = '/^[A-Za-z0-9_-]{8,128}$/';
+    private const ROULETTE_RED_NUMBERS = [1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36];
+    private const STUD_POKER_PAYOUTS = [
+        'ROYAL_FLUSH' => 100,
+        'STRAIGHT_FLUSH' => 50,
+        'FOUR_OF_A_KIND' => 20,
+        'FULL_HOUSE' => 7,
+        'FLUSH' => 5,
+        'STRAIGHT' => 4,
+        'THREE_OF_A_KIND' => 3,
+        'TWO_PAIR' => 2,
+        'ONE_PAIR' => 1,
+        'HIGH_CARD' => 1,
+    ];
 
     private const DEFAULT_CASINO_GAMES = [
         ['provider' => 'internal', 'name' => 'Single Hand ($1-$100)', 'slug' => 'single-hand-1-100', 'category' => 'table_games', 'minBet' => 1, 'maxBet' => 100, 'themeColor' => '#115e59', 'icon' => 'fa-solid fa-diamond', 'isFeatured' => true],
-        ['provider' => 'internal', 'name' => 'Baccarat', 'slug' => 'baccarat', 'category' => 'table_games', 'minBet' => 1, 'maxBet' => 100, 'themeColor' => '#9f1239', 'icon' => 'fa-solid fa-gem', 'isFeatured' => true],
+        ['provider' => 'internal', 'name' => 'Baccarat', 'slug' => 'baccarat', 'category' => 'table_games', 'minBet' => 1, 'maxBet' => 100, 'themeColor' => '#9f1239', 'icon' => 'fa-solid fa-gem', 'imageUrl' => '/games/baccarat/assets/menuscreen.webp', 'tags' => ['table games', 'baccarat', 'in-house', 'live casino'], 'isFeatured' => true],
+        ['provider' => 'internal', 'name' => 'Blackjack', 'slug' => 'blackjack', 'category' => 'table_games', 'minBet' => 1, 'maxBet' => 10000, 'themeColor' => '#0b5563', 'icon' => 'fa-solid fa-club', 'imageUrl' => '/games/blackjack/src/images/misc/table.png', 'tags' => ['table games', 'blackjack', 'in-house', 'live casino'], 'isFeatured' => true],
         ['provider' => 'internal', 'name' => 'Arabian Treasure', 'slug' => 'arabian-treasure', 'category' => 'slots', 'minBet' => 0.3, 'maxBet' => 30, 'themeColor' => '#7e22ce', 'icon' => 'fa-solid fa-scroll', 'isFeatured' => true],
         ['provider' => 'internal', 'name' => 'Jacks or Better', 'slug' => 'jacks-or-better', 'category' => 'video_poker', 'minBet' => 1, 'maxBet' => 100, 'themeColor' => '#be123c', 'icon' => 'fa-solid fa-cards'],
         ['provider' => 'internal', 'name' => 'Video Keno', 'slug' => 'video-keno', 'category' => 'specialty_games', 'minBet' => 1, 'maxBet' => 100, 'themeColor' => '#0ea5e9', 'icon' => 'fa-solid fa-table-cells-large'],
@@ -30,7 +61,10 @@ final class CasinoController
         }
 
         if ($method === 'GET' && $path === '/api/casino/categories') {
-            $games = self::fallbackGames();
+            $games = array_values(array_filter(
+                self::fallbackGames(),
+                static fn(array $game): bool => !in_array(strtolower((string) ($game['slug'] ?? '')), self::REMOVED_GAME_SLUGS, true)
+            ));
             $counts = [
                 'table_games' => 0,
                 'slots' => 0,
@@ -69,7 +103,10 @@ final class CasinoController
             $limit = min(100, max(1, (int) ($_GET['limit'] ?? 48)));
             $skip = ($page - 1) * $limit;
 
-            $games = self::fallbackGames();
+            $games = array_values(array_filter(
+                self::fallbackGames(),
+                static fn(array $game): bool => !in_array(strtolower((string) ($game['slug'] ?? '')), self::REMOVED_GAME_SLUGS, true)
+            ));
             if ($category !== '' && $category !== 'lobby') {
                 $games = array_values(array_filter($games, static fn(array $g): bool => strtolower((string) ($g['category'] ?? '')) === $category));
             }
@@ -117,8 +154,13 @@ final class CasinoController
                 return true;
             }
 
-            if (strtolower((string) ($game['slug'] ?? '')) === self::BACCARAT_GAME_SLUG) {
-                Response::json(['message' => 'Baccarat is available only from the in-house casino table.'], 409);
+            $fallbackGameSlug = strtolower((string) ($game['slug'] ?? ''));
+            if (in_array($fallbackGameSlug, self::REMOVED_GAME_SLUGS, true)) {
+                Response::json(['message' => 'Game has been removed'], 410);
+                return true;
+            }
+            if (isset(self::IN_HOUSE_OVERLAY_ONLY_GAME_MESSAGES[$fallbackGameSlug])) {
+                Response::json(['message' => self::IN_HOUSE_OVERLAY_ONLY_GAME_MESSAGES[$fallbackGameSlug]], 409);
                 return true;
             }
 
@@ -183,6 +225,14 @@ final class CasinoController
             $this->placeCasinoBet();
             return true;
         }
+        if ($method === 'POST' && $path === '/api/casino/stud-poker/rounds') {
+            Response::json(['message' => 'Stud Poker has been removed'], 410);
+            return true;
+        }
+        if ($method === 'POST' && preg_match('#^/api/casino/stud-poker/rounds/([a-fA-F0-9]{24})/action$#', $path, $m) === 1) {
+            Response::json(['message' => 'Stud Poker has been removed'], 410);
+            return true;
+        }
         if ($method === 'GET' && preg_match('#^/api/casino/bet/([a-fA-F0-9]{24})$#', $path, $m) === 1) {
             $this->getCasinoBetByRoundId(strtolower($m[1]));
             return true;
@@ -242,13 +292,15 @@ final class CasinoController
             if ($featured) {
                 $query['isFeatured'] = true;
             }
-
-            $games = $this->db->findMany('casinogames', $query, [
+            $allGames = $this->db->findMany('casinogames', $query, [
                 'sort' => ['sortOrder' => 1, 'name' => 1],
-                'skip' => $skip,
-                'limit' => $limit,
             ]);
-            $total = $this->db->countDocuments('casinogames', $query);
+            $games = array_values(array_filter(
+                $allGames,
+                fn(array $game): bool => !in_array(strtolower((string) ($game['slug'] ?? '')), self::REMOVED_GAME_SLUGS, true)
+            ));
+            $total = count($games);
+            $games = array_slice($games, $skip, $limit);
 
             $publicGames = array_map(fn ($g) => $this->toPublicGame($g), $games);
 
@@ -275,7 +327,13 @@ final class CasinoController
             }
 
             $this->ensureCasinoSeeded();
-            $activeGames = $this->db->findMany('casinogames', ['status' => 'active']);
+            $activeGames = $this->db->findMany('casinogames', [
+                'status' => 'active',
+            ]);
+            $activeGames = array_values(array_filter(
+                $activeGames,
+                fn(array $game): bool => !in_array(strtolower((string) ($game['slug'] ?? '')), self::REMOVED_GAME_SLUGS, true)
+            ));
 
             $counts = [
                 'table_games' => 0,
@@ -323,8 +381,13 @@ final class CasinoController
                 return;
             }
 
-            if (strtolower((string) ($game['slug'] ?? '')) === self::BACCARAT_GAME_SLUG) {
-                Response::json(['message' => 'Baccarat is available only from the in-house casino table.'], 409);
+            $gameSlug = strtolower((string) ($game['slug'] ?? ''));
+            if (in_array($gameSlug, self::REMOVED_GAME_SLUGS, true)) {
+                Response::json(['message' => 'Game has been removed'], 410);
+                return;
+            }
+            if (isset(self::IN_HOUSE_OVERLAY_ONLY_GAME_MESSAGES[$gameSlug])) {
+                Response::json(['message' => self::IN_HOUSE_OVERLAY_ONLY_GAME_MESSAGES[$gameSlug]], 409);
                 return;
             }
 
@@ -544,6 +607,9 @@ final class CasinoController
                 if ($slug === '') {
                     continue;
                 }
+                if (in_array($slug, self::REMOVED_GAME_SLUGS, true)) {
+                    continue;
+                }
                 $externalGameId = $game['externalGameId'] ?? ($game['id'] ?? null);
 
                 $existing = null;
@@ -601,17 +667,19 @@ final class CasinoController
 
     private function ensureCasinoSeeded(): void
     {
-        if ($this->db->countDocuments('casinogames', []) > 0) {
-            return;
-        }
-
         $now = MongoRepository::nowUtc();
         foreach (self::DEFAULT_CASINO_GAMES as $idx => $game) {
+            $slug = (string) ($game['slug'] ?? ('game-' . ($idx + 1)));
+            $existing = $this->db->findOne('casinogames', ['slug' => $slug]);
+            if ($existing !== null) {
+                continue;
+            }
+
             $this->db->insertOne('casinogames', [
                 'externalGameId' => null,
                 'provider' => (string) ($game['provider'] ?? 'internal'),
                 'name' => (string) ($game['name'] ?? ('Game ' . ($idx + 1))),
-                'slug' => (string) ($game['slug'] ?? ('game-' . ($idx + 1))),
+                'slug' => $slug,
                 'category' => $this->normalizeCategory((string) ($game['category'] ?? 'lobby')),
                 'icon' => (string) ($game['icon'] ?? 'fa-solid fa-dice'),
                 'themeColor' => (string) ($game['themeColor'] ?? '#0f5db3'),
@@ -630,6 +698,22 @@ final class CasinoController
                 'createdAt' => $now,
                 'updatedAt' => $now,
             ]);
+        }
+
+        foreach (self::REMOVED_GAME_SLUGS as $removedSlug) {
+            $existingRemoved = $this->db->findOne('casinogames', ['slug' => $removedSlug]);
+            if ($existingRemoved === null) {
+                continue;
+            }
+            $this->db->updateOne(
+                'casinogames',
+                ['_id' => MongoRepository::id((string) $existingRemoved['_id'])],
+                [
+                    'status' => 'disabled',
+                    'isFeatured' => false,
+                    'updatedAt' => $now,
+                ]
+            );
         }
     }
 
@@ -670,7 +754,7 @@ final class CasinoController
         $userId = '';
 
         try {
-            if (RateLimiter::enforce($this->db, 'casino_baccarat_bet', 30, 60)) {
+            if (RateLimiter::enforce($this->db, 'casino_inhouse_bet', 30, 60)) {
                 return;
             }
 
@@ -695,6 +779,14 @@ final class CasinoController
             }
 
             $game = strtolower(trim((string) ($body['game'] ?? '')));
+            if ($game === self::BLACKJACK_GAME_SLUG) {
+                $this->placeBlackjackBet($actor, $body, $requestId, $startedAt);
+                return;
+            }
+            if (in_array($game, self::REMOVED_GAME_SLUGS, true)) {
+                Response::json(['message' => 'Game has been removed: ' . $game], 410);
+                return;
+            }
             if ($game !== self::BACCARAT_GAME_SLUG) {
                 Response::json(['message' => 'Unsupported game: ' . $game], 400);
                 return;
@@ -750,6 +842,7 @@ final class CasinoController
                 $existingRound = $this->db->findOne('casino_bets', [
                     'userId' => $userId,
                     'requestId' => $requestId,
+                    'game' => self::BACCARAT_GAME_SLUG,
                 ]);
                 if ($existingRound !== null) {
                     $roundId = (string) ($existingRound['roundId'] ?? $existingRound['_id'] ?? '');
@@ -778,6 +871,7 @@ final class CasinoController
                     Response::json(['message' => 'Maximum bet for your account is $' . number_format($userMaxBet, 2)], 400);
                     return;
                 }
+                $this->assertCasinoLossLimits($lockedUser, $totalWager);
 
                 $balanceBefore = round($this->num($lockedUser['balance'] ?? 0), 2);
                 $pendingBalance = round($this->num($lockedUser['pendingBalance'] ?? 0), 2);
@@ -964,6 +1058,895 @@ final class CasinoController
         }
     }
 
+    private function placeRouletteBet(array $actor, array $body, string $requestId, float $startedAt): void
+    {
+        $userId = (string) ($actor['_id'] ?? '');
+
+        try {
+            $this->requireActiveCasinoGame(self::ROULETTE_GAME_SLUG);
+            $parsedBets = $this->parseRouletteBets(is_array($body['bets'] ?? null) ? $body['bets'] : []);
+            $totalWager = $parsedBets['totalWager'];
+
+            if ($totalWager <= 0) {
+                Response::json(['message' => 'No bets placed'], 400);
+                return;
+            }
+
+            [$gameMinBet, $gameMaxBet] = $this->resolveGameBetLimits(self::ROULETTE_GAME_SLUG, 1.0, 5000.0);
+            if ($totalWager < $gameMinBet) {
+                Response::json(['message' => 'Minimum roulette wager is $' . number_format($gameMinBet, 2)], 400);
+                return;
+            }
+            if ($totalWager > $gameMaxBet) {
+                Response::json(['message' => 'Maximum roulette wager is $' . number_format($gameMaxBet, 2)], 400);
+                return;
+            }
+
+            $this->db->beginTransaction();
+            try {
+                $lockedUser = $this->loadLockedCasinoUser($userId);
+
+                $existingRound = $this->db->findOne('casino_bets', [
+                    'userId' => $userId,
+                    'requestId' => $requestId,
+                    'game' => self::ROULETTE_GAME_SLUG,
+                ]);
+                if ($existingRound !== null) {
+                    $roundId = (string) ($existingRound['roundId'] ?? $existingRound['_id'] ?? '');
+                    $ledgerEntries = $this->findRoundLedgerEntries($roundId);
+                    $this->writeCasinoAuditLog('roulette_round_idempotent', [
+                        'requestId' => $requestId,
+                        'roundId' => $roundId,
+                        'userId' => $userId,
+                        'username' => (string) ($lockedUser['username'] ?? ''),
+                        'idempotent' => true,
+                    ]);
+                    $this->db->commit();
+                    Response::json($this->formatCasinoBetResponse($existingRound, $ledgerEntries, true));
+                    return;
+                }
+
+                $this->assertUserWagerWithinLimits($lockedUser, $totalWager);
+                $this->assertCasinoLossLimits($lockedUser, $totalWager);
+                $balanceSnapshot = $this->getUserBalanceSnapshot($lockedUser);
+                if ($totalWager > $balanceSnapshot['availableBalance']) {
+                    $this->db->rollback();
+                    Response::json(['message' => 'Insufficient balance. Available: $' . number_format($balanceSnapshot['availableBalance'], 2)], 400);
+                    return;
+                }
+
+                $roundId = $this->newRoundId();
+                $outcomeSource = 'server_rng';
+                $outcome = $this->pickRouletteOutcome($parsedBets['entries']);
+
+                $totalReturn = $outcome['totalReturn'];
+                $profit = round(max(0, $totalReturn - $totalWager), 2);
+                $netResult = round($totalReturn - $totalWager, 2);
+                $balanceAfterDebit = round($balanceSnapshot['balanceBefore'] - $totalWager, 2);
+                $balanceAfter = round($balanceAfterDebit + $totalReturn, 2);
+
+                $now = MongoRepository::nowUtc();
+                $ipAddress = IpUtils::clientIp();
+                $userAgent = Http::header('user-agent') !== '' ? Http::header('user-agent') : null;
+
+                $debitEntry = $this->buildCasinoTransactionEntry(
+                    $userId,
+                    $totalWager,
+                    $roundId,
+                    self::ROULETTE_SOURCE_TYPE,
+                    'DEBIT',
+                    'casino_bet_debit',
+                    $balanceSnapshot['balanceBefore'],
+                    $balanceAfterDebit,
+                    'CASINO_ROULETTE_WAGER',
+                    'Roulette wager charged',
+                    $now,
+                    $ipAddress,
+                    $userAgent
+                );
+                $debitEntryId = $this->db->insertOne('transactions', $debitEntry);
+
+                $creditEntry = $this->buildCasinoTransactionEntry(
+                    $userId,
+                    $totalReturn,
+                    $roundId,
+                    self::ROULETTE_SOURCE_TYPE,
+                    'CREDIT',
+                    'casino_bet_credit',
+                    $balanceAfterDebit,
+                    $balanceAfter,
+                    'CASINO_ROULETTE_PAYOUT',
+                    'Roulette payout/refund credited',
+                    $now,
+                    $ipAddress,
+                    $userAgent
+                );
+                $creditEntryId = $this->db->insertOne('transactions', $creditEntry);
+
+                $this->db->updateOne('users', ['_id' => MongoRepository::id($userId)], [
+                    'balance' => $balanceAfter,
+                    'updatedAt' => $now,
+                ]);
+
+                $serverDecisionAt = MongoRepository::nowUtc();
+                $latencyMs = max(0, (int) round((microtime(true) - $startedAt) * 1000));
+                $integrityHash = $this->buildIntegrityHash([
+                    'roundId' => $roundId,
+                    'requestId' => $requestId,
+                    'userId' => $userId,
+                    'game' => self::ROULETTE_GAME_SLUG,
+                    'bets' => $parsedBets['normalizedBets'],
+                    'outcome' => $outcome['outcome'],
+                    'totalWager' => $totalWager,
+                    'totalReturn' => $totalReturn,
+                    'balanceBefore' => $balanceSnapshot['balanceBefore'],
+                    'balanceAfter' => $balanceAfter,
+                    'serverDecisionAt' => $serverDecisionAt,
+                ]);
+
+                $betRecord = [
+                    '_id' => $roundId,
+                    'roundId' => $roundId,
+                    'requestId' => $requestId,
+                    'userId' => $userId,
+                    'username' => (string) ($lockedUser['username'] ?? $actor['username'] ?? ''),
+                    'game' => self::ROULETTE_GAME_SLUG,
+                    'bets' => $parsedBets['normalizedBets'],
+                    'result' => (string) $outcome['outcome']['number'],
+                    'rouletteOutcome' => $outcome['outcome'],
+                    'winningBetKeys' => $outcome['winningBetKeys'],
+                    'totalWager' => $totalWager,
+                    'totalReturn' => $totalReturn,
+                    'profit' => $profit,
+                    'netResult' => $netResult,
+                    'balanceBefore' => $balanceSnapshot['balanceBefore'],
+                    'balanceAfter' => $balanceAfter,
+                    'ledgerEntries' => ['debit' => $debitEntryId, 'credit' => $creditEntryId],
+                    'rngVersion' => self::ROULETTE_RNG_VERSION,
+                    'outcomeSource' => $outcomeSource,
+                    'integrityHash' => $integrityHash,
+                    'serverDecisionAt' => $serverDecisionAt,
+                    'latencyMs' => $latencyMs,
+                    'roundStatus' => 'settled',
+                    'createdAt' => $now,
+                    'updatedAt' => $now,
+                ];
+                $this->db->insertOne('casino_bets', $betRecord);
+
+                $this->db->insertOne('casino_round_audit', [
+                    '_id' => $roundId,
+                    'roundId' => $roundId,
+                    'requestId' => $requestId,
+                    'userId' => $userId,
+                    'game' => self::ROULETTE_GAME_SLUG,
+                    'rngVersion' => self::ROULETTE_RNG_VERSION,
+                    'bets' => $parsedBets['normalizedBets'],
+                    'outcomeSource' => $outcomeSource,
+                    'rouletteOutcome' => $outcome['outcome'],
+                    'winningBetKeys' => $outcome['winningBetKeys'],
+                    'integrityHash' => $integrityHash,
+                    'createdAt' => $now,
+                    'updatedAt' => $now,
+                ]);
+
+                $this->db->commit();
+
+                $ledgerEntries = [
+                    array_merge($debitEntry, ['_id' => $debitEntryId]),
+                    array_merge($creditEntry, ['_id' => $creditEntryId]),
+                ];
+                $this->writeCasinoAuditLog('roulette_round_settled', [
+                    'requestId' => $requestId,
+                    'roundId' => $roundId,
+                    'userId' => $userId,
+                    'username' => (string) ($lockedUser['username'] ?? ''),
+                    'wager' => $totalWager,
+                    'totalReturn' => $totalReturn,
+                    'netResult' => $netResult,
+                    'outcomeNumber' => $outcome['outcome']['number'],
+                    'outcomeSource' => $outcomeSource,
+                ]);
+                Response::json($this->formatCasinoBetResponse($betRecord, $ledgerEntries, false));
+            } catch (Throwable $txErr) {
+                $this->db->rollback();
+                throw $txErr;
+            }
+        } catch (InvalidArgumentException $e) {
+            $this->writeCasinoAuditLog('roulette_round_validation_error', [
+                'requestId' => $requestId,
+                'userId' => $userId,
+                'error' => $e->getMessage(),
+            ]);
+            Response::json(['message' => $e->getMessage()], 400);
+        } catch (Throwable $e) {
+            $this->writeCasinoAuditLog('roulette_round_server_error', [
+                'requestId' => $requestId,
+                'userId' => $userId,
+                'error' => $e->getMessage(),
+            ]);
+            Response::json(['message' => 'Server error placing roulette bet'], 500);
+        }
+    }
+
+    private function placeBlackjackBet(array $actor, array $body, string $requestId, float $startedAt): void
+    {
+        $userId = (string) ($actor['_id'] ?? '');
+
+        try {
+            $this->requireActiveCasinoGame(self::BLACKJACK_GAME_SLUG);
+
+            $clientPayload = is_array($body['bets'] ?? null) ? $body['bets'] : [];
+            $totalWager = $this->parseMoneyValue($clientPayload['totalWager'] ?? 0, 'bets.totalWager');
+            $totalReturn = $this->parseMoneyValue($clientPayload['totalReturn'] ?? 0, 'bets.totalReturn');
+
+            if ($totalWager <= 0) {
+                Response::json(['message' => 'Blackjack wager must be greater than zero'], 400);
+                return;
+            }
+
+            [$gameMinBet, $gameMaxBet] = $this->resolveGameBetLimits(self::BLACKJACK_GAME_SLUG, 1.0, 10000.0);
+            if ($totalWager < $gameMinBet) {
+                Response::json(['message' => 'Minimum blackjack wager is $' . number_format($gameMinBet, 2)], 400);
+                return;
+            }
+            if ($totalWager > $gameMaxBet) {
+                Response::json(['message' => 'Maximum blackjack wager is $' . number_format($gameMaxBet, 2)], 400);
+                return;
+            }
+
+            $netResult = round($totalReturn - $totalWager, 2);
+            $profit = round(max(0, $netResult), 2);
+
+            $result = trim((string) ($clientPayload['result'] ?? ''));
+            if ($result === '') {
+                $result = $netResult > 0 ? 'Win' : ($netResult < 0 ? 'Lose' : 'Push');
+            }
+            if (strlen($result) > 64) {
+                $result = substr($result, 0, 64);
+            }
+
+            $betBreakdown = is_array($clientPayload['betBreakdown'] ?? null) ? $clientPayload['betBreakdown'] : [];
+            if (array_is_list($betBreakdown) && count($betBreakdown) > 24) {
+                $betBreakdown = array_slice($betBreakdown, 0, 24);
+            }
+
+            $roundMeta = is_array($clientPayload['roundMeta'] ?? null) ? $clientPayload['roundMeta'] : [];
+            if (count($roundMeta) > 48) {
+                $roundMeta = array_slice($roundMeta, 0, 48, true);
+            }
+
+            $playerCards = is_array($clientPayload['playerCards'] ?? null)
+                ? array_values(array_map(static fn($card): string => (string) $card, $clientPayload['playerCards']))
+                : [];
+            if (count($playerCards) > 20) {
+                $playerCards = array_slice($playerCards, 0, 20);
+            }
+
+            $dealerCards = is_array($clientPayload['dealerCards'] ?? null)
+                ? array_values(array_map(static fn($card): string => (string) $card, $clientPayload['dealerCards']))
+                : [];
+            if (count($dealerCards) > 20) {
+                $dealerCards = array_slice($dealerCards, 0, 20);
+            }
+
+            $this->db->beginTransaction();
+            try {
+                $lockedUser = $this->loadLockedCasinoUser($userId);
+
+                $existingRound = $this->db->findOne('casino_bets', [
+                    'userId' => $userId,
+                    'requestId' => $requestId,
+                    'game' => self::BLACKJACK_GAME_SLUG,
+                ]);
+                if ($existingRound !== null) {
+                    $roundId = (string) ($existingRound['roundId'] ?? $existingRound['_id'] ?? '');
+                    $ledgerEntries = $this->findRoundLedgerEntries($roundId);
+                    $this->writeCasinoAuditLog('blackjack_round_idempotent', [
+                        'requestId' => $requestId,
+                        'roundId' => $roundId,
+                        'userId' => $userId,
+                        'username' => (string) ($lockedUser['username'] ?? ''),
+                        'idempotent' => true,
+                    ]);
+                    $this->db->commit();
+                    Response::json($this->formatCasinoBetResponse($existingRound, $ledgerEntries, true));
+                    return;
+                }
+
+                $this->assertUserWagerWithinLimits($lockedUser, $totalWager);
+                $this->assertCasinoLossLimits($lockedUser, $totalWager);
+                $balanceSnapshot = $this->getUserBalanceSnapshot($lockedUser);
+                if ($totalWager > $balanceSnapshot['availableBalance']) {
+                    $this->db->rollback();
+                    Response::json(['message' => 'Insufficient balance. Available: $' . number_format($balanceSnapshot['availableBalance'], 2)], 400);
+                    return;
+                }
+
+                $roundId = $this->newRoundId();
+                $now = MongoRepository::nowUtc();
+                $ipAddress = IpUtils::clientIp();
+                $userAgent = Http::header('user-agent') !== '' ? Http::header('user-agent') : null;
+
+                $balanceAfterDebit = round($balanceSnapshot['balanceBefore'] - $totalWager, 2);
+                $balanceAfter = round($balanceAfterDebit + $totalReturn, 2);
+
+                $debitEntry = $this->buildCasinoTransactionEntry(
+                    $userId,
+                    $totalWager,
+                    $roundId,
+                    self::BLACKJACK_SOURCE_TYPE,
+                    'DEBIT',
+                    'casino_bet_debit',
+                    $balanceSnapshot['balanceBefore'],
+                    $balanceAfterDebit,
+                    'CASINO_BLACKJACK_WAGER',
+                    'Blackjack wager charged',
+                    $now,
+                    $ipAddress,
+                    $userAgent
+                );
+                $debitEntryId = $this->db->insertOne('transactions', $debitEntry);
+
+                $creditEntry = $this->buildCasinoTransactionEntry(
+                    $userId,
+                    $totalReturn,
+                    $roundId,
+                    self::BLACKJACK_SOURCE_TYPE,
+                    'CREDIT',
+                    'casino_bet_credit',
+                    $balanceAfterDebit,
+                    $balanceAfter,
+                    'CASINO_BLACKJACK_PAYOUT',
+                    'Blackjack payout/refund credited',
+                    $now,
+                    $ipAddress,
+                    $userAgent
+                );
+                $creditEntryId = $this->db->insertOne('transactions', $creditEntry);
+
+                $this->db->updateOne('users', ['_id' => MongoRepository::id($userId)], [
+                    'balance' => $balanceAfter,
+                    'updatedAt' => $now,
+                ]);
+
+                $serverDecisionAt = MongoRepository::nowUtc();
+                $latencyMs = max(0, (int) round((microtime(true) - $startedAt) * 1000));
+                $integrityHash = $this->buildIntegrityHash([
+                    'roundId' => $roundId,
+                    'requestId' => $requestId,
+                    'userId' => $userId,
+                    'game' => self::BLACKJACK_GAME_SLUG,
+                    'result' => $result,
+                    'totalWager' => $totalWager,
+                    'totalReturn' => $totalReturn,
+                    'netResult' => $netResult,
+                    'balanceBefore' => $balanceSnapshot['balanceBefore'],
+                    'balanceAfter' => $balanceAfter,
+                    'playerCards' => $playerCards,
+                    'dealerCards' => $dealerCards,
+                    'betBreakdown' => $betBreakdown,
+                    'roundMeta' => $roundMeta,
+                    'serverDecisionAt' => $serverDecisionAt,
+                ]);
+
+                $betRecord = [
+                    '_id' => $roundId,
+                    'roundId' => $roundId,
+                    'requestId' => $requestId,
+                    'userId' => $userId,
+                    'username' => (string) ($lockedUser['username'] ?? $actor['username'] ?? ''),
+                    'game' => self::BLACKJACK_GAME_SLUG,
+                    'bets' => [
+                        'totalWager' => $totalWager,
+                        'totalReturn' => $totalReturn,
+                        'betBreakdown' => $betBreakdown,
+                    ],
+                    'playerCards' => $playerCards,
+                    'dealerCards' => $dealerCards,
+                    'result' => $result,
+                    'totalWager' => $totalWager,
+                    'totalReturn' => $totalReturn,
+                    'profit' => $profit,
+                    'netResult' => $netResult,
+                    'balanceBefore' => $balanceSnapshot['balanceBefore'],
+                    'balanceAfter' => $balanceAfter,
+                    'ledgerEntries' => ['debit' => $debitEntryId, 'credit' => $creditEntryId],
+                    'rngVersion' => self::BLACKJACK_RNG_VERSION,
+                    'outcomeSource' => 'native_client_round',
+                    'blackjackRoundMeta' => $roundMeta,
+                    'integrityHash' => $integrityHash,
+                    'serverDecisionAt' => $serverDecisionAt,
+                    'latencyMs' => $latencyMs,
+                    'roundStatus' => 'settled',
+                    'createdAt' => $now,
+                    'updatedAt' => $now,
+                ];
+                $this->db->insertOne('casino_bets', $betRecord);
+
+                $this->db->insertOne('casino_round_audit', [
+                    '_id' => $roundId,
+                    'roundId' => $roundId,
+                    'requestId' => $requestId,
+                    'userId' => $userId,
+                    'game' => self::BLACKJACK_GAME_SLUG,
+                    'rngVersion' => self::BLACKJACK_RNG_VERSION,
+                    'outcomeSource' => 'native_client_round',
+                    'bets' => $betRecord['bets'],
+                    'result' => $result,
+                    'playerCards' => $playerCards,
+                    'dealerCards' => $dealerCards,
+                    'blackjackRoundMeta' => $roundMeta,
+                    'integrityHash' => $integrityHash,
+                    'createdAt' => $now,
+                    'updatedAt' => $now,
+                ]);
+
+                $this->db->commit();
+
+                $ledgerEntries = [
+                    array_merge($debitEntry, ['_id' => $debitEntryId]),
+                    array_merge($creditEntry, ['_id' => $creditEntryId]),
+                ];
+                $this->writeCasinoAuditLog('blackjack_round_settled', [
+                    'requestId' => $requestId,
+                    'roundId' => $roundId,
+                    'userId' => $userId,
+                    'username' => (string) ($lockedUser['username'] ?? ''),
+                    'wager' => $totalWager,
+                    'totalReturn' => $totalReturn,
+                    'netResult' => $netResult,
+                    'outcomeSource' => 'native_client_round',
+                ]);
+                Response::json($this->formatCasinoBetResponse($betRecord, $ledgerEntries, false));
+            } catch (Throwable $txErr) {
+                $this->db->rollback();
+                throw $txErr;
+            }
+        } catch (InvalidArgumentException $e) {
+            $this->writeCasinoAuditLog('blackjack_round_validation_error', [
+                'requestId' => $requestId,
+                'userId' => $userId,
+                'error' => $e->getMessage(),
+            ]);
+            Response::json(['message' => $e->getMessage()], 400);
+        } catch (Throwable $e) {
+            $this->writeCasinoAuditLog('blackjack_round_server_error', [
+                'requestId' => $requestId,
+                'userId' => $userId,
+                'error' => $e->getMessage(),
+            ]);
+            Response::json(['message' => 'Server error placing blackjack bet'], 500);
+        }
+    }
+
+    private function startStudPokerRound(): void
+    {
+        $requestId = '';
+        $userId = '';
+
+        try {
+            if (RateLimiter::enforce($this->db, 'casino_stud_poker_start', 30, 60)) {
+                return;
+            }
+
+            $actor = $this->protect();
+            if ($actor === null) {
+                return;
+            }
+
+            $accessError = $this->casinoAccessError($actor, true);
+            if ($accessError !== null) {
+                Response::json(['message' => $accessError], 403);
+                return;
+            }
+
+            $this->ensureCasinoSeeded();
+            $this->requireActiveCasinoGame(self::STUD_POKER_GAME_SLUG);
+
+            $body = Http::jsonBody();
+            $requestId = trim((string) ($body['requestId'] ?? ''));
+            if (preg_match(self::REQUEST_ID_PATTERN, $requestId) !== 1) {
+                Response::json(['message' => 'requestId is required and must be 8-128 characters (letters, numbers, "_" or "-")'], 400);
+                return;
+            }
+
+            $anteBet = $this->parseMoneyValue($body['anteBet'] ?? ($body['bets']['Ante'] ?? 0), 'anteBet');
+            if ($anteBet <= 0) {
+                Response::json(['message' => 'Ante bet is required'], 400);
+                return;
+            }
+
+            [$gameMinBet, $gameMaxBet] = $this->resolveGameBetLimits(self::STUD_POKER_GAME_SLUG, 1.0, 100.0);
+            if ($anteBet < $gameMinBet) {
+                Response::json(['message' => 'Minimum stud poker ante is $' . number_format($gameMinBet, 2)], 400);
+                return;
+            }
+            if ($anteBet > $gameMaxBet) {
+                Response::json(['message' => 'Maximum stud poker ante is $' . number_format($gameMaxBet, 2)], 400);
+                return;
+            }
+
+            $userId = (string) ($actor['_id'] ?? '');
+            $this->db->beginTransaction();
+            try {
+                $lockedUser = $this->loadLockedCasinoUser($userId);
+
+                $existingRound = $this->db->findOne('casino_bets', [
+                    'userId' => $userId,
+                    'requestId' => $requestId,
+                    'game' => self::STUD_POKER_GAME_SLUG,
+                ]);
+                if ($existingRound !== null) {
+                    $roundId = (string) ($existingRound['roundId'] ?? $existingRound['_id'] ?? '');
+                    $ledgerEntries = $this->findRoundLedgerEntries($roundId);
+                    $this->db->commit();
+                    Response::json($this->formatStudPokerStartResponse($existingRound, $ledgerEntries, true));
+                    return;
+                }
+
+                $roundExposure = round($anteBet * 3, 2);
+                $this->assertUserWagerWithinLimits($lockedUser, $roundExposure);
+                $this->assertCasinoLossLimits($lockedUser, $anteBet);
+
+                $balanceSnapshot = $this->getUserBalanceSnapshot($lockedUser);
+                if ($roundExposure > $balanceSnapshot['availableBalance']) {
+                    $this->db->rollback();
+                    Response::json(['message' => 'Insufficient balance to cover ante and raise. Available: $' . number_format($balanceSnapshot['availableBalance'], 2)], 400);
+                    return;
+                }
+
+                $roundId = $this->newRoundId();
+                $openingRound = $this->dealStudPokerOpeningRound();
+                $balanceAfterAnte = round($balanceSnapshot['balanceBefore'] - $anteBet, 2);
+                $now = MongoRepository::nowUtc();
+                $ipAddress = IpUtils::clientIp();
+                $userAgent = Http::header('user-agent') !== '' ? Http::header('user-agent') : null;
+
+                $debitEntry = $this->buildCasinoTransactionEntry(
+                    $userId,
+                    $anteBet,
+                    $roundId,
+                    self::STUD_POKER_SOURCE_TYPE,
+                    'DEBIT',
+                    'casino_bet_debit',
+                    $balanceSnapshot['balanceBefore'],
+                    $balanceAfterAnte,
+                    'CASINO_STUD_POKER_ANTE',
+                    'Stud poker ante charged',
+                    $now,
+                    $ipAddress,
+                    $userAgent
+                );
+                $debitEntryId = $this->db->insertOne('transactions', $debitEntry);
+
+                $this->db->updateOne('users', ['_id' => MongoRepository::id($userId)], [
+                    'balance' => $balanceAfterAnte,
+                    'updatedAt' => $now,
+                ]);
+
+                $integrityHash = $this->buildIntegrityHash([
+                    'roundId' => $roundId,
+                    'requestId' => $requestId,
+                    'userId' => $userId,
+                    'game' => self::STUD_POKER_GAME_SLUG,
+                    'anteBet' => $anteBet,
+                    'playerCards' => $openingRound['playerCards'],
+                    'dealerUpCard' => $openingRound['dealerUpCard'],
+                    'createdAt' => $now,
+                ]);
+
+                $betRecord = [
+                    '_id' => $roundId,
+                    'roundId' => $roundId,
+                    'requestId' => $requestId,
+                    'userId' => $userId,
+                    'username' => (string) ($lockedUser['username'] ?? $actor['username'] ?? ''),
+                    'game' => self::STUD_POKER_GAME_SLUG,
+                    'bets' => ['Ante' => $anteBet],
+                    'anteBet' => $anteBet,
+                    'raiseBet' => 0.0,
+                    'totalWager' => $anteBet,
+                    'totalReturn' => 0.0,
+                    'profit' => 0.0,
+                    'netResult' => 0.0,
+                    'balanceBefore' => $balanceSnapshot['balanceBefore'],
+                    'balanceAfter' => $balanceAfterAnte,
+                    'playerCards' => $openingRound['playerCards'],
+                    'dealerUpCard' => $openingRound['dealerUpCard'],
+                    'dealerCards' => [],
+                    'usedCards' => $openingRound['usedCards'],
+                    'playerHand' => null,
+                    'dealerHand' => null,
+                    'dealerQualifies' => null,
+                    'playerAction' => null,
+                    'result' => 'Pending',
+                    'ledgerEntries' => ['anteDebit' => $debitEntryId],
+                    'rngVersion' => self::STUD_POKER_RNG_VERSION,
+                    'integrityHash' => $integrityHash,
+                    'serverDecisionAt' => $now,
+                    'latencyMs' => 0,
+                    'roundStatus' => 'awaiting_action',
+                    'createdAt' => $now,
+                    'updatedAt' => $now,
+                ];
+                $this->db->insertOne('casino_bets', $betRecord);
+
+                $this->db->insertOne('casino_round_audit', [
+                    '_id' => $roundId,
+                    'roundId' => $roundId,
+                    'requestId' => $requestId,
+                    'userId' => $userId,
+                    'game' => self::STUD_POKER_GAME_SLUG,
+                    'rngVersion' => self::STUD_POKER_RNG_VERSION,
+                    'stage' => 'started',
+                    'playerCards' => $openingRound['playerCards'],
+                    'dealerUpCard' => $openingRound['dealerUpCard'],
+                    'usedCards' => $openingRound['usedCards'],
+                    'integrityHash' => $integrityHash,
+                    'createdAt' => $now,
+                    'updatedAt' => $now,
+                ]);
+
+                $this->db->commit();
+
+                $ledgerEntries = [
+                    array_merge($debitEntry, ['_id' => $debitEntryId]),
+                ];
+                Response::json($this->formatStudPokerStartResponse($betRecord, $ledgerEntries, false));
+            } catch (Throwable $txErr) {
+                $this->db->rollback();
+                throw $txErr;
+            }
+        } catch (InvalidArgumentException $e) {
+            $this->writeCasinoAuditLog('stud_poker_start_validation_error', [
+                'requestId' => $requestId,
+                'userId' => $userId,
+                'error' => $e->getMessage(),
+            ]);
+            Response::json(['message' => $e->getMessage()], 400);
+        } catch (Throwable $e) {
+            $this->writeCasinoAuditLog('stud_poker_start_server_error', [
+                'requestId' => $requestId,
+                'userId' => $userId,
+                'error' => $e->getMessage(),
+            ]);
+            Response::json(['message' => 'Server error starting stud poker round', 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    private function resolveStudPokerRound(string $roundId): void
+    {
+        $requestId = '';
+        $userId = '';
+
+        try {
+            if (RateLimiter::enforce($this->db, 'casino_stud_poker_resolve', 30, 60)) {
+                return;
+            }
+
+            $actor = $this->protect();
+            if ($actor === null) {
+                return;
+            }
+
+            $accessError = $this->casinoAccessError($actor, true);
+            if ($accessError !== null) {
+                Response::json(['message' => $accessError], 403);
+                return;
+            }
+
+            $this->ensureCasinoSeeded();
+            $gameConfig = $this->requireActiveCasinoGame(self::STUD_POKER_GAME_SLUG);
+
+            $body = Http::jsonBody();
+            $requestId = trim((string) ($body['requestId'] ?? ''));
+            if (preg_match(self::REQUEST_ID_PATTERN, $requestId) !== 1) {
+                Response::json(['message' => 'requestId is required and must be 8-128 characters (letters, numbers, "_" or "-")'], 400);
+                return;
+            }
+
+            $action = strtolower(trim((string) ($body['action'] ?? '')));
+            if (!in_array($action, ['raise', 'fold'], true)) {
+                Response::json(['message' => 'action must be "raise" or "fold"'], 400);
+                return;
+            }
+
+            $userId = (string) ($actor['_id'] ?? '');
+            $this->db->beginTransaction();
+            try {
+                $lockedUser = $this->loadLockedCasinoUser($userId);
+                $round = $this->db->findOneForUpdate('casino_bets', [
+                    'roundId' => $roundId,
+                    'userId' => $userId,
+                    'game' => self::STUD_POKER_GAME_SLUG,
+                ]);
+                if ($round === null) {
+                    $this->db->rollback();
+                    Response::json(['message' => 'Stud poker round not found'], 404);
+                    return;
+                }
+
+                if ((string) ($round['roundStatus'] ?? '') === 'settled') {
+                    $existingActionRequestId = (string) ($round['actionRequestId'] ?? '');
+                    $ledgerEntries = $this->findRoundLedgerEntries($roundId);
+                    $this->db->commit();
+
+                    if ($existingActionRequestId !== '' && $existingActionRequestId === $requestId) {
+                        Response::json($this->formatCasinoBetResponse($round, $ledgerEntries, true));
+                        return;
+                    }
+
+                    Response::json(['message' => 'Stud poker round is already settled'], 409);
+                    return;
+                }
+
+                if ((string) ($round['roundStatus'] ?? '') !== 'awaiting_action') {
+                    $this->db->rollback();
+                    Response::json(['message' => 'Stud poker round cannot be resolved in its current state'], 409);
+                    return;
+                }
+
+                $anteBet = $this->parseMoneyValue($round['anteBet'] ?? 0, 'anteBet');
+                $raiseBet = $action === 'raise' ? round($anteBet * 2, 2) : 0.0;
+                $balanceSnapshot = $this->getUserBalanceSnapshot($lockedUser);
+
+                $ledgerEntries = $this->findRoundLedgerEntries($roundId);
+                $additionalLedgerEntries = [];
+                $now = MongoRepository::nowUtc();
+                $ipAddress = IpUtils::clientIp();
+                $userAgent = Http::header('user-agent') !== '' ? Http::header('user-agent') : null;
+                $balanceAfterWagers = $balanceSnapshot['balanceBefore'];
+
+                if ($action === 'raise') {
+                    $this->assertCasinoLossLimits($lockedUser, $raiseBet);
+                    if ($raiseBet > $balanceSnapshot['availableBalance']) {
+                        $this->db->rollback();
+                        Response::json(['message' => 'Insufficient balance to raise. Available: $' . number_format($balanceSnapshot['availableBalance'], 2)], 400);
+                        return;
+                    }
+
+                    $raiseDebitEntry = $this->buildCasinoTransactionEntry(
+                        $userId,
+                        $raiseBet,
+                        $roundId,
+                        self::STUD_POKER_SOURCE_TYPE,
+                        'DEBIT',
+                        'casino_bet_debit',
+                        $balanceSnapshot['balanceBefore'],
+                        round($balanceSnapshot['balanceBefore'] - $raiseBet, 2),
+                        'CASINO_STUD_POKER_RAISE',
+                        'Stud poker raise charged',
+                        $now,
+                        $ipAddress,
+                        $userAgent
+                    );
+                    $raiseDebitEntryId = $this->db->insertOne('transactions', $raiseDebitEntry);
+                    $additionalLedgerEntries[] = array_merge($raiseDebitEntry, ['_id' => $raiseDebitEntryId]);
+                    $balanceAfterWagers = round($balanceSnapshot['balanceBefore'] - $raiseBet, 2);
+                }
+
+                $resolution = $this->buildStudPokerResolution(
+                    is_array($round['playerCards'] ?? null) ? $round['playerCards'] : [],
+                    (string) ($round['dealerUpCard'] ?? ''),
+                    $action,
+                    $anteBet,
+                    $this->safeNumber($gameConfig['rtp'] ?? null, null)
+                );
+
+                $totalWager = $action === 'raise' ? round($anteBet + $raiseBet, 2) : $anteBet;
+                $totalReturn = $resolution['totalReturn'];
+                $profit = round(max(0, $totalReturn - $totalWager), 2);
+                $netResult = round($totalReturn - $totalWager, 2);
+                $balanceAfter = round($balanceAfterWagers + $totalReturn, 2);
+
+                $creditEntryId = null;
+                if ($totalReturn > 0) {
+                    $creditEntry = $this->buildCasinoTransactionEntry(
+                        $userId,
+                        $totalReturn,
+                        $roundId,
+                        self::STUD_POKER_SOURCE_TYPE,
+                        'CREDIT',
+                        'casino_bet_credit',
+                        $balanceAfterWagers,
+                        $balanceAfter,
+                        'CASINO_STUD_POKER_PAYOUT',
+                        'Stud poker payout/refund credited',
+                        $now,
+                        $ipAddress,
+                        $userAgent
+                    );
+                    $creditEntryId = $this->db->insertOne('transactions', $creditEntry);
+                    $additionalLedgerEntries[] = array_merge($creditEntry, ['_id' => $creditEntryId]);
+                }
+
+                $this->db->updateOne('users', ['_id' => MongoRepository::id($userId)], [
+                    'balance' => $balanceAfter,
+                    'updatedAt' => $now,
+                ]);
+
+                $serverDecisionAt = MongoRepository::nowUtc();
+                $integrityHash = $this->buildIntegrityHash([
+                    'roundId' => $roundId,
+                    'requestId' => $round['requestId'] ?? '',
+                    'actionRequestId' => $requestId,
+                    'userId' => $userId,
+                    'game' => self::STUD_POKER_GAME_SLUG,
+                    'playerCards' => $round['playerCards'] ?? [],
+                    'dealerCards' => $resolution['dealerCards'],
+                    'action' => $action,
+                    'result' => $resolution['result'],
+                    'totalWager' => $totalWager,
+                    'totalReturn' => $totalReturn,
+                    'balanceAfter' => $balanceAfter,
+                    'serverDecisionAt' => $serverDecisionAt,
+                ]);
+
+                $updates = [
+                    'actionRequestId' => $requestId,
+                    'bets' => ['Ante' => $anteBet, 'Raise' => $raiseBet],
+                    'raiseBet' => $raiseBet,
+                    'ledgerEntries' => array_merge(
+                        is_array($round['ledgerEntries'] ?? null) ? $round['ledgerEntries'] : [],
+                        $creditEntryId !== null ? ['credit' => $creditEntryId] : []
+                    ),
+                    'totalWager' => $totalWager,
+                    'totalReturn' => $totalReturn,
+                    'profit' => $profit,
+                    'netResult' => $netResult,
+                    'balanceAfter' => $balanceAfter,
+                    'dealerCards' => $resolution['dealerCards'],
+                    'playerHand' => $resolution['playerHand'],
+                    'dealerHand' => $resolution['dealerHand'],
+                    'dealerQualifies' => $resolution['dealerQualifies'],
+                    'playerAction' => $action,
+                    'result' => $resolution['result'],
+                    'roundStatus' => 'settled',
+                    'integrityHash' => $integrityHash,
+                    'serverDecisionAt' => $serverDecisionAt,
+                    'updatedAt' => $now,
+                ];
+                $this->db->updateOne('casino_bets', ['_id' => MongoRepository::id($roundId)], $updates);
+                $this->updateStudPokerAuditRecord($roundId, [
+                    'stage' => 'settled',
+                    'playerAction' => $action,
+                    'dealerCards' => $resolution['dealerCards'],
+                    'playerHand' => $resolution['playerHand'],
+                    'dealerHand' => $resolution['dealerHand'],
+                    'dealerQualifies' => $resolution['dealerQualifies'],
+                    'result' => $resolution['result'],
+                    'integrityHash' => $integrityHash,
+                    'updatedAt' => $now,
+                ]);
+
+                $updatedRound = array_merge($round, $updates);
+                $this->db->commit();
+
+                $allLedgerEntries = array_merge($ledgerEntries, $additionalLedgerEntries);
+                Response::json($this->formatCasinoBetResponse($updatedRound, $allLedgerEntries, false));
+            } catch (Throwable $txErr) {
+                $this->db->rollback();
+                throw $txErr;
+            }
+        } catch (InvalidArgumentException $e) {
+            $this->writeCasinoAuditLog('stud_poker_resolve_validation_error', [
+                'requestId' => $requestId,
+                'userId' => $userId,
+                'roundId' => $roundId,
+                'error' => $e->getMessage(),
+            ]);
+            Response::json(['message' => $e->getMessage()], 400);
+        } catch (Throwable $e) {
+            $this->writeCasinoAuditLog('stud_poker_resolve_server_error', [
+                'requestId' => $requestId,
+                'userId' => $userId,
+                'roundId' => $roundId,
+                'error' => $e->getMessage(),
+            ]);
+            Response::json(['message' => 'Server error resolving stud poker round', 'error' => $e->getMessage()], 500);
+        }
+    }
+
     private function getCasinoBetHistory(): void
     {
         try {
@@ -975,6 +1958,7 @@ final class CasinoController
             $page = max(1, (int) ($_GET['page'] ?? 1));
             $limit = min(100, max(1, (int) ($_GET['limit'] ?? 20)));
             $skip = ($page - 1) * $limit;
+            $game = strtolower(trim((string) ($_GET['game'] ?? '')));
             $result = trim((string) ($_GET['result'] ?? ''));
             $fromRaw = trim((string) ($_GET['from'] ?? ''));
             $toRaw = trim((string) ($_GET['to'] ?? ''));
@@ -982,13 +1966,11 @@ final class CasinoController
             $maxWagerRaw = $_GET['maxWager'] ?? null;
 
             $query = ['userId' => (string) ($actor['_id'] ?? '')];
+            if ($game !== '') {
+                $query['game'] = $game;
+            }
             if ($result !== '') {
-                $normalizedResult = ucfirst(strtolower($result));
-                if (!in_array($normalizedResult, ['Player', 'Banker', 'Tie'], true)) {
-                    Response::json(['message' => 'Invalid result filter'], 400);
-                    return;
-                }
-                $query['result'] = $normalizedResult;
+                $this->applyCasinoResultFilter($query, $result);
             }
 
             if ($fromRaw !== '') {
@@ -1092,6 +2074,7 @@ final class CasinoController
             $page = max(1, (int) ($_GET['page'] ?? 1));
             $limit = min(250, max(1, (int) ($_GET['limit'] ?? 50)));
             $skip = ($page - 1) * $limit;
+            $game = strtolower(trim((string) ($_GET['game'] ?? '')));
             $result = trim((string) ($_GET['result'] ?? ''));
             $fromRaw = trim((string) ($_GET['from'] ?? ''));
             $toRaw = trim((string) ($_GET['to'] ?? ''));
@@ -1102,13 +2085,11 @@ final class CasinoController
             $format = strtolower(trim((string) ($_GET['format'] ?? 'json')));
 
             $query = [];
+            if ($game !== '') {
+                $query['game'] = $game;
+            }
             if ($result !== '') {
-                $normalizedResult = ucfirst(strtolower($result));
-                if (!in_array($normalizedResult, ['Player', 'Banker', 'Tie'], true)) {
-                    Response::json(['message' => 'Invalid result filter'], 400);
-                    return;
-                }
-                $query['result'] = $normalizedResult;
+                $this->applyCasinoResultFilter($query, $result);
             }
             if ($fromRaw !== '') {
                 try {
@@ -1221,8 +2202,12 @@ final class CasinoController
 
             $fromRaw = trim((string) ($_GET['from'] ?? ''));
             $toRaw = trim((string) ($_GET['to'] ?? ''));
+            $game = strtolower(trim((string) ($_GET['game'] ?? '')));
 
             $query = [];
+            if ($game !== '') {
+                $query['game'] = $game;
+            }
             if ($fromRaw !== '') {
                 try {
                     $query['createdAt']['$gte'] = $this->normalizeDateFilter($fromRaw, false);
@@ -1247,25 +2232,17 @@ final class CasinoController
             $totalWager = 0.0;
             $totalReturn = 0.0;
             $totalProfit = 0.0;
-            $playerWins = 0;
-            $bankerWins = 0;
-            $ties = 0;
             $errors = 0;
             $netByUser = [];
+            $byGame = [];
 
             foreach ($rows as $row) {
-                $totalWager += $this->num($row['totalWager'] ?? 0);
-                $totalReturn += $this->num($row['totalReturn'] ?? 0);
-                $totalProfit += $this->num($row['profit'] ?? 0);
-
-                $result = (string) ($row['result'] ?? '');
-                if ($result === 'Player') {
-                    $playerWins++;
-                } elseif ($result === 'Banker') {
-                    $bankerWins++;
-                } elseif ($result === 'Tie') {
-                    $ties++;
-                }
+                $wager = $this->num($row['totalWager'] ?? 0);
+                $return = $this->num($row['totalReturn'] ?? 0);
+                $profit = $this->num($row['profit'] ?? 0);
+                $totalWager += $wager;
+                $totalReturn += $return;
+                $totalProfit += $profit;
 
                 if ((string) ($row['roundStatus'] ?? 'settled') !== 'settled') {
                     $errors++;
@@ -1273,6 +2250,21 @@ final class CasinoController
 
                 $username = (string) ($row['username'] ?? 'unknown');
                 $netByUser[$username] = ($netByUser[$username] ?? 0.0) + $this->num($row['netResult'] ?? 0);
+
+                $gameKey = (string) ($row['game'] ?? 'unknown');
+                if (!isset($byGame[$gameKey])) {
+                    $byGame[$gameKey] = [
+                        'game' => $gameKey,
+                        'rounds' => 0,
+                        'totalWager' => 0.0,
+                        'totalReturn' => 0.0,
+                        'profit' => 0.0,
+                    ];
+                }
+                $byGame[$gameKey]['rounds']++;
+                $byGame[$gameKey]['totalWager'] += $wager;
+                $byGame[$gameKey]['totalReturn'] += $return;
+                $byGame[$gameKey]['profit'] += $profit;
             }
 
             arsort($netByUser);
@@ -1301,16 +2293,21 @@ final class CasinoController
                     'grossGamingRevenue' => $grossGamingRevenue,
                     'payoutRatio' => $payoutRatio,
                     'houseEdgePercent' => round(100 - $payoutRatio, 2),
-                    'playerWins' => $playerWins,
-                    'bankerWins' => $bankerWins,
-                    'ties' => $ties,
                     'errorRate' => $errorRate,
                 ],
+                'byGame' => array_values(array_map(static fn(array $item): array => [
+                    'game' => $item['game'],
+                    'rounds' => $item['rounds'],
+                    'totalWager' => round((float) $item['totalWager'], 2),
+                    'totalReturn' => round((float) $item['totalReturn'], 2),
+                    'profit' => round((float) $item['profit'], 2),
+                ], $byGame)),
                 'topWinners' => $topWinners,
                 'topLosers' => $topLosers,
                 'window' => [
                     'from' => $fromRaw !== '' ? $fromRaw : null,
                     'to' => $toRaw !== '' ? $toRaw : null,
+                    'game' => $game !== '' ? $game : null,
                     'sampleSize' => count($rows),
                     'sampled' => false,
                 ],
@@ -1336,10 +2333,14 @@ final class CasinoController
             'requestId',
             'userId',
             'username',
+            'game',
+            'roundStatus',
+            'playerOutcome',
             'result',
-            'playerBet',
-            'bankerBet',
-            'tieBet',
+            'outcomeSource',
+            'rouletteOutcomeJson',
+            'winningBetKeysJson',
+            'betsJson',
             'totalWager',
             'totalReturn',
             'profit',
@@ -1352,15 +2353,21 @@ final class CasinoController
 
         foreach ($rows as $row) {
             $bets = is_array($row['bets'] ?? null) ? $row['bets'] : [];
+            $rouletteOutcome = is_array($row['rouletteOutcome'] ?? null) ? $row['rouletteOutcome'] : null;
+            $winningBetKeys = is_array($row['winningBetKeys'] ?? null) ? $row['winningBetKeys'] : [];
             fputcsv($stream, [
                 (string) ($row['roundId'] ?? $row['_id'] ?? ''),
                 (string) ($row['requestId'] ?? ''),
                 (string) ($row['userId'] ?? ''),
                 (string) ($row['username'] ?? ''),
+                (string) ($row['game'] ?? ''),
+                (string) ($row['roundStatus'] ?? 'settled'),
+                $this->deriveCasinoPlayerOutcome($row),
                 (string) ($row['result'] ?? ''),
-                $this->num($bets['Player'] ?? 0),
-                $this->num($bets['Banker'] ?? 0),
-                $this->num($bets['Tie'] ?? 0),
+                (string) ($row['outcomeSource'] ?? ''),
+                $rouletteOutcome !== null ? json_encode($rouletteOutcome, JSON_UNESCAPED_SLASHES) : '',
+                json_encode($winningBetKeys, JSON_UNESCAPED_SLASHES),
+                json_encode($bets, JSON_UNESCAPED_SLASHES),
                 $this->num($row['totalWager'] ?? 0),
                 $this->num($row['totalReturn'] ?? 0),
                 $this->num($row['profit'] ?? 0),
@@ -1516,6 +2523,774 @@ final class CasinoController
         ];
     }
 
+    private function requireActiveCasinoGame(string $slug): array
+    {
+        $game = $this->db->findOne('casinogames', ['slug' => $slug]);
+        if ($game === null) {
+            throw new InvalidArgumentException('Casino game configuration not found for ' . $slug);
+        }
+
+        $status = strtolower(trim((string) ($game['status'] ?? 'active')));
+        if ($status !== '' && $status !== 'active') {
+            throw new InvalidArgumentException('Game is currently ' . ($game['status'] ?? 'disabled'));
+        }
+
+        return $game;
+    }
+
+    private function loadLockedCasinoUser(string $userId): array
+    {
+        $lockedUser = $this->db->findOneForUpdate('users', ['_id' => MongoRepository::id($userId)]);
+        if ($lockedUser === null) {
+            throw new InvalidArgumentException('User not found');
+        }
+
+        $lockedAccessError = $this->casinoAccessError($lockedUser, true);
+        if ($lockedAccessError !== null) {
+            throw new InvalidArgumentException($lockedAccessError);
+        }
+
+        return $lockedUser;
+    }
+
+    private function assertUserWagerWithinLimits(array $lockedUser, float $totalWager): void
+    {
+        $userMinBet = $this->safeNumber($lockedUser['minBet'] ?? null, null);
+        $userMaxBet = $this->safeNumber($lockedUser['maxBet'] ?? null, null);
+
+        if ($userMinBet !== null && $userMinBet > 0 && $totalWager < $userMinBet) {
+            throw new InvalidArgumentException('Minimum bet for your account is $' . number_format($userMinBet, 2));
+        }
+        if ($userMaxBet !== null && $userMaxBet > 0 && $totalWager > $userMaxBet) {
+            throw new InvalidArgumentException('Maximum bet for your account is $' . number_format($userMaxBet, 2));
+        }
+    }
+
+    private function assertCasinoLossLimits(array $lockedUser, float $wagerAmount): void
+    {
+        if ($wagerAmount <= 0) {
+            return;
+        }
+
+        $limits = is_array($lockedUser['gamblingLimits'] ?? null) ? $lockedUser['gamblingLimits'] : [];
+        $limitError = $this->checkLossLimits($lockedUser, $limits, $wagerAmount);
+        if ($limitError !== null) {
+            throw new InvalidArgumentException($limitError);
+        }
+    }
+
+    private function checkLossLimits(array $user, array $limits, float $wagerAmount): ?string
+    {
+        $checks = [
+            ['lossDaily', 'daily', '-1 day'],
+            ['lossWeekly', 'weekly', '-7 days'],
+            ['lossMonthly', 'monthly', '-30 days'],
+        ];
+
+        $userId = MongoRepository::id((string) ($user['_id'] ?? ''));
+        if ($userId === '') {
+            return null;
+        }
+
+        foreach ($checks as [$key, $label, $interval]) {
+            $limit = isset($limits[$key]) && is_numeric($limits[$key]) ? (float) $limits[$key] : 0.0;
+            if ($limit <= 0) {
+                continue;
+            }
+
+            $since = gmdate(DATE_ATOM, strtotime($interval));
+            $sportsbookBets = $this->db->findMany('bets', [
+                'userId' => $userId,
+                'createdAt' => ['$gte' => $since],
+            ]);
+            $casinoBets = $this->db->findMany('casino_bets', [
+                'userId' => $userId,
+                'createdAt' => ['$gte' => $since],
+            ]);
+
+            $totalWagered = 0.0;
+            $totalWon = 0.0;
+
+            foreach ($sportsbookBets as $bet) {
+                $totalWagered += $this->num($bet['amount'] ?? 0);
+                if (strtolower((string) ($bet['status'] ?? '')) === 'won') {
+                    $totalWon += $this->num($bet['potentialPayout'] ?? 0);
+                }
+            }
+
+            foreach ($casinoBets as $casinoBet) {
+                $roundStatus = strtolower((string) ($casinoBet['roundStatus'] ?? 'settled'));
+                if (in_array($roundStatus, ['cancelled', 'void'], true)) {
+                    continue;
+                }
+
+                $totalWagered += $this->num($casinoBet['totalWager'] ?? 0);
+                $totalWon += $this->num($casinoBet['totalReturn'] ?? 0);
+            }
+
+            $netLoss = round($totalWagered - $totalWon, 2);
+            if (($netLoss + $wagerAmount) > $limit) {
+                return 'This wager would exceed your '
+                    . $label
+                    . ' loss limit of $'
+                    . number_format($limit, 2)
+                    . '. Current net loss: $'
+                    . number_format($netLoss, 2)
+                    . '.';
+            }
+        }
+
+        return null;
+    }
+
+    private function getUserBalanceSnapshot(array $lockedUser): array
+    {
+        $balanceBefore = round($this->num($lockedUser['balance'] ?? 0), 2);
+        $pendingBalance = round($this->num($lockedUser['pendingBalance'] ?? 0), 2);
+        $availableBalance = round(max(0, $balanceBefore - $pendingBalance), 2);
+
+        return [
+            'balanceBefore' => $balanceBefore,
+            'pendingBalance' => $pendingBalance,
+            'availableBalance' => $availableBalance,
+        ];
+    }
+
+    private function buildCasinoTransactionEntry(
+        string $userId,
+        float $amount,
+        string $roundId,
+        string $sourceType,
+        string $entrySide,
+        string $type,
+        float $balanceBefore,
+        float $balanceAfter,
+        string $reason,
+        string $description,
+        string $now,
+        ?string $ipAddress,
+        ?string $userAgent
+    ): array {
+        return [
+            'userId' => $userId,
+            'amount' => round($amount, 2),
+            'type' => $type,
+            'entrySide' => $entrySide,
+            'entryGroupId' => $roundId,
+            'sourceType' => $sourceType,
+            'sourceId' => $roundId,
+            'status' => 'completed',
+            'balanceBefore' => round($balanceBefore, 2),
+            'balanceAfter' => round($balanceAfter, 2),
+            'referenceType' => 'CasinoRound',
+            'referenceId' => $roundId,
+            'reason' => $reason,
+            'description' => $description,
+            'ipAddress' => $ipAddress,
+            'userAgent' => $userAgent,
+            'createdAt' => $now,
+            'updatedAt' => $now,
+        ];
+    }
+
+    private function parseRouletteBets(array $rawBets): array
+    {
+        $entries = [];
+        $normalizedBets = [];
+        $totalWager = 0.0;
+
+        if (!array_is_list($rawBets)) {
+            $normalizedInput = [];
+            foreach ($rawBets as $key => $amount) {
+                $parts = explode(':', (string) $key, 2);
+                $normalizedInput[] = [
+                    'type' => $parts[0] ?? '',
+                    'value' => $parts[1] ?? '',
+                    'amount' => $amount,
+                ];
+            }
+            $rawBets = $normalizedInput;
+        }
+
+        foreach ($rawBets as $rawBet) {
+            if (!is_array($rawBet)) {
+                continue;
+            }
+
+            $amount = $this->parseMoneyValue($rawBet['amount'] ?? 0, 'bets.amount');
+            if ($amount <= 0) {
+                continue;
+            }
+
+            $type = strtolower(trim((string) ($rawBet['type'] ?? '')));
+            $value = strtolower(trim((string) ($rawBet['value'] ?? '')));
+            $normalized = $this->normalizeRouletteBet($type, $value);
+            $entry = [
+                'key' => $normalized['key'],
+                'type' => $normalized['type'],
+                'value' => $normalized['value'],
+                'label' => $normalized['label'],
+                'returnMultiplier' => $normalized['returnMultiplier'],
+                'amount' => $amount,
+            ];
+            $entries[] = $entry;
+            $normalizedBets[] = [
+                'key' => $entry['key'],
+                'type' => $entry['type'],
+                'value' => $entry['value'],
+                'label' => $entry['label'],
+                'amount' => $amount,
+            ];
+            $totalWager += $amount;
+        }
+
+        return [
+            'entries' => $entries,
+            'normalizedBets' => $normalizedBets,
+            'totalWager' => round($totalWager, 2),
+        ];
+    }
+
+    private function normalizeRouletteBet(string $type, string $value): array
+    {
+        if ($type === 'straight') {
+            if ($value === '' || ctype_digit($value) === false) {
+                throw new InvalidArgumentException('Roulette straight bets require a number between 0 and 36');
+            }
+            $number = (int) $value;
+            if ($number < 0 || $number > 36) {
+                throw new InvalidArgumentException('Roulette straight bets require a number between 0 and 36');
+            }
+
+            return [
+                'key' => 'straight:' . $number,
+                'type' => 'straight',
+                'value' => (string) $number,
+                'label' => 'Straight ' . $number,
+                'returnMultiplier' => 36.0,
+            ];
+        }
+
+        if ($type === 'dozen') {
+            if (!in_array($value, ['first', 'second', 'third'], true)) {
+                throw new InvalidArgumentException('Invalid roulette dozen bet');
+            }
+
+            return [
+                'key' => 'dozen:' . $value,
+                'type' => 'dozen',
+                'value' => $value,
+                'label' => ucfirst($value) . ' 12',
+                'returnMultiplier' => 3.0,
+            ];
+        }
+
+        if ($type === 'column') {
+            if (!in_array($value, ['first', 'second', 'third'], true)) {
+                throw new InvalidArgumentException('Invalid roulette column bet');
+            }
+
+            return [
+                'key' => 'column:' . $value,
+                'type' => 'column',
+                'value' => $value,
+                'label' => ucfirst($value) . ' Column',
+                'returnMultiplier' => 3.0,
+            ];
+        }
+
+        if ($type === 'color') {
+            if (!in_array($value, ['red', 'black'], true)) {
+                throw new InvalidArgumentException('Invalid roulette color bet');
+            }
+
+            return [
+                'key' => 'color:' . $value,
+                'type' => 'color',
+                'value' => $value,
+                'label' => ucfirst($value),
+                'returnMultiplier' => 2.0,
+            ];
+        }
+
+        if ($type === 'parity') {
+            if (!in_array($value, ['even', 'odd'], true)) {
+                throw new InvalidArgumentException('Invalid roulette parity bet');
+            }
+
+            return [
+                'key' => 'parity:' . $value,
+                'type' => 'parity',
+                'value' => $value,
+                'label' => ucfirst($value),
+                'returnMultiplier' => 2.0,
+            ];
+        }
+
+        if ($type === 'range') {
+            if (!in_array($value, ['low', 'high'], true)) {
+                throw new InvalidArgumentException('Invalid roulette range bet');
+            }
+
+            return [
+                'key' => 'range:' . $value,
+                'type' => 'range',
+                'value' => $value,
+                'label' => $value === 'low' ? '1-18' : '19-36',
+                'returnMultiplier' => 2.0,
+            ];
+        }
+
+        throw new InvalidArgumentException('Unsupported roulette bet type: ' . $type);
+    }
+
+    private function pickRouletteOutcome(array $entries): array
+    {
+        $pickedNumber = random_int(0, 36);
+        $picked = $this->calculateRouletteOutcomeReturn($entries, $pickedNumber);
+        return [
+            'outcome' => $this->rouletteOutcomeDetails($pickedNumber),
+            'totalReturn' => $picked['totalReturn'],
+            'winningBetKeys' => $picked['winningBetKeys'],
+        ];
+    }
+
+    private function calculateRouletteOutcomeReturn(array $entries, int $number): array
+    {
+        $totalReturn = 0.0;
+        $winningBetKeys = [];
+        $outcome = $this->rouletteOutcomeDetails($number);
+
+        foreach ($entries as $entry) {
+            if ($this->rouletteBetWins($entry, $outcome)) {
+                $totalReturn += round($entry['amount'] * $entry['returnMultiplier'], 2);
+                $winningBetKeys[] = (string) $entry['key'];
+            }
+        }
+
+        return [
+            'totalReturn' => round($totalReturn, 2),
+            'winningBetKeys' => $winningBetKeys,
+        ];
+    }
+
+    private function rouletteOutcomeDetails(int $number): array
+    {
+        $color = 'green';
+        if ($number !== 0) {
+            $color = in_array($number, self::ROULETTE_RED_NUMBERS, true) ? 'red' : 'black';
+        }
+
+        $parity = $number === 0 ? null : ($number % 2 === 0 ? 'even' : 'odd');
+        $range = null;
+        $dozen = null;
+        $column = null;
+        if ($number >= 1 && $number <= 18) {
+            $range = 'low';
+        } elseif ($number >= 19 && $number <= 36) {
+            $range = 'high';
+        }
+        if ($number >= 1 && $number <= 12) {
+            $dozen = 'first';
+        } elseif ($number >= 13 && $number <= 24) {
+            $dozen = 'second';
+        } elseif ($number >= 25 && $number <= 36) {
+            $dozen = 'third';
+        }
+        if ($number !== 0) {
+            $mod = $number % 3;
+            $column = $mod === 1 ? 'first' : ($mod === 2 ? 'second' : 'third');
+        }
+
+        return [
+            'number' => $number,
+            'color' => $color,
+            'parity' => $parity,
+            'range' => $range,
+            'dozen' => $dozen,
+            'column' => $column,
+        ];
+    }
+
+    private function rouletteBetWins(array $entry, array $outcome): bool
+    {
+        return match ((string) ($entry['type'] ?? '')) {
+            'straight' => (int) ($entry['value'] ?? -1) === (int) ($outcome['number'] ?? -999),
+            'dozen' => (string) ($entry['value'] ?? '') !== '' && (string) ($entry['value'] ?? '') === (string) ($outcome['dozen'] ?? ''),
+            'column' => (string) ($entry['value'] ?? '') !== '' && (string) ($entry['value'] ?? '') === (string) ($outcome['column'] ?? ''),
+            'color' => (string) ($entry['value'] ?? '') === (string) ($outcome['color'] ?? ''),
+            'parity' => (string) ($entry['value'] ?? '') === (string) ($outcome['parity'] ?? ''),
+            'range' => (string) ($entry['value'] ?? '') === (string) ($outcome['range'] ?? ''),
+            default => false,
+        };
+    }
+
+    private function formatStudPokerStartResponse(array $betRecord, array $ledgerEntries, bool $idempotent): array
+    {
+        return [
+            'roundId' => (string) ($betRecord['roundId'] ?? $betRecord['_id'] ?? ''),
+            'requestId' => (string) ($betRecord['requestId'] ?? ''),
+            'game' => self::STUD_POKER_GAME_SLUG,
+            'roundStatus' => (string) ($betRecord['roundStatus'] ?? 'awaiting_action'),
+            'anteBet' => $this->num($betRecord['anteBet'] ?? 0),
+            'playerCards' => is_array($betRecord['playerCards'] ?? null) ? $betRecord['playerCards'] : [],
+            'dealerUpCard' => (string) ($betRecord['dealerUpCard'] ?? ''),
+            'balanceBefore' => $this->num($betRecord['balanceBefore'] ?? 0),
+            'balanceAfter' => $this->num($betRecord['balanceAfter'] ?? 0),
+            'newBalance' => $this->num($betRecord['balanceAfter'] ?? 0),
+            'ledgerEntries' => array_map(fn (array $entry): array => $this->mapLedgerEntry($entry), $ledgerEntries),
+            'idempotent' => $idempotent,
+        ];
+    }
+
+    private function dealStudPokerOpeningRound(): array
+    {
+        $deck = $this->buildShuffledDeck();
+        $playerCards = [];
+        for ($i = 0; $i < 5; $i++) {
+            $playerCards[] = array_pop($deck);
+        }
+        $dealerUpCard = array_pop($deck);
+
+        $playerCodes = array_values(array_map(static fn(array $card): string => (string) ($card['code'] ?? ''), $playerCards));
+        $dealerUpCode = (string) ($dealerUpCard['code'] ?? '');
+
+        return [
+            'playerCards' => $playerCodes,
+            'dealerUpCard' => $dealerUpCode,
+            'usedCards' => array_values(array_merge($playerCodes, [$dealerUpCode])),
+        ];
+    }
+
+    private function buildStudPokerResolution(array $playerCardCodes, string $dealerUpCard, string $action, float $anteBet, ?float $configuredRtp): array
+    {
+        if (count($playerCardCodes) !== 5 || $dealerUpCard === '') {
+            throw new InvalidArgumentException('Stud poker round data is incomplete');
+        }
+
+        $playerCards = array_map(fn (string $code): array => $this->cardCodeToData($code), $playerCardCodes);
+        $playerEval = $this->evaluateStudPokerHand($playerCards, false);
+
+        $targetReturn = null;
+        if ($action === 'raise' && $configuredRtp !== null && $configuredRtp >= 0 && $configuredRtp <= 100) {
+            $targetReturn = round(($anteBet * 3) * ($configuredRtp / 100), 2);
+        }
+
+        $dealerCards = $this->pickStudPokerDealerHand($playerCardCodes, $dealerUpCard, $action, $anteBet, $targetReturn);
+        $dealerEval = $this->evaluateStudPokerHand(array_map(fn (string $code): array => $this->cardCodeToData($code), $dealerCards), true);
+        $result = $action === 'fold' ? 'Dealer' : $this->compareStudPokerHands($playerEval, $dealerEval);
+        $totalReturn = $action === 'raise'
+            ? $this->calculateStudPokerRaiseReturn($anteBet, $playerEval, $dealerEval, $result)
+            : 0.0;
+
+        return [
+            'dealerCards' => $dealerCards,
+            'playerHand' => $playerEval['displayName'],
+            'dealerHand' => $dealerEval['displayName'],
+            'dealerQualifies' => $dealerEval['qualifies'],
+            'result' => $result,
+            'totalReturn' => round($totalReturn, 2),
+        ];
+    }
+
+    private function pickStudPokerDealerHand(
+        array $playerCardCodes,
+        string $dealerUpCard,
+        string $action,
+        float $anteBet,
+        ?float $targetReturn
+    ): array {
+        $used = array_values(array_unique(array_merge($playerCardCodes, [$dealerUpCard])));
+        $remaining = array_values(array_filter(
+            array_map(static fn(array $card): string => (string) ($card['code'] ?? ''), $this->buildShuffledDeck()),
+            static fn(string $code): bool => !in_array($code, $used, true)
+        ));
+        $playerEval = $this->evaluateStudPokerHand(array_map(fn (string $code): array => $this->cardCodeToData($code), $playerCardCodes), false);
+
+        $best = null;
+        $bestScore = INF;
+        for ($i = 0; $i < 600; $i++) {
+            $sample = $this->pickRandomCards($remaining, 4);
+            $dealerCards = array_values(array_merge([$dealerUpCard], $sample));
+            $dealerEval = $this->evaluateStudPokerHand(array_map(fn (string $code): array => $this->cardCodeToData($code), $dealerCards), true);
+            $result = $action === 'fold' ? 'Dealer' : $this->compareStudPokerHands($playerEval, $dealerEval);
+
+            if ($action === 'fold') {
+                if ($result !== 'Dealer') {
+                    continue;
+                }
+                return $dealerCards;
+            }
+
+            $totalReturn = $this->calculateStudPokerRaiseReturn($anteBet, $playerEval, $dealerEval, $result);
+            if ($targetReturn === null) {
+                return $dealerCards;
+            }
+
+            $score = abs($totalReturn - $targetReturn);
+            if ($score < $bestScore) {
+                $bestScore = $score;
+                $best = $dealerCards;
+                if ($score < 0.01) {
+                    break;
+                }
+            }
+        }
+
+        if ($best !== null) {
+            return $best;
+        }
+
+        return array_values(array_merge([$dealerUpCard], $this->pickRandomCards($remaining, 4)));
+    }
+
+    private function pickRandomCards(array $deckCodes, int $count): array
+    {
+        if ($count <= 0) {
+            return [];
+        }
+        if (count($deckCodes) < $count) {
+            throw new InvalidArgumentException('Not enough cards remaining to complete the stud poker hand');
+        }
+
+        $keys = array_rand($deckCodes, $count);
+        if (!is_array($keys)) {
+            $keys = [$keys];
+        }
+
+        $picked = [];
+        foreach ($keys as $key) {
+            $picked[] = (string) $deckCodes[$key];
+        }
+
+        return array_values($picked);
+    }
+
+    private function calculateStudPokerRaiseReturn(float $anteBet, array $playerEval, array $dealerEval, string $result): float
+    {
+        if ($result === 'Dealer') {
+            return 0.0;
+        }
+
+        if (!$dealerEval['qualifies'] && $result !== 'Dealer') {
+            return round(($anteBet * 2) + ($anteBet * 2), 2);
+        }
+
+        if ($result === 'Player') {
+            $raiseBet = $anteBet * 2;
+            $multiplier = self::STUD_POKER_PAYOUTS[$playerEval['name']] ?? 1;
+            return round($raiseBet + ($raiseBet * $multiplier) + $raiseBet, 2);
+        }
+
+        return round($anteBet + ($anteBet * 2), 2);
+    }
+
+    private function compareStudPokerHands(array $playerEval, array $dealerEval): string
+    {
+        if ($playerEval['rankValue'] > $dealerEval['rankValue']) {
+            return 'Player';
+        }
+        if ($dealerEval['rankValue'] > $playerEval['rankValue']) {
+            return 'Dealer';
+        }
+
+        $length = max(count($playerEval['tiebreak']), count($dealerEval['tiebreak']));
+        for ($i = 0; $i < $length; $i++) {
+            $playerValue = (int) ($playerEval['tiebreak'][$i] ?? 0);
+            $dealerValue = (int) ($dealerEval['tiebreak'][$i] ?? 0);
+            if ($playerValue > $dealerValue) {
+                return 'Player';
+            }
+            if ($dealerValue > $playerValue) {
+                return 'Dealer';
+            }
+        }
+
+        return 'Standoff';
+    }
+
+    private function evaluateStudPokerHand(array $cards, bool $dealer): array
+    {
+        if (count($cards) !== 5) {
+            throw new InvalidArgumentException('Stud poker hands must contain exactly 5 cards');
+        }
+
+        usort($cards, static fn(array $a, array $b): int => ((int) $a['rank']) <=> ((int) $b['rank']));
+        $ranksAsc = array_values(array_map(static fn(array $card): int => (int) $card['rank'], $cards));
+        $ranksDesc = array_reverse($ranksAsc);
+        $suits = array_values(array_map(static fn(array $card): string => (string) $card['suit'], $cards));
+        $rankCounts = array_count_values($ranksAsc);
+        arsort($rankCounts);
+
+        $isFlush = count(array_unique($suits)) === 1;
+        $isStraight = false;
+        $straightHigh = max($ranksAsc);
+        if ($ranksAsc === [2, 3, 4, 5, 14]) {
+            $isStraight = true;
+            $straightHigh = 5;
+        } elseif (
+            $ranksAsc[0] + 1 === $ranksAsc[1]
+            && $ranksAsc[1] + 1 === $ranksAsc[2]
+            && $ranksAsc[2] + 1 === $ranksAsc[3]
+            && $ranksAsc[3] + 1 === $ranksAsc[4]
+        ) {
+            $isStraight = true;
+        }
+
+        $hasAce = in_array(14, $ranksAsc, true);
+        $hasKing = in_array(13, $ranksAsc, true);
+
+        $name = 'NO_HAND';
+        $displayName = 'No Hand';
+        $rankValue = 0;
+        $tiebreak = $ranksDesc;
+
+        if ($isFlush && $ranksAsc === [10, 11, 12, 13, 14]) {
+            $name = 'ROYAL_FLUSH';
+            $displayName = 'Royal Flush';
+            $rankValue = 10;
+            $tiebreak = [14];
+        } elseif ($isFlush && $isStraight) {
+            $name = 'STRAIGHT_FLUSH';
+            $displayName = 'Straight Flush';
+            $rankValue = 9;
+            $tiebreak = [$straightHigh];
+        } elseif (max($rankCounts) === 4) {
+            $quadRank = (int) array_search(4, $rankCounts, true);
+            $kicker = (int) array_search(1, $rankCounts, true);
+            $name = 'FOUR_OF_A_KIND';
+            $displayName = 'Four of a Kind';
+            $rankValue = 8;
+            $tiebreak = [$quadRank, $kicker];
+        } elseif (count($rankCounts) === 2 && in_array(3, $rankCounts, true) && in_array(2, $rankCounts, true)) {
+            $tripRank = (int) array_search(3, $rankCounts, true);
+            $pairRank = (int) array_search(2, $rankCounts, true);
+            $name = 'FULL_HOUSE';
+            $displayName = 'Full House';
+            $rankValue = 7;
+            $tiebreak = [$tripRank, $pairRank];
+        } elseif ($isFlush) {
+            $name = 'FLUSH';
+            $displayName = 'Flush';
+            $rankValue = 6;
+            $tiebreak = $ranksDesc;
+        } elseif ($isStraight) {
+            $name = 'STRAIGHT';
+            $displayName = 'Straight';
+            $rankValue = 5;
+            $tiebreak = [$straightHigh];
+        } elseif (in_array(3, $rankCounts, true)) {
+            $tripRank = (int) array_search(3, $rankCounts, true);
+            $kickers = [];
+            foreach ($ranksDesc as $rank) {
+                if ($rank !== $tripRank) {
+                    $kickers[] = $rank;
+                }
+            }
+            $name = 'THREE_OF_A_KIND';
+            $displayName = 'Three of a Kind';
+            $rankValue = 4;
+            $tiebreak = array_merge([$tripRank], $kickers);
+        } elseif (count(array_filter($rankCounts, static fn(int $count): bool => $count === 2)) === 2) {
+            $pairRanks = [];
+            $kicker = 0;
+            foreach ($rankCounts as $rank => $count) {
+                if ($count === 2) {
+                    $pairRanks[] = (int) $rank;
+                } else {
+                    $kicker = (int) $rank;
+                }
+            }
+            rsort($pairRanks);
+            $name = 'TWO_PAIR';
+            $displayName = 'Two Pair';
+            $rankValue = 3;
+            $tiebreak = array_merge($pairRanks, [$kicker]);
+        } elseif (in_array(2, $rankCounts, true)) {
+            $pairRank = (int) array_search(2, $rankCounts, true);
+            $kickers = [];
+            foreach ($ranksDesc as $rank) {
+                if ($rank !== $pairRank) {
+                    $kickers[] = $rank;
+                }
+            }
+            $name = 'ONE_PAIR';
+            $displayName = 'One Pair';
+            $rankValue = 2;
+            $tiebreak = array_merge([$pairRank], $kickers);
+        } else {
+            $qualifiesHighCard = $dealer ? ($hasAce && $hasKing) : ($hasAce || $hasKing);
+            if ($qualifiesHighCard) {
+                $name = 'HIGH_CARD';
+                $displayName = 'High Card';
+                $rankValue = 1;
+                $tiebreak = $ranksDesc;
+            }
+        }
+
+        $qualifies = $name !== 'NO_HAND';
+        if ($dealer && $name === 'HIGH_CARD') {
+            $qualifies = $hasAce && $hasKing;
+        }
+
+        return [
+            'name' => $name,
+            'displayName' => $displayName,
+            'rankValue' => $rankValue,
+            'qualifies' => $qualifies,
+            'tiebreak' => $tiebreak,
+        ];
+    }
+
+    private function cardCodeToData(string $code): array
+    {
+        $trimmed = strtoupper(trim($code));
+        if ($trimmed === '' || strlen($trimmed) < 2) {
+            throw new InvalidArgumentException('Invalid card code');
+        }
+
+        $suit = substr($trimmed, -1);
+        $rankCode = substr($trimmed, 0, -1);
+        $rank = match ($rankCode) {
+            'A' => 14,
+            'K' => 13,
+            'Q' => 12,
+            'J' => 11,
+            default => (int) $rankCode,
+        };
+
+        if ($rank < 2 || $rank > 14) {
+            throw new InvalidArgumentException('Invalid card rank');
+        }
+        if (!in_array($suit, ['H', 'D', 'C', 'S'], true)) {
+            throw new InvalidArgumentException('Invalid card suit');
+        }
+
+        return [
+            'code' => $trimmed,
+            'rank' => $rank,
+            'suit' => $suit,
+        ];
+    }
+
+    private function updateStudPokerAuditRecord(string $roundId, array $updates): void
+    {
+        $existing = $this->db->findOne('casino_round_audit', ['roundId' => $roundId]);
+        if ($existing === null) {
+            $payload = array_merge([
+                '_id' => $roundId,
+                'roundId' => $roundId,
+                'game' => self::STUD_POKER_GAME_SLUG,
+                'rngVersion' => self::STUD_POKER_RNG_VERSION,
+                'createdAt' => MongoRepository::nowUtc(),
+            ], $updates);
+            $this->db->insertOne('casino_round_audit', $payload);
+            return;
+        }
+
+        $this->db->updateOne('casino_round_audit', ['_id' => MongoRepository::id($roundId)], $updates);
+    }
+
     private function findRoundLedgerEntries(string $roundId): array
     {
         if ($roundId === '') {
@@ -1567,6 +3342,57 @@ final class CasinoController
         ];
     }
 
+    private function applyCasinoResultFilter(array &$query, string $result): void
+    {
+        $normalized = strtolower(trim($result));
+        if ($normalized === '') {
+            return;
+        }
+
+        if ($normalized === 'win') {
+            $query['roundStatus'] = 'settled';
+            $query['netResult']['$gt'] = 0;
+            return;
+        }
+
+        if (in_array($normalized, ['lose', 'loss'], true)) {
+            $query['roundStatus'] = 'settled';
+            $query['netResult']['$lt'] = 0;
+            return;
+        }
+
+        if (in_array($normalized, ['push', 'draw', 'refund'], true)) {
+            $query['roundStatus'] = 'settled';
+            $query['netResult'] = 0.0;
+            return;
+        }
+
+        if ($normalized === 'pending') {
+            $query['roundStatus'] = ['$ne' => 'settled'];
+            return;
+        }
+
+        $query['result'] = ['$regex' => '^' . preg_quote($result, '/') . '$', '$options' => 'i'];
+    }
+
+    private function deriveCasinoPlayerOutcome(array $bet): string
+    {
+        $roundStatus = strtolower(trim((string) ($bet['roundStatus'] ?? 'settled')));
+        if ($roundStatus !== 'settled') {
+            return 'Pending';
+        }
+
+        $netResult = $this->num($bet['netResult'] ?? 0);
+        if ($netResult > 0) {
+            return 'Win';
+        }
+        if ($netResult < 0) {
+            return 'Lose';
+        }
+
+        return 'Push';
+    }
+
     private function mapCasinoBetRow(array $bet): array
     {
         return [
@@ -1579,6 +3405,16 @@ final class CasinoController
             'bets' => is_array($bet['bets'] ?? null) ? $bet['bets'] : [],
             'playerTotal' => (int) ($bet['playerTotal'] ?? 0),
             'bankerTotal' => (int) ($bet['bankerTotal'] ?? 0),
+            'playerAction' => $bet['playerAction'] ?? null,
+            'playerHand' => $bet['playerHand'] ?? null,
+            'dealerHand' => $bet['dealerHand'] ?? null,
+            'dealerUpCard' => $bet['dealerUpCard'] ?? null,
+            'dealerQualifies' => $bet['dealerQualifies'] ?? null,
+            'rouletteOutcome' => is_array($bet['rouletteOutcome'] ?? null) ? $bet['rouletteOutcome'] : null,
+            'winningBetKeys' => is_array($bet['winningBetKeys'] ?? null) ? array_values(array_map('strval', $bet['winningBetKeys'])) : [],
+            'blackjackRoundMeta' => is_array($bet['blackjackRoundMeta'] ?? null) ? $bet['blackjackRoundMeta'] : null,
+            'outcomeSource' => (string) ($bet['outcomeSource'] ?? ''),
+            'playerOutcome' => $this->deriveCasinoPlayerOutcome($bet),
             'result' => (string) ($bet['result'] ?? ''),
             'totalWager' => $this->num($bet['totalWager'] ?? 0),
             'totalReturn' => $this->num($bet['totalReturn'] ?? 0),
@@ -1591,6 +3427,7 @@ final class CasinoController
             'integrityHash' => (string) ($bet['integrityHash'] ?? ''),
             'serverDecisionAt' => $bet['serverDecisionAt'] ?? null,
             'latencyMs' => (int) ($bet['latencyMs'] ?? 0),
+            'roundStatus' => (string) ($bet['roundStatus'] ?? 'settled'),
             'createdAt' => $bet['createdAt'] ?? null,
         ];
     }
@@ -1600,12 +3437,18 @@ final class CasinoController
         $row = $this->mapCasinoBetRow($bet);
         $row['playerCards'] = is_array($bet['playerCards'] ?? null) ? $bet['playerCards'] : [];
         $row['bankerCards'] = is_array($bet['bankerCards'] ?? null) ? $bet['bankerCards'] : [];
+        $row['dealerCards'] = is_array($bet['dealerCards'] ?? null) ? $bet['dealerCards'] : [];
         $row['roundStatus'] = (string) ($bet['roundStatus'] ?? 'settled');
         $row['ledgerEntries'] = array_map(fn (array $entry): array => $this->mapLedgerEntry($entry), $ledgerEntries);
         $row['audit'] = $audit !== null ? [
             'deckHash' => (string) ($audit['deckHash'] ?? ''),
             'integrityHash' => (string) ($audit['integrityHash'] ?? ''),
             'rngVersion' => (string) ($audit['rngVersion'] ?? ''),
+            'outcomeSource' => (string) ($audit['outcomeSource'] ?? ''),
+            'bets' => is_array($audit['bets'] ?? null) ? $audit['bets'] : [],
+            'rouletteOutcome' => is_array($audit['rouletteOutcome'] ?? null) ? $audit['rouletteOutcome'] : null,
+            'winningBetKeys' => is_array($audit['winningBetKeys'] ?? null) ? array_values(array_map('strval', $audit['winningBetKeys'])) : [],
+            'blackjackRoundMeta' => is_array($audit['blackjackRoundMeta'] ?? null) ? $audit['blackjackRoundMeta'] : null,
             'createdAt' => $audit['createdAt'] ?? null,
         ] : null;
 
@@ -1621,11 +3464,24 @@ final class CasinoController
         return [
             'roundId' => $roundId,
             'requestId' => (string) ($betRecord['requestId'] ?? ''),
+            'game' => (string) ($betRecord['game'] ?? ''),
+            'roundStatus' => (string) ($betRecord['roundStatus'] ?? 'settled'),
             'result' => (string) ($betRecord['result'] ?? ''),
             'playerCards' => is_array($betRecord['playerCards'] ?? null) ? $betRecord['playerCards'] : [],
             'bankerCards' => is_array($betRecord['bankerCards'] ?? null) ? $betRecord['bankerCards'] : [],
+            'dealerCards' => is_array($betRecord['dealerCards'] ?? null) ? $betRecord['dealerCards'] : [],
+            'dealerUpCard' => $betRecord['dealerUpCard'] ?? null,
             'playerTotal' => (int) ($betRecord['playerTotal'] ?? 0),
             'bankerTotal' => (int) ($betRecord['bankerTotal'] ?? 0),
+            'playerAction' => $betRecord['playerAction'] ?? null,
+            'playerHand' => $betRecord['playerHand'] ?? null,
+            'dealerHand' => $betRecord['dealerHand'] ?? null,
+            'dealerQualifies' => $betRecord['dealerQualifies'] ?? null,
+            'rouletteOutcome' => is_array($betRecord['rouletteOutcome'] ?? null) ? $betRecord['rouletteOutcome'] : null,
+            'winningBetKeys' => is_array($betRecord['winningBetKeys'] ?? null) ? array_values(array_map('strval', $betRecord['winningBetKeys'])) : [],
+            'blackjackRoundMeta' => is_array($betRecord['blackjackRoundMeta'] ?? null) ? $betRecord['blackjackRoundMeta'] : null,
+            'outcomeSource' => (string) ($betRecord['outcomeSource'] ?? ''),
+            'playerOutcome' => $this->deriveCasinoPlayerOutcome($betRecord),
             'bets' => is_array($betRecord['bets'] ?? null) ? $betRecord['bets'] : [],
             'totalWager' => $this->num($betRecord['totalWager'] ?? 0),
             'totalReturn' => $this->num($betRecord['totalReturn'] ?? 0),
@@ -1634,6 +3490,9 @@ final class CasinoController
             'balanceBefore' => $this->num($betRecord['balanceBefore'] ?? 0),
             'balanceAfter' => $balanceAfter,
             'newBalance' => $balanceAfter,
+            'userId' => (string) ($betRecord['userId'] ?? ''),
+            'username' => (string) ($betRecord['username'] ?? ''),
+            'rngVersion' => (string) ($betRecord['rngVersion'] ?? ''),
             'ledgerEntries' => $mappedLedger,
             'integrityHash' => (string) ($betRecord['integrityHash'] ?? ''),
             'serverDecisionAt' => $betRecord['serverDecisionAt'] ?? null,
@@ -1690,11 +3549,40 @@ final class CasinoController
             return 'Account is view-only';
         }
 
+        $selfExcludedUntil = $this->activeRestrictionUntil($user['selfExcludedUntil'] ?? null);
+        if ($selfExcludedUntil !== null) {
+            return 'Account is self-excluded until ' . $selfExcludedUntil . '. Please contact support if you need assistance.';
+        }
+
+        $coolingOffUntil = $this->activeRestrictionUntil($user['coolingOffUntil'] ?? null);
+        if ($coolingOffUntil !== null) {
+            return 'Account is in cooling-off period until ' . $coolingOffUntil;
+        }
+
         if (!$this->isCasinoEnabled($user)) {
             return 'Casino access is disabled for this account';
         }
 
         return null;
+    }
+
+    private function activeRestrictionUntil(mixed $rawValue): ?string
+    {
+        if (!is_string($rawValue)) {
+            return null;
+        }
+
+        $value = trim($rawValue);
+        if ($value === '') {
+            return null;
+        }
+
+        $timestamp = strtotime($value);
+        if ($timestamp === false || $timestamp <= time()) {
+            return null;
+        }
+
+        return $value;
     }
 
     private function isCasinoEnabled(array $user): bool

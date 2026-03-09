@@ -1,0 +1,94 @@
+(function () {
+    var REQUEST_TIMEOUT_MS = 20000;
+    var pendingRequests = {};
+    var requestCounter = 0;
+
+    function nextRequestId(prefix) {
+        requestCounter += 1;
+        return (prefix || 'blackjack') + '_' + Date.now().toString(36) + '_' + requestCounter.toString(36);
+    }
+
+    function clearPending(requestId) {
+        var record = pendingRequests[requestId];
+        if (!record) {
+            return;
+        }
+
+        if (record.timeoutId) {
+            clearTimeout(record.timeoutId);
+        }
+        delete pendingRequests[requestId];
+    }
+
+    function createRequest(type, payload, responseTypes, errorTypes) {
+        return new Promise(function (resolve, reject) {
+            var requestId = String((payload && payload.requestId) || nextRequestId(type)).trim();
+            var timeoutId = setTimeout(function () {
+                clearPending(requestId);
+                reject(new Error('Request timed out'));
+            }, REQUEST_TIMEOUT_MS);
+
+            pendingRequests[requestId] = {
+                resolve: resolve,
+                reject: reject,
+                responseTypes: responseTypes || [],
+                errorTypes: errorTypes || [],
+                timeoutId: timeoutId
+            };
+
+            window.parent.postMessage(Object.assign({}, payload, {
+                type: type,
+                requestId: requestId
+            }), window.location.origin);
+        });
+    }
+
+    function handleMessage(event) {
+        if (event.origin !== window.location.origin) {
+            return;
+        }
+
+        var data = event.data;
+        if (!data || typeof data !== 'object') {
+            return;
+        }
+
+        var requestId = String(data.requestId || '').trim();
+        if (!requestId || !pendingRequests[requestId]) {
+            return;
+        }
+
+        var record = pendingRequests[requestId];
+        var messageType = String(data.type || '');
+        var isResponse = record.responseTypes.indexOf(messageType) !== -1;
+        var isError = record.errorTypes.indexOf(messageType) !== -1 || !!data.error;
+
+        if (!isResponse && !isError) {
+            return;
+        }
+
+        clearPending(requestId);
+        if (isError) {
+            record.reject(new Error(String(data.error || 'Request failed')));
+            return;
+        }
+
+        record.resolve(data);
+    }
+
+    window.addEventListener('message', handleMessage);
+
+    window.BetterdrBlackjackBridge = {
+        createRequestId: nextRequestId,
+        getBalance: function () {
+            return createRequest('getBalance', {}, ['balanceUpdate'], []);
+        },
+        settleRound: function (payload, requestId) {
+            return createRequest('placeBet', {
+                game: 'blackjack',
+                bets: payload || {},
+                requestId: requestId
+            }, ['betResult'], ['betError']);
+        }
+    };
+}());

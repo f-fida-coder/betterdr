@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import '../bonus.css';
 import { getBalance, getWalletTransactions, requestDeposit, requestWithdrawal } from '../api';
+import { isWagerTransaction } from '../utils/transactionPresentation';
 
 const TABS = [
     { id: 'deposits', label: 'Deposits', icon: 'fa-solid fa-arrow-down' },
@@ -89,7 +90,7 @@ const BonusView = () => {
             .filter((tx) => tx.type === 'withdrawal' && tx.status === 'completed')
             .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
         const settledBets = transactions
-            .filter((tx) => tx.type === 'bet_placed')
+            .filter((tx) => isWagerTransaction(tx))
             .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
         const loyaltyPoints = Math.floor((completedDeposits + settledBets) / 10);
         const loyaltyTarget = 4000;
