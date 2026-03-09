@@ -1,6 +1,15 @@
 import React, { useEffect, useMemo, useState, useRef, useCallback } from 'react';
 import '../casino.css';
-import { getCasinoCategories, getCasinoGames, launchCasinoGame, getBalance, placeCasinoBet, getCasinoBetHistory } from '../api';
+import {
+    getCasinoCategories,
+    getCasinoGames,
+    launchCasinoGame,
+    getBalance,
+    placeCasinoBet,
+    startStudPokerRound,
+    resolveStudPokerRound,
+    getCasinoBetHistory
+} from '../api';
 
 const LOCAL_GAME_META = {
     baccarat: {
@@ -9,6 +18,20 @@ const LOCAL_GAME_META = {
         url: '/games/baccarat/index.html',
         poster: '/games/baccarat/assets/menuscreen.webp',
         themeColor: '#1a0a2e',
+    },
+    'stud-poker': {
+        id: 'local-stud-poker',
+        provider: 'In-House',
+        url: '/games/stud_poker/index.html',
+        poster: '/games/stud_poker/assets/poster.jpg',
+        themeColor: '#0f5db3',
+    },
+    roulette: {
+        id: 'local-roulette',
+        provider: 'In-House',
+        url: '/games/roulette/index.html?v=20260309a',
+        poster: '/games/roulette/assets/poster.jpg',
+        themeColor: '#b91c1c',
     }
 };
 
@@ -40,7 +63,7 @@ const CasinoView = () => {
     const [historyRows, setHistoryRows] = useState([]);
     const [historyPage, setHistoryPage] = useState(1);
     const [historyPagination, setHistoryPagination] = useState({ page: 1, pages: 1, total: 0, limit: 8 });
-    const [historyFilters, setHistoryFilters] = useState({ result: '', minWager: '', maxWager: '' });
+    const [historyFilters, setHistoryFilters] = useState({ game: '', result: '', minWager: '', maxWager: '' });
     const iframeRef = useRef(null);
     const pendingGameRequests = useRef(new Set());
 
@@ -56,6 +79,7 @@ const CasinoView = () => {
             const payload = await getCasinoBetHistory(token, {
                 page: historyPage,
                 limit: 8,
+                game: historyFilters.game,
                 result: historyFilters.result,
                 minWager: historyFilters.minWager,
                 maxWager: historyFilters.maxWager,
@@ -64,11 +88,11 @@ const CasinoView = () => {
             setHistoryPagination(payload?.pagination || { page: historyPage, pages: 1, total: 0, limit: 8 });
         } catch (err) {
             console.error('Failed to load casino history:', err);
-            setHistoryError(err.message || 'Failed to load baccarat history');
+            setHistoryError(err.message || 'Failed to load casino history');
         } finally {
             setHistoryLoading(false);
         }
-    }, [token, historyPage, historyFilters.result, historyFilters.minWager, historyFilters.maxWager]);
+    }, [token, historyPage, historyFilters.game, historyFilters.result, historyFilters.minWager, historyFilters.maxWager]);
 
     /* ── postMessage bridge: iframe ↔ backend API ─────────── */
     const handleGameMessage = useCallback(async (event) => {
@@ -111,6 +135,44 @@ const CasinoView = () => {
             } catch (err) {
                 console.error('Casino bet failed:', err);
                 sendToGame({ type: 'betError', requestId, error: err.message });
+            } finally {
+                pendingGameRequests.current.delete(requestId);
+            }
+        }
+
+        if (msg.type === 'studPokerStartRound') {
+            const requestId = String(msg.requestId || createRequestId());
+            if (pendingGameRequests.current.has(requestId)) {
+                return;
+            }
+            pendingGameRequests.current.add(requestId);
+            try {
+                const result = await startStudPokerRound(msg.anteBet, token, { requestId });
+                sendToGame({ type: 'studPokerRoundStarted', requestId, ...result });
+                window.dispatchEvent(new Event('user:refresh'));
+                loadCasinoHistory();
+            } catch (err) {
+                console.error('Stud poker round start failed:', err);
+                sendToGame({ type: 'studPokerError', requestId, error: err.message });
+            } finally {
+                pendingGameRequests.current.delete(requestId);
+            }
+        }
+
+        if (msg.type === 'studPokerResolveRound') {
+            const requestId = String(msg.requestId || createRequestId());
+            if (pendingGameRequests.current.has(requestId)) {
+                return;
+            }
+            pendingGameRequests.current.add(requestId);
+            try {
+                const result = await resolveStudPokerRound(msg.roundId, msg.action, token, { requestId });
+                sendToGame({ type: 'studPokerRoundResolved', requestId, ...result });
+                window.dispatchEvent(new Event('user:refresh'));
+                loadCasinoHistory();
+            } catch (err) {
+                console.error('Stud poker round resolve failed:', err);
+                sendToGame({ type: 'studPokerError', requestId, error: err.message });
             } finally {
                 pendingGameRequests.current.delete(requestId);
             }
@@ -213,6 +275,68 @@ const CasinoView = () => {
         const num = Number(value || 0);
         if (Number.isNaN(num)) return '$0.00';
         return `$${num.toFixed(2)}`;
+    };
+    const formatGameLabel = (value) => {
+        switch (String(value || '').toLowerCase()) {
+            case 'stud-poker':
+                return 'Stud Poker';
+            case 'roulette':
+                return 'Roulette';
+            case 'baccarat':
+                return 'Baccarat';
+            default:
+                return value || '—';
+        }
+    };
+    const formatOutcomeSource = (value) => {
+        switch (String(value || '').toLowerCase()) {
+            case 'server_rng':
+                return 'Server RNG';
+            case 'native_client_round':
+                return 'Client Native';
+            case '':
+                return '—';
+            default:
+                return value;
+        }
+    };
+    const getPlayerOutcome = (row) => {
+        const explicitOutcome = String(row?.playerOutcome || '').trim();
+        if (explicitOutcome) return explicitOutcome;
+
+        const roundStatus = String(row?.roundStatus || '').toLowerCase();
+        if (roundStatus && roundStatus !== 'settled') return 'Pending';
+
+        const net = Number(row?.netResult || 0);
+        if (net > 0) return 'Win';
+        if (net < 0) return 'Lose';
+        return 'Push';
+    };
+    const getOutcomeClassName = (outcome) => {
+        switch (String(outcome || '').toLowerCase()) {
+            case 'win':
+                return 'outcome-win';
+            case 'lose':
+            case 'loss':
+                return 'outcome-lose';
+            case 'push':
+            case 'draw':
+            case 'refund':
+                return 'outcome-push';
+            default:
+                return 'outcome-pending';
+        }
+    };
+    const formatRoundResult = (row) => {
+        if (!row) return '—';
+
+        if (String(row.game || '').toLowerCase() === 'roulette' && row.rouletteOutcome) {
+            const number = row.rouletteOutcome.number ?? row.result;
+            const color = String(row.rouletteOutcome.color || '').trim();
+            return color ? `${number} ${color}` : `${number}`;
+        }
+
+        return row.result || '—';
     };
     const handleLocalGameOpen = (game) => {
         if (!token) {
@@ -364,8 +488,8 @@ const CasinoView = () => {
             <div className="casino-history-section">
                 <div className="casino-history-header">
                     <div>
-                        <h3>Baccarat History</h3>
-                        <p>Win/loss history pulled from server-settled rounds.</p>
+                        <h3>Casino History</h3>
+                        <p>Server-settled rounds across in-house casino games.</p>
                     </div>
                     <button
                         type="button"
@@ -380,19 +504,31 @@ const CasinoView = () => {
 
                 <div className="casino-history-filters">
                     <label>
-                        Result
+                        Game
                         <select
+                            value={historyFilters.game}
+                            onChange={(e) => {
+                                setHistoryPage(1);
+                                setHistoryFilters((prev) => ({ ...prev, game: e.target.value }));
+                            }}
+                        >
+                            <option value="">All</option>
+                            <option value="baccarat">Baccarat</option>
+                            <option value="roulette">Roulette</option>
+                            <option value="stud-poker">Stud Poker</option>
+                        </select>
+                    </label>
+                    <label>
+                        Outcome / Result
+                        <input
+                            type="text"
                             value={historyFilters.result}
                             onChange={(e) => {
                                 setHistoryPage(1);
                                 setHistoryFilters((prev) => ({ ...prev, result: e.target.value }));
                             }}
-                        >
-                            <option value="">All</option>
-                            <option value="Player">Player</option>
-                            <option value="Banker">Banker</option>
-                            <option value="Tie">Tie</option>
-                        </select>
+                            placeholder="Win / Lose / Push / Pending / Player / Banker / 17"
+                        />
                     </label>
                     <label>
                         Min Wager
@@ -431,6 +567,10 @@ const CasinoView = () => {
                         <thead>
                             <tr>
                                 <th>Time</th>
+                                <th>Game</th>
+                                <th>Status</th>
+                                <th>Source</th>
+                                <th>Outcome</th>
                                 <th>Result</th>
                                 <th>Wager</th>
                                 <th>Return</th>
@@ -441,18 +581,34 @@ const CasinoView = () => {
                         <tbody>
                             {!historyLoading && historyRows.length === 0 && (
                                 <tr>
-                                    <td colSpan={6} className="casino-history-empty">
-                                        No baccarat rounds found for these filters.
+                                    <td colSpan={10} className="casino-history-empty">
+                                        No casino rounds found for these filters.
                                     </td>
                                 </tr>
                             )}
                             {historyRows.map((row) => (
                                 <tr key={row.roundId || row.id}>
                                     <td>{row.createdAt ? new Date(row.createdAt).toLocaleString() : '—'}</td>
-                                    <td>{row.result || '—'}</td>
+                                    <td>{formatGameLabel(row.game)}</td>
+                                    <td>{row.roundStatus || '—'}</td>
+                                    <td>{formatOutcomeSource(row.outcomeSource)}</td>
+                                    <td>
+                                        <span className={`casino-history-badge ${getOutcomeClassName(getPlayerOutcome(row))}`}>
+                                            {getPlayerOutcome(row)}
+                                        </span>
+                                    </td>
+                                    <td>{formatRoundResult(row)}</td>
                                     <td>{formatMoney(row.totalWager)}</td>
                                     <td>{formatMoney(row.totalReturn)}</td>
-                                    <td className={Number(row.netResult) >= 0 ? 'net-pos' : 'net-neg'}>
+                                    <td
+                                        className={
+                                            Number(row.netResult) > 0
+                                                ? 'net-pos'
+                                                : Number(row.netResult) < 0
+                                                    ? 'net-neg'
+                                                    : 'net-zero'
+                                        }
+                                    >
                                         {formatMoney(row.netResult)}
                                     </td>
                                     <td>{formatMoney(row.balanceAfter)}</td>

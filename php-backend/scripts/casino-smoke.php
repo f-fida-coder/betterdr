@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 /**
- * Casino baccarat smoke suite.
+ * Casino baccarat + roulette smoke suite.
  *
  * Usage:
  *   php php-backend/scripts/casino-smoke.php
@@ -54,6 +54,98 @@ function assertOk(bool $cond, string $message): void
 {
     if (!$cond) {
         throw new RuntimeException($message);
+    }
+}
+
+function num(mixed $value): float
+{
+    return is_numeric($value) ? (float) $value : 0.0;
+}
+
+function rouletteMultiplier(string $type): float
+{
+    return match ($type) {
+        'straight' => 36.0,
+        'dozen', 'column' => 3.0,
+        'color', 'parity', 'range' => 2.0,
+        default => 0.0,
+    };
+}
+
+function rouletteBetWins(array $bet, array $outcome): bool
+{
+    $type = strtolower(trim((string) ($bet['type'] ?? '')));
+    $value = strtolower(trim((string) ($bet['value'] ?? '')));
+
+    return match ($type) {
+        'straight' => (int) $value === (int) ($outcome['number'] ?? -999),
+        'dozen' => $value !== '' && $value === strtolower((string) ($outcome['dozen'] ?? '')),
+        'column' => $value !== '' && $value === strtolower((string) ($outcome['column'] ?? '')),
+        'color' => $value !== '' && $value === strtolower((string) ($outcome['color'] ?? '')),
+        'parity' => $value !== '' && $value === strtolower((string) ($outcome['parity'] ?? '')),
+        'range' => $value !== '' && $value === strtolower((string) ($outcome['range'] ?? '')),
+        default => false,
+    };
+}
+
+function rouletteBetKey(array $bet): string
+{
+    $type = strtolower(trim((string) ($bet['type'] ?? '')));
+    $value = strtolower(trim((string) ($bet['value'] ?? '')));
+    if ($type === 'straight') {
+        $value = (string) ((int) $value);
+    }
+    return $type . ':' . $value;
+}
+
+function assertRouletteSettlementIntegrity(array $payload, string $context): void
+{
+    $outcome = is_array($payload['rouletteOutcome'] ?? null) ? $payload['rouletteOutcome'] : null;
+    assertOk($outcome !== null, $context . ': rouletteOutcome missing');
+
+    $bets = is_array($payload['bets'] ?? null) ? $payload['bets'] : [];
+    $expectedWager = 0.0;
+    $expectedReturn = 0.0;
+    $expectedWinningKeys = [];
+
+    foreach ($bets as $bet) {
+        if (!is_array($bet)) {
+            continue;
+        }
+
+        $amount = round(num($bet['amount'] ?? 0), 2);
+        if ($amount <= 0) {
+            continue;
+        }
+
+        $type = strtolower(trim((string) ($bet['type'] ?? '')));
+        $multiplier = rouletteMultiplier($type);
+        assertOk($multiplier > 0, $context . ': unsupported roulette bet type in response: ' . $type);
+
+        $expectedWager = round($expectedWager + $amount, 2);
+        if (rouletteBetWins($bet, $outcome)) {
+            $expectedReturn = round($expectedReturn + round($amount * $multiplier, 2), 2);
+            $expectedWinningKeys[] = (string) ($bet['key'] ?? rouletteBetKey($bet));
+        }
+    }
+
+    $reportedWinningKeys = is_array($payload['winningBetKeys'] ?? null) ? $payload['winningBetKeys'] : [];
+    sort($expectedWinningKeys);
+    sort($reportedWinningKeys);
+
+    $reportedWager = round(num($payload['totalWager'] ?? 0), 2);
+    $reportedReturn = round(num($payload['totalReturn'] ?? 0), 2);
+    $reportedNet = round(num($payload['netResult'] ?? 0), 2);
+    $expectedNet = round($expectedReturn - $expectedWager, 2);
+
+    assertOk(abs($reportedWager - $expectedWager) < 0.01, $context . ': totalWager mismatch');
+    assertOk(abs($reportedReturn - $expectedReturn) < 0.01, $context . ': totalReturn mismatch');
+    assertOk(abs($reportedNet - $expectedNet) < 0.01, $context . ': netResult mismatch');
+    assertOk($reportedWinningKeys === $expectedWinningKeys, $context . ': winningBetKeys mismatch');
+
+    if (is_numeric($payload['balanceBefore'] ?? null) && is_numeric($payload['balanceAfter'] ?? null)) {
+        $delta = round(num($payload['balanceAfter']) - num($payload['balanceBefore']), 2);
+        assertOk(abs($delta - $expectedNet) < 0.01, $context . ': balance delta mismatch');
     }
 }
 
@@ -121,8 +213,99 @@ try {
     assertOk((string) ($detail['data']['bet']['roundId'] ?? '') === $roundId, 'Detail round mismatch');
     assertOk(is_array($detail['data']['bet']['ledgerEntries'] ?? null), 'Ledger entries missing in detail');
 
+    echo "6) Place roulette round and verify server authoritative settlement...\n";
+    $rouletteRequestId = 'smoke_roulette_' . $seed;
+    $roulette = req('POST', $baseUrl . '/casino/bet', [
+        'requestId' => $rouletteRequestId,
+        'game' => 'roulette',
+        'bets' => [
+            ['type' => 'color', 'value' => 'red', 'amount' => 3],
+            ['type' => 'straight', 'value' => '17', 'amount' => 2],
+        ],
+        // Server should ignore this and still settle via server RNG.
+        'clientOutcomeNumber' => 17,
+    ], $token);
+    assertOk($roulette['status'] === 200, 'Roulette bet failed');
+    $rouletteRoundId = (string) ($roulette['data']['roundId'] ?? '');
+    assertOk($rouletteRoundId !== '', 'Missing roulette roundId');
+    assertOk((string) ($roulette['data']['game'] ?? '') === 'roulette', 'Roulette response game mismatch');
+    assertOk((string) ($roulette['data']['outcomeSource'] ?? '') === 'server_rng', 'Roulette outcome source must be server_rng');
+    assertOk(is_array($roulette['data']['rouletteOutcome'] ?? null), 'Roulette outcome payload missing');
+    assertRouletteSettlementIntegrity($roulette['data'], 'roulette initial');
+
+    echo "7) Replay roulette requestId (idempotency)...\n";
+    $rouletteReplay = req('POST', $baseUrl . '/casino/bet', [
+        'requestId' => $rouletteRequestId,
+        'game' => 'roulette',
+        'bets' => [
+            ['type' => 'color', 'value' => 'red', 'amount' => 3],
+            ['type' => 'straight', 'value' => '17', 'amount' => 2],
+        ],
+        'clientOutcomeNumber' => 0,
+    ], $token);
+    assertOk($rouletteReplay['status'] === 200, 'Roulette replay failed');
+    assertOk((string) ($rouletteReplay['data']['roundId'] ?? '') === $rouletteRoundId, 'Roulette idempotent roundId mismatch');
+    assertOk((bool) ($rouletteReplay['data']['idempotent'] ?? false) === true, 'Expected roulette idempotent=true on replay');
+    assertRouletteSettlementIntegrity($rouletteReplay['data'], 'roulette replay');
+
+    echo "8) Enforce casino loss limits...\n";
+    $currentNetLoss = 0.0;
+    foreach ([$place, $roulette] as $roundResponse) {
+        $netResult = isset($roundResponse['data']['netResult']) && is_numeric($roundResponse['data']['netResult'])
+            ? (float) $roundResponse['data']['netResult']
+            : 0.0;
+        // net loss = total wager - total return = -netResult
+        $currentNetLoss -= $netResult;
+    }
+    $currentNetLoss = round($currentNetLoss, 2);
+    $lossProbeWager = max(5.0, min(250.0, (float) ceil(max(0.0, -$currentNetLoss) + 2.0)));
+    // Force: (currentNetLoss + lossProbeWager) > tightLossLimit
+    $tightLossLimit = round(max(0.5, $currentNetLoss + $lossProbeWager - 1.0), 2);
+
+    $setLimits = req('PUT', $baseUrl . '/auth/gambling-limits', [
+        'lossDaily' => $tightLossLimit,
+        'lossWeekly' => $tightLossLimit,
+        'lossMonthly' => $tightLossLimit,
+    ], $token);
+    assertOk($setLimits['status'] === 200, 'Failed to set gambling limits');
+
+    $blockedByLossLimit = req('POST', $baseUrl . '/casino/bet', [
+        'requestId' => 'smoke_limit_' . $seed,
+        'game' => 'roulette',
+        'bets' => [
+            ['type' => 'color', 'value' => 'black', 'amount' => $lossProbeWager],
+        ],
+    ], $token);
+    assertOk(
+        $blockedByLossLimit['status'] === 400,
+        'Casino loss limit should block wager, got HTTP ' . $blockedByLossLimit['status']
+    );
+    $lossLimitMessage = strtolower((string) ($blockedByLossLimit['data']['message'] ?? ''));
+    assertOk(
+        str_contains($lossLimitMessage, 'loss limit'),
+        'Casino loss-limit block reason missing. Response: ' . json_encode($blockedByLossLimit['data'])
+    );
+
+    $relaxLimits = req('PUT', $baseUrl . '/auth/gambling-limits', [
+        'lossDaily' => 100000,
+        'lossWeekly' => 100000,
+        'lossMonthly' => 100000,
+    ], $token);
+    assertOk($relaxLimits['status'] === 200, 'Failed to reset gambling limits');
+
+    echo "9) Enforce cooling-off on casino betting...\n";
+    $cooling = req('POST', $baseUrl . '/auth/cooling-off', ['duration' => '24h'], $token);
+    assertOk($cooling['status'] === 200, 'Failed to activate cooling-off period');
+
+    $blockedByCoolingOff = req('POST', $baseUrl . '/casino/bet', [
+        'requestId' => 'smoke_cooldown_' . $seed,
+        'game' => 'baccarat',
+        'bets' => ['Player' => 5, 'Banker' => 0, 'Tie' => 0],
+    ], $token);
+    assertOk($blockedByCoolingOff['status'] === 403, 'Cooling-off period should block casino betting');
+
     if ($adminUser !== '' && $adminPass !== '') {
-        echo "6) Login admin and validate admin casino endpoints...\n";
+        echo "10) Login admin and validate admin casino endpoints...\n";
         $adminLogin = req('POST', $baseUrl . '/auth/admin/login', ['username' => $adminUser, 'password' => $adminPass]);
         assertOk($adminLogin['status'] === 200, 'Admin login failed');
         $adminToken = (string) ($adminLogin['data']['token'] ?? '');
@@ -137,7 +320,7 @@ try {
         $summary = req('GET', $baseUrl . '/admin/casino/summary', null, $adminToken);
         assertOk($summary['status'] === 200, 'Admin casino summary failed');
     } else {
-        echo "6) Skipping admin endpoint checks (SMOKE_ADMIN_USER/SMOKE_ADMIN_PASS not set)...\n";
+        echo "10) Skipping admin endpoint checks (SMOKE_ADMIN_USER/SMOKE_ADMIN_PASS not set)...\n";
     }
 
     echo "\nCasino smoke suite passed.\n";
