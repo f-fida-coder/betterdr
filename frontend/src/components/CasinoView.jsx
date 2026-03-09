@@ -662,8 +662,8 @@ const CasinoView = () => {
                                 <th>Wager</th>
                                 <th>Return</th>
                                 <th>Net</th>
-                                <th>Balance Before</th>
-                                <th>Balance After</th>
+                                <th>Available Before</th>
+                                <th>Available After</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -699,8 +699,8 @@ const CasinoView = () => {
                                     >
                                         {formatMoney(row.netResult)}
                                     </td>
-                                    <td>{formatMoney(row.balanceBefore)}</td>
-                                    <td>{formatMoney(row.balanceAfter)}</td>
+                                    <td>{formatMoney(row.availableBalanceBefore ?? row.balanceBefore)}</td>
+                                    <td>{formatMoney(row.availableBalanceAfter ?? row.balanceAfter)}</td>
                                 </tr>
                             ))}
                         </tbody>

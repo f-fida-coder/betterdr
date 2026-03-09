@@ -4443,6 +4443,25 @@ final class CasinoController
 
     private function mapCasinoBetRow(array $bet): array
     {
+        $balanceBefore = $this->num($bet['balanceBefore'] ?? 0);
+        $balanceAfter = $this->num($bet['balanceAfter'] ?? 0);
+        $pendingBalanceSnapshot = $this->safeNumber($bet['pendingBalanceSnapshot'] ?? null, null);
+        $availableBalanceBefore = $this->safeNumber($bet['availableBalanceBefore'] ?? null, null);
+        $availableBalanceAfter = $this->safeNumber($bet['availableBalanceAfter'] ?? null, null);
+
+        if ($availableBalanceBefore === null && $pendingBalanceSnapshot !== null) {
+            $availableBalanceBefore = round(max(0, $balanceBefore - $pendingBalanceSnapshot), 2);
+        }
+        if ($availableBalanceAfter === null && $pendingBalanceSnapshot !== null) {
+            $availableBalanceAfter = round(max(0, $balanceAfter - $pendingBalanceSnapshot), 2);
+        }
+        if ($availableBalanceBefore === null) {
+            $availableBalanceBefore = $balanceBefore;
+        }
+        if ($availableBalanceAfter === null) {
+            $availableBalanceAfter = $balanceAfter;
+        }
+
         return [
             'id' => (string) ($bet['_id'] ?? ''),
             'roundId' => (string) ($bet['roundId'] ?? $bet['_id'] ?? ''),
@@ -4471,8 +4490,10 @@ final class CasinoController
             'totalReturn' => $this->num($bet['totalReturn'] ?? 0),
             'profit' => $this->num($bet['profit'] ?? 0),
             'netResult' => $this->num($bet['netResult'] ?? 0),
-            'balanceBefore' => $this->num($bet['balanceBefore'] ?? 0),
-            'balanceAfter' => $this->num($bet['balanceAfter'] ?? 0),
+            'balanceBefore' => $balanceBefore,
+            'balanceAfter' => $balanceAfter,
+            'availableBalanceBefore' => round(max(0, $availableBalanceBefore), 2),
+            'availableBalanceAfter' => round(max(0, $availableBalanceAfter), 2),
             'rngVersion' => (string) ($bet['rngVersion'] ?? ''),
             'deckHash' => (string) ($bet['deckHash'] ?? ''),
             'integrityHash' => (string) ($bet['integrityHash'] ?? ''),
@@ -4511,10 +4532,18 @@ final class CasinoController
     {
         $mappedLedger = array_map(fn (array $entry): array => $this->mapLedgerEntry($entry), $ledgerEntries);
         $roundId = (string) ($betRecord['roundId'] ?? $betRecord['_id'] ?? '');
+        $balanceBefore = $this->num($betRecord['balanceBefore'] ?? 0);
         $balanceAfter = $this->num($betRecord['balanceAfter'] ?? 0);
+        $pendingBalanceSnapshot = $this->safeNumber($betRecord['pendingBalanceSnapshot'] ?? null, null);
+        $availableBalanceBefore = $this->safeNumber($betRecord['availableBalanceBefore'] ?? null, null);
         $availableBalanceAfter = $this->safeNumber($betRecord['availableBalanceAfter'] ?? null, null);
+        if ($availableBalanceBefore === null && $pendingBalanceSnapshot !== null) {
+            $availableBalanceBefore = round(max(0, $balanceBefore - $pendingBalanceSnapshot), 2);
+        }
+        if ($availableBalanceBefore === null) {
+            $availableBalanceBefore = $balanceBefore;
+        }
         if ($availableBalanceAfter === null) {
-            $pendingBalanceSnapshot = $this->safeNumber($betRecord['pendingBalanceSnapshot'] ?? null, null);
             if ($pendingBalanceSnapshot !== null) {
                 $availableBalanceAfter = round(max(0, $balanceAfter - $pendingBalanceSnapshot), 2);
             }
@@ -4522,6 +4551,7 @@ final class CasinoController
         if ($availableBalanceAfter === null) {
             $availableBalanceAfter = $balanceAfter;
         }
+        $availableBalanceBefore = round(max(0, $availableBalanceBefore), 2);
         $availableBalanceAfter = round(max(0, $availableBalanceAfter), 2);
 
         return [
@@ -4553,8 +4583,10 @@ final class CasinoController
             'profit' => $this->num($betRecord['profit'] ?? 0),
             'netResult' => $this->num($betRecord['netResult'] ?? 0),
             'resultType' => (string) ($betRecord['resultType'] ?? ''),
-            'balanceBefore' => $this->num($betRecord['balanceBefore'] ?? 0),
+            'balanceBefore' => $balanceBefore,
             'balanceAfter' => $balanceAfter,
+            'availableBalanceBefore' => $availableBalanceBefore,
+            'availableBalanceAfter' => $availableBalanceAfter,
             'availableBalance' => $availableBalanceAfter,
             'walletBalance' => $availableBalanceAfter,
             'playableBalance' => $availableBalanceAfter,
