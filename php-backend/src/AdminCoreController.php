@@ -1043,6 +1043,7 @@ final class AdminCoreController
 
             $allDocs = [];
             $scope = 'global';
+            $seedMaxNum = null;
             if ($type === 'player' && $agentId !== '') {
                 $actorRole = (string) ($actor['role'] ?? '');
                 $actorId = (string) ($actor['_id'] ?? '');
@@ -1068,6 +1069,46 @@ final class AdminCoreController
                         ['createdBy' => $agentObjectId, 'createdByModel' => 'Agent'],
                     ],
                 ], ['projection' => ['username' => 1]]);
+            } elseif ($type === 'agent' && $agentId !== '') {
+                $actorRole = (string) ($actor['role'] ?? '');
+                $actorId = (string) ($actor['_id'] ?? '');
+                $allowed = false;
+                if ($actorRole === 'admin') {
+                    $allowed = true;
+                } elseif (in_array($actorRole, ['master_agent', 'super_agent'], true)) {
+                    $allowed = in_array($agentId, $this->listManagedAgentIds($actorId), true);
+                }
+                if (!$allowed) {
+                    Response::json(['message' => 'Not authorized for this master-agent scope'], 403);
+                    return;
+                }
+
+                $parentAgent = $this->db->findOne(
+                    'agents',
+                    ['_id' => MongoRepository::id($agentId)],
+                    ['projection' => ['username' => 1, 'role' => 1]]
+                );
+                if (
+                    $parentAgent === null
+                    || !in_array((string) ($parentAgent['role'] ?? ''), ['master_agent', 'super_agent'], true)
+                ) {
+                    Response::json(['message' => 'agentId must reference a valid Master Agent'], 400);
+                    return;
+                }
+
+                $scope = 'master-agent';
+                $allDocs = $this->db->findMany('agents', [
+                    'createdBy' => MongoRepository::id($agentId),
+                    'createdByModel' => 'Agent',
+                ], ['projection' => ['username' => 1]]);
+
+                $parentUsername = strtoupper((string) ($parentAgent['username'] ?? ''));
+                if (preg_match('/(\d+)(?:MA)?$/i', $parentUsername, $parentMatch) === 1) {
+                    $parentNumeric = (int) ($parentMatch[1] ?? 0);
+                    if ($parentNumeric > 0) {
+                        $seedMaxNum = max(0, $parentNumeric - 1);
+                    }
+                }
             } else {
                 $allDocs = array_merge(
                     $this->db->findMany('users', [], ['projection' => ['username' => 1]]),
@@ -1077,6 +1118,9 @@ final class AdminCoreController
             }
 
             $maxNum = ($type === 'agent') ? 246 : 100;
+            if (is_int($seedMaxNum) && $seedMaxNum > $maxNum) {
+                $maxNum = $seedMaxNum;
+            }
             $matchedCount = 0;
             $agentTrailingMax = 0;
             foreach ($allDocs as $doc) {
@@ -1360,8 +1404,10 @@ final class AdminCoreController
                 return;
             }
 
+            $passwordFields = $this->passwordFields($newPassword);
             $this->db->updateOne('users', ['_id' => MongoRepository::id($userId)], [
-                'password' => password_hash($newPassword, PASSWORD_BCRYPT),
+                'password' => $passwordFields['password'],
+                'passwordCaseInsensitiveHash' => $passwordFields['passwordCaseInsensitiveHash'],
                 // WARNING: displayPassword is for admin convenience only.
                 // It stores the last set password in plain text.
                 'displayPassword' => $newPassword,
@@ -1395,8 +1441,10 @@ final class AdminCoreController
                 return;
             }
 
+            $passwordFields = $this->passwordFields($newPassword);
             $this->db->updateOne('agents', ['_id' => MongoRepository::id($agentId)], [
-                'password' => password_hash($newPassword, PASSWORD_BCRYPT),
+                'password' => $passwordFields['password'],
+                'passwordCaseInsensitiveHash' => $passwordFields['passwordCaseInsensitiveHash'],
                 'displayPassword' => $newPassword,
                 'updatedAt' => MongoRepository::nowUtc(),
             ]);
@@ -3804,10 +3852,12 @@ final class AdminCoreController
                 $referrerObjectId = MongoRepository::id($referredByUserId);
             }
 
+            $passwordFields = $this->passwordFields($password);
             $doc = [
                 'username' => strtoupper($username),
                 'phoneNumber' => $phoneNumber,
-                'password' => password_hash($password, PASSWORD_BCRYPT),
+                'password' => $passwordFields['password'],
+                'passwordCaseInsensitiveHash' => $passwordFields['passwordCaseInsensitiveHash'],
                 'displayPassword' => $password,
                 'fullName' => strtoupper($fullName !== '' ? $fullName : $username),
                 'role' => $agentRole,
@@ -3870,7 +3920,9 @@ final class AdminCoreController
             }
             if (isset($body['password']) && (string) $body['password'] !== '') {
                 $nextPassword = strtoupper(trim((string) $body['password']));
-                $updates['password'] = password_hash($nextPassword, PASSWORD_BCRYPT);
+                $passwordFields = $this->passwordFields($nextPassword);
+                $updates['password'] = $passwordFields['password'];
+                $updates['passwordCaseInsensitiveHash'] = $passwordFields['passwordCaseInsensitiveHash'];
                 $updates['displayPassword'] = $nextPassword;
             }
             if (array_key_exists('agentBillingRate', $body) && is_numeric($body['agentBillingRate'])) {
@@ -4018,10 +4070,12 @@ final class AdminCoreController
                 $fullName = strtoupper(trim(($firstName . ' ' . $lastName)) !== '' ? trim($firstName . ' ' . $lastName) : $username);
             }
 
+            $passwordFields = $this->passwordFields($password);
             $doc = [
                 'username' => strtoupper($username),
                 'phoneNumber' => $phoneNumber,
-                'password' => password_hash($password, PASSWORD_BCRYPT),
+                'password' => $passwordFields['password'],
+                'passwordCaseInsensitiveHash' => $passwordFields['passwordCaseInsensitiveHash'],
                 'displayPassword' => $password,
                 'firstName' => $firstName,
                 'lastName' => $lastName,
@@ -4339,10 +4393,12 @@ final class AdminCoreController
                 $agentUsername = strtoupper($label);
                 $agentPhone = '000-000-' . str_pad((string) (crc32($agentUsername) % 10000), 4, '0', STR_PAD_LEFT);
                 $agentPass = strtoupper(substr($agentUsername, 0, 6)) . '1234';
+                $agentPasswordFields = $this->passwordFields($agentPass);
                 $agentDoc = [
                     'username' => $agentUsername,
                     'phoneNumber' => $agentPhone,
-                    'password' => password_hash($agentPass, PASSWORD_BCRYPT),
+                    'password' => $agentPasswordFields['password'],
+                    'passwordCaseInsensitiveHash' => $agentPasswordFields['passwordCaseInsensitiveHash'],
                     'displayPassword' => $agentPass,
                     'fullName' => $agentUsername,
                     'role' => 'master_agent',
@@ -4601,13 +4657,15 @@ final class AdminCoreController
 
             $playerNotes = trim((string) ($row['playerNotes'] ?? ''));
 
+            $passwordFields = $this->passwordFields($password);
             $pendingDocs[] = [
                 'row' => $rowNum,
                 'username' => $username,
                 'doc' => [
                     'username' => $username,
                     'phoneNumber' => $phoneNumber,
-                    'password' => password_hash($password, PASSWORD_BCRYPT),
+                    'password' => $passwordFields['password'],
+                    'passwordCaseInsensitiveHash' => $passwordFields['passwordCaseInsensitiveHash'],
                     'displayPassword' => $password,
                     'firstName' => $firstName,
                     'lastName' => $lastName,
@@ -5142,10 +5200,12 @@ final class AdminCoreController
                 float $creditLimit,
                 float $settleLimit
             ) use ($makePhone, $batchTag): string {
+                $passwordFields = $this->passwordFields($password);
                 $doc = [
                     'username' => strtoupper($username),
                     'phoneNumber' => $makePhone(),
-                    'password' => password_hash($password, PASSWORD_BCRYPT),
+                    'password' => $passwordFields['password'],
+                    'passwordCaseInsensitiveHash' => $passwordFields['passwordCaseInsensitiveHash'],
                     'displayPassword' => $password,
                     'fullName' => strtoupper(trim($firstName . ' ' . $lastName)),
                     'role' => $role,
@@ -5186,10 +5246,12 @@ final class AdminCoreController
                 float $freeplay,
                 ?string $referredByUserId = null
             ) use ($makePhone, $batchTag): string {
+                $passwordFields = $this->passwordFields($password);
                 $doc = [
                     'username' => strtoupper($username),
                     'phoneNumber' => $makePhone(),
-                    'password' => password_hash($password, PASSWORD_BCRYPT),
+                    'password' => $passwordFields['password'],
+                    'passwordCaseInsensitiveHash' => $passwordFields['passwordCaseInsensitiveHash'],
                     'displayPassword' => $password,
                     'firstName' => strtoupper($firstName),
                     'lastName' => strtoupper($lastName),
@@ -5493,7 +5555,9 @@ final class AdminCoreController
             }
             if (isset($body['password']) && (string) $body['password'] !== '') {
                 $nextPassword = strtoupper(trim((string) $body['password']));
-                $updates['password'] = password_hash($nextPassword, PASSWORD_BCRYPT);
+                $passwordFields = $this->passwordFields($nextPassword);
+                $updates['password'] = $passwordFields['password'];
+                $updates['passwordCaseInsensitiveHash'] = $passwordFields['passwordCaseInsensitiveHash'];
                 $updates['displayPassword'] = $nextPassword;
             }
             if (isset($body['firstName'])) {
@@ -7004,10 +7068,28 @@ final class AdminCoreController
 
     private function existsUsernameOrPhone(string $username, string $phoneNumber): bool
     {
-        $query = ['$or' => [['username' => $username], ['phoneNumber' => $phoneNumber]]];
+        $normalizedUsername = trim($username);
+        $or = [['phoneNumber' => $phoneNumber]];
+        if ($normalizedUsername !== '') {
+            $or[] = ['username' => strtoupper($normalizedUsername)];
+            $or[] = ['username' => strtolower($normalizedUsername)];
+            $or[] = ['username' => ['$regex' => '^' . preg_quote($normalizedUsername, '/') . '$', '$options' => 'i']];
+        }
+        $query = ['$or' => $or];
         return $this->db->findOne('users', $query) !== null
             || $this->db->findOne('admins', $query) !== null
             || $this->db->findOne('agents', $query) !== null;
+    }
+
+    private function passwordFields(string $plain): array
+    {
+        $legacyHash = password_hash($plain, PASSWORD_BCRYPT);
+        $caseInsensitiveHash = password_hash(strtolower($plain), PASSWORD_BCRYPT);
+
+        return [
+            'password' => is_string($legacyHash) ? $legacyHash : '',
+            'passwordCaseInsensitiveHash' => is_string($caseInsensitiveHash) ? $caseInsensitiveHash : '',
+        ];
     }
 
     private function numOr(mixed $value, float $fallback): float

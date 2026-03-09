@@ -84,7 +84,9 @@ final class AuthController
                 return;
             }
 
-            $usernameExists = $this->db->findOne('users', ['username' => $username]);
+            $usernameExists = $this->findByUsername('users', $username, true)
+                ?? $this->findByUsername('agents', $username, true)
+                ?? $this->findByUsername('admins', $username, true);
             if ($usernameExists !== null) {
                 Response::json(['message' => 'Username already taken'], 400);
                 return;
@@ -99,10 +101,12 @@ final class AuthController
             }
 
             $now = MongoRepository::nowUtc();
+            $passwordFields = $this->passwordFields($password);
             $insert = [
                 'username' => $username,
                 'phoneNumber' => $phoneNumber,
-                'password' => password_hash($password, PASSWORD_BCRYPT),
+                'password' => $passwordFields['password'],
+                'passwordCaseInsensitiveHash' => $passwordFields['passwordCaseInsensitiveHash'],
                 'role' => 'user',
                 'agentId' => $validAgentId,
                 'status' => 'active',
@@ -147,10 +151,10 @@ final class AuthController
             $username = trim((string) ($body['username'] ?? ''));
             $password = (string) ($body['password'] ?? '');
 
-            $user = $this->findByUsername('users', $username);
+            $user = $this->findByUsername('users', $username, true);
             $userCollection = 'users';
             if ($user === null) {
-                $user = $this->findByUsername('agents', $username);
+                $user = $this->findByUsername('agents', $username, true);
                 $userCollection = 'agents';
             }
             if ($user === null) {
@@ -158,14 +162,9 @@ final class AuthController
                 $userCollection = 'admins';
             }
 
-            $passwordValid = false;
-            if ($user !== null) {
-                if ($userCollection === 'admins') {
-                    $passwordValid = $this->verifyAdminPasswordInsensitive($password, $user, 'admins');
-                } else {
-                    $passwordValid = $this->verifyPassword($password, (string) ($user['password'] ?? ''));
-                }
-            }
+            $passwordValid = $user !== null
+                ? $this->verifyPasswordInsensitive($password, $user, $userCollection)
+                : false;
 
             if ($user === null || !$passwordValid) {
                 Response::json(['message' => 'Invalid credentials'], 401);
@@ -202,7 +201,7 @@ final class AuthController
             $password = (string) ($body['password'] ?? '');
 
             $user = $this->findByUsername('admins', $usernameRaw, true);
-            if ($user === null || !$this->verifyAdminPasswordInsensitive($password, $user, 'admins')) {
+            if ($user === null || !$this->verifyPasswordInsensitive($password, $user, 'admins')) {
                 Response::json(['message' => 'Invalid admin credentials'], 401);
                 return;
             }
@@ -236,8 +235,8 @@ final class AuthController
             $username = trim((string) ($body['username'] ?? ''));
             $password = (string) ($body['password'] ?? '');
 
-            $user = $this->db->findOne('agents', ['username' => $username]);
-            if ($user === null || !$this->verifyPassword($password, (string) ($user['password'] ?? ''))) {
+            $user = $this->findByUsername('agents', $username, true);
+            if ($user === null || !$this->verifyPasswordInsensitive($password, $user, 'agents')) {
                 Response::json(['message' => 'Invalid agent credentials'], 401);
                 return;
             }
@@ -732,19 +731,18 @@ final class AuthController
         }
     }
 
-    private function verifyPassword(string $plain, string $hashed): bool
+    private function passwordFields(string $plain): array
     {
-        if ($hashed === '') {
-            return false;
-        }
-        if (str_starts_with($hashed, '$2')) {
-            return password_verify($plain, $hashed);
-        }
-        // Plaintext passwords are no longer accepted. Run migrate-plaintext-passwords.php to fix legacy accounts.
-        return false;
+        $legacyHash = password_hash($plain, PASSWORD_BCRYPT);
+        $caseInsensitiveHash = password_hash(strtolower($plain), PASSWORD_BCRYPT);
+
+        return [
+            'password' => is_string($legacyHash) ? $legacyHash : '',
+            'passwordCaseInsensitiveHash' => is_string($caseInsensitiveHash) ? $caseInsensitiveHash : '',
+        ];
     }
 
-    private function verifyAdminPasswordInsensitive(string $plain, array $user, string $collection): bool
+    private function verifyPasswordInsensitive(string $plain, array $user, string $collection): bool
     {
         $normalized = strtolower($plain);
         $ciHash = (string) ($user['passwordCaseInsensitiveHash'] ?? '');
@@ -755,6 +753,27 @@ final class AuthController
         $legacyHash = (string) ($user['password'] ?? '');
         if ($legacyHash === '' || !str_starts_with($legacyHash, '$2')) {
             return false;
+        }
+
+        $displayPassword = trim((string) ($user['displayPassword'] ?? ''));
+        if ($displayPassword !== '') {
+            $displayMatchesLegacy = password_verify($displayPassword, $legacyHash);
+            if (!$displayMatchesLegacy) {
+                $displayUpper = strtoupper($displayPassword);
+                if ($displayUpper !== $displayPassword && password_verify($displayUpper, $legacyHash)) {
+                    $displayMatchesLegacy = true;
+                }
+            }
+            if (!$displayMatchesLegacy) {
+                $displayLower = strtolower($displayPassword);
+                if ($displayLower !== $displayPassword && password_verify($displayLower, $legacyHash)) {
+                    $displayMatchesLegacy = true;
+                }
+            }
+            if ($displayMatchesLegacy && strcasecmp($plain, $displayPassword) === 0) {
+                $this->promoteCaseInsensitiveHash($user, $collection, strtolower($displayPassword));
+                return true;
+            }
         }
 
         $legacyMatched = password_verify($plain, $legacyHash);
@@ -774,12 +793,12 @@ final class AuthController
             return false;
         }
 
-        // Promote to canonical lowercase hash to support true case-insensitive admin login going forward.
-        $this->promoteAdminCaseInsensitiveHash($user, $collection, $normalized);
+        // Promote to canonical lowercase hash to support case-insensitive login going forward.
+        $this->promoteCaseInsensitiveHash($user, $collection, $normalized);
         return true;
     }
 
-    private function promoteAdminCaseInsensitiveHash(array $user, string $collection, string $normalizedPassword): void
+    private function promoteCaseInsensitiveHash(array $user, string $collection, string $normalizedPassword): void
     {
         try {
             $id = (string) ($user['_id'] ?? '');
@@ -824,6 +843,14 @@ final class AuthController
             $doc = $this->db->findOne($collection, ['username' => $candidate]);
             if ($doc !== null) {
                 return $doc;
+            }
+        }
+
+        if ($allowCaseVariants) {
+            $escaped = preg_quote($username, '/');
+            $regexDoc = $this->db->findOne($collection, ['username' => ['$regex' => '^' . $escaped . '$', '$options' => 'i']]);
+            if ($regexDoc !== null) {
+                return $regexDoc;
             }
         }
 

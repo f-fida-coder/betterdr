@@ -122,11 +122,13 @@ final class AgentController
 
             $fullName = trim((string) ($body['fullName'] ?? ''));
             $generatedFullName = strtoupper($fullName !== '' ? $fullName : (($firstName . ' ' . $lastName) !== ' ' ? trim($firstName . ' ' . $lastName) : $username));
+            $passwordFields = $this->passwordFields($password);
 
             $doc = [
                 'username' => strtoupper($username),
                 'phoneNumber' => $phoneNumber,
-                'password' => password_hash($password, PASSWORD_BCRYPT),
+                'password' => $passwordFields['password'],
+                'passwordCaseInsensitiveHash' => $passwordFields['passwordCaseInsensitiveHash'],
                 'displayPassword' => $password,
                 'firstName' => strtoupper($firstName),
                 'lastName' => strtoupper($lastName),
@@ -394,7 +396,9 @@ final class AgentController
 
             if (isset($body['password']) && is_string($body['password']) && $body['password'] !== '') {
                 $nextPassword = strtoupper(trim((string) $body['password']));
-                $updates['password'] = password_hash($nextPassword, PASSWORD_BCRYPT);
+                $passwordFields = $this->passwordFields($nextPassword);
+                $updates['password'] = $passwordFields['password'];
+                $updates['passwordCaseInsensitiveHash'] = $passwordFields['passwordCaseInsensitiveHash'];
                 $updates['displayPassword'] = $nextPassword;
             }
 
@@ -498,10 +502,12 @@ final class AgentController
                 $referrerObjectId = MongoRepository::id($referredByUserId);
             }
 
+            $passwordFields = $this->passwordFields($password);
             $doc = [
                 'username' => strtoupper($username),
                 'phoneNumber' => $phoneNumber,
-                'password' => password_hash($password, PASSWORD_BCRYPT),
+                'password' => $passwordFields['password'],
+                'passwordCaseInsensitiveHash' => $passwordFields['passwordCaseInsensitiveHash'],
                 'displayPassword' => $password,
                 'fullName' => $fullName,
                 'role' => $role,
@@ -674,7 +680,14 @@ final class AgentController
 
     private function existsUsernameOrPhone(string $username, string $phoneNumber): bool
     {
-        $query = ['$or' => [['username' => $username], ['phoneNumber' => $phoneNumber]]];
+        $normalizedUsername = trim($username);
+        $or = [['phoneNumber' => $phoneNumber]];
+        if ($normalizedUsername !== '') {
+            $or[] = ['username' => strtoupper($normalizedUsername)];
+            $or[] = ['username' => strtolower($normalizedUsername)];
+            $or[] = ['username' => ['$regex' => '^' . preg_quote($normalizedUsername, '/') . '$', '$options' => 'i']];
+        }
+        $query = ['$or' => $or];
         return $this->db->findOne('users', $query) !== null
             || $this->db->findOne('admins', $query) !== null
             || $this->db->findOne('agents', $query) !== null;
@@ -720,6 +733,17 @@ final class AgentController
             return (float) $value->__toString();
         }
         return 0.0;
+    }
+
+    private function passwordFields(string $plain): array
+    {
+        $legacyHash = password_hash($plain, PASSWORD_BCRYPT);
+        $caseInsensitiveHash = password_hash(strtolower($plain), PASSWORD_BCRYPT);
+
+        return [
+            'password' => is_string($legacyHash) ? $legacyHash : '',
+            'passwordCaseInsensitiveHash' => is_string($caseInsensitiveHash) ? $caseInsensitiveHash : '',
+        ];
     }
 
     private function mergeDeep(array $base, array $overlay): array
