@@ -5685,10 +5685,29 @@ final class AdminCoreController
                 ]);
             }
 
-            $this->db->updateOne('users', ['_id' => MongoRepository::id($id)], [
+            $normalizedReason = strtoupper($txReason);
+            // Lifetime +/- should only move for explicit credit/debit adjustments.
+            $lifetimeAdjustmentReasons = [
+                'ADMIN_CREDIT_ADJUSTMENT',
+                'ADMIN_DEBIT_ADJUSTMENT',
+                'CASHIER_CREDIT_ADJUSTMENT',
+                'CASHIER_DEBIT_ADJUSTMENT',
+            ];
+            $lifetimeBefore = $this->num($user['lifetime'] ?? 0);
+            $lifetimeAfter = $lifetimeBefore;
+            $shouldAdjustLifetime = $txType === 'adjustment'
+                && in_array($normalizedReason, $lifetimeAdjustmentReasons, true);
+
+            $userUpdates = [
                 'balance' => $nextBalance,
                 'updatedAt' => MongoRepository::nowUtc(),
-            ]);
+            ];
+            if ($shouldAdjustLifetime) {
+                $lifetimeAfter = $lifetimeBefore + $diff;
+                $userUpdates['lifetime'] = $lifetimeAfter;
+            }
+
+            $this->db->updateOne('users', ['_id' => MongoRepository::id($id)], $userUpdates);
 
             $this->db->insertOne('transactions', [
                 'userId' => MongoRepository::id($id),
@@ -5719,6 +5738,8 @@ final class AdminCoreController
                     'balance' => $nextBalance,
                     'pendingBalance' => $pendingBalance,
                     'availableBalance' => max(0, $nextBalance - $pendingBalance),
+                    'lifetime' => $lifetimeAfter,
+                    'lifetimePlusMinus' => $lifetimeAfter,
                 ],
             ];
             if ($agentBalanceOut !== null) {

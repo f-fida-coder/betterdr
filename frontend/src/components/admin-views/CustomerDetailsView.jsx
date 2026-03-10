@@ -1056,13 +1056,33 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
         ? currentBalance + amount
         : Math.max(0, currentBalance - amount);
       const customDescription = newTxDescription.trim();
-      await updateUserCredit(userId, {
+      const result = await updateUserCredit(userId, {
         balance: nextBalance,
         type: selectedTxType.apiType,
         reason: selectedTxType.reason,
         description: customDescription || selectedTxType.defaultDescription
       }, token);
-      setCustomer((prev) => ({ ...prev, balance: nextBalance }));
+      setCustomer((prev) => {
+        if (!prev) return prev;
+        const serverBalance = Number(result?.user?.balance);
+        const nextBalanceValue = Number.isFinite(serverBalance) ? serverBalance : nextBalance;
+        const rawLifetime = result?.user?.lifetimePlusMinus
+          ?? result?.user?.lifetime
+          ?? prev.lifetimePlusMinus
+          ?? prev.lifetime
+          ?? 0;
+        const parsedLifetime = Number(rawLifetime);
+        const nextLifetime = Number.isFinite(parsedLifetime)
+          ? parsedLifetime
+          : Number(prev.lifetimePlusMinus ?? prev.lifetime ?? 0);
+
+        return {
+          ...prev,
+          balance: nextBalanceValue,
+          lifetime: nextLifetime,
+          lifetimePlusMinus: nextLifetime
+        };
+      });
       setTxSuccess('Transaction saved and balance updated.');
       setTxError('');
       setShowNewTxModal(false);
