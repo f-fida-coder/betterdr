@@ -56,15 +56,20 @@ I need active players so if you could do me a solid and place a bet today even i
 `;
   }
 
-  return `Welcome to the team! Here’s your ${creationType === 'agent' ? 'Agent' : 'Master Agent'} administrative account info.
-
-Login: ${customer.username}
-Password: ${pass}
-
+  const typeLabel = creationType === 'agent' ? 'Agent' : 'Master Agent';
+  const limitsBlock = creationType === 'agent'
+    ? `
 Standard Min bet: $${customer.defaultMinBet || 25}
 Standard Max bet: $${customer.defaultMaxBet || 200}
 Standard Credit: $${customer.defaultCreditLimit || 1000}
+`
+    : '';
 
+  return `Welcome to the team! Here’s your ${typeLabel} administrative account info.
+
+Login: ${customer.username}
+Password: ${pass}
+${limitsBlock}
 Please ensure you manage your sectors responsibly and maintain clear communication with your assigned accounts. Good luck!
 `;
 };
@@ -115,6 +120,7 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
   const [viewOnly, setViewOnly] = useState(false);
   const [agentSearchQuery, setAgentSearchQuery] = useState('');
   const [agentSearchOpen, setAgentSearchOpen] = useState(false);
+  const [referralSearchQuery, setReferralSearchQuery] = useState('');
   const [adminUsername, setAdminUsername] = useState('');
   const [currentUserId, setCurrentUserId] = useState('');
 
@@ -222,7 +228,21 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
 
       const payload = { ...newCustomer };
       if (payload.balance === '') delete payload.balance;
-      if (!payload.referredByUserId) delete payload.referredByUserId;
+      if (creationType !== 'player') {
+        delete payload.referredByUserId;
+        delete payload.minBet;
+        delete payload.maxBet;
+        delete payload.creditLimit;
+        delete payload.balanceOwed;
+        if (creationType === 'super_agent') {
+          delete payload.defaultMinBet;
+          delete payload.defaultMaxBet;
+          delete payload.defaultCreditLimit;
+          delete payload.defaultSettleLimit;
+        }
+      } else if (!payload.referredByUserId) {
+        delete payload.referredByUserId;
+      }
       if ((creationType === 'agent' || creationType === 'super_agent') && payload.agentId) {
         payload.parentAgentId = payload.agentId;
       }
@@ -386,8 +406,17 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
     if (formatted.length >= 2) {
       const token = localStorage.getItem('token') || sessionStorage.getItem('token');
       const suffix = creationType === 'super_agent' ? 'MA' : '';
+      const usernameScopeAgentId = (
+        creationType === 'agent'
+          ? (newCustomer.agentId || ((currentRole === 'master_agent' || currentRole === 'super_agent') ? currentUserId : ''))
+          : ''
+      );
       try {
-        const { nextUsername } = await getNextUsername(formatted, token, { suffix, type: 'agent' });
+        const query = { suffix, type: 'agent' };
+        if (usernameScopeAgentId) {
+          query.agentId = usernameScopeAgentId;
+        }
+        const { nextUsername } = await getNextUsername(formatted, token, query);
         setNewCustomer((prev) => ({ ...prev, username: nextUsername }));
       } catch (err) {
         console.error('Failed to get next username from prefix:', err);
@@ -417,7 +446,7 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
           }
           const query = sequenceType === 'player'
             ? { suffix, type: sequenceType, agentId }
-            : { suffix, type: sequenceType };
+            : { suffix, type: sequenceType, ...(creationType === 'agent' ? { agentId } : {}) };
           const { nextUsername } = await getNextUsername(playerPrefix, token, query);
           setNewCustomer((prev) => ({ ...prev, username: nextUsername, agentPrefix: playerPrefix }));
         } catch (err) {
@@ -433,7 +462,11 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
             setNewCustomer((prev) => ({ ...prev, username: '' }));
             return;
           }
-          const { nextUsername } = await getNextUsername(playerPrefix, token, { suffix, type: sequenceType });
+          const query = { suffix, type: sequenceType };
+          if (sequenceType === 'agent' && creationType === 'agent' && (currentRole === 'master_agent' || currentRole === 'super_agent') && currentUserId) {
+            query.agentId = currentUserId;
+          }
+          const { nextUsername } = await getNextUsername(playerPrefix, token, query);
           setNewCustomer((prev) => ({ ...prev, username: nextUsername, agentPrefix: playerPrefix }));
         } catch (err) {
           console.error('Failed to fetch username for admin:', err);
@@ -451,13 +484,21 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
     if (!token) return;
 
     if (type === 'super_agent' || type === 'agent') {
+      setReferralSearchQuery('');
+      setNewCustomer((prev) => ({ ...prev, referredByUserId: '' }));
       const suffix = type === 'super_agent' ? 'MA' : '';
       const prefixToUse = newCustomer.agentPrefix;
       const sequenceType = 'agent';
 
       if (prefixToUse) {
         try {
-          const { nextUsername } = await getNextUsername(prefixToUse, token, { suffix, type: sequenceType });
+          const query = { suffix, type: sequenceType };
+          if (type === 'agent' && newCustomer.agentId) {
+            query.agentId = newCustomer.agentId;
+          } else if (type === 'agent' && (currentRole === 'master_agent' || currentRole === 'super_agent') && currentUserId) {
+            query.agentId = currentUserId;
+          }
+          const { nextUsername } = await getNextUsername(prefixToUse, token, query);
           setNewCustomer((prev) => ({ ...prev, username: nextUsername, agentPrefix: prefixToUse }));
         } catch (e) {
           console.error('Failed to re-fetch username on type change', e);
@@ -540,6 +581,38 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
     return false;
   }), [agents, currentRole]);
 
+  const isMasterContext = currentRole === 'master_agent' || currentRole === 'super_agent';
+  const isMasterAssignmentMode = creationType === 'agent' || creationType === 'super_agent';
+
+  const directAssignmentLabel = useMemo(() => {
+    if (creationType === 'player') {
+      return 'Direct (Under Me)';
+    }
+    if (isMasterContext) {
+      const meLabel = String(adminUsername || '').trim().toUpperCase();
+      return meLabel ? `${meLabel} (Me)` : 'Direct (Created By Me)';
+    }
+    return 'Direct (Created By Me)';
+  }, [creationType, isMasterContext, adminUsername]);
+
+  const visibleAssignableAgents = useMemo(() => {
+    if (!isMasterAssignmentMode) {
+      return assignableAgents;
+    }
+    return assignableAgents.filter((agent) => {
+      const roleKey = String(agent.role || '').toLowerCase();
+      return roleKey === 'master_agent' || roleKey === 'super_agent';
+    });
+  }, [assignableAgents, isMasterAssignmentMode]);
+
+  const showDirectAssignmentOption = useMemo(() => {
+    const query = String(agentSearchQuery || '').trim().toLowerCase();
+    if (!query) {
+      return true;
+    }
+    return directAssignmentLabel.toLowerCase().includes(query);
+  }, [agentSearchQuery, directAssignmentLabel]);
+
   useEffect(() => {
     if (creationType !== 'player') return;
     const typed = String(agentSearchQuery || '').trim().toLowerCase();
@@ -555,10 +628,16 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
     handleAgentChange(exactId);
   }, [agentSearchQuery, assignableAgents, creationType, newCustomer.agentId]);
 
-  const filteredAssignableAgents = useMemo(() => assignableAgents.filter((a) => {
-    if (!agentSearchQuery.trim()) return true;
-    return (a.username || '').toLowerCase().includes(agentSearchQuery.trim().toLowerCase());
-  }), [assignableAgents, agentSearchQuery]);
+  const filteredAssignableAgents = useMemo(() => visibleAssignableAgents.filter((agent) => {
+    const query = String(agentSearchQuery || '').trim().toLowerCase();
+    if (!query) return true;
+    const username = String(agent.username || '').toLowerCase();
+    const fullName = String(agent.fullName || '').toLowerCase();
+    const roleLabel = (String(agent.role || '').toLowerCase() === 'master_agent' || String(agent.role || '').toLowerCase() === 'super_agent')
+      ? 'master agent'
+      : 'agent';
+    return username.includes(query) || fullName.includes(query) || roleLabel.includes(query);
+  }), [visibleAssignableAgents, agentSearchQuery]);
 
   const referralOptions = (() => {
     const playersOnly = customers.filter((c) => c.role === 'user');
@@ -578,6 +657,86 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
 
     return playersOnly;
   })();
+
+  const referralSearchOptions = useMemo(() => (
+    referralOptions
+      .map((player) => {
+        const id = String(player.id || player._id || '').trim();
+        const username = String(player.username || '').trim();
+        const fullName = String(player.fullName || '').trim();
+        if (!id || !username) return null;
+        const label = `${username.toUpperCase()}${fullName ? ` - ${fullName}` : ''}`;
+        return {
+          id,
+          label,
+          labelLower: label.toLowerCase(),
+          usernameLower: username.toLowerCase(),
+        };
+      })
+      .filter(Boolean)
+  ), [referralOptions]);
+
+  const selectedReferralOption = useMemo(() => {
+    const selectedId = String(newCustomer.referredByUserId || '').trim();
+    if (!selectedId) return null;
+    return referralSearchOptions.find((option) => option.id === selectedId) || null;
+  }, [newCustomer.referredByUserId, referralSearchOptions]);
+
+  useEffect(() => {
+    if (selectedReferralOption) {
+      setReferralSearchQuery(selectedReferralOption.label);
+      return;
+    }
+    if (!String(newCustomer.referredByUserId || '').trim()) {
+      setReferralSearchQuery('');
+    }
+  }, [selectedReferralOption, newCustomer.referredByUserId]);
+
+  const handleReferralSearchChange = (value) => {
+    setReferralSearchQuery(value);
+    const typed = String(value || '').trim().toLowerCase();
+    if (!typed) {
+      setNewCustomer((prev) => ({ ...prev, referredByUserId: '' }));
+      return;
+    }
+
+    const exactMatch = referralSearchOptions.find(
+      (option) => option.labelLower === typed || option.usernameLower === typed
+    );
+
+    setNewCustomer((prev) => ({
+      ...prev,
+      referredByUserId: exactMatch ? exactMatch.id : '',
+    }));
+  };
+
+  const handleReferralSearchBlur = () => {
+    const typed = String(referralSearchQuery || '').trim().toLowerCase();
+    if (!typed) {
+      setNewCustomer((prev) => ({ ...prev, referredByUserId: '' }));
+      return;
+    }
+
+    const exactMatch = referralSearchOptions.find(
+      (option) => option.labelLower === typed || option.usernameLower === typed
+    );
+    if (exactMatch) {
+      setReferralSearchQuery(exactMatch.label);
+      setNewCustomer((prev) => ({ ...prev, referredByUserId: exactMatch.id }));
+      return;
+    }
+
+    const partialMatches = referralSearchOptions.filter(
+      (option) => option.labelLower.includes(typed) || option.usernameLower.includes(typed)
+    );
+    if (partialMatches.length === 1) {
+      setReferralSearchQuery(partialMatches[0].label);
+      setNewCustomer((prev) => ({ ...prev, referredByUserId: partialMatches[0].id }));
+      return;
+    }
+
+    setNewCustomer((prev) => ({ ...prev, referredByUserId: '' }));
+  };
 
   return (
     <>
@@ -638,7 +797,31 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
                     onFocus={() => setAgentSearchOpen(true)}
                     onBlur={() => {
                       const typed = String(agentSearchQuery || '').trim().toLowerCase();
-                      const exact = assignableAgents.find((a) => String(a.username || '').trim().toLowerCase() === typed);
+                      const typedMatchesDirectSelf = (
+                        isMasterAssignmentMode
+                        && isMasterContext
+                        && typed !== ''
+                        && directAssignmentLabel.toLowerCase().includes(typed)
+                        && filteredAssignableAgents.length === 0
+                      );
+                      if (typedMatchesDirectSelf) {
+                        handleAgentChange('');
+                        setAgentSearchQuery(String(adminUsername || '').toUpperCase());
+                        setTimeout(() => setAgentSearchOpen(false), 120);
+                        return;
+                      }
+                      if (
+                        isMasterAssignmentMode
+                        && isMasterContext
+                        && String(adminUsername || '').trim() !== ''
+                        && typed === String(adminUsername).trim().toLowerCase()
+                      ) {
+                        handleAgentChange('');
+                        setAgentSearchQuery(String(adminUsername).toUpperCase());
+                        setTimeout(() => setAgentSearchOpen(false), 120);
+                        return;
+                      }
+                      const exact = visibleAssignableAgents.find((a) => String(a.username || '').trim().toLowerCase() === typed);
                       const exactId = String(exact?.id || exact?._id || '');
                       if (exactId && String(newCustomer.agentId || '') !== exactId) {
                         handleAgentChange(exactId);
@@ -661,22 +844,24 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
                     </div>
                     {agentSearchOpen && (
                       <div className="agent-search-list">
-                        <button
-                          type="button"
-                          className={`agent-search-item ${newCustomer.agentId ? '' : 'selected'}`}
-                          onClick={() => {
-                            handleAgentChange('');
-                            setAgentSearchOpen(false);
-                          }}
-                        >
-                          <span>{creationType === 'player' ? 'Direct (Under Me)' : 'Direct (Created By Me)'}</span>
-                        </button>
+                        {showDirectAssignmentOption && (
+                          <button
+                            type="button"
+                            className={`agent-search-item ${newCustomer.agentId ? '' : 'selected'}`}
+                            onClick={() => {
+                              handleAgentChange('');
+                              if (isMasterAssignmentMode && isMasterContext && String(adminUsername || '').trim() !== '') {
+                                setAgentSearchQuery(String(adminUsername).toUpperCase());
+                              }
+                              setAgentSearchOpen(false);
+                            }}
+                          >
+                            <span>{directAssignmentLabel}</span>
+                          </button>
+                        )}
                         {filteredAssignableAgents.map((a) => {
                           const id = a.id || a._id;
                           const isMaster = a.role === 'master_agent' || a.role === 'super_agent';
-                          if ((creationType === 'agent' || creationType === 'super_agent') && !isMaster) {
-                            return null;
-                          }
                           return (
                             <button
                               key={id}
@@ -692,7 +877,7 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
                             </button>
                           );
                         })}
-                        {filteredAssignableAgents.length === 0 && (
+                        {filteredAssignableAgents.length === 0 && !showDirectAssignmentOption && (
                           <div className="agent-search-empty">No matching agents</div>
                         )}
                       </div>
@@ -749,7 +934,7 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
               />
             </div>
 
-            {(creationType === 'player' || creationType === 'agent' || creationType === 'super_agent') && (
+            {creationType === 'player' && (
               <>
                 <div className="filter-group">
                   <label>Min bet:</label>
@@ -786,23 +971,28 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
                 <div className="filter-group">
                   <label>Referred By Player</label>
                   <div className="s-wrapper">
-                    <select
-                      value={newCustomer.referredByUserId}
-                      onChange={(e) => setNewCustomer((prev) => ({ ...prev, referredByUserId: e.target.value }))}
-                    >
-                      <option value="">No referral</option>
-                      {referralOptions.map((p) => (
-                        <option key={p.id || p._id} value={p.id || p._id}>
-                          {(p.username || '').toUpperCase()}
-                          {p.fullName ? ` - ${p.fullName}` : ''}
-                        </option>
+                    <input
+                      type="text"
+                      list="referral-player-options-workspace"
+                      value={referralSearchQuery}
+                      onChange={(e) => handleReferralSearchChange(e.target.value)}
+                      onBlur={handleReferralSearchBlur}
+                      placeholder="Search player (leave blank for no referral)"
+                      autoComplete="off"
+                    />
+                    <datalist id="referral-player-options-workspace">
+                      {referralSearchOptions.map((option) => (
+                        <option key={option.id} value={option.label} />
                       ))}
-                    </select>
+                    </datalist>
                   </div>
+                  <small style={{ display: 'block', marginTop: '6px', color: '#64748b' }}>
+                    {selectedReferralOption ? `Selected: ${selectedReferralOption.label}` : 'No referral selected'}
+                  </small>
                 </div>
               </>
             )}
-            {(creationType === 'agent' || creationType === 'super_agent') && (
+            {creationType === 'agent' && (
               <>
                 <div className="filter-group">
                   <label>Min bet: (Standard)</label>

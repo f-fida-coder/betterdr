@@ -269,6 +269,7 @@ function AdminHeader({
                   {filteredPlayers.length > 0 ? filteredPlayers.map((player) => {
                     const userId = player.id || player._id || player.mongo_id;
                     const fullName = player.fullName || `${player.firstName || ''} ${player.lastName || ''}`.trim();
+                    const displayPassword = String(player.displayPassword || '').trim().toUpperCase() || '—';
                     return (
                       <button
                         key={String(userId || player.username)}
@@ -282,8 +283,9 @@ function AdminHeader({
                           setHeaderPlayerOpen(false);
                         }}
                       >
-                        <span>{String(player.username || '').toUpperCase()}</span>
-                        <span>{fullName || '—'}</span>
+                        <span className="search-item-user">{String(player.username || '').toUpperCase()}</span>
+                        <span className="search-item-pass">{displayPassword}</span>
+                        <span className="search-item-name">{fullName || '—'}</span>
                       </button>
                     );
                   }) : (
@@ -367,6 +369,7 @@ function AdminHeader({
             {filteredPlayers.length > 0 ? filteredPlayers.map((player) => {
               const userId = player.id || player._id || player.mongo_id;
               const fullName = player.fullName || `${player.firstName || ''} ${player.lastName || ''}`.trim();
+              const displayPassword = String(player.displayPassword || '').trim().toUpperCase() || '—';
               return (
                 <button
                   key={String(userId || player.username)}
@@ -381,8 +384,9 @@ function AdminHeader({
                     setShowMobilePlayerSearch(false);
                   }}
                 >
-                  <span>{String(player.username || '').toUpperCase()}</span>
-                  <span>{fullName || '—'}</span>
+                  <span className="search-item-user">{String(player.username || '').toUpperCase()}</span>
+                  <span className="search-item-pass">{displayPassword}</span>
+                  <span className="search-item-name">{fullName || '—'}</span>
                 </button>
               );
             }) : (

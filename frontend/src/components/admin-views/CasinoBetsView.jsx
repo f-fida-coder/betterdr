@@ -117,6 +117,8 @@ function CasinoBetsView() {
         return 'Blackjack';
       case 'baccarat':
         return 'Baccarat';
+      case 'craps':
+        return 'Craps';
       default:
         return value || '—';
     }
@@ -153,12 +155,24 @@ function CasinoBetsView() {
       return color ? `${number} ${color}` : `${number}`;
     }
 
+    if (String(row.game || '').toLowerCase() === 'craps') {
+      const dice = row?.roundData?.dice;
+      const die1 = Number(dice?.die1);
+      const die2 = Number(dice?.die2);
+      const sum = Number(dice?.sum);
+      if (Number.isFinite(die1) && Number.isFinite(die2) && Number.isFinite(sum)) {
+        return `${die1}+${die2}=${sum}`;
+      }
+    }
+
     return row.result || '—';
   };
   const formatOutcomeSource = (value) => {
     switch (String(value || '').toLowerCase()) {
       case 'server_rng':
         return 'Server RNG';
+      case 'server_simulated_actions':
+        return 'Server Simulation';
       case 'native_client_round':
         return 'Client Native';
       case 'client_actions_server_rules':
@@ -194,6 +208,14 @@ function CasinoBetsView() {
     );
 
     return getRouletteBets(row).filter((bet) => winningKeys.has(String(bet?.key || '')));
+  };
+
+  const getCrapsBets = (row) => {
+    const bets = row?.bets && typeof row.bets === 'object' ? row.bets : {};
+    return Object.keys(bets)
+      .filter((key) => Number(bets[key]) > 0)
+      .sort()
+      .map((key) => ({ key, amount: Number(bets[key]) }));
   };
 
   const getNetPillClass = (value) => {
@@ -254,7 +276,7 @@ function CasinoBetsView() {
               ))}
             </div>
 
-            <div className="casino-bets-filters" style={{ gridTemplateColumns: 'repeat(3, minmax(160px, 1fr))', marginBottom: 12 }}>
+            <div className="casino-bets-filters casino-bets-highlights">
               <div className="filter-group">
                 <label>Biggest Win</label>
                 <div>{summary?.biggestWin ? `${summary.biggestWin.username || '—'} ${formatMoney(summary.biggestWin.netResult)}` : '—'}</div>
@@ -270,7 +292,7 @@ function CasinoBetsView() {
             </div>
 
             {summaryByGame.length > 0 && (
-              <div className="table-container scrollable casino-bets-table-wrap" style={{ marginBottom: 12 }}>
+              <div className="table-container scrollable casino-bets-table-wrap casino-bets-table-section">
                 <table className="data-table casino-bets-table">
                   <thead>
                     <tr>
@@ -305,7 +327,7 @@ function CasinoBetsView() {
             )}
 
             {summaryByUser.length > 0 && (
-              <div className="table-container scrollable casino-bets-table-wrap" style={{ marginBottom: 12 }}>
+              <div className="table-container scrollable casino-bets-table-wrap casino-bets-table-section">
                 <table className="data-table casino-bets-table">
                   <thead>
                     <tr>
@@ -340,7 +362,7 @@ function CasinoBetsView() {
             )}
 
             {Array.isArray(summaryAnomalies?.sample) && summaryAnomalies.sample.length > 0 && (
-              <div className="table-container scrollable casino-bets-table-wrap" style={{ marginBottom: 12 }}>
+              <div className="table-container scrollable casino-bets-table-wrap casino-bets-table-section">
                 <table className="data-table casino-bets-table">
                   <thead>
                     <tr>
@@ -383,6 +405,7 @@ function CasinoBetsView() {
                   <option value="">All</option>
                   <option value="baccarat">Baccarat</option>
                   <option value="blackjack">Blackjack</option>
+                  <option value="craps">Craps</option>
                 </select>
               </div>
               <div className="filter-group">
@@ -504,7 +527,7 @@ function CasinoBetsView() {
                   ))}
                   {rows.length === 0 && (
                     <tr>
-                      <td colSpan={13} style={{ textAlign: 'center', padding: 16 }}>
+                      <td colSpan={13} className="casino-bets-empty-row">
                         No casino bet rows found.
                       </td>
                     </tr>
@@ -586,7 +609,7 @@ function CasinoBetsView() {
                   </section>
 
                   <section className="casino-detail-card">
-                    <h4>{selectedDetail.game === 'roulette' ? 'Outcome' : 'Cards'}</h4>
+                    <h4>{selectedDetail.game === 'roulette' ? 'Outcome' : selectedDetail.game === 'craps' ? 'Dice' : 'Cards'}</h4>
                     {selectedDetail.game === 'roulette' ? (
                       <>
                         <div className="casino-detail-row"><span>Number</span><strong>{selectedDetail.rouletteOutcome?.number ?? '—'}</strong></div>
@@ -595,6 +618,16 @@ function CasinoBetsView() {
                         <div className="casino-detail-row"><span>Range</span><span>{selectedDetail.rouletteOutcome?.range || '—'}</span></div>
                         <div className="casino-detail-row"><span>Dozen</span><span>{selectedDetail.rouletteOutcome?.dozen || '—'}</span></div>
                         <div className="casino-detail-row"><span>Column</span><span>{selectedDetail.rouletteOutcome?.column || '—'}</span></div>
+                      </>
+                    ) : selectedDetail.game === 'craps' ? (
+                      <>
+                        <div className="casino-detail-row"><span>Die 1</span><strong>{selectedDetail?.roundData?.dice?.die1 ?? '—'}</strong></div>
+                        <div className="casino-detail-row"><span>Die 2</span><strong>{selectedDetail?.roundData?.dice?.die2 ?? '—'}</strong></div>
+                        <div className="casino-detail-row"><span>Total</span><strong>{selectedDetail?.roundData?.dice?.sum ?? selectedDetail?.result ?? '—'}</strong></div>
+                        <div className="casino-detail-row"><span>State Before</span><span>{selectedDetail?.roundData?.stateBefore || '—'}</span></div>
+                        <div className="casino-detail-row"><span>State After</span><span>{selectedDetail?.roundData?.stateAfter || '—'}</span></div>
+                        <div className="casino-detail-row"><span>Point Before</span><span>{selectedDetail?.roundData?.pointNumberBefore ?? '—'}</span></div>
+                        <div className="casino-detail-row"><span>Point After</span><span>{selectedDetail?.roundData?.pointNumberAfter ?? '—'}</span></div>
                       </>
                     ) : (
                       <>
@@ -659,6 +692,78 @@ function CasinoBetsView() {
                               </span>
                             ))
                             : <span>No winning bets</span>}
+                        </div>
+                      </div>
+                    </section>
+                  )}
+
+                  {selectedDetail.game === 'craps' && (
+                    <section className="casino-detail-card">
+                      <h4>Craps Bets</h4>
+                      <div className="casino-detail-stack">
+                        <span>Active Bets Before Roll</span>
+                        <div className="casino-card-list">
+                          {getCrapsBets(selectedDetail).length > 0
+                            ? getCrapsBets(selectedDetail).map((bet) => (
+                              <span className="casino-card-chip" key={`craps-bet-${bet.key}`}>
+                                {bet.key} {formatMoney(bet.amount)}
+                              </span>
+                            ))
+                            : <span>—</span>}
+                        </div>
+                      </div>
+                      <div className="casino-detail-stack">
+                        <span>Resolved Bets</span>
+                        <div className="casino-card-list">
+                          {Array.isArray(selectedDetail?.betDetails) && selectedDetail.betDetails.length > 0
+                            ? selectedDetail.betDetails.map((bet, idx) => (
+                              <span className="casino-card-chip" key={`craps-res-${idx}`}>
+                                {String(bet?.bet || 'bet')} {String(bet?.outcome || '—')} {formatMoney(bet?.return)}
+                              </span>
+                            ))
+                            : <span>No resolved bets</span>}
+                        </div>
+                      </div>
+                    </section>
+                  )}
+
+                  {selectedDetail.game === 'blackjack' && (
+                    <section className="casino-detail-card">
+                      <h4>Blackjack Replay</h4>
+                      <div className="casino-detail-stack">
+                        <span>Hands</span>
+                        <div className="casino-card-list">
+                          {Array.isArray(selectedDetail?.betDetails?.hands) && selectedDetail.betDetails.hands.length > 0
+                            ? selectedDetail.betDetails.hands.map((hand, idx) => (
+                              <span className="casino-card-chip" key={`bj-hand-${idx}`}>
+                                {String(hand?.zone || 'hand')} {String(hand?.resultType || '—')} {formatMoney(hand?.bet)} → {formatMoney(hand?.return)}
+                              </span>
+                            ))
+                            : <span>—</span>}
+                        </div>
+                      </div>
+                      <div className="casino-detail-stack">
+                        <span>Actions</span>
+                        <div className="casino-card-list">
+                          {Array.isArray(selectedDetail?.betDetails?.actions) && selectedDetail.betDetails.actions.length > 0
+                            ? selectedDetail.betDetails.actions.map((action, idx) => (
+                              <span className="casino-card-chip" key={`bj-action-${idx}`}>
+                                {String(action?.action || 'action')} {action?.zone ? `(${String(action.zone)})` : ''}
+                              </span>
+                            ))
+                            : <span>No action log</span>}
+                        </div>
+                      </div>
+                      <div className="casino-detail-stack">
+                        <span>Side Bets</span>
+                        <div className="casino-card-list">
+                          {Array.isArray(selectedDetail?.betDetails?.sideBets) && selectedDetail.betDetails.sideBets.length > 0
+                            ? selectedDetail.betDetails.sideBets.map((bet, idx) => (
+                              <span className="casino-card-chip" key={`bj-side-${idx}`}>
+                                {String(bet?.zone || 'zone')} {String(bet?.type || 'side')} {formatMoney(bet?.stake)} → {formatMoney(bet?.return)}
+                              </span>
+                            ))
+                            : <span>No side bets</span>}
                         </div>
                       </div>
                     </section>

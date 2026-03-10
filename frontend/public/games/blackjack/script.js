@@ -283,6 +283,11 @@ let roundActionLog = [];
 let roundHandMeta = {};
 let roundStartBetSnapshot = null;
 let roundInsuranceStakes = { betZone1: 0, betZone2: 0, betZone3: 0 };
+let currentRoundRequestId = null;
+let emergencySettlementSent = false;
+let pendingRoundPersistTimer = null;
+let pendingRoundRecoveryInFlight = false;
+const PENDING_ROUND_STORAGE_KEY = 'betterdr_blackjack_pending_round_v1';
 
 const money = (value) => {
   const parsed = Number(value);
@@ -314,6 +319,7 @@ const logRoundAction = (action, zone = null, extra = {}) => {
   if (roundActionLog.length > 256) {
     roundActionLog = roundActionLog.slice(-256);
   }
+  schedulePendingRoundSnapshot();
 };
 
 const rememberRoundHandMeta = (zone, patch = {}) => {
@@ -401,6 +407,99 @@ const setSettlementUiState = (isPending) => {
   chips.forEach((el) => {
     el.style.pointerEvents = isPending ? 'none' : '';
   });
+};
+
+const readPendingRoundSnapshot = () => {
+  try {
+    const raw = localStorage.getItem(PENDING_ROUND_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+    const requestId = String(parsed.requestId || '').trim();
+    const payload = parsed.payload && typeof parsed.payload === 'object' ? parsed.payload : null;
+    if (!requestId || !payload) return null;
+    return { requestId, payload };
+  } catch (_) {
+    return null;
+  }
+};
+
+const clearPendingRoundSnapshot = () => {
+  try {
+    localStorage.removeItem(PENDING_ROUND_STORAGE_KEY);
+  } catch (_) {}
+};
+
+const persistPendingRoundSnapshot = () => {
+  if (!currentRoundRequestId) return;
+  const wager = money(playerInfo.totalBet || 0);
+  if (wager <= 0) return;
+  const net = lastBalance !== null ? money(playerInfo.balance - lastBalance) : 0;
+  const payload = summarizeRoundForSettlement(wager, net);
+  try {
+    localStorage.setItem(
+      PENDING_ROUND_STORAGE_KEY,
+      JSON.stringify({
+        requestId: currentRoundRequestId,
+        payload,
+        updatedAt: Date.now(),
+      })
+    );
+  } catch (_) {}
+};
+
+const schedulePendingRoundSnapshot = () => {
+  if (pendingRoundPersistTimer) {
+    clearTimeout(pendingRoundPersistTimer);
+  }
+  pendingRoundPersistTimer = setTimeout(() => {
+    pendingRoundPersistTimer = null;
+    persistPendingRoundSnapshot();
+  }, 0);
+};
+
+const flushPendingRoundRecovery = async () => {
+  if (pendingRoundRecoveryInFlight || settlementInFlight) return;
+  const token = localStorage.getItem('token');
+  if (!token) return;
+  const pending = readPendingRoundSnapshot();
+  if (!pending) return;
+
+  pendingRoundRecoveryInFlight = true;
+  try {
+    const response = await fetch('/api/casino/bet', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+        'Bypass-Tunnel-Remainder': 'true',
+      },
+      body: JSON.stringify({
+        game: 'blackjack',
+        requestId: pending.requestId,
+        bets: pending.payload,
+      }),
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (response.ok) {
+      const resolvedBalance =
+        data && data.newBalance !== undefined ? data.newBalance : data?.balanceAfter;
+      if (resolvedBalance !== undefined && resolvedBalance !== null) {
+        setAuthoritativeBalance(resolvedBalance);
+      }
+      clearPendingRoundSnapshot();
+      return;
+    }
+
+    if (response.status >= 400 && response.status < 500) {
+      clearPendingRoundSnapshot();
+    }
+  } catch (_) {
+    // Keep snapshot for retry on next page load.
+  } finally {
+    pendingRoundRecoveryInFlight = false;
+  }
 };
 
 const syncBalanceFromSite = async () => {
@@ -498,13 +597,21 @@ const summarizeRoundForSettlement = (totalWager, netResult) => {
   };
 };
 
-const settleRoundWithSite = async (payload) => {
+const settleRoundWithSite = async (payload, requestId = null) => {
   if (!blackjackBridge || typeof blackjackBridge.settleRound !== 'function') {
     throw new Error('SITE BRIDGE NOT AVAILABLE');
   }
 
-  const requestId = blackjackBridge.createRequestId('blackjack_round');
-  return blackjackBridge.settleRound(payload, requestId);
+  const resolvedRequestId =
+    requestId ||
+    currentRoundRequestId ||
+    blackjackBridge.createRequestId('blackjack_round');
+  return blackjackBridge.settleRound(payload, resolvedRequestId);
+};
+
+const bootstrapBlackjackSession = async () => {
+  await flushPendingRoundRecovery();
+  await syncBalanceFromSite();
 };
 
 if (deckQtyEl) {
@@ -560,7 +667,7 @@ function tick(ts) {
 }
 requestAnimationFrame(tick);
 setSettlementUiState(false);
-syncBalanceFromSite();
+bootstrapBlackjackSession();
 
 const zoneSum = (z) =>
   [
@@ -663,9 +770,14 @@ function dealCard(zone, targetTop, targetRight, flip = true, isDouble = false) {
 function deal() {
   if (settlementInFlight) return;
   if (lastBalance === null) lastBalance = playerInfo.balance;
+  currentRoundRequestId = blackjackBridge && typeof blackjackBridge.createRequestId === 'function'
+    ? blackjackBridge.createRequestId('blackjack_round')
+    : `blackjack_round_${Date.now().toString(36)}`;
+  emergencySettlementSent = false;
   resetRoundTracking();
   roundStartBetSnapshot = captureRoundStartBetSnapshot();
   logRoundAction('deal');
+  persistPendingRoundSnapshot();
   resetLastWinDisplay();
   snapshotRebet();
   document.querySelector('#deckQuantity').style.pointerEvents = 'none';
@@ -1598,7 +1710,7 @@ function checkMainBets() {
 
     setSettlementUiState(true);
     try {
-      const response = await settleRoundWithSite(roundPayload);
+      const response = await settleRoundWithSite(roundPayload, currentRoundRequestId);
       const resolvedBalance =
         response && response.newBalance !== undefined
           ? response.newBalance
@@ -1628,6 +1740,9 @@ function checkMainBets() {
       }
       await syncBalanceFromSite();
     } finally {
+      currentRoundRequestId = null;
+      emergencySettlementSent = false;
+      clearPendingRoundSnapshot();
       setSettlementUiState(false);
       showPostRoundButtons();
       document.querySelector('#deckQuantity').style.pointerEvents = 'all';
@@ -3290,8 +3405,42 @@ playBtn.addEventListener('click', async () => {
   loadingScreen.remove();
   game.style.opacity = '1';
   music.play();
+  await flushPendingRoundRecovery();
   await syncBalanceFromSite();
 });
+
+function triggerEmergencySettlement() {
+  if (settlementInFlight || emergencySettlementSent || !gameStart) return;
+  if (!currentRoundRequestId) return;
+  const wager = money(playerInfo.totalBet || 0);
+  if (wager <= 0) return;
+
+  const net =
+    lastBalance !== null ? money(playerInfo.balance - lastBalance) : 0;
+  const payload = summarizeRoundForSettlement(wager, net);
+  persistPendingRoundSnapshot();
+  const token = localStorage.getItem('token');
+  if (!token) return;
+
+  emergencySettlementSent = true;
+  fetch('/api/casino/bet', {
+    method: 'POST',
+    keepalive: true,
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+      'Bypass-Tunnel-Remainder': 'true',
+    },
+    body: JSON.stringify({
+      game: 'blackjack',
+      requestId: currentRoundRequestId,
+      bets: payload,
+    }),
+  }).catch(() => {});
+}
+
+window.addEventListener('pagehide', triggerEmergencySettlement);
+window.addEventListener('beforeunload', triggerEmergencySettlement);
 
 musicChangeBtn[0].addEventListener('click', () => musicChange('prev'));
 musicChangeBtn[1].addEventListener('click', () => musicChange('next'));

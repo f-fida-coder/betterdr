@@ -43,6 +43,14 @@
     function createRequest(type, payload, responseTypes, errorTypes) {
         return new Promise(function (resolve, reject) {
             var requestId = String((payload && payload.requestId) || nextRequestId(type)).trim();
+            if (!requestId) {
+                reject(new Error('Missing requestId'));
+                return;
+            }
+            if (pendingRequests[requestId]) {
+                reject(new Error('Duplicate in-flight request'));
+                return;
+            }
             var timeoutId = setTimeout(function () {
                 clearPending(requestId);
                 reject(new Error('Request timed out'));
@@ -56,10 +64,15 @@
                 timeoutId: timeoutId
             };
 
-            window.parent.postMessage(Object.assign({}, payload, {
-                type: type,
-                requestId: requestId
-            }), parentOrigin);
+            try {
+                window.parent.postMessage(Object.assign({}, payload, {
+                    type: type,
+                    requestId: requestId
+                }), parentOrigin);
+            } catch (err) {
+                clearPending(requestId);
+                reject(new Error('Unable to post request to parent frame'));
+            }
         });
     }
 

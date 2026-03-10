@@ -3,6 +3,7 @@ import {
   getUserStatistics,
   getAgents,
   getTransactionsHistory,
+  getDeletedWagers,
   getAdminBets,
   deleteAdminTransactions,
   updateUserFreeplay,
@@ -127,51 +128,97 @@ const TRANSACTION_TYPE_OPTIONS = [
   }
 ];
 
-const TRANSACTION_SUBTYPE_REASON_BY_FILTER = Object.freeze({
-  credit_adj: 'ADMIN_CREDIT_ADJUSTMENT',
-  debit_adj: 'ADMIN_DEBIT_ADJUSTMENT',
-  promotional_credit: 'ADMIN_PROMOTIONAL_CREDIT',
-  promotional_debit: 'ADMIN_PROMOTIONAL_DEBIT'
-});
-
 const TRANSACTION_FILTER_OPTIONS = [
-  { value: 'all', label: 'All' },
-  ...TRANSACTION_TYPE_OPTIONS.map((option) => ({ value: option.value, label: option.label })),
-  { value: 'adjustment', label: 'All Adjustments' },
-  { value: 'wager', label: 'Wagers' },
-  { value: 'payout', label: 'Payouts' },
-  { value: 'casino', label: 'Casino Activity' }
+  { value: 'non_wager', label: 'Non-Wager' },
+  { value: 'all_transactions', label: 'All Transactions' },
+  { value: 'deposit_withdrawal', label: 'Deposit/Withdrawal' },
+  { value: 'betting_adjustments', label: 'Betting Adjustments' },
+  { value: 'wagers_only', label: 'Wagers Only' },
+  { value: 'deleted_changed', label: 'Deleted/Changed' }
 ];
 
 const normalizeTxnValue = (value) => String(value || '').trim().toLowerCase();
+const WAGER_ONLY_TYPES = new Set(['bet_placed', 'bet_placed_admin', 'casino_bet_debit']);
+const WAGER_RELATED_TYPES = new Set([
+  ...WAGER_ONLY_TYPES,
+  'bet_won',
+  'bet_lost',
+  'bet_refund',
+  'bet_void',
+  'bet_void_admin',
+  'casino_bet_credit'
+]);
+const DELETED_CHANGED_TYPES = new Set(['bet_void', 'bet_void_admin', 'deleted_wager']);
+
+const txDateToEpoch = (value) => {
+  if (!value) return 0;
+  const dateValue = value?.$date || value;
+  const parsed = new Date(dateValue);
+  const ms = parsed.getTime();
+  return Number.isNaN(ms) ? 0 : ms;
+};
+
+const mapDeletedWagerToTx = (wager) => {
+  const amount = Math.abs(Number(wager?.amount || 0));
+  const sport = String(wager?.sport || '').trim();
+  const reason = String(wager?.reason || '').trim();
+  const status = String(wager?.status || 'deleted').trim().toLowerCase() || 'deleted';
+  const descriptor = status === 'restored' ? 'Changed Wager' : 'Deleted Wager';
+  const parts = [descriptor];
+  if (sport) parts.push(`(${sport})`);
+  if (reason) parts.push(`- ${reason}`);
+
+  return {
+    id: `deleted-wager-${String(wager?.id || '')}`,
+    type: 'deleted_wager',
+    entrySide: 'CREDIT',
+    sourceType: null,
+    referenceType: 'DeletedWager',
+    referenceId: wager?.id || null,
+    user: wager?.user || 'Unknown',
+    userId: wager?.userId || null,
+    amount,
+    date: wager?.deletedAt || wager?.restoredAt || null,
+    balanceBefore: null,
+    balanceAfter: null,
+    status,
+    reason: reason ? reason.toUpperCase().replace(/\s+/g, '_') : null,
+    description: parts.join(' ')
+  };
+};
 
 const getApiTypeForTransactionFilter = (filterValue) => {
   const normalizedFilter = normalizeTxnValue(filterValue);
-  if (
-    normalizedFilter === 'credit_adj'
-    || normalizedFilter === 'debit_adj'
-    || normalizedFilter === 'promotional_credit'
-    || normalizedFilter === 'promotional_debit'
-  ) {
+  if (normalizedFilter === 'betting_adjustments') {
     return 'adjustment';
   }
-  return normalizedFilter || 'all';
+  return 'all';
 };
 
 const matchesTransactionFilter = (txn, filterValue) => {
   const normalizedFilter = normalizeTxnValue(filterValue);
-  if (normalizedFilter === '' || normalizedFilter === 'all') {
+  if (normalizedFilter === '' || normalizedFilter === 'all' || normalizedFilter === 'all_transactions') {
     return true;
   }
 
   const txnType = normalizeTxnValue(txn?.type);
-  const expectedReason = TRANSACTION_SUBTYPE_REASON_BY_FILTER[normalizedFilter];
-  if (expectedReason) {
-    const txnReason = String(txn?.reason || '').trim().toUpperCase();
-    return txnType === 'adjustment' && txnReason === expectedReason;
+  if (normalizedFilter === 'non_wager') {
+    return !WAGER_RELATED_TYPES.has(txnType);
+  }
+  if (normalizedFilter === 'deposit_withdrawal') {
+    return txnType === 'deposit' || txnType === 'withdrawal';
+  }
+  if (normalizedFilter === 'betting_adjustments') {
+    return txnType === 'adjustment';
+  }
+  if (normalizedFilter === 'wagers_only') {
+    return WAGER_ONLY_TYPES.has(txnType);
+  }
+  if (normalizedFilter === 'deleted_changed') {
+    return DELETED_CHANGED_TYPES.has(txnType);
   }
 
-  return txnType === normalizedFilter;
+  return true;
 };
 
 function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
@@ -190,7 +237,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
   const [txError, setTxError] = useState('');
   const [txSuccess, setTxSuccess] = useState('');
   const [txDisplayFilter, setTxDisplayFilter] = useState('7d');
-  const [txTypeFilter, setTxTypeFilter] = useState('all');
+  const [txTypeFilter, setTxTypeFilter] = useState('non_wager');
   const [txStatusFilter, setTxStatusFilter] = useState('all');
   const [selectedTxIds, setSelectedTxIds] = useState([]);
   const [showNewTxModal, setShowNewTxModal] = useState(false);
@@ -351,30 +398,56 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
     if (userId) fetchDetails();
   }, [role, userId]);
 
+  const loadCustomerTransactions = async (tokenValue) => {
+    if (!customer?.username) return [];
+
+    const token = tokenValue || localStorage.getItem('token');
+    if (!token) {
+      throw new Error('Please login to view transactions.');
+    }
+
+    const data = await getTransactionsHistory({
+      user: customer.username || '',
+      type: getApiTypeForTransactionFilter(txTypeFilter),
+      status: txStatusFilter,
+      time: txDisplayFilter,
+      limit: 300
+    }, token);
+    const list = Array.isArray(data?.transactions) ? data.transactions : [];
+    const forCustomer = list.filter((txn) => String(txn.userId || '') === String(userId));
+
+    let mergedRows = [...forCustomer];
+    if (normalizeTxnValue(txTypeFilter) === 'deleted_changed') {
+      try {
+        const deletedWagersData = await getDeletedWagers({
+          user: customer.username || '',
+          status: 'all',
+          sport: 'all',
+          time: txDisplayFilter,
+          limit: 300
+        }, token);
+        const deletedRows = (Array.isArray(deletedWagersData?.wagers) ? deletedWagersData.wagers : [])
+          .filter((wager) => String(wager?.userId || '') === String(userId))
+          .map(mapDeletedWagerToTx);
+        mergedRows = [...mergedRows, ...deletedRows];
+      } catch (deletedErr) {
+        console.warn('Deleted/Changed wagers could not be loaded:', deletedErr);
+      }
+    }
+
+    return mergedRows
+      .filter((txn) => matchesTransactionFilter(txn, txTypeFilter))
+      .sort((a, b) => txDateToEpoch(b?.date) - txDateToEpoch(a?.date));
+  };
+
   useEffect(() => {
     const loadTransactions = async () => {
       if (activeSection !== 'transactions' || !customer) return;
       try {
         setTxLoading(true);
         setTxError('');
-        const token = localStorage.getItem('token');
-        if (!token) {
-          setTxError('Please login to view transactions.');
-          return;
-        }
-
-        const data = await getTransactionsHistory({
-          user: customer.username || '',
-          type: getApiTypeForTransactionFilter(txTypeFilter),
-          status: txStatusFilter,
-          time: txDisplayFilter,
-          limit: 300
-        }, token);
-        const list = Array.isArray(data?.transactions) ? data.transactions : [];
-        const forCustomer = list
-          .filter((txn) => String(txn.userId || '') === String(userId))
-          .filter((txn) => matchesTransactionFilter(txn, txTypeFilter));
-        setTransactions(forCustomer);
+        const rows = await loadCustomerTransactions();
+        setTransactions(rows);
       } catch (err) {
         setTxError(err.message || 'Failed to load transactions');
       } finally {
@@ -744,12 +817,12 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
     if (sectionId === 'transactions') {
       setActiveSection('transactions');
       setTxDisplayFilter('7d');
-      setTxTypeFilter('all');
+      setTxTypeFilter('non_wager');
       setTxStatusFilter('all');
     } else if (sectionId === 'pending') {
       setActiveSection('transactions');
       setTxDisplayFilter('7d');
-      setTxTypeFilter('all');
+      setTxTypeFilter('non_wager');
       setTxStatusFilter('pending');
     } else if (sectionId === 'performance') {
       setActiveSection('performance');
@@ -1016,20 +1089,12 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
     setTxLoading(true);
     try {
       const token = localStorage.getItem('token');
-      if (!token) return;
-      const data = await getTransactionsHistory({
-        user: customer.username || '',
-        type: getApiTypeForTransactionFilter(txTypeFilter),
-        status: txStatusFilter,
-        time: txDisplayFilter,
-        limit: 300
-      }, token);
-      const list = Array.isArray(data?.transactions) ? data.transactions : [];
-      setTransactions(
-        list
-          .filter((txn) => String(txn.userId || '') === String(userId))
-          .filter((txn) => matchesTransactionFilter(txn, txTypeFilter))
-      );
+      if (!token) {
+        setTxError('Please login to view transactions.');
+        return;
+      }
+      const rows = await loadCustomerTransactions(token);
+      setTransactions(rows);
     } catch (err) {
       setTxError(err.message || 'Failed to refresh transactions');
     } finally {

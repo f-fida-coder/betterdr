@@ -23,6 +23,13 @@ const LOCAL_GAME_META = {
         url: '/games/blackjack/index.html?v=20260309f',
         poster: '/games/blackjack/src/images/misc/table.png',
         themeColor: '#0b5563',
+    },
+    craps: {
+        id: 'local-craps',
+        provider: 'In-House',
+        url: '/games/craps/index.html?v=20260310b',
+        poster: '/games/craps/sprites/board_table.jpg',
+        themeColor: '#0a4f3a',
     }
 };
 
@@ -41,6 +48,7 @@ const normalizeEmbeddedGameSlug = (value) => {
     const normalized = String(value || '').trim().toLowerCase();
     if (normalized.includes('blackjack')) return 'blackjack';
     if (normalized.includes('baccarat')) return 'baccarat';
+    if (normalized.includes('craps')) return 'craps';
     return '';
 };
 
@@ -151,10 +159,10 @@ const CasinoView = () => {
 
     /* ── postMessage bridge: iframe ↔ backend API ─────────── */
     const handleGameMessage = useCallback(async (event) => {
-        // Source-window validation is authoritative; origin can vary in production
-        // when the site is served behind redirects/canonical host rules.
         const currentIframeWindow = iframeRef.current?.contentWindow;
         if (!currentIframeWindow || event.source !== currentIframeWindow) return;
+        const allowedOrigin = resolveLocalGameOrigin(activeLocalGameRef.current);
+        if (allowedOrigin && allowedOrigin !== '*' && event.origin !== allowedOrigin) return;
         const msg = event.data;
         if (!msg || typeof msg !== 'object' || !msg.type) return;
 
@@ -180,7 +188,7 @@ const CasinoView = () => {
             }
             pendingGameRequests.current.add(requestId);
             try {
-                const result = await placeCasinoBet(requestedGame, msg.bets, token, { requestId });
+                const result = await placeCasinoBet(requestedGame, msg.bets, token, { requestId, payload: msg.payload });
                 let settledPlayableBalance = null;
                 try {
                     const walletData = await getBalance(token);
@@ -320,7 +328,12 @@ const CasinoView = () => {
         }
     };
 
-    const formatLimits = (minBet, maxBet) => `MIN: $${Number(minBet || 0).toFixed(2)} | MAX: $${Number(maxBet || 0).toFixed(2)}`;
+    const formatLimits = (minBet, maxBet) => {
+        const min = Number(minBet);
+        const max = Number(maxBet);
+        if (!Number.isFinite(min) || !Number.isFinite(max)) return 'MIN/MAX set by table rules';
+        return `MIN: $${min.toFixed(2)} | MAX: $${max.toFixed(2)}`;
+    };
     const formatMoney = (value) => {
         const num = Number(value || 0);
         if (Number.isNaN(num)) return '$0.00';
@@ -336,6 +349,8 @@ const CasinoView = () => {
                 return 'Blackjack';
             case 'baccarat':
                 return 'Baccarat';
+            case 'craps':
+                return 'Craps';
             default:
                 return value || '—';
         }
@@ -344,6 +359,8 @@ const CasinoView = () => {
         switch (String(value || '').toLowerCase()) {
             case 'server_rng':
                 return 'Server RNG';
+            case 'server_simulated_actions':
+                return 'Server Simulation';
             case 'native_client_round':
                 return 'Client Native';
             case '':
@@ -388,6 +405,16 @@ const CasinoView = () => {
             return color ? `${number} ${color}` : `${number}`;
         }
 
+        if (String(row.game || '').toLowerCase() === 'craps') {
+            const dice = row?.roundData?.dice;
+            const die1 = Number(dice?.die1);
+            const die2 = Number(dice?.die2);
+            const sum = Number(dice?.sum);
+            if (Number.isFinite(die1) && Number.isFinite(die2) && Number.isFinite(sum)) {
+                return `${die1}+${die2}=${sum}`;
+            }
+        }
+
         return row.result || '—';
     };
     const formatRoundId = (value) => {
@@ -423,6 +450,14 @@ const CasinoView = () => {
             return 'Main + side bets';
         }
 
+        if (game === 'craps') {
+            const bets = row?.bets && typeof row.bets === 'object' ? row.bets : {};
+            const keys = Object.keys(bets).filter((key) => Number(bets[key]) > 0).sort();
+            if (keys.length === 0) return '—';
+            const preview = keys.slice(0, 3).map((key) => `${key} ${formatMoney(bets[key])}`).join(' | ');
+            return keys.length > 3 ? `${preview} +${keys.length - 3} more` : preview;
+        }
+
         return '—';
     };
     const handleLocalGameOpen = (game) => {
@@ -430,7 +465,15 @@ const CasinoView = () => {
             alert('Please login to play in-house games.');
             return;
         }
+        if (String(game?.status || '').toLowerCase() !== 'active') {
+            alert('This game is currently unavailable.');
+            return;
+        }
         setActiveLocalGame(game);
+    };
+
+    const handleLocalGameClose = () => {
+        setActiveLocalGame(null);
     };
 
     const localGames = useMemo(() => {
@@ -465,11 +508,12 @@ const CasinoView = () => {
                 <div className="game-iframe-overlay">
                     <button
                         className="game-iframe-close-btn"
-                        onClick={() => setActiveLocalGame(null)}
-                        title="Close game"
+                        onClick={handleLocalGameClose}
+                        title="Exit game"
+                        aria-label="Exit game"
                     >
                         <i className="fa-solid fa-xmark"></i>
-                        <span>Close</span>
+                        <span>Exit</span>
                     </button>
                     <iframe
                         ref={iframeRef}
@@ -533,7 +577,7 @@ const CasinoView = () => {
                     <div className="casino-grid">
                         {localGames.map((game) => (
                             <article
-                                className="casino-card local-game-card"
+                                className={`casino-card local-game-card ${String(game.status || '').toLowerCase() !== 'active' ? 'is-disabled' : ''}`}
                                 key={game.id}
                                 onClick={() => handleLocalGameOpen(game)}
                             >
@@ -542,7 +586,9 @@ const CasinoView = () => {
                                     style={{ background: `linear-gradient(135deg, ${game.themeColor || '#0f172a'}, #0f5db3)` }}
                                 >
                                     <img src={game.poster} alt={game.name} className="casino-game-image" />
-                                    <span className="casino-status active">active</span>
+                                    <span className={`casino-status ${String(game.status || 'active').toLowerCase()}`}>
+                                        {String(game.status || 'active')}
+                                    </span>
                                     <span className="casino-inhouse-badge">
                                         <i className="fa-solid fa-crown"></i> IN-HOUSE
                                     </span>
@@ -555,6 +601,7 @@ const CasinoView = () => {
                                         <div className="casino-game-title">{game.name}</div>
                                         <div className="casino-provider inhouse">{game.provider}</div>
                                     </div>
+                                    <div className="casino-bet-limits">{formatLimits(game.minBet, game.maxBet)}</div>
                                     <button
                                         className="casino-play-btn local"
                                         type="button"
@@ -562,9 +609,10 @@ const CasinoView = () => {
                                             e.stopPropagation();
                                             handleLocalGameOpen(game);
                                         }}
+                                        disabled={String(game.status || '').toLowerCase() !== 'active'}
                                     >
                                         <i className="fa-solid fa-play" style={{ marginRight: 6 }}></i>
-                                        Play Now
+                                        {String(game.status || '').toLowerCase() === 'active' ? 'Play Now' : 'Unavailable'}
                                     </button>
                                 </div>
                             </article>
@@ -603,6 +651,7 @@ const CasinoView = () => {
                             <option value="">All</option>
                             <option value="baccarat">Baccarat</option>
                             <option value="blackjack">Blackjack</option>
+                            <option value="craps">Craps</option>
                         </select>
                     </label>
                     <label>

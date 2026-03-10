@@ -383,6 +383,28 @@
     box-shadow: 0 12px 28px rgba(212, 160, 23, 0.22);
 }
 
+.local-game-card.is-disabled {
+    cursor: not-allowed;
+    opacity: 0.76;
+    border-color: #c8d4e4;
+    box-shadow: none;
+}
+
+.local-game-card.is-disabled:hover {
+    transform: none;
+    border-color: #c8d4e4;
+    box-shadow: none;
+}
+
+.local-game-card.is-disabled .play-overlay {
+    display: none;
+}
+
+.local-game-card.is-disabled .casino-play-btn.local {
+    background: #90a0b7;
+    border-color: #7e8fa7;
+}
+
 .casino-inhouse-badge {
     position: absolute;
     bottom: 10px;
@@ -427,8 +449,8 @@
 
 .game-iframe-close-btn {
     position: absolute;
-    top: 12px;
-    right: 16px;
+    top: calc(env(safe-area-inset-top, 0px) + 12px);
+    right: calc(env(safe-area-inset-right, 0px) + 16px);
     z-index: 10000;
     display: inline-flex;
     align-items: center;
@@ -442,6 +464,7 @@
     font-size: 13px;
     font-weight: 800;
     cursor: pointer;
+    min-height: 40px;
     transition: background 0.15s ease;
 }
 
@@ -638,4 +661,28 @@
     font-size: 12px;
     color: #5b7392;
     font-weight: 700;
+}
+
+@media (max-width: 768px) {
+    .game-iframe-close-btn {
+        top: calc(env(safe-area-inset-top, 0px) + 8px);
+        right: calc(env(safe-area-inset-right, 0px) + 10px);
+        min-height: 42px;
+        padding: 9px 12px;
+    }
+
+    .casino-history-section {
+        margin: 10px;
+        padding: 12px;
+    }
+
+    .casino-history-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .casino-history-pagination {
+        justify-content: flex-start;
+        flex-wrap: wrap;
+    }
 }

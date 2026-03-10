@@ -78,18 +78,18 @@ function placeBlackjackRound(string $baseUrl, string $token, string $requestId, 
     return $response['data'];
 }
 
-function assertRoundIntegrity(array $round, float $expectedWager, float $expectedReturn, float $expectedNet, string $expectedResultType, string $context): void
+function assertRoundMath(array $round, string $context): void
 {
     assertOk((string) ($round['game'] ?? '') === 'blackjack', $context . ': game mismatch');
-    assertOk((string) ($round['outcomeSource'] ?? '') === 'client_actions_server_rules', $context . ': outcomeSource mismatch');
-    assertClose(num($round['totalWager'] ?? 0), $expectedWager, $context . ': totalWager');
-    assertClose(num($round['totalReturn'] ?? 0), $expectedReturn, $context . ': totalReturn');
-    assertClose(num($round['netResult'] ?? 0), $expectedNet, $context . ': netResult');
-    assertOk((string) ($round['resultType'] ?? '') === $expectedResultType, $context . ': resultType mismatch');
+    assertOk((string) ($round['outcomeSource'] ?? '') === 'server_simulated_actions', $context . ': outcomeSource mismatch');
 
     $before = num($round['balanceBefore'] ?? 0);
     $after = num($round['balanceAfter'] ?? 0);
-    assertClose($after - $before, $expectedNet, $context . ': balance delta');
+    $wager = num($round['totalWager'] ?? 0);
+    $return = num($round['totalReturn'] ?? 0);
+    $net = num($round['netResult'] ?? 0);
+    assertClose($return - $wager, $net, $context . ': wager/return/net mismatch');
+    assertClose($after - $before, $net, $context . ': balance delta mismatch');
 }
 
 try {
@@ -112,7 +112,7 @@ try {
     $token = (string) ($login['data']['token'] ?? '');
     assertOk($token !== '', 'Missing token');
 
-    echo "3) Natural blackjack payout should be 3:2...\n";
+    echo "3) Server should ignore forged card payloads and settle from action replay...\n";
     $round1 = placeBlackjackRound(
         $baseUrl,
         $token,
@@ -121,90 +121,114 @@ try {
             'betBreakdown' => [
                 ['zone' => 'betZone1', 'main' => 10, 'pairs' => 0, 'plus21' => 0, 'royal' => 0, 'superSeven' => 0, 'insurance' => 0],
             ],
-            'hands' => [
-                ['zone' => 'betZone1', 'cards' => ['A:s1', 'K:s2'], 'bet' => 10, 'isSplit' => false],
+            'actions' => [
+                ['action' => 'deal'],
+                ['action' => 'stand', 'zone' => 'betZone1'],
             ],
-            'dealerCards' => ['10:s3', '8:s4'],
+            // Forged cards should be ignored by the backend simulation.
+            'hands' => [
+                ['zone' => 'betZone1', 'cards' => ['A:s1', 'A:s2', 'A:s3', 'A:s4', 'K:s1', 'K:s2', 'K:s3', 'K:s4'], 'bet' => 10, 'isSplit' => false],
+            ],
+            'dealerCards' => ['10:s3', '10:s4', '10:s1', '10:s2'],
         ]
     );
-    assertRoundIntegrity($round1, 10, 25, 15, 'blackjack', 'round1_blackjack');
+    assertRoundMath($round1, 'round1');
+    $round1Hands = is_array($round1['betDetails']['hands'] ?? null) ? $round1['betDetails']['hands'] : [];
+    assertOk(count($round1Hands) === 1, 'round1: expected one settled hand');
+    $round1Cards = is_array($round1Hands[0]['cards'] ?? null) ? $round1Hands[0]['cards'] : [];
+    assertOk(count($round1Cards) === 2, 'round1: expected exactly two cards after deal+stand replay');
 
-    echo "4) Push should return full stake...\n";
+    echo "4) Same requestId should be idempotent even with different payload body...\n";
     $round2 = placeBlackjackRound(
         $baseUrl,
         $token,
-        'bj_settle_' . $seed . '_2',
+        'bj_settle_' . $seed . '_1',
         [
+            'betBreakdown' => [
+                ['zone' => 'betZone1', 'main' => 1, 'pairs' => 0, 'plus21' => 0, 'royal' => 0, 'superSeven' => 0, 'insurance' => 0],
+            ],
+            'actions' => [
+                ['action' => 'deal'],
+                ['action' => 'hit', 'zone' => 'betZone1'],
+                ['action' => 'stand', 'zone' => 'betZone1'],
+            ],
+        ]
+    );
+    assertOk((string) ($round2['roundId'] ?? '') === (string) ($round1['roundId'] ?? ''), 'round2: idempotent roundId mismatch');
+    assertOk((bool) ($round2['idempotent'] ?? false) === true, 'round2: expected idempotent=true');
+
+    echo "5) Missing deal action should fail validation...\n";
+    $invalidNoDeal = req('POST', $baseUrl . '/casino/bet', [
+        'requestId' => 'bj_settle_' . $seed . '_2',
+        'game' => 'blackjack',
+        'bets' => [
             'betBreakdown' => [
                 ['zone' => 'betZone1', 'main' => 10, 'pairs' => 0, 'plus21' => 0, 'royal' => 0, 'superSeven' => 0, 'insurance' => 0],
             ],
-            'hands' => [
-                ['zone' => 'betZone1', 'cards' => ['10:s1', 'Q:s2'], 'bet' => 10, 'isSplit' => false],
+            'actions' => [
+                ['action' => 'stand', 'zone' => 'betZone1'],
             ],
-            'dealerCards' => ['10:s3', 'Q:s4'],
-        ]
-    );
-    assertRoundIntegrity($round2, 10, 10, 0, 'push', 'round2_push');
+        ],
+    ], $token);
+    assertOk($invalidNoDeal['status'] === 400, 'round3: missing-deal payload should fail');
 
-    echo "5) Insurance win should offset main-hand loss when dealer has blackjack...\n";
-    $round3 = placeBlackjackRound(
-        $baseUrl,
-        $token,
-        'bj_settle_' . $seed . '_3',
-        [
+    echo "6) Insurance stake without insurance action should fail...\n";
+    $invalidInsurance = req('POST', $baseUrl . '/casino/bet', [
+        'requestId' => 'bj_settle_' . $seed . '_3',
+        'game' => 'blackjack',
+        'bets' => [
             'betBreakdown' => [
                 ['zone' => 'betZone1', 'main' => 10, 'pairs' => 0, 'plus21' => 0, 'royal' => 0, 'superSeven' => 0, 'insurance' => 5],
             ],
-            'hands' => [
-                ['zone' => 'betZone1', 'cards' => ['10:s1', '8:s2'], 'bet' => 10, 'isSplit' => false],
+            'actions' => [
+                ['action' => 'deal'],
+                ['action' => 'stand', 'zone' => 'betZone1'],
             ],
-            'dealerCards' => ['A:s3', 'K:s4'],
-        ]
-    );
-    assertRoundIntegrity($round3, 15, 15, 0, 'push', 'round3_insurance');
+        ],
+    ], $token);
+    assertOk($invalidInsurance['status'] === 400, 'round4: insurance-without-action payload should fail');
 
-    echo "6) Surrender should return half the hand stake...\n";
-    $round4 = placeBlackjackRound(
-        $baseUrl,
-        $token,
-        'bj_settle_' . $seed . '_4',
-        [
+    echo "7) Invalid action order (hit then double) should fail...\n";
+    $invalidOrder = req('POST', $baseUrl . '/casino/bet', [
+        'requestId' => 'bj_settle_' . $seed . '_4',
+        'game' => 'blackjack',
+        'bets' => [
             'betBreakdown' => [
                 ['zone' => 'betZone1', 'main' => 10, 'pairs' => 0, 'plus21' => 0, 'royal' => 0, 'superSeven' => 0, 'insurance' => 0],
             ],
-            'hands' => [
-                ['zone' => 'betZone1', 'cards' => ['10:s1', '6:s2'], 'bet' => 10, 'isSplit' => false, 'surrendered' => true],
+            'actions' => [
+                ['action' => 'deal'],
+                ['action' => 'hit', 'zone' => 'betZone1'],
+                ['action' => 'double', 'zone' => 'betZone1'],
             ],
-            'dealerCards' => ['9:s3', '7:s4'],
-        ]
-    );
-    assertRoundIntegrity($round4, 10, 5, -5, 'surrender', 'round4_surrender');
+        ],
+    ], $token);
+    assertOk($invalidOrder['status'] === 400, 'round5: invalid action-order payload should fail');
 
-    echo "7) Perfect pair side-bet payout should be enforced server-side...\n";
-    $round5 = placeBlackjackRound(
+    echo "8) Valid settle still records detail/history payload...\n";
+    $round6 = placeBlackjackRound(
         $baseUrl,
         $token,
         'bj_settle_' . $seed . '_5',
         [
             'betBreakdown' => [
-                ['zone' => 'betZone1', 'main' => 10, 'pairs' => 2, 'plus21' => 0, 'royal' => 0, 'superSeven' => 0, 'insurance' => 0],
+                ['zone' => 'betZone1', 'main' => 10, 'pairs' => 2, 'plus21' => 1, 'royal' => 0, 'superSeven' => 0, 'insurance' => 0],
             ],
-            'hands' => [
-                ['zone' => 'betZone1', 'cards' => ['9:s1', '9:s1'], 'bet' => 10, 'isSplit' => false],
+            'actions' => [
+                ['action' => 'deal'],
+                ['action' => 'stand', 'zone' => 'betZone1'],
             ],
-            'dealerCards' => ['10:s3', 'Q:s4'],
         ]
     );
-    // Main loses (0), side perfect pair returns 2 * 26 = 52 => wager 12, return 52, net +40.
-    assertRoundIntegrity($round5, 12, 52, 40, 'standard', 'round5_pairs');
+    assertRoundMath($round6, 'round6');
 
-    echo "8) Validate detail endpoint exposes resultType and betDetails...\n";
-    $roundId = (string) ($round5['roundId'] ?? '');
-    assertOk($roundId !== '', 'Missing roundId in round5');
+    echo "9) Validate detail endpoint exposes resultType and betDetails...\n";
+    $roundId = (string) ($round6['roundId'] ?? '');
+    assertOk($roundId !== '', 'Missing roundId in round6');
     $detail = req('GET', $baseUrl . '/casino/bet/' . $roundId, null, $token);
     assertOk($detail['status'] === 200, 'Round detail fetch failed');
     $detailBet = is_array($detail['data']['bet'] ?? null) ? $detail['data']['bet'] : [];
-    assertOk((string) ($detailBet['resultType'] ?? '') === 'standard', 'Detail resultType mismatch');
+    assertOk((string) ($detailBet['game'] ?? '') === 'blackjack', 'Detail game mismatch');
     assertOk(is_array($detailBet['betDetails'] ?? null), 'Detail betDetails missing');
 
     echo "\nBlackjack settlement smoke suite passed.\n";

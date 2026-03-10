@@ -768,7 +768,14 @@ final class AuthController
 
         if ($legacyHash !== '') {
             $hashInfo = password_get_info($legacyHash);
-            $legacyLooksHashed = (int) ($hashInfo['algo'] ?? 0) !== 0;
+            $algoRaw = $hashInfo['algo'] ?? null;
+            $algoName = strtolower((string) ($hashInfo['algoName'] ?? 'unknown'));
+            $legacyLooksHashed = (
+                (is_int($algoRaw) && $algoRaw !== 0)
+                || (is_string($algoRaw) && trim($algoRaw) !== '' && trim($algoRaw) !== '0')
+                || ($algoName !== '' && $algoName !== 'unknown')
+                || preg_match('/^\$(2[aby]|argon2i|argon2id)\$/', $legacyHash) === 1
+            );
 
             if ($legacyLooksHashed) {
                 foreach ($candidates as $candidate) {

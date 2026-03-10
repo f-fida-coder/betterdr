@@ -102,10 +102,10 @@
   width: 100%;
   border: none;
   background: transparent;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(80px, 1fr) minmax(64px, 0.8fr) minmax(90px, 1.2fr);
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
   padding: 10px 12px;
   cursor: pointer;
   color: #20354d;
@@ -116,10 +116,30 @@
   background: #edf4f8;
 }
 
-.admin-header-search-item span:last-child {
+.search-item-user {
+  color: #1d3348;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+
+.search-item-pass {
+  color: #355676;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: center;
+}
+
+.search-item-name {
   color: #617181;
   font-size: 12px;
-  max-width: 55%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -680,9 +700,9 @@
     width: 100%;
     border: none;
     background: #ffffff;
-    display: flex;
+    display: grid;
+    grid-template-columns: minmax(86px, 1fr) minmax(70px, 0.85fr) minmax(96px, 1.2fr);
     align-items: center;
-    justify-content: space-between;
     gap: 10px;
     padding: 12px;
     cursor: pointer;
@@ -695,14 +715,16 @@
     border-top: 1px solid #edf1f5;
   }
 
-  .mobile-player-search-item span:last-child {
-    color: #617181;
+  .mobile-player-search-item .search-item-user {
+    font-size: 13px;
+  }
+
+  .mobile-player-search-item .search-item-pass {
+    font-size: 11px;
+  }
+
+  .mobile-player-search-item .search-item-name {
     font-size: 12px;
-    max-width: 52%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    text-align: right;
   }
 
   .dropdown-menu.user-chip-menu {
@@ -2309,6 +2331,281 @@
 .customer-table td:first-child,
 .customer-table th:first-child {
   text-align: left;
+}
+
+.weekly-mobile-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 10px 12px 12px;
+}
+
+.weekly-mobile-summary-card {
+  border: 1px solid #d9e4ec;
+  border-radius: 10px;
+  padding: 10px;
+  background: #f6fbff;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.weekly-mobile-summary-label {
+  font-size: 11px;
+  letter-spacing: 0.25px;
+  text-transform: uppercase;
+  color: #46637a;
+  font-weight: 700;
+}
+
+.weekly-mobile-summary-card strong {
+  color: #0f2a40;
+  font-size: 16px;
+  line-height: 1.2;
+}
+
+.weekly-mobile-customer-shell {
+  padding: 8px;
+}
+
+.weekly-mobile-agent-search-wrap {
+  margin: 2px 2px 8px;
+}
+
+.weekly-mobile-agent-search-wrap label {
+  display: block;
+  margin-bottom: 6px;
+  color: #2f4d64;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  text-transform: uppercase;
+}
+
+.weekly-mobile-agent-search-input {
+  width: 100%;
+  border: 1px solid #c7d5e1;
+  background: #f8fbff;
+  color: #12324a;
+  border-radius: 10px;
+  min-height: 40px;
+  padding: 9px 12px;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.weekly-mobile-agent-search-input:focus {
+  border-color: #1a5f7a;
+  box-shadow: 0 0 0 3px rgba(26, 95, 122, 0.14);
+}
+
+.weekly-mobile-day-toggle {
+  display: grid;
+  grid-template-columns: 38px 1fr 38px;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 2px 10px;
+  padding: 6px;
+  background: #eef4f9;
+  border: 1px solid #d5e1ea;
+  border-radius: 10px;
+}
+
+.weekly-mobile-day-nav {
+  border: 1px solid #c9d7e3;
+  background: #ffffff;
+  color: #1f425f;
+  border-radius: 8px;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  cursor: pointer;
+}
+
+.weekly-mobile-day-nav:hover {
+  background: #f4f9ff;
+}
+
+.weekly-mobile-day-current {
+  text-align: center;
+  font-size: 13px;
+  font-weight: 800;
+  color: #12324a;
+  line-height: 1.2;
+}
+
+.weekly-mobile-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.weekly-mobile-table-block {
+  border: 1px solid #d3dbe2;
+  border-radius: 4px;
+  background: #ffffff;
+  overflow: hidden;
+}
+
+.weekly-mobile-hierarchy {
+  padding: 7px 10px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.35px;
+  color: #f3f7fa;
+  background: #162b3a;
+  border-bottom: 1px solid #d3dbe2;
+  text-transform: uppercase;
+}
+
+.weekly-mobile-table-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 120px 108px;
+  align-items: center;
+  background: #162b3a;
+  color: #f1f7fc;
+  border-bottom: 1px solid #d3dbe2;
+}
+
+.weekly-mobile-table-head > span {
+  padding: 7px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.25px;
+  text-transform: none;
+}
+
+.weekly-mobile-table-head > span:nth-child(2),
+.weekly-mobile-table-head > span:nth-child(3) {
+  text-align: center;
+}
+
+.weekly-mobile-overview-block .weekly-mobile-table-head > span {
+  font-size: 11px;
+}
+
+.weekly-mobile-inline-day {
+  display: inline-grid;
+  grid-template-columns: 16px 1fr 16px;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 6px;
+  text-align: center;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.weekly-mobile-inline-day-nav {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #f1f7fc;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.weekly-mobile-inline-day-nav i {
+  font-size: 15px;
+}
+
+.weekly-mobile-table-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 120px 108px;
+  gap: 0;
+  align-items: center;
+  border-bottom: 1px solid #e1e7ed;
+  background: #ffffff;
+}
+
+.weekly-mobile-table-row:last-child {
+  border-bottom: none;
+}
+
+.weekly-mobile-customer-cell {
+  padding: 8px 10px;
+  min-width: 0;
+}
+
+.weekly-mobile-day-cell,
+.weekly-mobile-balance-cell {
+  padding: 8px 8px;
+  text-align: center;
+  font-size: 17px;
+  font-weight: 500;
+  color: #0f1d2a;
+}
+
+.weekly-mobile-day-cell.is-positive {
+  color: #1c8f4f;
+}
+
+.weekly-mobile-day-cell.is-negative {
+  color: #d11f1f;
+}
+
+.weekly-mobile-balance-cell {
+  text-align: right;
+  color: #1e2f3d;
+  padding-right: 12px;
+}
+
+.weekly-mobile-balance-cell.is-negative {
+  color: #d11f1f;
+}
+
+.weekly-mobile-overview-row .weekly-mobile-customer-cell {
+  font-size: 12px;
+}
+
+.weekly-mobile-overview-row .weekly-mobile-customer-cell strong {
+  font-weight: 500;
+}
+
+.weekly-mobile-group-total-row .weekly-mobile-customer-cell {
+  font-size: 11px;
+}
+
+.weekly-mobile-group-total-row .weekly-mobile-customer-cell strong {
+  font-weight: 500;
+}
+
+.weekly-mobile-group-total-row .weekly-mobile-day-cell,
+.weekly-mobile-group-total-row .weekly-mobile-balance-cell {
+  font-size: 17px;
+}
+
+.weekly-mobile-user {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.weekly-mobile-user .customer-username {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weekly-mobile-fullname {
+  color: #1d1d1d;
+  font-size: 10px;
+  font-style: italic;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Props / Betting Styles */
@@ -3942,6 +4239,11 @@
   margin-bottom: 12px;
 }
 
+.casino-bets-highlights {
+  grid-template-columns: repeat(3, minmax(160px, 1fr));
+  margin-bottom: 12px;
+}
+
 .casino-bets-filters .filter-group {
   min-width: 0;
 }
@@ -3965,6 +4267,10 @@
   border: 1px solid #d6e2ec;
   overflow: hidden;
   background: #fff;
+}
+
+.casino-bets-table-section {
+  margin-bottom: 12px;
 }
 
 .casino-bets-table thead {
@@ -4087,6 +4393,11 @@
   color: #1f3448;
   min-width: 140px;
   text-align: center;
+}
+
+.casino-bets-empty-row {
+  text-align: center;
+  padding: 16px;
 }
 
 .casino-bets-modal {
@@ -4277,6 +4588,10 @@
     grid-template-columns: repeat(3, minmax(150px, 1fr));
   }
 
+  .casino-bets-highlights {
+    grid-template-columns: repeat(2, minmax(150px, 1fr));
+  }
+
   .casino-filter-actions {
     justify-content: flex-start;
   }
@@ -4295,6 +4610,10 @@
     grid-template-columns: 1fr 1fr;
   }
 
+  .casino-bets-highlights {
+    grid-template-columns: 1fr;
+  }
+
   .casino-bets-pagination {
     justify-content: flex-start;
   }
@@ -4302,6 +4621,38 @@
   .casino-page-index {
     min-width: 0;
     text-align: left;
+  }
+
+  .casino-bets-modal {
+    width: calc(100vw - 12px);
+    max-height: calc(100vh - 16px);
+    border-radius: 10px;
+  }
+
+  .casino-bets-modal-head {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .casino-detail-row {
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .casino-detail-row code {
+    max-width: 100%;
+    width: 100%;
+    overflow: auto;
+    white-space: nowrap;
+  }
+
+  .casino-card-chip {
+    max-width: 100%;
+    word-break: break-word;
+  }
+
+  .casino-ledger-wrap {
+    overflow-x: auto;
   }
 }
 
@@ -4517,5 +4868,178 @@
   .table-responsive table,
   .tx-table-wrap table {
     min-width: 500px;
+  }
+}
+
+/* Dashboard Home Density Tuning */
+.admin-panel.dashboard-home-active .admin-header-top {
+  padding: 6px 14px;
+}
+
+.admin-panel.dashboard-home-active .admin-header-left {
+  gap: 10px;
+}
+
+.admin-panel.dashboard-home-active .admin-header-player-search {
+  min-width: 240px;
+  height: 34px;
+  padding: 0 9px;
+}
+
+.admin-panel.dashboard-home-active .home-nav-btn {
+  padding: 7px 11px;
+  font-size: 13px;
+}
+
+.admin-panel.dashboard-home-active .user-chip {
+  padding: 7px 10px;
+  font-size: 11px;
+}
+
+.admin-panel.dashboard-home-active .power-logout-btn {
+  width: 38px;
+  height: 38px;
+  font-size: 18px;
+}
+
+.admin-panel.dashboard-home-active .admin-header-bottom {
+  padding: 4px 14px 6px;
+}
+
+.admin-panel.dashboard-home-active .admin-stats-grid {
+  gap: 8px;
+}
+
+.admin-panel.dashboard-home-active .stat-box {
+  padding: 9px 12px;
+  border-radius: 10px;
+}
+
+.admin-panel.dashboard-home-active .stat-label {
+  font-size: 10px;
+  letter-spacing: 0.35px;
+}
+
+.admin-panel.dashboard-home-active .stat-value {
+  font-size: 15px;
+  line-height: 1;
+  white-space: nowrap;
+  text-align: right;
+}
+
+.admin-panel.dashboard-home-active .admin-content.dashboard-view {
+  padding: 0 8px 8px;
+}
+
+.admin-panel.dashboard-home-active .admin-content.dashboard-view .dashboard-grid {
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 8px;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  align-content: start;
+}
+
+.admin-panel.dashboard-home-active .admin-content.dashboard-view .grid-card {
+  min-height: clamp(74px, 8.5vh, 92px);
+  padding: clamp(8px, 0.8vw, 10px) 8px;
+  gap: 6px;
+  border-radius: 10px;
+}
+
+.admin-panel.dashboard-home-active .admin-content.dashboard-view .card-icon i {
+  font-size: clamp(20px, 1.7vw, 28px);
+}
+
+.admin-panel.dashboard-home-active .admin-content.dashboard-view .card-label {
+  font-size: clamp(11px, 0.95vw, 14px);
+  font-weight: 500;
+  line-height: 1.15;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+
+@media (max-width: 1200px) {
+  .admin-panel.dashboard-home-active .admin-content.dashboard-view .dashboard-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1024px) {
+  .admin-panel.dashboard-home-active .admin-header-player-search {
+    min-width: 210px;
+  }
+
+  .admin-panel.dashboard-home-active .admin-content.dashboard-view .dashboard-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .admin-panel.dashboard-home-active .admin-content.dashboard-view .grid-card {
+    min-height: 78px;
+    padding: 8px 6px;
+  }
+}
+
+@media (max-width: 768px) {
+  .admin-panel.dashboard-home-active .admin-header-top {
+    padding: 6px 8px;
+  }
+
+  .admin-panel.dashboard-home-active .admin-header-bottom {
+    padding: 4px 8px 6px;
+  }
+
+  .admin-panel.dashboard-home-active .admin-stats-grid {
+    gap: 6px;
+  }
+
+  .admin-panel.dashboard-home-active .stat-box {
+    padding: 8px 10px;
+  }
+
+  .admin-panel.dashboard-home-active .admin-content.dashboard-view {
+    padding: 0 6px 8px;
+  }
+
+  .admin-panel.dashboard-home-active .admin-content.dashboard-view .dashboard-grid {
+    grid-template-columns: repeat(auto-fit, minmax(142px, 1fr)) !important;
+    gap: 6px !important;
+    padding: 0 !important;
+  }
+
+  .admin-panel.dashboard-home-active .admin-content.dashboard-view .grid-card {
+    min-height: 72px !important;
+    padding: 7px 5px !important;
+    gap: 4px;
+  }
+
+  .admin-panel.dashboard-home-active .admin-content.dashboard-view .card-icon i {
+    font-size: 18px;
+  }
+
+  .admin-panel.dashboard-home-active .admin-content.dashboard-view .card-label {
+    font-size: 9.5px;
+  }
+}
+
+@media (max-width: 480px) {
+  .admin-panel.dashboard-home-active .admin-content.dashboard-view .dashboard-grid {
+    grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)) !important;
+  }
+
+  .admin-panel.dashboard-home-active .admin-content.dashboard-view .grid-card {
+    min-height: 68px !important;
+    padding: 6px 4px !important;
+  }
+
+  .admin-panel.dashboard-home-active .admin-content.dashboard-view .card-icon i {
+    font-size: 16px;
+  }
+
+  .admin-panel.dashboard-home-active .admin-content.dashboard-view .card-label {
+    font-size: 9px;
   }
 }

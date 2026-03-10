@@ -308,7 +308,7 @@ function AdminPanel({ onExit, role = 'admin' }) {
   };
 
   return (
-    <div className="admin-panel">
+    <div className={`admin-panel ${adminView === 'dashboard' ? 'dashboard-home-active' : ''}`}>
       <AdminHeader
         onMenuToggle={() => setMobileSidebarOpen(!mobileSidebarOpen)}
         onLogout={handleLogout}

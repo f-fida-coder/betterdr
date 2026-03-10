@@ -1,6 +1,7 @@
 const CASINO_GAME_LABELS = {
   casino_baccarat: 'Baccarat',
   casino_blackjack: 'Blackjack',
+  casino_craps: 'Craps',
   casino_roulette: 'Roulette',
   casino_stud_poker: 'Stud Poker',
 };
@@ -34,6 +35,7 @@ const casinoGamePrefix = (txn) => {
 export const formatTransactionType = (txn) => {
   const type = normalize(txn?.type);
   const gamePrefix = casinoGamePrefix(txn);
+  const reason = String(txn?.reason || '').trim().toUpperCase();
 
   switch (type) {
     case 'deposit':
@@ -53,6 +55,10 @@ export const formatTransactionType = (txn) => {
     case 'credit_adj':
       return 'Credit Adjustment';
     case 'adjustment':
+      if (reason === 'ADMIN_CREDIT_ADJUSTMENT') return 'Credit Adj';
+      if (reason === 'ADMIN_DEBIT_ADJUSTMENT') return 'Debit Adj';
+      if (reason === 'ADMIN_PROMOTIONAL_CREDIT') return 'Promotional Credit';
+      if (reason === 'ADMIN_PROMOTIONAL_DEBIT') return 'Promotional Debit';
       return 'Adjustment';
     case 'fp_deposit':
       return 'Free Play';
@@ -67,6 +73,22 @@ export const isDebitTransaction = (txn) => {
   if (entrySide === 'CREDIT') return false;
 
   const type = normalize(txn?.type);
+  if (type === 'adjustment') {
+    const reason = String(txn?.reason || '').trim().toUpperCase();
+    if (reason === 'ADMIN_DEBIT_ADJUSTMENT' || reason === 'ADMIN_PROMOTIONAL_DEBIT') {
+      return true;
+    }
+    if (reason === 'ADMIN_CREDIT_ADJUSTMENT' || reason === 'ADMIN_PROMOTIONAL_CREDIT') {
+      return false;
+    }
+
+    const balanceBefore = Number(txn?.balanceBefore);
+    const balanceAfter = Number(txn?.balanceAfter);
+    if (Number.isFinite(balanceBefore) && Number.isFinite(balanceAfter)) {
+      return balanceAfter < balanceBefore;
+    }
+  }
+
   if (DEBIT_TYPES.has(type)) return true;
   if (CREDIT_TYPES.has(type)) return false;
 
