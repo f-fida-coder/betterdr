@@ -746,55 +746,65 @@ final class AuthController
     {
         $normalized = strtolower($plain);
         $ciHash = (string) ($user['passwordCaseInsensitiveHash'] ?? '');
-        if ($ciHash !== '' && str_starts_with($ciHash, '$2') && password_verify($normalized, $ciHash)) {
+        if ($ciHash !== '' && password_verify($normalized, $ciHash)) {
             return true;
         }
 
         $legacyHash = (string) ($user['password'] ?? '');
-        if ($legacyHash === '' || !str_starts_with($legacyHash, '$2')) {
-            return false;
-        }
-
         $displayPassword = trim((string) ($user['displayPassword'] ?? ''));
-        if ($displayPassword !== '') {
-            $displayMatchesLegacy = password_verify($displayPassword, $legacyHash);
-            if (!$displayMatchesLegacy) {
-                $displayUpper = strtoupper($displayPassword);
-                if ($displayUpper !== $displayPassword && password_verify($displayUpper, $legacyHash)) {
-                    $displayMatchesLegacy = true;
+        $candidates = [$plain];
+        $upper = strtoupper($plain);
+        $lower = strtolower($plain);
+        if ($upper !== $plain) {
+            $candidates[] = $upper;
+        }
+        if ($lower !== $plain && $lower !== $upper) {
+            $candidates[] = $lower;
+        }
+
+        $legacyMatched = false;
+        $matchedSourcePassword = '';
+        $legacyLooksHashed = false;
+
+        if ($legacyHash !== '') {
+            $hashInfo = password_get_info($legacyHash);
+            $legacyLooksHashed = (int) ($hashInfo['algo'] ?? 0) !== 0;
+
+            if ($legacyLooksHashed) {
+                foreach ($candidates as $candidate) {
+                    if (password_verify($candidate, $legacyHash)) {
+                        $legacyMatched = true;
+                        $matchedSourcePassword = $candidate;
+                        break;
+                    }
                 }
-            }
-            if (!$displayMatchesLegacy) {
-                $displayLower = strtolower($displayPassword);
-                if ($displayLower !== $displayPassword && password_verify($displayLower, $legacyHash)) {
-                    $displayMatchesLegacy = true;
+            } else {
+                foreach ($candidates as $candidate) {
+                    if (strcasecmp($candidate, $legacyHash) === 0) {
+                        $legacyMatched = true;
+                        $matchedSourcePassword = $legacyHash;
+                        $this->promoteLegacyPasswordHash($user, $collection, $legacyHash);
+                        break;
+                    }
                 }
-            }
-            if ($displayMatchesLegacy && strcasecmp($plain, $displayPassword) === 0) {
-                $this->promoteCaseInsensitiveHash($user, $collection, strtolower($displayPassword));
-                return true;
             }
         }
 
-        $legacyMatched = password_verify($plain, $legacyHash);
-        if (!$legacyMatched) {
-            $upper = strtoupper($plain);
-            if ($upper !== $plain && password_verify($upper, $legacyHash)) {
-                $legacyMatched = true;
+        if (!$legacyMatched && $displayPassword !== '' && strcasecmp($plain, $displayPassword) === 0) {
+            $legacyMatched = true;
+            $matchedSourcePassword = $displayPassword;
+            if (!$legacyLooksHashed || $legacyHash === '' || !password_verify($displayPassword, $legacyHash)) {
+                $this->promoteLegacyPasswordHash($user, $collection, $displayPassword);
             }
         }
-        if (!$legacyMatched) {
-            $lower = strtolower($plain);
-            if ($lower !== $plain && password_verify($lower, $legacyHash)) {
-                $legacyMatched = true;
-            }
-        }
+
         if (!$legacyMatched) {
             return false;
         }
 
+        $sourceForCaseInsensitiveHash = $matchedSourcePassword !== '' ? strtolower($matchedSourcePassword) : $normalized;
         // Promote to canonical lowercase hash to support case-insensitive login going forward.
-        $this->promoteCaseInsensitiveHash($user, $collection, $normalized);
+        $this->promoteCaseInsensitiveHash($user, $collection, $sourceForCaseInsensitiveHash);
         return true;
     }
 
@@ -813,6 +823,28 @@ final class AuthController
 
             $this->db->updateOne($collection, ['_id' => MongoRepository::id($id)], [
                 'passwordCaseInsensitiveHash' => $hash,
+                'updatedAt' => MongoRepository::nowUtc(),
+            ]);
+        } catch (Throwable $e) {
+            // Never block a successful login due to hash-upgrade persistence failures.
+        }
+    }
+
+    private function promoteLegacyPasswordHash(array $user, string $collection, string $plainPassword): void
+    {
+        try {
+            $id = (string) ($user['_id'] ?? '');
+            if ($id === '' || preg_match('/^[a-f0-9]{24}$/i', $id) !== 1) {
+                return;
+            }
+
+            $hash = password_hash($plainPassword, PASSWORD_BCRYPT);
+            if (!is_string($hash) || $hash === '') {
+                return;
+            }
+
+            $this->db->updateOne($collection, ['_id' => MongoRepository::id($id)], [
+                'password' => $hash,
                 'updatedAt' => MongoRepository::nowUtc(),
             ]);
         } catch (Throwable $e) {
