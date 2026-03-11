@@ -23,6 +23,10 @@ const derivePlayerPrefix = (value) => {
   return withoutTrailingDigits || normalized;
 };
 
+const normalizeAgentUsername = (value) => String(value || '').trim().toUpperCase();
+const isMasterAgentUsername = (value) => normalizeAgentUsername(value).endsWith('MA');
+const isMasterAccountOption = (agent) => isMasterAgentUsername(agent?.username);
+
 const buildCopyInfo = (creationType, customer) => {
   const pass = customer.password || 'N/A';
 
@@ -611,13 +615,10 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
 
   const visibleAssignableAgents = useMemo(() => {
     if (creationType === 'player') {
-      return assignableAgents.filter((agent) => String(agent.role || '').toLowerCase() === 'agent');
+      return assignableAgents.filter((agent) => !isMasterAccountOption(agent));
     }
     if (isMasterAssignmentMode) {
-      return assignableAgents.filter((agent) => {
-        const roleKey = String(agent.role || '').toLowerCase();
-        return roleKey === 'master_agent' || roleKey === 'super_agent';
-      });
+      return assignableAgents.filter((agent) => isMasterAccountOption(agent));
     }
     return assignableAgents;
   }, [assignableAgents, isMasterAssignmentMode, creationType]);
@@ -667,7 +668,7 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
     if (!query) return true;
     const username = String(agent.username || '').toLowerCase();
     const fullName = String(agent.fullName || '').toLowerCase();
-    const roleLabel = (String(agent.role || '').toLowerCase() === 'master_agent' || String(agent.role || '').toLowerCase() === 'super_agent')
+    const roleLabel = isMasterAccountOption(agent)
       ? 'master agent'
       : 'agent';
     return username.includes(query) || fullName.includes(query) || roleLabel.includes(query);
@@ -917,7 +918,7 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
                         )}
                         {filteredAssignableAgents.map((a) => {
                           const id = a.id || a._id;
-                          const isMaster = a.role === 'master_agent' || a.role === 'super_agent';
+                          const isMaster = isMasterAccountOption(a);
                           return (
                             <button
                               key={id}

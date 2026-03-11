@@ -37,6 +37,31 @@ const FILTER_OPTIONS = [
     description: 'Shows players whose balance is at or above their settle limit.',
   },
   {
+    value: 'over-settle-winners',
+    label: 'Over settle winners (highest to lowest)',
+    description: 'Shows over-settle winners sorted highest to lowest balance.',
+  },
+  {
+    value: 'over-settle-losers',
+    label: 'Over settle losers (highest to lowest)',
+    description: 'Shows over-settle losers sorted highest to lowest by loss amount.',
+  },
+  {
+    value: 'inactive-losers-14d',
+    label: 'Inactive losers 14 days (highest to lowest, losers only)',
+    description: 'Shows inactive losers (14+ days) sorted highest to lowest by loss amount.',
+  },
+  {
+    value: 'lifetime-winners',
+    label: 'Lifetime winners (highest to lowest)',
+    description: 'Shows lifetime winners sorted highest to lowest.',
+  },
+  {
+    value: 'lifetime-losers',
+    label: 'Lifetime losers (highest to lowest)',
+    description: 'Shows lifetime losers sorted highest to lowest by loss amount.',
+  },
+  {
     value: 'summary',
     label: 'Summary',
     description: 'Shows the full profit and loss summary for the selected week.',
@@ -80,6 +105,17 @@ function WeeklyFiguresView({ onViewChange = null }) {
     return rounded > 0 ? 'is-positive' : 'is-negative';
   };
 
+  const isInactiveFor14Days = (customer) => {
+    if (typeof customer?.inactive14Days === 'boolean') {
+      return customer.inactive14Days;
+    }
+    const source = customer?.lastActive || customer?.lastBetAt || customer?.updatedAt || '';
+    const parsed = Date.parse(String(source || ''));
+    if (Number.isNaN(parsed)) return false;
+    const fourteenDaysMs = 14 * 24 * 60 * 60 * 1000;
+    return (Date.now() - parsed) >= fourteenDaysMs;
+  };
+
   useEffect(() => {
     const fetchWeeklyFigures = async () => {
       const token = localStorage.getItem('token');
@@ -120,9 +156,10 @@ function WeeklyFiguresView({ onViewChange = null }) {
     }
   }, [playerFilter]);
 
-  const filteredCustomers = customers.filter((customer) => {
+  const filteredCustomers = useMemo(() => customers.filter((customer) => {
     const balance = Number(customer.balance || 0);
     const week = Number(customer.week || 0);
+    const lifetime = Number(customer.lifetime || 0);
     const settleLimit = Math.abs(Number(customer.settleLimit ?? customer.balanceOwed ?? 0));
     const activeThisWeek = Array.isArray(customer.daily)
       ? customer.daily.some((value) => Math.abs(Number(value || 0)) > 0.01)
@@ -141,19 +178,59 @@ function WeeklyFiguresView({ onViewChange = null }) {
       if (settleLimit <= 0.01) return false;
       return Math.abs(balance) >= settleLimit;
     }
+    if (playerFilter === 'over-settle-winners') {
+      if (settleLimit <= 0.01) return false;
+      return balance >= settleLimit;
+    }
+    if (playerFilter === 'over-settle-losers') {
+      if (settleLimit <= 0.01) return false;
+      return balance <= -settleLimit;
+    }
+    if (playerFilter === 'inactive-losers-14d') {
+      return isInactiveFor14Days(customer) && balance < -0.01;
+    }
+    if (playerFilter === 'lifetime-winners') {
+      return lifetime > 0.01;
+    }
+    if (playerFilter === 'lifetime-losers') {
+      return lifetime < -0.01;
+    }
     if (playerFilter === 'summary') {
       return false;
     }
     return true;
-  });
+  }), [customers, playerFilter]);
 
-  const sortedCustomers = useMemo(() => {
-    return [...filteredCustomers].sort((a, b) => {
+  const customerComparator = useMemo(() => {
+    return (a, b) => {
       const aUsername = String(a?.username || '');
       const bUsername = String(b?.username || '');
-      return collator.compare(aUsername, bUsername);
-    });
-  }, [collator, filteredCustomers]);
+      const usernameFallback = collator.compare(aUsername, bUsername);
+
+      if (playerFilter === 'over-settle-winners') {
+        const diff = Number(b?.balance || 0) - Number(a?.balance || 0);
+        return diff !== 0 ? diff : usernameFallback;
+      }
+      if (playerFilter === 'over-settle-losers' || playerFilter === 'inactive-losers-14d') {
+        const diff = Math.abs(Number(b?.balance || 0)) - Math.abs(Number(a?.balance || 0));
+        return diff !== 0 ? diff : usernameFallback;
+      }
+      if (playerFilter === 'lifetime-winners') {
+        const diff = Number(b?.lifetime || 0) - Number(a?.lifetime || 0);
+        return diff !== 0 ? diff : usernameFallback;
+      }
+      if (playerFilter === 'lifetime-losers') {
+        const diff = Math.abs(Number(b?.lifetime || 0)) - Math.abs(Number(a?.lifetime || 0));
+        return diff !== 0 ? diff : usernameFallback;
+      }
+
+      return usernameFallback;
+    };
+  }, [collator, playerFilter]);
+
+  const sortedCustomers = useMemo(() => {
+    return [...filteredCustomers].sort(customerComparator);
+  }, [customerComparator, filteredCustomers]);
 
   const openCustomerDetails = (customerId) => {
     if (!customerId || typeof onViewChange !== 'function') {
@@ -223,11 +300,7 @@ function WeeklyFiguresView({ onViewChange = null }) {
 
     let groups = Array.from(groupsMap.values());
     groups.forEach((group) => {
-      group.customers = [...group.customers].sort((a, b) => {
-        const aUsername = String(a?.username || '');
-        const bUsername = String(b?.username || '');
-        return collator.compare(aUsername, bUsername);
-      });
+      group.customers = [...group.customers].sort(customerComparator);
     });
 
     groups = groups.sort((a, b) => collator.compare(a.hierarchyLabel, b.hierarchyLabel));
@@ -257,7 +330,7 @@ function WeeklyFiguresView({ onViewChange = null }) {
     });
 
     return groups;
-  }, [collator, mobileAgentSearch, mobileDecoratedCustomers, selectedDayIndex]);
+  }, [collator, customerComparator, mobileAgentSearch, mobileDecoratedCustomers, selectedDayIndex]);
 
   const selectedDayLabel = summaryDays[selectedDayIndex]?.day || 'Day';
   const selectedDayShortLabel = String(selectedDayLabel || 'Day').split(' ')[0];

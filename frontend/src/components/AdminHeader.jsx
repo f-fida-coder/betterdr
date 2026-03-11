@@ -380,7 +380,7 @@ function AdminHeader({
                 aria-hidden="true"
                 onClick={(e) => {
                   e.stopPropagation();
-                  toggleAccountTreeSearch(headerSearchQuery);
+                  toggleAccountTreeSearch();
                 }}
               >
                 ▼

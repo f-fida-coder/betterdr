@@ -531,17 +531,17 @@ function CustomerAdminView({ onViewChange }) {
       // Actually, existing logic for Super Agent creating Agent used adminUsername? That seems wrong if it was 'super_agent' creating.
       // Let's stick to using the input prefix if available, or just rely on the user typing it.
 
-      // ONLY Admin-created top-level Agents/MA start at 247. Sub-agents (created by MA) start at 101?
+      // ONLY Admin-created top-level Agents/MA start at 365. Sub-agents (created by MA) start at 101?
       // Let's assume standard logic:
-      // Admin creating Master Agent -> 247+
+      // Admin creating Master Agent -> 365+
       // Master Agent creating Agent -> 101+?
       // The original code had: const sequenceType = (currentRole === 'admin') ? 'agent' : 'player';
       // checking backend: getNextUsername takes type='player' or 'agent'.
-      // 'agent' type starts at 247. 'player' type starts at 101.
+      // 'agent' type starts at 365. 'player' type starts at 101.
 
-      // If creating a Master Agent (top level), likely want 247+ (type='agent').
-      // If creating a Sub Agent, likely want 101+ (type='player' logic in backend? No, backend says 'player' starts 101, 'agent' starts 247).
-      // Use type='agent' for all agents to be safe 247+, or 'player' for sub-agents if they are meant to look like players? 
+      // If creating a Master Agent (top level), likely want 365+ (type='agent').
+      // If creating a Sub Agent, likely want 101+ (type='player' logic in backend? No, backend says 'player' starts 101, 'agent' starts 365).
+      // Use type='agent' for all agents to be safe 365+, or 'player' for sub-agents if they are meant to look like players? 
       // Start with 'agent' type for all agent creations to keep IDs distinct from players.
 
       const sequenceType = 'agent';
@@ -925,9 +925,7 @@ function CustomerAdminView({ onViewChange }) {
         scopedPlayers = allPlayers.filter((c) => resolveId(c.agentId) === selectedHeaderAgentNormalizedId);
       } else {
         const childAgentIds = new Set(selectedMasterChildAgents.map((a) => resolveId(a.id || a._id)).filter(Boolean));
-        const playersUnderChildren = allPlayers.filter((c) => childAgentIds.has(resolveId(c.agentId)));
-        const directUnderMaster = allPlayers.filter((c) => resolveId(c.agentId) === selectedHeaderAgentNormalizedId);
-        scopedPlayers = [...playersUnderChildren, ...directUnderMaster];
+        scopedPlayers = allPlayers.filter((c) => childAgentIds.has(resolveId(c.agentId)));
       }
     }
 
@@ -954,14 +952,8 @@ function CustomerAdminView({ onViewChange }) {
       players.forEach((player) => rows.push({ type: 'player', player }));
     });
 
-    const directPlayers = filteredCustomers.filter((p) => resolveId(p.agentId) === selectedHeaderAgentNormalizedId);
-    if (directPlayers.length > 0) {
-      rows.push({ type: 'group', label: `${selectedHeaderAgent.username} (Direct)` });
-      directPlayers.forEach((player) => rows.push({ type: 'player', player }));
-    }
-
     return rows;
-  }, [isMasterSelection, filteredCustomers, selectedMasterChildAgents, selectedHeaderAgentNormalizedId, selectedHeaderAgent]);
+  }, [isMasterSelection, filteredCustomers, selectedMasterChildAgents]);
 
   const visiblePlayers = filteredCustomers;
 
@@ -1960,7 +1952,7 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
                             <tr className={`customer-row role-${customer.role}`}>
                               <td className="user-cell">
                                 <button className="user-link-btn" onClick={() => handleViewDetails(customer)}>
-                                  <span>{customer.username.toUpperCase()}</span>
+                                  <span className="customer-username">{customer.username.toUpperCase()}</span>
                                 </button>
                                 {customer.role === 'user' && (
                                   <button className="row-expand-btn" type="button" onClick={() => toggleRowExpanded(customer)}>
@@ -2644,6 +2636,12 @@ I need active players so if you could do me a solid and place a bet today even i
         .user-link-btn {
           background: none; border: none; display: flex; align-items: center; gap: 12px;
           color: #3b82f6; font-weight: 700; cursor: pointer; padding: 0;
+        }
+        .user-link-btn > .customer-username {
+          color: #1f6fd1;
+          text-decoration: underline;
+          text-underline-offset: 2px;
+          text-decoration-thickness: 1.5px;
         }
         .btn-save-clean {
           background: #94a3b8 !important;

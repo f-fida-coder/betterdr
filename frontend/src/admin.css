@@ -4816,7 +4816,7 @@
   }
 
   .dashboard-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
     gap: 8px !important;
     padding: 0 !important;
   }
@@ -4871,6 +4871,12 @@
 
   .casino-bets-filters {
     grid-template-columns: 1fr !important;
+  }
+}
+
+@media (min-width: 620px) and (max-width: 768px) {
+  .dashboard-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
   }
 }
 
@@ -5045,7 +5051,7 @@
   }
 
   .admin-panel.dashboard-home-active .admin-content.dashboard-view .dashboard-grid {
-    grid-template-columns: repeat(auto-fit, minmax(142px, 1fr)) !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
     gap: 6px !important;
     padding: 0 !important;
   }
@@ -5067,7 +5073,7 @@
 
 @media (max-width: 480px) {
   .admin-panel.dashboard-home-active .admin-content.dashboard-view .dashboard-grid {
-    grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)) !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
   }
 
   .admin-panel.dashboard-home-active .admin-content.dashboard-view .grid-card {
@@ -5081,5 +5087,11 @@
 
   .admin-panel.dashboard-home-active .admin-content.dashboard-view .card-label {
     font-size: 9px;
+  }
+}
+
+@media (min-width: 620px) and (max-width: 768px) {
+  .admin-panel.dashboard-home-active .admin-content.dashboard-view .dashboard-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
   }
 }

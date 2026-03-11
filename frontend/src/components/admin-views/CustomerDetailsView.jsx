@@ -221,6 +221,45 @@ const matchesTransactionFilter = (txn, filterValue) => {
   return true;
 };
 
+const getTransactionUserId = (txn) => {
+  if (!txn || typeof txn !== 'object') return '';
+  return String(
+    txn.userId
+    ?? txn.playerId
+    ?? txn.user?._id
+    ?? txn.user?.id
+    ?? ''
+  ).trim();
+};
+
+const getTransactionUsername = (txn) => {
+  if (!txn || typeof txn !== 'object') return '';
+  return String(
+    txn.user
+    ?? txn.username
+    ?? txn.playerUsername
+    ?? txn.playerName
+    ?? ''
+  ).trim().toLowerCase();
+};
+
+const isTransactionForCustomer = (txn, userId, username) => {
+  const txUserId = getTransactionUserId(txn);
+  if (txUserId !== '') {
+    return txUserId === String(userId);
+  }
+
+  const txUsername = getTransactionUsername(txn);
+  const normalizedUsername = String(username || '').trim().toLowerCase();
+  if (txUsername !== '' && normalizedUsername !== '') {
+    return txUsername === normalizedUsername;
+  }
+
+  // If backend already scoped to a specific user and row does not carry user info,
+  // keep it instead of dropping potentially valid records.
+  return true;
+};
+
 function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -414,7 +453,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
       limit: 300
     }, token);
     const list = Array.isArray(data?.transactions) ? data.transactions : [];
-    const forCustomer = list.filter((txn) => String(txn.userId || '') === String(userId));
+    const forCustomer = list.filter((txn) => isTransactionForCustomer(txn, userId, customer.username));
 
     let mergedRows = [...forCustomer];
     if (normalizeTxnValue(txTypeFilter) === 'deleted_changed') {
@@ -623,10 +662,14 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
         }, token);
         const list = Array.isArray(data?.transactions) ? data.transactions : [];
         const filtered = list.filter((txn) => {
-          if (String(txn.userId || '') !== String(userId)) return false;
+          if (!isTransactionForCustomer(txn, userId, customer.username)) return false;
           const reason = String(txn.reason || '').toUpperCase();
           const desc = String(txn.description || '').toLowerCase();
-          return reason === 'FREEPLAY_ADJUSTMENT' || desc.includes('freeplay') || desc.includes('free play');
+          return reason === 'FREEPLAY_ADJUSTMENT'
+            || reason === 'DEPOSIT_FREEPLAY_BONUS'
+            || reason === 'REFERRAL_FREEPLAY_BONUS'
+            || desc.includes('freeplay')
+            || desc.includes('free play');
         });
         setFreePlayRows(filtered);
       } catch (err) {
@@ -666,8 +709,11 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
   }, [customer?.role]);
 
   const available = useMemo(() => {
-    return Number(form.creditLimit || 0) - Number(customer?.pendingBalance || 0);
-  }, [form.creditLimit, customer?.pendingBalance]);
+    const creditLimit = Number(form.creditLimit || customer?.creditLimit || 0);
+    const balance = Number(customer?.balance || 0);
+    const pending = Number(customer?.pendingBalance || 0);
+    return creditLimit + balance - pending;
+  }, [form.creditLimit, customer?.creditLimit, customer?.balance, customer?.pendingBalance]);
 
   const txSummary = useMemo(() => {
     let nonPostedCasino = 0;
@@ -751,7 +797,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
       `Credit: ${formatDetailMoney(credit)}`,
       `Settle: +/- ${formatDetailMoney(settle)}`,
       '',
-      'Bettorplays247.com'
+      'Bettorplays365.com'
     ].join('\n');
     await copyText(details, 'All details');
   };
@@ -945,10 +991,14 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
       }, token);
       const list = Array.isArray(data?.transactions) ? data.transactions : [];
       setFreePlayRows(list.filter((txn) => {
-        if (String(txn.userId || '') !== String(userId)) return false;
+        if (!isTransactionForCustomer(txn, userId, customer.username)) return false;
         const reason = String(txn.reason || '').toUpperCase();
         const desc = String(txn.description || '').toLowerCase();
-        return reason === 'FREEPLAY_ADJUSTMENT' || desc.includes('freeplay') || desc.includes('free play');
+        return reason === 'FREEPLAY_ADJUSTMENT'
+          || reason === 'DEPOSIT_FREEPLAY_BONUS'
+          || reason === 'REFERRAL_FREEPLAY_BONUS'
+          || desc.includes('freeplay')
+          || desc.includes('free play');
       }));
     } catch (err) {
       setFreePlayError(err.message || 'Failed to refresh free play');
@@ -1176,10 +1226,13 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
         reason: selectedTxType.reason,
         description: customDescription || selectedTxType.defaultDescription
       }, token);
+      const freePlayBonusAmount = Number(result?.freeplayBonus?.amount || 0);
       setCustomer((prev) => {
         if (!prev) return prev;
         const serverBalance = Number(result?.user?.balance);
         const nextBalanceValue = Number.isFinite(serverBalance) ? serverBalance : nextBalance;
+        const serverFreeplay = Number(result?.user?.freeplayBalance);
+        const nextFreeplayValue = Number.isFinite(serverFreeplay) ? serverFreeplay : Number(prev.freeplayBalance || 0);
         const rawLifetime = result?.user?.lifetimePlusMinus
           ?? result?.user?.lifetime
           ?? prev.lifetimePlusMinus
@@ -1193,11 +1246,16 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
         return {
           ...prev,
           balance: nextBalanceValue,
+          freeplayBalance: nextFreeplayValue,
           lifetime: nextLifetime,
           lifetimePlusMinus: nextLifetime
         };
       });
-      setTxSuccess('Transaction saved and balance updated.');
+      if (freePlayBonusAmount > 0) {
+        setTxSuccess(`Transaction saved and balance updated. Auto free play bonus added: ${formatCurrency(freePlayBonusAmount)}.`);
+      } else {
+        setTxSuccess('Transaction saved and balance updated.');
+      }
       setTxError('');
       setShowNewTxModal(false);
       setNewTxType('deposit');
@@ -1288,7 +1346,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
             <div className="player-card-foot">
               <div className="details-domain">
                 <span className="domain-label">Site</span>
-                <strong>Bettorplays247.com</strong>
+                <strong>Bettorplays365.com</strong>
               </div>
               <div className="top-actions">
                 <button className="btn btn-user" onClick={handleImpersonate}>Login User</button>
@@ -1308,15 +1366,15 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
           </button>
           <button type="button" className={`metric ${activeSection === 'transactions' && txStatusFilter === 'pending' ? 'metric-active' : ''}`} onClick={() => openSection('pending')}>
             <span>Pending</span>
-            <b className={Number(customer.pendingBalance || 0) < 0 ? 'neg' : Number(customer.pendingBalance || 0) > 0 ? 'pos' : 'neutral'}>{formatCurrency(customer.pendingBalance || 0)}</b>
+            <b className="neutral">{formatCurrency(customer.pendingBalance || 0)}</b>
           </button>
           <div className="metric metric-static">
             <span>Available</span>
-            <b className={Number(available || 0) < 0 ? 'neg' : Number(available || 0) > 0 ? 'pos' : 'neutral'}>{formatCurrency(available)}</b>
+            <b className="neutral">{formatCurrency(available)}</b>
           </div>
           <button type="button" className={`metric ${activeSection === 'freeplays' ? 'metric-active' : ''}`} onClick={() => openSection('freeplays')}>
             <span>Freeplay</span>
-            <b className={Number(customer.freeplayBalance || 0) < 0 ? 'neg' : Number(customer.freeplayBalance || 0) > 0 ? 'pos' : 'neutral'}>{formatCurrency(customer.freeplayBalance || 0)}</b>
+            <b className="neutral">{formatCurrency(customer.freeplayBalance || 0)}</b>
           </button>
           <button type="button" className={`metric ${activeSection === 'performance' ? 'metric-active' : ''}`} onClick={() => openSection('performance')}>
             <span>Lifetime +/-</span>
@@ -1829,52 +1887,52 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
       )}
 
       <style>{`
-        .customer-details-v2 { background:#f3f4f6; min-height:100vh; padding:16px; color:#1f2937; }
+        .customer-details-v2 { background:#f3f4f6; min-height:100vh; padding:10px; color:#1f2937; }
         .top-panel {
           display: grid;
-          grid-template-columns: minmax(0, 1fr) 280px;
-          gap: 14px;
+          grid-template-columns: minmax(0, 1fr) 248px;
+          gap: 10px;
           align-items: stretch;
           background: #fff;
           border: 1px solid #d1d5db;
-          border-radius: 12px;
-          padding: 14px;
+          border-radius: 10px;
+          padding: 10px;
           box-shadow: 0 4px 18px rgba(15, 23, 42, 0.06);
         }
-        .top-left h2 { margin:0; font-size:32px; line-height:1.05; font-weight: 700; letter-spacing: 0.2px; }
-        .agent-line { margin-top:4px; color:#4b5563; font-size:14px; }
+        .top-left h2 { margin:0; font-size:22px; line-height:1.05; font-weight: 700; letter-spacing: 0.15px; }
+        .agent-line { margin-top:3px; color:#4b5563; font-size:12px; }
         .top-actions { display:flex; gap:8px; flex-wrap: wrap; justify-content: flex-end; }
 
         .btn { border:none; border-radius:3px; cursor:pointer; font-weight:600; }
-        .btn-back { background:#3db3d7; color:#fff; padding:8px 14px; }
-        .btn-user { background:#2f7fb6; color:#fff; padding:8px 14px; }
-        .btn-copy-all { background:#139cc9; color:#fff; padding:8px 14px; }
-        .btn-save { background:#35b49f; color:#fff; padding:9px 20px; min-width:130px; font-size:14px; }
+        .btn-back { background:#3db3d7; color:#fff; padding:7px 12px; font-size:13px; }
+        .btn-user { background:#2f7fb6; color:#fff; padding:7px 12px; font-size:13px; }
+        .btn-copy-all { background:#139cc9; color:#fff; padding:7px 12px; font-size:13px; }
+        .btn-save { background:#35b49f; color:#fff; padding:8px 16px; min-width:108px; font-size:13px; }
 
         .player-card {
           border: 1px solid #d6e2f3;
-          border-radius: 12px;
-          padding: 14px;
+          border-radius: 10px;
+          padding: 10px;
           background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
           max-width: 100%;
           box-shadow: inset 0 0 0 1px rgba(225, 236, 247, 0.7);
         }
         .player-card-head {
-          margin-bottom: 12px;
+          margin-bottom: 9px;
         }
         .player-title-wrap {
           display: flex;
           align-items: flex-start;
           justify-content: space-between;
-          gap: 12px;
+          gap: 10px;
         }
         .player-title-main {
           display: flex;
           flex-direction: column;
-          gap: 2px;
+          gap: 1px;
         }
         .player-kicker {
-          font-size: 11px;
+          font-size: 10px;
           font-weight: 700;
           letter-spacing: 0.7px;
           color: #5e7a95;
@@ -1885,32 +1943,32 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
           align-items: center;
           justify-content: center;
           white-space: nowrap;
-          padding: 7px 12px;
+          padding: 5px 10px;
           border-radius: 999px;
           border: 1px solid #8cb4df;
           background: #edf5ff;
           color: #245d98;
           font-weight: 700;
-          font-size: 12px;
+          font-size: 11px;
           letter-spacing: 0.5px;
           text-transform: uppercase;
         }
         .details-grid {
           display: grid;
           grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 9px;
+          gap: 7px;
         }
         .detail-item {
           border: 1px solid #dde7f2;
           background: #f8fbff;
-          border-radius: 10px;
-          padding: 10px 11px;
+          border-radius: 8px;
+          padding: 8px 9px;
           display: flex;
           flex-direction: column;
           gap: 4px;
         }
         .detail-label {
-          font-size: 11px;
+          font-size: 10px;
           font-weight: 700;
           letter-spacing: 0.6px;
           text-transform: uppercase;
@@ -1918,7 +1976,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
         }
         .detail-value {
           margin: 0;
-          font-size: 21px;
+          font-size: 14px;
           line-height: 1.2;
           color: #1f2937;
           font-weight: 600;
@@ -1928,8 +1986,8 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
           font-weight: 500;
         }
         .player-card-foot {
-          margin-top: 12px;
-          padding-top: 12px;
+          margin-top: 10px;
+          padding-top: 10px;
           border-top: 1px solid #e3ecf5;
           display: flex;
           align-items: flex-end;
@@ -1942,14 +2000,14 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
           gap: 2px;
         }
         .domain-label {
-          font-size: 11px;
+          font-size: 10px;
           font-weight: 700;
           letter-spacing: 0.65px;
           color: #607992;
           text-transform: uppercase;
         }
         .details-domain strong {
-          font-size: 18px;
+          font-size: 14px;
           line-height: 1.1;
           font-weight: 600;
           color: #1f2937;
@@ -2036,12 +2094,12 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
           flex-direction: column;
           gap: 8px;
           border: 1px solid #d6e2ec;
-          border-radius: 12px;
-          padding: 10px;
+          border-radius: 10px;
+          padding: 8px;
           background: linear-gradient(180deg, #f8fbff 0%, #f4f8fc 100%);
         }
         .summary-title {
-          font-size: 11px;
+          font-size: 10px;
           font-weight: 700;
           letter-spacing: 0.7px;
           color: #5e7690;
@@ -2053,14 +2111,14 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
           background: #ffffff;
           text-align: left;
           cursor: pointer;
-          padding: 10px 11px;
-          border-radius: 10px;
+          padding: 7px 9px;
+          border-radius: 8px;
           transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease;
           display: flex;
           align-items: center;
           justify-content: space-between;
           gap: 10px;
-          min-height: 62px;
+          min-height: 48px;
         }
         .metric:hover { border-color: #9ec0df; box-shadow: 0 2px 10px rgba(14, 75, 128, 0.12); }
         .metric.metric-active {
@@ -2073,14 +2131,14 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
         }
         .metric span {
           display:block;
-          font-size:11px;
+          font-size:10px;
           color:#4a6279;
           letter-spacing: 0.5px;
           text-transform: uppercase;
           font-weight: 700;
         }
         .metric b {
-          font-size:27px;
+          font-size:18px;
           line-height:1;
           font-weight:700;
           font-variant-numeric: tabular-nums;
@@ -2090,9 +2148,9 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
         .metric .neutral { color:#111827; }
         .metric-circle { background: transparent; border: none; border-radius: 0; padding: 0; margin-top: 0; }
 
-        .basics-header { margin-top:8px; background:#fff; border:1px solid #d1d5db; border-radius:10px; padding:10px 12px; display:flex; align-items:center; justify-content:space-between; }
+        .basics-header { margin-top:8px; background:#fff; border:1px solid #d1d5db; border-radius:8px; padding:8px 10px; display:flex; align-items:center; justify-content:space-between; }
         .basics-left { display:flex; align-items:center; gap:10px; }
-        .basics-left h3 { margin:0; font-size:22px; line-height:1.1; font-weight:700; }
+        .basics-left h3 { margin:0; font-size:16px; line-height:1.1; font-weight:700; }
         .dot-grid { width:20px; display:grid; grid-template-columns:repeat(3, 4px); gap:3px; }
         .dot-grid span { width:4px; height:4px; background:#4b5563; border-radius:50%; display:block; }
         .dot-grid-btn {
@@ -2119,14 +2177,14 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
           z-index: 50;
           left: 24px;
           top: 245px;
-          width: 300px;
-          height: 300px;
+          width: 280px;
+          height: 280px;
           max-width: calc(100vw - 48px);
           background: #ffffff;
           border: 1px solid #d1d5db;
           border-radius: 6px;
           box-shadow: 0 14px 28px rgba(0, 0, 0, 0.2);
-          padding: 10px 8px 10px;
+          padding: 8px 7px 8px;
           overflow: hidden;
         }
         .menu-close {
@@ -2144,9 +2202,9 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
         .menu-grid {
           display: grid;
           grid-template-columns: repeat(3, minmax(0, 1fr));
-          gap: 14px 10px;
+          gap: 12px 8px;
           padding: 8px 2px 2px;
-          height: 248px;
+          height: 232px;
           overflow-y: auto;
         }
         .menu-item {
@@ -2201,7 +2259,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
           overflow: hidden;
         }
 
-        .alert { margin-top:8px; padding:10px 12px; border-radius:3px; }
+        .alert { margin-top:8px; padding:8px 10px; border-radius:3px; font-size: 12px; }
         .alert.error { background:#fee2e2; color:#991b1b; border:1px solid #fecaca; }
         .alert.success { background:#dcfce7; color:#166534; border:1px solid #bbf7d0; }
 
@@ -2209,28 +2267,28 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
           margin-top: 8px;
           background: #fff;
           border: 1px solid #d1d5db;
-          border-radius: 10px;
-          padding: 12px;
+          border-radius: 8px;
+          padding: 10px;
         }
         .tx-controls {
           display: grid;
           grid-template-columns: 1.2fr 1.2fr repeat(4, 1fr);
-          gap: 10px;
-          margin-bottom: 12px;
+          gap: 8px;
+          margin-bottom: 9px;
         }
         .tx-field label, .tx-stat label {
           display: block;
           color: #4b5563;
-          font-size: 12px;
-          margin-bottom: 4px;
+          font-size: 11px;
+          margin-bottom: 2px;
         }
         .tx-field select {
           width: 100%;
           border: none;
           border-bottom: 1px solid #6b7280;
           background: transparent;
-          font-size: 16px;
-          padding: 4px 0;
+          font-size: 13px;
+          padding: 3px 0;
           color: #111827;
           outline: none;
         }
@@ -2239,22 +2297,22 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
           border: none;
           border-bottom: 1px solid #6b7280;
           background: transparent;
-          font-size: 16px;
-          padding: 4px 0;
+          font-size: 13px;
+          padding: 3px 0;
           color: #111827;
           outline: none;
         }
         .tx-stat b {
           display: block;
-          font-size: 22px;
+          font-size: 15px;
           line-height: 1.05;
-          font-weight: 500;
+          font-weight: 600;
           color: #111827;
         }
         .tx-stat .neg { color: #dc2626; }
         .tx-table-wrap {
           border: 1px solid #cbd5e1;
-          min-height: 360px;
+          min-height: 250px;
           overflow: auto;
           background: #fff;
         }
@@ -2266,15 +2324,15 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
           background: #1f3345;
           color: #fff;
           text-align: left;
-          font-size: 16px;
-          padding: 10px 12px;
+          font-size: 13px;
+          padding: 8px 10px;
           position: sticky;
           top: 0;
         }
         .tx-table td {
           border-bottom: 1px solid #e5e7eb;
-          padding: 8px 12px;
-          font-size: 14px;
+          padding: 7px 10px;
+          font-size: 12px;
           color: #1f2937;
         }
         .tx-table tr.selected td { background: #eff6ff; }
@@ -2288,7 +2346,8 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
           margin-top: 10px;
           background: #dc3f51;
           color: #fff;
-          padding: 10px 30px;
+          padding: 8px 18px;
+          font-size: 13px;
         }
         .btn-danger:disabled {
           opacity: 0.45;
@@ -2320,24 +2379,24 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
           margin-top: 8px;
           background: #fff;
           border: 1px solid #d1d5db;
-          border-radius: 10px;
-          padding: 12px;
+          border-radius: 8px;
+          padding: 10px;
         }
         .perf-controls {
           display: grid;
           grid-template-columns: 220px;
           gap: 10px;
-          margin-bottom: 10px;
+          margin-bottom: 8px;
         }
         .performance-grid {
           display: grid;
-          grid-template-columns: 480px 1fr;
-          gap: 16px;
-          min-height: 420px;
+          grid-template-columns: 420px 1fr;
+          gap: 12px;
+          min-height: 320px;
         }
         .perf-left {
           border: 1px solid #cbd5e1;
-          max-height: 420px;
+          max-height: 320px;
           overflow-y: auto;
         }
         .perf-right {
@@ -2348,11 +2407,11 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
           display: flex;
           justify-content: space-between;
           align-items: center;
-          font-size: 18px;
+          font-size: 14px;
           line-height: 1;
           padding: 8px 0 8px 0;
         }
-        .perf-title-row b { font-size: 26px; font-weight: 700; }
+        .perf-title-row b { font-size: 18px; font-weight: 700; }
         .perf-table {
           width: 100%;
           border-collapse: collapse;
@@ -2361,15 +2420,15 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
           background: #1f3345;
           color: #fff;
           text-align: left;
-          font-size: 14px;
+          font-size: 12px;
           padding: 8px 10px;
           position: sticky;
           top: 0;
         }
         .perf-table td {
           border-bottom: 1px solid #e5e7eb;
-          padding: 8px 10px;
-          font-size: 14px;
+          padding: 7px 9px;
+          font-size: 12px;
           color: #1f2937;
         }
         .perf-table tr.selected td { background: #f1f5f9; }
@@ -2383,32 +2442,32 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
           margin-top: 8px;
           background: #fff;
           border: 1px solid #d1d5db;
-          border-radius: 10px;
-          padding: 12px;
+          border-radius: 8px;
+          padding: 10px;
         }
         .dl-top-select {
-          width: 220px;
-          margin-bottom: 12px;
+          width: 190px;
+          margin-bottom: 8px;
         }
         .dynamic-live-grid {
           display: grid;
           grid-template-columns: 1fr 1fr 1fr;
-          gap: 28px;
+          gap: 16px;
         }
         .dl-col, .dl-col-toggles {
           display: flex;
           flex-direction: column;
-          gap: 6px;
+          gap: 4px;
         }
         .dl-col label {
-          font-size: 13px;
+          font-size: 12px;
           color: #4b5563;
         }
         .dl-col input {
           border: none;
           border-bottom: 1px solid #6b7280;
           background: transparent;
-          font-size: 16px;
+          font-size: 13px;
           line-height: 1;
           color: #111827;
           padding: 2px 0 4px;
@@ -2416,32 +2475,32 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
         }
         .dl-col-toggles .switch-row {
           justify-content: space-between;
-          font-size: 15px;
+          font-size: 12px;
           line-height: 1.15;
-          padding: 10px 0;
+          padding: 7px 0;
         }
 
         .live-casino-wrap {
           margin-top: 8px;
           background: #fff;
           border: 1px solid #d1d5db;
-          border-radius: 10px;
-          padding: 12px 18px 22px;
+          border-radius: 8px;
+          padding: 10px 14px 16px;
         }
         .live-casino-grid {
           display: grid;
-          grid-template-columns: 220px 130px 130px 130px;
-          gap: 10px 20px;
+          grid-template-columns: 200px 120px 120px 120px;
+          gap: 8px 14px;
           align-items: center;
           max-width: 760px;
         }
         .lc-col-head {
-          font-size: 18px;
+          font-size: 14px;
           color: #374151;
           font-weight: 700;
         }
         .lc-label {
-          font-size: 14px;
+          font-size: 12px;
           color: #374151;
           font-weight: 600;
         }
@@ -2450,30 +2509,30 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
           border: 1px solid #d1d5db;
           background: #fff;
           border-radius: 4px;
-          font-size: 14px;
+          font-size: 12px;
           line-height: 1;
           padding: 4px 8px;
           color: #111827;
         }
         .lc-note {
-          margin-top: 16px;
+          margin-top: 10px;
           max-width: 1200px;
-          font-size: 13px;
+          font-size: 11px;
           line-height: 1.35;
           color: #374151;
         }
 
         .basics-grid { margin-top:8px; display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; }
-        .col-card { background:#fff; border:1px solid #d1d5db; padding:12px; display:flex; flex-direction:column; min-height:560px; }
-        .col-card label { color:#4b5563; font-size:13px; margin-top:8px; margin-bottom:4px; }
-        .col-card input, .col-card select, .col-card textarea { width:100%; border:none; border-bottom:1px solid #6b7280; background:transparent; font-size:18px; padding:4px 0; color:#111827; outline:none; }
+        .col-card { background:#fff; border:1px solid #d1d5db; padding:10px; display:flex; flex-direction:column; min-height:500px; }
+        .col-card label { color:#4b5563; font-size:11px; margin-top:7px; margin-bottom:3px; }
+        .col-card input, .col-card select, .col-card textarea { width:100%; border:none; border-bottom:1px solid #6b7280; background:transparent; font-size:14px; padding:3px 0; color:#111827; outline:none; }
         .col-card .password-input-dark {
           background: transparent;
           color: #020617;
           border: none;
           border-bottom: 1px solid #6b7280;
           border-radius: 0;
-          padding: 4px 0;
+          padding: 3px 0;
           font-weight: 300;
         }
         .col-card .password-input-dark::placeholder {
@@ -2485,16 +2544,16 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
           border-bottom-color: #111827;
           box-shadow: none;
         }
-        .col-card textarea { border:1px solid #6b7280; min-height:160px; font-size:16px; padding:6px; }
+        .col-card textarea { border:1px solid #6b7280; min-height:120px; font-size:13px; padding:5px; }
 
-        .switch-list { margin-top:8px; }
-        .switch-row { display:flex; align-items:center; justify-content:space-between; padding:6px 0; font-size:16px; }
+        .switch-list { margin-top:6px; }
+        .switch-row { display:flex; align-items:center; justify-content:space-between; padding:5px 0; font-size:13px; }
         .switch-row.inline-top { margin-top:8px; }
         .switch {
           position:relative;
           display:inline-block;
-          width:58px;
-          height:32px;
+          width:46px;
+          height:24px;
           flex-shrink:0;
         }
         .switch input { opacity:0; width:0; height:0; }
@@ -2512,18 +2571,18 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
         .slider:before {
           position:absolute;
           content:'';
-          height:24px;
-          width:24px;
-          left:4px;
-          top:4px;
+          height:18px;
+          width:18px;
+          left:3px;
+          top:3px;
           background:white;
           transition:.2s;
           border-radius:50%;
         }
         .switch input:checked + .slider { background:#16a34a; }
-        .switch input:checked + .slider:before { transform:translateX(26px); }
+        .switch input:checked + .slider:before { transform:translateX(22px); }
 
-        .bottom-line { margin-top:10px; font-size:14px; color:#374151; display:flex; gap:22px; }
+        .bottom-line { margin-top:10px; font-size:12px; color:#374151; display:flex; gap:14px; flex-wrap: wrap; }
         .bottom-line .neg { color:#dc2626; }
         .bottom-line .pos { color:#15803d; }
 
@@ -2537,24 +2596,24 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
           justify-content: center;
         }
         .modal-card {
-          width: 380px;
+          width: 340px;
           max-width: calc(100vw - 32px);
-          border-radius: 8px;
+          border-radius: 6px;
           background: #fff;
-          padding: 16px;
+          padding: 12px;
           border: 1px solid #d1d5db;
           box-shadow: 0 12px 30px rgba(0,0,0,0.25);
           display: flex;
           flex-direction: column;
           gap: 6px;
         }
-        .modal-card h4 { margin: 0 0 6px; font-size: 18px; }
-        .modal-card label { font-size: 13px; color: #4b5563; }
+        .modal-card h4 { margin: 0 0 6px; font-size: 15px; }
+        .modal-card label { font-size: 12px; color: #4b5563; }
         .modal-card input, .modal-card select {
           border: 1px solid #cbd5e1;
           border-radius: 4px;
-          padding: 8px 10px;
-          font-size: 14px;
+          padding: 7px 9px;
+          font-size: 13px;
           color: #111827;
         }
         .tx-modal-balance-strip {
@@ -2567,7 +2626,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
           border: 1px solid #dbe7f3;
           border-radius: 8px;
           background: #f8fbff;
-          padding: 9px 10px;
+          padding: 7px 8px;
         }
         .tx-modal-balance-item span {
           display: block;
@@ -2580,7 +2639,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
         }
         .tx-modal-balance-item b {
           display: block;
-          font-size: 20px;
+          font-size: 16px;
           line-height: 1;
           font-weight: 700;
           font-variant-numeric: tabular-nums;
@@ -2606,20 +2665,20 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
           .limits-box { grid-template-columns: 1fr; }
           .top-actions { justify-content: flex-start; width: 100%; }
           .tx-controls { grid-template-columns: 1fr 1fr; }
-          .tx-stat b { font-size: 20px; }
+          .tx-stat b { font-size: 14px; }
           .freeplay-controls { grid-template-columns: 1fr 1fr; }
           .freeplay-bottom-row { grid-template-columns: 1fr; }
           .freeplay-inputs { min-width: 0; grid-template-columns: 1fr; }
           .performance-grid { grid-template-columns: 1fr; }
           .perf-left { max-height: 300px; }
-          .perf-title-row { font-size: 20px; }
-          .perf-title-row b { font-size: 24px; }
+          .perf-title-row { font-size: 14px; }
+          .perf-title-row b { font-size: 18px; }
           .dynamic-live-grid { grid-template-columns: 1fr; }
-          .dl-col input { font-size: 20px; }
-          .dl-col-toggles .switch-row { font-size: 18px; }
+          .dl-col input { font-size: 13px; }
+          .dl-col-toggles .switch-row { font-size: 12px; }
           .live-casino-grid { grid-template-columns: 1fr 1fr; max-width: none; }
-          .lc-col-head, .lc-label, .live-casino-grid input { font-size: 18px; }
-          .lc-note { font-size: 14px; }
+          .lc-col-head, .lc-label, .live-casino-grid input { font-size: 13px; }
+          .lc-note { font-size: 11px; }
         }
 
         @media (max-width: 768px) {
@@ -2628,7 +2687,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
           .performance-panel,
           .dynamic-live-card,
           .live-casino-card {
-            padding: 12px;
+            padding: 10px;
           }
 
           .top-actions,
@@ -2650,7 +2709,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
           }
 
           .metric b {
-            font-size: 23px;
+            font-size: 17px;
           }
 
           .tx-controls,
@@ -2689,11 +2748,48 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
           .live-casino-grid {
             grid-template-columns: 1fr;
           }
+
+          .top-left h2 {
+            font-size: 20px;
+          }
+
+          .detail-value {
+            font-size: 13px;
+          }
+
+          .details-domain strong {
+            font-size: 13px;
+          }
         }
 
         @media (max-width: 480px) {
           .tx-summary {
             grid-template-columns: 1fr;
+          }
+
+          .customer-details-v2 {
+            padding: 6px;
+          }
+
+          .top-panel,
+          .transactions-wrap,
+          .performance-wrap,
+          .dynamic-live-wrap,
+          .live-casino-wrap,
+          .col-card {
+            padding: 8px;
+          }
+
+          .basics-left h3 {
+            font-size: 15px;
+          }
+
+          .btn-save,
+          .btn-back,
+          .btn-user,
+          .btn-copy-all {
+            font-size: 12px;
+            padding: 6px 10px;
           }
         }
       `}</style>
