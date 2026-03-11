@@ -208,28 +208,12 @@ final class AdminCoreController
             $this->unsuspendUser();
             return true;
         }
-        if ($method === 'GET' && $path === '/api/admin/transactions') {
+        if ($method === 'GET' && ($path === '/api/admin/transactions' || $path === '/api/admin/transaction-history')) {
             $this->getTransactionsHistory();
             return true;
         }
-        if ($method === 'DELETE' && $path === '/api/admin/transactions') {
+        if ($method === 'DELETE' && ($path === '/api/admin/transactions' || $path === '/api/admin/transaction-history')) {
             $this->deleteTransactionsHistory();
-            return true;
-        }
-        if ($method === 'GET' && $path === '/api/admin/collections') {
-            $this->getCollections();
-            return true;
-        }
-        if ($method === 'POST' && $path === '/api/admin/collections') {
-            $this->createCollection();
-            return true;
-        }
-        if ($method === 'POST' && preg_match('#^/api/admin/collections/([a-fA-F0-9]{24})/collect$#', $path, $m) === 1) {
-            $this->collectCollection($m[1]);
-            return true;
-        }
-        if ($method === 'GET' && preg_match('#^/api/admin/collections/([a-fA-F0-9]{24})$#', $path, $m) === 1) {
-            $this->getCollectionById($m[1]);
             return true;
         }
         if ($method === 'GET' && $path === '/api/admin/deleted-wagers') {
@@ -405,13 +389,22 @@ final class AdminCoreController
             $searchQ = trim((string) ($_GET['q'] ?? ''));
             if ($searchQ !== '') {
                 $safe = preg_quote($searchQ, '/');
-                $query['$or'] = [
+                $searchOr = [
                     ['username' => ['$regex' => $safe, '$options' => 'i']],
                     ['phoneNumber' => ['$regex' => $safe, '$options' => 'i']],
                     ['firstName' => ['$regex' => $safe, '$options' => 'i']],
                     ['lastName' => ['$regex' => $safe, '$options' => 'i']],
                     ['fullName' => ['$regex' => $safe, '$options' => 'i']],
                 ];
+                $phoneDigits = preg_replace('/\D+/', '', $searchQ);
+                if ($phoneDigits !== '') {
+                    $digitParts = preg_split('//', $phoneDigits, -1, PREG_SPLIT_NO_EMPTY);
+                    $digitPattern = implode('\D*', $digitParts ?: []);
+                    if ($digitPattern !== '') {
+                        $searchOr[] = ['phoneNumber' => ['$regex' => $digitPattern, '$options' => 'i']];
+                    }
+                }
+                $query['$or'] = $searchOr;
             }
 
             $users = $this->db->findMany('users', $query, ['sort' => ['createdAt' => -1]]);
@@ -1047,13 +1040,29 @@ final class AdminCoreController
             if ($type === 'player' && $agentId !== '') {
                 $actorRole = (string) ($actor['role'] ?? '');
                 $actorId = (string) ($actor['_id'] ?? '');
+                $targetAgent = $this->db->findOne(
+                    'agents',
+                    ['_id' => MongoRepository::id($agentId)],
+                    ['projection' => ['role' => 1, 'createdBy' => 1, 'createdByModel' => 1]]
+                );
+                if ($targetAgent === null) {
+                    Response::json(['message' => 'Invalid agentId'], 400);
+                    return;
+                }
+                if ((string) ($targetAgent['role'] ?? '') !== 'agent') {
+                    Response::json(['message' => 'agentId must reference a regular Agent'], 400);
+                    return;
+                }
+
                 $allowed = false;
                 if ($actorRole === 'admin') {
                     $allowed = true;
                 } elseif ($actorRole === 'agent') {
                     $allowed = $actorId !== '' && $actorId === $agentId;
                 } elseif (in_array($actorRole, ['master_agent', 'super_agent'], true)) {
-                    $allowed = in_array($agentId, $this->listManagedAgentIds($actorId), true);
+                    $allowed = $actorId !== ''
+                        && ((string) ($targetAgent['createdBy'] ?? '') === $actorId)
+                        && ((string) ($targetAgent['createdByModel'] ?? '') === 'Agent');
                 }
                 if (!$allowed) {
                     Response::json(['message' => 'Not authorized for this agent scope'], 403);
@@ -1064,10 +1073,7 @@ final class AdminCoreController
                 $agentObjectId = MongoRepository::id($agentId);
                 $allDocs = $this->db->findMany('users', [
                     'role' => 'user',
-                    '$or' => [
-                        ['agentId' => $agentObjectId],
-                        ['createdBy' => $agentObjectId, 'createdByModel' => 'Agent'],
-                    ],
+                    'agentId' => $agentObjectId,
                 ], ['projection' => ['username' => 1]]);
             } elseif ($type === 'agent' && $agentId !== '') {
                 $actorRole = (string) ($actor['role'] ?? '');
@@ -1283,6 +1289,38 @@ final class AdminCoreController
         }
 
         return array_keys($seen);
+    }
+
+    /**
+     * @return array<int,string>
+     */
+    private function listDirectAssignableAgentIds(string $masterAgentId): array
+    {
+        if ($masterAgentId === '' || preg_match('/^[a-f0-9]{24}$/i', $masterAgentId) !== 1) {
+            return [];
+        }
+
+        $subAgents = $this->db->findMany('agents', [
+            'createdBy' => MongoRepository::id($masterAgentId),
+            'createdByModel' => 'Agent',
+            'role' => 'agent',
+        ], ['projection' => ['_id' => 1], 'sort' => ['username' => 1]]);
+
+        $ids = [];
+        foreach ($subAgents as $sub) {
+            $sid = (string) ($sub['_id'] ?? '');
+            if ($sid !== '' && preg_match('/^[a-f0-9]{24}$/i', $sid) === 1) {
+                $ids[] = $sid;
+            }
+        }
+
+        return $ids;
+    }
+
+    private function pickDefaultDirectAssignableAgentId(string $masterAgentId): ?string
+    {
+        $ids = $this->listDirectAssignableAgentIds($masterAgentId);
+        return $ids[0] ?? null;
     }
 
     private function getAgentTree(): void
@@ -2168,9 +2206,107 @@ final class AdminCoreController
             }
 
             $users = $this->db->findMany('users', $query, [
-                'projection' => ['username' => 1, 'phoneNumber' => 1, 'fullName' => 1, 'balance' => 1, 'pendingBalance' => 1, 'balanceOwed' => 1, 'status' => 1, 'createdAt' => 1],
+                'projection' => ['username' => 1, 'phoneNumber' => 1, 'fullName' => 1, 'balance' => 1, 'pendingBalance' => 1, 'balanceOwed' => 1, 'status' => 1, 'createdAt' => 1, 'agentId' => 1],
             ]);
             $agentsManagersCount = $this->db->countDocuments('users', ['role' => ['$in' => ['agent', 'admin']]]);
+
+            $agentSeedIds = [];
+            foreach ($users as $u) {
+                $aid = (string) ($u['agentId'] ?? '');
+                if ($aid !== '' && preg_match('/^[a-f0-9]{24}$/i', $aid) === 1) {
+                    $agentSeedIds[$aid] = true;
+                }
+            }
+
+            $agentMap = [];
+            $queue = array_keys($agentSeedIds);
+            while (count($queue) > 0) {
+                $batch = [];
+                foreach ($queue as $candidateId) {
+                    if ($candidateId !== '' && !isset($agentMap[$candidateId])) {
+                        $batch[] = $candidateId;
+                    }
+                }
+                if (count($batch) === 0) {
+                    break;
+                }
+                $queue = [];
+
+                $batchOids = array_map(static fn (string $id): string => MongoRepository::id($id), $batch);
+                $agentDocs = $this->db->findMany('agents', ['_id' => ['$in' => $batchOids]], [
+                    'projection' => ['_id' => 1, 'username' => 1, 'createdBy' => 1, 'createdByModel' => 1, 'role' => 1],
+                ]);
+
+                foreach ($agentDocs as $doc) {
+                    $docId = (string) ($doc['_id'] ?? '');
+                    if ($docId !== '') {
+                        $agentMap[$docId] = $doc;
+                    }
+                }
+                foreach ($batch as $batchId) {
+                    if (!isset($agentMap[$batchId])) {
+                        $agentMap[$batchId] = ['_missing' => true];
+                    }
+                }
+
+                foreach ($batch as $batchId) {
+                    $doc = $agentMap[$batchId] ?? null;
+                    if (!is_array($doc) || (($doc['_missing'] ?? false) === true)) {
+                        continue;
+                    }
+                    if ((string) ($doc['createdByModel'] ?? '') !== 'Agent') {
+                        continue;
+                    }
+                    $parentId = (string) ($doc['createdBy'] ?? '');
+                    if ($parentId !== '' && preg_match('/^[a-f0-9]{24}$/i', $parentId) === 1 && !isset($agentMap[$parentId])) {
+                        $queue[] = $parentId;
+                    }
+                }
+            }
+
+            $agentHierarchyPathByUserId = [];
+            $agentChainByUserId = [];
+            $directAgentByUserId = [];
+            foreach ($users as $u) {
+                $uid = (string) ($u['_id'] ?? '');
+                if ($uid === '') {
+                    continue;
+                }
+
+                $aid = (string) ($u['agentId'] ?? '');
+                $chainBottomUp = [];
+                $cursor = $aid;
+                $visited = [];
+                while ($cursor !== '' && preg_match('/^[a-f0-9]{24}$/i', $cursor) === 1 && !isset($visited[$cursor])) {
+                    $visited[$cursor] = true;
+                    $doc = $agentMap[$cursor] ?? null;
+                    if (!is_array($doc) || (($doc['_missing'] ?? false) === true)) {
+                        break;
+                    }
+
+                    $username = strtoupper(trim((string) ($doc['username'] ?? '')));
+                    if ($username !== '') {
+                        $chainBottomUp[] = $username;
+                    }
+
+                    if ((string) ($doc['createdByModel'] ?? '') !== 'Agent') {
+                        break;
+                    }
+                    $parent = (string) ($doc['createdBy'] ?? '');
+                    if ($parent === '' || preg_match('/^[a-f0-9]{24}$/i', $parent) !== 1) {
+                        break;
+                    }
+                    $cursor = $parent;
+                }
+
+                $chainTopDown = array_reverse($chainBottomUp);
+                $directAgent = count($chainTopDown) > 0 ? (string) $chainTopDown[count($chainTopDown) - 1] : '';
+                $path = count($chainTopDown) > 0 ? implode(' / ', $chainTopDown) : 'UNASSIGNED';
+
+                $agentHierarchyPathByUserId[$uid] = $path;
+                $agentChainByUserId[$uid] = $chainTopDown;
+                $directAgentByUserId[$uid] = $directAgent;
+            }
 
             $userIds = [];
             $userMap = [];
@@ -2232,6 +2368,10 @@ final class AdminCoreController
                     'username' => $user['username'] ?? null,
                     'name' => (($user['fullName'] ?? '') !== '') ? $user['fullName'] : ($user['username'] ?? null),
                     'phoneNumber' => $user['phoneNumber'] ?? null,
+                    'agentId' => (string) ($user['agentId'] ?? '') !== '' ? (string) ($user['agentId'] ?? '') : null,
+                    'agentUsername' => $directAgentByUserId[$uid] ?? null,
+                    'agentHierarchy' => $agentChainByUserId[$uid] ?? [],
+                    'agentHierarchyPath' => $agentHierarchyPathByUserId[$uid] ?? 'UNASSIGNED',
                     'daily' => $daily,
                     'week' => $weekTotal,
                     'carry' => $carry,
@@ -2912,86 +3052,730 @@ final class AdminCoreController
     private function getTransactionsHistory(): void
     {
         try {
-            $actor = $this->protect(['admin']);
+            $actor = $this->protect(['admin', 'agent', 'master_agent', 'super_agent']);
             if ($actor === null) {
                 return;
             }
 
-            $user = (string) ($_GET['user'] ?? '');
-            $type = (string) ($_GET['type'] ?? '');
-            $status = (string) ($_GET['status'] ?? '');
-            $time = (string) ($_GET['time'] ?? '');
-            $limit = isset($_GET['limit']) && is_numeric($_GET['limit']) ? (int) $_GET['limit'] : 200;
-            $limit = min($limit, 500);
+            $modeRaw = strtolower(trim((string) ($_GET['mode'] ?? 'player-transactions')));
+            $mode = match ($modeRaw) {
+                'player', 'players', 'player_transactions', 'player-transactions' => 'player-transactions',
+                'agent', 'agents', 'agent_transactions', 'agent-transactions' => 'agent-transactions',
+                'deleted', 'deleted_transactions', 'deleted-transactions' => 'deleted-transactions',
+                'freeplay', 'free_play', 'freeplay_transactions', 'free-play-transactions' => 'free-play-transactions',
+                'freeplay_analysis', 'free-play-analysis' => 'free-play-analysis',
+                'player_summary', 'player-summary' => 'player-summary',
+                default => 'player-transactions',
+            };
 
-            $query = [];
-            if ($type !== '' && $type !== 'all') {
-                if ($type === 'casino') {
-                    $query['type'] = ['$in' => ['casino_bet_debit', 'casino_bet_credit']];
-                } elseif ($type === 'wager') {
-                    $query['type'] = ['$in' => ['bet_placed', 'casino_bet_debit']];
-                } elseif ($type === 'payout') {
-                    $query['type'] = ['$in' => ['bet_won', 'bet_refund', 'casino_bet_credit']];
-                } else {
-                    $query['type'] = $type;
+            $playersSearch = trim((string) ($_GET['players'] ?? $_GET['player'] ?? $_GET['user'] ?? ''));
+            $agentsSearch = trim((string) ($_GET['agents'] ?? $_GET['agent'] ?? ''));
+            $playersSearchLc = strtolower($playersSearch);
+            $agentsSearchLc = strtolower($agentsSearch);
+            $transactionType = strtolower(trim((string) ($_GET['transactionType'] ?? $_GET['type'] ?? 'all-types')));
+            $status = strtolower(trim((string) ($_GET['status'] ?? 'all')));
+            $time = strtolower(trim((string) ($_GET['time'] ?? '')));
+            $startDateRaw = trim((string) ($_GET['startDate'] ?? $_GET['from'] ?? ''));
+            $endDateRaw = trim((string) ($_GET['endDate'] ?? $_GET['to'] ?? ''));
+            $limit = isset($_GET['limit']) && is_numeric($_GET['limit']) ? (int) $_GET['limit'] : 200;
+            $limit = max(1, min($limit, 1000));
+
+            $actorRole = (string) ($actor['role'] ?? '');
+            $actorId = (string) ($actor['_id'] ?? '');
+
+            $parseDateStart = static function (string $raw): ?DateTimeImmutable {
+                if ($raw === '') {
+                    return null;
+                }
+                if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $raw) !== 1) {
+                    return null;
+                }
+                try {
+                    return new DateTimeImmutable($raw . ' 00:00:00');
+                } catch (Throwable) {
+                    return null;
+                }
+            };
+
+            $startDate = null;
+            if ($startDateRaw !== '') {
+                $startDate = $parseDateStart($startDateRaw);
+                if ($startDate === null) {
+                    Response::json(['message' => 'Invalid startDate format. Use YYYY-MM-DD'], 400);
+                    return;
                 }
             }
+
+            $endDateExclusive = null;
+            if ($endDateRaw !== '') {
+                $endDate = $parseDateStart($endDateRaw);
+                if ($endDate === null) {
+                    Response::json(['message' => 'Invalid endDate format. Use YYYY-MM-DD'], 400);
+                    return;
+                }
+                $endDateExclusive = $endDate->modify('+1 day');
+            }
+
+            if ($startDate === null && $endDateExclusive === null && $time !== '') {
+                $startDate = $this->getStartDateFromPeriod($time);
+            }
+
+            $toObjectIds = static function (array $ids): array {
+                $out = [];
+                foreach ($ids as $id) {
+                    $sid = trim((string) $id);
+                    if ($sid !== '' && preg_match('/^[a-f0-9]{24}$/i', $sid) === 1) {
+                        $out[] = MongoRepository::id($sid);
+                    }
+                }
+                return $out;
+            };
+
+            $scopedAgentIds = [];
+            if ($actorRole === 'agent') {
+                if ($actorId !== '' && preg_match('/^[a-f0-9]{24}$/i', $actorId) === 1) {
+                    $scopedAgentIds[] = $actorId;
+                }
+            } elseif (in_array($actorRole, ['master_agent', 'super_agent'], true)) {
+                $scopedAgentIds = $this->listManagedAgentIds($actorId);
+            }
+            $scopedAgentIds = array_values(array_unique(array_filter(
+                array_map(static fn ($id): string => trim((string) $id), $scopedAgentIds),
+                static fn (string $id): bool => $id !== '' && preg_match('/^[a-f0-9]{24}$/i', $id) === 1
+            )));
+            $scopedAgentIdSet = [];
+            foreach ($scopedAgentIds as $id) {
+                $scopedAgentIdSet[$id] = true;
+            }
+
+            $matchedAgentIds = null;
+            if ($agentsSearch !== '') {
+                $agentQuery = [
+                    'username' => ['$regex' => preg_quote($agentsSearch, '/'), '$options' => 'i'],
+                ];
+                if ($actorRole !== 'admin') {
+                    if ($scopedAgentIds === []) {
+                        Response::json([
+                            'mode' => $mode,
+                            'transactions' => [],
+                            'rows' => [],
+                            'summary' => ['count' => 0, 'grossAmount' => 0, 'netAmount' => 0, 'creditAmount' => 0, 'debitAmount' => 0],
+                            'meta' => ['transactionTypes' => []],
+                        ]);
+                        return;
+                    }
+                    $agentQuery['_id'] = ['$in' => $toObjectIds($scopedAgentIds)];
+                }
+
+                $matchedAgents = $this->db->findMany('agents', $agentQuery, ['projection' => ['_id' => 1], 'limit' => 5000]);
+                $matchedAgentIds = [];
+                foreach ($matchedAgents as $agentDoc) {
+                    $id = (string) ($agentDoc['_id'] ?? '');
+                    if ($id !== '' && preg_match('/^[a-f0-9]{24}$/i', $id) === 1) {
+                        $matchedAgentIds[$id] = true;
+                    }
+                }
+                $matchedAgentIds = array_keys($matchedAgentIds);
+                if ($matchedAgentIds === []) {
+                    Response::json([
+                        'mode' => $mode,
+                        'transactions' => [],
+                        'rows' => [],
+                        'summary' => ['count' => 0, 'grossAmount' => 0, 'netAmount' => 0, 'creditAmount' => 0, 'debitAmount' => 0],
+                        'meta' => ['transactionTypes' => []],
+                    ]);
+                    return;
+                }
+            }
+
+            $needsPlayerScope = $actorRole !== 'admin' || $playersSearch !== '' || $matchedAgentIds !== null;
+            $playerDocs = [];
+            $playerDocsById = [];
+            $playerIds = [];
+            if ($needsPlayerScope) {
+                // Keep player search resilient across legacy imports where role may be missing or set to custom values.
+                $playerQuery = ['role' => ['$nin' => ['admin', 'agent', 'master_agent', 'super_agent']]];
+                if ($actorRole === 'agent') {
+                    $playerQuery['agentId'] = MongoRepository::id($actorId);
+                } elseif (in_array($actorRole, ['master_agent', 'super_agent'], true)) {
+                    if ($scopedAgentIds === []) {
+                        Response::json([
+                            'mode' => $mode,
+                            'transactions' => [],
+                            'rows' => [],
+                            'summary' => ['count' => 0, 'grossAmount' => 0, 'netAmount' => 0, 'creditAmount' => 0, 'debitAmount' => 0],
+                            'meta' => ['transactionTypes' => []],
+                        ]);
+                        return;
+                    }
+                    $playerQuery['agentId'] = ['$in' => $toObjectIds($scopedAgentIds)];
+                }
+
+                if ($matchedAgentIds !== null) {
+                    $playerQuery['agentId'] = ['$in' => $toObjectIds($matchedAgentIds)];
+                }
+
+                if ($playersSearch !== '') {
+                    $safe = preg_quote($playersSearch, '/');
+                    $playerQuery['$or'] = [
+                        ['username' => ['$regex' => $safe, '$options' => 'i']],
+                        ['fullName' => ['$regex' => $safe, '$options' => 'i']],
+                        ['firstName' => ['$regex' => $safe, '$options' => 'i']],
+                        ['lastName' => ['$regex' => $safe, '$options' => 'i']],
+                        ['phoneNumber' => ['$regex' => $safe, '$options' => 'i']],
+                    ];
+                }
+
+                $playerDocs = $this->db->findMany('users', $playerQuery, [
+                    'projection' => ['_id' => 1, 'username' => 1, 'fullName' => 1, 'agentId' => 1, 'balance' => 1, 'freeplayBalance' => 1],
+                    'limit' => 50000,
+                ]);
+                foreach ($playerDocs as $userDoc) {
+                    $id = (string) ($userDoc['_id'] ?? '');
+                    if ($id === '' || preg_match('/^[a-f0-9]{24}$/i', $id) !== 1) {
+                        continue;
+                    }
+                    $playerIds[$id] = true;
+                    $playerDocsById[$id] = $userDoc;
+                }
+                $playerIds = array_keys($playerIds);
+                if ($playerIds === []) {
+                    Response::json([
+                        'mode' => $mode,
+                        'transactions' => [],
+                        'rows' => [],
+                        'summary' => ['count' => 0, 'grossAmount' => 0, 'netAmount' => 0, 'creditAmount' => 0, 'debitAmount' => 0],
+                        'meta' => ['transactionTypes' => []],
+                    ]);
+                    return;
+                }
+            }
+
+            $collection = $mode === 'deleted-transactions' ? 'deleted_transactions' : 'transactions';
+            $dateField = $mode === 'deleted-transactions' ? 'deletedAt' : 'createdAt';
+            $query = [];
+            if ($needsPlayerScope) {
+                $query['userId'] = ['$in' => $toObjectIds($playerIds)];
+            }
+
             if ($status !== '' && $status !== 'all') {
                 $query['status'] = $status;
             }
 
-            $startDate = $this->getStartDateFromPeriod($time);
+            if ($transactionType !== '' && $transactionType !== 'all' && $transactionType !== 'all-types') {
+                if ($transactionType === 'casino') {
+                    $query['type'] = ['$in' => ['casino_bet_debit', 'casino_bet_credit']];
+                } elseif ($transactionType === 'wager') {
+                    $query['type'] = ['$in' => ['bet_placed', 'casino_bet_debit']];
+                } elseif ($transactionType === 'payout') {
+                    $query['type'] = ['$in' => ['bet_won', 'bet_refund', 'casino_bet_credit']];
+                } else {
+                    $query['type'] = $transactionType;
+                }
+            }
+
+            $isFreePlayMode = in_array($mode, ['free-play-transactions', 'free-play-analysis'], true);
+            $isFreePlayType = in_array($transactionType, ['freeplay', 'free-play', 'fp', 'fp_deposit'], true);
+            if ($isFreePlayMode || $isFreePlayType) {
+                $query['$or'] = [
+                    ['reason' => 'FREEPLAY_ADJUSTMENT'],
+                    ['type' => 'fp_deposit'],
+                    ['description' => ['$regex' => 'free\\s*play', '$options' => 'i']],
+                ];
+            }
+
+            $dateQuery = [];
             if ($startDate !== null) {
-                $query['createdAt'] = ['$gte' => MongoRepository::utcFromMillis($startDate->getTimestamp() * 1000)];
+                $dateQuery['$gte'] = MongoRepository::utcFromMillis($startDate->getTimestamp() * 1000);
+            }
+            if ($endDateExclusive !== null) {
+                $dateQuery['$lt'] = MongoRepository::utcFromMillis($endDateExclusive->getTimestamp() * 1000);
+            }
+            if ($dateQuery !== []) {
+                $query[$dateField] = $dateQuery;
             }
 
-            if ($user !== '') {
-                $users = $this->db->findMany('users', ['username' => ['$regex' => $user, '$options' => 'i']], ['projection' => ['_id' => 1]]);
-                $userIds = [];
-                foreach ($users as $u) {
-                    $uid = (string) ($u['_id'] ?? '');
-                    if ($uid !== '' && preg_match('/^[a-f0-9]{24}$/i', $uid) === 1) {
-                        $userIds[] = MongoRepository::id($uid);
+            $fetchLimit = $limit;
+            if (in_array($mode, ['agent-transactions', 'free-play-analysis', 'player-summary'], true)) {
+                $fetchLimit = min(5000, max($limit * 5, 500));
+            }
+
+            $rawRows = $this->db->findMany($collection, $query, ['sort' => [$dateField => -1], 'limit' => $fetchLimit]);
+            $rows = [];
+            foreach ($rawRows as $row) {
+                if ($mode === 'deleted-transactions' && is_array($row['transaction'] ?? null)) {
+                    $tx = (array) $row['transaction'];
+                    if (!isset($tx['userId']) && isset($row['userId'])) {
+                        $tx['userId'] = $row['userId'];
+                    }
+                    $tx['_deletedAt'] = $row['deletedAt'] ?? null;
+                    $tx['_deletedById'] = $row['deletedById'] ?? null;
+                    $tx['_deletedByRole'] = $row['deletedByRole'] ?? null;
+                    $tx['_deletedByUsername'] = $row['deletedByUsername'] ?? null;
+                    $tx['_deletedTxId'] = (string) ($row['_id'] ?? '');
+                    $rows[] = $tx;
+                    continue;
+                }
+                $rows[] = $row;
+            }
+
+            $actorIdSet = [];
+            foreach ($rows as $tx) {
+                $aid = (string) ($tx['agentId'] ?? '');
+                if ($aid !== '' && preg_match('/^[a-f0-9]{24}$/i', $aid) === 1) {
+                    $actorIdSet[$aid] = true;
+                }
+                $adminId = (string) ($tx['adminId'] ?? '');
+                if ($adminId !== '' && preg_match('/^[a-f0-9]{24}$/i', $adminId) === 1) {
+                    $actorIdSet[$adminId] = true;
+                }
+                $deletedById = (string) ($tx['_deletedById'] ?? '');
+                if ($deletedById !== '' && preg_match('/^[a-f0-9]{24}$/i', $deletedById) === 1) {
+                    $actorIdSet[$deletedById] = true;
+                }
+            }
+            $actorIds = array_keys($actorIdSet);
+
+            $actorAgents = [];
+            $actorAdmins = [];
+            if ($actorIds !== []) {
+                $actorOids = $toObjectIds($actorIds);
+                if ($actorOids !== []) {
+                    $agentRows = $this->db->findMany('agents', ['_id' => ['$in' => $actorOids]], ['projection' => ['_id' => 1, 'username' => 1, 'role' => 1]]);
+                    foreach ($agentRows as $doc) {
+                        $id = (string) ($doc['_id'] ?? '');
+                        if ($id !== '') {
+                            $actorAgents[$id] = $doc;
+                        }
+                    }
+                    $adminRows = $this->db->findMany('admins', ['_id' => ['$in' => $actorOids]], ['projection' => ['_id' => 1, 'username' => 1, 'role' => 1]]);
+                    foreach ($adminRows as $doc) {
+                        $id = (string) ($doc['_id'] ?? '');
+                        if ($id !== '') {
+                            $actorAdmins[$id] = $doc;
+                        }
                     }
                 }
-                $query['userId'] = ['$in' => $userIds];
             }
 
-            $transactions = $this->db->findMany('transactions', $query, ['sort' => ['createdAt' => -1], 'limit' => $limit]);
-            $userMap = [];
-            foreach ($transactions as $tx) {
+            if ($mode === 'agent-transactions') {
+                $allowedAgentActorSet = null;
+                if ($actorRole === 'agent') {
+                    $allowedAgentActorSet = [$actorId => true];
+                } elseif (in_array($actorRole, ['master_agent', 'super_agent'], true)) {
+                    $allowedAgentActorSet = $scopedAgentIdSet;
+                } elseif ($matchedAgentIds !== null) {
+                    $allowedAgentActorSet = [];
+                    foreach ($matchedAgentIds as $id) {
+                        $allowedAgentActorSet[$id] = true;
+                    }
+                }
+
+                $agentRows = [];
+                foreach ($rows as $tx) {
+                    $candidateActorId = (string) ($tx['agentId'] ?? '');
+                    if ($candidateActorId === '') {
+                        $candidateActorId = (string) ($tx['adminId'] ?? '');
+                    }
+                    $reason = strtoupper(trim((string) ($tx['reason'] ?? '')));
+                    $description = strtolower((string) ($tx['description'] ?? ''));
+                    $isAgentDriven = ($candidateActorId !== '' && isset($actorAgents[$candidateActorId]))
+                        || ((string) ($tx['agentId'] ?? '') !== '')
+                        || str_starts_with($reason, 'AGENT_')
+                        || str_contains($description, 'agent ');
+                    if (!$isAgentDriven) {
+                        continue;
+                    }
+
+                    if (is_array($allowedAgentActorSet)) {
+                        if ($candidateActorId === '' || !isset($allowedAgentActorSet[$candidateActorId])) {
+                            continue;
+                        }
+                    }
+                    $agentRows[] = $tx;
+                }
+                $rows = $agentRows;
+            }
+
+            $referencedPlayerIds = [];
+            foreach ($rows as $tx) {
                 $uid = (string) ($tx['userId'] ?? '');
-                if ($uid !== '' && !isset($userMap[$uid]) && preg_match('/^[a-f0-9]{24}$/i', $uid) === 1) {
-                    $u = $this->db->findOne('users', ['_id' => MongoRepository::id($uid)], ['projection' => ['username' => 1, 'phoneNumber' => 1]]);
-                    if ($u !== null) {
-                        $userMap[$uid] = $u;
+                if ($uid !== '' && preg_match('/^[a-f0-9]{24}$/i', $uid) === 1) {
+                    $referencedPlayerIds[$uid] = true;
+                }
+            }
+            $missingPlayerIds = [];
+            foreach (array_keys($referencedPlayerIds) as $pid) {
+                if (!isset($playerDocsById[$pid])) {
+                    $missingPlayerIds[] = $pid;
+                }
+            }
+            if ($missingPlayerIds !== []) {
+                $missingUsers = $this->db->findMany('users', ['_id' => ['$in' => $toObjectIds($missingPlayerIds)]], [
+                    'projection' => ['_id' => 1, 'username' => 1, 'fullName' => 1, 'agentId' => 1, 'balance' => 1, 'freeplayBalance' => 1],
+                ]);
+                foreach ($missingUsers as $doc) {
+                    $id = (string) ($doc['_id'] ?? '');
+                    if ($id !== '') {
+                        $playerDocsById[$id] = $doc;
                     }
                 }
             }
+
+            $agentIdSet = [];
+            foreach ($playerDocsById as $userDoc) {
+                $aid = (string) ($userDoc['agentId'] ?? '');
+                if ($aid !== '' && preg_match('/^[a-f0-9]{24}$/i', $aid) === 1) {
+                    $agentIdSet[$aid] = true;
+                }
+            }
+            foreach ($actorIds as $id) {
+                if ($id !== '' && preg_match('/^[a-f0-9]{24}$/i', $id) === 1) {
+                    $agentIdSet[$id] = true;
+                }
+            }
+            if ($matchedAgentIds !== null) {
+                foreach ($matchedAgentIds as $id) {
+                    if ($id !== '' && preg_match('/^[a-f0-9]{24}$/i', $id) === 1) {
+                        $agentIdSet[$id] = true;
+                    }
+                }
+            }
+
+            $agentDocsById = [];
+            $agentLookupIds = array_keys($agentIdSet);
+            if ($agentLookupIds !== []) {
+                $agents = $this->db->findMany('agents', ['_id' => ['$in' => $toObjectIds($agentLookupIds)]], ['projection' => ['_id' => 1, 'username' => 1, 'role' => 1]]);
+                foreach ($agents as $doc) {
+                    $id = (string) ($doc['_id'] ?? '');
+                    if ($id !== '') {
+                        $agentDocsById[$id] = $doc;
+                    }
+                }
+            }
+
+            $computeSignedAmount = function (array $tx): float {
+                $amount = $this->num($tx['amount'] ?? 0);
+                $entrySide = strtoupper(trim((string) ($tx['entrySide'] ?? '')));
+                if ($entrySide === 'DEBIT') {
+                    return -$amount;
+                }
+                if ($entrySide === 'CREDIT') {
+                    return $amount;
+                }
+
+                $type = strtolower(trim((string) ($tx['type'] ?? '')));
+                if ($type === 'adjustment') {
+                    $beforeRaw = $tx['balanceBefore'] ?? null;
+                    $afterRaw = $tx['balanceAfter'] ?? null;
+                    if ($beforeRaw !== null && $afterRaw !== null && is_numeric($beforeRaw) && is_numeric($afterRaw)) {
+                        return ((float) $afterRaw) - ((float) $beforeRaw);
+                    }
+                }
+
+                return match ($type) {
+                    'deposit', 'bet_won', 'bet_refund', 'casino_bet_credit', 'fp_deposit' => $amount,
+                    'withdrawal', 'bet_placed', 'casino_bet_debit', 'bet_lost' => -$amount,
+                    default => 0.0,
+                };
+            };
 
             $formatted = [];
-            foreach ($transactions as $tx) {
+            foreach ($rows as $tx) {
                 $uid = (string) ($tx['userId'] ?? '');
+                $playerDoc = $uid !== '' ? ($playerDocsById[$uid] ?? null) : null;
+                $assignedAgentId = is_array($playerDoc) ? (string) ($playerDoc['agentId'] ?? '') : '';
+                $assignedAgentUsername = ($assignedAgentId !== '' && isset($agentDocsById[$assignedAgentId]))
+                    ? (string) ($agentDocsById[$assignedAgentId]['username'] ?? '')
+                    : null;
+
+                $actorRefId = (string) ($tx['agentId'] ?? '');
+                if ($actorRefId === '') {
+                    $actorRefId = (string) ($tx['adminId'] ?? '');
+                }
+                if ($actorRefId === '') {
+                    $actorRefId = (string) ($tx['_deletedById'] ?? '');
+                }
+
+                $actorUsername = null;
+                $actorRoleResolved = null;
+                if ($actorRefId !== '' && isset($agentDocsById[$actorRefId])) {
+                    $actorUsername = $agentDocsById[$actorRefId]['username'] ?? null;
+                    $actorRoleResolved = $agentDocsById[$actorRefId]['role'] ?? 'agent';
+                } elseif ($actorRefId !== '' && isset($actorAdmins[$actorRefId])) {
+                    $actorUsername = $actorAdmins[$actorRefId]['username'] ?? null;
+                    $actorRoleResolved = $actorAdmins[$actorRefId]['role'] ?? 'admin';
+                } elseif (($tx['_deletedByUsername'] ?? null) !== null) {
+                    $actorUsername = $tx['_deletedByUsername'];
+                    $actorRoleResolved = $tx['_deletedByRole'] ?? null;
+                }
+
+                $reason = (string) ($tx['reason'] ?? '');
+                $description = (string) ($tx['description'] ?? '');
+                $isFreePlay = strtoupper($reason) === 'FREEPLAY_ADJUSTMENT'
+                    || strtolower((string) ($tx['type'] ?? '')) === 'fp_deposit'
+                    || str_contains(strtolower($description), 'freeplay')
+                    || str_contains(strtolower($description), 'free play');
+
+                $amount = $this->num($tx['amount'] ?? 0);
+                $signedAmount = $computeSignedAmount($tx);
+                $balanceBefore = array_key_exists('balanceBefore', $tx) && $tx['balanceBefore'] !== null ? $this->num($tx['balanceBefore']) : null;
+                $balanceAfter = array_key_exists('balanceAfter', $tx) && $tx['balanceAfter'] !== null ? $this->num($tx['balanceAfter']) : null;
+
                 $formatted[] = [
-                    'id' => (string) ($tx['_id'] ?? ''),
+                    'id' => (string) ($tx['_deletedTxId'] ?? ($tx['_id'] ?? '')),
+                    'transactionId' => (string) ($tx['_id'] ?? ''),
                     'type' => $tx['type'] ?? null,
                     'entrySide' => $tx['entrySide'] ?? null,
                     'sourceType' => $tx['sourceType'] ?? null,
                     'referenceType' => $tx['referenceType'] ?? null,
                     'referenceId' => $tx['referenceId'] ?? null,
-                    'user' => $userMap[$uid]['username'] ?? 'Unknown',
-                    'userId' => $uid !== '' ? $uid : null,
-                    'amount' => $this->num($tx['amount'] ?? 0),
-                    'date' => $tx['createdAt'] ?? null,
-                    'balanceBefore' => array_key_exists('balanceBefore', $tx) && $tx['balanceBefore'] !== null ? $this->num($tx['balanceBefore']) : null,
-                    'balanceAfter' => array_key_exists('balanceAfter', $tx) && $tx['balanceAfter'] !== null ? $this->num($tx['balanceAfter']) : null,
                     'status' => $tx['status'] ?? null,
-                    'reason' => $tx['reason'] ?? null,
-                    'description' => $tx['description'] ?? null,
+                    'amount' => $amount,
+                    'signedAmount' => $signedAmount,
+                    'balanceBefore' => $balanceBefore,
+                    'balanceAfter' => $balanceAfter,
+                    'reason' => $reason !== '' ? $reason : null,
+                    'description' => $description !== '' ? $description : null,
+                    'date' => $tx['_deletedAt'] ?? ($tx['createdAt'] ?? null),
+                    'createdAt' => $tx['createdAt'] ?? null,
+                    'deletedAt' => $tx['_deletedAt'] ?? null,
+                    'deletedById' => $tx['_deletedById'] ?? null,
+                    'deletedByRole' => $tx['_deletedByRole'] ?? null,
+                    'deletedByUsername' => $tx['_deletedByUsername'] ?? null,
+                    'playerId' => $uid !== '' ? $uid : null,
+                    'playerUsername' => is_array($playerDoc) ? ($playerDoc['username'] ?? null) : null,
+                    'playerName' => is_array($playerDoc) ? (($playerDoc['fullName'] ?? '') !== '' ? $playerDoc['fullName'] : ($playerDoc['username'] ?? null)) : null,
+                    'agentId' => $assignedAgentId !== '' ? $assignedAgentId : null,
+                    'agentUsername' => $assignedAgentUsername,
+                    'actorId' => $actorRefId !== '' ? $actorRefId : null,
+                    'actorUsername' => $actorUsername,
+                    'actorRole' => $actorRoleResolved,
+                    'isFreePlay' => $isFreePlay,
                 ];
             }
 
-            Response::json(['transactions' => $formatted]);
+            $containsNeedle = static function (?string $haystack, string $needleLc): bool {
+                if ($needleLc === '') {
+                    return true;
+                }
+                if ($haystack === null) {
+                    return false;
+                }
+                return str_contains(strtolower($haystack), $needleLc);
+            };
+
+            if ($playersSearchLc !== '' || $agentsSearchLc !== '') {
+                $formatted = array_values(array_filter($formatted, static function (array $row) use ($playersSearchLc, $agentsSearchLc, $containsNeedle): bool {
+                    if ($playersSearchLc !== '') {
+                        $playerMatch = $containsNeedle((string) ($row['playerUsername'] ?? ''), $playersSearchLc)
+                            || $containsNeedle((string) ($row['playerName'] ?? ''), $playersSearchLc)
+                            || $containsNeedle((string) ($row['description'] ?? ''), $playersSearchLc)
+                            || $containsNeedle((string) ($row['reason'] ?? ''), $playersSearchLc);
+                        if (!$playerMatch) {
+                            return false;
+                        }
+                    }
+
+                    if ($agentsSearchLc !== '') {
+                        $agentMatch = $containsNeedle((string) ($row['agentUsername'] ?? ''), $agentsSearchLc)
+                            || $containsNeedle((string) ($row['actorUsername'] ?? ''), $agentsSearchLc)
+                            || $containsNeedle((string) ($row['description'] ?? ''), $agentsSearchLc);
+                        if (!$agentMatch) {
+                            return false;
+                        }
+                    }
+
+                    return true;
+                }));
+            }
+
+            $grossAmount = 0.0;
+            $netAmount = 0.0;
+            $creditAmount = 0.0;
+            $debitAmount = 0.0;
+            foreach ($formatted as $row) {
+                $amt = $this->num($row['amount'] ?? 0);
+                $signed = $this->num($row['signedAmount'] ?? 0);
+                $grossAmount += abs($amt);
+                $netAmount += $signed;
+                if ($signed >= 0) {
+                    $creditAmount += $signed;
+                } else {
+                    $debitAmount += abs($signed);
+                }
+            }
+
+            $resultType = 'transactions';
+            $rowsOut = $formatted;
+            if ($mode === 'free-play-analysis') {
+                $resultType = 'analysis';
+                $analysisByPlayer = [];
+                foreach ($formatted as $row) {
+                    $pid = (string) ($row['playerId'] ?? '');
+                    if ($pid === '') {
+                        continue;
+                    }
+                    if (!isset($analysisByPlayer[$pid])) {
+                        $analysisByPlayer[$pid] = [
+                            'playerId' => $pid,
+                            'playerUsername' => $row['playerUsername'] ?? null,
+                            'playerName' => $row['playerName'] ?? null,
+                            'agentId' => $row['agentId'] ?? null,
+                            'agentUsername' => $row['agentUsername'] ?? null,
+                            'transactionCount' => 0,
+                            'creditAmount' => 0.0,
+                            'debitAmount' => 0.0,
+                            'netAmount' => 0.0,
+                            'grossAmount' => 0.0,
+                            'lastTransactionAt' => null,
+                            'currentFreeplayBalance' => $this->num($playerDocsById[$pid]['freeplayBalance'] ?? 0),
+                        ];
+                    }
+                    $signed = $this->num($row['signedAmount'] ?? 0);
+                    $amount = abs($this->num($row['amount'] ?? 0));
+                    $analysisByPlayer[$pid]['transactionCount']++;
+                    $analysisByPlayer[$pid]['grossAmount'] += $amount;
+                    $analysisByPlayer[$pid]['netAmount'] += $signed;
+                    if ($signed >= 0) {
+                        $analysisByPlayer[$pid]['creditAmount'] += $signed;
+                    } else {
+                        $analysisByPlayer[$pid]['debitAmount'] += abs($signed);
+                    }
+                    $prevTs = $this->toTimestampSeconds($analysisByPlayer[$pid]['lastTransactionAt'] ?? null) ?? 0;
+                    $currTs = $this->toTimestampSeconds($row['date'] ?? null) ?? 0;
+                    if ($currTs > $prevTs) {
+                        $analysisByPlayer[$pid]['lastTransactionAt'] = $row['date'] ?? null;
+                    }
+                }
+                $rowsOut = array_values($analysisByPlayer);
+                usort($rowsOut, static function (array $a, array $b): int {
+                    $diff = abs((float) ($b['netAmount'] ?? 0)) <=> abs((float) ($a['netAmount'] ?? 0));
+                    if ($diff !== 0) {
+                        return $diff;
+                    }
+                    return strcmp((string) ($a['playerUsername'] ?? ''), (string) ($b['playerUsername'] ?? ''));
+                });
+                $rowsOut = array_slice($rowsOut, 0, $limit);
+            } elseif ($mode === 'player-summary') {
+                $resultType = 'summary';
+                $summaryByPlayer = [];
+                foreach ($formatted as $row) {
+                    $pid = (string) ($row['playerId'] ?? '');
+                    if ($pid === '') {
+                        continue;
+                    }
+                    if (!isset($summaryByPlayer[$pid])) {
+                        $summaryByPlayer[$pid] = [
+                            'playerId' => $pid,
+                            'playerUsername' => $row['playerUsername'] ?? null,
+                            'playerName' => $row['playerName'] ?? null,
+                            'agentId' => $row['agentId'] ?? null,
+                            'agentUsername' => $row['agentUsername'] ?? null,
+                            'transactionCount' => 0,
+                            'creditAmount' => 0.0,
+                            'debitAmount' => 0.0,
+                            'netAmount' => 0.0,
+                            'wagerAmount' => 0.0,
+                            'payoutAmount' => 0.0,
+                            'depositAmount' => 0.0,
+                            'withdrawalAmount' => 0.0,
+                            'adjustmentAmount' => 0.0,
+                            'lastTransactionAt' => null,
+                            'currentBalance' => $this->num($playerDocsById[$pid]['balance'] ?? 0),
+                            'currentFreeplayBalance' => $this->num($playerDocsById[$pid]['freeplayBalance'] ?? 0),
+                        ];
+                    }
+                    $signed = $this->num($row['signedAmount'] ?? 0);
+                    $amountAbs = abs($this->num($row['amount'] ?? 0));
+                    $typeVal = strtolower(trim((string) ($row['type'] ?? '')));
+                    $summaryByPlayer[$pid]['transactionCount']++;
+                    $summaryByPlayer[$pid]['netAmount'] += $signed;
+                    if ($signed >= 0) {
+                        $summaryByPlayer[$pid]['creditAmount'] += $signed;
+                    } else {
+                        $summaryByPlayer[$pid]['debitAmount'] += abs($signed);
+                    }
+
+                    if (in_array($typeVal, ['bet_placed', 'casino_bet_debit'], true)) {
+                        $summaryByPlayer[$pid]['wagerAmount'] += $amountAbs;
+                    }
+                    if (in_array($typeVal, ['bet_won', 'bet_refund', 'casino_bet_credit'], true)) {
+                        $summaryByPlayer[$pid]['payoutAmount'] += $amountAbs;
+                    }
+                    if ($typeVal === 'deposit') {
+                        $summaryByPlayer[$pid]['depositAmount'] += $amountAbs;
+                    }
+                    if ($typeVal === 'withdrawal') {
+                        $summaryByPlayer[$pid]['withdrawalAmount'] += $amountAbs;
+                    }
+                    if ($typeVal === 'adjustment' || $typeVal === 'fp_deposit') {
+                        $summaryByPlayer[$pid]['adjustmentAmount'] += $amountAbs;
+                    }
+
+                    $prevTs = $this->toTimestampSeconds($summaryByPlayer[$pid]['lastTransactionAt'] ?? null) ?? 0;
+                    $currTs = $this->toTimestampSeconds($row['date'] ?? null) ?? 0;
+                    if ($currTs > $prevTs) {
+                        $summaryByPlayer[$pid]['lastTransactionAt'] = $row['date'] ?? null;
+                    }
+                }
+                $rowsOut = array_values($summaryByPlayer);
+                usort($rowsOut, static function (array $a, array $b): int {
+                    $diff = abs((float) ($b['netAmount'] ?? 0)) <=> abs((float) ($a['netAmount'] ?? 0));
+                    if ($diff !== 0) {
+                        return $diff;
+                    }
+                    return strcmp((string) ($a['playerUsername'] ?? ''), (string) ($b['playerUsername'] ?? ''));
+                });
+                $rowsOut = array_slice($rowsOut, 0, $limit);
+            } else {
+                $rowsOut = array_slice($rowsOut, 0, $limit);
+            }
+
+            $transactionTypeOptions = [
+                ['value' => 'all-types', 'label' => 'Transactions Type'],
+                ['value' => 'deposit', 'label' => 'Deposit'],
+                ['value' => 'withdrawal', 'label' => 'Withdrawal'],
+                ['value' => 'adjustment', 'label' => 'Adjustment'],
+                ['value' => 'wager', 'label' => 'Wager'],
+                ['value' => 'payout', 'label' => 'Payout'],
+                ['value' => 'casino', 'label' => 'Casino'],
+                ['value' => 'fp_deposit', 'label' => 'Free Play'],
+            ];
+
+            Response::json([
+                'mode' => $mode,
+                'resultType' => $resultType,
+                'transactions' => $rowsOut,
+                'rows' => $rowsOut,
+                'summary' => [
+                    'count' => count($formatted),
+                    'grossAmount' => $grossAmount,
+                    'netAmount' => $netAmount,
+                    'creditAmount' => $creditAmount,
+                    'debitAmount' => $debitAmount,
+                ],
+                'filters' => [
+                    'agents' => $agentsSearch,
+                    'players' => $playersSearch,
+                    'transactionType' => $transactionType,
+                    'status' => $status,
+                    'startDate' => $startDateRaw !== '' ? $startDateRaw : null,
+                    'endDate' => $endDateRaw !== '' ? $endDateRaw : null,
+                    'time' => $time !== '' ? $time : null,
+                ],
+                'meta' => [
+                    'transactionTypes' => $transactionTypeOptions,
+                    'viewModes' => [
+                        ['value' => 'player-transactions', 'label' => 'Player Transactions'],
+                        ['value' => 'agent-transactions', 'label' => 'Agent Transactions'],
+                        ['value' => 'deleted-transactions', 'label' => 'Deleted Transactions'],
+                        ['value' => 'free-play-transactions', 'label' => 'Free Play Transactions'],
+                        ['value' => 'free-play-analysis', 'label' => 'Free Play Analysis'],
+                        ['value' => 'player-summary', 'label' => 'Player Summary'],
+                    ],
+                ],
+            ]);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error fetching transaction history'], 500);
         }
@@ -3020,7 +3804,7 @@ final class AdminCoreController
                     $skipped++;
                     continue;
                 }
-                $tx = $this->db->findOne('transactions', ['_id' => MongoRepository::id($id)], ['projection' => ['type' => 1]]);
+                $tx = $this->db->findOne('transactions', ['_id' => MongoRepository::id($id)]);
                 if ($tx === null) {
                     $skipped++;
                     continue;
@@ -3034,6 +3818,21 @@ final class AdminCoreController
 
                 $deletedCount = $this->db->deleteOne('transactions', ['_id' => MongoRepository::id($id)]);
                 if ($deletedCount > 0) {
+                    $now = MongoRepository::nowUtc();
+                    $this->db->insertOne('deleted_transactions', [
+                        'transactionId' => $id,
+                        'userId' => $tx['userId'] ?? null,
+                        'type' => $tx['type'] ?? null,
+                        'status' => $tx['status'] ?? null,
+                        'amount' => $this->num($tx['amount'] ?? 0),
+                        'createdAt' => $tx['createdAt'] ?? null,
+                        'transaction' => $tx,
+                        'deletedById' => (string) ($actor['_id'] ?? ''),
+                        'deletedByRole' => (string) ($actor['role'] ?? ''),
+                        'deletedByUsername' => (string) ($actor['username'] ?? ''),
+                        'deletedAt' => $now,
+                        'updatedAt' => $now,
+                    ]);
                     $deleted++;
                 } else {
                     $skipped++;
@@ -3047,214 +3846,6 @@ final class AdminCoreController
             ]);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error deleting transactions'], 500);
-        }
-    }
-
-    private function getCollections(): void
-    {
-        try {
-            $actor = $this->protect(['admin']);
-            if ($actor === null) {
-                return;
-            }
-
-            $status = (string) ($_GET['status'] ?? '');
-            $user = (string) ($_GET['user'] ?? '');
-            $overdue = (string) ($_GET['overdue'] ?? '');
-            $limit = isset($_GET['limit']) && is_numeric($_GET['limit']) ? (int) $_GET['limit'] : 200;
-            $limit = min($limit, 500);
-
-            $query = [];
-            if ($status !== '' && $status !== 'all') {
-                $query['status'] = $status;
-            }
-
-            if ($user !== '') {
-                $users = $this->db->findMany('users', ['username' => ['$regex' => $user, '$options' => 'i']], ['projection' => ['_id' => 1]]);
-                $userIds = [];
-                foreach ($users as $u) {
-                    $uid = (string) ($u['_id'] ?? '');
-                    if ($uid !== '' && preg_match('/^[a-f0-9]{24}$/i', $uid) === 1) {
-                        $userIds[] = MongoRepository::id($uid);
-                    }
-                }
-                $query['userId'] = ['$in' => $userIds];
-            }
-
-            if ($overdue === '1') {
-                $query['dueDate'] = ['$lt' => MongoRepository::utcFromMillis((new DateTimeImmutable('now'))->getTimestamp() * 1000)];
-                $query['status'] = ['$ne' => 'collected'];
-            }
-
-            $collections = $this->db->findMany('collections', $query, ['sort' => ['createdAt' => -1], 'limit' => $limit]);
-            $userMap = [];
-            foreach ($collections as $col) {
-                $uid = (string) ($col['userId'] ?? '');
-                if ($uid !== '' && !isset($userMap[$uid]) && preg_match('/^[a-f0-9]{24}$/i', $uid) === 1) {
-                    $u = $this->db->findOne('users', ['_id' => MongoRepository::id($uid)], ['projection' => ['username' => 1, 'phoneNumber' => 1]]);
-                    if ($u !== null) {
-                        $userMap[$uid] = $u;
-                    }
-                }
-            }
-
-            $formatted = [];
-            $totalOutstanding = 0.0;
-            foreach ($collections as $col) {
-                $uid = (string) ($col['userId'] ?? '');
-                $amount = $this->num($col['amount'] ?? 0);
-                $statusVal = (string) ($col['status'] ?? '');
-                if ($statusVal !== 'collected' && $statusVal !== 'cancelled') {
-                    $totalOutstanding += $amount;
-                }
-                $formatted[] = [
-                    'id' => (string) ($col['_id'] ?? ''),
-                    'user' => $userMap[$uid]['username'] ?? 'Unknown',
-                    'userId' => $uid !== '' ? $uid : null,
-                    'amount' => $amount,
-                    'dueDate' => $col['dueDate'] ?? null,
-                    'status' => $statusVal !== '' ? $statusVal : null,
-                    'attempts' => (int) ($col['attempts'] ?? 0),
-                    'lastAttemptAt' => $col['lastAttemptAt'] ?? null,
-                    'notes' => $col['notes'] ?? null,
-                    'createdAt' => $col['createdAt'] ?? null,
-                ];
-            }
-
-            Response::json(['collections' => $formatted, 'summary' => ['totalOutstanding' => $totalOutstanding]]);
-        } catch (Throwable $e) {
-            Response::json(['message' => 'Server error fetching collections'], 500);
-        }
-    }
-
-    private function createCollection(): void
-    {
-        try {
-            $actor = $this->protect(['admin']);
-            if ($actor === null) {
-                return;
-            }
-
-            $body = Http::jsonBody();
-            $userId = (string) ($body['userId'] ?? '');
-            if ($userId === '' || !array_key_exists('amount', $body) || preg_match('/^[a-f0-9]{24}$/i', $userId) !== 1) {
-                Response::json(['message' => 'userId and amount are required'], 400);
-                return;
-            }
-
-            $user = $this->db->findOne('users', ['_id' => MongoRepository::id($userId)]);
-            if ($user === null) {
-                Response::json(['message' => 'User not found'], 404);
-                return;
-            }
-
-            $parsedAmount = $this->num($body['amount']);
-            $dueDateInput = $body['dueDate'] ?? null;
-            $due = null;
-            $status = 'pending';
-            if (is_string($dueDateInput) && $dueDateInput !== '') {
-                $ts = strtotime($dueDateInput);
-                if ($ts !== false) {
-                    $due = MongoRepository::utcFromMillis($ts * 1000);
-                    if ($ts < time()) {
-                        $status = 'overdue';
-                    }
-                }
-            }
-
-            $doc = [
-                'userId' => MongoRepository::id($userId),
-                'amount' => $parsedAmount,
-                'dueDate' => $due,
-                'status' => $status,
-                'notes' => (isset($body['notes']) && $body['notes'] !== '') ? (string) $body['notes'] : null,
-                'createdBy' => MongoRepository::id((string) ($actor['_id'] ?? '')),
-                'attempts' => 0,
-                'lastAttemptAt' => null,
-                'createdAt' => MongoRepository::nowUtc(),
-                'updatedAt' => MongoRepository::nowUtc(),
-            ];
-
-            $id = $this->db->insertOne('collections', $doc);
-            $collection = $this->db->findOne('collections', ['_id' => MongoRepository::id($id)]) ?? array_merge($doc, ['_id' => $id]);
-            Response::json([
-                'message' => 'Collection created',
-                'collection' => [
-                    'id' => (string) ($collection['_id'] ?? $id),
-                    'userId' => (string) ($collection['userId'] ?? $userId),
-                    'amount' => $this->num($collection['amount'] ?? $parsedAmount),
-                    'dueDate' => $collection['dueDate'] ?? null,
-                    'status' => $collection['status'] ?? $status,
-                    'attempts' => (int) ($collection['attempts'] ?? 0),
-                    'notes' => $collection['notes'] ?? null,
-                    'createdAt' => $collection['createdAt'] ?? null,
-                ],
-            ], 201);
-        } catch (Throwable $e) {
-            Response::json(['message' => 'Server error creating collection'], 500);
-        }
-    }
-
-    private function collectCollection(string $id): void
-    {
-        try {
-            $actor = $this->protect(['admin']);
-            if ($actor === null) {
-                return;
-            }
-
-            $collection = $this->db->findOne('collections', ['_id' => MongoRepository::id($id)]);
-            if ($collection === null) {
-                Response::json(['message' => 'Collection not found'], 404);
-                return;
-            }
-
-            $attempts = (int) ($collection['attempts'] ?? 0) + 1;
-            $this->db->updateOne('collections', ['_id' => MongoRepository::id($id)], [
-                'status' => 'collected',
-                'attempts' => $attempts,
-                'lastAttemptAt' => MongoRepository::nowUtc(),
-                'updatedAt' => MongoRepository::nowUtc(),
-            ]);
-
-            Response::json(['message' => 'Collection marked as collected', 'id' => $id]);
-        } catch (Throwable $e) {
-            Response::json(['message' => 'Server error collecting'], 500);
-        }
-    }
-
-    private function getCollectionById(string $id): void
-    {
-        try {
-            $actor = $this->protect(['admin']);
-            if ($actor === null) {
-                return;
-            }
-
-            $collection = $this->db->findOne('collections', ['_id' => MongoRepository::id($id)]);
-            if ($collection === null) {
-                Response::json(['message' => 'Collection not found'], 404);
-                return;
-            }
-            $uid = (string) ($collection['userId'] ?? '');
-            $user = ($uid !== '' && preg_match('/^[a-f0-9]{24}$/i', $uid) === 1)
-                ? $this->db->findOne('users', ['_id' => MongoRepository::id($uid)], ['projection' => ['username' => 1, 'phoneNumber' => 1]])
-                : null;
-
-            Response::json([
-                'id' => (string) ($collection['_id'] ?? $id),
-                'user' => $user['username'] ?? 'Unknown',
-                'userId' => $uid !== '' ? $uid : null,
-                'amount' => $this->num($collection['amount'] ?? 0),
-                'dueDate' => $collection['dueDate'] ?? null,
-                'status' => $collection['status'] ?? null,
-                'attempts' => (int) ($collection['attempts'] ?? 0),
-                'lastAttemptAt' => $collection['lastAttemptAt'] ?? null,
-                'notes' => $collection['notes'] ?? null,
-                'createdAt' => $collection['createdAt'] ?? null,
-            ]);
-        } catch (Throwable $e) {
-            Response::json(['message' => 'Server error fetching collection'], 500);
         }
     }
 
@@ -4012,38 +4603,47 @@ final class AdminCoreController
                 return;
             }
 
+            $actorRole = (string) ($actor['role'] ?? '');
             $assignedAgentId = null;
-            if (($actor['role'] ?? '') === 'agent') {
+            if ($actorRole === 'agent') {
                 $assignedAgentId = (string) $actor['_id'];
-            } elseif (in_array((string) ($actor['role'] ?? ''), ['master_agent', 'super_agent'], true)) {
-                $requested = (string) ($body['agentId'] ?? '');
+            } elseif (in_array($actorRole, ['master_agent', 'super_agent'], true)) {
+                $requested = trim((string) ($body['agentId'] ?? ''));
+                $managedAgentIds = $this->listDirectAssignableAgentIds((string) ($actor['_id'] ?? ''));
+
                 if ($requested === '') {
-                    $assignedAgentId = (string) $actor['_id'];
-                } elseif ($requested === (string) ($actor['_id'] ?? '')) {
-                    $assignedAgentId = $requested;
-                } elseif (preg_match('/^[a-f0-9]{24}$/i', $requested) === 1) {
-                    $sub = $this->db->findOne('agents', [
-                        '_id' => MongoRepository::id($requested),
-                        'role' => ['$in' => ['agent', 'master_agent', 'super_agent']],
-                        'createdBy' => MongoRepository::id((string) $actor['_id']),
-                        'createdByModel' => 'Agent',
-                    ]);
-                    if ($sub === null) {
-                        Response::json(['message' => 'You can only assign players to yourself or your direct sub-agents'], 403);
+                    $assignedAgentId = $managedAgentIds[0] ?? null;
+                    if ($assignedAgentId === null) {
+                        Response::json(['message' => 'Create or select a direct Agent before creating players'], 400);
+                        return;
+                    }
+                } else {
+                    if (preg_match('/^[a-f0-9]{24}$/i', $requested) !== 1 || !in_array($requested, $managedAgentIds, true)) {
+                        Response::json(['message' => 'You can only assign players to your direct Agents'], 403);
                         return;
                     }
                     $assignedAgentId = $requested;
+                }
+
+                $sub = $this->db->findOne('agents', [
+                    '_id' => MongoRepository::id((string) $assignedAgentId),
+                ], ['projection' => ['defaultMinBet' => 1, 'defaultMaxBet' => 1, 'defaultCreditLimit' => 1, 'defaultSettleLimit' => 1]]);
+                if ($sub !== null) {
                     $body['minBet'] = $body['minBet'] ?? ($sub['defaultMinBet'] ?? 25);
                     $body['maxBet'] = $body['maxBet'] ?? ($sub['defaultMaxBet'] ?? 200);
                     $body['creditLimit'] = $body['creditLimit'] ?? ($sub['defaultCreditLimit'] ?? 1000);
                     $body['balanceOwed'] = $body['balanceOwed'] ?? ($sub['defaultSettleLimit'] ?? 0);
                 }
             } else {
-                $requested = (string) ($body['agentId'] ?? '');
-                if ($requested !== '' && preg_match('/^[a-f0-9]{24}$/i', $requested) === 1) {
-                    $agent = $this->db->findOne('agents', ['_id' => MongoRepository::id($requested), 'role' => ['$in' => ['agent', 'master_agent', 'super_agent']]]);
+                $requested = trim((string) ($body['agentId'] ?? ''));
+                if ($requested !== '' && preg_match('/^[a-f0-9]{24}$/i', $requested) !== 1) {
+                    Response::json(['message' => 'Invalid agentId'], 400);
+                    return;
+                }
+                if ($requested !== '') {
+                    $agent = $this->db->findOne('agents', ['_id' => MongoRepository::id($requested), 'role' => 'agent']);
                     if ($agent === null) {
-                        Response::json(['message' => 'Invalid Agent/Master Agent ID'], 400);
+                        Response::json(['message' => 'Invalid Agent ID. Players must be assigned to a regular Agent'], 400);
                         return;
                     }
                     $assignedAgentId = $requested;
@@ -4184,7 +4784,11 @@ final class AdminCoreController
                 $defaultAgentId = $actorId;
                 $forceAgentAssignment = true;
             } elseif (in_array($actorRole, ['master_agent', 'super_agent'], true) && $forceAgentAssignment && $defaultAgentId === '') {
-                $defaultAgentId = $actorId;
+                $defaultAgentId = (string) ($this->pickDefaultDirectAssignableAgentId($actorId) ?? '');
+                if ($defaultAgentId === '') {
+                    Response::json(['message' => 'Create or select a direct Agent before importing players'], 400);
+                    return;
+                }
             }
 
             if ($forceAgentAssignment) {
@@ -4258,6 +4862,14 @@ final class AdminCoreController
 
         $role = strtolower((string) ($actor['role'] ?? ''));
         $actorId = (string) ($actor['_id'] ?? '');
+        $target = $this->db->findOne(
+            'agents',
+            ['_id' => MongoRepository::id($agentId), 'role' => 'agent'],
+            ['projection' => ['createdBy' => 1, 'createdByModel' => 1]]
+        );
+        if ($target === null) {
+            return false;
+        }
         if ($role === 'admin') {
             return true;
         }
@@ -4265,13 +4877,6 @@ final class AdminCoreController
             return $actorId !== '' && $actorId === $agentId;
         }
         if ($role === 'master_agent' || $role === 'super_agent') {
-            if ($actorId !== '' && $actorId === $agentId) {
-                return true;
-            }
-            $target = $this->db->findOne('agents', ['_id' => MongoRepository::id($agentId)], ['projection' => ['createdBy' => 1, 'createdByModel' => 1]]);
-            if ($target === null) {
-                return false;
-            }
             $createdBy = (string) ($target['createdBy'] ?? '');
             $createdByModel = (string) ($target['createdByModel'] ?? '');
             return $actorId !== '' && $createdBy === $actorId && $createdByModel === 'Agent';
@@ -4300,6 +4905,15 @@ final class AdminCoreController
         $actorId = (string) ($actor['_id'] ?? '');
         $createdByModel = ($actorRole === 'admin') ? 'Admin' : 'Agent';
         $now = MongoRepository::nowUtc();
+        $masterAssignableIdSet = [];
+        $defaultMasterAssignableAgentId = null;
+        if (in_array($actorRole, ['master_agent', 'super_agent'], true)) {
+            $masterAssignableAgentIds = $this->listDirectAssignableAgentIds($actorId);
+            foreach ($masterAssignableAgentIds as $managedId) {
+                $masterAssignableIdSet[$managedId] = true;
+            }
+            $defaultMasterAssignableAgentId = $masterAssignableAgentIds[0] ?? null;
+        }
 
         $candidateUsernames = [];
         $candidatePhones = [];
@@ -4401,7 +5015,7 @@ final class AdminCoreController
                     'passwordCaseInsensitiveHash' => $agentPasswordFields['passwordCaseInsensitiveHash'],
                     'displayPassword' => $agentPass,
                     'fullName' => $agentUsername,
-                    'role' => 'master_agent',
+                    'role' => 'agent',
                     'status' => 'active',
                     'balance' => 0.0,
                     'agentBillingRate' => 0.0,
@@ -4419,7 +5033,6 @@ final class AdminCoreController
                 ];
                 $newAgentId = $this->db->insertOne('agents', $agentDoc);
                 $agentIdByUsername[$agentUsername] = $newAgentId;
-                $this->syncMasterAgentCollection(array_merge($agentDoc, ['_id' => $newAgentId]));
             }
         }
         $agentUsernameById = [];
@@ -4579,7 +5192,29 @@ final class AdminCoreController
                 if ($reqAgent !== '' && preg_match('/^[a-f0-9]{24}$/i', $reqAgent) !== 1) {
                     $reqAgent = (string) ($agentIdByUsername[strtoupper($reqAgent)] ?? '');
                 }
-                $assignedAgentId = ($reqAgent !== '' && preg_match('/^[a-f0-9]{24}$/i', $reqAgent) === 1) ? $reqAgent : $actorId;
+                if ($reqAgent !== '' && preg_match('/^[a-f0-9]{24}$/i', $reqAgent) === 1) {
+                    if (!isset($masterAssignableIdSet[$reqAgent])) {
+                        $usernameForError = strtoupper(trim((string) ($row['username'] ?? '')));
+                        if ($strict) {
+                            $errors[] = ['row' => $rowNum, 'username' => $usernameForError, 'error' => 'Agent must be one of your direct Agents'];
+                        } else {
+                            $skipped[] = ['row' => $rowNum, 'username' => $usernameForError, 'reason' => 'invalid-agent-assignment'];
+                        }
+                        continue;
+                    }
+                    $assignedAgentId = $reqAgent;
+                } else {
+                    if ($defaultMasterAssignableAgentId === null) {
+                        $usernameForError = strtoupper(trim((string) ($row['username'] ?? '')));
+                        if ($strict) {
+                            $errors[] = ['row' => $rowNum, 'username' => $usernameForError, 'error' => 'No direct Agent available under this master account'];
+                        } else {
+                            $skipped[] = ['row' => $rowNum, 'username' => $usernameForError, 'reason' => 'missing-default-agent'];
+                        }
+                        continue;
+                    }
+                    $assignedAgentId = $defaultMasterAssignableAgentId;
+                }
             } else {
                 $reqAgent = trim((string) ($row['agentId'] ?? ''));
                 if ($reqAgent === '' && isset($row['agent']) && trim((string) $row['agent']) !== '') {
@@ -4589,7 +5224,18 @@ final class AdminCoreController
                     $reqAgent = (string) ($agentIdByUsername[strtoupper($reqAgent)] ?? '');
                 }
                 if ($reqAgent !== '' && preg_match('/^[a-f0-9]{24}$/i', $reqAgent) === 1) {
-                    $assignedAgentId = $reqAgent;
+                    $agentDoc = $this->db->findOne('agents', ['_id' => MongoRepository::id($reqAgent)], ['projection' => ['role' => 1]]);
+                    if ((string) ($agentDoc['role'] ?? '') === 'agent') {
+                        $assignedAgentId = $reqAgent;
+                    } else {
+                        $usernameForError = strtoupper(trim((string) ($row['username'] ?? '')));
+                        if ($strict) {
+                            $errors[] = ['row' => $rowNum, 'username' => $usernameForError, 'error' => 'Players can only be assigned to regular Agents'];
+                        } else {
+                            $skipped[] = ['row' => $rowNum, 'username' => $usernameForError, 'reason' => 'invalid-agent-assignment'];
+                        }
+                        continue;
+                    }
                 }
             }
 

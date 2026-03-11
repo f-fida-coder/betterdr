@@ -13,12 +13,14 @@ function AdminHeader({
   role = 'admin',
   showStats = true
 }) {
+  const canOpenMobileMenu = typeof onMenuToggle === 'function';
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showAgentTree, setShowAgentTree] = useState(false);
   const [showMobilePlayerSearch, setShowMobilePlayerSearch] = useState(false);
   const [headerSearchQuery, setHeaderSearchQuery] = useState('');
   const [agentTreeSearchQuery, setAgentTreeSearchQuery] = useState('');
   const [headerPlayerOpen, setHeaderPlayerOpen] = useState(false);
+  const [allPlayers, setAllPlayers] = useState([]);
   const [searchablePlayers, setSearchablePlayers] = useState([]);
   const [summary, setSummary] = useState({
     totalBalance: null,
@@ -27,6 +29,13 @@ function AdminHeader({
     activeAccounts: null
   });
   const [profile, setProfile] = useState(null);
+
+  const toPlayerList = (users) => (
+    Array.isArray(users) ? users : []
+  ).filter((u) => {
+    const roleKey = String(u?.role || '').toLowerCase();
+    return roleKey === '' || roleKey === 'user' || roleKey === 'player';
+  });
 
   useEffect(() => {
     const loadSummary = async () => {
@@ -50,7 +59,8 @@ function AdminHeader({
         const users = roleKey === 'agent'
           ? await getMyPlayers(token)
           : await getUsersAdmin(token);
-        const onlyPlayers = (Array.isArray(users) ? users : []).filter((u) => String(u?.role || '').toLowerCase() === 'user');
+        const onlyPlayers = toPlayerList(users);
+        setAllPlayers(onlyPlayers);
         setSearchablePlayers(onlyPlayers);
       } catch (error) {
         console.error('Failed to load admin header summary:', error);
@@ -60,15 +70,29 @@ function AdminHeader({
     loadSummary();
   }, []);
 
-  const formatCurrency = (value) => {
-    if (value === null || value === undefined) return '—';
+  const roundForDisplay = (value) => {
+    if (value === null || value === undefined) return null;
     const num = Number(value);
-    if (Number.isNaN(num)) return '—';
+    if (Number.isNaN(num)) return null;
+    const rounded = Math.round(num);
+    return Object.is(rounded, -0) ? 0 : rounded;
+  };
+
+  const formatCurrency = (value) => {
+    const rounded = roundForDisplay(value);
+    if (rounded === null) return '—';
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'USD',
-      maximumFractionDigits: 2
-    }).format(num);
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0
+    }).format(rounded);
+  };
+
+  const getSignedValueClass = (value) => {
+    const rounded = roundForDisplay(value);
+    if (rounded === null || rounded === 0) return 'neutral';
+    return rounded > 0 ? 'positive' : 'negative';
   };
 
   const formatCount = (value) => {
@@ -121,15 +145,56 @@ function AdminHeader({
     const query = normalizeSearchValue(rawQuery);
     if (!query) return true;
 
+    const userId = normalizeSearchValue(player?.id || player?._id || player?.mongo_id);
     const username = normalizeSearchValue(player?.username);
     const fullName = normalizeSearchValue(
       player?.fullName
       || `${player?.firstName || ''} ${player?.lastName || ''}`.trim()
     );
     const displayPassword = normalizeSearchValue(player?.displayPassword);
+    const phone = normalizeSearchValue(player?.phoneNumber);
+    const queryDigits = String(rawQuery || '').replace(/\D/g, '');
+    const phoneDigits = String(player?.phoneNumber || '').replace(/\D/g, '');
 
-    return username.includes(query) || fullName.includes(query) || displayPassword.includes(query);
+    return userId.includes(query)
+      || username.includes(query)
+      || fullName.includes(query)
+      || displayPassword.includes(query)
+      || phone.includes(query)
+      || (queryDigits !== '' && phoneDigits.includes(queryDigits));
   };
+
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (!token) return undefined;
+
+    const query = headerSearchQuery.trim();
+    let cancelled = false;
+    const timerId = window.setTimeout(async () => {
+      if (cancelled) return;
+
+      if (query === '') {
+        setSearchablePlayers(allPlayers);
+        return;
+      }
+
+      try {
+        const users = await getUsersAdmin(token, { q: query });
+        if (cancelled) return;
+        const onlyPlayers = toPlayerList(users);
+        setSearchablePlayers(onlyPlayers);
+      } catch (error) {
+        if (cancelled) return;
+        console.warn('Backend player search failed, using local fallback:', error);
+        setSearchablePlayers(allPlayers.filter((player) => playerMatchesHeaderSearch(player, query)));
+      }
+    }, 220);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timerId);
+    };
+  }, [allPlayers, headerSearchQuery]);
 
   const handleHeaderSearchSubmit = (e) => {
     e.preventDefault();
@@ -189,11 +254,12 @@ function AdminHeader({
 
   const filteredPlayers = useMemo(() => {
     const query = headerSearchQuery.trim();
-    if (!query) return searchablePlayers.slice(0, 10);
+    if (!query) return [];
     return searchablePlayers
       .filter((player) => playerMatchesHeaderSearch(player, query))
       .slice(0, 10);
   }, [searchablePlayers, headerSearchQuery]);
+  const hasSearchQuery = headerSearchQuery.trim() !== '';
 
   const displayName = profile?.username
     ? profile.username.toUpperCase()
@@ -243,9 +309,11 @@ function AdminHeader({
           >
             <i className="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
           </button>
-          <button type="button" className="mobile-menu-toggle" onClick={onMenuToggle} aria-label="Toggle menu">
-            ☰
-          </button>
+          {canOpenMobileMenu && (
+            <button type="button" className="mobile-menu-toggle" onClick={onMenuToggle} aria-label="Toggle menu">
+              ☰
+            </button>
+          )}
           <form className="admin-header-search" onSubmit={handleHeaderSearchSubmit}>
             <div
               className="admin-header-player-search"
@@ -264,7 +332,7 @@ function AdminHeader({
                   setHeaderPlayerOpen(true);
                 }}
               />
-              {headerPlayerOpen && (
+              {headerPlayerOpen && hasSearchQuery && (
                 <div className="admin-header-search-list">
                   {filteredPlayers.length > 0 ? filteredPlayers.map((player) => {
                     const userId = player.id || player._id || player.mongo_id;
@@ -366,31 +434,33 @@ function AdminHeader({
           </form>
 
           <div className="mobile-player-search-results">
-            {filteredPlayers.length > 0 ? filteredPlayers.map((player) => {
-              const userId = player.id || player._id || player.mongo_id;
-              const fullName = player.fullName || `${player.firstName || ''} ${player.lastName || ''}`.trim();
-              const displayPassword = String(player.displayPassword || '').trim().toUpperCase() || '—';
-              return (
-                <button
-                  key={String(userId || player.username)}
-                  type="button"
-                  className="mobile-player-search-item"
-                  onClick={() => {
-                    if (userId && onViewChange) {
-                      onViewChange('user-details', userId);
-                    }
-                    setHeaderSearchQuery(player.username || '');
-                    setHeaderPlayerOpen(false);
-                    setShowMobilePlayerSearch(false);
-                  }}
-                >
-                  <span className="search-item-user">{String(player.username || '').toUpperCase()}</span>
-                  <span className="search-item-pass">{displayPassword}</span>
-                  <span className="search-item-name">{fullName || '—'}</span>
-                </button>
-              );
-            }) : (
-              <div className="admin-header-search-empty">No matching players</div>
+            {!hasSearchQuery ? null : (
+              filteredPlayers.length > 0 ? filteredPlayers.map((player) => {
+                const userId = player.id || player._id || player.mongo_id;
+                const fullName = player.fullName || `${player.firstName || ''} ${player.lastName || ''}`.trim();
+                const displayPassword = String(player.displayPassword || '').trim().toUpperCase() || '—';
+                return (
+                  <button
+                    key={String(userId || player.username)}
+                    type="button"
+                    className="mobile-player-search-item"
+                    onClick={() => {
+                      if (userId && onViewChange) {
+                        onViewChange('user-details', userId);
+                      }
+                      setHeaderSearchQuery(player.username || '');
+                      setHeaderPlayerOpen(false);
+                      setShowMobilePlayerSearch(false);
+                    }}
+                  >
+                    <span className="search-item-user">{String(player.username || '').toUpperCase()}</span>
+                    <span className="search-item-pass">{displayPassword}</span>
+                    <span className="search-item-name">{fullName || '—'}</span>
+                  </button>
+                );
+              }) : (
+                <div className="admin-header-search-empty">No matching players</div>
+              )
             )}
           </div>
         </div>
@@ -402,11 +472,11 @@ function AdminHeader({
             {/* Row 1 */}
             <div className="stat-box">
               <span className="stat-label">Week</span>
-              <span className="stat-value green">{formatCurrency(summary.weekNet)}</span>
+              <span className={`stat-value ${getSignedValueClass(summary.weekNet)}`}>{formatCurrency(summary.weekNet)}</span>
             </div>
             <div className="stat-box">
               <span className="stat-label">Today</span>
-              <span className="stat-value green">{formatCurrency(summary.todayNet)}</span>
+              <span className={`stat-value ${getSignedValueClass(summary.todayNet)}`}>{formatCurrency(summary.todayNet)}</span>
             </div>
 
             {/* Row 2 */}
@@ -416,7 +486,9 @@ function AdminHeader({
             </div>
             <div className="stat-box">
               <span className="stat-label">Balance</span>
-              <span className="stat-value">{myBalance === 'Unlimited' ? 'Unlimited' : formatCurrency(myBalance)}</span>
+              <span className={`stat-value ${myBalance === 'Unlimited' ? 'neutral' : getSignedValueClass(myBalance)}`}>
+                {myBalance === 'Unlimited' ? 'Unlimited' : formatCurrency(myBalance)}
+              </span>
             </div>
           </div>
         </div>

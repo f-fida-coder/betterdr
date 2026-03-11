@@ -378,6 +378,18 @@
   color: #333;
 }
 
+.stat-value.positive {
+  color: #1c8f4f;
+}
+
+.stat-value.negative {
+  color: #d11f1f;
+}
+
+.stat-value.neutral {
+  color: #1e2f3d;
+}
+
 .stat-value.green {
   color: #4caf50;
 }
@@ -2364,6 +2376,22 @@
   line-height: 1.2;
 }
 
+.weekly-amount {
+  font-variant-numeric: tabular-nums;
+}
+
+.weekly-amount.is-positive {
+  color: #1c8f4f;
+}
+
+.weekly-amount.is-negative {
+  color: #d11f1f;
+}
+
+.weekly-amount.is-neutral {
+  color: #1e2f3d;
+}
+
 .weekly-mobile-customer-shell {
   padding: 8px;
 }
@@ -2552,6 +2580,10 @@
   color: #d11f1f;
 }
 
+.weekly-mobile-day-cell.is-neutral {
+  color: #0f1d2a;
+}
+
 .weekly-mobile-balance-cell {
   text-align: right;
   color: #1e2f3d;
@@ -2560,6 +2592,14 @@
 
 .weekly-mobile-balance-cell.is-negative {
   color: #d11f1f;
+}
+
+.weekly-mobile-balance-cell.is-positive {
+  color: #1c8f4f;
+}
+
+.weekly-mobile-balance-cell.is-neutral {
+  color: #1e2f3d;
 }
 
 .weekly-mobile-overview-row .weekly-mobile-customer-cell {

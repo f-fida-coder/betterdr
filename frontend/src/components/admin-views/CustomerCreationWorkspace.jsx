@@ -121,6 +121,7 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
   const [agentSearchQuery, setAgentSearchQuery] = useState('');
   const [agentSearchOpen, setAgentSearchOpen] = useState(false);
   const [referralSearchQuery, setReferralSearchQuery] = useState('');
+  const [referralSearchOpen, setReferralSearchOpen] = useState(false);
   const [adminUsername, setAdminUsername] = useState('');
   const [currentUserId, setCurrentUserId] = useState('');
 
@@ -224,6 +225,10 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
           setError('Min bet, max bet, credit limit, and settle limit are required for players.');
           return;
         }
+        if (currentRole !== 'agent' && !String(newCustomer.agentId || '').trim()) {
+          setError('Please assign this player to a regular Agent.');
+          return;
+        }
       }
 
       const payload = { ...newCustomer };
@@ -298,6 +303,7 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
       setCreationType(createdType);
       setAgentSearchQuery('');
       setAgentSearchOpen(false);
+      setReferralSearchOpen(false);
       setImportFile(null);
       setSelectedImportFileName('');
       setImportForceAgentAssignment(true);
@@ -455,6 +461,10 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
       }
     } else {
       setAgentSearchQuery('');
+      if (creationType === 'player' && (currentRole === 'admin' || isMasterContext)) {
+        setNewCustomer((prev) => ({ ...prev, username: '' }));
+        return;
+      }
       if (adminUsername) {
         try {
           const playerPrefix = derivePlayerPrefix(adminUsername);
@@ -485,6 +495,7 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
 
     if (type === 'super_agent' || type === 'agent') {
       setReferralSearchQuery('');
+      setReferralSearchOpen(false);
       setNewCustomer((prev) => ({ ...prev, referredByUserId: '' }));
       const suffix = type === 'super_agent' ? 'MA' : '';
       const prefixToUse = newCustomer.agentPrefix;
@@ -508,6 +519,7 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
       }
     } else {
       await handleAgentChange('');
+      setReferralSearchOpen(false);
       setNewCustomer((prev) => ({ ...prev, referredByUserId: '' }));
     }
   };
@@ -568,6 +580,7 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
     && !!String(newCustomer.lastName || '').trim()
     && !!String(newCustomer.phoneNumber || '').trim()
     && !!String(newCustomer.password || '').trim()
+    && (creationType !== 'player' || currentRole === 'agent' || !!String(newCustomer.agentId || '').trim())
     && (creationType !== 'player' || (
       String(newCustomer.minBet ?? '').trim() !== ''
       && String(newCustomer.maxBet ?? '').trim() !== ''
@@ -583,6 +596,7 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
 
   const isMasterContext = currentRole === 'master_agent' || currentRole === 'super_agent';
   const isMasterAssignmentMode = creationType === 'agent' || creationType === 'super_agent';
+  const requiresPlayerAgentSelection = creationType === 'player' && (currentRole === 'admin' || isMasterContext);
 
   const directAssignmentLabel = useMemo(() => {
     if (creationType === 'player') {
@@ -596,29 +610,49 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
   }, [creationType, isMasterContext, adminUsername]);
 
   const visibleAssignableAgents = useMemo(() => {
-    if (!isMasterAssignmentMode) {
-      return assignableAgents;
+    if (creationType === 'player') {
+      return assignableAgents.filter((agent) => String(agent.role || '').toLowerCase() === 'agent');
     }
-    return assignableAgents.filter((agent) => {
-      const roleKey = String(agent.role || '').toLowerCase();
-      return roleKey === 'master_agent' || roleKey === 'super_agent';
-    });
-  }, [assignableAgents, isMasterAssignmentMode]);
+    if (isMasterAssignmentMode) {
+      return assignableAgents.filter((agent) => {
+        const roleKey = String(agent.role || '').toLowerCase();
+        return roleKey === 'master_agent' || roleKey === 'super_agent';
+      });
+    }
+    return assignableAgents;
+  }, [assignableAgents, isMasterAssignmentMode, creationType]);
 
   const showDirectAssignmentOption = useMemo(() => {
+    if (requiresPlayerAgentSelection) {
+      return false;
+    }
     const query = String(agentSearchQuery || '').trim().toLowerCase();
     if (!query) {
       return true;
     }
     return directAssignmentLabel.toLowerCase().includes(query);
-  }, [agentSearchQuery, directAssignmentLabel]);
+  }, [agentSearchQuery, directAssignmentLabel, requiresPlayerAgentSelection]);
+
+  useEffect(() => {
+    if (!requiresPlayerAgentSelection) {
+      return;
+    }
+    if (String(newCustomer.agentId || '').trim() !== '') {
+      return;
+    }
+    const fallbackId = String(visibleAssignableAgents[0]?.id || visibleAssignableAgents[0]?._id || '');
+    if (!fallbackId) {
+      return;
+    }
+    handleAgentChange(fallbackId);
+  }, [requiresPlayerAgentSelection, visibleAssignableAgents, newCustomer.agentId]);
 
   useEffect(() => {
     if (creationType !== 'player') return;
     const typed = String(agentSearchQuery || '').trim().toLowerCase();
     if (!typed) return;
 
-    const exact = assignableAgents.find((a) => String(a.username || '').trim().toLowerCase() === typed);
+    const exact = visibleAssignableAgents.find((a) => String(a.username || '').trim().toLowerCase() === typed);
     if (!exact) return;
 
     const exactId = String(exact.id || exact._id || '');
@@ -626,7 +660,7 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
     if (String(newCustomer.agentId || '') === exactId) return;
 
     handleAgentChange(exactId);
-  }, [agentSearchQuery, assignableAgents, creationType, newCustomer.agentId]);
+  }, [agentSearchQuery, visibleAssignableAgents, creationType, newCustomer.agentId]);
 
   const filteredAssignableAgents = useMemo(() => visibleAssignableAgents.filter((agent) => {
     const query = String(agentSearchQuery || '').trim().toLowerCase();
@@ -652,7 +686,7 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
     }
 
     if (currentRole === 'master_agent' || currentRole === 'super_agent') {
-      return playersOnly.filter((p) => String(p.agentId?._id || p.agentId || '') === String(currentUserId));
+      return [];
     }
 
     return playersOnly;
@@ -675,6 +709,16 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
       })
       .filter(Boolean)
   ), [referralOptions]);
+
+  const filteredReferralOptions = useMemo(() => {
+    const typed = String(referralSearchQuery || '').trim().toLowerCase();
+    if (!typed) {
+      return referralSearchOptions.slice(0, 20);
+    }
+    return referralSearchOptions
+      .filter((option) => option.labelLower.includes(typed) || option.usernameLower.includes(typed))
+      .slice(0, 20);
+  }, [referralSearchOptions, referralSearchQuery]);
 
   const selectedReferralOption = useMemo(() => {
     const selectedId = String(newCustomer.referredByUserId || '').trim();
@@ -736,6 +780,18 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
     }
 
     setNewCustomer((prev) => ({ ...prev, referredByUserId: '' }));
+  };
+
+  const handleReferralSelect = (option) => {
+    if (!option) {
+      setReferralSearchQuery('');
+      setNewCustomer((prev) => ({ ...prev, referredByUserId: '' }));
+      setReferralSearchOpen(false);
+      return;
+    }
+    setReferralSearchQuery(option.label);
+    setNewCustomer((prev) => ({ ...prev, referredByUserId: option.id }));
+    setReferralSearchOpen(false);
   };
 
   return (
@@ -970,21 +1026,60 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
                 </div>
                 <div className="filter-group">
                   <label>Referred By Player</label>
-                  <div className="s-wrapper">
-                    <input
-                      type="text"
-                      list="referral-player-options-workspace"
-                      value={referralSearchQuery}
-                      onChange={(e) => handleReferralSearchChange(e.target.value)}
-                      onBlur={handleReferralSearchBlur}
-                      placeholder="Search player (leave blank for no referral)"
-                      autoComplete="off"
-                    />
-                    <datalist id="referral-player-options-workspace">
-                      {referralSearchOptions.map((option) => (
-                        <option key={option.id} value={option.label} />
-                      ))}
-                    </datalist>
+                  <div
+                    className="agent-search-picker referral-search-picker"
+                    onFocus={() => setReferralSearchOpen(true)}
+                    onBlur={() => {
+                      setTimeout(() => {
+                        handleReferralSearchBlur();
+                        setReferralSearchOpen(false);
+                      }, 120);
+                    }}
+                    tabIndex={0}
+                  >
+                    <div className="referral-search-head">
+                      <input
+                        type="text"
+                        value={referralSearchQuery}
+                        onChange={(e) => {
+                          handleReferralSearchChange(e.target.value);
+                          setReferralSearchOpen(true);
+                        }}
+                        onFocus={() => setReferralSearchOpen(true)}
+                        placeholder="Search player (leave blank for no referral)"
+                        autoComplete="off"
+                      />
+                    </div>
+                    {referralSearchOpen && (
+                      <div className="agent-search-list">
+                        <button
+                          type="button"
+                          className={`agent-search-item ${newCustomer.referredByUserId ? '' : 'selected'}`}
+                          onMouseDown={(event) => {
+                            event.preventDefault();
+                            handleReferralSelect(null);
+                          }}
+                        >
+                          <span>No referral</span>
+                        </button>
+                        {filteredReferralOptions.map((option) => (
+                          <button
+                            key={option.id}
+                            type="button"
+                            className={`agent-search-item ${String(newCustomer.referredByUserId || '') === String(option.id) ? 'selected' : ''}`}
+                            onMouseDown={(event) => {
+                              event.preventDefault();
+                              handleReferralSelect(option);
+                            }}
+                          >
+                            <span>{option.label}</span>
+                          </button>
+                        ))}
+                        {filteredReferralOptions.length === 0 && (
+                          <div className="agent-search-empty">No matching players</div>
+                        )}
+                      </div>
+                    )}
                   </div>
                   <small style={{ display: 'block', marginTop: '6px', color: '#64748b' }}>
                     {selectedReferralOption ? `Selected: ${selectedReferralOption.label}` : 'No referral selected'}
@@ -1096,6 +1191,106 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
               </div>
             )}
           </div>
+
+          <style>{`
+            .agent-search-picker {
+              position: relative;
+              border: 1px solid #cbd5e1;
+              border-radius: 10px;
+              background: #f8fafc;
+              z-index: 20;
+            }
+            .agent-search-picker:focus-within {
+              z-index: 120;
+            }
+            .referral-search-picker {
+              z-index: 24;
+            }
+            .referral-search-picker:focus-within {
+              z-index: 160;
+            }
+            .agent-search-head {
+              display: grid;
+              grid-template-columns: auto 1fr;
+              align-items: center;
+            }
+            .referral-search-head {
+              display: block;
+            }
+            .agent-search-label {
+              padding: 10px 12px;
+              border-right: 1px solid #cbd5e1;
+              color: #334155;
+              font-size: 13px;
+              font-weight: 600;
+              white-space: nowrap;
+            }
+            .agent-search-head input {
+              border: none !important;
+              background: transparent !important;
+              padding: 10px 12px !important;
+              outline: none;
+              width: 100%;
+              min-height: 42px;
+            }
+            .referral-search-head input {
+              border: none !important;
+              background: transparent !important;
+              padding: 10px 12px !important;
+              outline: none;
+              width: 100%;
+              min-height: 42px;
+            }
+            .agent-search-list {
+              position: absolute;
+              z-index: 180;
+              left: 0;
+              right: 0;
+              top: calc(100% + 6px);
+              max-height: 240px;
+              overflow-y: auto;
+              border: 1px solid #cbd5e1;
+              border-radius: 10px;
+              background: #ffffff;
+              box-shadow: 0 12px 24px rgba(15, 23, 42, 0.16);
+            }
+            .agent-search-item {
+              width: 100%;
+              border: none;
+              background: #fff;
+              padding: 10px 12px;
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              cursor: pointer;
+              font-size: 13px;
+              color: #1e293b;
+              border-bottom: 1px solid #e2e8f0;
+              text-align: left;
+            }
+            .agent-search-item:last-child {
+              border-bottom: none;
+            }
+            .agent-search-item:hover,
+            .agent-search-item.selected {
+              background: #e2f2ff;
+            }
+            .agent-type-badge {
+              font-weight: 800;
+              font-size: 12px;
+              line-height: 1;
+              letter-spacing: 0.03em;
+            }
+            .agent-type-badge.master { color: #0f8a0f; }
+            .agent-type-badge.agent { color: #dc2626; }
+            .agent-type-badge.super { color: #5b21b6; }
+            .agent-type-badge.admin { color: #1d4ed8; }
+            .agent-search-empty {
+              padding: 10px 12px;
+              color: #64748b;
+              font-size: 12px;
+            }
+          `}</style>
         </>
       )}
     </>

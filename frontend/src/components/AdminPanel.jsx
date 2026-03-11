@@ -16,7 +16,6 @@ import AgentPerformanceView from './admin-views/AgentPerformanceView';
 import AnalysisView from './admin-views/AnalysisView';
 import IPTrackerView from './admin-views/IPTrackerView';
 import TransactionsHistoryView from './admin-views/TransactionsHistoryView';
-import CollectionsView from './admin-views/CollectionsView';
 import DeletedWagersView from './admin-views/DeletedWagersView';
 import GamesEventsView from './admin-views/GamesEventsView';
 import SportsBookLinksView from './admin-views/SportsBookLinksView';
@@ -54,7 +53,6 @@ const FALLBACK_VIEW_ORDER = [
 
 function AdminPanel({ onExit, role = 'admin' }) {
   const [adminView, setAdminView] = useState('dashboard');
-  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState(null);
   const [layoutPref, setLayoutPref] = useState('tiles');
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
@@ -94,41 +92,17 @@ function AdminPanel({ onExit, role = 'admin' }) {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  useEffect(() => {
-    if (!isMobile && mobileSidebarOpen) {
-      setMobileSidebarOpen(false);
-    }
-  }, [isMobile, mobileSidebarOpen]);
-
-  useEffect(() => {
-    if (!isMobile) return undefined;
-    const handleEscape = (event) => {
-      if (event.key === 'Escape') {
-        setMobileSidebarOpen(false);
-      }
-    };
-    window.addEventListener('keydown', handleEscape);
-    return () => window.removeEventListener('keydown', handleEscape);
-  }, [isMobile]);
-
-  useEffect(() => {
-    if (!isMobile) return undefined;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = mobileSidebarOpen ? 'hidden' : '';
-    return () => {
-      document.body.style.overflow = previousOverflow;
-    };
-  }, [isMobile, mobileSidebarOpen]);
-
   const handleViewChange = (view, userId = null) => {
-    if (!hasViewPermission(effectiveRole, permissions, view)) {
+    const normalizedView = (view === 'transactions-history')
+      ? 'transaction-history'
+      : view;
+    if (!hasViewPermission(effectiveRole, permissions, normalizedView)) {
       return;
     }
-    setAdminView(view);
+    setAdminView(normalizedView);
     if (userId) {
       setSelectedUserId(userId);
     }
-    setMobileSidebarOpen(false);
   };
 
   useEffect(() => {
@@ -264,10 +238,9 @@ function AdminPanel({ onExit, role = 'admin' }) {
         return <AnalysisView />;
       case 'ip-tracker':
         return <IPTrackerView canManage={canManageIpTracker(effectiveRole, permissions)} />;
+      case 'transaction-history':
       case 'transactions-history':
         return <TransactionsHistoryView />;
-      case 'collections':
-        return <CollectionsView />;
       case 'deleted-wagers':
         return <DeletedWagersView />;
       case 'games-events':
@@ -310,7 +283,6 @@ function AdminPanel({ onExit, role = 'admin' }) {
   return (
     <div className={`admin-panel ${adminView === 'dashboard' ? 'dashboard-home-active' : ''}`}>
       <AdminHeader
-        onMenuToggle={() => setMobileSidebarOpen(!mobileSidebarOpen)}
         onLogout={handleLogout}
         onViewChange={handleViewChange}
         onSwitchContext={handleSwitchContext}
@@ -321,23 +293,17 @@ function AdminPanel({ onExit, role = 'admin' }) {
         showStats={adminView === 'dashboard'}
       />
       <div className="admin-container">
-        {isMobile && mobileSidebarOpen && (
-          <button
-            type="button"
-            className="admin-sidebar-backdrop"
-            aria-label="Close navigation"
-            onClick={() => setMobileSidebarOpen(false)}
+        {!isMobile && (
+          <AdminSidebar
+            activeView={adminView}
+            onViewChange={handleViewChange}
+            onOpenScoreboard={() => setShowScoreboard(true)}
+            isOpen={false}
+            onRequestClose={() => {}}
+            role={effectiveRole}
+            permissions={permissions}
           />
         )}
-        <AdminSidebar
-          activeView={adminView}
-          onViewChange={handleViewChange}
-          onOpenScoreboard={() => setShowScoreboard(true)}
-          isOpen={mobileSidebarOpen}
-          onRequestClose={() => setMobileSidebarOpen(false)}
-          role={effectiveRole}
-          permissions={permissions}
-        />
         <div className={`admin-content ${adminView === 'dashboard' ? 'dashboard-view' : ''}`}>
           <ErrorBoundary>
             {renderView()}

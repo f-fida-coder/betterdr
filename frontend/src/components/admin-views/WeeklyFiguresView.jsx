@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { getAgentTree, getWeeklyFigures } from '../../api';
+import { getWeeklyFigures } from '../../api';
 
 const WEEK_OPTIONS = [
   { value: 'this-week', label: 'This Week' },
@@ -32,6 +32,11 @@ const FILTER_OPTIONS = [
     description: 'Shows players up or down at least $1,000 for the week.',
   },
   {
+    value: 'over-settle',
+    label: 'Over Settle',
+    description: 'Shows players whose balance is at or above their settle limit.',
+  },
+  {
     value: 'summary',
     label: 'Summary',
     description: 'Shows the full profit and loss summary for the selected week.',
@@ -43,7 +48,6 @@ function WeeklyFiguresView({ onViewChange = null }) {
   const [playerFilter, setPlayerFilter] = useState('all-players');
   const [summaryData, setSummaryData] = useState(null);
   const [customers, setCustomers] = useState([]);
-  const [agentTreeData, setAgentTreeData] = useState(null);
   const [selectedDayIndex, setSelectedDayIndex] = useState(0);
   const [mobileAgentSearch, setMobileAgentSearch] = useState('');
   const [isMobile, setIsMobile] = useState(() => (
@@ -56,11 +60,24 @@ function WeeklyFiguresView({ onViewChange = null }) {
     []
   );
 
-  const formatMoney = (value) => {
-    if (value === null || value === undefined) return '—';
+  const roundForDisplay = (value) => {
+    if (value === null || value === undefined) return null;
     const num = Number(value);
-    if (Number.isNaN(num)) return '—';
-    return num.toFixed(2);
+    if (Number.isNaN(num)) return null;
+    const rounded = Math.round(num);
+    return Object.is(rounded, -0) ? 0 : rounded;
+  };
+
+  const formatMoney = (value) => {
+    const rounded = roundForDisplay(value);
+    if (rounded === null) return '—';
+    return rounded.toLocaleString('en-US');
+  };
+
+  const getSignedValueClass = (value) => {
+    const rounded = roundForDisplay(value);
+    if (rounded === null || rounded === 0) return 'is-neutral';
+    return rounded > 0 ? 'is-positive' : 'is-negative';
   };
 
   useEffect(() => {
@@ -98,28 +115,6 @@ function WeeklyFiguresView({ onViewChange = null }) {
   }, []);
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (!token) return;
-
-    let cancelled = false;
-    const fetchAgentTree = async () => {
-      try {
-        const data = await getAgentTree(token);
-        if (!cancelled) {
-          setAgentTreeData(data || null);
-        }
-      } catch (treeErr) {
-        console.warn('Failed to fetch agent tree for weekly figures mobile hierarchy:', treeErr);
-      }
-    };
-
-    fetchAgentTree();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
     if (playerFilter !== 'all-players') {
       setMobileAgentSearch('');
     }
@@ -128,6 +123,7 @@ function WeeklyFiguresView({ onViewChange = null }) {
   const filteredCustomers = customers.filter((customer) => {
     const balance = Number(customer.balance || 0);
     const week = Number(customer.week || 0);
+    const settleLimit = Math.abs(Number(customer.settleLimit ?? customer.balanceOwed ?? 0));
     const activeThisWeek = Array.isArray(customer.daily)
       ? customer.daily.some((value) => Math.abs(Number(value || 0)) > 0.01)
       : Math.abs(week) > 0.01;
@@ -140,6 +136,10 @@ function WeeklyFiguresView({ onViewChange = null }) {
     }
     if (playerFilter === 'big-figures') {
       return Math.abs(week) >= 1000;
+    }
+    if (playerFilter === 'over-settle') {
+      if (settleLimit <= 0.01) return false;
+      return Math.abs(balance) >= settleLimit;
     }
     if (playerFilter === 'summary') {
       return false;
@@ -178,60 +178,17 @@ function WeeklyFiguresView({ onViewChange = null }) {
     });
   }, [summaryDays]);
 
-  const hierarchyContext = useMemo(() => {
-    const byPlayerId = new Map();
-    const rootAdmin = String(agentTreeData?.root?.username || 'ADMIN').toUpperCase();
-
-    const parseNodeKind = (node) => {
-      const nodeType = String(node?.nodeType || '').toLowerCase();
-      if (nodeType === 'player') return 'player';
-      if (nodeType === 'agent') return 'agent';
-      const role = String(node?.role || '').toLowerCase();
-      if (role === 'player' || role === 'user') return 'player';
-      return 'agent';
-    };
-
-    const walk = (node, lineage = []) => {
-      if (!node || typeof node !== 'object') return;
-      const kind = parseNodeKind(node);
-
-      if (kind === 'player') {
-        const playerId = String(node.id || '').trim();
-        if (playerId === '') return;
-
-        const chain = lineage
-          .map((ancestor) => String(ancestor?.username || '').toUpperCase())
-          .filter(Boolean);
-        const hierarchyPath = chain.length > 0 ? chain.join(' / ') : rootAdmin;
-
-        byPlayerId.set(playerId, {
-          chain,
-          hierarchyPath,
-          directAgent: chain[chain.length - 1] || '',
-        });
-        return;
-      }
-
-      const nextLineage = [...lineage, {
-        id: String(node.id || ''),
-        username: String(node.username || ''),
-        role: String(node.role || ''),
-      }];
-      const children = Array.isArray(node.children) ? node.children : [];
-      children.forEach((child) => walk(child, nextLineage));
-    };
-
-    const topNodes = Array.isArray(agentTreeData?.tree) ? agentTreeData.tree : [];
-    topNodes.forEach((node) => walk(node, []));
-    return { byPlayerId, rootAdmin };
-  }, [agentTreeData]);
-
   const mobileDecoratedCustomers = useMemo(() => {
     return sortedCustomers.map((customer) => {
-      const customerId = String(customer?.id || '').trim();
-      const hierarchy = hierarchyContext.byPlayerId.get(customerId);
-      const hierarchyPath = String(hierarchy?.hierarchyPath || '').trim() || hierarchyContext.rootAdmin || 'ADMIN';
-      const directAgent = String(hierarchy?.directAgent || '').trim();
+      const chain = Array.isArray(customer?.agentHierarchy)
+        ? customer.agentHierarchy
+          .map((item) => String(item || '').trim().toUpperCase())
+          .filter(Boolean)
+        : [];
+      const directAgent = String(customer?.agentUsername || '').trim().toUpperCase()
+        || (chain.length > 0 ? chain[chain.length - 1] : '');
+      const hierarchyPath = String(customer?.agentHierarchyPath || '').trim().toUpperCase()
+        || (chain.length > 0 ? chain.join(' / ') : (directAgent || 'UNASSIGNED'));
 
       return {
         ...customer,
@@ -242,7 +199,7 @@ function WeeklyFiguresView({ onViewChange = null }) {
         },
       };
     });
-  }, [hierarchyContext.byPlayerId, hierarchyContext.rootAdmin, sortedCustomers]);
+  }, [sortedCustomers]);
 
   const mobileGroupedCustomers = useMemo(() => {
     const groupsMap = new Map();
@@ -250,7 +207,7 @@ function WeeklyFiguresView({ onViewChange = null }) {
 
     mobileDecoratedCustomers.forEach((customer) => {
       const hierarchy = customer.hierarchy || {};
-      const hierarchyPath = String(hierarchy.path || hierarchyContext.rootAdmin || 'ADMIN');
+      const hierarchyPath = String(hierarchy.path || 'UNASSIGNED');
       const key = hierarchyPath;
 
       if (!groupsMap.has(key)) {
@@ -300,7 +257,7 @@ function WeeklyFiguresView({ onViewChange = null }) {
     });
 
     return groups;
-  }, [collator, hierarchyContext.rootAdmin, mobileAgentSearch, mobileDecoratedCustomers, selectedDayIndex]);
+  }, [collator, mobileAgentSearch, mobileDecoratedCustomers, selectedDayIndex]);
 
   const selectedDayLabel = summaryDays[selectedDayIndex]?.day || 'Day';
   const selectedDayShortLabel = String(selectedDayLabel || 'Day').split(' ')[0];
@@ -324,13 +281,7 @@ function WeeklyFiguresView({ onViewChange = null }) {
   };
 
   const formatMobileCellNumber = (value) => {
-    const num = Number(value);
-    if (Number.isNaN(num)) return '—';
-    const isWhole = Math.abs(num % 1) < 0.000001;
-    return num.toLocaleString('en-US', {
-      minimumFractionDigits: isWhole ? 0 : 2,
-      maximumFractionDigits: isWhole ? 0 : 2,
-    });
+    return formatMoney(value);
   };
 
   const mobileOverviewTotals = useMemo(() => {
@@ -443,19 +394,27 @@ function WeeklyFiguresView({ onViewChange = null }) {
                     <div className="weekly-mobile-summary-grid">
                       <div className="weekly-mobile-summary-card">
                         <span className="weekly-mobile-summary-label">{selectedDayShortLabel}</span>
-                        <strong>{formatMoney(summaryDays[selectedDayIndex]?.amount ?? 0)}</strong>
+                        <strong className={`weekly-amount ${getSignedValueClass(summaryDays[selectedDayIndex]?.amount ?? 0)}`}>
+                          {formatMoney(summaryDays[selectedDayIndex]?.amount ?? 0)}
+                        </strong>
                       </div>
                       <div className="weekly-mobile-summary-card">
                         <span className="weekly-mobile-summary-label">Week Total</span>
-                        <strong>{formatMoney(summaryData.weekTotal)}</strong>
+                        <strong className={`weekly-amount ${getSignedValueClass(summaryData.weekTotal)}`}>
+                          {formatMoney(summaryData.weekTotal)}
+                        </strong>
                       </div>
                       <div className="weekly-mobile-summary-card">
                         <span className="weekly-mobile-summary-label">Balances</span>
-                        <strong>{formatMoney(summaryData.balanceTotal)}</strong>
+                        <strong className={`weekly-amount ${getSignedValueClass(summaryData.balanceTotal)}`}>
+                          {formatMoney(summaryData.balanceTotal)}
+                        </strong>
                       </div>
                       <div className="weekly-mobile-summary-card">
                         <span className="weekly-mobile-summary-label">Pending</span>
-                        <strong>{formatMoney(summaryData.pendingTotal)}</strong>
+                        <strong className={`weekly-amount ${getSignedValueClass(summaryData.pendingTotal)}`}>
+                          {formatMoney(summaryData.pendingTotal)}
+                        </strong>
                       </div>
                       <div className="weekly-mobile-summary-card">
                         <span className="weekly-mobile-summary-label">Total Players</span>
@@ -479,23 +438,23 @@ function WeeklyFiguresView({ onViewChange = null }) {
                         <tr>
                           <td>Profit / Loss</td>
                           {summaryDays.map((day, idx) => (
-                            <td key={idx}>{formatMoney(day.amount)}</td>
+                            <td key={idx} className={`weekly-amount ${getSignedValueClass(day.amount)}`}>{formatMoney(day.amount)}</td>
                           ))}
-                          <td>{formatMoney(summaryData.weekTotal)}</td>
+                          <td className={`weekly-amount ${getSignedValueClass(summaryData.weekTotal)}`}>{formatMoney(summaryData.weekTotal)}</td>
                         </tr>
                         <tr>
                           <td>Player Balances</td>
                           {summaryDays.map((_, idx) => (
                             <td key={idx}>—</td>
                           ))}
-                          <td>{formatMoney(summaryData.balanceTotal)}</td>
+                          <td className={`weekly-amount ${getSignedValueClass(summaryData.balanceTotal)}`}>{formatMoney(summaryData.balanceTotal)}</td>
                         </tr>
                         <tr>
                           <td>Pending</td>
                           {summaryDays.map((_, idx) => (
                             <td key={idx}>—</td>
                           ))}
-                          <td>{formatMoney(summaryData.pendingTotal)}</td>
+                          <td className={`weekly-amount ${getSignedValueClass(summaryData.pendingTotal)}`}>{formatMoney(summaryData.pendingTotal)}</td>
                         </tr>
                         <tr>
                           <td>Total Players</td>
@@ -546,10 +505,10 @@ function WeeklyFiguresView({ onViewChange = null }) {
                           <div className="weekly-mobile-customer-cell">
                             <strong>{mobileOverviewTotals.players} Players</strong>
                           </div>
-                          <div className={`weekly-mobile-day-cell ${mobileOverviewTotals.day < 0 ? 'is-negative' : mobileOverviewTotals.day > 0 ? 'is-positive' : ''}`}>
+                          <div className={`weekly-mobile-day-cell ${getSignedValueClass(mobileOverviewTotals.day)}`}>
                             {formatMobileCellNumber(mobileOverviewTotals.day)}
                           </div>
-                          <div className={`weekly-mobile-balance-cell ${mobileOverviewTotals.balance < 0 ? 'is-negative' : ''}`}>
+                          <div className={`weekly-mobile-balance-cell ${getSignedValueClass(mobileOverviewTotals.balance)}`}>
                             {formatMobileCellNumber(mobileOverviewTotals.balance)}
                           </div>
                         </div>
@@ -583,10 +542,10 @@ function WeeklyFiguresView({ onViewChange = null }) {
                                     )}
                                     <span className="weekly-mobile-fullname">{customer.name || '—'}</span>
                                   </div>
-                                  <div className={`weekly-mobile-day-cell ${dayValue < 0 ? 'is-negative' : dayValue > 0 ? 'is-positive' : ''}`}>
+                                  <div className={`weekly-mobile-day-cell ${getSignedValueClass(dayValue)}`}>
                                     {formatMobileCellNumber(dayValue)}
                                   </div>
-                                  <div className={`weekly-mobile-balance-cell ${balanceValue < 0 ? 'is-negative' : ''}`}>
+                                  <div className={`weekly-mobile-balance-cell ${getSignedValueClass(balanceValue)}`}>
                                     {formatMobileCellNumber(balanceValue)}
                                   </div>
                                 </div>
@@ -596,10 +555,10 @@ function WeeklyFiguresView({ onViewChange = null }) {
                               <div className="weekly-mobile-customer-cell">
                                 <strong>{group.totals.players} Players</strong>
                               </div>
-                              <div className={`weekly-mobile-day-cell ${group.totals.day < 0 ? 'is-negative' : group.totals.day > 0 ? 'is-positive' : ''}`}>
+                              <div className={`weekly-mobile-day-cell ${getSignedValueClass(group.totals.day)}`}>
                                 {formatMobileCellNumber(group.totals.day)}
                               </div>
-                              <div className={`weekly-mobile-balance-cell ${group.totals.balance < 0 ? 'is-negative' : ''}`}>
+                              <div className={`weekly-mobile-balance-cell ${getSignedValueClass(group.totals.balance)}`}>
                                 {formatMobileCellNumber(group.totals.balance)}
                               </div>
                             </div>
@@ -648,19 +607,22 @@ function WeeklyFiguresView({ onViewChange = null }) {
                                 <span className="customer-subname">
                                   {customer.name || '—'}
                                 </span>
+                                <span className="customer-subname">
+                                  {String(customer.agentHierarchyPath || customer.agentUsername || 'UNASSIGNED').toUpperCase()}
+                                </span>
                               </div>
                             </td>
-                            <td style={{ color: customer.carry < 0 ? '#e74c3c' : '#27ae60' }}>
+                            <td className={`weekly-amount ${getSignedValueClass(customer.carry)}`}>
                               {formatMoney(customer.carry)}
                             </td>
                             {customer.daily.map((value, dayIdx) => (
-                              <td key={dayIdx}>{formatMoney(value)}</td>
+                              <td key={dayIdx} className={`weekly-amount ${getSignedValueClass(value)}`}>{formatMoney(value)}</td>
                             ))}
-                            <td>{formatMoney(customer.week)}</td>
-                            <td style={{ color: customer.balance < 0 ? '#e74c3c' : '#27ae60' }}>
+                            <td className={`weekly-amount ${getSignedValueClass(customer.week)}`}>{formatMoney(customer.week)}</td>
+                            <td className={`weekly-amount ${getSignedValueClass(customer.balance)}`}>
                               {formatMoney(customer.balance)}
                             </td>
-                            <td>{formatMoney(customer.pending)}</td>
+                            <td className={`weekly-amount ${getSignedValueClass(customer.pending)}`}>{formatMoney(customer.pending)}</td>
                           </tr>
                         )) : (
                           <tr>

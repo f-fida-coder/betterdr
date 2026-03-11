@@ -14,8 +14,8 @@ export const VIEW_PERMISSION_MAP = {
   'agent-performance': 'agentPerformance',
   analysis: 'analysis',
   'ip-tracker': 'ipTracker',
+  'transaction-history': 'transactionsHistory',
   'transactions-history': 'transactionsHistory',
-  collections: 'collections',
   'deleted-wagers': 'deletedWagers',
   'games-events': 'gamesEvents',
   'sportsbook-links': 'sportsbookLinks',
@@ -40,7 +40,14 @@ export const hasViewPermission = (role, permissions, viewId) => {
   if (isPermissionBypassedRole(role)) return true;
   const key = VIEW_PERMISSION_MAP[viewId];
   if (!key) return true;
-  return permissions?.views?.[key] !== false;
+  const direct = permissions?.views?.[key];
+  if (direct === false) return false;
+  if (direct === true) return true;
+  // Legacy alias for older records saved before transactionsHistory was introduced.
+  if (key === 'transactionsHistory' && permissions?.views?.collections === false) {
+    return false;
+  }
+  return true;
 };
 
 export const canManageIpTracker = (role, permissions) => {

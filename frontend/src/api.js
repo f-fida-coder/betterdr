@@ -804,7 +804,7 @@ export const unblockIp = async (id, token) => {
 
 export const getTransactionsHistory = async (params, token) => {
     const query = new URLSearchParams(params).toString();
-    const response = await fetch(buildApiUrl('/admin/transactions', query ? Object.fromEntries(new URLSearchParams(query)) : {}), {
+    const response = await fetch(buildApiUrl('/admin/transaction-history', query ? Object.fromEntries(new URLSearchParams(query)) : {}), {
         headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch transactions history');
@@ -812,7 +812,7 @@ export const getTransactionsHistory = async (params, token) => {
 };
 
 export const deleteAdminTransactions = async (ids, token) => {
-    const response = await fetch(`${API_URL}/admin/transactions`, {
+    const response = await fetch(`${API_URL}/admin/transaction-history`, {
         method: 'DELETE',
         headers: getHeaders(token),
         body: JSON.stringify({ ids })
@@ -821,15 +821,6 @@ export const deleteAdminTransactions = async (ids, token) => {
         const error = await response.json().catch(() => ({}));
         throw new Error(error.message || 'Failed to delete transactions');
     }
-    return response.json();
-};
-
-export const getCollections = async (params, token) => {
-    const query = new URLSearchParams(params).toString();
-    const response = await fetch(buildApiUrl('/admin/collections', query ? Object.fromEntries(new URLSearchParams(query)) : {}), {
-        headers: getHeaders(token)
-    });
-    if (!response.ok) throw new Error('Failed to fetch collections');
     return response.json();
 };
 
@@ -961,39 +952,6 @@ export const clearCache = async (token) => {
         const error = await response.json().catch(() => ({}));
         throw new Error(error.message || 'Failed to clear cache');
     }
-    return response.json();
-};
-
-export const createCollection = async (payload, token) => {
-    const response = await fetch(buildApiUrl('/admin/collections'), {
-        method: 'POST',
-        headers: getHeaders(token),
-        body: JSON.stringify(payload)
-    });
-    if (!response.ok) {
-        const error = await response.json().catch(() => ({}));
-        throw new Error(error.message || 'Failed to create collection');
-    }
-    return response.json();
-};
-
-export const collectCollection = async (id, token) => {
-    const response = await fetch(buildApiUrl(`/admin/collections/${id}/collect`), {
-        method: 'POST',
-        headers: getHeaders(token)
-    });
-    if (!response.ok) {
-        const error = await response.json().catch(() => ({}));
-        throw new Error(error.message || 'Failed to collect');
-    }
-    return response.json();
-};
-
-export const getCollectionById = async (id, token) => {
-    const response = await fetch(buildApiUrl(`/admin/collections/${id}`), {
-        headers: getHeaders(token)
-    });
-    if (!response.ok) throw new Error('Failed to fetch collection');
     return response.json();
 };
 

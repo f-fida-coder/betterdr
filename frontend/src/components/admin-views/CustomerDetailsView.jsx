@@ -550,6 +550,42 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
           }))
           .sort((a, b) => b.key.localeCompare(a.key));
 
+        // Keep yearly performance aligned with account lifetime (+/-), including legacy/imported carry.
+        if (performancePeriod === 'yearly') {
+          const lifetimeValue = Number(customer?.lifetimePlusMinus ?? customer?.lifetime ?? 0);
+          if (Number.isFinite(lifetimeValue)) {
+            const computedNet = rows.reduce((sum, row) => sum + Number(row.net || 0), 0);
+            const carry = lifetimeValue - computedNet;
+            if (Math.abs(carry) >= 0.01) {
+              const targetYear = String(new Date().getFullYear());
+              let targetIndex = rows.findIndex((row) => row.key === targetYear);
+              if (targetIndex < 0) {
+                rows.unshift({
+                  key: targetYear,
+                  date: new Date(),
+                  periodLabel: targetYear,
+                  net: 0,
+                  wagers: [],
+                });
+                targetIndex = 0;
+              }
+              rows[targetIndex] = {
+                ...rows[targetIndex],
+                net: Number(rows[targetIndex].net || 0) + carry,
+                wagers: [
+                  ...(Array.isArray(rows[targetIndex].wagers) ? rows[targetIndex].wagers : []),
+                  {
+                    id: `lifetime-carry-${rows[targetIndex].key}`,
+                    label: 'Lifetime +/- Carry',
+                    amount: carry,
+                    synthetic: true,
+                  }
+                ],
+              };
+            }
+          }
+        }
+
         setPerformanceRows(rows);
         const firstKey = rows[0]?.key || '';
         setPerformanceSelectedKey(firstKey);
@@ -565,7 +601,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
     };
 
     loadPerformance();
-  }, [activeSection, customer?.username, performancePeriod]);
+  }, [activeSection, customer?.username, customer?.lifetimePlusMinus, customer?.lifetime, performancePeriod]);
 
   useEffect(() => {
     const loadFreePlay = async () => {
@@ -622,6 +658,12 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
     if (!customer) return '';
     return customer.displayPassword || 'Not set';
   }, [customer]);
+
+  const roleBadgeLabel = useMemo(() => {
+    const roleKey = String(customer?.role || 'player').toLowerCase();
+    if (roleKey === 'user' || roleKey === 'player') return 'PLAYER';
+    return roleKey.replace(/_/g, ' ').toUpperCase();
+  }, [customer?.role]);
 
   const available = useMemo(() => {
     return Number(form.creditLimit || 0) - Number(customer?.pendingBalance || 0);
@@ -872,6 +914,13 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
   const performanceResult = useMemo(() => {
     return performanceDayBets.reduce((sum, row) => sum + Number(row.amount || 0), 0);
   }, [performanceDayBets]);
+
+  const performanceWagerCount = useMemo(() => {
+    return performanceDayBets.filter((row) => !row?.synthetic).length;
+  }, [performanceDayBets]);
+
+  const txModalBalance = useMemo(() => Number(customer?.balance || 0), [customer?.balance]);
+  const txModalCarry = useMemo(() => Number(txSummary?.carry || 0), [txSummary?.carry]);
 
   const freePlayPending = useMemo(() => {
     return freePlayRows
@@ -1201,47 +1250,73 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
           <div className="player-card">
             <div className="player-card-head">
               <div className="player-title-wrap">
-                <h2>{customer.username || 'USER'}</h2>
-                <span className="player-badge">PLAYER</span>
+                <div className="player-title-main">
+                  <span className="player-kicker">Player ID</span>
+                  <h2>{customer.username || 'USER'}</h2>
+                </div>
+                <span className="player-badge">{roleBadgeLabel}</span>
+              </div>
+            </div>
+
+            <div className="details-grid">
+              <div className="detail-item">
+                <span className="detail-label">Login</span>
+                <strong className="detail-value">{customer.username || ''}</strong>
+              </div>
+              <div className="detail-item">
+                <span className="detail-label">Password</span>
+                <strong className="detail-value detail-secret">{displayPassword}</strong>
+              </div>
+              <div className="detail-item">
+                <span className="detail-label">Min Bet</span>
+                <strong className="detail-value">{formatDetailMoney(customer.minBet ?? 0)}</strong>
+              </div>
+              <div className="detail-item">
+                <span className="detail-label">Max Bet</span>
+                <strong className="detail-value">{formatDetailMoney(customer.maxBet ?? customer.wagerLimit ?? form.wagerLimit ?? 0)}</strong>
+              </div>
+              <div className="detail-item">
+                <span className="detail-label">Credit</span>
+                <strong className="detail-value">{formatDetailMoney(form.creditLimit || customer.creditLimit || 0)}</strong>
+              </div>
+              <div className="detail-item">
+                <span className="detail-label">Settle</span>
+                <strong className="detail-value">+/- {formatDetailMoney(form.settleLimit || customer.balanceOwed || 0)}</strong>
+              </div>
+            </div>
+
+            <div className="player-card-foot">
+              <div className="details-domain">
+                <span className="domain-label">Site</span>
+                <strong>Bettorplays247.com</strong>
               </div>
               <div className="top-actions">
                 <button className="btn btn-user" onClick={handleImpersonate}>Login User</button>
                 <button className="btn btn-copy-all" onClick={copyAllDetails}>Copy Details</button>
               </div>
             </div>
-
-            <div className="details-lines">
-              <p><strong>Login:</strong> {customer.username || ''}</p>
-              <p><strong>Password:</strong> {displayPassword}</p>
-              <p><strong>Min bet:</strong> {formatDetailMoney(customer.minBet ?? 0)}</p>
-              <p><strong>Max bet:</strong> {formatDetailMoney(customer.maxBet ?? customer.wagerLimit ?? form.wagerLimit ?? 0)}</p>
-              <p><strong>Credit:</strong> {formatDetailMoney(form.creditLimit || customer.creditLimit || 0)}</p>
-              <p><strong>Settle:</strong> +/- {formatDetailMoney(form.settleLimit || customer.balanceOwed || 0)}</p>
-            </div>
-
-            <div className="details-domain">Bettorplays247.com</div>
           </div>
           {copyNotice && (
             <div className="copy-notice">{copyNotice}</div>
           )}
-          <div className="top-actions mobile-only">
-            <button className="btn btn-user" onClick={handleImpersonate}>Login User</button>
-            <button className="btn btn-copy-all" onClick={copyAllDetails}>Copy Details</button>
-          </div>
         </div>
         <div className="top-right">
+          <div className="summary-title">Financial Summary</div>
           <button type="button" className={`metric ${activeSection === 'transactions' ? 'metric-active' : ''}`} onClick={openTransactionSlip}>
             <span>Balance</span>
             <b className={Number(customer.balance || 0) < 0 ? 'neg' : 'pos'}>{formatCurrency(customer.balance || 0)}</b>
           </button>
           <button type="button" className={`metric ${activeSection === 'transactions' && txStatusFilter === 'pending' ? 'metric-active' : ''}`} onClick={() => openSection('pending')}>
             <span>Pending</span>
-            <b className="neutral">{formatCurrency(customer.pendingBalance || 0)}</b>
+            <b className={Number(customer.pendingBalance || 0) < 0 ? 'neg' : Number(customer.pendingBalance || 0) > 0 ? 'pos' : 'neutral'}>{formatCurrency(customer.pendingBalance || 0)}</b>
           </button>
-          <div className="metric"><span>Available</span><b className="neutral">{formatCurrency(available)}</b></div>
+          <div className="metric metric-static">
+            <span>Available</span>
+            <b className={Number(available || 0) < 0 ? 'neg' : Number(available || 0) > 0 ? 'pos' : 'neutral'}>{formatCurrency(available)}</b>
+          </div>
           <button type="button" className={`metric ${activeSection === 'freeplays' ? 'metric-active' : ''}`} onClick={() => openSection('freeplays')}>
             <span>Freeplay</span>
-            <b className="neutral">{formatCurrency(customer.freeplayBalance || 0)}</b>
+            <b className={Number(customer.freeplayBalance || 0) < 0 ? 'neg' : Number(customer.freeplayBalance || 0) > 0 ? 'pos' : 'neutral'}>{formatCurrency(customer.freeplayBalance || 0)}</b>
           </button>
           <button type="button" className={`metric ${activeSection === 'performance' ? 'metric-active' : ''}`} onClick={() => openSection('performance')}>
             <span>Lifetime +/-</span>
@@ -1401,7 +1476,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
             </div>
             <div className="perf-right">
               <div className="perf-title-row">
-                <div>Wagers: <b>{performanceDayBets.length}</b></div>
+                <div>Wagers: <b>{performanceWagerCount}</b></div>
                 <div>Result: <b>{formatCurrency(performanceResult)}</b></div>
               </div>
               <table className="perf-table">
@@ -1412,7 +1487,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
                   {performanceDayBets.length === 0 ? (
                     <tr><td colSpan={2} className="tx-empty">No data available in table</td></tr>
                   ) : performanceDayBets.map((wager) => (
-                    <tr key={wager.id}>
+                    <tr key={wager.id} className={wager?.synthetic ? 'perf-synthetic' : ''}>
                       <td>{wager.label || 'Wager'}</td>
                       <td>{Number(wager.amount || 0).toFixed(2)}</td>
                     </tr>
@@ -1713,6 +1788,20 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
             </select>
             <label>Amount</label>
             <input type="number" value={newTxAmount} onChange={(e) => setNewTxAmount(e.target.value)} placeholder="0.00" />
+            <div className="tx-modal-balance-strip" role="status" aria-live="polite">
+              <div className="tx-modal-balance-item">
+                <span>Current Balance</span>
+                <b className={txModalBalance < 0 ? 'neg' : txModalBalance > 0 ? 'pos' : 'neutral'}>
+                  {formatCurrency(txModalBalance)}
+                </b>
+              </div>
+              <div className="tx-modal-balance-item">
+                <span>Carry</span>
+                <b className={txModalCarry < 0 ? 'neg' : txModalCarry > 0 ? 'pos' : 'neutral'}>
+                  {formatCurrency(txModalCarry)}
+                </b>
+              </div>
+            </div>
             <label>Description</label>
             <input value={newTxDescription} onChange={(e) => setNewTxDescription(e.target.value)} placeholder="Optional note" />
             <div className="modal-actions">
@@ -1741,10 +1830,20 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
 
       <style>{`
         .customer-details-v2 { background:#f3f4f6; min-height:100vh; padding:16px; color:#1f2937; }
-        .top-panel { display:flex; justify-content:space-between; align-items:flex-start; background:#fff; border:1px solid #d1d5db; border-radius:8px; padding:16px; box-shadow:0 1px 6px rgba(15, 23, 42, 0.04); }
-        .top-left h2 { margin:0; font-size:18px; line-height:1.2; font-weight: 400; }
+        .top-panel {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) 280px;
+          gap: 14px;
+          align-items: stretch;
+          background: #fff;
+          border: 1px solid #d1d5db;
+          border-radius: 12px;
+          padding: 14px;
+          box-shadow: 0 4px 18px rgba(15, 23, 42, 0.06);
+        }
+        .top-left h2 { margin:0; font-size:32px; line-height:1.05; font-weight: 700; letter-spacing: 0.2px; }
         .agent-line { margin-top:4px; color:#4b5563; font-size:14px; }
-        .top-actions { display:flex; gap:8px; }
+        .top-actions { display:flex; gap:8px; flex-wrap: wrap; justify-content: flex-end; }
 
         .btn { border:none; border-radius:3px; cursor:pointer; font-weight:600; }
         .btn-back { background:#3db3d7; color:#fff; padding:8px 14px; }
@@ -1753,58 +1852,106 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
         .btn-save { background:#35b49f; color:#fff; padding:9px 20px; min-width:130px; font-size:14px; }
 
         .player-card {
-          margin-top: 0;
           border: 1px solid #d6e2f3;
-          border-radius: 4px;
-          padding: 12px;
-          background: #fff;
-          max-width: 720px;
-          box-shadow: none;
+          border-radius: 12px;
+          padding: 14px;
+          background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+          max-width: 100%;
+          box-shadow: inset 0 0 0 1px rgba(225, 236, 247, 0.7);
         }
         .player-card-head {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          gap: 8px;
-          margin-bottom: 10px;
+          margin-bottom: 12px;
         }
         .player-title-wrap {
           display: flex;
-          align-items: center;
-          gap: 10px;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 12px;
+        }
+        .player-title-main {
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+        }
+        .player-kicker {
+          font-size: 11px;
+          font-weight: 700;
+          letter-spacing: 0.7px;
+          color: #5e7a95;
+          text-transform: uppercase;
         }
         .player-badge {
           display: inline-flex;
           align-items: center;
-          padding: 5px 10px;
-          border-radius: 4px;
-          border: 1px solid #9ec4f2;
-          color: #1f5fb9;
+          justify-content: center;
+          white-space: nowrap;
+          padding: 7px 12px;
+          border-radius: 999px;
+          border: 1px solid #8cb4df;
+          background: #edf5ff;
+          color: #245d98;
           font-weight: 700;
-          font-size: 13px;
+          font-size: 12px;
+          letter-spacing: 0.5px;
+          text-transform: uppercase;
         }
-        .details-lines {
-          margin-top: 4px;
-          padding: 6px 0 0;
+        .details-grid {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 9px;
+        }
+        .detail-item {
+          border: 1px solid #dde7f2;
+          background: #f8fbff;
+          border-radius: 10px;
+          padding: 10px 11px;
           display: flex;
           flex-direction: column;
-          gap: 6px;
+          gap: 4px;
         }
-        .details-lines p {
+        .detail-label {
+          font-size: 11px;
+          font-weight: 700;
+          letter-spacing: 0.6px;
+          text-transform: uppercase;
+          color: #607992;
+        }
+        .detail-value {
           margin: 0;
-          font-size: 22px;
-          line-height: 1.45;
+          font-size: 21px;
+          line-height: 1.2;
           color: #1f2937;
-          font-weight: 400;
+          font-weight: 600;
         }
-        .details-lines p strong {
+        .detail-secret {
+          letter-spacing: 0.35px;
           font-weight: 500;
+        }
+        .player-card-foot {
+          margin-top: 12px;
+          padding-top: 12px;
+          border-top: 1px solid #e3ecf5;
+          display: flex;
+          align-items: flex-end;
+          justify-content: space-between;
+          gap: 12px;
         }
         .details-domain {
-          margin-top: 26px;
-          font-size: 22px;
-          line-height: 1.2;
-          font-weight: 500;
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+        }
+        .domain-label {
+          font-size: 11px;
+          font-weight: 700;
+          letter-spacing: 0.65px;
+          color: #607992;
+          text-transform: uppercase;
+        }
+        .details-domain strong {
+          font-size: 18px;
+          line-height: 1.1;
+          font-weight: 600;
           color: #1f2937;
         }
         .creds-box {
@@ -1876,25 +2023,68 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
           color: #08916a;
         }
         .copy-notice {
-          margin-top: 6px;
+          margin-top: 8px;
           color: #1f5fb9;
-          font-size: 13px;
+          font-size: 12px;
           font-weight: 700;
         }
         .mobile-only { display: none; }
 
-        .top-right { text-align:right; display:flex; flex-direction:column; gap:8px; }
-        .metric {
-          border: none;
-          background: transparent;
-          text-align: right;
-          cursor: pointer;
-          padding: 0;
+        .top-right {
+          text-align: left;
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          border: 1px solid #d6e2ec;
+          border-radius: 12px;
+          padding: 10px;
+          background: linear-gradient(180deg, #f8fbff 0%, #f4f8fc 100%);
         }
-        .metric.metric-active { opacity: 1; }
-        .metric:not(.metric-active) { opacity: 0.95; }
-        .metric span { display:block; font-size:12px; color:#374151; }
-        .metric b { font-size:16px; line-height:1.1; font-weight:700; }
+        .summary-title {
+          font-size: 11px;
+          font-weight: 700;
+          letter-spacing: 0.7px;
+          color: #5e7690;
+          text-transform: uppercase;
+          padding: 0 2px 2px;
+        }
+        .metric {
+          border: 1px solid #d6e3ef;
+          background: #ffffff;
+          text-align: left;
+          cursor: pointer;
+          padding: 10px 11px;
+          border-radius: 10px;
+          transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+          min-height: 62px;
+        }
+        .metric:hover { border-color: #9ec0df; box-shadow: 0 2px 10px rgba(14, 75, 128, 0.12); }
+        .metric.metric-active {
+          border-color: #4f86bc;
+          box-shadow: 0 0 0 2px rgba(79, 134, 188, 0.18);
+          transform: translateY(-1px);
+        }
+        .metric.metric-static {
+          cursor: default;
+        }
+        .metric span {
+          display:block;
+          font-size:11px;
+          color:#4a6279;
+          letter-spacing: 0.5px;
+          text-transform: uppercase;
+          font-weight: 700;
+        }
+        .metric b {
+          font-size:27px;
+          line-height:1;
+          font-weight:700;
+          font-variant-numeric: tabular-nums;
+        }
         .metric .neg { color:#dc2626; }
         .metric .pos { color:#15803d; }
         .metric .neutral { color:#111827; }
@@ -2183,6 +2373,11 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
           color: #1f2937;
         }
         .perf-table tr.selected td { background: #f1f5f9; }
+        .perf-table tr.perf-synthetic td {
+          background: #fff7ed;
+          color: #7c2d12;
+          font-weight: 600;
+        }
 
         .dynamic-live-wrap {
           margin-top: 8px;
@@ -2362,6 +2557,38 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
           font-size: 14px;
           color: #111827;
         }
+        .tx-modal-balance-strip {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 8px;
+          margin: 2px 0 8px;
+        }
+        .tx-modal-balance-item {
+          border: 1px solid #dbe7f3;
+          border-radius: 8px;
+          background: #f8fbff;
+          padding: 9px 10px;
+        }
+        .tx-modal-balance-item span {
+          display: block;
+          font-size: 11px;
+          font-weight: 700;
+          letter-spacing: 0.45px;
+          text-transform: uppercase;
+          color: #607992;
+          margin-bottom: 4px;
+        }
+        .tx-modal-balance-item b {
+          display: block;
+          font-size: 20px;
+          line-height: 1;
+          font-weight: 700;
+          font-variant-numeric: tabular-nums;
+          color: #111827;
+        }
+        .tx-modal-balance-item b.neg { color: #dc2626; }
+        .tx-modal-balance-item b.pos { color: #15803d; }
+        .tx-modal-balance-item b.neutral { color: #111827; }
         .modal-actions {
           margin-top: 8px;
           display: flex;
@@ -2371,14 +2598,13 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
 
         @media (max-width: 1300px) {
           .basics-grid { grid-template-columns:1fr; }
-          .top-panel { flex-direction:column; gap:12px; }
-          .top-right { text-align:left; }
+          .top-panel { grid-template-columns: 1fr; gap:12px; }
+          .top-right { text-align:left; width: 100%; }
           .player-card { max-width: 100%; }
-          .player-card-head { flex-direction: column; align-items: flex-start; }
+          .player-card-foot { flex-direction: column; align-items: flex-start; }
           .creds-row { grid-template-columns: 90px 1fr 32px; }
           .limits-box { grid-template-columns: 1fr; }
-          .top-actions { display: none; }
-          .mobile-only { display: flex; margin-top: 8px; }
+          .top-actions { justify-content: flex-start; width: 100%; }
           .tx-controls { grid-template-columns: 1fr 1fr; }
           .tx-stat b { font-size: 20px; }
           .freeplay-controls { grid-template-columns: 1fr 1fr; }
@@ -2410,6 +2636,23 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
             width: 100%;
           }
 
+          .details-grid {
+            grid-template-columns: 1fr;
+          }
+
+          .player-card-foot {
+            align-items: stretch;
+          }
+
+          .top-actions .btn {
+            flex: 1 1 calc(50% - 4px);
+            text-align: center;
+          }
+
+          .metric b {
+            font-size: 23px;
+          }
+
           .tx-controls,
           .freeplay-controls {
             grid-template-columns: 1fr;
@@ -2437,6 +2680,10 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
 
           .modal-actions button {
             width: 100%;
+          }
+
+          .tx-modal-balance-strip {
+            grid-template-columns: 1fr;
           }
 
           .live-casino-grid {
