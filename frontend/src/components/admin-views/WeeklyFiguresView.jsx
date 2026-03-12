@@ -20,12 +20,12 @@ const FILTER_OPTIONS = [
   {
     value: 'active-week',
     label: 'Active For The Week',
-    description: 'Shows players with activity in the selected week.',
+    description: 'Shows active players first, then all players.',
   },
   {
     value: 'with-balance',
     label: 'With A Balance',
-    description: 'Shows players with a balance above or below $0.01.',
+    description: 'Shows players with a balance first, then all players.',
   },
   {
     value: 'big-figures',
@@ -45,7 +45,7 @@ const FILTER_OPTIONS = [
   {
     value: 'inactive-losers-14d',
     label: 'Inactive Losers 14 Days',
-    description: 'Shows inactive losers (14+ days).',
+    description: 'Shows inactive losers first, then all players.',
   },
 ];
 
@@ -151,6 +151,12 @@ function WeeklyFiguresView({ onViewChange = null }) {
   }, []);
 
   const customersWithDuplicateFlags = useMemo(() => annotateDuplicatePlayers(customers), [customers]);
+  const showMatchedThenAllPlayers = useMemo(() => (
+    playerFilter === 'all-players'
+    || playerFilter === 'active-week'
+    || playerFilter === 'with-balance'
+    || playerFilter === 'inactive-losers-14d'
+  ), [playerFilter]);
 
   const matchesFilter = (customer) => {
     const balance = Number(customer.balance || 0);
@@ -193,15 +199,27 @@ function WeeklyFiguresView({ onViewChange = null }) {
     }))
   ), [customersWithDuplicateFlags, playerFilter]);
 
-  const filteredCustomers = useMemo(() => (
-    customersWithFilterState.filter((customer) => customer.matchesSelectedFilter)
-  ), [customersWithFilterState]);
+  const filteredCustomers = useMemo(() => {
+    if (showMatchedThenAllPlayers) {
+      return customersWithFilterState;
+    }
+    return customersWithFilterState.filter((customer) => customer.matchesSelectedFilter);
+  }, [customersWithFilterState, showMatchedThenAllPlayers]);
 
   const customerComparator = useMemo(() => {
     return (a, b) => {
       const aUsername = String(a?.username || '');
       const bUsername = String(b?.username || '');
       const usernameFallback = collator.compare(aUsername, bUsername);
+
+      if (showMatchedThenAllPlayers) {
+        const aMatch = Boolean(a?.matchesSelectedFilter);
+        const bMatch = Boolean(b?.matchesSelectedFilter);
+        if (aMatch !== bMatch) {
+          return aMatch ? -1 : 1;
+        }
+        return usernameFallback;
+      }
 
       if (playerFilter === 'over-settle-winners') {
         const diff = Number(b?.balance || 0) - Number(a?.balance || 0);
@@ -213,7 +231,7 @@ function WeeklyFiguresView({ onViewChange = null }) {
       }
       return usernameFallback;
     };
-  }, [collator, playerFilter]);
+  }, [collator, playerFilter, showMatchedThenAllPlayers]);
 
   const sortedCustomers = useMemo(() => {
     return [...filteredCustomers].sort(customerComparator);
