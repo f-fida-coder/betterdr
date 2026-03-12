@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 /**
- * Casino baccarat + blackjack smoke suite.
+ * Casino baccarat + blackjack + arabian smoke suite.
  *
  * Usage:
  *   php php-backend/scripts/casino-smoke.php
@@ -154,18 +154,18 @@ try {
             'betBreakdown' => [
                 ['zone' => 'betZone1', 'main' => 9, 'pairs' => 0, 'plus21' => 0, 'royal' => 0, 'superSeven' => 0, 'insurance' => 0],
             ],
-            'hands' => [
-                ['zone' => 'betZone1', 'cards' => ['10:s1', '6:s2'], 'bet' => 9, 'isSplit' => false],
+            'actions' => [
+                ['action' => 'deal'],
             ],
-            'dealerCards' => ['10:s3', 'Q:s4'],
         ],
     ], $token);
     assertOk($blackjack['status'] === 200, 'Blackjack bet failed');
     $blackjackRoundId = (string) ($blackjack['data']['roundId'] ?? '');
     assertOk($blackjackRoundId !== '', 'Missing blackjack roundId');
     assertOk((string) ($blackjack['data']['game'] ?? '') === 'blackjack', 'Blackjack response game mismatch');
-    assertOk((string) ($blackjack['data']['outcomeSource'] ?? '') === 'client_actions_server_rules', 'Blackjack outcome source must be client_actions_server_rules');
-    assertSimpleSettlementIntegrity($blackjack['data'], 9.0, 0.0, 'blackjack initial');
+    assertOk((string) ($blackjack['data']['outcomeSource'] ?? '') === 'server_simulated_actions', 'Blackjack outcome source must be server_simulated_actions');
+    $blackjackExpectedReturn = round(num($blackjack['data']['totalReturn'] ?? 0), 2);
+    assertSimpleSettlementIntegrity($blackjack['data'], 9.0, $blackjackExpectedReturn, 'blackjack initial');
 
     echo "7) Replay blackjack requestId (idempotency)...\n";
     $blackjackReplay = req('POST', $baseUrl . '/casino/bet', [
@@ -175,16 +175,16 @@ try {
             'betBreakdown' => [
                 ['zone' => 'betZone1', 'main' => 9, 'pairs' => 0, 'plus21' => 0, 'royal' => 0, 'superSeven' => 0, 'insurance' => 0],
             ],
-            'hands' => [
-                ['zone' => 'betZone1', 'cards' => ['A:s1', 'K:s2'], 'bet' => 9, 'isSplit' => false],
+            'actions' => [
+                ['action' => 'deal'],
+                ['action' => 'stand'],
             ],
-            'dealerCards' => ['9:s3', '8:s4'],
         ],
     ], $token);
     assertOk($blackjackReplay['status'] === 200, 'Blackjack replay failed');
     assertOk((string) ($blackjackReplay['data']['roundId'] ?? '') === $blackjackRoundId, 'Blackjack idempotent roundId mismatch');
     assertOk((bool) ($blackjackReplay['data']['idempotent'] ?? false) === true, 'Expected blackjack idempotent=true on replay');
-    assertSimpleSettlementIntegrity($blackjackReplay['data'], 9.0, 0.0, 'blackjack replay');
+    assertSimpleSettlementIntegrity($blackjackReplay['data'], 9.0, $blackjackExpectedReturn, 'blackjack replay');
 
     $blackjackHistory = req('GET', $baseUrl . '/casino/bet/history?page=1&limit=20&game=blackjack', null, $token);
     assertOk($blackjackHistory['status'] === 200, 'Blackjack history filter failed');
@@ -194,9 +194,49 @@ try {
     );
     assertOk(in_array($blackjackRoundId, $blackjackRoundIds, true), 'Blackjack history filter should include blackjack round');
 
-    echo "8) Enforce casino loss limits...\n";
+    echo "8) Place arabian spin and verify server settlement + idempotency...\n";
+    $arabianRequestId = 'smoke_arabian_' . $seed;
+    $arabian = req('POST', $baseUrl . '/casino/bet', [
+        'requestId' => $arabianRequestId,
+        'game' => 'arabian',
+        'bets' => [
+            'lines' => 20,
+            'coinBet' => 0.3,
+            'totalBet' => 6.0,
+        ],
+    ], $token);
+    assertOk($arabian['status'] === 200, 'Arabian spin failed');
+    $arabianRoundId = (string) ($arabian['data']['roundId'] ?? '');
+    assertOk($arabianRoundId !== '', 'Missing arabian roundId');
+    assertOk((string) ($arabian['data']['game'] ?? '') === 'arabian', 'Arabian response game mismatch');
+    assertOk((string) ($arabian['data']['outcomeSource'] ?? '') === 'server_rng', 'Arabian outcome source must be server_rng');
+    assertOk(is_array($arabian['data']['roundData']['pattern'] ?? null), 'Arabian pattern missing');
+    assertOk(is_array($arabian['data']['roundData']['winningLines'] ?? null), 'Arabian winningLines missing');
+
+    $arabianReplay = req('POST', $baseUrl . '/casino/bet', [
+        'requestId' => $arabianRequestId,
+        'game' => 'arabian',
+        'bets' => [
+            'lines' => 20,
+            'coinBet' => 0.3,
+            'totalBet' => 6.0,
+        ],
+    ], $token);
+    assertOk($arabianReplay['status'] === 200, 'Arabian replay failed');
+    assertOk((string) ($arabianReplay['data']['roundId'] ?? '') === $arabianRoundId, 'Arabian idempotent roundId mismatch');
+    assertOk((bool) ($arabianReplay['data']['idempotent'] ?? false) === true, 'Expected arabian idempotent=true on replay');
+
+    $arabianHistory = req('GET', $baseUrl . '/casino/bet/history?page=1&limit=20&game=arabian', null, $token);
+    assertOk($arabianHistory['status'] === 200, 'Arabian history filter failed');
+    $arabianRoundIds = array_map(
+        static fn(array $bet): string => (string) ($bet['roundId'] ?? $bet['id'] ?? ''),
+        is_array($arabianHistory['data']['bets'] ?? null) ? $arabianHistory['data']['bets'] : []
+    );
+    assertOk(in_array($arabianRoundId, $arabianRoundIds, true), 'Arabian history filter should include arabian round');
+
+    echo "9) Enforce casino loss limits...\n";
     $currentNetLoss = 0.0;
-    foreach ([$place, $blackjack] as $roundResponse) {
+    foreach ([$place, $blackjack, $arabian] as $roundResponse) {
         $netResult = isset($roundResponse['data']['netResult']) && is_numeric($roundResponse['data']['netResult'])
             ? (float) $roundResponse['data']['netResult']
             : 0.0;
@@ -222,10 +262,9 @@ try {
             'betBreakdown' => [
                 ['zone' => 'betZone1', 'main' => $lossProbeWager, 'pairs' => 0, 'plus21' => 0, 'royal' => 0, 'superSeven' => 0, 'insurance' => 0],
             ],
-            'hands' => [
-                ['zone' => 'betZone1', 'cards' => ['10:s1', '6:s2'], 'bet' => $lossProbeWager, 'isSplit' => false],
+            'actions' => [
+                ['action' => 'deal'],
             ],
-            'dealerCards' => ['10:s3', 'Q:s4'],
         ],
     ], $token);
     assertOk(
@@ -245,7 +284,7 @@ try {
     ], $token);
     assertOk($relaxLimits['status'] === 200, 'Failed to reset gambling limits');
 
-    echo "9) Enforce cooling-off on casino betting...\n";
+    echo "10) Enforce cooling-off on casino betting...\n";
     $cooling = req('POST', $baseUrl . '/auth/cooling-off', ['duration' => '24h'], $token);
     assertOk($cooling['status'] === 200, 'Failed to activate cooling-off period');
 
@@ -257,7 +296,7 @@ try {
     assertOk($blockedByCoolingOff['status'] === 403, 'Cooling-off period should block casino betting');
 
     if ($adminUser !== '' && $adminPass !== '') {
-        echo "10) Login admin and validate admin casino endpoints...\n";
+        echo "11) Login admin and validate admin casino endpoints...\n";
         $adminLogin = req('POST', $baseUrl . '/auth/admin/login', ['username' => $adminUser, 'password' => $adminPass]);
         assertOk($adminLogin['status'] === 200, 'Admin login failed');
         $adminToken = (string) ($adminLogin['data']['token'] ?? '');
@@ -272,7 +311,7 @@ try {
         $summary = req('GET', $baseUrl . '/admin/casino/summary', null, $adminToken);
         assertOk($summary['status'] === 200, 'Admin casino summary failed');
     } else {
-        echo "10) Skipping admin endpoint checks (SMOKE_ADMIN_USER/SMOKE_ADMIN_PASS not set)...\n";
+        echo "11) Skipping admin endpoint checks (SMOKE_ADMIN_USER/SMOKE_ADMIN_PASS not set)...\n";
     }
 
     echo "\nCasino smoke suite passed.\n";

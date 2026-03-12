@@ -35,6 +35,7 @@ const getTeaserMultiplier = (rule, legCount) => {
 const ModeBetPanel = ({
     user,
     balance = 0,
+    availableBalance = null,
     mode,
     onModeChange,
     selections,
@@ -132,6 +133,11 @@ const ModeBetPanel = ({
         : normalizedMode === 'straight'
             ? wagerAmount * Math.max(1, legCount)
             : wagerAmount;
+    const rawAvailableBalance = availableBalance !== null && availableBalance !== undefined
+        ? availableBalance
+        : balance;
+    const parsedAvailableBalance = Number(rawAvailableBalance);
+    const effectiveAvailableBalance = Number.isFinite(parsedAvailableBalance) ? parsedAvailableBalance : 0;
     const canPlace = validationErrors.length === 0 && !placing;
     const hasSelections = legCount > 0;
     const [isOpen, setIsOpen] = useState(hasSelections);
@@ -188,7 +194,7 @@ const ModeBetPanel = ({
             }
             return;
         }
-        if (totalRisk > Number(balance || 0)) {
+        if (totalRisk > effectiveAvailableBalance) {
             const msg = 'Insufficient balance for this bet.';
             setMessage({ type: 'error', text: msg });
             showToast(msg, 'error');

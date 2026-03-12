@@ -172,7 +172,7 @@ const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, 
                     <div className="right-section">
                         {(!hasSelection || currentView === 'bonus' || (hasSelection && !isMobileSportsSelectionMode)) ? (
                             <div className="balance-container">
-                                <div className="balance-amount">{formatMoney(availableBalance)}</div>
+                                <div className="balance-amount">{formatMoney(balance)}</div>
                                 <div className="balance-label">BALANCE</div>
                             </div>
                         ) : (
@@ -378,7 +378,7 @@ const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, 
                 </div>
                 <div className="dash-user-info">
                     <div className="dash-balance">
-                        <span>CREDIT LIMIT</span>
+                        <span>{role === 'user' ? 'BALANCE' : 'CREDIT LIMIT'}</span>
                         <strong>{formatMoney(balance)}</strong>
                     </div>
                     <div className="dash-balance">

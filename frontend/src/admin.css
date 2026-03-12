@@ -2206,6 +2206,22 @@
   opacity: 0.92;
 }
 
+.duplicate-player-badge {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  margin-top: 2px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.25px;
+  text-transform: uppercase;
+  color: #5f4200;
+  background: #ffe58a;
+  border: 1px solid #e3c14f;
+}
+
 .summary-section {
   background: white;
   border-radius: 8px;
@@ -2224,6 +2240,62 @@
 .summary-header h3 {
   margin: 0;
   font-size: 18px;
+}
+
+.weekly-summary-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  padding: 12px;
+}
+
+.weekly-summary-metric-card {
+  border: 1px solid #d9e4ec;
+  border-radius: 10px;
+  background: #f6fbff;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 72px;
+}
+
+.weekly-summary-metric-label {
+  font-size: 11px;
+  letter-spacing: 0.25px;
+  text-transform: uppercase;
+  color: #46637a;
+  font-weight: 700;
+}
+
+.weekly-summary-metric-card strong {
+  color: #0f2a40;
+  font-size: 20px;
+  line-height: 1.2;
+}
+
+@media (max-width: 768px) {
+  .weekly-summary-metrics {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding: 10px;
+    gap: 8px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .weekly-summary-metric-card {
+    min-width: calc((100% - 16px) / 3);
+    padding: 8px 9px;
+  }
+
+  .weekly-summary-metric-label {
+    font-size: 10px;
+  }
+
+  .weekly-summary-metric-card strong {
+    font-size: 14px;
+  }
 }
 
 .summary-table {
@@ -2331,6 +2403,14 @@
 
 .customer-table tbody tr:hover {
   background: #f9f9f9;
+}
+
+.customer-table tbody tr.weekly-duplicate-row {
+  background: #fff9ca;
+}
+
+.customer-table tbody tr.weekly-duplicate-row:hover {
+  background: #fff3ab;
 }
 
 .weekly-empty-state {
@@ -2554,6 +2634,10 @@
   background: #ffffff;
 }
 
+.weekly-mobile-table-row.weekly-duplicate-row {
+  background: #fff8cf;
+}
+
 .weekly-mobile-table-row:last-child {
   border-bottom: none;
 }
@@ -2636,6 +2720,11 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.weekly-mobile-user .duplicate-player-badge {
+  font-size: 9px;
+  padding: 1px 6px;
 }
 
 .weekly-mobile-fullname {

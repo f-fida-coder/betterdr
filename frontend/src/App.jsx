@@ -434,7 +434,8 @@ function App() {
           {isLoggedIn && user && user.role === 'user' && (
             <ModeBetPanel
               user={user}
-              balance={user.availableBalance ?? user.balance}
+              balance={user.balance}
+              availableBalance={user.availableBalance ?? user.balance}
               mode={betMode}
               onModeChange={handleBetModeChange}
               selections={slipSelections}

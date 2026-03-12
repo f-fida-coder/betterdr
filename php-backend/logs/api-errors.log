@@ -1994,3 +1994,249 @@
 2026-03-10 17:10:18 [401] {"message":"Invalid credentials"}
 2026-03-10 17:11:14 [401] {"message":"Invalid credentials"}
 2026-03-10 17:12:01 [401] {"message":"Invalid admin credentials"}
+2026-03-10 19:28:13 [400] {"message":"Blackjack deal action is required"}
+2026-03-10 19:29:31 [400] {"message":"This wager would exceed your daily loss limit of $1.00. Current net loss: $-16.00."}
+2026-03-10 19:29:31 [403] {"message":"Account is in cooling-off period until 2026-03-11T19:29:31+00:00"}
+2026-03-10 19:34:16 [400] {"message":"This wager would exceed your daily loss limit of $24.00. Current net loss: $20.00."}
+2026-03-10 19:34:16 [403] {"message":"Account is in cooling-off period until 2026-03-11T19:34:16+00:00"}
+2026-03-10 19:59:29 [400] {"message":"Minimum bet for your account is $25.00"}
+2026-03-10 19:59:52 [400] {"message":"Minimum bet for your account is $25.00"}
+2026-03-10 19:59:56 [400] {"message":"Minimum bet for your account is $25.00"}
+2026-03-10 20:00:13 [400] {"message":"Minimum bet for your account is $25.00"}
+2026-03-10 20:16:21 [400] {"message":"This wager would exceed your daily loss limit of $14.00. Current net loss: $10.00."}
+2026-03-10 20:16:21 [403] {"message":"Account is in cooling-off period until 2026-03-11T20:16:21+00:00"}
+2026-03-10 20:16:55 [400] {"message":"bets.coinBet must be greater than zero"}
+2026-03-10 20:17:43 [400] {"message":"Minimum bet for your account is $25.00"}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:07 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:08 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:08 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:08 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:08 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:08 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:08 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:08 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:08 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:08 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:08 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:08 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:08 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:08 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:08 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:08 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:08 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:08 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:08 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:08 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:08 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:08 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:08 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:08 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:08 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:08 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:08 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:08 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:08 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:18:08 [429] {"message":"Too many requests. Please try again later."}
+2026-03-10 20:23:08 [400] {"message":"This wager would exceed your daily loss limit of $14.00. Current net loss: $10.00."}
+2026-03-10 20:23:08 [403] {"message":"Account is in cooling-off period until 2026-03-11T20:23:08+00:00"}
+2026-03-10 20:25:20 [400] {"message":"bets.coinBet must use 0.05 increments"}
+2026-03-10 20:25:20 [400] {"message":"Minimum Arabian wager is $0.30"}
+2026-03-10 20:25:20 [400] {"message":"Maximum Arabian wager is $30.00"}
+2026-03-11 04:53:22 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-03-11 04:54:48 [400] {"message":"Minimum bet for your account is $25.00"}
+2026-03-11 04:56:45 [400] {"message":"Minimum bet for your account is $25.00"}
+2026-03-11 05:23:32 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-03-11 05:23:32 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-03-11 05:23:32 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-03-11 05:23:32 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-03-11 05:23:32 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-03-11 05:23:32 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-03-11 05:23:55 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-03-11 05:23:55 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-03-11 05:23:55 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-03-11 05:23:55 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-03-11 05:23:55 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-03-11 05:24:05 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-03-11 05:24:05 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-03-11 05:24:05 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-03-11 05:24:05 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-03-11 14:44:30 [400] {"message":"agentId must reference a valid Master Agent"}
+2026-03-11 14:44:59 [400] {"message":"agentId must reference a valid Master Agent"}
+2026-03-11 17:32:56 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-03-11 17:33:03 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-03-11 17:33:19 [401] {"message":"Invalid credentials"}
+2026-03-11 18:35:29 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-03-11 18:38:59 [400] {"message":"agentId must reference a valid Master Agent"}
+2026-03-11 18:45:43 [401] {"message":"Invalid credentials"}
+2026-03-12 03:55:09 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-03-12 03:55:09 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-03-12 03:55:09 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-03-12 03:55:09 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-03-12 03:55:19 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-03-12 03:55:19 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-03-12 03:55:24 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-03-12 03:55:24 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-03-12 03:55:31 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-03-12 09:14:02 [400] {"message":"agentId must reference a valid Master Agent"}

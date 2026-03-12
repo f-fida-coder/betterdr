@@ -222,7 +222,7 @@ function CashierView() {
     const reason = String(txn?.reason || '').toUpperCase();
     const type = String(txn?.type || '').toLowerCase();
 
-    if (reason === 'FREEPLAY_ADJUSTMENT') return 'FP Deposit';
+    if (reason === 'FREEPLAY_ADJUSTMENT' || reason === 'DEPOSIT_FREEPLAY_BONUS' || reason === 'REFERRAL_FREEPLAY_BONUS') return 'FP Deposit';
     if (reason === 'CASHIER_DEPOSIT' || type === 'deposit') return 'Deposit';
     if (reason === 'CASHIER_WITHDRAWAL' || type === 'withdrawal') return 'Withdraw';
     if (reason === 'CASHIER_CREDIT_ADJUSTMENT') return 'Credit Adj';
@@ -280,6 +280,7 @@ function CashierView() {
       let nextFreeplay = currentFreeplay;
       let reason = 'CASHIER_CREDIT_ADJUSTMENT';
       let txType = 'adjustment';
+      let freePlayBonusAmount = 0;
 
       if (entry.type === 'fp_deposit') {
         nextFreeplay = currentFreeplay + amount;
@@ -302,12 +303,21 @@ function CashierView() {
           txType = 'adjustment';
         }
 
-        await updateUserCredit(selectedUserId, {
+        const creditResult = await updateUserCredit(selectedUserId, {
           balance: nextBalance,
           type: txType,
           reason,
           description: effectiveDescription
         }, token);
+        const serverBalance = Number(creditResult?.user?.balance);
+        if (Number.isFinite(serverBalance)) {
+          nextBalance = serverBalance;
+        }
+        const serverFreeplay = Number(creditResult?.user?.freeplayBalance);
+        if (Number.isFinite(serverFreeplay)) {
+          nextFreeplay = serverFreeplay;
+        }
+        freePlayBonusAmount = Number(creditResult?.freeplayBonus?.amount || 0);
       }
 
       setUsers((prev) => prev.map((item) => {
@@ -320,7 +330,7 @@ function CashierView() {
         };
       }));
 
-      const localRecord = {
+      const localRecords = [{
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         type: entry.type === 'deposit' ? 'deposit' : entry.type === 'withdrawal' ? 'withdrawal' : 'adjustment',
         user: user.username,
@@ -330,8 +340,21 @@ function CashierView() {
         status: 'completed',
         reason: entry.type === 'fp_deposit' ? 'FREEPLAY_ADJUSTMENT' : reason,
         description: effectiveDescription
-      };
-      setLocalRecent((prev) => [localRecord, ...prev].slice(0, 30));
+      }];
+      if (freePlayBonusAmount > 0) {
+        localRecords.unshift({
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}-fp`,
+          type: 'adjustment',
+          user: user.username,
+          userId: selectedUserId,
+          amount: freePlayBonusAmount,
+          date: new Date().toISOString(),
+          status: 'completed',
+          reason: 'DEPOSIT_FREEPLAY_BONUS',
+          description: 'Auto free play bonus from deposit'
+        });
+      }
+      setLocalRecent((prev) => [...localRecords, ...prev].slice(0, 30));
 
       await Promise.all([
         loadSummary(token, role),
@@ -346,7 +369,11 @@ function CashierView() {
         error: ''
       }), isAgentMode);
 
-      setSuccess(`Transaction applied for ${user.username}.`);
+      if (freePlayBonusAmount > 0) {
+        setSuccess(`Transaction applied for ${user.username}. Auto free play bonus added: ${formatAmount(freePlayBonusAmount)}.`);
+      } else {
+        setSuccess(`Transaction applied for ${user.username}.`);
+      }
     } catch (err) {
       updateEntryById(entry.id, (e) => ({ ...e, busy: false, error: err.message || 'Failed to apply transaction.' }), isAgentMode);
     } finally {

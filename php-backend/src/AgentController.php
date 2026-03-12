@@ -69,6 +69,8 @@ final class AgentController
             $password = strtoupper(trim((string) ($body['password'] ?? '')));
             $firstName = trim((string) ($body['firstName'] ?? ''));
             $lastName = trim((string) ($body['lastName'] ?? ''));
+            $fullName = trim((string) ($body['fullName'] ?? ''));
+            $email = trim((string) ($body['email'] ?? ''));
 
             if ($username === '' || $phoneNumber === '' || $password === '') {
                 Response::json(['message' => 'Username, phone number, and password are required'], 400);
@@ -79,17 +81,48 @@ final class AgentController
                 return;
             }
 
+            $duplicateMatches = $this->findLikelyDuplicatePlayers([
+                'firstName' => $firstName,
+                'lastName' => $lastName,
+                'fullName' => $fullName,
+                'phoneNumber' => $phoneNumber,
+                'email' => $email,
+            ]);
+            if (count($duplicateMatches) > 0) {
+                Response::json($this->buildDuplicatePlayerResponse($firstName, $lastName, $fullName, $phoneNumber, $email, $duplicateMatches), 409);
+                return;
+            }
+
+            $actorRole = (string) ($actor['role'] ?? '');
             $assignedAgentId = (string) $actor['_id'];
-            if (($actor['role'] ?? '') === 'master_agent' && isset($body['agentId']) && is_string($body['agentId']) && preg_match('/^[a-f0-9]{24}$/i', $body['agentId']) === 1) {
-                $target = $this->db->findOne('agents', [
-                    '_id' => MongoRepository::id($body['agentId']),
-                    'createdBy' => MongoRepository::id((string) $actor['_id']),
-                ]);
-                if ($target === null) {
-                    Response::json(['message' => 'You can only create players for yourself or your direct sub-agents.'], 403);
+            if ($actorRole === 'admin') {
+                $requested = trim((string) ($body['agentId'] ?? ''));
+                if ($requested === '' || preg_match('/^[a-f0-9]{24}$/i', $requested) !== 1) {
+                    Response::json(['message' => 'agentId is required for admin-created players.'], 400);
                     return;
                 }
-                $assignedAgentId = (string) $body['agentId'];
+                $target = $this->db->findOne('agents', ['_id' => MongoRepository::id($requested), 'role' => 'agent'], ['projection' => ['_id' => 1]]);
+                if ($target === null) {
+                    Response::json(['message' => 'Players can only be assigned to regular Agents.'], 400);
+                    return;
+                }
+                $assignedAgentId = $requested;
+            } elseif (in_array($actorRole, ['master_agent', 'super_agent'], true)) {
+                $requested = trim((string) ($body['agentId'] ?? ''));
+                $directAgents = $this->listDirectPlayerAssignableAgentIds((string) ($actor['_id'] ?? ''));
+                if ($requested === '') {
+                    $assignedAgentId = $directAgents[0] ?? '';
+                    if ($assignedAgentId === '') {
+                        Response::json(['message' => 'Create or select a direct Agent before creating players.'], 400);
+                        return;
+                    }
+                } else {
+                    if (preg_match('/^[a-f0-9]{24}$/i', $requested) !== 1 || !in_array($requested, $directAgents, true)) {
+                        Response::json(['message' => 'You can only create players for your direct Agents.'], 403);
+                        return;
+                    }
+                    $assignedAgentId = $requested;
+                }
             }
 
             if ($this->existsUsernameOrPhone($username, $phoneNumber)) {
@@ -120,7 +153,6 @@ final class AgentController
                 }
             }
 
-            $fullName = trim((string) ($body['fullName'] ?? ''));
             $generatedFullName = strtoupper($fullName !== '' ? $fullName : (($firstName . ' ' . $lastName) !== ' ' ? trim($firstName . ' ' . $lastName) : $username));
             $passwordFields = $this->passwordFields($password);
 
@@ -311,41 +343,53 @@ final class AgentController
                 return;
             }
 
-            $user = $this->db->findOne('users', ['_id' => MongoRepository::id($userId)]);
-            if ($user === null || (($user['role'] ?? 'user') !== 'user')) {
-                Response::json(['message' => 'Customer not found'], 404);
-                return;
-            }
-
-            if (($actor['role'] ?? '') === 'agent' && (string) ($user['agentId'] ?? '') !== (string) ($actor['_id'] ?? '')) {
-                Response::json(['message' => 'Not authorized to update this customer'], 403);
-                return;
-            }
-
-            $balanceBefore = $this->num($user['balance'] ?? 0);
             $nextBalance = max(0, (float) $nextValue);
+            $pendingBalance = 0.0;
+            $this->db->beginTransaction();
+            try {
+                $user = $this->db->findOneForUpdate('users', ['_id' => MongoRepository::id($userId)]);
+                if ($user === null || (($user['role'] ?? 'user') !== 'user')) {
+                    $this->db->rollback();
+                    Response::json(['message' => 'Customer not found'], 404);
+                    return;
+                }
 
-            $this->db->updateOne('users', ['_id' => MongoRepository::id($userId)], [
-                'balance' => $nextBalance,
-                'updatedAt' => MongoRepository::nowUtc(),
-            ]);
+                if (($actor['role'] ?? '') === 'agent' && (string) ($user['agentId'] ?? '') !== (string) ($actor['_id'] ?? '')) {
+                    $this->db->rollback();
+                    Response::json(['message' => 'Not authorized to update this customer'], 403);
+                    return;
+                }
 
-            $this->db->insertOne('transactions', [
-                'userId' => MongoRepository::id($userId),
-                'agentId' => MongoRepository::id((string) $actor['_id']),
-                'amount' => abs($nextBalance - $balanceBefore),
-                'type' => 'adjustment',
-                'status' => 'completed',
-                'balanceBefore' => $balanceBefore,
-                'balanceAfter' => $nextBalance,
-                'referenceType' => 'Adjustment',
-                'reason' => 'AGENT_BALANCE_ADJUSTMENT',
-                'description' => 'Agent updated user balance',
-                'createdAt' => MongoRepository::nowUtc(),
-                'updatedAt' => MongoRepository::nowUtc(),
-            ]);
+                $now = MongoRepository::nowUtc();
+                $balanceBefore = $this->num($user['balance'] ?? 0);
+                $pendingBalance = $this->num($user['pendingBalance'] ?? 0);
 
-            $pendingBalance = $this->num($user['pendingBalance'] ?? 0);
+                $this->db->updateOne('users', ['_id' => MongoRepository::id($userId)], [
+                    'balance' => $nextBalance,
+                    'updatedAt' => $now,
+                ]);
+
+                $this->db->insertOne('transactions', [
+                    'userId' => MongoRepository::id($userId),
+                    'agentId' => MongoRepository::id((string) $actor['_id']),
+                    'amount' => abs($nextBalance - $balanceBefore),
+                    'type' => 'adjustment',
+                    'status' => 'completed',
+                    'balanceBefore' => $balanceBefore,
+                    'balanceAfter' => $nextBalance,
+                    'referenceType' => 'Adjustment',
+                    'reason' => 'AGENT_BALANCE_ADJUSTMENT',
+                    'description' => 'Agent updated user balance',
+                    'createdAt' => $now,
+                    'updatedAt' => $now,
+                ]);
+
+                $this->db->commit();
+            } catch (Throwable $txErr) {
+                $this->db->rollback();
+                throw $txErr;
+            }
+
             Response::json([
                 'message' => 'Balance updated',
                 'user' => [
@@ -676,6 +720,238 @@ final class AgentController
             return false;
         }
         return true;
+    }
+
+    /**
+     * @return array<int,string>
+     */
+    private function listDirectPlayerAssignableAgentIds(string $masterAgentId): array
+    {
+        if ($masterAgentId === '' || preg_match('/^[a-f0-9]{24}$/i', $masterAgentId) !== 1) {
+            return [];
+        }
+
+        $agents = $this->db->findMany('agents', [
+            'createdBy' => MongoRepository::id($masterAgentId),
+            'createdByModel' => 'Agent',
+            'role' => 'agent',
+        ], ['projection' => ['_id' => 1], 'sort' => ['username' => 1]]);
+
+        $ids = [];
+        foreach ($agents as $agent) {
+            $id = (string) ($agent['_id'] ?? '');
+            if ($id !== '' && preg_match('/^[a-f0-9]{24}$/i', $id) === 1) {
+                $ids[] = $id;
+            }
+        }
+
+        return $ids;
+    }
+
+    private function normalizeDuplicateText(string $value): string
+    {
+        $trimmed = trim($value);
+        if ($trimmed === '') {
+            return '';
+        }
+        $collapsed = preg_replace('/\s+/', ' ', $trimmed);
+        if (!is_string($collapsed)) {
+            $collapsed = $trimmed;
+        }
+        return strtolower(trim($collapsed));
+    }
+
+    private function normalizeDuplicatePhone(string $value): string
+    {
+        $digits = preg_replace('/\D+/', '', $value);
+        if (!is_string($digits) || $digits === '') {
+            return '';
+        }
+        if (strlen($digits) > 10) {
+            return substr($digits, -10);
+        }
+        return $digits;
+    }
+
+    private function normalizeDuplicateEmail(string $value): string
+    {
+        return $this->normalizeDuplicateText($value);
+    }
+
+    private function normalizedFullNameForDuplicate(array $payload): string
+    {
+        $fullName = $this->normalizeDuplicateText((string) ($payload['fullName'] ?? ''));
+        if ($fullName !== '') {
+            return $fullName;
+        }
+
+        $first = $this->normalizeDuplicateText((string) ($payload['firstName'] ?? ''));
+        $last = $this->normalizeDuplicateText((string) ($payload['lastName'] ?? ''));
+        return $this->normalizeDuplicateText(trim($first . ' ' . $last));
+    }
+
+    /**
+     * @return array<int,array<string,mixed>>
+     */
+    private function findLikelyDuplicatePlayers(array $payload): array
+    {
+        $normalizedName = $this->normalizedFullNameForDuplicate($payload);
+        $normalizedPhone = $this->normalizeDuplicatePhone((string) ($payload['phoneNumber'] ?? ''));
+        $normalizedEmail = $this->normalizeDuplicateEmail((string) ($payload['email'] ?? ''));
+
+        if ($normalizedName === '' && $normalizedPhone === '' && $normalizedEmail === '') {
+            return [];
+        }
+
+        $candidateQuery = ['role' => 'user'];
+        $or = [];
+        if ($normalizedPhone !== '') {
+            $digits = preg_split('//', $normalizedPhone, -1, PREG_SPLIT_NO_EMPTY);
+            $digitPattern = implode('\D*', $digits ?: []);
+            if ($digitPattern !== '') {
+                $or[] = ['phoneNumber' => ['$regex' => $digitPattern, '$options' => 'i']];
+            }
+        }
+        if ($normalizedEmail !== '') {
+            $or[] = ['email' => ['$regex' => '^' . preg_quote($normalizedEmail, '/') . '$', '$options' => 'i']];
+        }
+        if ($normalizedName !== '') {
+            $namePattern = '^' . str_replace('\ ', '\s+', preg_quote($normalizedName, '/')) . '$';
+            $or[] = ['fullName' => ['$regex' => $namePattern, '$options' => 'i']];
+        }
+        if (count($or) > 0) {
+            $candidateQuery['$or'] = $or;
+        }
+
+        $candidates = $this->db->findMany('users', $candidateQuery, [
+            'projection' => [
+                '_id' => 1,
+                'username' => 1,
+                'firstName' => 1,
+                'lastName' => 1,
+                'fullName' => 1,
+                'phoneNumber' => 1,
+                'email' => 1,
+                'agentId' => 1,
+                'status' => 1,
+            ],
+            'sort' => ['createdAt' => -1],
+        ]);
+
+        if (count($candidates) === 0) {
+            return [];
+        }
+
+        $agentIds = [];
+        foreach ($candidates as $candidate) {
+            $agentId = (string) ($candidate['agentId'] ?? '');
+            if ($agentId !== '' && preg_match('/^[a-f0-9]{24}$/i', $agentId) === 1) {
+                $agentIds[$agentId] = true;
+            }
+        }
+        $agentMap = [];
+        if (count($agentIds) > 0) {
+            $agentDocs = $this->db->findMany('agents', [
+                '_id' => ['$in' => array_map(static fn (string $id): string => MongoRepository::id($id), array_keys($agentIds))],
+            ], ['projection' => ['_id' => 1, 'username' => 1]]);
+            foreach ($agentDocs as $agentDoc) {
+                $agentDocId = (string) ($agentDoc['_id'] ?? '');
+                if ($agentDocId !== '') {
+                    $agentMap[$agentDocId] = strtoupper(trim((string) ($agentDoc['username'] ?? '')));
+                }
+            }
+        }
+
+        $matches = [];
+        foreach ($candidates as $candidate) {
+            $existingName = $this->normalizedFullNameForDuplicate($candidate);
+            $existingPhone = $this->normalizeDuplicatePhone((string) ($candidate['phoneNumber'] ?? ''));
+            $existingEmail = $this->normalizeDuplicateEmail((string) ($candidate['email'] ?? ''));
+
+            $matchedByPhone = $normalizedPhone !== '' && $existingPhone !== '' && $normalizedPhone === $existingPhone;
+            $matchedByEmail = $normalizedEmail !== '' && $existingEmail !== '' && $normalizedEmail === $existingEmail;
+            $matchedByName = $normalizedName !== '' && $existingName !== '' && $normalizedName === $existingName;
+
+            if (!$matchedByPhone && !$matchedByEmail && !$matchedByName) {
+                continue;
+            }
+
+            $inputHasContact = $normalizedPhone !== '' || $normalizedEmail !== '';
+            $existingHasContact = $existingPhone !== '' || $existingEmail !== '';
+            if (!$matchedByPhone && !$matchedByEmail && $matchedByName && $inputHasContact && $existingHasContact) {
+                continue;
+            }
+
+            $reasonList = [];
+            if ($matchedByPhone) {
+                $reasonList[] = 'phone';
+            }
+            if ($matchedByEmail) {
+                $reasonList[] = 'email';
+            }
+            if ($matchedByName) {
+                $reasonList[] = 'name';
+            }
+
+            $groupKeySource = $matchedByPhone
+                ? 'phone:' . $existingPhone
+                : ($matchedByEmail ? 'email:' . $existingEmail : 'name:' . $existingName);
+
+            $candidateId = (string) ($candidate['_id'] ?? '');
+            $displayFullName = trim((string) ($candidate['fullName'] ?? ''));
+            if ($displayFullName === '') {
+                $displayFullName = trim((string) ($candidate['firstName'] ?? '') . ' ' . (string) ($candidate['lastName'] ?? ''));
+            }
+            $agentId = (string) ($candidate['agentId'] ?? '');
+            if ($agentId === '' || preg_match('/^[a-f0-9]{24}$/i', $agentId) !== 1) {
+                $agentId = '';
+            }
+
+            $matches[] = [
+                'id' => $candidateId,
+                'username' => strtoupper(trim((string) ($candidate['username'] ?? ''))),
+                'fullName' => $displayFullName !== '' ? strtoupper($displayFullName) : null,
+                'phoneNumber' => trim((string) ($candidate['phoneNumber'] ?? '')) ?: null,
+                'email' => trim((string) ($candidate['email'] ?? '')) ?: null,
+                'status' => (string) ($candidate['status'] ?? ''),
+                'agentId' => $agentId !== '' ? $agentId : null,
+                'agentUsername' => $agentId !== '' ? ($agentMap[$agentId] ?? null) : null,
+                'matchReasons' => $reasonList,
+                'duplicateGroupKey' => $groupKeySource,
+            ];
+        }
+
+        usort($matches, static function (array $a, array $b): int {
+            return strcasecmp((string) ($a['username'] ?? ''), (string) ($b['username'] ?? ''));
+        });
+
+        return $matches;
+    }
+
+    /**
+     * @param array<int,array<string,mixed>> $matches
+     */
+    private function buildDuplicatePlayerResponse(string $firstName, string $lastName, string $fullName, string $phoneNumber, string $email, array $matches): array
+    {
+        $normalizedName = $this->normalizeDuplicateText($fullName);
+        if ($normalizedName === '') {
+            $normalizedName = $this->normalizeDuplicateText(trim($firstName . ' ' . $lastName));
+        }
+        $normalizedPhone = $this->normalizeDuplicatePhone($phoneNumber);
+        $normalizedEmail = $this->normalizeDuplicateEmail($email);
+
+        return [
+            'duplicate' => true,
+            'code' => 'DUPLICATE_PLAYER',
+            'message' => 'Likely duplicate player detected. Review existing accounts before creating a new one.',
+            'matchCount' => count($matches),
+            'normalized' => [
+                'name' => $normalizedName !== '' ? $normalizedName : null,
+                'phone' => $normalizedPhone !== '' ? $normalizedPhone : null,
+                'email' => $normalizedEmail !== '' ? $normalizedEmail : null,
+            ],
+            'matches' => $matches,
+        ];
     }
 
     private function existsUsernameOrPhone(string $username, string $phoneNumber): bool

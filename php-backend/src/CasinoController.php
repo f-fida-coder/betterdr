@@ -12,15 +12,19 @@ final class CasinoController
     private const BACCARAT_GAME_SLUG = 'baccarat';
     private const BLACKJACK_GAME_SLUG = 'blackjack';
     private const CRAPS_GAME_SLUG = 'craps';
+    private const ARABIAN_GAME_SLUG = 'arabian';
+    private const LEGACY_ARABIAN_TREASURE_GAME_SLUG = 'arabian-treasure';
     private const ROULETTE_GAME_SLUG = 'roulette';
     private const STUD_POKER_GAME_SLUG = 'stud-poker';
     private const REMOVED_GAME_SLUGS = [
+        self::LEGACY_ARABIAN_TREASURE_GAME_SLUG,
         self::ROULETTE_GAME_SLUG,
         self::STUD_POKER_GAME_SLUG,
     ];
     private const BACCARAT_SOURCE_TYPE = 'casino_baccarat';
     private const BLACKJACK_SOURCE_TYPE = 'casino_blackjack';
     private const CRAPS_SOURCE_TYPE = 'casino_craps';
+    private const ARABIAN_SOURCE_TYPE = 'casino_arabian';
     private const ROULETTE_SOURCE_TYPE = 'casino_roulette';
     private const STUD_POKER_SOURCE_TYPE = 'casino_stud_poker';
     private const BACCARAT_RNG_VERSION = 'csprng-v1';
@@ -29,12 +33,14 @@ final class CasinoController
     private const BLACKJACK_MIN_DECK_COUNT = 2;
     private const BLACKJACK_MAX_DECK_COUNT = 8;
     private const CRAPS_RNG_VERSION = 'server-rules-v1';
+    private const ARABIAN_RNG_VERSION = 'server-slot-v1';
     private const ROULETTE_RNG_VERSION = 'csprng-wheel-v2';
     private const STUD_POKER_RNG_VERSION = 'stud-house-v1';
     private const IN_HOUSE_OVERLAY_ONLY_GAME_MESSAGES = [
         self::BACCARAT_GAME_SLUG => 'Baccarat is available only from the in-house casino table.',
         self::BLACKJACK_GAME_SLUG => 'Blackjack is available only from the in-house casino table.',
         self::CRAPS_GAME_SLUG => 'Craps is available only from the in-house casino table.',
+        self::ARABIAN_GAME_SLUG => 'Arabian Game is available only from the in-house casino table.',
     ];
     private const REQUEST_ID_PATTERN = '/^[A-Za-z0-9_-]{8,128}$/';
     private const ROULETTE_RED_NUMBERS = [1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36];
@@ -50,13 +56,70 @@ final class CasinoController
         'ONE_PAIR' => 1,
         'HIGH_CARD' => 1,
     ];
+    private const ARABIAN_REELS = 5;
+    private const ARABIAN_ROWS = 3;
+    private const ARABIAN_WILD_SYMBOL = 8;
+    private const ARABIAN_BONUS_SYMBOL = 9;
+    private const ARABIAN_FREESPIN_SYMBOL = 10;
+    private const ARABIAN_MAX_LINES = 20;
+    private const ARABIAN_COIN_STEP = 0.05;
+    private const ARABIAN_LINE_PATTERNS = [
+        [1, 1, 1, 1, 1],
+        [0, 0, 0, 0, 0],
+        [2, 2, 2, 2, 2],
+        [0, 1, 2, 1, 0],
+        [2, 1, 0, 1, 2],
+        [1, 0, 0, 0, 1],
+        [1, 2, 2, 2, 1],
+        [0, 0, 1, 2, 2],
+        [2, 2, 1, 0, 0],
+        [1, 2, 1, 0, 1],
+        [2, 0, 1, 2, 1],
+        [0, 1, 1, 1, 0],
+        [2, 1, 1, 1, 2],
+        [0, 1, 0, 1, 0],
+        [2, 1, 2, 1, 2],
+        [1, 1, 0, 1, 1],
+        [1, 1, 2, 1, 1],
+        [0, 0, 2, 0, 0],
+        [2, 2, 0, 2, 2],
+        [0, 2, 2, 2, 0],
+    ];
+    private const ARABIAN_PAYTABLE = [
+        1 => [0, 0, 90, 150, 200],
+        2 => [0, 0, 80, 110, 160],
+        3 => [0, 0, 70, 100, 150],
+        4 => [0, 0, 50, 80, 110],
+        5 => [0, 0, 40, 60, 80],
+        6 => [0, 0, 30, 50, 70],
+        7 => [0, 0, 20, 30, 50],
+    ];
+    private const ARABIAN_SYMBOL_WEIGHTS = [
+        1 => 1,
+        2 => 2,
+        3 => 3,
+        4 => 4,
+        5 => 5,
+        6 => 6,
+        7 => 7,
+        8 => 1,
+        9 => 2,
+        10 => 2,
+    ];
+    private const ARABIAN_BONUS_PRIZES = [10, 30, 60, 90, 0, 20, 60, 120, 200, 0, 40, 30, 20, 10, 0, 80, 60, 40, 1000, 0];
+    private const ARABIAN_BONUS_PRIZE_WEIGHTS = [6, 6, 6, 5, 6, 5, 4, 3, 1, 5, 5, 6, 7, 5, 4, 4, 5, 5, 1, 4];
+    private const ARABIAN_FREESPIN_AWARDS = [
+        3 => 4,
+        4 => 6,
+        5 => 8,
+    ];
 
     private const DEFAULT_CASINO_GAMES = [
         ['provider' => 'internal', 'name' => 'Single Hand ($1-$100)', 'slug' => 'single-hand-1-100', 'category' => 'table_games', 'minBet' => 1, 'maxBet' => 100, 'themeColor' => '#115e59', 'icon' => 'fa-solid fa-diamond', 'isFeatured' => true],
         ['provider' => 'internal', 'name' => 'Baccarat', 'slug' => 'baccarat', 'category' => 'table_games', 'minBet' => 1, 'maxBet' => 100, 'themeColor' => '#9f1239', 'icon' => 'fa-solid fa-gem', 'imageUrl' => '/games/baccarat/assets/menuscreen.webp', 'tags' => ['table games', 'baccarat', 'in-house', 'live casino'], 'isFeatured' => true],
         ['provider' => 'internal', 'name' => 'Blackjack', 'slug' => 'blackjack', 'category' => 'table_games', 'minBet' => 1, 'maxBet' => 10000, 'themeColor' => '#0b5563', 'icon' => 'fa-solid fa-club', 'imageUrl' => '/games/blackjack/src/images/misc/table.png', 'tags' => ['table games', 'blackjack', 'in-house', 'live casino'], 'isFeatured' => true],
         ['provider' => 'internal', 'name' => 'Craps', 'slug' => 'craps', 'category' => 'table_games', 'minBet' => 1, 'maxBet' => 10000, 'themeColor' => '#0a4f3a', 'icon' => 'fa-solid fa-dice-six', 'imageUrl' => '/games/craps/sprites/board_table.jpg', 'tags' => ['table games', 'craps', 'in-house', 'live casino'], 'isFeatured' => true],
-        ['provider' => 'internal', 'name' => 'Arabian Treasure', 'slug' => 'arabian-treasure', 'category' => 'slots', 'minBet' => 0.3, 'maxBet' => 30, 'themeColor' => '#7e22ce', 'icon' => 'fa-solid fa-scroll', 'isFeatured' => true],
+        ['provider' => 'internal', 'name' => 'Arabian Game', 'slug' => 'arabian', 'category' => 'slots', 'minBet' => 0.3, 'maxBet' => 30, 'themeColor' => '#7e22ce', 'icon' => 'fa-solid fa-scroll', 'imageUrl' => '/games/arabian/sprites/200x200.jpg', 'tags' => ['slots', 'arabian', 'in-house', 'server settled'], 'isFeatured' => true],
         ['provider' => 'internal', 'name' => 'Jacks or Better', 'slug' => 'jacks-or-better', 'category' => 'video_poker', 'minBet' => 1, 'maxBet' => 100, 'themeColor' => '#be123c', 'icon' => 'fa-solid fa-cards'],
         ['provider' => 'internal', 'name' => 'Video Keno', 'slug' => 'video-keno', 'category' => 'specialty_games', 'minBet' => 1, 'maxBet' => 100, 'themeColor' => '#0ea5e9', 'icon' => 'fa-solid fa-table-cells-large'],
     ];
@@ -793,6 +856,10 @@ final class CasinoController
             }
             if ($game === self::CRAPS_GAME_SLUG) {
                 $this->placeCrapsBet($actor, $body, $requestId, $startedAt);
+                return;
+            }
+            if ($game === self::ARABIAN_GAME_SLUG) {
+                $this->placeArabianBet($actor, $body, $requestId, $startedAt);
                 return;
             }
             if (in_array($game, self::REMOVED_GAME_SLUGS, true)) {
@@ -1834,6 +1901,717 @@ final class CasinoController
             ]);
             Response::json(['message' => 'Server error placing craps bet'], 500);
         }
+    }
+
+    private function placeArabianBet(array $actor, array $body, string $requestId, float $startedAt): void
+    {
+        $userId = (string) ($actor['_id'] ?? '');
+
+        try {
+            $this->requireActiveCasinoGame(self::ARABIAN_GAME_SLUG);
+
+            $clientBets = is_array($body['bets'] ?? null) ? $body['bets'] : [];
+            $payloadMeta = is_array($body['payload'] ?? null) ? $body['payload'] : [];
+            $requestedLineCount = $this->parseArabianLineCount(
+                $clientBets['lines']
+                    ?? $clientBets['lineCount']
+                    ?? $payloadMeta['lines']
+                    ?? $payloadMeta['lineCount']
+                    ?? null
+            );
+            $requestedCoinBet = $this->parseArabianCoinBet(
+                $clientBets['coinBet']
+                    ?? $clientBets['coin']
+                    ?? $clientBets['betPerLine']
+                    ?? $payloadMeta['coinBet']
+                    ?? $payloadMeta['coin']
+                    ?? null
+            );
+            $declaredTotalBet = $this->parseMoneyValue(
+                $clientBets['totalBet']
+                    ?? $clientBets['bet']
+                    ?? $payloadMeta['totalBet']
+                    ?? 0,
+                'bets.totalBet'
+            );
+            $requestedTotalBet = round($requestedCoinBet * $requestedLineCount, 2);
+
+            if ($requestedTotalBet <= 0) {
+                Response::json(['message' => 'Arabian spin bet must be greater than zero'], 400);
+                return;
+            }
+
+            [$gameMinBet, $gameMaxBet] = $this->resolveGameBetLimits(self::ARABIAN_GAME_SLUG, 0.3, 30.0);
+            $this->db->beginTransaction();
+            try {
+                $lockedUser = $this->loadLockedCasinoUser($userId);
+                $betLimits = $this->buildArabianBetLimits($lockedUser, $gameMinBet, $gameMaxBet);
+
+                $existingRound = $this->db->findOne('casino_bets', [
+                    'userId' => $userId,
+                    'requestId' => $requestId,
+                    'game' => self::ARABIAN_GAME_SLUG,
+                ]);
+                if ($existingRound !== null) {
+                    $roundId = (string) ($existingRound['roundId'] ?? $existingRound['_id'] ?? '');
+                    $ledgerEntries = $this->findRoundLedgerEntries($roundId);
+                    if (!is_array($existingRound['betLimits'] ?? null)) {
+                        $existingRound['betLimits'] = $betLimits;
+                    }
+                    $this->writeCasinoAuditLog('arabian_round_idempotent', [
+                        'requestId' => $requestId,
+                        'roundId' => $roundId,
+                        'userId' => $userId,
+                        'username' => (string) ($lockedUser['username'] ?? ''),
+                        'idempotent' => true,
+                    ]);
+                    $this->db->commit();
+                    Response::json($this->formatCasinoBetResponse($existingRound, $ledgerEntries, true));
+                    return;
+                }
+
+                $stateBefore = $this->getUserArabianState($lockedUser);
+                $isFreeSpinRound = ($stateBefore['freeSpinsRemaining'] ?? 0) > 0;
+                $lineCount = $requestedLineCount;
+                $coinBet = $requestedCoinBet;
+                $lockedFreeSpinLineCount = $stateBefore['freeSpinLineCount'] ?? null;
+                $lockedFreeSpinCoinBet = $stateBefore['freeSpinCoinBet'] ?? null;
+                if (
+                    $isFreeSpinRound
+                    && is_int($lockedFreeSpinLineCount)
+                    && is_numeric($lockedFreeSpinCoinBet)
+                    && $lockedFreeSpinLineCount >= 1
+                    && $lockedFreeSpinLineCount <= self::ARABIAN_MAX_LINES
+                    && $this->num($lockedFreeSpinCoinBet) > 0
+                ) {
+                    $lineCount = $lockedFreeSpinLineCount;
+                    $coinBet = round($this->num($lockedFreeSpinCoinBet), 2);
+                }
+
+                $baseTotalBet = round($coinBet * $lineCount, 2);
+                $totalWager = $isFreeSpinRound ? 0.0 : $baseTotalBet;
+                if ($isFreeSpinRound && ($lineCount !== $requestedLineCount || abs($coinBet - $requestedCoinBet) > 0.00001)) {
+                    $this->writeCasinoAuditLog('arabian_freespin_bet_locked', [
+                        'requestId' => $requestId,
+                        'userId' => $userId,
+                        'username' => (string) ($lockedUser['username'] ?? ''),
+                        'requestedLines' => $requestedLineCount,
+                        'requestedCoinBet' => $requestedCoinBet,
+                        'lockedLines' => $lineCount,
+                        'lockedCoinBet' => $coinBet,
+                    ]);
+                }
+
+                if ($baseTotalBet > $gameMaxBet) {
+                    $this->db->rollback();
+                    Response::json(['message' => 'Maximum Arabian wager is $' . number_format($gameMaxBet, 2)], 400);
+                    return;
+                }
+
+                if (!$isFreeSpinRound) {
+                    if ($totalWager < $gameMinBet) {
+                        $this->db->rollback();
+                        Response::json(['message' => 'Minimum Arabian wager is $' . number_format($gameMinBet, 2)], 400);
+                        return;
+                    }
+                    if ($totalWager > $gameMaxBet) {
+                        $this->db->rollback();
+                        Response::json(['message' => 'Maximum Arabian wager is $' . number_format($gameMaxBet, 2)], 400);
+                        return;
+                    }
+
+                    $this->assertUserWagerWithinLimits($lockedUser, $totalWager);
+                    $this->assertCasinoLossLimits($lockedUser, $totalWager);
+                }
+
+                $balanceSnapshot = $this->getUserBalanceSnapshot($lockedUser);
+                if ($totalWager > $balanceSnapshot['availableBalance']) {
+                    $this->db->rollback();
+                    Response::json(['message' => 'Insufficient balance. Available: $' . number_format($balanceSnapshot['availableBalance'], 2)], 400);
+                    return;
+                }
+
+                $roundId = $this->deterministicRoundId(self::ARABIAN_GAME_SLUG, $userId, $requestId);
+                $settlement = $this->settleArabianSpin($coinBet, $lineCount, $stateBefore);
+                $totalReturn = round($this->num($settlement['totalReturn'] ?? 0), 2);
+                $netResult = round($totalReturn - $totalWager, 2);
+                $profit = round(max(0, $netResult), 2);
+                $result = (string) ($settlement['result'] ?? ($totalReturn > 0 ? 'Win' : 'Lose'));
+                $resultType = (string) ($settlement['resultType'] ?? '');
+                $roundData = is_array($settlement['roundData'] ?? null) ? $settlement['roundData'] : [];
+                $stateAfter = is_array($settlement['stateAfter'] ?? null) ? $settlement['stateAfter'] : ['freeSpinsRemaining' => 0];
+
+                $now = MongoRepository::nowUtc();
+                $ipAddress = IpUtils::clientIp();
+                $userAgent = Http::header('user-agent') !== '' ? Http::header('user-agent') : null;
+                $balanceAfterDebit = round($balanceSnapshot['balanceBefore'] - $totalWager, 2);
+                $balanceAfter = round($balanceAfterDebit + $totalReturn, 2);
+                $availableBalanceAfter = round(max(0, $balanceAfter - $balanceSnapshot['pendingBalance']), 2);
+
+                $debitEntry = null;
+                $debitEntryId = null;
+                if ($totalWager > 0) {
+                    $debitEntry = $this->buildCasinoTransactionEntry(
+                        $userId,
+                        $totalWager,
+                        $roundId,
+                        self::ARABIAN_SOURCE_TYPE,
+                        'DEBIT',
+                        'casino_bet_debit',
+                        $balanceSnapshot['balanceBefore'],
+                        $balanceAfterDebit,
+                        'CASINO_ARABIAN_WAGER',
+                        'Arabian spin wager charged',
+                        $now,
+                        $ipAddress,
+                        $userAgent
+                    );
+                    $debitEntryId = $this->db->insertOne('transactions', $debitEntry);
+                }
+
+                $creditEntry = null;
+                $creditEntryId = null;
+                if ($totalReturn > 0) {
+                    $creditEntry = $this->buildCasinoTransactionEntry(
+                        $userId,
+                        $totalReturn,
+                        $roundId,
+                        self::ARABIAN_SOURCE_TYPE,
+                        'CREDIT',
+                        'casino_bet_credit',
+                        $balanceAfterDebit,
+                        $balanceAfter,
+                        'CASINO_ARABIAN_PAYOUT',
+                        'Arabian spin payout credited',
+                        $now,
+                        $ipAddress,
+                        $userAgent
+                    );
+                    $creditEntryId = $this->db->insertOne('transactions', $creditEntry);
+                }
+
+                $stateAfter['updatedAt'] = $now;
+                $stateAfter['lastRoundId'] = $roundId;
+                $stateAfter['lastSpinAt'] = $now;
+
+                $this->db->updateOne('users', ['_id' => MongoRepository::id($userId)], [
+                    'balance' => $balanceAfter,
+                    'casinoArabianState' => $stateAfter,
+                    'updatedAt' => $now,
+                ]);
+
+                $serverDecisionAt = MongoRepository::nowUtc();
+                $latencyMs = max(0, (int) round((microtime(true) - $startedAt) * 1000));
+                $integrityHash = $this->buildIntegrityHash([
+                    'roundId' => $roundId,
+                    'requestId' => $requestId,
+                    'userId' => $userId,
+                    'game' => self::ARABIAN_GAME_SLUG,
+                    'coinBet' => $coinBet,
+                    'lineCount' => $lineCount,
+                    'requestedCoinBet' => $requestedCoinBet,
+                    'requestedLineCount' => $requestedLineCount,
+                    'isFreeSpinRound' => $isFreeSpinRound,
+                    'declaredTotalBet' => $declaredTotalBet,
+                    'totalWager' => $totalWager,
+                    'totalReturn' => $totalReturn,
+                    'netResult' => $netResult,
+                    'pattern' => $roundData['pattern'] ?? [],
+                    'winningLines' => $roundData['winningLines'] ?? [],
+                    'freeSpinsBefore' => $roundData['freeSpinsBefore'] ?? 0,
+                    'freeSpinsAfter' => $roundData['freeSpinsAfter'] ?? 0,
+                    'bonusWin' => $roundData['bonusWin'] ?? 0,
+                    'balanceBefore' => $balanceSnapshot['balanceBefore'],
+                    'balanceAfter' => $balanceAfter,
+                    'serverDecisionAt' => $serverDecisionAt,
+                ]);
+
+                $ledgerRefs = [];
+                if ($debitEntryId !== null) {
+                    $ledgerRefs['debit'] = $debitEntryId;
+                }
+                if ($creditEntryId !== null) {
+                    $ledgerRefs['credit'] = $creditEntryId;
+                }
+
+                $betDetails = [
+                    'winningLines' => is_array($roundData['winningLines'] ?? null) ? $roundData['winningLines'] : [],
+                    'lineWin' => round($this->num($roundData['lineWin'] ?? 0), 2),
+                    'bonusWin' => round($this->num($roundData['bonusWin'] ?? 0), 2),
+                    'bonusTriggered' => (bool) ($roundData['bonusTriggered'] ?? false),
+                    'bonusPrizeIndex' => (int) ($roundData['bonusPrizeIndex'] ?? -1),
+                    'bonusSymbolCount' => (int) ($roundData['bonusSymbolCount'] ?? 0),
+                    'freeSpinSymbolCount' => (int) ($roundData['freeSpinSymbolCount'] ?? 0),
+                    'freeSpinsBefore' => (int) ($roundData['freeSpinsBefore'] ?? 0),
+                    'freeSpinsAwarded' => (int) ($roundData['freeSpinsAwarded'] ?? 0),
+                    'freeSpinsAfter' => (int) ($roundData['freeSpinsAfter'] ?? 0),
+                    'isFreeSpinRound' => (bool) ($roundData['isFreeSpinRound'] ?? false),
+                ];
+
+                $betRecord = [
+                    '_id' => $roundId,
+                    'roundId' => $roundId,
+                    'requestId' => $requestId,
+                    'userId' => $userId,
+                    'username' => (string) ($lockedUser['username'] ?? $actor['username'] ?? ''),
+                    'game' => self::ARABIAN_GAME_SLUG,
+                    'bets' => [
+                        'lines' => $lineCount,
+                        'coinBet' => $coinBet,
+                        'totalBet' => $baseTotalBet,
+                        'clientRequestedLines' => $requestedLineCount,
+                        'clientRequestedCoinBet' => $requestedCoinBet,
+                        'clientDeclaredTotalBet' => $declaredTotalBet,
+                        'isFreeSpinRound' => $isFreeSpinRound,
+                    ],
+                    'result' => $result,
+                    'resultType' => $resultType,
+                    'totalWager' => $totalWager,
+                    'totalReturn' => $totalReturn,
+                    'profit' => $profit,
+                    'netResult' => $netResult,
+                    'balanceBefore' => $balanceSnapshot['balanceBefore'],
+                    'balanceAfter' => $balanceAfter,
+                    'availableBalanceBefore' => $balanceSnapshot['availableBalance'],
+                    'availableBalanceAfter' => $availableBalanceAfter,
+                    'pendingBalanceSnapshot' => $balanceSnapshot['pendingBalance'],
+                    'ledgerEntries' => $ledgerRefs,
+                    'rngVersion' => self::ARABIAN_RNG_VERSION,
+                    'outcomeSource' => 'server_rng',
+                    'betLimits' => $betLimits,
+                    'betDetails' => $betDetails,
+                    'roundData' => $roundData,
+                    'integrityHash' => $integrityHash,
+                    'serverDecisionAt' => $serverDecisionAt,
+                    'latencyMs' => $latencyMs,
+                    'roundStatus' => 'settled',
+                    'createdAt' => $now,
+                    'updatedAt' => $now,
+                ];
+                $this->db->insertOne('casino_bets', $betRecord);
+
+                $this->db->insertOne('casino_round_audit', [
+                    '_id' => $roundId,
+                    'roundId' => $roundId,
+                    'requestId' => $requestId,
+                    'userId' => $userId,
+                    'game' => self::ARABIAN_GAME_SLUG,
+                    'rngVersion' => self::ARABIAN_RNG_VERSION,
+                    'outcomeSource' => 'server_rng',
+                    'bets' => $betRecord['bets'],
+                    'result' => $result,
+                    'resultType' => $resultType,
+                    'betDetails' => $betDetails,
+                    'roundData' => $roundData,
+                    'integrityHash' => $integrityHash,
+                    'createdAt' => $now,
+                    'updatedAt' => $now,
+                ]);
+
+                $this->db->commit();
+
+                $ledgerEntries = [];
+                if (is_array($debitEntry) && $debitEntryId !== null) {
+                    $ledgerEntries[] = array_merge($debitEntry, ['_id' => $debitEntryId]);
+                }
+                if (is_array($creditEntry) && $creditEntryId !== null) {
+                    $ledgerEntries[] = array_merge($creditEntry, ['_id' => $creditEntryId]);
+                }
+
+                $this->writeCasinoAuditLog('arabian_round_settled', [
+                    'requestId' => $requestId,
+                    'roundId' => $roundId,
+                    'userId' => $userId,
+                    'username' => (string) ($lockedUser['username'] ?? ''),
+                    'coinBet' => $coinBet,
+                    'lines' => $lineCount,
+                    'isFreeSpinRound' => $isFreeSpinRound,
+                    'wager' => $totalWager,
+                    'totalReturn' => $totalReturn,
+                    'netResult' => $netResult,
+                    'balanceBefore' => $balanceSnapshot['balanceBefore'],
+                    'balanceAfter' => $balanceAfter,
+                    'freeSpinsBefore' => (int) ($roundData['freeSpinsBefore'] ?? 0),
+                    'freeSpinsAfter' => (int) ($roundData['freeSpinsAfter'] ?? 0),
+                    'bonusWin' => round($this->num($roundData['bonusWin'] ?? 0), 2),
+                ]);
+                Response::json($this->formatCasinoBetResponse($betRecord, $ledgerEntries, false));
+            } catch (Throwable $txErr) {
+                $this->db->rollback();
+                throw $txErr;
+            }
+        } catch (InvalidArgumentException $e) {
+            $this->writeCasinoAuditLog('arabian_round_validation_error', [
+                'requestId' => $requestId,
+                'userId' => $userId,
+                'error' => $e->getMessage(),
+            ]);
+            Response::json(['message' => $e->getMessage()], 400);
+        } catch (Throwable $e) {
+            $this->writeCasinoAuditLog('arabian_round_server_error', [
+                'requestId' => $requestId,
+                'userId' => $userId,
+                'error' => $e->getMessage(),
+            ]);
+            Response::json(['message' => 'Server error placing arabian bet'], 500);
+        }
+    }
+
+    /**
+     * @return array{freeSpinsRemaining:int,freeSpinLineCount:?int,freeSpinCoinBet:?float}
+     */
+    private function getUserArabianState(array $user): array
+    {
+        $raw = is_array($user['casinoArabianState'] ?? null) ? $user['casinoArabianState'] : [];
+        $freeSpinsRaw = $this->safeNumber($raw['freeSpinsRemaining'] ?? null, 0);
+        $freeSpins = max(0, min(500, (int) round($freeSpinsRaw ?? 0)));
+        $lineCountRaw = $this->safeNumber($raw['freeSpinLineCount'] ?? null, null);
+        $freeSpinLineCount = null;
+        if ($lineCountRaw !== null) {
+            $candidateLineCount = (int) round($lineCountRaw);
+            if (abs($lineCountRaw - $candidateLineCount) <= 0.00001 && $candidateLineCount >= 1 && $candidateLineCount <= self::ARABIAN_MAX_LINES) {
+                $freeSpinLineCount = $candidateLineCount;
+            }
+        }
+        $coinBetRaw = $this->safeNumber($raw['freeSpinCoinBet'] ?? null, null);
+        $freeSpinCoinBet = null;
+        if ($coinBetRaw !== null && $coinBetRaw > 0 && $coinBetRaw <= 1000) {
+            $freeSpinCoinBet = round($coinBetRaw, 2);
+        }
+
+        return [
+            'freeSpinsRemaining' => $freeSpins,
+            'freeSpinLineCount' => $freeSpinLineCount,
+            'freeSpinCoinBet' => $freeSpinCoinBet,
+        ];
+    }
+
+    private function parseArabianLineCount(mixed $value): int
+    {
+        if ($value === null || $value === '') {
+            throw new InvalidArgumentException('bets.lines is required');
+        }
+        if (!is_numeric($value)) {
+            throw new InvalidArgumentException('bets.lines must be numeric');
+        }
+
+        $raw = (float) $value;
+        $lineCount = (int) round($raw);
+        if (abs($raw - $lineCount) > 0.00001) {
+            throw new InvalidArgumentException('bets.lines must be an integer');
+        }
+        if ($lineCount < 1 || $lineCount > self::ARABIAN_MAX_LINES) {
+            throw new InvalidArgumentException('bets.lines must be between 1 and ' . self::ARABIAN_MAX_LINES);
+        }
+
+        return $lineCount;
+    }
+
+    private function parseArabianCoinBet(mixed $value): float
+    {
+        $coinBet = $this->parseMoneyValue($value, 'bets.coinBet');
+        if ($coinBet <= 0) {
+            throw new InvalidArgumentException('bets.coinBet must be greater than zero');
+        }
+        if ($coinBet > 1000) {
+            throw new InvalidArgumentException('bets.coinBet is too large');
+        }
+        $coinStepCents = (int) round(self::ARABIAN_COIN_STEP * 100);
+        $coinBetCents = (int) round($coinBet * 100);
+        if ($coinStepCents <= 0 || ($coinBetCents % $coinStepCents) !== 0) {
+            throw new InvalidArgumentException('bets.coinBet must use ' . number_format(self::ARABIAN_COIN_STEP, 2) . ' increments');
+        }
+
+        return $coinBet;
+    }
+
+    /**
+     * @return array{
+     *   accountMinBet:?float,
+     *   accountMaxBet:?float,
+     *   gameMinBet:float,
+     *   gameMaxBet:float,
+     *   effectiveMinBet:float,
+     *   effectiveMaxBet:float,
+     *   lineMin:int,
+     *   lineMax:int,
+     *   coinStep:float
+     * }
+     */
+    private function buildArabianBetLimits(array $lockedUser, float $gameMinBet, float $gameMaxBet): array
+    {
+        $accountMinRaw = $this->safeNumber($lockedUser['minBet'] ?? null, null);
+        $accountMaxRaw = $this->safeNumber($lockedUser['maxBet'] ?? null, null);
+        $accountMinBet = ($accountMinRaw !== null && $accountMinRaw > 0) ? round($accountMinRaw, 2) : null;
+        $accountMaxBet = ($accountMaxRaw !== null && $accountMaxRaw > 0) ? round($accountMaxRaw, 2) : null;
+
+        $effectiveMinBet = $accountMinBet !== null ? max($gameMinBet, $accountMinBet) : $gameMinBet;
+        $effectiveMaxBet = $accountMaxBet !== null ? min($gameMaxBet, $accountMaxBet) : $gameMaxBet;
+        if ($effectiveMaxBet < $effectiveMinBet) {
+            $effectiveMaxBet = $effectiveMinBet;
+        }
+
+        return [
+            'accountMinBet' => $accountMinBet,
+            'accountMaxBet' => $accountMaxBet,
+            'gameMinBet' => round($gameMinBet, 2),
+            'gameMaxBet' => round($gameMaxBet, 2),
+            'effectiveMinBet' => round($effectiveMinBet, 2),
+            'effectiveMaxBet' => round($effectiveMaxBet, 2),
+            'lineMin' => 1,
+            'lineMax' => self::ARABIAN_MAX_LINES,
+            'coinStep' => self::ARABIAN_COIN_STEP,
+        ];
+    }
+
+    /**
+     * @param array{freeSpinsRemaining:int,freeSpinLineCount:?int,freeSpinCoinBet:?float} $stateBefore
+     * @return array{
+     *   totalReturn: float,
+     *   result: string,
+     *   resultType: string,
+     *   roundData: array<string, mixed>,
+     *   stateAfter: array<string, mixed>
+     * }
+     */
+    private function settleArabianSpin(float $coinBet, int $lineCount, array $stateBefore): array
+    {
+        $freeSpinsBefore = max(0, (int) ($stateBefore['freeSpinsRemaining'] ?? 0));
+        $isFreeSpinRound = $freeSpinsBefore > 0;
+        $freeSpinsAfter = $isFreeSpinRound ? ($freeSpinsBefore - 1) : $freeSpinsBefore;
+        $lockedLineCountBefore = is_int($stateBefore['freeSpinLineCount'] ?? null) ? (int) $stateBefore['freeSpinLineCount'] : null;
+        $lockedCoinBetBefore = is_numeric($stateBefore['freeSpinCoinBet'] ?? null) ? round($this->num($stateBefore['freeSpinCoinBet']), 2) : null;
+
+        $pattern = $this->generateArabianPattern();
+        $winningLines = $this->evaluateArabianWinningLines($pattern, $lineCount, $coinBet);
+        $lineWin = 0.0;
+        foreach ($winningLines as $lineWinEntry) {
+            $lineWin += $this->num($lineWinEntry['amount'] ?? 0);
+        }
+        $lineWin = round($lineWin, 2);
+
+        $bonusSymbolCount = $this->countArabianSymbol($pattern, self::ARABIAN_BONUS_SYMBOL);
+        $bonusTriggered = $bonusSymbolCount >= 3;
+        $bonusPrizeIndex = -1;
+        $bonusWin = 0.0;
+        if ($bonusTriggered) {
+            [$bonusPrizeIndex, $bonusMultiplier] = $this->pickArabianBonusPrize();
+            $bonusWin = round($bonusMultiplier * $coinBet, 2);
+        }
+
+        $freeSpinSymbolCount = $this->countArabianSymbol($pattern, self::ARABIAN_FREESPIN_SYMBOL);
+        $awardKey = min(5, $freeSpinSymbolCount);
+        $freeSpinsAwarded = (int) (self::ARABIAN_FREESPIN_AWARDS[$awardKey] ?? 0);
+        $freeSpinsAfter = max(0, min(500, $freeSpinsAfter + $freeSpinsAwarded));
+        $nextLockedLineCount = null;
+        $nextLockedCoinBet = null;
+        if ($freeSpinsAfter > 0) {
+            if ($isFreeSpinRound) {
+                $nextLockedLineCount = $lockedLineCountBefore !== null ? $lockedLineCountBefore : $lineCount;
+                $nextLockedCoinBet = $lockedCoinBetBefore !== null ? $lockedCoinBetBefore : $coinBet;
+            } else {
+                $nextLockedLineCount = $lineCount;
+                $nextLockedCoinBet = $coinBet;
+            }
+        }
+
+        $totalReturn = round($lineWin + $bonusWin, 2);
+        $result = $totalReturn > 0 ? 'Win' : ($isFreeSpinRound ? 'Free Spin' : 'Lose');
+        $resultType = $totalReturn > 0
+            ? ($bonusTriggered ? 'bonus_win' : 'spin_win')
+            : ($isFreeSpinRound ? 'freespin_no_win' : 'spin_loss');
+
+        $roundData = [
+            'lineCount' => $lineCount,
+            'coinBet' => $coinBet,
+            'totalBet' => round($coinBet * $lineCount, 2),
+            'isFreeSpinRound' => $isFreeSpinRound,
+            'freeSpinsBefore' => $freeSpinsBefore,
+            'freeSpinsAwarded' => $freeSpinsAwarded,
+            'freeSpinsAfter' => $freeSpinsAfter,
+            'freeSpinLockedLineCount' => $nextLockedLineCount,
+            'freeSpinLockedCoinBet' => $nextLockedCoinBet,
+            'freeSpinSymbolCount' => $freeSpinSymbolCount,
+            'bonusTriggered' => $bonusTriggered,
+            'bonusSymbolCount' => $bonusSymbolCount,
+            'bonusPrizeIndex' => $bonusPrizeIndex,
+            'bonusWin' => $bonusWin,
+            'lineWin' => $lineWin,
+            'totalWin' => $totalReturn,
+            'pattern' => $pattern,
+            'winningLines' => $winningLines,
+            // Keep vendor-compatible aliases for iframe adapters.
+            'win_lines' => $winningLines,
+        ];
+
+        $stateAfter = [
+            'freeSpinsRemaining' => $freeSpinsAfter,
+        ];
+        if ($nextLockedLineCount !== null && $nextLockedCoinBet !== null) {
+            $stateAfter['freeSpinLineCount'] = $nextLockedLineCount;
+            $stateAfter['freeSpinCoinBet'] = $nextLockedCoinBet;
+        }
+
+        return [
+            'totalReturn' => $totalReturn,
+            'result' => $result,
+            'resultType' => $resultType,
+            'roundData' => $roundData,
+            'stateAfter' => $stateAfter,
+        ];
+    }
+
+    /**
+     * @return array<int, array<int, int>>
+     */
+    private function generateArabianPattern(): array
+    {
+        $pattern = [];
+        for ($row = 0; $row < self::ARABIAN_ROWS; $row++) {
+            $pattern[$row] = [];
+            for ($col = 0; $col < self::ARABIAN_REELS; $col++) {
+                $pattern[$row][$col] = $this->pickArabianSymbol();
+            }
+        }
+        return $pattern;
+    }
+
+    private function pickArabianSymbol(): int
+    {
+        $totalWeight = 0;
+        foreach (self::ARABIAN_SYMBOL_WEIGHTS as $weight) {
+            $totalWeight += max(0, (int) $weight);
+        }
+        if ($totalWeight <= 0) {
+            return 1;
+        }
+
+        $roll = random_int(1, $totalWeight);
+        $cursor = 0;
+        foreach (self::ARABIAN_SYMBOL_WEIGHTS as $symbol => $weight) {
+            $cursor += max(0, (int) $weight);
+            if ($roll <= $cursor) {
+                return (int) $symbol;
+            }
+        }
+
+        return 1;
+    }
+
+    /**
+     * @param array<int, array<int, int>> $pattern
+     * @return array<int, array<string, mixed>>
+     */
+    private function evaluateArabianWinningLines(array $pattern, int $lineCount, float $coinBet): array
+    {
+        $winningLines = [];
+        $maxLines = min($lineCount, count(self::ARABIAN_LINE_PATTERNS));
+
+        for ($lineIndex = 0; $lineIndex < $maxLines; $lineIndex++) {
+            $rows = self::ARABIAN_LINE_PATTERNS[$lineIndex];
+            $cells = [];
+
+            for ($col = 0; $col < self::ARABIAN_REELS; $col++) {
+                $row = (int) ($rows[$col] ?? 0);
+                $value = (int) ($pattern[$row][$col] ?? 0);
+                $cells[] = ['row' => $row, 'col' => $col, 'value' => $value];
+            }
+
+            if ($cells === []) {
+                continue;
+            }
+
+            $symbol = (int) ($cells[0]['value'] ?? 0);
+            $matched = [$cells[0]];
+            $numEqualSymbols = 1;
+            $startIndex = 1;
+
+            while ($symbol === self::ARABIAN_WILD_SYMBOL && $startIndex < self::ARABIAN_REELS) {
+                $symbol = (int) ($cells[$startIndex]['value'] ?? 0);
+                $matched[] = $cells[$startIndex];
+                $numEqualSymbols++;
+                $startIndex++;
+            }
+
+            for ($idx = $startIndex; $idx < self::ARABIAN_REELS; $idx++) {
+                $cellValue = (int) ($cells[$idx]['value'] ?? 0);
+                if ($cellValue === $symbol || $cellValue === self::ARABIAN_WILD_SYMBOL) {
+                    $numEqualSymbols++;
+                    $matched[] = $cells[$idx];
+                    continue;
+                }
+                break;
+            }
+
+            $symbolPaytable = self::ARABIAN_PAYTABLE[$symbol] ?? null;
+            if (!is_array($symbolPaytable)) {
+                continue;
+            }
+
+            $multiplier = (float) ($symbolPaytable[$numEqualSymbols - 1] ?? 0);
+            if ($multiplier <= 0) {
+                continue;
+            }
+
+            $amount = round($multiplier * $coinBet, 2);
+            if ($amount <= 0) {
+                continue;
+            }
+
+            $winningLines[] = [
+                'line' => $lineIndex + 1,
+                'amount' => $amount,
+                'num_win' => $numEqualSymbols,
+                'value' => $symbol,
+                'list' => $matched,
+            ];
+        }
+
+        return $winningLines;
+    }
+
+    /**
+     * @param array<int, array<int, int>> $pattern
+     */
+    private function countArabianSymbol(array $pattern, int $symbol): int
+    {
+        $count = 0;
+        foreach ($pattern as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            foreach ($row as $value) {
+                if ((int) $value === $symbol) {
+                    $count++;
+                }
+            }
+        }
+        return $count;
+    }
+
+    /**
+     * @return array{0:int,1:float}
+     */
+    private function pickArabianBonusPrize(): array
+    {
+        $totalWeight = 0;
+        foreach (self::ARABIAN_BONUS_PRIZE_WEIGHTS as $weight) {
+            $totalWeight += max(0, (int) $weight);
+        }
+        if ($totalWeight <= 0) {
+            return [-1, 0.0];
+        }
+
+        $roll = random_int(1, $totalWeight);
+        $cursor = 0;
+        foreach (self::ARABIAN_BONUS_PRIZE_WEIGHTS as $idx => $weight) {
+            $cursor += max(0, (int) $weight);
+            if ($roll <= $cursor) {
+                return [(int) $idx, round($this->num(self::ARABIAN_BONUS_PRIZES[$idx] ?? 0), 2)];
+            }
+        }
+
+        return [-1, 0.0];
     }
 
     private function syncCrapsState(array $actor, array $body, string $requestId, string $mode): void
@@ -3960,12 +4738,17 @@ final class CasinoController
     {
         $userMinBet = $this->safeNumber($lockedUser['minBet'] ?? null, null);
         $userMaxBet = $this->safeNumber($lockedUser['maxBet'] ?? null, null);
-
-        if ($userMinBet !== null && $userMinBet > 0 && $totalWager < $userMinBet) {
-            throw new InvalidArgumentException('Minimum bet for your account is $' . number_format($userMinBet, 2));
+        $normalizedMinBet = ($userMinBet !== null && $userMinBet > 0) ? round($userMinBet, 2) : null;
+        $normalizedMaxBet = ($userMaxBet !== null && $userMaxBet > 0) ? round($userMaxBet, 2) : null;
+        if ($normalizedMinBet !== null && $normalizedMaxBet !== null && $normalizedMaxBet < $normalizedMinBet) {
+            $normalizedMaxBet = $normalizedMinBet;
         }
-        if ($userMaxBet !== null && $userMaxBet > 0 && $totalWager > $userMaxBet) {
-            throw new InvalidArgumentException('Maximum bet for your account is $' . number_format($userMaxBet, 2));
+
+        if ($normalizedMinBet !== null && $totalWager < $normalizedMinBet) {
+            throw new InvalidArgumentException('Minimum bet for your account is $' . number_format($normalizedMinBet, 2));
+        }
+        if ($normalizedMaxBet !== null && $totalWager > $normalizedMaxBet) {
+            throw new InvalidArgumentException('Maximum bet for your account is $' . number_format($normalizedMaxBet, 2));
         }
     }
 
@@ -6173,6 +6956,7 @@ final class CasinoController
             'rouletteOutcome' => is_array($bet['rouletteOutcome'] ?? null) ? $bet['rouletteOutcome'] : null,
             'winningBetKeys' => is_array($bet['winningBetKeys'] ?? null) ? array_values(array_map('strval', $bet['winningBetKeys'])) : [],
             'blackjackRoundMeta' => is_array($bet['blackjackRoundMeta'] ?? null) ? $bet['blackjackRoundMeta'] : null,
+            'betLimits' => is_array($bet['betLimits'] ?? null) ? $bet['betLimits'] : null,
             'betDetails' => is_array($bet['betDetails'] ?? null) ? $bet['betDetails'] : null,
             'roundData' => is_array($bet['roundData'] ?? null) ? $bet['roundData'] : null,
             'outcomeSource' => (string) ($bet['outcomeSource'] ?? ''),
@@ -6266,6 +7050,7 @@ final class CasinoController
             'rouletteOutcome' => is_array($betRecord['rouletteOutcome'] ?? null) ? $betRecord['rouletteOutcome'] : null,
             'winningBetKeys' => is_array($betRecord['winningBetKeys'] ?? null) ? array_values(array_map('strval', $betRecord['winningBetKeys'])) : [],
             'blackjackRoundMeta' => is_array($betRecord['blackjackRoundMeta'] ?? null) ? $betRecord['blackjackRoundMeta'] : null,
+            'betLimits' => is_array($betRecord['betLimits'] ?? null) ? $betRecord['betLimits'] : null,
             'betDetails' => is_array($betRecord['betDetails'] ?? null) ? $betRecord['betDetails'] : null,
             'roundData' => is_array($betRecord['roundData'] ?? null) ? $betRecord['roundData'] : null,
             'outcomeSource' => (string) ($betRecord['outcomeSource'] ?? ''),

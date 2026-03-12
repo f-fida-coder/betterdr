@@ -22,6 +22,80 @@ const DEFAULT_TYPE_OPTIONS = [
   { value: 'fp_deposit', label: 'Free Play' },
 ];
 
+const normalizeTypeValue = (value) => String(value || '').trim().toLowerCase();
+const WAGER_TYPES = new Set(['bet_placed', 'bet_placed_admin', 'bet_lost', 'casino_bet_debit']);
+const PAYOUT_TYPES = new Set(['bet_won', 'bet_refund', 'bet_void', 'bet_void_admin', 'casino_bet_credit']);
+const ADJUSTMENT_TYPES = new Set(['adjustment', 'credit_adj', 'debit_adj']);
+const DEBIT_TYPES = new Set(['withdrawal', 'bet_placed', 'bet_placed_admin', 'bet_lost', 'fee', 'debit', 'casino_bet_debit']);
+
+const matchesTransactionType = (row, selectedType) => {
+  const filterType = normalizeTypeValue(selectedType);
+  if (!filterType || filterType === 'all-types') return true;
+
+  const rowType = normalizeTypeValue(row?.type);
+  const reason = normalizeTypeValue(row?.reason);
+  if (rowType === filterType) return true;
+
+  if (filterType === 'adjustment') {
+    return ADJUSTMENT_TYPES.has(rowType);
+  }
+  if (filterType === 'wager') {
+    return WAGER_TYPES.has(rowType);
+  }
+  if (filterType === 'payout') {
+    return PAYOUT_TYPES.has(rowType);
+  }
+  if (filterType === 'casino') {
+    return rowType.startsWith('casino_');
+  }
+  if (filterType === 'fp_deposit') {
+    return rowType === 'fp_deposit' || reason === 'freeplay_adjustment';
+  }
+
+  return false;
+};
+
+const filterRowsBySelectedTypes = (rows, selectedTypes) => {
+  if (!Array.isArray(rows)) return [];
+  const normalized = Array.isArray(selectedTypes)
+    ? selectedTypes.map((value) => normalizeTypeValue(value)).filter(Boolean)
+    : [];
+  if (normalized.length === 0 || normalized.includes('all-types')) {
+    return rows;
+  }
+  return rows.filter((row) => normalized.some((typeValue) => matchesTransactionType(row, typeValue)));
+};
+
+const getSignedAmount = (row) => {
+  const signedAmount = Number(row?.signedAmount);
+  if (Number.isFinite(signedAmount) && signedAmount !== 0) return signedAmount;
+
+  const amount = Number(row?.amount || 0);
+  if (!Number.isFinite(amount)) return 0;
+
+  const entrySide = String(row?.entrySide || '').trim().toUpperCase();
+  if (entrySide === 'DEBIT') return -Math.abs(amount);
+  if (entrySide === 'CREDIT') return Math.abs(amount);
+
+  const rowType = normalizeTypeValue(row?.type);
+  if (DEBIT_TYPES.has(rowType)) return -Math.abs(amount);
+  return amount;
+};
+
+const summarizeTransactionRows = (rows) => rows.reduce((acc, row) => {
+  const signed = getSignedAmount(row);
+  const abs = Math.abs(signed);
+  acc.count += 1;
+  acc.grossAmount += abs;
+  acc.netAmount += signed;
+  if (signed >= 0) {
+    acc.creditAmount += signed;
+  } else {
+    acc.debitAmount += abs;
+  }
+  return acc;
+}, { count: 0, grossAmount: 0, netAmount: 0, creditAmount: 0, debitAmount: 0 });
+
 const toIsoDate = (date) => {
   const d = new Date(date);
   const year = d.getFullYear();
@@ -99,7 +173,8 @@ function TransactionsHistoryView() {
   ));
   const [agentsSearch, setAgentsSearch] = useState('');
   const [playersSearch, setPlayersSearch] = useState('');
-  const [transactionType, setTransactionType] = useState('all-types');
+  const [selectedTransactionTypes, setSelectedTransactionTypes] = useState(['all-types']);
+  const [typeFilterOpen, setTypeFilterOpen] = useState(false);
   const [mode, setMode] = useState('player-transactions');
   const [startDate, setStartDate] = useState(today);
   const [endDate, setEndDate] = useState(today);
@@ -233,6 +308,31 @@ function TransactionsHistoryView() {
     () => (playersSearch.trim() === '' ? playerSeedSuggestions : playerSuggestions),
     [playersSearch, playerSeedSuggestions, playerSuggestions]
   );
+  const normalizedTypeOptions = useMemo(
+    () => typeOptions
+      .map((option) => ({
+        value: normalizeTypeValue(option?.value),
+        label: String(option?.label || option?.value || '').trim(),
+      }))
+      .filter((option) => option.value && option.label),
+    [typeOptions]
+  );
+  const toggleableTypeOptions = useMemo(
+    () => normalizedTypeOptions.filter((option) => option.value !== 'all-types'),
+    [normalizedTypeOptions]
+  );
+  const toggleableTypeValues = useMemo(
+    () => toggleableTypeOptions.map((option) => option.value),
+    [toggleableTypeOptions]
+  );
+  const selectedTypeValues = useMemo(() => {
+    if (selectedTransactionTypes.includes('all-types')) return ['all-types'];
+    const allowed = new Set(toggleableTypeValues);
+    const filtered = selectedTransactionTypes
+      .map((value) => normalizeTypeValue(value))
+      .filter((value) => allowed.has(value));
+    return filtered.length > 0 ? filtered : ['all-types'];
+  }, [selectedTransactionTypes, toggleableTypeValues]);
 
   const getAgentBadgeLabel = (role) => {
     const normalized = String(role || '').toLowerCase();
@@ -257,6 +357,7 @@ function TransactionsHistoryView() {
 
     try {
       setLoading(true);
+      const transactionType = selectedTypeValues.length === 1 ? selectedTypeValues[0] : 'all-types';
       const data = await getTransactionsHistory({
         mode,
         agents: agentsSearch,
@@ -271,9 +372,22 @@ function TransactionsHistoryView() {
         ? data.rows
         : (Array.isArray(data?.transactions) ? data.transactions : []);
 
-      setRows(list);
-      setSummary(data?.summary || { count: 0, grossAmount: 0, netAmount: 0, creditAmount: 0, debitAmount: 0 });
-      setResultType(String(data?.resultType || 'transactions'));
+      const nextResultType = String(data?.resultType || 'transactions');
+      const shouldApplyClientTypeFilter = nextResultType === 'transactions'
+        && selectedTypeValues.length > 1
+        && !selectedTypeValues.includes('all-types');
+      const filteredRows = shouldApplyClientTypeFilter
+        ? filterRowsBySelectedTypes(list, selectedTypeValues)
+        : list;
+      setRows(filteredRows);
+      setResultType(nextResultType);
+      setSummary(
+        nextResultType === 'transactions'
+          ? (shouldApplyClientTypeFilter
+            ? summarizeTransactionRows(filteredRows)
+            : (data?.summary || summarizeTransactionRows(filteredRows)))
+          : (data?.summary || { count: 0, grossAmount: 0, netAmount: 0, creditAmount: 0, debitAmount: 0 })
+      );
       const apiTypeOptions = Array.isArray(data?.meta?.transactionTypes) ? data.meta.transactionTypes : [];
       setTypeOptions(apiTypeOptions.length > 0 ? apiTypeOptions : DEFAULT_TYPE_OPTIONS);
       setError('');
@@ -293,7 +407,35 @@ function TransactionsHistoryView() {
 
   const handleSearch = (e) => {
     e.preventDefault();
+    setTypeFilterOpen(false);
     loadHistory();
+  };
+
+  const handleToggleTransactionType = (typeValue) => {
+    const normalizedValue = normalizeTypeValue(typeValue);
+    if (!normalizedValue) return;
+    if (normalizedValue === 'all-types' || toggleableTypeValues.length === 0) {
+      setSelectedTransactionTypes(['all-types']);
+      return;
+    }
+
+    setSelectedTransactionTypes((prev) => {
+      const normalizedPrev = prev.includes('all-types')
+        ? [...toggleableTypeValues]
+        : prev
+          .map((value) => normalizeTypeValue(value))
+          .filter((value) => toggleableTypeValues.includes(value));
+
+      const next = normalizedPrev.includes(normalizedValue)
+        ? normalizedPrev.filter((value) => value !== normalizedValue)
+        : [...normalizedPrev, normalizedValue];
+
+      if (next.length === 0 || next.length === toggleableTypeValues.length) {
+        return ['all-types'];
+      }
+
+      return next;
+    });
   };
 
   const modeLabel = MODE_OPTIONS.find((option) => option.value === mode)?.label || 'Transaction History';
@@ -570,11 +712,49 @@ function TransactionsHistoryView() {
           </div>
 
           <div className="txh-select-row">
-            <select value={transactionType} onChange={(e) => setTransactionType(e.target.value)} className="txh-type-select" aria-label="Transactions type">
-              {typeOptions.map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </select>
+            <div className="txh-type-filter-wrap">
+              <button
+                type="button"
+                className={`txh-type-select txh-type-trigger${typeFilterOpen ? ' open' : ''}`}
+                onClick={() => setTypeFilterOpen((prev) => !prev)}
+                aria-expanded={typeFilterOpen}
+                aria-haspopup="menu"
+                aria-label="Transactions type"
+              >
+                <span>Transactions Type</span>
+                <i className={`fa-solid fa-chevron-${typeFilterOpen ? 'up' : 'down'}`} aria-hidden="true"></i>
+              </button>
+              {typeFilterOpen && (
+                <>
+                  <button
+                    type="button"
+                    className="txh-type-backdrop"
+                    onClick={() => setTypeFilterOpen(false)}
+                    aria-label="Close transaction type filters"
+                  />
+                  <div className="txh-type-menu" role="menu" aria-label="Transaction type filters">
+                    {toggleableTypeOptions.length === 0 ? (
+                      <div className="txh-type-empty">No transaction types available.</div>
+                    ) : toggleableTypeOptions.map((option) => {
+                      const checked = selectedTypeValues.includes('all-types') || selectedTypeValues.includes(option.value);
+                      return (
+                        <label key={option.value} className="txh-type-toggle-row">
+                          <span>{option.label}</span>
+                          <span className="txh-switch">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => handleToggleTransactionType(option.value)}
+                            />
+                            <span className="txh-switch-slider"></span>
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
 
             <select value={mode} onChange={(e) => setMode(e.target.value)} className="txh-mode-select" aria-label="Report mode">
               {MODE_OPTIONS.map((option) => (
@@ -800,6 +980,105 @@ function TransactionsHistoryView() {
           border-radius: 6px;
           font-size: 18px;
         }
+        .txh-type-filter-wrap {
+          position: relative;
+        }
+        .txh-type-trigger {
+          width: 100%;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+          cursor: pointer;
+          text-align: left;
+        }
+        .txh-type-trigger span {
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .txh-type-trigger i {
+          font-size: 14px;
+          line-height: 1;
+        }
+        .txh-type-trigger.open {
+          filter: brightness(0.95);
+        }
+        .txh-type-backdrop {
+          position: fixed;
+          inset: 0;
+          border: 0;
+          background: transparent;
+          z-index: 180;
+        }
+        .txh-type-menu {
+          position: absolute;
+          top: calc(100% + 8px);
+          left: 0;
+          width: min(460px, calc(100vw - 56px));
+          border: 1px solid #d2d6db;
+          border-radius: 6px;
+          background: #fff;
+          box-shadow: 0 16px 34px rgba(15, 23, 42, 0.2);
+          padding: 10px 14px;
+          z-index: 190;
+        }
+        .txh-type-empty {
+          padding: 8px 0;
+          color: #64748b;
+          font-size: 14px;
+        }
+        .txh-type-toggle-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 14px;
+          padding: 9px 0;
+          border-bottom: 1px solid #eef1f5;
+          font-size: 16px;
+          color: #111827;
+        }
+        .txh-type-toggle-row:last-child {
+          border-bottom: 0;
+        }
+        .txh-switch {
+          position: relative;
+          width: 52px;
+          height: 28px;
+          display: inline-block;
+          flex-shrink: 0;
+        }
+        .txh-switch input {
+          opacity: 0;
+          width: 0;
+          height: 0;
+        }
+        .txh-switch-slider {
+          position: absolute;
+          inset: 0;
+          border-radius: 999px;
+          background: #b6bcc7;
+          transition: 0.2s ease;
+        }
+        .txh-switch-slider:before {
+          content: '';
+          position: absolute;
+          width: 22px;
+          height: 22px;
+          left: 3px;
+          top: 3px;
+          background: #fff;
+          border-radius: 50%;
+          box-shadow: 0 1px 3px rgba(15, 23, 42, 0.35);
+          transition: 0.2s ease;
+        }
+        .txh-switch input:checked + .txh-switch-slider {
+          background: #22c55e;
+        }
+        .txh-switch input:checked + .txh-switch-slider:before {
+          transform: translateX(24px);
+        }
         .txh-search-btn {
           width: 70px;
           height: 70px;
@@ -946,6 +1225,12 @@ function TransactionsHistoryView() {
             min-height: 46px;
             font-size: 14px;
             padding: 0 10px;
+          }
+          .txh-type-menu {
+            width: min(360px, calc(100vw - 32px));
+          }
+          .txh-type-toggle-row {
+            font-size: 15px;
           }
           .txh-search-btn {
             width: 64px;

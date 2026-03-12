@@ -67,6 +67,18 @@ const getHeaders = (token = null) => {
     return headers;
 };
 
+const createDuplicatePlayerError = (payload, fallbackMessage, status = 409) => {
+    const error = new Error(payload?.message || fallbackMessage);
+    error.status = status;
+    error.code = payload?.code || 'DUPLICATE_PLAYER';
+    error.isDuplicate = true;
+    error.duplicate = true;
+    error.normalized = payload?.normalized || null;
+    error.duplicateMatches = Array.isArray(payload?.matches) ? payload.matches : [];
+    error.details = payload || null;
+    return error;
+};
+
 const parseJsonResponse = async (response, fallbackMessage) => {
     const contentType = (response.headers.get('content-type') || '').toLowerCase();
     const isJson = contentType.includes('application/json');
@@ -1119,14 +1131,17 @@ export const createUserByAdmin = async (userData, token) => {
         });
 
         if (!response.ok) {
-            let errorMsg = 'Failed to create user';
-            try {
-                const errorData = await response.json();
-                console.error('❌ Server error:', errorData);
-                errorMsg = errorData.message || errorMsg;
-            } catch (e) {
-                errorMsg = `Server error (${response.status}): ${response.statusText}`;
+            const errorData = await response.json().catch(() => null);
+            console.error('❌ Server error:', errorData || { status: response.status, statusText: response.statusText });
+
+            if (
+                response.status === 409
+                && (errorData?.duplicate === true || errorData?.code === 'DUPLICATE_PLAYER')
+            ) {
+                throw createDuplicatePlayerError(errorData, 'Likely duplicate player detected', response.status);
             }
+
+            const errorMsg = errorData?.message || `Server error (${response.status}): ${response.statusText}`;
             throw new Error(errorMsg);
         }
         return response.json();
@@ -1183,13 +1198,16 @@ export const createPlayerByAgent = async (userData, token) => {
             body: JSON.stringify(userData)
         });
         if (!response.ok) {
-            let errorMsg = 'Failed to create player';
-            try {
-                const errorData = await response.json();
-                errorMsg = errorData.message || errorMsg;
-            } catch (e) {
-                errorMsg = `Server error (${response.status}): ${response.statusText}`;
+            const errorData = await response.json().catch(() => null);
+
+            if (
+                response.status === 409
+                && (errorData?.duplicate === true || errorData?.code === 'DUPLICATE_PLAYER')
+            ) {
+                throw createDuplicatePlayerError(errorData, 'Likely duplicate player detected', response.status);
             }
+
+            const errorMsg = errorData?.message || `Server error (${response.status}): ${response.statusText}`;
             throw new Error(errorMsg);
         }
         return response.json();

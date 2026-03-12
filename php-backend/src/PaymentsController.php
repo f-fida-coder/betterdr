@@ -270,12 +270,25 @@ final class PaymentsController
 
             $balanceBefore = $this->num($user['balance'] ?? 0);
             $newBalance = $balanceBefore + $amount;
-            $this->db->updateOne('users', ['_id' => MongoRepository::id($userId)], [
-                'balance' => $newBalance,
-                'updatedAt' => MongoRepository::nowUtc(),
-            ]);
+            $now = MongoRepository::nowUtc();
 
-            $this->db->insertOne('transactions', [
+            $bonusConfig = $this->resolveDepositFreePlayBonus($user, $amount);
+            $freePlayBonusAmount = $bonusConfig['bonusAmount'];
+            $freePlayBonusPercent = $bonusConfig['percent'];
+            $freePlayBonusCap = $bonusConfig['cap'];
+            $freePlayBalanceBefore = $this->num($user['freeplayBalance'] ?? 0);
+            $freePlayBalanceAfter = $freePlayBalanceBefore + $freePlayBonusAmount;
+
+            $userUpdates = [
+                'balance' => $newBalance,
+                'updatedAt' => $now,
+            ];
+            if ($freePlayBonusAmount > 0) {
+                $userUpdates['freeplayBalance'] = $freePlayBalanceAfter;
+            }
+            $this->db->updateOne('users', ['_id' => MongoRepository::id($userId)], $userUpdates);
+
+            $depositTransactionId = $this->db->insertOne('transactions', [
                 'userId' => MongoRepository::id($userId),
                 'amount' => $amount,
                 'type' => 'deposit',
@@ -284,14 +297,89 @@ final class PaymentsController
                 'balanceAfter' => $newBalance,
                 'stripePaymentId' => $stripePaymentId,
                 'description' => 'Stripe Deposit',
-                'createdAt' => MongoRepository::nowUtc(),
-                'updatedAt' => MongoRepository::nowUtc(),
+                'createdAt' => $now,
+                'updatedAt' => $now,
             ]);
+
+            if ($freePlayBonusAmount > 0) {
+                $this->db->insertOne('transactions', [
+                    'userId' => MongoRepository::id($userId),
+                    'amount' => $freePlayBonusAmount,
+                    'type' => 'adjustment',
+                    'status' => 'completed',
+                    'balanceBefore' => $freePlayBalanceBefore,
+                    'balanceAfter' => $freePlayBalanceAfter,
+                    'referenceType' => 'FreePlayBonus',
+                    'referenceId' => MongoRepository::id($depositTransactionId),
+                    'reason' => 'DEPOSIT_FREEPLAY_BONUS',
+                    'description' => 'Auto free play bonus ' . rtrim(rtrim(number_format($freePlayBonusPercent, 2, '.', ''), '0'), '.') . '% on deposit $' . number_format(abs($amount), 2, '.', '') . ' (Stripe)',
+                    'metadata' => [
+                        'depositAmount' => round(abs($amount), 2),
+                        'freePlayPercent' => $freePlayBonusPercent,
+                        'maxFpCredit' => $freePlayBonusCap,
+                        'stripePaymentId' => $stripePaymentId,
+                        'depositTransactionId' => $depositTransactionId,
+                    ],
+                    'stripePaymentId' => $stripePaymentId,
+                    'createdAt' => $now,
+                    'updatedAt' => $now,
+                ]);
+            }
 
             $this->db->commit();
         } catch (Throwable $e) {
             $this->db->rollback();
         }
+    }
+
+    /**
+     * @return array{bonusAmount: float, percent: float, cap: float, depositAmount: float}
+     */
+    private function resolveDepositFreePlayBonus(array $user, float $depositAmount): array
+    {
+        $normalizedDeposit = round(max(0.0, $depositAmount), 2);
+        if ($normalizedDeposit <= 0) {
+            return [
+                'bonusAmount' => 0.0,
+                'percent' => 0.0,
+                'cap' => 0.0,
+                'depositAmount' => 0.0,
+            ];
+        }
+
+        $settings = is_array($user['settings'] ?? null) ? $user['settings'] : [];
+        $percentSource = $settings['freePlayPercent'] ?? ($user['freePlayPercent'] ?? 20);
+        $percent = round(max(0.0, $this->num($percentSource)), 4);
+        if ($percent <= 0) {
+            return [
+                'bonusAmount' => 0.0,
+                'percent' => 0.0,
+                'cap' => 0.0,
+                'depositAmount' => $normalizedDeposit,
+            ];
+        }
+
+        $rawBonus = round($normalizedDeposit * ($percent / 100), 2);
+        if ($rawBonus <= 0) {
+            return [
+                'bonusAmount' => 0.0,
+                'percent' => $percent,
+                'cap' => 0.0,
+                'depositAmount' => $normalizedDeposit,
+            ];
+        }
+
+        $capSource = $settings['maxFpCredit'] ?? ($user['maxFpCredit'] ?? 0);
+        $cap = round(max(0.0, $this->num($capSource)), 2);
+        $bonusAmount = $cap > 0 ? min($rawBonus, $cap) : $rawBonus;
+        $bonusAmount = round(max(0.0, $bonusAmount), 2);
+
+        return [
+            'bonusAmount' => $bonusAmount,
+            'percent' => $percent,
+            'cap' => $cap,
+            'depositAmount' => $normalizedDeposit,
+        ];
     }
 
     private function num(mixed $value): float

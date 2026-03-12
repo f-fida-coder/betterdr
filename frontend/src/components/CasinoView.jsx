@@ -30,6 +30,20 @@ const LOCAL_GAME_META = {
         url: '/games/craps/index.html?v=20260310b',
         poster: '/games/craps/sprites/board_table.jpg',
         themeColor: '#0a4f3a',
+    },
+    arabian: {
+        id: 'local-arabian',
+        provider: 'In-House',
+        url: '/games/arabian/index.html?v=20260311a',
+        poster: '/games/arabian/sprites/200x200.jpg',
+        themeColor: '#7e22ce',
+    },
+    'arabian-treasure': {
+        id: 'local-arabian-treasure',
+        provider: 'In-House',
+        url: '/games/arabian/index.html?v=20260311a',
+        poster: '/games/arabian/sprites/200x200.jpg',
+        themeColor: '#7e22ce',
     }
 };
 
@@ -49,6 +63,7 @@ const normalizeEmbeddedGameSlug = (value) => {
     if (normalized.includes('blackjack')) return 'blackjack';
     if (normalized.includes('baccarat')) return 'baccarat';
     if (normalized.includes('craps')) return 'craps';
+    if (normalized.includes('arabian')) return 'arabian';
     return '';
 };
 
@@ -70,6 +85,44 @@ const resolveWalletBalance = (payload, fallbackValue = null) => {
     }
     const fallback = Number(fallbackValue);
     return Number.isFinite(fallback) ? fallback : null;
+};
+
+const normalizePositiveNumber = (value) => {
+    const num = Number(value);
+    return Number.isFinite(num) && num > 0 ? Number(num.toFixed(2)) : null;
+};
+
+const buildLocalGameBetLimits = (activeGame, walletPayload, availableBalance) => {
+    const gameMinBet = normalizePositiveNumber(activeGame?.minBet);
+    const gameMaxBet = normalizePositiveNumber(activeGame?.maxBet);
+    const accountMinBet = normalizePositiveNumber(walletPayload?.minBet);
+    const accountMaxBet = normalizePositiveNumber(walletPayload?.maxBet);
+
+    let effectiveMinBet = gameMinBet ?? 0;
+    if (accountMinBet !== null) {
+        effectiveMinBet = Math.max(effectiveMinBet, accountMinBet);
+    }
+
+    let effectiveMaxBet = gameMaxBet ?? accountMaxBet ?? null;
+    if (accountMaxBet !== null) {
+        effectiveMaxBet = effectiveMaxBet === null ? accountMaxBet : Math.min(effectiveMaxBet, accountMaxBet);
+    }
+    if (effectiveMaxBet !== null && effectiveMaxBet < effectiveMinBet) {
+        effectiveMaxBet = effectiveMinBet;
+    }
+
+    return {
+        accountMinBet,
+        accountMaxBet,
+        gameMinBet,
+        gameMaxBet,
+        effectiveMinBet: Number.isFinite(effectiveMinBet) ? Number(effectiveMinBet.toFixed(2)) : 0,
+        effectiveMaxBet: effectiveMaxBet === null ? null : Number(effectiveMaxBet.toFixed(2)),
+        availableBalance: Number.isFinite(Number(availableBalance)) ? Number(Number(availableBalance).toFixed(2)) : null,
+        lineMin: 1,
+        lineMax: 20,
+        coinStep: 0.05,
+    };
 };
 
 const resolveLocalGameOrigin = (gameLike) => {
@@ -150,7 +203,19 @@ const CasinoView = () => {
         }
         try {
             const data = await getBalance(token);
-            sendToGame({ type: 'balanceUpdate', requestId: safeRequestId, balance: resolveWalletBalance(data, 0) ?? 0 });
+            const availableBalance = resolveWalletBalance(data, 0) ?? 0;
+            const betLimits = buildLocalGameBetLimits(activeLocalGameRef.current, data, availableBalance);
+            sendToGame({
+                type: 'balanceUpdate',
+                requestId: safeRequestId,
+                balance: availableBalance,
+                availableBalance,
+                minBet: data?.minBet ?? null,
+                maxBet: data?.maxBet ?? null,
+                gameMinBet: betLimits.gameMinBet,
+                gameMaxBet: betLimits.gameMaxBet,
+                betLimits,
+            });
         } catch (err) {
             console.error('Failed to get balance for game:', err);
             sendToGame({ type: 'balanceUpdate', requestId: safeRequestId, balance: 0, error: err.message });
@@ -213,14 +278,15 @@ const CasinoView = () => {
                 // Refresh header balance
                 window.dispatchEvent(new Event('user:refresh'));
                 await loadCasinoHistory();
-                if (settledPlayableBalance === null) {
-                    await syncGameBalance();
-                } else {
-                    sendToGame({ type: 'balanceUpdate', requestId: '', balance: settledPlayableBalance });
-                }
+                await syncGameBalance();
             } catch (err) {
                 console.error('Casino bet failed:', err);
                 sendToGame({ type: 'betError', requestId, error: err.message });
+                try {
+                    await syncGameBalance();
+                } catch (syncErr) {
+                    console.error('Failed to refresh game balance after casino error:', syncErr);
+                }
             } finally {
                 pendingGameRequests.current.delete(requestId);
             }
@@ -351,6 +417,10 @@ const CasinoView = () => {
                 return 'Baccarat';
             case 'craps':
                 return 'Craps';
+            case 'arabian':
+                return 'Arabian Game';
+            case 'arabian-treasure':
+                return 'Arabian Game';
             default:
                 return value || '—';
         }
@@ -415,6 +485,25 @@ const CasinoView = () => {
             }
         }
 
+        if (String(row.game || '').toLowerCase() === 'arabian') {
+            const totalWin = Number(row?.roundData?.totalWin ?? row?.totalReturn ?? 0);
+            const bonusWin = Number(row?.roundData?.bonusWin ?? 0);
+            const freeSpinsAwarded = Number(row?.roundData?.freeSpinsAwarded ?? 0);
+            const parts = [];
+            if (totalWin > 0) {
+                parts.push(`Win ${formatMoney(totalWin)}`);
+            }
+            if (bonusWin > 0) {
+                parts.push(`Bonus ${formatMoney(bonusWin)}`);
+            }
+            if (freeSpinsAwarded > 0) {
+                parts.push(`+${freeSpinsAwarded} FS`);
+            }
+            if (parts.length > 0) {
+                return parts.join(' | ');
+            }
+        }
+
         return row.result || '—';
     };
     const formatRoundId = (value) => {
@@ -458,6 +547,21 @@ const CasinoView = () => {
             return keys.length > 3 ? `${preview} +${keys.length - 3} more` : preview;
         }
 
+        if (game === 'arabian') {
+            const lines = Number(row?.bets?.lines ?? row?.roundData?.lineCount ?? 0);
+            const coinBet = Number(row?.bets?.coinBet ?? row?.roundData?.coinBet ?? 0);
+            const spinBet = Number(row?.bets?.totalBet ?? row?.roundData?.totalBet ?? row?.totalWager ?? 0);
+            const freeSpinsAfter = Number(row?.roundData?.freeSpinsAfter ?? 0);
+            const isFreeSpinRound = !!row?.roundData?.isFreeSpinRound;
+            const parts = [];
+            if (Number.isFinite(lines) && lines > 0) parts.push(`Lines ${lines}`);
+            if (Number.isFinite(coinBet) && coinBet > 0) parts.push(`Coin ${formatMoney(coinBet)}`);
+            if (Number.isFinite(spinBet) && spinBet >= 0) parts.push(`Spin ${formatMoney(spinBet)}`);
+            if (isFreeSpinRound) parts.push('Free Spin');
+            if (Number.isFinite(freeSpinsAfter) && freeSpinsAfter > 0) parts.push(`FS Left ${freeSpinsAfter}`);
+            return parts.length > 0 ? parts.join(' | ') : '—';
+        }
+
         return '—';
     };
     const handleLocalGameOpen = (game) => {
@@ -477,11 +581,12 @@ const CasinoView = () => {
     };
 
     const localGames = useMemo(() => {
-        const canShowEmbeddedTableGame = activeCategory === 'lobby' || activeCategory === 'table_games';
-        if (!canShowEmbeddedTableGame) return [];
-
         return games
-            .filter((game) => game?.slug && LOCAL_GAME_META[game.slug])
+            .filter((game) => {
+                if (!game?.slug || !LOCAL_GAME_META[game.slug]) return false;
+                if (activeCategory === 'lobby') return true;
+                return String(game.category || '').toLowerCase() === String(activeCategory || '').toLowerCase();
+            })
             .map((game) => ({
                 ...LOCAL_GAME_META[game.slug],
                 id: `local-${game.slug}`,
@@ -652,6 +757,7 @@ const CasinoView = () => {
                             <option value="baccarat">Baccarat</option>
                             <option value="blackjack">Blackjack</option>
                             <option value="craps">Craps</option>
+                            <option value="arabian">Arabian Game</option>
                         </select>
                     </label>
                     <label>
