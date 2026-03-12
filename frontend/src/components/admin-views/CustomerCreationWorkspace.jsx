@@ -25,7 +25,13 @@ const derivePlayerPrefix = (value) => {
 
 const normalizeAgentUsername = (value) => String(value || '').trim().toUpperCase();
 const isMasterAgentUsername = (value) => normalizeAgentUsername(value).endsWith('MA');
-const isMasterAccountOption = (agent) => isMasterAgentUsername(agent?.username);
+const normalizeAgentRole = (value) => String(value || '').trim().toLowerCase();
+const isMasterAccountOption = (agent) => {
+  const role = normalizeAgentRole(agent?.role);
+  if (role === 'master_agent' || role === 'super_agent') return true;
+  if (role === 'agent') return false;
+  return isMasterAgentUsername(agent?.username);
+};
 
 const buildCopyInfo = (creationType, customer) => {
   const pass = customer.password || 'N/A';
@@ -91,6 +97,7 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
   const [agents, setAgents] = useState([]);
   const [loadingContext, setLoadingContext] = useState(true);
   const [error, setError] = useState('');
+  const [duplicateWarning, setDuplicateWarning] = useState(null);
   const [createLoading, setCreateLoading] = useState(false);
   const [importLoading, setImportLoading] = useState(false);
   const [importFile, setImportFile] = useState(null);
@@ -202,6 +209,8 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
   const handleCreateCustomer = async () => {
     try {
       setCreateLoading(true);
+      setDuplicateWarning(null);
+      setError('');
       const token = localStorage.getItem('token') || sessionStorage.getItem('token');
       if (!token) {
         setError('Please login to create users.');
@@ -278,6 +287,7 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
 
       const createdType = creationType;
       setError('');
+      setDuplicateWarning(null);
       setImportSummary('');
       setImportedUsernames([]);
 
@@ -326,6 +336,21 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
       }
     } catch (err) {
       console.error('Create user failed:', err);
+      const duplicateMatches = Array.isArray(err?.duplicateMatches)
+        ? err.duplicateMatches
+        : (Array.isArray(err?.details?.matches) ? err.details.matches : []);
+      const isDuplicateError = err?.isDuplicate === true
+        || err?.duplicate === true
+        || err?.code === 'DUPLICATE_PLAYER'
+        || err?.details?.duplicate === true;
+      if (isDuplicateError) {
+        setDuplicateWarning({
+          message: err?.message || 'Likely duplicate player detected.',
+          matches: duplicateMatches,
+        });
+      } else {
+        setDuplicateWarning(null);
+      }
       setError(err.message || 'Failed to create user');
     } finally {
       setCreateLoading(false);
@@ -498,6 +523,16 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
     if (!token) return;
 
     if (type === 'super_agent' || type === 'agent') {
+      const selectedAgentId = String(newCustomer.agentId || '').trim();
+      const selectedAgent = selectedAgentId
+        ? agents.find((agent) => String(agent.id || agent._id || '') === selectedAgentId)
+        : null;
+      const hasValidMasterAssignment = Boolean(selectedAgent && isMasterAccountOption(selectedAgent));
+      if (!hasValidMasterAssignment) {
+        setAgentSearchQuery('');
+        setNewCustomer((prev) => ({ ...prev, agentId: '', parentAgentId: '' }));
+      }
+
       setReferralSearchQuery('');
       setReferralSearchOpen(false);
       setNewCustomer((prev) => ({ ...prev, referredByUserId: '' }));
@@ -622,6 +657,26 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
     }
     return assignableAgents;
   }, [assignableAgents, isMasterAssignmentMode, creationType]);
+
+  useEffect(() => {
+    if (!isMasterAssignmentMode) return;
+
+    const selectedId = String(newCustomer.agentId || '').trim();
+    if (!selectedId) return;
+
+    const selectedAgent = agents.find((agent) => String(agent.id || agent._id || '') === selectedId);
+    if (selectedAgent && isMasterAccountOption(selectedAgent)) return;
+
+    setNewCustomer((prev) => {
+      if (!String(prev.agentId || '').trim()) return prev;
+      return {
+        ...prev,
+        agentId: '',
+        parentAgentId: '',
+      };
+    });
+    setAgentSearchQuery('');
+  }, [isMasterAssignmentMode, newCustomer.agentId, agents]);
 
   const showDirectAssignmentOption = useMemo(() => {
     if (requiresPlayerAgentSelection) {
@@ -806,6 +861,26 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
       {!loadingContext && (
         <>
           {error && <div className="error-state">{error}</div>}
+          {duplicateWarning && (
+            <div className="duplicate-warning-state">
+              <div className="duplicate-warning-title">Duplicate Player</div>
+              <div className="duplicate-warning-message">{duplicateWarning.message}</div>
+              {duplicateWarning.matches.length > 0 && (
+                <div className="duplicate-warning-list">
+                  {duplicateWarning.matches.map((match, idx) => (
+                    <div
+                      key={`${match.id || match.username || 'duplicate'}-${idx}`}
+                      className="duplicate-warning-item"
+                    >
+                      <strong>{String(match.username || 'UNKNOWN')}</strong>
+                      <span>{String(match.fullName || 'No name')}</span>
+                      <span>{String(match.phoneNumber || 'No phone')}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           {importSummary && <div className="success-state">{importSummary}</div>}
           {importedUsernames.length > 0 && (
             <div className="success-state" style={{ marginTop: '8px' }}>
@@ -896,7 +971,7 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
                           setAgentSearchQuery(e.target.value);
                           setAgentSearchOpen(true);
                         }}
-                        placeholder="Search agent..."
+                        placeholder={isMasterAssignmentMode ? 'Search master agent...' : 'Search agent...'}
                       />
                     </div>
                     {agentSearchOpen && (
@@ -1290,6 +1365,54 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
               padding: 10px 12px;
               color: #64748b;
               font-size: 12px;
+            }
+            .duplicate-warning-state {
+              border: 1px solid #f1d178;
+              border-radius: 10px;
+              background: #fff8dd;
+              color: #6b4e00;
+              padding: 12px;
+              margin-top: 10px;
+            }
+            .duplicate-warning-title {
+              font-size: 13px;
+              font-weight: 800;
+              text-transform: uppercase;
+              letter-spacing: 0.3px;
+              margin-bottom: 4px;
+            }
+            .duplicate-warning-message {
+              font-size: 13px;
+              line-height: 1.4;
+              margin-bottom: 8px;
+            }
+            .duplicate-warning-list {
+              display: flex;
+              flex-direction: column;
+              gap: 6px;
+            }
+            .duplicate-warning-item {
+              display: grid;
+              grid-template-columns: minmax(78px, auto) 1fr;
+              gap: 2px 10px;
+              border: 1px solid #ecd28b;
+              border-radius: 8px;
+              background: #fffdf2;
+              padding: 8px 10px;
+              font-size: 12px;
+              line-height: 1.25;
+            }
+            .duplicate-warning-item strong {
+              color: #4f3200;
+            }
+            .duplicate-warning-item span:last-child {
+              color: #6f5400;
+            }
+            @media (max-width: 600px) {
+              .duplicate-warning-item {
+                grid-template-columns: 1fr;
+                gap: 3px;
+              }
             }
           `}</style>
         </>

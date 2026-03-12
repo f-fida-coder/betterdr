@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { createUserByAdmin, createPlayerByAgent, createAgent, createSubAgent, getAgents, getMyPlayers, getMe, updateUserCredit, updateUserBalanceOwedByAgent, resetUserPasswordByAdmin, updateUserByAdmin, updateUserByAgent, getUserStatistics, getNextUsername, getUsersAdmin, deleteUser, deleteAgent, importUsersSpreadsheet } from '../../api';
+import { annotateDuplicatePlayers } from '../../utils/duplicatePlayers';
 
 const alphaNumericCompare = (a, b) => String(a || '').localeCompare(String(b || ''), undefined, { sensitivity: 'base', numeric: true });
 const derivePlayerPrefix = (value) => {
@@ -26,6 +27,7 @@ function CustomerAdminView({ onViewChange }) {
   const [agents, setAgents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [duplicateWarning, setDuplicateWarning] = useState(null);
   const [actionLoadingId, setActionLoadingId] = useState(null);
   const [createLoading, setCreateLoading] = useState(false);
   const [importLoading, setImportLoading] = useState(false);
@@ -176,6 +178,8 @@ function CustomerAdminView({ onViewChange }) {
   const handleCreateCustomer = async () => {
     try {
       setCreateLoading(true);
+      setDuplicateWarning(null);
+      setError('');
       const token = localStorage.getItem('token') || sessionStorage.getItem('token');
       if (!token) {
         setError('Please login to create users.');
@@ -281,6 +285,7 @@ function CustomerAdminView({ onViewChange }) {
       setAgentSearchOpen(false);
 
       setError('');
+      setDuplicateWarning(null);
       if (currentRole === 'agent') {
         const data = await getMyPlayers(token);
         setCustomers(data || []);
@@ -290,6 +295,21 @@ function CustomerAdminView({ onViewChange }) {
       }
     } catch (err) {
       console.error('Create user failed:', err);
+      const duplicateMatches = Array.isArray(err?.duplicateMatches)
+        ? err.duplicateMatches
+        : (Array.isArray(err?.details?.matches) ? err.details.matches : []);
+      const isDuplicateError = err?.isDuplicate === true
+        || err?.duplicate === true
+        || err?.code === 'DUPLICATE_PLAYER'
+        || err?.details?.duplicate === true;
+      if (isDuplicateError) {
+        setDuplicateWarning({
+          message: err?.message || 'Likely duplicate player detected.',
+          matches: duplicateMatches,
+        });
+      } else {
+        setDuplicateWarning(null);
+      }
       setError(err.message || 'Failed to create user');
     } finally {
       setCreateLoading(false);
@@ -902,6 +922,7 @@ function CustomerAdminView({ onViewChange }) {
   }), [assignableAgents, headerAgentQuery]);
 
   const allPlayers = useMemo(() => customers.filter((c) => c.role === 'user'), [customers]);
+  const allPlayersWithDuplicateFlags = useMemo(() => annotateDuplicatePlayers(allPlayers), [allPlayers]);
 
   const selectedHeaderAgent = assignableAgents.find((a) => resolveId(a.id || a._id) === resolveId(selectedHeaderAgentId));
   const isMasterSelection = !!selectedHeaderAgent && (selectedHeaderAgent.role === 'master_agent' || selectedHeaderAgent.role === 'super_agent');
@@ -919,13 +940,13 @@ function CustomerAdminView({ onViewChange }) {
   }, [isMasterSelection, assignableAgents, selectedHeaderAgentNormalizedId]);
 
   const filteredCustomers = useMemo(() => {
-    let scopedPlayers = allPlayers;
+    let scopedPlayers = allPlayersWithDuplicateFlags;
     if (selectedHeaderAgentId) {
       if (!isMasterSelection) {
-        scopedPlayers = allPlayers.filter((c) => resolveId(c.agentId) === selectedHeaderAgentNormalizedId);
+        scopedPlayers = allPlayersWithDuplicateFlags.filter((c) => resolveId(c.agentId) === selectedHeaderAgentNormalizedId);
       } else {
         const childAgentIds = new Set(selectedMasterChildAgents.map((a) => resolveId(a.id || a._id)).filter(Boolean));
-        scopedPlayers = allPlayers.filter((c) => childAgentIds.has(resolveId(c.agentId)));
+        scopedPlayers = allPlayersWithDuplicateFlags.filter((c) => childAgentIds.has(resolveId(c.agentId)));
       }
     }
 
@@ -937,23 +958,83 @@ function CustomerAdminView({ onViewChange }) {
     return [...filtered].sort((a, b) => {
       return alphaNumericCompare(String(a?.username || ''), String(b?.username || ''));
     });
-  }, [selectedHeaderAgentId, isMasterSelection, allPlayers, selectedMasterChildAgents, selectedHeaderAgentNormalizedId, showImportedOnly, importedUsernames]);
+  }, [selectedHeaderAgentId, isMasterSelection, allPlayersWithDuplicateFlags, selectedMasterChildAgents, selectedHeaderAgentNormalizedId, showImportedOnly, importedUsernames]);
+
+  const hierarchyRootLabel = useMemo(() => {
+    const normalizedActorUsername = String(adminUsername || '').trim().toUpperCase();
+    if (currentRole === 'admin') return 'ADMIN';
+    if (currentRole === 'master_agent' || currentRole === 'super_agent') return normalizedActorUsername || 'MASTER';
+    if (currentRole === 'agent') return normalizedActorUsername || 'AGENT';
+    return '';
+  }, [adminUsername, currentRole]);
 
   const displayRows = useMemo(() => {
-    if (!isMasterSelection) {
-      return filteredCustomers.map((player) => ({ type: 'player', player }));
-    }
+    const agentMap = new Map();
+    assignableAgents.forEach((agent) => {
+      const id = resolveId(agent.id || agent._id);
+      if (!id) return;
+      agentMap.set(id, agent);
+    });
 
+    const resolveHierarchyPath = (player) => {
+      const assignedAgentId = resolveId(player?.agentId);
+      if (!assignedAgentId) {
+        return 'UNASSIGNED';
+      }
+
+      const chainBottomUp = [];
+      let cursor = assignedAgentId;
+      const visited = new Set();
+      while (cursor && !visited.has(cursor)) {
+        visited.add(cursor);
+        const doc = agentMap.get(cursor);
+        if (!doc) {
+          break;
+        }
+
+        const username = String(doc.username || '').trim().toUpperCase();
+        if (username) {
+          chainBottomUp.push(username);
+        }
+
+        const createdByModel = String(doc.createdByModel || '');
+        const parentId = resolveId(doc.createdBy);
+        if (createdByModel !== 'Agent' || !parentId) {
+          break;
+        }
+        cursor = parentId;
+      }
+
+      const chainTopDown = chainBottomUp.reverse().filter(Boolean);
+      if (chainTopDown.length === 0) {
+        return hierarchyRootLabel ? `${hierarchyRootLabel} / UNASSIGNED` : 'UNASSIGNED';
+      }
+      if (hierarchyRootLabel && chainTopDown[0] !== hierarchyRootLabel) {
+        return `${hierarchyRootLabel} / ${chainTopDown.join(' / ')}`;
+      }
+      return chainTopDown.join(' / ');
+    };
+
+    const grouped = new Map();
+    filteredCustomers.forEach((player) => {
+      const hierarchyPath = resolveHierarchyPath(player);
+      if (!grouped.has(hierarchyPath)) {
+        grouped.set(hierarchyPath, []);
+      }
+      grouped.get(hierarchyPath).push(player);
+    });
+
+    const groupEntries = Array.from(grouped.entries()).sort(([aLabel], [bLabel]) => alphaNumericCompare(aLabel, bLabel));
     const rows = [];
-    selectedMasterChildAgents.forEach((agent) => {
-      const agentId = resolveId(agent.id || agent._id);
-      const players = filteredCustomers.filter((p) => resolveId(p.agentId) === agentId);
-      rows.push({ type: 'group', label: agent.username });
-      players.forEach((player) => rows.push({ type: 'player', player }));
+    groupEntries.forEach(([hierarchyPath, players]) => {
+      rows.push({ type: 'group', label: hierarchyPath });
+      [...players]
+        .sort((a, b) => alphaNumericCompare(String(a?.username || ''), String(b?.username || '')))
+        .forEach((player) => rows.push({ type: 'player', player, hierarchyPath }));
     });
 
     return rows;
-  }, [isMasterSelection, filteredCustomers, selectedMasterChildAgents]);
+  }, [assignableAgents, filteredCustomers, hierarchyRootLabel]);
 
   const visiblePlayers = filteredCustomers;
 
@@ -1466,6 +1547,23 @@ function CustomerAdminView({ onViewChange }) {
           <span>Loading Entries...</span>
         </div>}
         {error && <div className="error-state">{error}</div>}
+        {duplicateWarning && (
+          <div className="duplicate-warning-state">
+            <div className="duplicate-warning-title">Duplicate Player</div>
+            <div className="duplicate-warning-message">{duplicateWarning.message}</div>
+            {duplicateWarning.matches.length > 0 && (
+              <div className="duplicate-warning-list">
+                {duplicateWarning.matches.map((match, idx) => (
+                  <div key={`${match.id || match.username || 'duplicate'}-${idx}`} className="duplicate-warning-item">
+                    <strong>{String(match.username || 'UNKNOWN')}</strong>
+                    <span>{String(match.fullName || 'No name')}</span>
+                    <span>{String(match.phoneNumber || 'No phone')}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
         {importSummary && <div className="success-state">{importSummary}</div>}
         {importedUsernames.length > 0 && (
           <div className="success-state" style={{ marginTop: '8px' }}>
@@ -1949,11 +2047,17 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
 
                         return (
                           <React.Fragment key={customerId}>
-                            <tr className={`customer-row role-${customer.role}`}>
+                            <tr className={`customer-row role-${customer.role} ${customer.isDuplicatePlayer ? 'is-duplicate-player' : ''}`}>
                               <td className="user-cell">
-                                <button className="user-link-btn" onClick={() => handleViewDetails(customer)}>
-                                  <span className="customer-username">{customer.username.toUpperCase()}</span>
-                                </button>
+                                <div className="user-cell-main">
+                                  <button className="user-link-btn" onClick={() => handleViewDetails(customer)}>
+                                    <span className="customer-username">{customer.username.toUpperCase()}</span>
+                                  </button>
+                                  {customer.isDuplicatePlayer && (
+                                    <span className="duplicate-player-badge">Duplicate Player</span>
+                                  )}
+                                  <span className="customer-tree-path">{String(row.hierarchyPath || 'UNASSIGNED').toUpperCase()}</span>
+                                </div>
                                 {customer.role === 'user' && (
                                   <button className="row-expand-btn" type="button" onClick={() => toggleRowExpanded(customer)}>
                                     {isExpanded ? '⌄' : '›'}
@@ -2546,6 +2650,48 @@ I need active players so if you could do me a solid and place a bet today even i
           color: #64748b;
           font-size: 12px;
         }
+        .duplicate-warning-state {
+          border: 1px solid #f1d178;
+          border-radius: 10px;
+          background: #fff8dd;
+          color: #6b4e00;
+          padding: 12px;
+          margin-bottom: 10px;
+        }
+        .duplicate-warning-title {
+          font-size: 13px;
+          font-weight: 800;
+          text-transform: uppercase;
+          letter-spacing: 0.3px;
+          margin-bottom: 4px;
+        }
+        .duplicate-warning-message {
+          font-size: 13px;
+          line-height: 1.4;
+          margin-bottom: 8px;
+        }
+        .duplicate-warning-list {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+        }
+        .duplicate-warning-item {
+          display: grid;
+          grid-template-columns: minmax(78px, auto) 1fr;
+          gap: 2px 10px;
+          border: 1px solid #ecd28b;
+          border-radius: 8px;
+          background: #fffdf2;
+          padding: 8px 10px;
+          font-size: 12px;
+          line-height: 1.25;
+        }
+        .duplicate-warning-item strong {
+          color: #4f3200;
+        }
+        .duplicate-warning-item span:last-child {
+          color: #6f5400;
+        }
 
         .table-glass-container {
           background: rgba(30, 41, 59, 0.3); border: 1px solid rgba(255,255,255,0.05);
@@ -2570,6 +2716,27 @@ I need active players so if you could do me a solid and place a bet today even i
           align-items: center;
           justify-content: space-between;
           gap: 6px;
+        }
+        .user-cell-main {
+          min-width: 0;
+          display: flex;
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 3px;
+        }
+        .duplicate-player-badge {
+          display: inline-flex;
+          align-items: center;
+          width: fit-content;
+          padding: 2px 8px;
+          border-radius: 999px;
+          font-size: 10px;
+          font-weight: 800;
+          letter-spacing: 0.25px;
+          text-transform: uppercase;
+          color: #5f4200;
+          background: #ffe58a;
+          border: 1px solid #e3c14f;
         }
         .expanded-detail-row td {
           background: #f0f6b3;
@@ -2622,6 +2789,14 @@ I need active players so if you could do me a solid and place a bet today even i
         .premium-table th { text-align: left; padding: 12px 16px; font-size: 11px; text-transform: uppercase; color: #64748b; font-weight: 800; }
         .customer-row { background: rgba(255,255,255,0.02); transition: all 0.2s; }
         .customer-row:hover { background: rgba(255,255,255,0.05); transform: translateY(-1px); }
+        .customer-row.is-duplicate-player td {
+          background: #fff9c9;
+          border-top-color: #ecd48a;
+          border-bottom-color: #ecd48a;
+        }
+        .customer-row.is-duplicate-player:hover td {
+          background: #fff3aa;
+        }
         .customer-row td { padding: 16px; border-top: 1px solid rgba(255,255,255,0.02); border-bottom: 1px solid rgba(255,255,255,0.02); }
         .customer-row td:first-child { border-left: 1px solid rgba(255,255,255,0.02); border-radius: 12px 0 0 12px; }
         .customer-row td:last-child { border-right: 1px solid rgba(255,255,255,0.02); border-radius: 0 12px 12px 0; }
@@ -2631,6 +2806,18 @@ I need active players so if you could do me a solid and place a bet today even i
           font-weight: 700;
           letter-spacing: 0.3px;
           padding: 9px 12px;
+          text-transform: uppercase;
+          font-size: 12px;
+        }
+        .customer-tree-path {
+          color: #64748b;
+          font-size: 10px;
+          font-weight: 700;
+          letter-spacing: 0.25px;
+          text-transform: uppercase;
+          line-height: 1.2;
+          word-break: break-word;
+          max-width: 260px;
         }
 
         .user-link-btn {
@@ -2775,6 +2962,10 @@ I need active players so if you could do me a solid and place a bet today even i
         .cap-dot { width: 6px; height: 6px; border-radius: 50%; background: #10b981; }
 
         @media (max-width: 768px) {
+          .duplicate-warning-item {
+            grid-template-columns: 1fr;
+            gap: 3px;
+          }
           .premium-admin-theme {
             padding: 12px;
           }

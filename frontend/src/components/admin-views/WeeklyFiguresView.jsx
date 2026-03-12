@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { getWeeklyFigures } from '../../api';
+import { annotateDuplicatePlayers } from '../../utils/duplicatePlayers';
 
 const WEEK_OPTIONS = [
   { value: 'this-week', label: 'This Week' },
@@ -14,7 +15,7 @@ const FILTER_OPTIONS = [
   {
     value: 'all-players',
     label: 'All Players',
-    description: 'Shows every single player in the selected week.',
+    description: 'Shows all players in the selected week scope.',
   },
   {
     value: 'active-week',
@@ -29,52 +30,50 @@ const FILTER_OPTIONS = [
   {
     value: 'big-figures',
     label: 'Big Figures',
-    description: 'Shows players up or down at least $1,000 for the week.',
-  },
-  {
-    value: 'over-settle',
-    label: 'Over Settle',
-    description: 'Shows players whose balance is at or above their settle limit.',
+    description: 'Shows players with balance greater than $1,000.',
   },
   {
     value: 'over-settle-winners',
-    label: 'Over settle winners (highest to lowest)',
-    description: 'Shows over-settle winners sorted highest to lowest balance.',
+    label: 'Over Settle Winners',
+    description: 'Shows over-settle winners.',
   },
   {
     value: 'over-settle-losers',
-    label: 'Over settle losers (highest to lowest)',
-    description: 'Shows over-settle losers sorted highest to lowest by loss amount.',
+    label: 'Over Settle Losers',
+    description: 'Shows over-settle losers.',
   },
   {
     value: 'inactive-losers-14d',
-    label: 'Inactive losers 14 days (highest to lowest, losers only)',
-    description: 'Shows inactive losers (14+ days) sorted highest to lowest by loss amount.',
-  },
-  {
-    value: 'lifetime-winners',
-    label: 'Lifetime winners (highest to lowest)',
-    description: 'Shows lifetime winners sorted highest to lowest.',
-  },
-  {
-    value: 'lifetime-losers',
-    label: 'Lifetime losers (highest to lowest)',
-    description: 'Shows lifetime losers sorted highest to lowest by loss amount.',
-  },
-  {
-    value: 'summary',
-    label: 'Summary',
-    description: 'Shows the full profit and loss summary for the selected week.',
+    label: 'Inactive Losers 14 Days',
+    description: 'Shows inactive losers (14+ days).',
   },
 ];
 
+const parseNumericAmount = (value) => {
+  const direct = Number(value);
+  if (Number.isFinite(direct)) return direct;
+  if (typeof value === 'string') {
+    const sanitized = value.replace(/[^0-9.-]/g, '');
+    const parsed = Number(sanitized);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return 0;
+};
+
+const getLifetimePerformance = (customer) => {
+  const value = customer?.lifetimePerformance
+    ?? customer?.lifetimePlusMinus
+    ?? customer?.lifetime
+    ?? 0;
+  return parseNumericAmount(value);
+};
+
 function WeeklyFiguresView({ onViewChange = null }) {
   const [timePeriod, setTimePeriod] = useState('this-week');
-  const [playerFilter, setPlayerFilter] = useState('all-players');
+  const [playerFilter, setPlayerFilter] = useState('active-week');
   const [summaryData, setSummaryData] = useState(null);
   const [customers, setCustomers] = useState([]);
   const [selectedDayIndex, setSelectedDayIndex] = useState(0);
-  const [mobileAgentSearch, setMobileAgentSearch] = useState('');
   const [isMobile, setIsMobile] = useState(() => (
     typeof window !== 'undefined' ? window.innerWidth <= 768 : false
   ));
@@ -84,6 +83,7 @@ function WeeklyFiguresView({ onViewChange = null }) {
     () => new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' }),
     []
   );
+  const isOverSettleView = playerFilter === 'over-settle-winners' || playerFilter === 'over-settle-losers';
 
   const roundForDisplay = (value) => {
     if (value === null || value === undefined) return null;
@@ -150,21 +150,19 @@ function WeeklyFiguresView({ onViewChange = null }) {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  useEffect(() => {
-    if (playerFilter !== 'all-players') {
-      setMobileAgentSearch('');
-    }
-  }, [playerFilter]);
+  const customersWithDuplicateFlags = useMemo(() => annotateDuplicatePlayers(customers), [customers]);
 
-  const filteredCustomers = useMemo(() => customers.filter((customer) => {
+  const matchesFilter = (customer) => {
     const balance = Number(customer.balance || 0);
     const week = Number(customer.week || 0);
-    const lifetime = Number(customer.lifetime || 0);
     const settleLimit = Math.abs(Number(customer.settleLimit ?? customer.balanceOwed ?? 0));
     const activeThisWeek = Array.isArray(customer.daily)
       ? customer.daily.some((value) => Math.abs(Number(value || 0)) > 0.01)
       : Math.abs(week) > 0.01;
 
+    if (playerFilter === 'all-players') {
+      return true;
+    }
     if (playerFilter === 'with-balance') {
       return Math.abs(balance) > 0.01;
     }
@@ -172,11 +170,7 @@ function WeeklyFiguresView({ onViewChange = null }) {
       return activeThisWeek;
     }
     if (playerFilter === 'big-figures') {
-      return Math.abs(week) >= 1000;
-    }
-    if (playerFilter === 'over-settle') {
-      if (settleLimit <= 0.01) return false;
-      return Math.abs(balance) >= settleLimit;
+      return balance > 1000;
     }
     if (playerFilter === 'over-settle-winners') {
       if (settleLimit <= 0.01) return false;
@@ -189,17 +183,19 @@ function WeeklyFiguresView({ onViewChange = null }) {
     if (playerFilter === 'inactive-losers-14d') {
       return isInactiveFor14Days(customer) && balance < -0.01;
     }
-    if (playerFilter === 'lifetime-winners') {
-      return lifetime > 0.01;
-    }
-    if (playerFilter === 'lifetime-losers') {
-      return lifetime < -0.01;
-    }
-    if (playerFilter === 'summary') {
-      return false;
-    }
     return true;
-  }), [customers, playerFilter]);
+  };
+
+  const customersWithFilterState = useMemo(() => (
+    customersWithDuplicateFlags.map((customer) => ({
+      ...customer,
+      matchesSelectedFilter: matchesFilter(customer),
+    }))
+  ), [customersWithDuplicateFlags, playerFilter]);
+
+  const filteredCustomers = useMemo(() => (
+    customersWithFilterState.filter((customer) => customer.matchesSelectedFilter)
+  ), [customersWithFilterState]);
 
   const customerComparator = useMemo(() => {
     return (a, b) => {
@@ -215,15 +211,6 @@ function WeeklyFiguresView({ onViewChange = null }) {
         const diff = Math.abs(Number(b?.balance || 0)) - Math.abs(Number(a?.balance || 0));
         return diff !== 0 ? diff : usernameFallback;
       }
-      if (playerFilter === 'lifetime-winners') {
-        const diff = Number(b?.lifetime || 0) - Number(a?.lifetime || 0);
-        return diff !== 0 ? diff : usernameFallback;
-      }
-      if (playerFilter === 'lifetime-losers') {
-        const diff = Math.abs(Number(b?.lifetime || 0)) - Math.abs(Number(a?.lifetime || 0));
-        return diff !== 0 ? diff : usernameFallback;
-      }
-
       return usernameFallback;
     };
   }, [collator, playerFilter]);
@@ -240,7 +227,6 @@ function WeeklyFiguresView({ onViewChange = null }) {
   };
 
   const activeFilter = FILTER_OPTIONS.find((option) => option.value === playerFilter) || FILTER_OPTIONS[0];
-  const showSummaryOnly = playerFilter === 'summary';
   const summaryDays = Array.isArray(summaryData?.days) ? summaryData.days : [];
 
   useEffect(() => {
@@ -272,7 +258,6 @@ function WeeklyFiguresView({ onViewChange = null }) {
         hierarchy: {
           path: hierarchyPath,
           directAgent,
-          searchValue: `${hierarchyPath} ${directAgent}`.toLowerCase(),
         },
       };
     });
@@ -280,7 +265,6 @@ function WeeklyFiguresView({ onViewChange = null }) {
 
   const mobileGroupedCustomers = useMemo(() => {
     const groupsMap = new Map();
-    const searchNeedle = mobileAgentSearch.trim().toLowerCase();
 
     mobileDecoratedCustomers.forEach((customer) => {
       const hierarchy = customer.hierarchy || {};
@@ -291,7 +275,6 @@ function WeeklyFiguresView({ onViewChange = null }) {
         groupsMap.set(key, {
           key,
           hierarchyLabel: hierarchyPath,
-          searchValue: String(hierarchy.searchValue || '').trim().toLowerCase(),
           customers: [],
         });
       }
@@ -305,17 +288,17 @@ function WeeklyFiguresView({ onViewChange = null }) {
 
     groups = groups.sort((a, b) => collator.compare(a.hierarchyLabel, b.hierarchyLabel));
 
-    if (searchNeedle !== '') {
-      groups = groups.filter((group) => group.searchValue.includes(searchNeedle));
-    }
-
     groups = groups.map((group) => {
       const dayTotal = group.customers.reduce((sum, customer) => {
         const amount = Number(customer?.daily?.[selectedDayIndex] ?? 0);
         return sum + (Number.isNaN(amount) ? 0 : amount);
       }, 0);
       const balanceTotal = group.customers.reduce((sum, customer) => {
-        const amount = Number(customer?.balance ?? 0);
+        const amount = parseNumericAmount(customer?.balance ?? 0);
+        return sum + (Number.isNaN(amount) ? 0 : amount);
+      }, 0);
+      const lifetimeTotal = group.customers.reduce((sum, customer) => {
+        const amount = getLifetimePerformance(customer);
         return sum + (Number.isNaN(amount) ? 0 : amount);
       }, 0);
 
@@ -325,15 +308,16 @@ function WeeklyFiguresView({ onViewChange = null }) {
           players: group.customers.length,
           day: dayTotal,
           balance: balanceTotal,
+          lifetime: lifetimeTotal,
         },
       };
     });
 
     return groups;
-  }, [collator, customerComparator, mobileAgentSearch, mobileDecoratedCustomers, selectedDayIndex]);
+  }, [collator, customerComparator, mobileDecoratedCustomers, selectedDayIndex]);
 
   const selectedDayLabel = summaryDays[selectedDayIndex]?.day || 'Day';
-  const selectedDayShortLabel = String(selectedDayLabel || 'Day').split(' ')[0];
+  const selectedMetricLabel = summaryDays.length > 0 ? selectedDayLabel : 'Selected Metric';
 
   const changeDay = (direction) => {
     if (!Array.isArray(summaryDays) || summaryDays.length === 0) return;
@@ -357,18 +341,26 @@ function WeeklyFiguresView({ onViewChange = null }) {
     return formatMoney(value);
   };
 
-  const mobileOverviewTotals = useMemo(() => {
-    const players = mobileDecoratedCustomers.length;
-    const day = mobileDecoratedCustomers.reduce((sum, customer) => {
-      const value = Number(customer?.daily?.[selectedDayIndex] ?? 0);
-      return sum + (Number.isNaN(value) ? 0 : value);
+  const visibleCustomers = useMemo(() => {
+    if (!isMobile) {
+      return sortedCustomers;
+    }
+    return mobileGroupedCustomers.flatMap((group) => group.customers || []);
+  }, [isMobile, mobileGroupedCustomers, sortedCustomers]);
+
+  const dynamicSummary = useMemo(() => {
+    const playerCount = visibleCustomers.length;
+    const selectedMetricTotal = visibleCustomers.reduce((sum, customer) => {
+      return sum + getCustomerSelectedDayAmount(customer);
     }, 0);
-    const balance = mobileDecoratedCustomers.reduce((sum, customer) => {
-      const value = Number(customer?.balance ?? 0);
-      return sum + (Number.isNaN(value) ? 0 : value);
+    const balanceTotal = visibleCustomers.reduce((sum, customer) => {
+      return sum + parseNumericAmount(customer?.balance ?? 0);
     }, 0);
-    return { players, day, balance };
-  }, [mobileDecoratedCustomers, selectedDayIndex]);
+    const lifetimeTotal = visibleCustomers.reduce((sum, customer) => {
+      return sum + getLifetimePerformance(customer);
+    }, 0);
+    return { playerCount, selectedMetricTotal, balanceTotal, lifetimeTotal };
+  }, [visibleCustomers, selectedDayIndex]);
 
   const renderDayToggle = () => {
     if (!isMobile || summaryDays.length === 0) return null;
@@ -456,214 +448,135 @@ function WeeklyFiguresView({ onViewChange = null }) {
           <>
             <div className="weekly-filter-description">{activeFilter.description}</div>
 
-            {showSummaryOnly ? (
-              <div className="summary-section">
-                <div className="summary-header">
-                  <h3>Weekly Summary</h3>
-                </div>
-                {isMobile ? (
+            <div className="summary-section">
+              <div className="summary-header">
+                <h3>Summary</h3>
+              </div>
+              {!isOverSettleView && renderDayToggle()}
+              <div className="weekly-summary-metrics">
+                {isOverSettleView ? (
                   <>
-                    {renderDayToggle()}
-                    <div className="weekly-mobile-summary-grid">
-                      <div className="weekly-mobile-summary-card">
-                        <span className="weekly-mobile-summary-label">{selectedDayShortLabel}</span>
-                        <strong className={`weekly-amount ${getSignedValueClass(summaryDays[selectedDayIndex]?.amount ?? 0)}`}>
-                          {formatMoney(summaryDays[selectedDayIndex]?.amount ?? 0)}
-                        </strong>
-                      </div>
-                      <div className="weekly-mobile-summary-card">
-                        <span className="weekly-mobile-summary-label">Week Total</span>
-                        <strong className={`weekly-amount ${getSignedValueClass(summaryData.weekTotal)}`}>
-                          {formatMoney(summaryData.weekTotal)}
-                        </strong>
-                      </div>
-                      <div className="weekly-mobile-summary-card">
-                        <span className="weekly-mobile-summary-label">Balances</span>
-                        <strong className={`weekly-amount ${getSignedValueClass(summaryData.balanceTotal)}`}>
-                          {formatMoney(summaryData.balanceTotal)}
-                        </strong>
-                      </div>
-                      <div className="weekly-mobile-summary-card">
-                        <span className="weekly-mobile-summary-label">Pending</span>
-                        <strong className={`weekly-amount ${getSignedValueClass(summaryData.pendingTotal)}`}>
-                          {formatMoney(summaryData.pendingTotal)}
-                        </strong>
-                      </div>
-                      <div className="weekly-mobile-summary-card">
-                        <span className="weekly-mobile-summary-label">Total Players</span>
-                        <strong>{summaryData.totalPlayers ?? 0}</strong>
-                      </div>
+                    <div className="weekly-summary-metric-card">
+                      <span className="weekly-summary-metric-label">Balance Total</span>
+                      <strong className={`weekly-amount ${getSignedValueClass(dynamicSummary.balanceTotal)}`}>
+                        {formatMoney(dynamicSummary.balanceTotal)}
+                      </strong>
+                    </div>
+                    <div className="weekly-summary-metric-card">
+                      <span className="weekly-summary-metric-label">Lifetime Total</span>
+                      <strong className={`weekly-amount ${getSignedValueClass(dynamicSummary.lifetimeTotal)}`}>
+                        {formatMoney(dynamicSummary.lifetimeTotal)}
+                      </strong>
                     </div>
                   </>
                 ) : (
-                  <div className="table-container scrollable">
-                    <table className="summary-table">
-                      <thead>
-                        <tr>
-                          <th>Metric</th>
-                          {summaryDays.map((day, idx) => (
-                            <th key={idx}>{day.day}</th>
-                          ))}
-                          <th>Total</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr>
-                          <td>Profit / Loss</td>
-                          {summaryDays.map((day, idx) => (
-                            <td key={idx} className={`weekly-amount ${getSignedValueClass(day.amount)}`}>{formatMoney(day.amount)}</td>
-                          ))}
-                          <td className={`weekly-amount ${getSignedValueClass(summaryData.weekTotal)}`}>{formatMoney(summaryData.weekTotal)}</td>
-                        </tr>
-                        <tr>
-                          <td>Player Balances</td>
-                          {summaryDays.map((_, idx) => (
-                            <td key={idx}>—</td>
-                          ))}
-                          <td className={`weekly-amount ${getSignedValueClass(summaryData.balanceTotal)}`}>{formatMoney(summaryData.balanceTotal)}</td>
-                        </tr>
-                        <tr>
-                          <td>Pending</td>
-                          {summaryDays.map((_, idx) => (
-                            <td key={idx}>—</td>
-                          ))}
-                          <td className={`weekly-amount ${getSignedValueClass(summaryData.pendingTotal)}`}>{formatMoney(summaryData.pendingTotal)}</td>
-                        </tr>
-                        <tr>
-                          <td>Total Players</td>
-                          {summaryDays.map((_, idx) => (
-                            <td key={idx}>—</td>
-                          ))}
-                          <td>{summaryData.totalPlayers ?? 0}</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
+                  <>
+                    <div className="weekly-summary-metric-card">
+                      <span className="weekly-summary-metric-label">{selectedMetricLabel} Total</span>
+                      <strong className={`weekly-amount ${getSignedValueClass(dynamicSummary.selectedMetricTotal)}`}>
+                        {formatMoney(dynamicSummary.selectedMetricTotal)}
+                      </strong>
+                    </div>
+                    <div className="weekly-summary-metric-card">
+                      <span className="weekly-summary-metric-label">Balance Total</span>
+                      <strong className={`weekly-amount ${getSignedValueClass(dynamicSummary.balanceTotal)}`}>
+                        {formatMoney(dynamicSummary.balanceTotal)}
+                      </strong>
+                    </div>
+                  </>
                 )}
-
-                <div className="dead-agents-row">
-                  <span>Suspended / Dead Accounts</span>
-                  <span className="value">{summaryData.deadAccounts ?? 0}</span>
+                <div className="weekly-summary-metric-card">
+                  <span className="weekly-summary-metric-label">Players</span>
+                  <strong>{dynamicSummary.playerCount} Players</strong>
                 </div>
               </div>
-            ) : (
-              <div className="customer-section">
-                <div className="section-header">
-                  <h3>{activeFilter.label}</h3>
-                </div>
-                {isMobile ? (
-                  <div className="weekly-mobile-customer-shell">
-                    {playerFilter === 'all-players' && (
-                      <div className="weekly-mobile-agent-search-wrap">
-                        <label htmlFor="weekly-agent-search">Search Agents</label>
-                        <input
-                          id="weekly-agent-search"
-                          type="text"
-                          value={mobileAgentSearch}
-                          onChange={(e) => setMobileAgentSearch(e.target.value)}
-                          placeholder="Find agent groups..."
-                          className="weekly-mobile-agent-search-input"
-                        />
-                      </div>
-                    )}
+            </div>
 
-                    <div className="weekly-mobile-groups">
-                      <section className="weekly-mobile-table-block weekly-mobile-overview-block">
+            <div className="customer-section">
+              <div className="section-header">
+                <h3>{activeFilter.label}</h3>
+              </div>
+              {isMobile ? (
+                <div className="weekly-mobile-customer-shell">
+                  <div className="weekly-mobile-groups">
+                    {mobileGroupedCustomers.length > 0 ? mobileGroupedCustomers.map((group) => (
+                      <section key={group.key} className="weekly-mobile-group weekly-mobile-table-block">
+                        <div className="weekly-mobile-hierarchy">{group.hierarchyLabel}</div>
                         <div className="weekly-mobile-table-head">
-                          <span>Summary</span>
-                          <span>{selectedDayLabel}</span>
-                          <span>Balance</span>
+                          <span>Customer</span>
+                          {isOverSettleView ? <span>Balance</span> : renderInlineDayToggle()}
+                          <span>{isOverSettleView ? 'Lifetime' : 'Balance'}</span>
                         </div>
-                        <div className="weekly-mobile-table-row weekly-mobile-overview-row">
-                          <div className="weekly-mobile-customer-cell">
-                            <strong>{mobileOverviewTotals.players} Players</strong>
-                          </div>
-                          <div className={`weekly-mobile-day-cell ${getSignedValueClass(mobileOverviewTotals.day)}`}>
-                            {formatMobileCellNumber(mobileOverviewTotals.day)}
-                          </div>
-                          <div className={`weekly-mobile-balance-cell ${getSignedValueClass(mobileOverviewTotals.balance)}`}>
-                            {formatMobileCellNumber(mobileOverviewTotals.balance)}
+                        <div className="weekly-mobile-rows">
+                          {group.customers.map((customer, rowIdx) => {
+                            const dayValue = getCustomerSelectedDayAmount(customer);
+                            const balanceValue = parseNumericAmount(customer?.balance ?? 0);
+                            const lifetimeValue = getLifetimePerformance(customer);
+                            return (
+                              <div
+                                key={`${group.key}-${String(customer.id || customer.username || rowIdx)}`}
+                                className={`weekly-mobile-table-row ${customer.isDuplicatePlayer ? 'weekly-duplicate-row' : ''}`}
+                              >
+                                <div className="weekly-mobile-customer-cell weekly-mobile-user">
+                                  {customer.id && typeof onViewChange === 'function' ? (
+                                    <button
+                                      type="button"
+                                      className="customer-username customer-username-button"
+                                      onClick={() => openCustomerDetails(customer.id)}
+                                    >
+                                      {customer.username}
+                                    </button>
+                                  ) : (
+                                    <strong className="customer-username">{customer.username}</strong>
+                                  )}
+                                  <span className="weekly-mobile-fullname">{customer.name || '—'}</span>
+                                  {customer.isDuplicatePlayer && (
+                                    <span className="duplicate-player-badge">Duplicate Player</span>
+                                  )}
+                                </div>
+                                <div className={`weekly-mobile-day-cell ${getSignedValueClass(isOverSettleView ? balanceValue : dayValue)}`}>
+                                  {formatMobileCellNumber(isOverSettleView ? balanceValue : dayValue)}
+                                </div>
+                                <div className={`weekly-mobile-balance-cell ${getSignedValueClass(isOverSettleView ? lifetimeValue : balanceValue)}`}>
+                                  {formatMobileCellNumber(isOverSettleView ? lifetimeValue : balanceValue)}
+                                </div>
+                              </div>
+                            );
+                          })}
+                          <div className="weekly-mobile-table-row weekly-mobile-group-total-row">
+                            <div className="weekly-mobile-customer-cell">
+                              <strong>{group.totals.players} Players</strong>
+                            </div>
+                            <div className={`weekly-mobile-day-cell ${getSignedValueClass(isOverSettleView ? group.totals.balance : group.totals.day)}`}>
+                              {formatMobileCellNumber(isOverSettleView ? group.totals.balance : group.totals.day)}
+                            </div>
+                            <div className={`weekly-mobile-balance-cell ${getSignedValueClass(isOverSettleView ? group.totals.lifetime : group.totals.balance)}`}>
+                              {formatMobileCellNumber(isOverSettleView ? group.totals.lifetime : group.totals.balance)}
+                            </div>
                           </div>
                         </div>
                       </section>
-
-                      {mobileGroupedCustomers.length > 0 ? mobileGroupedCustomers.map((group) => (
-                        <section key={group.key} className="weekly-mobile-group weekly-mobile-table-block">
-                          <div className="weekly-mobile-hierarchy">{group.hierarchyLabel}</div>
-                          <div className="weekly-mobile-table-head">
-                            <span>Customer</span>
-                            {renderInlineDayToggle()}
-                            <span>Balance</span>
-                          </div>
-                          <div className="weekly-mobile-rows">
-                            {group.customers.map((customer, rowIdx) => {
-                              const dayValue = getCustomerSelectedDayAmount(customer);
-                              const balanceValue = Number(customer.balance || 0);
-                              return (
-                                <div key={`${group.key}-${String(customer.id || customer.username || rowIdx)}`} className="weekly-mobile-table-row">
-                                  <div className="weekly-mobile-customer-cell weekly-mobile-user">
-                                    {customer.id && typeof onViewChange === 'function' ? (
-                                      <button
-                                        type="button"
-                                        className="customer-username customer-username-button"
-                                        onClick={() => openCustomerDetails(customer.id)}
-                                      >
-                                        {customer.username}
-                                      </button>
-                                    ) : (
-                                      <strong className="customer-username">{customer.username}</strong>
-                                    )}
-                                    <span className="weekly-mobile-fullname">{customer.name || '—'}</span>
-                                  </div>
-                                  <div className={`weekly-mobile-day-cell ${getSignedValueClass(dayValue)}`}>
-                                    {formatMobileCellNumber(dayValue)}
-                                  </div>
-                                  <div className={`weekly-mobile-balance-cell ${getSignedValueClass(balanceValue)}`}>
-                                    {formatMobileCellNumber(balanceValue)}
-                                  </div>
-                                </div>
-                              );
-                            })}
-                            <div className="weekly-mobile-table-row weekly-mobile-group-total-row">
-                              <div className="weekly-mobile-customer-cell">
-                                <strong>{group.totals.players} Players</strong>
-                              </div>
-                              <div className={`weekly-mobile-day-cell ${getSignedValueClass(group.totals.day)}`}>
-                                {formatMobileCellNumber(group.totals.day)}
-                              </div>
-                              <div className={`weekly-mobile-balance-cell ${getSignedValueClass(group.totals.balance)}`}>
-                                {formatMobileCellNumber(group.totals.balance)}
-                              </div>
-                            </div>
-                          </div>
-                        </section>
-                      )) : (
-                        <div className="weekly-empty-state">
-                          {mobileAgentSearch.trim()
-                            ? 'No agent groups matched your search.'
-                            : 'No players matched this filter.'}
-                        </div>
-                      )}
-                    </div>
+                    )) : (
+                      <div className="weekly-empty-state">
+                        No players matched this filter.
+                      </div>
+                    )}
                   </div>
-                ) : (
-                  <div className="table-container scrollable">
+                </div>
+              ) : (
+                <div className="table-container scrollable">
+                  {isOverSettleView ? (
                     <table className="data-table customer-table">
                       <thead>
                         <tr>
                           <th>Customer</th>
-                          <th>Carry</th>
-                          {summaryDays.map((day, idx) => (
-                            <th key={idx}>{day.day}</th>
-                          ))}
-                          <th>Week</th>
                           <th>Balance</th>
-                          <th>Pending</th>
+                          <th>Lifetime</th>
                         </tr>
                       </thead>
                       <tbody>
                         {sortedCustomers.length > 0 ? sortedCustomers.map((customer, idx) => (
-                          <tr key={idx}>
+                          <tr key={idx} className={customer.isDuplicatePlayer ? 'weekly-duplicate-row' : ''}>
                             <td>
                               <div className="customer-identity">
                                 {customer.id && typeof onViewChange === 'function' ? (
@@ -680,6 +593,66 @@ function WeeklyFiguresView({ onViewChange = null }) {
                                 <span className="customer-subname">
                                   {customer.name || '—'}
                                 </span>
+                                {customer.isDuplicatePlayer && (
+                                  <span className="duplicate-player-badge">Duplicate Player</span>
+                                )}
+                                <span className="customer-subname">
+                                  {String(customer.agentHierarchyPath || customer.agentUsername || 'UNASSIGNED').toUpperCase()}
+                                </span>
+                              </div>
+                            </td>
+                            <td className={`weekly-amount ${getSignedValueClass(parseNumericAmount(customer?.balance ?? 0))}`}>
+                              {formatMoney(parseNumericAmount(customer?.balance ?? 0))}
+                            </td>
+                            <td className={`weekly-amount ${getSignedValueClass(getLifetimePerformance(customer))}`}>
+                              {formatMoney(getLifetimePerformance(customer))}
+                            </td>
+                          </tr>
+                        )) : (
+                          <tr>
+                            <td colSpan={3} className="weekly-empty-state">
+                              No players matched this filter.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  ) : (
+                    <table className="data-table customer-table">
+                      <thead>
+                        <tr>
+                          <th>Customer</th>
+                          <th>Carry</th>
+                          {summaryDays.map((day, idx) => (
+                            <th key={idx}>{day.day}</th>
+                          ))}
+                          <th>Week</th>
+                          <th>Balance</th>
+                          <th>Pending</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sortedCustomers.length > 0 ? sortedCustomers.map((customer, idx) => (
+                          <tr key={idx} className={customer.isDuplicatePlayer ? 'weekly-duplicate-row' : ''}>
+                            <td>
+                              <div className="customer-identity">
+                                {customer.id && typeof onViewChange === 'function' ? (
+                                  <button
+                                    type="button"
+                                    className="customer-username customer-username-button"
+                                    onClick={() => openCustomerDetails(customer.id)}
+                                  >
+                                    {customer.username}
+                                  </button>
+                                ) : (
+                                  <strong className="customer-username">{customer.username}</strong>
+                                )}
+                                <span className="customer-subname">
+                                  {customer.name || '—'}
+                                </span>
+                                {customer.isDuplicatePlayer && (
+                                  <span className="duplicate-player-badge">Duplicate Player</span>
+                                )}
                                 <span className="customer-subname">
                                   {String(customer.agentHierarchyPath || customer.agentUsername || 'UNASSIGNED').toUpperCase()}
                                 </span>
@@ -692,8 +665,8 @@ function WeeklyFiguresView({ onViewChange = null }) {
                               <td key={dayIdx} className={`weekly-amount ${getSignedValueClass(value)}`}>{formatMoney(value)}</td>
                             ))}
                             <td className={`weekly-amount ${getSignedValueClass(customer.week)}`}>{formatMoney(customer.week)}</td>
-                            <td className={`weekly-amount ${getSignedValueClass(customer.balance)}`}>
-                              {formatMoney(customer.balance)}
+                            <td className={`weekly-amount ${getSignedValueClass(parseNumericAmount(customer?.balance ?? 0))}`}>
+                              {formatMoney(parseNumericAmount(customer?.balance ?? 0))}
                             </td>
                             <td className={`weekly-amount ${getSignedValueClass(customer.pending)}`}>{formatMoney(customer.pending)}</td>
                           </tr>
@@ -706,10 +679,10 @@ function WeeklyFiguresView({ onViewChange = null }) {
                         )}
                       </tbody>
                     </table>
-                  </div>
-                )}
-              </div>
-            )}
+                  )}
+                </div>
+              )}
+            </div>
           </>
         )}
       </div>

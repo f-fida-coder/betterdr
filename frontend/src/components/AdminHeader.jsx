@@ -24,6 +24,7 @@ function AdminHeader({
   const [searchablePlayers, setSearchablePlayers] = useState([]);
   const [summary, setSummary] = useState({
     totalBalance: null,
+    totalOutstanding: null,
     weekNet: null,
     todayNet: null,
     activeAccounts: null
@@ -280,7 +281,7 @@ function AdminHeader({
         ? 'AGENT'
         : 'ADMIN';
   const mobileUserLabel = displayName;
-  const myBalance = profile?.unlimitedBalance ? 'Unlimited' : (profile?.balance ?? null);
+  const headerBalance = summary.totalOutstanding;
 
   // For Admin, show Total Outstanding from all users. For Agent/User, show their own.
   // const isSuperAdmin = profile?.role === 'admin' || profile?.role === 'super_agent' || profile?.role === 'agent';
@@ -486,8 +487,8 @@ function AdminHeader({
             </div>
             <div className="stat-box">
               <span className="stat-label">Balance</span>
-              <span className={`stat-value ${myBalance === 'Unlimited' ? 'neutral' : getSignedValueClass(myBalance)}`}>
-                {myBalance === 'Unlimited' ? 'Unlimited' : formatCurrency(myBalance)}
+              <span className={`stat-value ${getSignedValueClass(headerBalance)}`}>
+                {formatCurrency(headerBalance)}
               </span>
             </div>
           </div>

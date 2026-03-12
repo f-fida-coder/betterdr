@@ -890,27 +890,46 @@ final class AdminCoreController
                 $startOfToday = new DateTimeImmutable('today');
                 $startOfWeek = $this->startOfWeek(new DateTimeImmutable('now'));
 
-                $matchUser = [];
-                $myUserIds = null;
-                if (($actor['role'] ?? '') === 'agent') {
-                    $myUsers = $this->db->findMany('users', ['agentId' => MongoRepository::id((string) $actor['_id'])], ['projection' => ['_id' => 1]]);
-                    $ids = [];
-                    foreach ($myUsers as $u) {
-                        $ids[] = MongoRepository::id((string) $u['_id']);
+                $matchUser = ['role' => 'user'];
+                $actorRole = (string) ($actor['role'] ?? '');
+                if ($actorRole === 'agent') {
+                    $matchUser['agentId'] = MongoRepository::id((string) $actor['_id']);
+                } elseif (in_array($actorRole, ['master_agent', 'super_agent'], true)) {
+                    $managedAgentIds = $this->listManagedAgentIds((string) ($actor['_id'] ?? ''));
+                    $managedAgentObjectIds = [];
+                    foreach ($managedAgentIds as $managedAgentId) {
+                        if (preg_match('/^[a-f0-9]{24}$/i', $managedAgentId) === 1) {
+                            $managedAgentObjectIds[] = MongoRepository::id($managedAgentId);
+                        }
                     }
-                    $myUserIds = $ids;
-                    $matchUser = ['_id' => ['$in' => $ids]];
+
+                    if (count($managedAgentObjectIds) === 0) {
+                        return [
+                            'totalBalance' => 0.0,
+                            'totalOutstanding' => 0.0,
+                            'todayNet' => 0.0,
+                            'weekNet' => 0.0,
+                            'activeAccounts' => 0,
+                            'sportsbookHealth' => SportsbookHealth::sportsbookSnapshot($this->db),
+                        ];
+                    }
+
+                    $matchUser['$or'] = [
+                        ['agentId' => ['$in' => $managedAgentObjectIds]],
+                        ['createdBy' => ['$in' => $managedAgentObjectIds], 'createdByModel' => 'Agent'],
+                    ];
                 }
 
-                $usersForBalance = $this->db->findMany('users', $matchUser, ['projection' => ['balance' => 1, 'balanceOwed' => 1, 'status' => 1]]);
+                $usersForBalance = $this->db->findMany('users', $matchUser, ['projection' => ['_id' => 1, 'balance' => 1, 'balanceOwed' => 1]]);
                 $totalBalance = 0.0;
                 $userOutstanding = 0.0;
-                $activeAccounts = 0;
+                $scopedUserIds = [];
                 foreach ($usersForBalance as $u) {
                     $totalBalance += $this->num($u['balance'] ?? 0);
                     $userOutstanding += $this->num($u['balanceOwed'] ?? 0);
-                    if (($u['status'] ?? '') === 'active') {
-                        $activeAccounts++;
+                    $uid = (string) ($u['_id'] ?? '');
+                    if ($uid !== '' && preg_match('/^[a-f0-9]{24}$/i', $uid) === 1) {
+                        $scopedUserIds[] = MongoRepository::id($uid);
                     }
                 }
 
@@ -933,16 +952,30 @@ final class AdminCoreController
                     'createdAt' => ['$gte' => MongoRepository::utcFromMillis($startOfWeek->getTimestamp() * 1000)],
                 ];
 
-                if (($actor['role'] ?? '') === 'agent' && is_array($myUserIds)) {
-                    $txQueryToday['userId'] = ['$in' => $myUserIds];
-                    $txQueryWeek['userId'] = ['$in' => $myUserIds];
+                $todayTx = [];
+                $weekTx = [];
+                if (($actor['role'] ?? '') !== 'admin') {
+                    if (count($scopedUserIds) > 0) {
+                        $txQueryToday['userId'] = ['$in' => $scopedUserIds];
+                        $txQueryWeek['userId'] = ['$in' => $scopedUserIds];
+                        $todayTx = $this->db->findMany('transactions', $txQueryToday, ['projection' => ['amount' => 1, 'type' => 1, 'entrySide' => 1]]);
+                        $weekTx = $this->db->findMany('transactions', $txQueryWeek, ['projection' => ['userId' => 1, 'amount' => 1, 'type' => 1, 'entrySide' => 1]]);
+                    }
+                } else {
+                    $todayTx = $this->db->findMany('transactions', $txQueryToday, ['projection' => ['amount' => 1, 'type' => 1, 'entrySide' => 1]]);
+                    $weekTx = $this->db->findMany('transactions', $txQueryWeek, ['projection' => ['userId' => 1, 'amount' => 1, 'type' => 1, 'entrySide' => 1]]);
                 }
-
-                $todayTx = $this->db->findMany('transactions', $txQueryToday, ['projection' => ['amount' => 1, 'type' => 1, 'entrySide' => 1]]);
-                $weekTx = $this->db->findMany('transactions', $txQueryWeek, ['projection' => ['amount' => 1, 'type' => 1, 'entrySide' => 1]]);
 
                 $todayNetUser = $this->sumSignedTransactions($todayTx);
                 $weekNetUser = $this->sumSignedTransactions($weekTx);
+                $activeUserIds = [];
+                foreach ($weekTx as $tx) {
+                    $txUserId = (string) ($tx['userId'] ?? '');
+                    if ($txUserId !== '') {
+                        $activeUserIds[$txUserId] = true;
+                    }
+                }
+                $activeAccounts = count($activeUserIds);
 
                 return [
                     'totalBalance' => $totalBalance,
@@ -2234,6 +2267,7 @@ final class AdminCoreController
                     'pendingBalance' => 1,
                     'balanceOwed' => 1,
                     'lifetime' => 1,
+                    'lifetimePlusMinus' => 1,
                     'status' => 1,
                     'createdAt' => 1,
                     'lastActive' => 1,
@@ -2428,6 +2462,7 @@ final class AdminCoreController
                 $pending = $this->num($user['pendingBalance'] ?? 0);
                 $settleLimit = $this->num($user['balanceOwed'] ?? 0);
                 $lifetime = $this->num($user['lifetime'] ?? 0);
+                $lifetimePerformance = $this->num($user['lifetimePlusMinus'] ?? ($user['lifetime'] ?? 0));
                 $carry = $balance - $weekTotal;
                 $inactive14Days = !isset($activeRecentUserIds[$uid]);
 
@@ -2447,6 +2482,8 @@ final class AdminCoreController
                     'pending' => $pending,
                     'settleLimit' => $settleLimit,
                     'lifetime' => $lifetime,
+                    'lifetimePlusMinus' => $lifetimePerformance,
+                    'lifetimePerformance' => $lifetimePerformance,
                     'inactive14Days' => $inactive14Days,
                     'lastActive' => $user['lastActive'] ?? null,
                     'status' => $user['status'] ?? null,
@@ -4748,6 +4785,8 @@ final class AdminCoreController
             $password = strtoupper(trim((string) ($body['password'] ?? '')));
             $firstNameRaw = trim((string) ($body['firstName'] ?? ''));
             $lastNameRaw = trim((string) ($body['lastName'] ?? ''));
+            $fullNameRaw = trim((string) ($body['fullName'] ?? ''));
+            $emailRaw = trim((string) ($body['email'] ?? ''));
 
             if ($username === '' || $phoneNumber === '' || $password === '') {
                 Response::json(['message' => 'Username, phone number, and password are required'], 400);
@@ -4757,6 +4796,19 @@ final class AdminCoreController
                 Response::json(['message' => 'First name and last name are required'], 400);
                 return;
             }
+
+            $duplicateMatches = $this->findLikelyDuplicatePlayers([
+                'firstName' => $firstNameRaw,
+                'lastName' => $lastNameRaw,
+                'fullName' => $fullNameRaw,
+                'phoneNumber' => $phoneNumber,
+                'email' => $emailRaw,
+            ]);
+            if (count($duplicateMatches) > 0) {
+                Response::json($this->buildDuplicatePlayerResponse($firstNameRaw, $lastNameRaw, $fullNameRaw, $phoneNumber, $emailRaw, $duplicateMatches), 409);
+                return;
+            }
+
             if ($this->existsUsernameOrPhone($username, $phoneNumber)) {
                 Response::json(['message' => 'Username or phone number already exists in the system'], 409);
                 return;
@@ -4824,7 +4876,7 @@ final class AdminCoreController
 
             $firstName = strtoupper($firstNameRaw);
             $lastName = strtoupper($lastNameRaw);
-            $fullName = strtoupper(trim((string) ($body['fullName'] ?? '')));
+            $fullName = strtoupper($fullNameRaw);
             if ($fullName === '') {
                 $fullName = strtoupper(trim(($firstName . ' ' . $lastName)) !== '' ? trim($firstName . ' ' . $lastName) : $username);
             }
@@ -8026,6 +8078,212 @@ final class AdminCoreController
         return null;
     }
 
+    private function normalizeDuplicateText(string $value): string
+    {
+        $trimmed = trim($value);
+        if ($trimmed === '') {
+            return '';
+        }
+        $collapsed = preg_replace('/\s+/', ' ', $trimmed);
+        if (!is_string($collapsed)) {
+            $collapsed = $trimmed;
+        }
+        return strtolower(trim($collapsed));
+    }
+
+    private function normalizeDuplicatePhone(string $value): string
+    {
+        $digits = preg_replace('/\D+/', '', $value);
+        if (!is_string($digits) || $digits === '') {
+            return '';
+        }
+        if (strlen($digits) > 10) {
+            return substr($digits, -10);
+        }
+        return $digits;
+    }
+
+    private function normalizeDuplicateEmail(string $value): string
+    {
+        return $this->normalizeDuplicateText($value);
+    }
+
+    private function normalizedFullNameForDuplicate(array $payload): string
+    {
+        $fullName = $this->normalizeDuplicateText((string) ($payload['fullName'] ?? ''));
+        if ($fullName !== '') {
+            return $fullName;
+        }
+
+        $first = $this->normalizeDuplicateText((string) ($payload['firstName'] ?? ''));
+        $last = $this->normalizeDuplicateText((string) ($payload['lastName'] ?? ''));
+        return $this->normalizeDuplicateText(trim($first . ' ' . $last));
+    }
+
+    /**
+     * @return array<int,array<string,mixed>>
+     */
+    private function findLikelyDuplicatePlayers(array $payload): array
+    {
+        $normalizedName = $this->normalizedFullNameForDuplicate($payload);
+        $normalizedPhone = $this->normalizeDuplicatePhone((string) ($payload['phoneNumber'] ?? ''));
+        $normalizedEmail = $this->normalizeDuplicateEmail((string) ($payload['email'] ?? ''));
+
+        if ($normalizedName === '' && $normalizedPhone === '' && $normalizedEmail === '') {
+            return [];
+        }
+
+        $candidateQuery = ['role' => 'user'];
+        $or = [];
+        if ($normalizedPhone !== '') {
+            $digits = preg_split('//', $normalizedPhone, -1, PREG_SPLIT_NO_EMPTY);
+            $digitPattern = implode('\D*', $digits ?: []);
+            if ($digitPattern !== '') {
+                $or[] = ['phoneNumber' => ['$regex' => $digitPattern, '$options' => 'i']];
+            }
+        }
+        if ($normalizedEmail !== '') {
+            $or[] = ['email' => ['$regex' => '^' . preg_quote($normalizedEmail, '/') . '$', '$options' => 'i']];
+        }
+        if ($normalizedName !== '') {
+            $namePattern = '^' . str_replace('\ ', '\s+', preg_quote($normalizedName, '/')) . '$';
+            $or[] = ['fullName' => ['$regex' => $namePattern, '$options' => 'i']];
+        }
+        if (count($or) > 0) {
+            $candidateQuery['$or'] = $or;
+        }
+
+        $candidates = $this->db->findMany('users', $candidateQuery, [
+            'projection' => [
+                '_id' => 1,
+                'username' => 1,
+                'firstName' => 1,
+                'lastName' => 1,
+                'fullName' => 1,
+                'phoneNumber' => 1,
+                'email' => 1,
+                'agentId' => 1,
+                'status' => 1,
+            ],
+            'sort' => ['createdAt' => -1],
+        ]);
+
+        if (count($candidates) === 0) {
+            return [];
+        }
+
+        $agentIds = [];
+        foreach ($candidates as $candidate) {
+            $agentId = (string) ($candidate['agentId'] ?? '');
+            if ($agentId !== '' && preg_match('/^[a-f0-9]{24}$/i', $agentId) === 1) {
+                $agentIds[$agentId] = true;
+            }
+        }
+        $agentMap = [];
+        if (count($agentIds) > 0) {
+            $agentDocs = $this->db->findMany('agents', [
+                '_id' => ['$in' => array_map(static fn (string $id): string => MongoRepository::id($id), array_keys($agentIds))],
+            ], ['projection' => ['_id' => 1, 'username' => 1]]);
+            foreach ($agentDocs as $agentDoc) {
+                $agentDocId = (string) ($agentDoc['_id'] ?? '');
+                if ($agentDocId !== '') {
+                    $agentMap[$agentDocId] = strtoupper(trim((string) ($agentDoc['username'] ?? '')));
+                }
+            }
+        }
+
+        $matches = [];
+        foreach ($candidates as $candidate) {
+            $existingName = $this->normalizedFullNameForDuplicate($candidate);
+            $existingPhone = $this->normalizeDuplicatePhone((string) ($candidate['phoneNumber'] ?? ''));
+            $existingEmail = $this->normalizeDuplicateEmail((string) ($candidate['email'] ?? ''));
+
+            $matchedByPhone = $normalizedPhone !== '' && $existingPhone !== '' && $normalizedPhone === $existingPhone;
+            $matchedByEmail = $normalizedEmail !== '' && $existingEmail !== '' && $normalizedEmail === $existingEmail;
+            $matchedByName = $normalizedName !== '' && $existingName !== '' && $normalizedName === $existingName;
+
+            if (!$matchedByPhone && !$matchedByEmail && !$matchedByName) {
+                continue;
+            }
+
+            $inputHasContact = $normalizedPhone !== '' || $normalizedEmail !== '';
+            $existingHasContact = $existingPhone !== '' || $existingEmail !== '';
+            if (!$matchedByPhone && !$matchedByEmail && $matchedByName && $inputHasContact && $existingHasContact) {
+                continue;
+            }
+
+            $reasonList = [];
+            if ($matchedByPhone) {
+                $reasonList[] = 'phone';
+            }
+            if ($matchedByEmail) {
+                $reasonList[] = 'email';
+            }
+            if ($matchedByName) {
+                $reasonList[] = 'name';
+            }
+
+            $groupKeySource = $matchedByPhone
+                ? 'phone:' . $existingPhone
+                : ($matchedByEmail ? 'email:' . $existingEmail : 'name:' . $existingName);
+
+            $candidateId = (string) ($candidate['_id'] ?? '');
+            $displayFullName = trim((string) ($candidate['fullName'] ?? ''));
+            if ($displayFullName === '') {
+                $displayFullName = trim((string) ($candidate['firstName'] ?? '') . ' ' . (string) ($candidate['lastName'] ?? ''));
+            }
+            $agentId = (string) ($candidate['agentId'] ?? '');
+            if ($agentId === '' || preg_match('/^[a-f0-9]{24}$/i', $agentId) !== 1) {
+                $agentId = '';
+            }
+
+            $matches[] = [
+                'id' => $candidateId,
+                'username' => strtoupper(trim((string) ($candidate['username'] ?? ''))),
+                'fullName' => $displayFullName !== '' ? strtoupper($displayFullName) : null,
+                'phoneNumber' => trim((string) ($candidate['phoneNumber'] ?? '')) ?: null,
+                'email' => trim((string) ($candidate['email'] ?? '')) ?: null,
+                'status' => (string) ($candidate['status'] ?? ''),
+                'agentId' => $agentId !== '' ? $agentId : null,
+                'agentUsername' => $agentId !== '' ? ($agentMap[$agentId] ?? null) : null,
+                'matchReasons' => $reasonList,
+                'duplicateGroupKey' => $groupKeySource,
+            ];
+        }
+
+        usort($matches, static function (array $a, array $b): int {
+            return strcasecmp((string) ($a['username'] ?? ''), (string) ($b['username'] ?? ''));
+        });
+
+        return $matches;
+    }
+
+    /**
+     * @param array<int,array<string,mixed>> $matches
+     */
+    private function buildDuplicatePlayerResponse(string $firstName, string $lastName, string $fullName, string $phoneNumber, string $email, array $matches): array
+    {
+        $normalizedName = $this->normalizeDuplicateText($fullName);
+        if ($normalizedName === '') {
+            $normalizedName = $this->normalizeDuplicateText(trim($firstName . ' ' . $lastName));
+        }
+        $normalizedPhone = $this->normalizeDuplicatePhone($phoneNumber);
+        $normalizedEmail = $this->normalizeDuplicateEmail($email);
+
+        return [
+            'duplicate' => true,
+            'code' => 'DUPLICATE_PLAYER',
+            'message' => 'Likely duplicate player detected. Review existing accounts before creating a new one.',
+            'matchCount' => count($matches),
+            'normalized' => [
+                'name' => $normalizedName !== '' ? $normalizedName : null,
+                'phone' => $normalizedPhone !== '' ? $normalizedPhone : null,
+                'email' => $normalizedEmail !== '' ? $normalizedEmail : null,
+            ],
+            'matches' => $matches,
+        ];
+    }
+
     private function existsUsernameOrPhone(string $username, string $phoneNumber): bool
     {
         $normalizedUsername = trim($username);
@@ -8249,8 +8507,10 @@ final class AdminCoreController
 
     private function startOfWeek(DateTimeImmutable $date): DateTimeImmutable
     {
-        $weekday = (int) $date->format('N'); // 1..7
-        return $date->setTime(0, 0, 0)->modify('-' . ($weekday - 1) . ' days');
+        $weekday = (int) $date->format('N'); // 1..7, Monday=1
+        // Business week: Tuesday 00:00 through Monday 23:59:59.
+        $daysFromTuesday = ($weekday + 5) % 7;
+        return $date->setTime(0, 0, 0)->modify('-' . $daysFromTuesday . ' days');
     }
 
     /**
