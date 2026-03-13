@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { getAdminHeaderSummary, getMe, getMyPlayers, getUsersAdmin } from '../api';
 import AgentTreeView from './admin-views/AgentTreeView';
+import { annotateDuplicatePlayers } from '../utils/duplicatePlayers';
 
 function AdminHeader({
   onMenuToggle,
@@ -22,6 +23,7 @@ function AdminHeader({
   const [headerPlayerOpen, setHeaderPlayerOpen] = useState(false);
   const [allPlayers, setAllPlayers] = useState([]);
   const [searchablePlayers, setSearchablePlayers] = useState([]);
+  const [selectedSearchPlayer, setSelectedSearchPlayer] = useState(null);
   const [summary, setSummary] = useState({
     totalBalance: null,
     totalOutstanding: null,
@@ -147,14 +149,6 @@ function AdminHeader({
     if (onViewChange) onViewChange(view);
   };
 
-  const openAccountTreeSearch = (seedQuery = '') => {
-    setShowUserMenu(false);
-    setShowMobilePlayerSearch(false);
-    setHeaderPlayerOpen(false);
-    setAgentTreeSearchQuery(String(seedQuery || '').trim());
-    setShowAgentTree(true);
-  };
-
   const toggleAccountTreeSearch = (seedQuery = '') => {
     setShowUserMenu(false);
     setShowMobilePlayerSearch(false);
@@ -174,17 +168,68 @@ function AdminHeader({
   }, [showMobilePlayerSearch]);
 
   const normalizeSearchValue = (value) => String(value || '').trim().toLowerCase();
+  const getPlayerId = (player) => String(player?.id || player?._id || player?.mongo_id || '');
+  const getPlayerFullName = (player) => (
+    player?.fullName || `${player?.firstName || ''} ${player?.lastName || ''}`.trim()
+  );
+
+  const allPlayersWithDuplicateMeta = useMemo(
+    () => annotateDuplicatePlayers(allPlayers),
+    [allPlayers]
+  );
+
+  const duplicateMetaByPlayerId = useMemo(() => {
+    const map = new Map();
+    allPlayersWithDuplicateMeta.forEach((player) => {
+      const id = getPlayerId(player);
+      if (!id) return;
+      map.set(id, {
+        isDuplicatePlayer: player?.isDuplicatePlayer === true,
+        duplicateMatchCount: Number(player?.duplicateMatchCount || 0),
+        duplicateReasons: Array.isArray(player?.duplicateReasons) ? player.duplicateReasons : [],
+        duplicateGroupKeys: Array.isArray(player?.duplicateGroupKeys) ? player.duplicateGroupKeys : [],
+      });
+    });
+    return map;
+  }, [allPlayersWithDuplicateMeta]);
+
+  const searchablePlayersWithDuplicateMeta = useMemo(() => {
+    const localAnnotated = annotateDuplicatePlayers(searchablePlayers);
+    return localAnnotated.map((player) => {
+      const id = getPlayerId(player);
+      const globalMeta = id ? duplicateMetaByPlayerId.get(id) : null;
+      if (!globalMeta) {
+        return player;
+      }
+      return {
+        ...player,
+        isDuplicatePlayer: globalMeta.isDuplicatePlayer,
+        duplicateMatchCount: globalMeta.duplicateMatchCount,
+        duplicateReasons: globalMeta.duplicateReasons,
+        duplicateGroupKeys: globalMeta.duplicateGroupKeys,
+      };
+    });
+  }, [searchablePlayers, duplicateMetaByPlayerId]);
+
+  const formatDuplicateReasons = (player) => {
+    const reasons = Array.isArray(player?.duplicateReasons) ? player.duplicateReasons : [];
+    if (reasons.length === 0) return '';
+    const ordered = Array.from(new Set(reasons)).sort((a, b) => a.localeCompare(b));
+    return ordered.map((reason) => {
+      if (reason === 'phone') return 'Phone';
+      if (reason === 'email') return 'Email';
+      if (reason === 'name') return 'Name';
+      return String(reason || '').trim();
+    }).filter(Boolean).join(', ');
+  };
 
   const playerMatchesHeaderSearch = (player, rawQuery) => {
     const query = normalizeSearchValue(rawQuery);
     if (!query) return true;
 
-    const userId = normalizeSearchValue(player?.id || player?._id || player?.mongo_id);
+    const userId = normalizeSearchValue(getPlayerId(player));
     const username = normalizeSearchValue(player?.username);
-    const fullName = normalizeSearchValue(
-      player?.fullName
-      || `${player?.firstName || ''} ${player?.lastName || ''}`.trim()
-    );
+    const fullName = normalizeSearchValue(getPlayerFullName(player));
     const displayPassword = normalizeSearchValue(player?.displayPassword);
     const phone = normalizeSearchValue(player?.phoneNumber);
     const queryDigits = String(rawQuery || '').replace(/\D/g, '');
@@ -234,65 +279,35 @@ function AdminHeader({
     e.preventDefault();
     const query = headerSearchQuery.trim();
     if (!query) return;
-    const normalizedQuery = normalizeSearchValue(query);
-    const exact = filteredPlayers.find((player) => {
-      const username = normalizeSearchValue(player?.username);
-      const displayPassword = normalizeSearchValue(player?.displayPassword);
-      return username === normalizedQuery || displayPassword === normalizedQuery;
-    });
-    if (exact) {
-      const userId = exact.id || exact._id || exact.mongo_id;
-      if (userId && onViewChange) {
-        onViewChange('user-details', userId);
-      }
-      setHeaderPlayerOpen(false);
-      return;
-    }
-    if (filteredPlayers[0]) {
-      const userId = filteredPlayers[0].id || filteredPlayers[0]._id || filteredPlayers[0].mongo_id;
-      if (userId && onViewChange) {
-        onViewChange('user-details', userId);
-      }
-      setHeaderPlayerOpen(false);
-      return;
-    }
-    if (!showMobilePlayerSearch) {
-      openAccountTreeSearch(query);
-    }
+    setHeaderPlayerOpen(true);
   };
 
   const handleMobilePlayerSearchSubmit = (e) => {
     e.preventDefault();
     const query = headerSearchQuery.trim();
     if (!query) return;
+    setHeaderPlayerOpen(true);
+  };
 
-    const normalizedQuery = normalizeSearchValue(query);
-    const exact = filteredPlayers.find((player) => {
-      const username = normalizeSearchValue(player?.username);
-      const displayPassword = normalizeSearchValue(player?.displayPassword);
-      return username === normalizedQuery || displayPassword === normalizedQuery;
-    });
-    const chosenPlayer = exact || filteredPlayers[0] || null;
-    if (!chosenPlayer) {
-      return;
-    }
-
-    const userId = chosenPlayer.id || chosenPlayer._id || chosenPlayer.mongo_id;
+  const selectPlayerFromSearch = (player, closeMobileSheet = false) => {
+    if (!player) return;
+    const userId = getPlayerId(player);
     if (userId && onViewChange) {
       onViewChange('user-details', userId);
     }
-    setHeaderSearchQuery(chosenPlayer.username || '');
+    setHeaderSearchQuery(player.username || '');
+    setSelectedSearchPlayer(player);
     setHeaderPlayerOpen(false);
-    setShowMobilePlayerSearch(false);
+    if (closeMobileSheet) {
+      setShowMobilePlayerSearch(false);
+    }
   };
 
   const filteredPlayers = useMemo(() => {
     const query = headerSearchQuery.trim();
     if (!query) return [];
-    return searchablePlayers
-      .filter((player) => playerMatchesHeaderSearch(player, query))
-      .slice(0, 10);
-  }, [searchablePlayers, headerSearchQuery]);
+    return searchablePlayersWithDuplicateMeta.filter((player) => playerMatchesHeaderSearch(player, query));
+  }, [searchablePlayersWithDuplicateMeta, headerSearchQuery]);
   const hasSearchQuery = headerSearchQuery.trim() !== '';
 
   const displayName = profile?.username
@@ -363,32 +378,42 @@ function AdminHeader({
                 placeholder="Search players..."
                 value={headerSearchQuery}
                 onChange={(e) => {
-                  setHeaderSearchQuery(e.target.value);
+                  const nextValue = e.target.value;
+                  setHeaderSearchQuery(nextValue);
                   setHeaderPlayerOpen(true);
+                  if (nextValue.trim() === '') {
+                    setSelectedSearchPlayer(null);
+                  }
                 }}
               />
               {headerPlayerOpen && hasSearchQuery && (
                 <div className="admin-header-search-list">
-                  {filteredPlayers.length > 0 ? filteredPlayers.map((player) => {
-                    const userId = player.id || player._id || player.mongo_id;
-                    const fullName = player.fullName || `${player.firstName || ''} ${player.lastName || ''}`.trim();
+                  {filteredPlayers.length > 0 ? filteredPlayers.map((player, idx) => {
+                    const userId = getPlayerId(player);
+                    const fullName = getPlayerFullName(player);
                     const displayPassword = String(player.displayPassword || '').trim().toUpperCase() || '—';
+                    const duplicateReasonLabel = formatDuplicateReasons(player);
                     return (
                       <button
-                        key={String(userId || player.username)}
+                        key={`${String(userId || player.username || 'player')}-${idx}`}
                         type="button"
-                        className="admin-header-search-item"
-                        onClick={() => {
-                          if (userId && onViewChange) {
-                            onViewChange('user-details', userId);
-                          }
-                          setHeaderSearchQuery(player.username || '');
-                          setHeaderPlayerOpen(false);
-                        }}
+                        className={`admin-header-search-item ${player.isDuplicatePlayer ? 'is-duplicate-player' : ''}`}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => selectPlayerFromSearch(player)}
                       >
-                        <span className="search-item-user">{String(player.username || '').toUpperCase()}</span>
+                        <span className="search-item-user-wrap">
+                          <span className="search-item-user">{String(player.username || '').toUpperCase()}</span>
+                          {player.isDuplicatePlayer && (
+                            <span className="search-item-dup-badge">Duplicate Player</span>
+                          )}
+                        </span>
                         <span className="search-item-pass">{displayPassword}</span>
-                        <span className="search-item-name">{fullName || '—'}</span>
+                        <span className="search-item-name-wrap">
+                          <span className="search-item-name">{fullName || '—'}</span>
+                          {player.isDuplicatePlayer && duplicateReasonLabel && (
+                            <span className="search-item-dup-reason">{duplicateReasonLabel}</span>
+                          )}
+                        </span>
                       </button>
                     );
                   }) : (
@@ -397,6 +422,17 @@ function AdminHeader({
                 </div>
               )}
             </div>
+            {selectedSearchPlayer && (
+              <div className={`admin-header-selected-player ${selectedSearchPlayer.isDuplicatePlayer ? 'is-duplicate-player' : ''}`}>
+                <div className="selected-player-main">
+                  <span className="selected-player-user">{String(selectedSearchPlayer.username || '').toUpperCase()}</span>
+                  {selectedSearchPlayer.isDuplicatePlayer && (
+                    <span className="search-item-dup-badge">Duplicate Player</span>
+                  )}
+                </div>
+                <span className="selected-player-name">{getPlayerFullName(selectedSearchPlayer) || '—'}</span>
+              </div>
+            )}
           </form>
         </div>
         <div className="admin-header-right">
@@ -456,7 +492,13 @@ function AdminHeader({
               autoFocus
               placeholder="Search players..."
               value={headerSearchQuery}
-              onChange={(e) => setHeaderSearchQuery(e.target.value)}
+              onChange={(e) => {
+                const nextValue = e.target.value;
+                setHeaderSearchQuery(nextValue);
+                if (nextValue.trim() === '') {
+                  setSelectedSearchPlayer(null);
+                }
+              }}
             />
             <button
               type="button"
@@ -467,30 +509,45 @@ function AdminHeader({
               ✕
             </button>
           </form>
+          {selectedSearchPlayer && (
+            <div className={`mobile-player-selected-card ${selectedSearchPlayer.isDuplicatePlayer ? 'is-duplicate-player' : ''}`}>
+              <div className="selected-player-main">
+                <span className="selected-player-user">{String(selectedSearchPlayer.username || '').toUpperCase()}</span>
+                {selectedSearchPlayer.isDuplicatePlayer && (
+                  <span className="search-item-dup-badge">Duplicate Player</span>
+                )}
+              </div>
+              <span className="selected-player-name">{getPlayerFullName(selectedSearchPlayer) || '—'}</span>
+            </div>
+          )}
 
           <div className="mobile-player-search-results">
             {!hasSearchQuery ? null : (
-              filteredPlayers.length > 0 ? filteredPlayers.map((player) => {
-                const userId = player.id || player._id || player.mongo_id;
-                const fullName = player.fullName || `${player.firstName || ''} ${player.lastName || ''}`.trim();
+              filteredPlayers.length > 0 ? filteredPlayers.map((player, idx) => {
+                const userId = getPlayerId(player);
+                const fullName = getPlayerFullName(player);
                 const displayPassword = String(player.displayPassword || '').trim().toUpperCase() || '—';
+                const duplicateReasonLabel = formatDuplicateReasons(player);
                 return (
                   <button
-                    key={String(userId || player.username)}
+                    key={`${String(userId || player.username || 'player')}-${idx}`}
                     type="button"
-                    className="mobile-player-search-item"
-                    onClick={() => {
-                      if (userId && onViewChange) {
-                        onViewChange('user-details', userId);
-                      }
-                      setHeaderSearchQuery(player.username || '');
-                      setHeaderPlayerOpen(false);
-                      setShowMobilePlayerSearch(false);
-                    }}
+                    className={`mobile-player-search-item ${player.isDuplicatePlayer ? 'is-duplicate-player' : ''}`}
+                    onClick={() => selectPlayerFromSearch(player, true)}
                   >
-                    <span className="search-item-user">{String(player.username || '').toUpperCase()}</span>
+                    <span className="search-item-user-wrap">
+                      <span className="search-item-user">{String(player.username || '').toUpperCase()}</span>
+                      {player.isDuplicatePlayer && (
+                        <span className="search-item-dup-badge">Duplicate Player</span>
+                      )}
+                    </span>
                     <span className="search-item-pass">{displayPassword}</span>
-                    <span className="search-item-name">{fullName || '—'}</span>
+                    <span className="search-item-name-wrap">
+                      <span className="search-item-name">{fullName || '—'}</span>
+                      {player.isDuplicatePlayer && duplicateReasonLabel && (
+                        <span className="search-item-dup-reason">{duplicateReasonLabel}</span>
+                      )}
+                    </span>
                   </button>
                 );
               }) : (

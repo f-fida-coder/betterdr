@@ -433,6 +433,11 @@ final class AgentController
 
             $body = Http::jsonBody();
             $updates = ['updatedAt' => MongoRepository::nowUtc()];
+            $allowDuplicateRaw = $body['allowDuplicateSave'] ?? ($body['allowDuplicate'] ?? false);
+            $allowDuplicateSave = is_bool($allowDuplicateRaw)
+                ? $allowDuplicateRaw
+                : filter_var((string) $allowDuplicateRaw, FILTER_VALIDATE_BOOLEAN);
+            $duplicateWarningPayload = null;
             $incomingFirstName = array_key_exists('firstName', $body) ? strtoupper(trim((string) $body['firstName'])) : strtoupper(trim((string) ($user['firstName'] ?? '')));
             $incomingLastName = array_key_exists('lastName', $body) ? strtoupper(trim((string) $body['lastName'])) : strtoupper(trim((string) ($user['lastName'] ?? '')));
             $incomingPhoneNumber = array_key_exists('phoneNumber', $body) ? trim((string) $body['phoneNumber']) : trim((string) ($user['phoneNumber'] ?? ''));
@@ -483,26 +488,28 @@ final class AgentController
                     return (string) ($match['id'] ?? '') !== $id;
                 }));
                 if (count($duplicateMatches) > 0) {
-                    Response::json(
-                        $this->buildDuplicatePlayerResponse(
-                            $incomingFirstName,
-                            $incomingLastName,
-                            $incomingFullName,
-                            $incomingPhoneNumber,
-                            $incomingEmail,
-                            $duplicateMatches
-                        ),
-                        409
+                    $duplicateWarningPayload = $this->buildDuplicatePlayerResponse(
+                        $incomingFirstName,
+                        $incomingLastName,
+                        $incomingFullName,
+                        $incomingPhoneNumber,
+                        $incomingEmail,
+                        $duplicateMatches
                     );
-                    return;
+                    if (!$allowDuplicateSave) {
+                        Response::json($duplicateWarningPayload, 409);
+                        return;
+                    }
                 }
             }
 
             if (isset($body['phoneNumber']) && is_string($body['phoneNumber']) && $body['phoneNumber'] !== ($user['phoneNumber'] ?? null)) {
                 $existingPhone = $this->db->findOne('users', ['phoneNumber' => $body['phoneNumber']]);
                 if ($existingPhone !== null && (string) ($existingPhone['_id'] ?? '') !== $id) {
-                    Response::json(['message' => 'Phone number already exists'], 409);
-                    return;
+                    if (!$allowDuplicateSave) {
+                        Response::json(['message' => 'Phone number already exists'], 409);
+                        return;
+                    }
                 }
                 $updates['phoneNumber'] = $body['phoneNumber'];
             }
@@ -549,7 +556,12 @@ final class AgentController
             $this->db->updateOne('users', ['_id' => MongoRepository::id($id)], $updates);
             $updated = $this->db->findOne('users', ['_id' => MongoRepository::id($id)]);
 
-            Response::json(['message' => 'Customer updated successfully', 'user' => $updated]);
+            $response = ['message' => 'Customer updated successfully', 'user' => $updated];
+            if (is_array($duplicateWarningPayload)) {
+                $response['duplicateWarning'] = $duplicateWarningPayload;
+                $response['savedWithDuplicateWarning'] = true;
+            }
+            Response::json($response);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error updating customer'], 500);
         }

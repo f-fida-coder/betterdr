@@ -876,6 +876,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
         phoneNumber: normalizedPhoneNumber,
         fullName: `${normalizedFirstName} ${normalizedLastName}`.trim(),
         password: policyPassword,
+        allowDuplicateSave: true,
         status: form.status,
         minBet: Number(form.minBet || 0),
         creditLimit: Number(form.creditLimit || 0),
@@ -905,21 +906,33 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
         payload.agentId = form.agentId;
       }
 
+      let result = null;
       if (role === 'agent') {
-        await updateUserByAgent(userId, payload, token);
+        result = await updateUserByAgent(userId, payload, token);
       } else {
-        await updateUserByAdmin(userId, payload, token);
+        result = await updateUserByAdmin(userId, payload, token);
       }
+      const persistedPayload = { ...payload };
+      delete persistedPayload.allowDuplicateSave;
       setCustomer((prev) => ({
         ...prev,
-        ...payload,
+        ...persistedPayload,
         displayPassword: policyPassword || prev?.displayPassword || '',
         settings: {
           ...(prev?.settings || {}),
-          ...payload.settings
+          ...persistedPayload.settings
         }
       }));
-      setSuccess('Changes saved successfully.');
+      const duplicateWarningPayload = result?.duplicateWarning;
+      if (duplicateWarningPayload && typeof duplicateWarningPayload === 'object') {
+        setDuplicateWarning({
+          message: duplicateWarningPayload.message || 'Likely duplicate player detected.',
+          matches: Array.isArray(duplicateWarningPayload.matches) ? duplicateWarningPayload.matches : [],
+        });
+        setSuccess('Changes saved with duplicate warning.');
+      } else {
+        setSuccess('Changes saved successfully.');
+      }
     } catch (err) {
       console.error('Failed to save player details:', err);
       const duplicateMatches = Array.isArray(err?.duplicateMatches)
@@ -934,6 +947,8 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
           message: err?.message || 'Likely duplicate player detected.',
           matches: duplicateMatches,
         });
+        setError('');
+        return;
       }
       setError(err.message || 'Failed to save details');
     } finally {
@@ -1068,6 +1083,46 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
     }
   };
 
+  const formatDeleteSummary = (result, noun = 'transaction') => {
+    const deleted = Number(result?.deleted || 0);
+    const skipped = Number(result?.skipped || 0);
+    const cascadeDeleted = Number(result?.cascadeDeleted || 0);
+    const warnings = Array.isArray(result?.warnings) ? result.warnings : [];
+    const firstWarning = warnings.find((item) => typeof item?.message === 'string' && item.message.trim() !== '');
+
+    let message = deleted > 0
+      ? `Deleted ${deleted} ${noun}(s).`
+      : `No ${noun}(s) were deleted.`;
+    if (cascadeDeleted > 0) {
+      message += ` Linked free play deleted: ${cascadeDeleted}.`;
+    }
+    if (skipped > 0) {
+      message += ` Skipped ${skipped}.`;
+    }
+    if (firstWarning) {
+      message += ` ${firstWarning.message}`;
+    }
+    if (deleted > 0 || cascadeDeleted > 0) {
+      message += ' Balances and totals were updated.';
+    } else {
+      message += ' Balances and totals were not changed.';
+    }
+    return message;
+  };
+
+  const applyDeleteFeedback = (result, noun, setSuccessState, setErrorState) => {
+    const deleted = Number(result?.deleted || 0);
+    const cascadeDeleted = Number(result?.cascadeDeleted || 0);
+    const message = formatDeleteSummary(result, noun);
+    if (deleted > 0 || cascadeDeleted > 0) {
+      setSuccessState(message);
+      setErrorState('');
+      return;
+    }
+    setSuccessState('');
+    setErrorState(message);
+  };
+
   const handleCreateFreePlay = async () => {
     try {
       const amount = Number(newFreePlayAmount || 0);
@@ -1107,20 +1162,44 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
   const handleDeleteFreePlaySelected = async () => {
     try {
       if (freePlaySelectedIds.length === 0) return;
+      if (!window.confirm(`Delete ${freePlaySelectedIds.length} selected free play transaction(s)?`)) {
+        return;
+      }
       const token = localStorage.getItem('token');
       if (!token) {
         setFreePlayError('Please login again.');
         return;
       }
       const result = await deleteAdminTransactions(freePlaySelectedIds, token);
-      const deleted = Number(result?.deleted || 0);
-      const skipped = Number(result?.skipped || 0);
       setFreePlaySelectedIds([]);
-      setFreePlaySuccess(`Deleted ${deleted} free play transaction(s).${skipped > 0 ? ` Skipped ${skipped}.` : ''}`);
-      setFreePlayError('');
+      applyDeleteFeedback(result, 'free play transaction', setFreePlaySuccess, setFreePlayError);
       await refreshFreePlay();
+      await refreshTransactions();
+      await refreshCustomerFinancials();
     } catch (err) {
       setFreePlayError(err.message || 'Failed to delete free play transactions');
+    }
+  };
+
+  const handleDeleteSingleFreePlayTransaction = async (txId) => {
+    try {
+      if (!txId) return;
+      if (!window.confirm('Delete this free play transaction?')) {
+        return;
+      }
+      const token = localStorage.getItem('token');
+      if (!token) {
+        setFreePlayError('Please login again.');
+        return;
+      }
+      const result = await deleteAdminTransactions([txId], token);
+      setFreePlaySelectedIds((prev) => prev.filter((id) => id !== txId));
+      applyDeleteFeedback(result, 'free play transaction', setFreePlaySuccess, setFreePlayError);
+      await refreshFreePlay();
+      await refreshTransactions();
+      await refreshCustomerFinancials();
+    } catch (err) {
+      setFreePlayError(err.message || 'Failed to delete free play transaction');
     }
   };
 
@@ -1262,6 +1341,35 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
     }
   };
 
+  const refreshCustomerFinancials = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) return;
+      const detailData = await getUserStatistics(userId, token);
+      const latestUser = detailData?.user;
+      if (!latestUser || typeof latestUser !== 'object') return;
+      setCustomer((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          balance: latestUser.balance,
+          pendingBalance: latestUser.pendingBalance,
+          freeplayBalance: latestUser.freeplayBalance,
+          lifetime: latestUser.lifetime,
+          lifetimePlusMinus: latestUser.lifetimePlusMinus ?? latestUser.lifetime,
+          balanceOwed: latestUser.balanceOwed,
+          creditLimit: latestUser.creditLimit,
+          updatedAt: latestUser.updatedAt,
+        };
+      });
+      if (detailData?.stats && typeof detailData.stats === 'object') {
+        setStats(detailData.stats);
+      }
+    } catch (err) {
+      console.warn('Failed to refresh customer financials after transaction update:', err);
+    }
+  };
+
   const handleCreateTransaction = async () => {
     try {
       const amount = Number(newTxAmount || 0);
@@ -1337,6 +1445,9 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
   const handleDeleteSelected = async () => {
     try {
       if (selectedTxIds.length === 0) return;
+      if (!window.confirm(`Delete ${selectedTxIds.length} selected transaction(s)?`)) {
+        return;
+      }
       const token = localStorage.getItem('token');
       if (!token) {
         setTxError('Please login again.');
@@ -1345,12 +1456,33 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
       const result = await deleteAdminTransactions(selectedTxIds, token);
       setSelectedTxIds([]);
       await refreshTransactions();
-      const deleted = Number(result?.deleted || 0);
-      const skipped = Number(result?.skipped || 0);
-      setTxSuccess(`Deleted ${deleted} transaction(s).${skipped > 0 ? ` Skipped ${skipped} (non-adjustment or invalid).` : ''}`);
-      setTxError('');
+      await refreshFreePlay();
+      await refreshCustomerFinancials();
+      applyDeleteFeedback(result, 'transaction', setTxSuccess, setTxError);
     } catch (err) {
       setTxError(err.message || 'Failed to delete selected transactions');
+    }
+  };
+
+  const handleDeleteSingleTransaction = async (txId) => {
+    try {
+      if (!txId) return;
+      if (!window.confirm('Delete this transaction?')) {
+        return;
+      }
+      const token = localStorage.getItem('token');
+      if (!token) {
+        setTxError('Please login again.');
+        return;
+      }
+      const result = await deleteAdminTransactions([txId], token);
+      setSelectedTxIds((prev) => prev.filter((id) => id !== txId));
+      await refreshTransactions();
+      await refreshFreePlay();
+      await refreshCustomerFinancials();
+      applyDeleteFeedback(result, 'transaction', setTxSuccess, setTxError);
+    } catch (err) {
+      setTxError(err.message || 'Failed to delete transaction');
     }
   };
 
@@ -1547,13 +1679,14 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
                   <th>Credit</th>
                   <th>Debit</th>
                   <th>Balance</th>
+                  <th className="tx-actions-col">Action</th>
                 </tr>
               </thead>
               <tbody>
                 {txLoading ? (
-                  <tr><td colSpan={5} className="tx-empty">Loading transactions...</td></tr>
+                  <tr><td colSpan={6} className="tx-empty">Loading transactions...</td></tr>
                 ) : transactions.length === 0 ? (
-                  <tr><td colSpan={5} className="tx-empty">No transactions found</td></tr>
+                  <tr><td colSpan={6} className="tx-empty">No transactions found</td></tr>
                 ) : transactions.map((txn) => {
                   const isDebit = isDebitTransaction(txn);
                   const amount = Number(txn.amount || 0);
@@ -1568,6 +1701,18 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
                       <td>{credit > 0 ? formatCurrency(credit) : '—'}</td>
                       <td>{debit > 0 ? formatCurrency(debit) : '—'}</td>
                       <td className={Number(balanceAfter || 0) < 0 ? 'neg' : ''}>{balanceAfter !== null && balanceAfter !== undefined ? formatCurrency(balanceAfter) : '—'}</td>
+                      <td className="tx-actions-col">
+                        <button
+                          type="button"
+                          className="tx-row-delete"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleDeleteSingleTransaction(txn.id);
+                          }}
+                        >
+                          Delete
+                        </button>
+                      </td>
                     </tr>
                   );
                 })}
@@ -1575,7 +1720,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
             </table>
           </div>
 
-          <button className="btn btn-danger" onClick={handleDeleteSelected} disabled={selectedTxIds.length === 0}>Delete</button>
+          <button className="btn btn-danger" onClick={handleDeleteSelected} disabled={selectedTxIds.length === 0}>Delete Selected</button>
         </div>
       ) : activeSection === 'performance' ? (
         <div className="performance-wrap">
@@ -1659,16 +1804,18 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
                   <th>Credit</th>
                   <th>Debit</th>
                   <th>Balance</th>
+                  <th className="tx-actions-col">Action</th>
                 </tr>
               </thead>
               <tbody>
                 {freePlayLoading ? (
-                  <tr><td colSpan={6} className="tx-empty">Loading free play...</td></tr>
+                  <tr><td colSpan={7} className="tx-empty">Loading free play...</td></tr>
                 ) : freePlayRows.length === 0 ? (
-                  <tr><td colSpan={6} className="tx-empty">No free play transactions found</td></tr>
+                  <tr><td colSpan={7} className="tx-empty">No free play transactions found</td></tr>
                 ) : freePlayRows.map((txn) => {
                   const amount = Number(txn.amount || 0);
                   const credit = amount > 0 ? amount : 0;
+                  const rowBalance = txn?.balanceAfter ?? freePlayBalance;
                   const selected = freePlaySelectedIds.includes(txn.id);
                   return (
                     <tr key={txn.id} className={selected ? 'selected' : ''} onClick={() => toggleFreePlaySelection(txn.id)}>
@@ -1677,7 +1824,19 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
                       <td>{txn.description || 'Free Play Adjustment'}</td>
                       <td>{credit > 0 ? Number(credit).toFixed(2) : '—'}</td>
                       <td>—</td>
-                      <td>{Number(freePlayBalance).toFixed(2)}</td>
+                      <td>{Number(rowBalance || 0).toFixed(2)}</td>
+                      <td className="tx-actions-col">
+                        <button
+                          type="button"
+                          className="tx-row-delete"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleDeleteSingleFreePlayTransaction(txn.id);
+                          }}
+                        >
+                          Delete
+                        </button>
+                      </td>
                     </tr>
                   );
                 })}
@@ -1686,7 +1845,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
           </div>
 
           <div className="freeplay-bottom-row">
-            <button className="btn btn-danger" onClick={handleDeleteFreePlaySelected} disabled={freePlaySelectedIds.length === 0}>Delete</button>
+            <button className="btn btn-danger" onClick={handleDeleteFreePlaySelected} disabled={freePlaySelectedIds.length === 0}>Delete Selected</button>
             <button className="btn btn-back freeplay-settings-btn" onClick={handleSaveFreePlaySettings}>Detailed Free Play Settings</button>
             <div className="freeplay-inputs">
               <div className="tx-field">
@@ -2456,6 +2615,50 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
           font-size: 12px;
           color: #1f2937;
         }
+        .tx-actions-col {
+          width: 96px;
+          min-width: 96px;
+          text-align: center;
+          white-space: nowrap;
+        }
+        .tx-table th.tx-actions-col,
+        .tx-table td.tx-actions-col {
+          text-align: center;
+          padding-left: 6px;
+          padding-right: 6px;
+        }
+        .tx-row-delete {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          min-height: 26px;
+          padding: 6px 10px;
+          border: 1px solid #f5c2ca;
+          border-radius: 999px;
+          background: #fff5f6;
+          color: #b42333;
+          font-size: 11px;
+          font-weight: 700;
+          line-height: 1;
+          cursor: pointer;
+          transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+        }
+        .tx-row-delete:hover {
+          background: #ffe9ed;
+          border-color: #ed9daa;
+          color: #9f1f2f;
+        }
+        .tx-row-delete:focus-visible {
+          outline: 2px solid #d9465a;
+          outline-offset: 1px;
+        }
+        .tx-row-delete:active {
+          transform: translateY(1px);
+        }
+        .tx-row-delete:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
         .tx-table tr.selected td { background: #eff6ff; }
         .tx-table tr { cursor: pointer; }
         .tx-empty {
@@ -2859,6 +3062,15 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
 
           .tx-summary {
             grid-template-columns: 1fr 1fr;
+          }
+          .tx-actions-col {
+            width: 84px;
+            min-width: 84px;
+          }
+          .tx-row-delete {
+            min-height: 24px;
+            padding: 5px 8px;
+            font-size: 10px;
           }
 
           .perf-title-row {

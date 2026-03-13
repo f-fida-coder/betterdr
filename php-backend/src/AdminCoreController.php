@@ -964,8 +964,10 @@ final class AdminCoreController
                     $weekTx = $this->db->findMany('transactions', $txQueryWeek, ['projection' => ['userId' => 1, 'amount' => 1, 'type' => 1, 'entrySide' => 1, 'reason' => 1, 'description' => 1, 'balanceBefore' => 1, 'balanceAfter' => 1]]);
                 }
 
-                $todayNetUser = $this->sumComprehensiveSignedTransactions($todayTx);
-                $weekNetUser = $this->sumComprehensiveSignedTransactions($weekTx);
+                $todayNetRows = array_values(array_filter($todayTx, fn (array $tx): bool => !$this->shouldExcludeFromNetSummaries($tx)));
+                $weekNetRows = array_values(array_filter($weekTx, fn (array $tx): bool => !$this->shouldExcludeFromNetSummaries($tx)));
+                $todayNetUser = $this->sumComprehensiveSignedTransactions($todayNetRows);
+                $weekNetUser = $this->sumComprehensiveSignedTransactions($weekNetRows);
                 $activeUserIds = [];
                 foreach ($weekTx as $tx) {
                     $txUserId = (string) ($tx['userId'] ?? '');
@@ -1024,6 +1026,32 @@ final class AdminCoreController
         @file_put_contents($cacheFile, json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
 
         Response::json($payload);
+    }
+
+    private function invalidateHeaderSummaryCache(): void
+    {
+        $cacheDir = dirname(__DIR__) . '/cache';
+        if (!is_dir($cacheDir)) {
+            return;
+        }
+
+        $patterns = [
+            $cacheDir . '/header-summary-admin__*.json',
+            $cacheDir . '/header-summary-agent__*.json',
+            $cacheDir . '/header-summary-master_agent__*.json',
+            $cacheDir . '/header-summary-super_agent__*.json',
+        ];
+        foreach ($patterns as $pattern) {
+            $matches = glob($pattern);
+            if (!is_array($matches)) {
+                continue;
+            }
+            foreach ($matches as $path) {
+                if (is_string($path) && $path !== '') {
+                    @unlink($path);
+                }
+            }
+        }
     }
 
     private function getNextUsername(string $prefix): void
@@ -1512,9 +1540,21 @@ final class AdminCoreController
     private function resetAgentPassword(string $agentId): void
     {
         try {
-            $actor = $this->protect(['admin']);
+            $actor = $this->protect(['admin', 'agent', 'master_agent', 'super_agent']);
             if ($actor === null) {
                 return;
+            }
+            $actorRole = strtolower(trim((string) ($actor['role'] ?? '')));
+            $actorId = (string) ($actor['_id'] ?? '');
+            $managedAgentSet = [];
+            if (in_array($actorRole, ['master_agent', 'super_agent'], true)) {
+                $managedAgentIds = $this->listManagedAgentIds($actorId);
+                foreach ($managedAgentIds as $managedAgentId) {
+                    $managedAgentId = trim((string) $managedAgentId);
+                    if ($managedAgentId !== '' && preg_match('/^[a-f0-9]{24}$/i', $managedAgentId) === 1) {
+                        $managedAgentSet[$managedAgentId] = true;
+                    }
+                }
             }
 
             $body = Http::jsonBody();
@@ -2379,7 +2419,12 @@ final class AdminCoreController
                 $uid = (string) ($user['_id'] ?? '');
                 if ($uid !== '' && preg_match('/^[a-f0-9]{24}$/i', $uid) === 1) {
                     $userIds[] = MongoRepository::id($uid);
-                    $userMap[$uid] = ['user' => $user, 'daily' => [0, 0, 0, 0, 0, 0, 0]];
+                    $userMap[$uid] = [
+                        'user' => $user,
+                        'daily' => [0, 0, 0, 0, 0, 0, 0],
+                        'lastCreditDayIndex' => null,
+                        'lastCreditTimestamp' => null,
+                    ];
                 }
             }
 
@@ -2444,10 +2489,19 @@ final class AdminCoreController
                 if ($dayIndex < 0 || $dayIndex > 6) {
                     continue;
                 }
-                $signed = $this->getSignedTransactionAmount($tx);
+                $signed = $this->shouldExcludeFromNetSummaries($tx)
+                    ? 0.0
+                    : $this->getComprehensiveSignedTransactionAmount($tx);
                 $summaryDaily[$dayIndex] += $signed;
                 if (isset($userMap[$uid])) {
                     $userMap[$uid]['daily'][$dayIndex] += $signed;
+                    if ($signed > 0.00001) {
+                        $lastCreditTimestamp = $userMap[$uid]['lastCreditTimestamp'];
+                        if ($lastCreditTimestamp === null || $created >= (int) $lastCreditTimestamp) {
+                            $userMap[$uid]['lastCreditTimestamp'] = $created;
+                            $userMap[$uid]['lastCreditDayIndex'] = $dayIndex;
+                        }
+                    }
                 }
             }
 
@@ -2470,6 +2524,11 @@ final class AdminCoreController
                 $carry = $balance - $weekTotal;
                 $inactive14Days = !isset($activeRecentUserIds[$uid]);
                 $activeForWeek = isset($activeWeeklyUserIds[$uid]);
+                $receivedDayIndexRaw = $row['lastCreditDayIndex'] ?? null;
+                $receivedDayIndex = is_int($receivedDayIndexRaw) ? $receivedDayIndexRaw : null;
+                $receivedDayLabel = ($receivedDayIndex !== null && isset($dayLabels[$receivedDayIndex]))
+                    ? $dayLabels[$receivedDayIndex]
+                    : null;
 
                 $customers[] = [
                     'id' => $uid,
@@ -2491,6 +2550,8 @@ final class AdminCoreController
                     'lifetimePerformance' => $lifetimePerformance,
                     'inactive14Days' => $inactive14Days,
                     'activeForWeek' => $activeForWeek,
+                    'receivedDayIndex' => $receivedDayIndex,
+                    'receivedDayLabel' => $receivedDayLabel,
                     'lastActive' => $user['lastActive'] ?? null,
                     'status' => $user['status'] ?? null,
                 ];
@@ -3981,9 +4042,21 @@ final class AdminCoreController
     private function deleteTransactionsHistory(): void
     {
         try {
-            $actor = $this->protect(['admin']);
+            $actor = $this->protect(['admin', 'agent', 'master_agent', 'super_agent']);
             if ($actor === null) {
                 return;
+            }
+            $actorRole = strtolower(trim((string) ($actor['role'] ?? '')));
+            $actorId = (string) ($actor['_id'] ?? '');
+            $managedAgentSet = [];
+            if (in_array($actorRole, ['master_agent', 'super_agent'], true)) {
+                $managedAgentIds = $this->listManagedAgentIds($actorId);
+                foreach ($managedAgentIds as $managedAgentId) {
+                    $managedAgentId = trim((string) $managedAgentId);
+                    if ($managedAgentId !== '' && preg_match('/^[a-f0-9]{24}$/i', $managedAgentId) === 1) {
+                        $managedAgentSet[$managedAgentId] = true;
+                    }
+                }
             }
 
             $body = Http::jsonBody();
@@ -3993,57 +4066,346 @@ final class AdminCoreController
                 return;
             }
 
-            $deleted = 0;
-            $skipped = 0;
+            $requestedIds = [];
             foreach ($ids as $idRaw) {
                 $id = is_string($idRaw) ? trim($idRaw) : '';
                 if ($id === '' || preg_match('/^[a-f0-9]{24}$/i', $id) !== 1) {
-                    $skipped++;
                     continue;
                 }
-                $tx = $this->db->findOne('transactions', ['_id' => MongoRepository::id($id)]);
-                if ($tx === null) {
-                    $skipped++;
+                $requestedIds[$id] = true;
+            }
+            $requestedIds = array_keys($requestedIds);
+            if ($requestedIds === []) {
+                Response::json(['message' => 'No valid transaction ids were provided'], 400);
+                return;
+            }
+
+            $deleted = 0;
+            $skipped = 0;
+            $cascadeDeleted = 0;
+            $processedIds = [];
+            $warnings = [];
+            foreach ($requestedIds as $id) {
+                if (isset($processedIds[$id])) {
                     continue;
                 }
 
-                // Only manual adjustment rows can be removed from Customer Details transactions.
-                if ((string) ($tx['type'] ?? '') !== 'adjustment') {
-                    $skipped++;
-                    continue;
-                }
+                $this->db->beginTransaction();
+                try {
+                    $rootTx = $this->db->findOneForUpdate('transactions', ['_id' => MongoRepository::id($id)]);
+                    if ($rootTx === null) {
+                        $this->db->rollback();
+                        $skipped++;
+                        $warnings[] = ['id' => $id, 'message' => 'Transaction not found'];
+                        continue;
+                    }
 
-                $deletedCount = $this->db->deleteOne('transactions', ['_id' => MongoRepository::id($id)]);
-                if ($deletedCount > 0) {
+                    $userId = (string) ($rootTx['userId'] ?? '');
+                    if ($userId === '' || preg_match('/^[a-f0-9]{24}$/i', $userId) !== 1) {
+                        $this->db->rollback();
+                        $skipped++;
+                        $warnings[] = ['id' => $id, 'message' => 'Transaction has invalid user context'];
+                        continue;
+                    }
+                    $user = $this->db->findOneForUpdate('users', ['_id' => MongoRepository::id($userId)]);
+                    if (!is_array($user)) {
+                        $this->db->rollback();
+                        $skipped++;
+                        $warnings[] = ['id' => $id, 'message' => 'Associated user record was not found for reversal.'];
+                        continue;
+                    }
+                    if (!$this->canActorDeleteUserTransaction($actorRole, $actorId, $managedAgentSet, $user)) {
+                        $this->db->rollback();
+                        $skipped++;
+                        $warnings[] = ['id' => $id, 'message' => 'Not authorized to delete this transaction'];
+                        continue;
+                    }
+
+                    $txDocsById = [$id => $rootTx];
+                    if ($this->isDepositTransaction($rootTx)) {
+                        $linkedBonusTx = $this->findLinkedFreePlayBonusTransactionsForDeposit($id, $rootTx);
+                        foreach ($linkedBonusTx as $bonusTx) {
+                            $bonusId = (string) ($bonusTx['_id'] ?? '');
+                            if ($bonusId === '' || preg_match('/^[a-f0-9]{24}$/i', $bonusId) !== 1 || isset($txDocsById[$bonusId])) {
+                                continue;
+                            }
+                            $lockedBonusTx = $this->db->findOneForUpdate('transactions', ['_id' => MongoRepository::id($bonusId)]);
+                            if ($lockedBonusTx !== null) {
+                                $txDocsById[$bonusId] = $lockedBonusTx;
+                            }
+                        }
+                    }
+
+                    $mainBalanceDelta = 0.0;
+                    $freeplayBalanceDelta = 0.0;
+                    $lifetimeDelta = 0.0;
+                    foreach ($txDocsById as $txDoc) {
+                        $status = strtolower(trim((string) ($txDoc['status'] ?? '')));
+                        if ($status !== 'completed') {
+                            continue;
+                        }
+
+                        $signed = $this->getComprehensiveSignedTransactionAmount($txDoc);
+                        if ($this->isFreePlayBalanceTransaction($txDoc)) {
+                            $freeplayBalanceDelta += $signed;
+                        } else {
+                            $mainBalanceDelta += $signed;
+                            $lifetimeDelta += $this->getLifetimeAdjustmentDelta($txDoc);
+                        }
+                    }
+
+                    $balanceNeedsUpdate = abs($mainBalanceDelta) > 0.00001;
+                    $freeplayNeedsUpdate = abs($freeplayBalanceDelta) > 0.00001;
+                    $lifetimeNeedsUpdate = abs($lifetimeDelta) > 0.00001;
+
+                    if (($balanceNeedsUpdate || $freeplayNeedsUpdate || $lifetimeNeedsUpdate) && !is_array($user)) {
+                        throw new RuntimeException('Associated user record was not found for reversal.');
+                    }
+
                     $now = MongoRepository::nowUtc();
-                    $this->db->insertOne('deleted_transactions', [
-                        'transactionId' => $id,
-                        'userId' => $tx['userId'] ?? null,
-                        'type' => $tx['type'] ?? null,
-                        'status' => $tx['status'] ?? null,
-                        'amount' => $this->num($tx['amount'] ?? 0),
-                        'createdAt' => $tx['createdAt'] ?? null,
-                        'transaction' => $tx,
-                        'deletedById' => (string) ($actor['_id'] ?? ''),
-                        'deletedByRole' => (string) ($actor['role'] ?? ''),
-                        'deletedByUsername' => (string) ($actor['username'] ?? ''),
-                        'deletedAt' => $now,
-                        'updatedAt' => $now,
-                    ]);
-                    $deleted++;
-                } else {
+                    if (is_array($user) && ($balanceNeedsUpdate || $freeplayNeedsUpdate || $lifetimeNeedsUpdate)) {
+                        $userUpdates = ['updatedAt' => $now];
+
+                        if ($balanceNeedsUpdate) {
+                            $currentBalance = $this->num($user['balance'] ?? 0);
+                            $nextBalanceRaw = $currentBalance - $mainBalanceDelta;
+                            if ($nextBalanceRaw < -0.00001) {
+                                throw new RuntimeException('Cannot delete transaction because balance would become negative.');
+                            }
+                            $userUpdates['balance'] = max(0.0, round($nextBalanceRaw, 2));
+                        }
+
+                        if ($freeplayNeedsUpdate) {
+                            $currentFreeplay = $this->num($user['freeplayBalance'] ?? 0);
+                            $nextFreeplayRaw = $currentFreeplay - $freeplayBalanceDelta;
+                            if ($nextFreeplayRaw < -0.00001) {
+                                throw new RuntimeException('Cannot delete transaction because linked free play bonus has already been used.');
+                            }
+                            $userUpdates['freeplayBalance'] = max(0.0, round($nextFreeplayRaw, 2));
+                        }
+
+                        if ($lifetimeNeedsUpdate) {
+                            $currentLifetime = $this->num($user['lifetime'] ?? 0);
+                            $userUpdates['lifetime'] = round($currentLifetime - $lifetimeDelta, 2);
+                        }
+
+                        $this->db->updateOne('users', ['_id' => MongoRepository::id($userId)], $userUpdates);
+                    }
+
+                    $deletedThisRoot = 0;
+                    $cascadeDeletedThisRoot = 0;
+                    foreach ($txDocsById as $txId => $txDoc) {
+                        $deletedCount = $this->db->deleteOne('transactions', ['_id' => MongoRepository::id($txId)]);
+                        if ($deletedCount <= 0) {
+                            continue;
+                        }
+
+                        $this->db->insertOne('deleted_transactions', [
+                            'transactionId' => $txId,
+                            'userId' => $txDoc['userId'] ?? null,
+                            'type' => $txDoc['type'] ?? null,
+                            'status' => $txDoc['status'] ?? null,
+                            'amount' => $this->num($txDoc['amount'] ?? 0),
+                            'createdAt' => $txDoc['createdAt'] ?? null,
+                            'transaction' => $txDoc,
+                            'deletedById' => (string) ($actor['_id'] ?? ''),
+                            'deletedByRole' => (string) ($actor['role'] ?? ''),
+                            'deletedByUsername' => (string) ($actor['username'] ?? ''),
+                            'deletedAt' => $now,
+                            'updatedAt' => $now,
+                            'cascadeRootTransactionId' => $id,
+                            'cascadeDeleted' => $txId !== $id,
+                        ]);
+
+                        $processedIds[$txId] = true;
+                        $deleted++;
+                        $deletedThisRoot++;
+                        if ($txId !== $id) {
+                            $cascadeDeleted++;
+                            $cascadeDeletedThisRoot++;
+                        }
+                    }
+
+                    if ($deletedThisRoot === 0) {
+                        $this->db->rollback();
+                        $skipped++;
+                        $warnings[] = ['id' => $id, 'message' => 'Transaction could not be deleted'];
+                        continue;
+                    }
+
+                    $this->db->commit();
+                    if ($cascadeDeletedThisRoot > 0) {
+                        $warnings[] = [
+                            'id' => $id,
+                            'message' => 'Deleted linked free play transactions: ' . $cascadeDeletedThisRoot,
+                        ];
+                    }
+                } catch (Throwable $txError) {
+                    $this->db->rollback();
                     $skipped++;
+                    $warnings[] = ['id' => $id, 'message' => $txError->getMessage()];
                 }
+            }
+            if ($deleted > 0) {
+                $this->invalidateHeaderSummaryCache();
             }
 
             Response::json([
                 'message' => 'Transactions delete completed',
                 'deleted' => $deleted,
                 'skipped' => $skipped,
+                'cascadeDeleted' => $cascadeDeleted,
+                'warnings' => $warnings,
             ]);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error deleting transactions'], 500);
         }
+    }
+
+    private function isFreePlayBalanceTransaction(array $transaction): bool
+    {
+        $reason = strtoupper(trim((string) ($transaction['reason'] ?? '')));
+        if (in_array($reason, ['FREEPLAY_ADJUSTMENT', 'DEPOSIT_FREEPLAY_BONUS', 'REFERRAL_FREEPLAY_BONUS'], true)) {
+            return true;
+        }
+
+        $referenceType = strtoupper(trim((string) ($transaction['referenceType'] ?? '')));
+        if ($referenceType === 'FREEPLAYBONUS') {
+            return true;
+        }
+
+        $type = strtolower(trim((string) ($transaction['type'] ?? '')));
+        return $type === 'fp_deposit';
+    }
+
+    /**
+     * @param array<string, bool> $managedAgentSet
+     * @param array<string, mixed> $user
+     */
+    private function canActorDeleteUserTransaction(string $actorRole, string $actorId, array $managedAgentSet, array $user): bool
+    {
+        if ($actorRole === 'admin') {
+            return true;
+        }
+
+        $userAgentId = trim((string) ($user['agentId'] ?? ''));
+        if ($userAgentId === '' || preg_match('/^[a-f0-9]{24}$/i', $userAgentId) !== 1) {
+            return false;
+        }
+
+        if ($actorRole === 'agent') {
+            return $actorId !== '' && $userAgentId === $actorId;
+        }
+
+        if (in_array($actorRole, ['master_agent', 'super_agent'], true)) {
+            return isset($managedAgentSet[$userAgentId]);
+        }
+
+        return false;
+    }
+
+    private function isDepositTransaction(array $transaction): bool
+    {
+        $type = strtolower(trim((string) ($transaction['type'] ?? '')));
+        if ($type !== 'deposit') {
+            return false;
+        }
+
+        $status = strtolower(trim((string) ($transaction['status'] ?? '')));
+        return $status === '' || $status === 'completed';
+    }
+
+    private function isFundingTransaction(array $transaction): bool
+    {
+        $type = strtolower(trim((string) ($transaction['type'] ?? '')));
+        return $type === 'deposit' || $type === 'withdrawal';
+    }
+
+    private function shouldExcludeFromNetSummaries(array $transaction): bool
+    {
+        return $this->isFundingTransaction($transaction) || $this->isPromotionalOrFreePlayTransaction($transaction);
+    }
+
+    private function getLifetimeAdjustmentDelta(array $transaction): float
+    {
+        $type = strtolower(trim((string) ($transaction['type'] ?? '')));
+        if ($type !== 'adjustment') {
+            return 0.0;
+        }
+
+        $reason = strtoupper(trim((string) ($transaction['reason'] ?? '')));
+        $lifetimeAdjustmentReasons = [
+            'ADMIN_CREDIT_ADJUSTMENT',
+            'ADMIN_DEBIT_ADJUSTMENT',
+            'CASHIER_CREDIT_ADJUSTMENT',
+            'CASHIER_DEBIT_ADJUSTMENT',
+        ];
+        if (!in_array($reason, $lifetimeAdjustmentReasons, true)) {
+            return 0.0;
+        }
+
+        return $this->getComprehensiveSignedTransactionAmount($transaction);
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function findLinkedFreePlayBonusTransactionsForDeposit(string $depositTransactionId, array $depositTransaction): array
+    {
+        $userId = (string) ($depositTransaction['userId'] ?? '');
+        if ($userId === '' || preg_match('/^[a-f0-9]{24}$/i', $userId) !== 1) {
+            return [];
+        }
+
+        $depositAmount = abs($this->num($depositTransaction['amount'] ?? 0));
+        $depositCreatedTs = $this->toTimestampSeconds($depositTransaction['createdAt'] ?? null);
+        $candidates = $this->db->findMany('transactions', [
+            'userId' => MongoRepository::id($userId),
+            'status' => 'completed',
+            'type' => 'adjustment',
+            'reason' => 'DEPOSIT_FREEPLAY_BONUS',
+        ], [
+            'sort' => ['createdAt' => -1],
+            'limit' => 120,
+        ]);
+
+        $matches = [];
+        foreach ($candidates as $candidate) {
+            $candidateId = (string) ($candidate['_id'] ?? '');
+            if ($candidateId === '' || $candidateId === $depositTransactionId) {
+                continue;
+            }
+
+            $referenceId = (string) ($candidate['referenceId'] ?? '');
+            if ($referenceId !== '' && $referenceId === $depositTransactionId) {
+                $matches[] = $candidate;
+                continue;
+            }
+
+            $metadata = is_array($candidate['metadata'] ?? null) ? $candidate['metadata'] : [];
+            $metadataSourceId = (string) (
+                $metadata['sourceTransactionId']
+                ?? $metadata['approvedDepositTransactionId']
+                ?? $metadata['depositTransactionId']
+                ?? ''
+            );
+            if ($metadataSourceId !== '' && $metadataSourceId === $depositTransactionId) {
+                $matches[] = $candidate;
+                continue;
+            }
+
+            // Backward compatibility for legacy rows without explicit linkage ids.
+            $candidateDepositAmount = abs($this->num($metadata['depositAmount'] ?? 0));
+            if ($depositAmount > 0.00001 && $candidateDepositAmount > 0.00001 && abs($candidateDepositAmount - $depositAmount) > 0.01) {
+                continue;
+            }
+            $candidateCreatedTs = $this->toTimestampSeconds($candidate['createdAt'] ?? null);
+            if ($depositCreatedTs !== null && $candidateCreatedTs !== null && abs($candidateCreatedTs - $depositCreatedTs) <= 5) {
+                $matches[] = $candidate;
+            }
+        }
+
+        return $matches;
     }
 
     private function getDeletedWagers(): void
@@ -6414,6 +6776,11 @@ final class AdminCoreController
 
             $body = Http::jsonBody();
             $updates = ['updatedAt' => MongoRepository::nowUtc()];
+            $allowDuplicateRaw = $body['allowDuplicateSave'] ?? ($body['allowDuplicate'] ?? false);
+            $allowDuplicateSave = is_bool($allowDuplicateRaw)
+                ? $allowDuplicateRaw
+                : filter_var((string) $allowDuplicateRaw, FILTER_VALIDATE_BOOLEAN);
+            $duplicateWarningPayload = null;
             $incomingFirstName = array_key_exists('firstName', $body) ? strtoupper(trim((string) $body['firstName'])) : strtoupper(trim((string) ($user['firstName'] ?? '')));
             $incomingLastName = array_key_exists('lastName', $body) ? strtoupper(trim((string) $body['lastName'])) : strtoupper(trim((string) ($user['lastName'] ?? '')));
             $incomingPhoneNumber = array_key_exists('phoneNumber', $body) ? trim((string) $body['phoneNumber']) : trim((string) ($user['phoneNumber'] ?? ''));
@@ -6463,26 +6830,28 @@ final class AdminCoreController
                     return (string) ($match['id'] ?? '') !== $id;
                 }));
                 if (count($duplicateMatches) > 0) {
-                    Response::json(
-                        $this->buildDuplicatePlayerResponse(
-                            $incomingFirstName,
-                            $incomingLastName,
-                            $incomingFullName,
-                            $incomingPhoneNumber,
-                            $incomingEmail,
-                            $duplicateMatches
-                        ),
-                        409
+                    $duplicateWarningPayload = $this->buildDuplicatePlayerResponse(
+                        $incomingFirstName,
+                        $incomingLastName,
+                        $incomingFullName,
+                        $incomingPhoneNumber,
+                        $incomingEmail,
+                        $duplicateMatches
                     );
-                    return;
+                    if (!$allowDuplicateSave) {
+                        Response::json($duplicateWarningPayload, 409);
+                        return;
+                    }
                 }
             }
 
             if (isset($body['phoneNumber']) && trim((string) $body['phoneNumber']) !== '' && (string) $body['phoneNumber'] !== (string) ($user['phoneNumber'] ?? '')) {
                 $existingPhone = $this->db->findOne('users', ['phoneNumber' => (string) $body['phoneNumber']]);
                 if ($existingPhone !== null && (string) ($existingPhone['_id'] ?? '') !== $id) {
-                    Response::json(['message' => 'Phone number already exists'], 409);
-                    return;
+                    if (!$allowDuplicateSave) {
+                        Response::json(['message' => 'Phone number already exists'], 409);
+                        return;
+                    }
                 }
                 $updates['phoneNumber'] = (string) $body['phoneNumber'];
             }
@@ -6564,7 +6933,12 @@ final class AdminCoreController
                 throw $txErr;
             }
 
-            Response::json(['message' => 'User updated successfully', 'user' => $updated]);
+            $response = ['message' => 'User updated successfully', 'user' => $updated];
+            if (is_array($duplicateWarningPayload)) {
+                $response['duplicateWarning'] = $duplicateWarningPayload;
+                $response['savedWithDuplicateWarning'] = true;
+            }
+            Response::json($response);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error updating user'], 500);
         }
@@ -6718,6 +7092,12 @@ final class AdminCoreController
                 $this->db->updateOne('users', ['_id' => MongoRepository::id($id)], $userUpdates);
                 $transactionId = $this->db->insertOne('transactions', $transactionDoc);
                 if (is_array($freePlayTransactionDoc)) {
+                    $freePlayTransactionDoc['referenceId'] = MongoRepository::id($transactionId);
+                    $freePlayMetadata = is_array($freePlayTransactionDoc['metadata'] ?? null)
+                        ? $freePlayTransactionDoc['metadata']
+                        : [];
+                    $freePlayMetadata['sourceTransactionId'] = $transactionId;
+                    $freePlayTransactionDoc['metadata'] = $freePlayMetadata;
                     $freePlayTransactionId = $this->db->insertOne('transactions', $freePlayTransactionDoc);
                 }
                 $this->db->commit();
@@ -6725,6 +7105,7 @@ final class AdminCoreController
                 $this->db->rollback();
                 throw $txErr;
             }
+            $this->invalidateHeaderSummaryCache();
 
             $pendingBalance = $this->num($user['pendingBalance'] ?? 0);
             $agentBalanceOut = null;
@@ -8086,6 +8467,7 @@ final class AdminCoreController
             if ($actor === null) {
                 return;
             }
+            $this->invalidateHeaderSummaryCache();
             Response::json(['message' => 'Cache cleared']);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error clearing cache'], 500);

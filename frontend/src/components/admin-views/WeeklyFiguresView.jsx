@@ -95,7 +95,6 @@ function WeeklyFiguresView({ onViewChange = null }) {
     () => new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' }),
     []
   );
-  const isOverSettleView = playerFilter === 'over-settle-winners' || playerFilter === 'over-settle-losers';
 
   const roundForDisplay = (value) => {
     if (value === null || value === undefined) return null;
@@ -578,8 +577,6 @@ function WeeklyFiguresView({ onViewChange = null }) {
         {error && <div style={{ padding: '20px', color: 'red', textAlign: 'center' }}>{error}</div>}
         {!loading && !error && summaryData && (
           <>
-            <div className="weekly-filter-description">{activeFilter.description}</div>
-
             <div className="summary-section">
               <div className="summary-header">
                 <h3>Summary</h3>
@@ -589,18 +586,18 @@ function WeeklyFiguresView({ onViewChange = null }) {
                   <thead>
                     <tr>
                       <th>Summary</th>
-                      <th>{isOverSettleView ? 'Balance' : selectedMetricLabel}</th>
-                      <th>{isOverSettleView ? 'Lifetime' : 'Balance'}</th>
+                      <th>{selectedMetricLabel}</th>
+                      <th>Balance</th>
                     </tr>
                   </thead>
                   <tbody>
                     <tr>
                       <td>{dynamicSummary.playerCount} {playerFilter === 'active-week' ? 'Active Players' : 'Players'}</td>
-                      <td className={`weekly-amount ${getSignedValueClass(isOverSettleView ? dynamicSummary.balanceTotal : dynamicSummary.selectedMetricTotal)}`}>
-                        {formatMoney(isOverSettleView ? dynamicSummary.balanceTotal : dynamicSummary.selectedMetricTotal)}
+                      <td className={`weekly-amount ${getSignedValueClass(dynamicSummary.selectedMetricTotal)}`}>
+                        {formatMoney(dynamicSummary.selectedMetricTotal)}
                       </td>
-                      <td className={`weekly-amount ${getSignedValueClass(isOverSettleView ? dynamicSummary.lifetimeTotal : dynamicSummary.balanceTotal)}`}>
-                        {formatMoney(isOverSettleView ? dynamicSummary.lifetimeTotal : dynamicSummary.balanceTotal)}
+                      <td className={`weekly-amount ${getSignedValueClass(dynamicSummary.balanceTotal)}`}>
+                        {formatMoney(dynamicSummary.balanceTotal)}
                       </td>
                     </tr>
                   </tbody>
@@ -619,20 +616,18 @@ function WeeklyFiguresView({ onViewChange = null }) {
                       <div className="weekly-mobile-hierarchy">{group.hierarchyLabel}</div>
                       <div className="weekly-mobile-table-head">
                         <span>Customer</span>
-                        {isOverSettleView ? (
-                          <span>Balance</span>
-                        ) : (
-                          <div className="weekly-mobile-table-day-head">{renderInlineDayToggle()}</div>
-                        )}
-                        <span>{isOverSettleView ? 'Lifetime' : 'Balance'}</span>
+                        <div className="weekly-mobile-table-day-head">{renderInlineDayToggle()}</div>
+                        <span>Balance</span>
                       </div>
                       <div className="weekly-mobile-rows">
                         {group.customers.map((customer, rowIdx) => {
                           const dayValue = getCustomerSelectedDayAmount(customer);
                           const balanceValue = parseNumericAmount(customer?.balance ?? 0);
-                          const lifetimeValue = getLifetimePerformance(customer);
-                          const primaryValue = isOverSettleView ? balanceValue : dayValue;
-                          const secondaryValue = isOverSettleView ? lifetimeValue : balanceValue;
+                          const primaryValue = dayValue;
+                          const secondaryValue = balanceValue;
+                          const receivedDayLabel = typeof customer?.receivedDayLabel === 'string'
+                            ? customer.receivedDayLabel
+                            : '';
                           return (
                             <div
                               key={`${group.key}-${String(customer.id || customer.username || rowIdx)}`}
@@ -659,7 +654,12 @@ function WeeklyFiguresView({ onViewChange = null }) {
                                 {formatMobileCellNumber(primaryValue)}
                               </div>
                               <div className={`weekly-mobile-balance-cell ${getSignedValueClass(secondaryValue)}`}>
-                                {formatMobileCellNumber(secondaryValue)}
+                                <span className="weekly-mobile-balance-value">{formatMobileCellNumber(secondaryValue)}</span>
+                                {receivedDayLabel && (
+                                  <span className="weekly-mobile-balance-meta">
+                                    Received {receivedDayLabel}
+                                  </span>
+                                )}
                               </div>
                             </div>
                           );
@@ -668,11 +668,11 @@ function WeeklyFiguresView({ onViewChange = null }) {
                           <div className="weekly-mobile-customer-cell">
                             <strong>{group.totals.players} Players</strong>
                           </div>
-                          <div className={`weekly-mobile-day-cell ${getSignedValueClass(isOverSettleView ? group.totals.balance : group.totals.day)}`}>
-                            {formatMobileCellNumber(isOverSettleView ? group.totals.balance : group.totals.day)}
+                          <div className={`weekly-mobile-day-cell ${getSignedValueClass(group.totals.day)}`}>
+                            {formatMobileCellNumber(group.totals.day)}
                           </div>
-                          <div className={`weekly-mobile-balance-cell ${getSignedValueClass(isOverSettleView ? group.totals.lifetime : group.totals.balance)}`}>
-                            {formatMobileCellNumber(isOverSettleView ? group.totals.lifetime : group.totals.balance)}
+                          <div className={`weekly-mobile-balance-cell ${getSignedValueClass(group.totals.balance)}`}>
+                            {formatMobileCellNumber(group.totals.balance)}
                           </div>
                         </div>
                       </div>
