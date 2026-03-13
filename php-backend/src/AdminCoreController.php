@@ -6813,11 +6813,36 @@ final class AdminCoreController
             }
 
             $agent = null;
+            $masterAgent = null;
             $agentId = (string) ($foundUser['agentId'] ?? '');
             if ($agentId !== '' && preg_match('/^[a-f0-9]{24}$/i', $agentId) === 1) {
-                $agentDoc = $this->db->findOne('agents', ['_id' => MongoRepository::id($agentId)], ['projection' => ['username' => 1]]);
+                $agentDoc = $this->db->findOne('agents', ['_id' => MongoRepository::id($agentId)], ['projection' => ['username' => 1, 'role' => 1, 'createdBy' => 1, 'createdByModel' => 1]]);
                 if ($agentDoc !== null) {
-                    $agent = ['username' => $agentDoc['username'] ?? null];
+                    $agentRole = (string) ($agentDoc['role'] ?? 'agent');
+                    $agent = ['username' => $agentDoc['username'] ?? null, 'role' => $agentRole];
+                    if (in_array($agentRole, ['master_agent', 'super_agent'], true)) {
+                        $masterAgent = [
+                            'id' => $agentId,
+                            'username' => $agentDoc['username'] ?? null,
+                            'role' => $agentRole,
+                        ];
+                    } else {
+                        $parentAgentId = (string) ($agentDoc['createdBy'] ?? '');
+                        $parentModel = (string) ($agentDoc['createdByModel'] ?? '');
+                        if ($parentModel === 'Agent' && $parentAgentId !== '' && preg_match('/^[a-f0-9]{24}$/i', $parentAgentId) === 1) {
+                            $masterDoc = $this->db->findOne('agents', ['_id' => MongoRepository::id($parentAgentId)], ['projection' => ['username' => 1, 'role' => 1]]);
+                            if ($masterDoc !== null) {
+                                $masterRole = (string) ($masterDoc['role'] ?? '');
+                                if (in_array($masterRole, ['master_agent', 'super_agent'], true)) {
+                                    $masterAgent = [
+                                        'id' => $parentAgentId,
+                                        'username' => $masterDoc['username'] ?? null,
+                                        'role' => $masterRole,
+                                    ];
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
@@ -6960,6 +6985,8 @@ final class AdminCoreController
                     'role' => $role,
                     'agentId' => $agentId !== '' ? $agentId : null,
                     'agentUsername' => $agent['username'] ?? null,
+                    'masterAgentId' => $masterAgent['id'] ?? null,
+                    'masterAgentUsername' => $masterAgent['username'] ?? null,
                     'balance' => $foundUser['balance'] ?? null,
                     'pendingBalance' => $foundUser['pendingBalance'] ?? 0,
                     'creditLimit' => $foundUser['creditLimit'] ?? null,

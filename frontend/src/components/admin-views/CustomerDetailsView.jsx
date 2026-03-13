@@ -374,7 +374,11 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
           lastName: user.lastName || '',
           phoneNumber: user.phoneNumber || '',
           minBet: Number(user.minBet || 0),
-          agentId: user.agentId?._id || user.agentId || '',
+          agentId: (
+            role === 'admin'
+              ? (user.masterAgentId || user.agentId?._id || user.agentId || '')
+              : (user.agentId?._id || user.agentId || '')
+          ),
           status: (user.status || 'active').toLowerCase(),
           creditLimit: Number(user.creditLimit || 0),
           wagerLimit: Number(user.wagerLimit ?? user.maxBet ?? 0),
@@ -1815,7 +1819,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
               })}
             </select>
           ) : (
-            <input value={customer.agentUsername || '—'} readOnly />
+            <input value={customer.masterAgentUsername || customer.agentUsername || '—'} readOnly />
           )}
 
           <label>Account Status</label>
