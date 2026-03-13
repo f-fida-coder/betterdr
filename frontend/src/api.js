@@ -1161,8 +1161,16 @@ export const updateUserByAdmin = async (userId, userData, token) => {
             headers: getHeaders(token),
             body: JSON.stringify(userData)
         });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.message || 'Failed to update user');
+        const data = await response.json().catch(() => null);
+        if (!response.ok) {
+            if (
+                response.status === 409
+                && (data?.duplicate === true || data?.code === 'DUPLICATE_PLAYER')
+            ) {
+                throw createDuplicatePlayerError(data, 'Likely duplicate player detected', response.status);
+            }
+            throw new Error(data?.message || 'Failed to update user');
+        }
         return data;
     } catch (error) {
         console.error('updateUserByAdmin error:', error);
@@ -1293,8 +1301,16 @@ export const updateUserByAgent = async (userId, userData, token) => {
             headers: getHeaders(token),
             body: JSON.stringify(userData)
         });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.message || 'Failed to update customer');
+        const data = await response.json().catch(() => null);
+        if (!response.ok) {
+            if (
+                response.status === 409
+                && (data?.duplicate === true || data?.code === 'DUPLICATE_PLAYER')
+            ) {
+                throw createDuplicatePlayerError(data, 'Likely duplicate player detected', response.status);
+            }
+            throw new Error(data?.message || 'Failed to update customer');
+        }
         return data;
     } catch (error) {
         console.error('updateUserByAgent error:', error);

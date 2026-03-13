@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { getWeeklyFigures } from '../../api';
 import { annotateDuplicatePlayers } from '../../utils/duplicatePlayers';
 
@@ -20,17 +20,17 @@ const FILTER_OPTIONS = [
   {
     value: 'active-week',
     label: 'Active For The Week',
-    description: 'Shows active players first, then all players.',
+    description: 'Shows only active players for the selected week.',
   },
   {
     value: 'with-balance',
     label: 'With A Balance',
-    description: 'Shows players with a balance first, then all players.',
+    description: 'Shows only players with a balance.',
   },
   {
     value: 'big-figures',
     label: 'Big Figures',
-    description: 'Shows players with balance greater than $1,000.',
+    description: 'Shows players with absolute balance greater than $1,000 (winners and losers).',
   },
   {
     value: 'over-settle-winners',
@@ -45,7 +45,7 @@ const FILTER_OPTIONS = [
   {
     value: 'inactive-losers-14d',
     label: 'Inactive Losers 14 Days',
-    description: 'Shows inactive losers first, then all players.',
+    description: 'Shows only inactive losers from the last 14 days.',
   },
 ];
 
@@ -68,9 +68,20 @@ const getLifetimePerformance = (customer) => {
   return parseNumericAmount(value);
 };
 
+const cycleOptionValue = (options, currentValue, direction) => {
+  if (!Array.isArray(options) || options.length === 0) {
+    return currentValue;
+  }
+  const currentIndex = options.findIndex((option) => option.value === currentValue);
+  const safeIndex = currentIndex >= 0 ? currentIndex : 0;
+  const nextIndex = (safeIndex + direction + options.length) % options.length;
+  return options[nextIndex]?.value ?? currentValue;
+};
+
 function WeeklyFiguresView({ onViewChange = null }) {
   const [timePeriod, setTimePeriod] = useState('this-week');
   const [playerFilter, setPlayerFilter] = useState('active-week');
+  const [openDropdown, setOpenDropdown] = useState(null);
   const [summaryData, setSummaryData] = useState(null);
   const [customers, setCustomers] = useState([]);
   const [selectedDayIndex, setSelectedDayIndex] = useState(0);
@@ -79,6 +90,7 @@ function WeeklyFiguresView({ onViewChange = null }) {
   ));
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const periodFilterRef = useRef(null);
   const collator = useMemo(
     () => new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' }),
     []
@@ -116,6 +128,17 @@ function WeeklyFiguresView({ onViewChange = null }) {
     return (Date.now() - parsed) >= fourteenDaysMs;
   };
 
+  const isActiveForWeek = (customer) => {
+    if (typeof customer?.activeForWeek === 'boolean') {
+      return customer.activeForWeek;
+    }
+    const week = Number(customer?.week || 0);
+    if (Array.isArray(customer?.daily)) {
+      return customer.daily.some((value) => Math.abs(Number(value || 0)) > 0.01);
+    }
+    return Math.abs(week) > 0.01;
+  };
+
   useEffect(() => {
     const fetchWeeklyFigures = async () => {
       const token = localStorage.getItem('token');
@@ -150,21 +173,29 @@ function WeeklyFiguresView({ onViewChange = null }) {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  useEffect(() => {
+    const handleOutsideClick = (event) => {
+      if (!periodFilterRef.current) return;
+      if (!periodFilterRef.current.contains(event.target)) {
+        setOpenDropdown(null);
+      }
+    };
+
+    document.addEventListener('mousedown', handleOutsideClick);
+    document.addEventListener('touchstart', handleOutsideClick);
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+      document.removeEventListener('touchstart', handleOutsideClick);
+    };
+  }, []);
+
   const customersWithDuplicateFlags = useMemo(() => annotateDuplicatePlayers(customers), [customers]);
-  const showMatchedThenAllPlayers = useMemo(() => (
-    playerFilter === 'all-players'
-    || playerFilter === 'active-week'
-    || playerFilter === 'with-balance'
-    || playerFilter === 'inactive-losers-14d'
-  ), [playerFilter]);
+  const includeAllPlayers = playerFilter === 'all-players';
 
   const matchesFilter = (customer) => {
     const balance = Number(customer.balance || 0);
-    const week = Number(customer.week || 0);
     const settleLimit = Math.abs(Number(customer.settleLimit ?? customer.balanceOwed ?? 0));
-    const activeThisWeek = Array.isArray(customer.daily)
-      ? customer.daily.some((value) => Math.abs(Number(value || 0)) > 0.01)
-      : Math.abs(week) > 0.01;
+    const activeThisWeek = isActiveForWeek(customer);
 
     if (playerFilter === 'all-players') {
       return true;
@@ -176,7 +207,7 @@ function WeeklyFiguresView({ onViewChange = null }) {
       return activeThisWeek;
     }
     if (playerFilter === 'big-figures') {
-      return balance > 1000;
+      return Math.abs(balance) > 1000;
     }
     if (playerFilter === 'over-settle-winners') {
       if (settleLimit <= 0.01) return false;
@@ -200,11 +231,11 @@ function WeeklyFiguresView({ onViewChange = null }) {
   ), [customersWithDuplicateFlags, playerFilter]);
 
   const filteredCustomers = useMemo(() => {
-    if (showMatchedThenAllPlayers) {
+    if (includeAllPlayers) {
       return customersWithFilterState;
     }
     return customersWithFilterState.filter((customer) => customer.matchesSelectedFilter);
-  }, [customersWithFilterState, showMatchedThenAllPlayers]);
+  }, [customersWithFilterState, includeAllPlayers]);
 
   const customerComparator = useMemo(() => {
     return (a, b) => {
@@ -212,12 +243,7 @@ function WeeklyFiguresView({ onViewChange = null }) {
       const bUsername = String(b?.username || '');
       const usernameFallback = collator.compare(aUsername, bUsername);
 
-      if (showMatchedThenAllPlayers) {
-        const aMatch = Boolean(a?.matchesSelectedFilter);
-        const bMatch = Boolean(b?.matchesSelectedFilter);
-        if (aMatch !== bMatch) {
-          return aMatch ? -1 : 1;
-        }
+      if (includeAllPlayers) {
         return usernameFallback;
       }
 
@@ -229,9 +255,13 @@ function WeeklyFiguresView({ onViewChange = null }) {
         const diff = Math.abs(Number(b?.balance || 0)) - Math.abs(Number(a?.balance || 0));
         return diff !== 0 ? diff : usernameFallback;
       }
+      if (playerFilter === 'big-figures') {
+        const diff = Math.abs(Number(b?.balance || 0)) - Math.abs(Number(a?.balance || 0));
+        return diff !== 0 ? diff : usernameFallback;
+      }
       return usernameFallback;
     };
-  }, [collator, playerFilter, showMatchedThenAllPlayers]);
+  }, [collator, includeAllPlayers, playerFilter]);
 
   const sortedCustomers = useMemo(() => {
     return [...filteredCustomers].sort(customerComparator);
@@ -245,6 +275,7 @@ function WeeklyFiguresView({ onViewChange = null }) {
   };
 
   const activeFilter = FILTER_OPTIONS.find((option) => option.value === playerFilter) || FILTER_OPTIONS[0];
+  const activePeriod = WEEK_OPTIONS.find((option) => option.value === timePeriod) || WEEK_OPTIONS[0];
   const summaryDays = Array.isArray(summaryData?.days) ? summaryData.days : [];
 
   useEffect(() => {
@@ -259,7 +290,7 @@ function WeeklyFiguresView({ onViewChange = null }) {
     });
   }, [summaryDays]);
 
-  const mobileDecoratedCustomers = useMemo(() => {
+  const decoratedCustomers = useMemo(() => {
     return sortedCustomers.map((customer) => {
       const chain = Array.isArray(customer?.agentHierarchy)
         ? customer.agentHierarchy
@@ -281,10 +312,10 @@ function WeeklyFiguresView({ onViewChange = null }) {
     });
   }, [sortedCustomers]);
 
-  const mobileGroupedCustomers = useMemo(() => {
+  const groupedCustomers = useMemo(() => {
     const groupsMap = new Map();
 
-    mobileDecoratedCustomers.forEach((customer) => {
+    decoratedCustomers.forEach((customer) => {
       const hierarchy = customer.hierarchy || {};
       const hierarchyPath = String(hierarchy.path || 'UNASSIGNED');
       const key = hierarchyPath;
@@ -332,7 +363,7 @@ function WeeklyFiguresView({ onViewChange = null }) {
     });
 
     return groups;
-  }, [collator, customerComparator, mobileDecoratedCustomers, selectedDayIndex]);
+  }, [collator, customerComparator, decoratedCustomers, selectedDayIndex]);
 
   const selectedDayLabel = summaryDays[selectedDayIndex]?.day || 'Day';
   const selectedMetricLabel = summaryDays.length > 0 ? selectedDayLabel : 'Selected Metric';
@@ -347,6 +378,30 @@ function WeeklyFiguresView({ onViewChange = null }) {
     });
   };
 
+  const changeTimePeriod = (direction) => {
+    setTimePeriod((currentValue) => cycleOptionValue(WEEK_OPTIONS, currentValue, direction));
+    setOpenDropdown(null);
+  };
+
+  const changePlayerFilter = (direction) => {
+    setPlayerFilter((currentValue) => cycleOptionValue(FILTER_OPTIONS, currentValue, direction));
+    setOpenDropdown(null);
+  };
+
+  const toggleDropdown = (dropdownName) => {
+    setOpenDropdown((currentValue) => (currentValue === dropdownName ? null : dropdownName));
+  };
+
+  const selectTimePeriod = (value) => {
+    setTimePeriod(value);
+    setOpenDropdown(null);
+  };
+
+  const selectPlayerFilter = (value) => {
+    setPlayerFilter(value);
+    setOpenDropdown(null);
+  };
+
   const getCustomerSelectedDayAmount = (customer) => {
     if (!Array.isArray(customer?.daily) || customer.daily.length === 0) {
       return 0;
@@ -359,12 +414,7 @@ function WeeklyFiguresView({ onViewChange = null }) {
     return formatMoney(value);
   };
 
-  const visibleCustomers = useMemo(() => {
-    if (!isMobile) {
-      return sortedCustomers;
-    }
-    return mobileGroupedCustomers.flatMap((group) => group.customers || []);
-  }, [isMobile, mobileGroupedCustomers, sortedCustomers]);
+  const visibleCustomers = useMemo(() => sortedCustomers, [sortedCustomers]);
 
   const dynamicSummary = useMemo(() => {
     const playerCount = visibleCustomers.length;
@@ -428,34 +478,98 @@ function WeeklyFiguresView({ onViewChange = null }) {
   );
 
   return (
-    <div className="admin-view">
+    <div className="admin-view weekly-figures-view">
       <div className="view-header">
         <h2>Weekly Figures - Customer Tracking</h2>
-        <div className="period-filter">
-          <select
-            value={timePeriod}
-            onChange={(e) => setTimePeriod(e.target.value)}
-            className="weekly-period-select"
-            aria-label="Select week period"
-          >
-            {WEEK_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-          <select
-            value={playerFilter}
-            onChange={(e) => setPlayerFilter(e.target.value)}
-            className="weekly-filter-select"
-            aria-label="Select player filter"
-          >
-            {FILTER_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
+        <div className="period-filter" ref={periodFilterRef}>
+          <div className={`period-filter-control weekly-period-select${openDropdown === 'period' ? ' is-open' : ''}`} role="group" aria-label="Week period control">
+            <button
+              type="button"
+              className="period-filter-value-button"
+              onClick={() => toggleDropdown('period')}
+              aria-label="Open week period options"
+              aria-haspopup="listbox"
+              aria-expanded={openDropdown === 'period'}
+            >
+              <span className="period-filter-value">{activePeriod.label}</span>
+            </button>
+            <div className="period-filter-stepper">
+              <button
+                type="button"
+                className="period-filter-step-btn"
+                onClick={() => changeTimePeriod(-1)}
+                aria-label="Previous week period"
+              >
+                <i className="fa-solid fa-angle-up" aria-hidden="true"></i>
+              </button>
+              <button
+                type="button"
+                className="period-filter-step-btn"
+                onClick={() => changeTimePeriod(1)}
+                aria-label="Next week period"
+              >
+                <i className="fa-solid fa-angle-down" aria-hidden="true"></i>
+              </button>
+            </div>
+            {openDropdown === 'period' && (
+              <div className="period-filter-menu" role="listbox" aria-label="Week period options">
+                {WEEK_OPTIONS.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    className={`period-filter-menu-item${option.value === timePeriod ? ' is-selected' : ''}`}
+                    onClick={() => selectTimePeriod(option.value)}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className={`period-filter-control weekly-filter-select${openDropdown === 'filter' ? ' is-open' : ''}`} role="group" aria-label="Player filter control">
+            <button
+              type="button"
+              className="period-filter-value-button"
+              onClick={() => toggleDropdown('filter')}
+              aria-label="Open player filter options"
+              aria-haspopup="listbox"
+              aria-expanded={openDropdown === 'filter'}
+            >
+              <span className="period-filter-value">{activeFilter.label}</span>
+            </button>
+            <div className="period-filter-stepper">
+              <button
+                type="button"
+                className="period-filter-step-btn"
+                onClick={() => changePlayerFilter(-1)}
+                aria-label="Previous player filter"
+              >
+                <i className="fa-solid fa-angle-up" aria-hidden="true"></i>
+              </button>
+              <button
+                type="button"
+                className="period-filter-step-btn"
+                onClick={() => changePlayerFilter(1)}
+                aria-label="Next player filter"
+              >
+                <i className="fa-solid fa-angle-down" aria-hidden="true"></i>
+              </button>
+            </div>
+            {openDropdown === 'filter' && (
+              <div className="period-filter-menu" role="listbox" aria-label="Player filter options">
+                {FILTER_OPTIONS.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    className={`period-filter-menu-item${option.value === playerFilter ? ' is-selected' : ''}`}
+                    onClick={() => selectPlayerFilter(option.value)}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -470,43 +584,27 @@ function WeeklyFiguresView({ onViewChange = null }) {
               <div className="summary-header">
                 <h3>Summary</h3>
               </div>
-              {!isOverSettleView && renderDayToggle()}
-              <div className="weekly-summary-metrics">
-                {isOverSettleView ? (
-                  <>
-                    <div className="weekly-summary-metric-card">
-                      <span className="weekly-summary-metric-label">Balance Total</span>
-                      <strong className={`weekly-amount ${getSignedValueClass(dynamicSummary.balanceTotal)}`}>
-                        {formatMoney(dynamicSummary.balanceTotal)}
-                      </strong>
-                    </div>
-                    <div className="weekly-summary-metric-card">
-                      <span className="weekly-summary-metric-label">Lifetime Total</span>
-                      <strong className={`weekly-amount ${getSignedValueClass(dynamicSummary.lifetimeTotal)}`}>
-                        {formatMoney(dynamicSummary.lifetimeTotal)}
-                      </strong>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div className="weekly-summary-metric-card">
-                      <span className="weekly-summary-metric-label">{selectedMetricLabel} Total</span>
-                      <strong className={`weekly-amount ${getSignedValueClass(dynamicSummary.selectedMetricTotal)}`}>
-                        {formatMoney(dynamicSummary.selectedMetricTotal)}
-                      </strong>
-                    </div>
-                    <div className="weekly-summary-metric-card">
-                      <span className="weekly-summary-metric-label">Balance Total</span>
-                      <strong className={`weekly-amount ${getSignedValueClass(dynamicSummary.balanceTotal)}`}>
-                        {formatMoney(dynamicSummary.balanceTotal)}
-                      </strong>
-                    </div>
-                  </>
-                )}
-                <div className="weekly-summary-metric-card">
-                  <span className="weekly-summary-metric-label">Players</span>
-                  <strong>{dynamicSummary.playerCount} Players</strong>
-                </div>
+              <div className="table-container">
+                <table className="data-table customer-table">
+                  <thead>
+                    <tr>
+                      <th>Summary</th>
+                      <th>{isOverSettleView ? 'Balance' : selectedMetricLabel}</th>
+                      <th>{isOverSettleView ? 'Lifetime' : 'Balance'}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>{dynamicSummary.playerCount} {playerFilter === 'active-week' ? 'Active Players' : 'Players'}</td>
+                      <td className={`weekly-amount ${getSignedValueClass(isOverSettleView ? dynamicSummary.balanceTotal : dynamicSummary.selectedMetricTotal)}`}>
+                        {formatMoney(isOverSettleView ? dynamicSummary.balanceTotal : dynamicSummary.selectedMetricTotal)}
+                      </td>
+                      <td className={`weekly-amount ${getSignedValueClass(isOverSettleView ? dynamicSummary.lifetimeTotal : dynamicSummary.balanceTotal)}`}>
+                        {formatMoney(isOverSettleView ? dynamicSummary.lifetimeTotal : dynamicSummary.balanceTotal)}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
               </div>
             </div>
 
@@ -514,192 +612,78 @@ function WeeklyFiguresView({ onViewChange = null }) {
               <div className="section-header">
                 <h3>{activeFilter.label}</h3>
               </div>
-              {isMobile ? (
-                <div className="weekly-mobile-customer-shell">
-                  <div className="weekly-mobile-groups">
-                    {mobileGroupedCustomers.length > 0 ? mobileGroupedCustomers.map((group) => (
-                      <section key={group.key} className="weekly-mobile-group weekly-mobile-table-block">
-                        <div className="weekly-mobile-hierarchy">{group.hierarchyLabel}</div>
-                        <div className="weekly-mobile-table-head">
-                          <span>Customer</span>
-                          {isOverSettleView ? <span>Balance</span> : renderInlineDayToggle()}
-                          <span>{isOverSettleView ? 'Lifetime' : 'Balance'}</span>
-                        </div>
-                        <div className="weekly-mobile-rows">
-                          {group.customers.map((customer, rowIdx) => {
-                            const dayValue = getCustomerSelectedDayAmount(customer);
-                            const balanceValue = parseNumericAmount(customer?.balance ?? 0);
-                            const lifetimeValue = getLifetimePerformance(customer);
-                            return (
-                              <div
-                                key={`${group.key}-${String(customer.id || customer.username || rowIdx)}`}
-                                className={`weekly-mobile-table-row ${customer.isDuplicatePlayer ? 'weekly-duplicate-row' : ''}`}
-                              >
-                                <div className="weekly-mobile-customer-cell weekly-mobile-user">
-                                  {customer.id && typeof onViewChange === 'function' ? (
-                                    <button
-                                      type="button"
-                                      className="customer-username customer-username-button"
-                                      onClick={() => openCustomerDetails(customer.id)}
-                                    >
-                                      {customer.username}
-                                    </button>
-                                  ) : (
-                                    <strong className="customer-username">{customer.username}</strong>
-                                  )}
-                                  <span className="weekly-mobile-fullname">{customer.name || '—'}</span>
-                                  {customer.isDuplicatePlayer && (
-                                    <span className="duplicate-player-badge">Duplicate Player</span>
-                                  )}
-                                </div>
-                                <div className={`weekly-mobile-day-cell ${getSignedValueClass(isOverSettleView ? balanceValue : dayValue)}`}>
-                                  {formatMobileCellNumber(isOverSettleView ? balanceValue : dayValue)}
-                                </div>
-                                <div className={`weekly-mobile-balance-cell ${getSignedValueClass(isOverSettleView ? lifetimeValue : balanceValue)}`}>
-                                  {formatMobileCellNumber(isOverSettleView ? lifetimeValue : balanceValue)}
-                                </div>
+              <div className="weekly-mobile-customer-shell">
+                <div className="weekly-mobile-groups">
+                  {groupedCustomers.length > 0 ? groupedCustomers.map((group) => (
+                    <section key={group.key} className="weekly-mobile-group weekly-mobile-table-block">
+                      <div className="weekly-mobile-hierarchy">{group.hierarchyLabel}</div>
+                      <div className="weekly-mobile-table-head">
+                        <span>Customer</span>
+                        {isOverSettleView ? (
+                          <span>Balance</span>
+                        ) : (
+                          <div className="weekly-mobile-table-day-head">{renderInlineDayToggle()}</div>
+                        )}
+                        <span>{isOverSettleView ? 'Lifetime' : 'Balance'}</span>
+                      </div>
+                      <div className="weekly-mobile-rows">
+                        {group.customers.map((customer, rowIdx) => {
+                          const dayValue = getCustomerSelectedDayAmount(customer);
+                          const balanceValue = parseNumericAmount(customer?.balance ?? 0);
+                          const lifetimeValue = getLifetimePerformance(customer);
+                          const primaryValue = isOverSettleView ? balanceValue : dayValue;
+                          const secondaryValue = isOverSettleView ? lifetimeValue : balanceValue;
+                          return (
+                            <div
+                              key={`${group.key}-${String(customer.id || customer.username || rowIdx)}`}
+                              className={`weekly-mobile-table-row ${customer.isDuplicatePlayer ? 'weekly-duplicate-row' : ''}`}
+                            >
+                              <div className="weekly-mobile-customer-cell weekly-mobile-user">
+                                {customer.id && typeof onViewChange === 'function' ? (
+                                  <button
+                                    type="button"
+                                    className="customer-username customer-username-button"
+                                    onClick={() => openCustomerDetails(customer.id)}
+                                  >
+                                    {customer.username}
+                                  </button>
+                                ) : (
+                                  <strong className="customer-username">{customer.username}</strong>
+                                )}
+                                <span className="weekly-mobile-fullname">{customer.name || '—'}</span>
+                                {customer.isDuplicatePlayer && (
+                                  <span className="duplicate-player-badge">Duplicate Player</span>
+                                )}
                               </div>
-                            );
-                          })}
-                          <div className="weekly-mobile-table-row weekly-mobile-group-total-row">
-                            <div className="weekly-mobile-customer-cell">
-                              <strong>{group.totals.players} Players</strong>
+                              <div className={`weekly-mobile-day-cell ${getSignedValueClass(primaryValue)}`}>
+                                {formatMobileCellNumber(primaryValue)}
+                              </div>
+                              <div className={`weekly-mobile-balance-cell ${getSignedValueClass(secondaryValue)}`}>
+                                {formatMobileCellNumber(secondaryValue)}
+                              </div>
                             </div>
-                            <div className={`weekly-mobile-day-cell ${getSignedValueClass(isOverSettleView ? group.totals.balance : group.totals.day)}`}>
-                              {formatMobileCellNumber(isOverSettleView ? group.totals.balance : group.totals.day)}
-                            </div>
-                            <div className={`weekly-mobile-balance-cell ${getSignedValueClass(isOverSettleView ? group.totals.lifetime : group.totals.balance)}`}>
-                              {formatMobileCellNumber(isOverSettleView ? group.totals.lifetime : group.totals.balance)}
-                            </div>
+                          );
+                        })}
+                        <div className="weekly-mobile-table-row weekly-mobile-group-total-row">
+                          <div className="weekly-mobile-customer-cell">
+                            <strong>{group.totals.players} Players</strong>
+                          </div>
+                          <div className={`weekly-mobile-day-cell ${getSignedValueClass(isOverSettleView ? group.totals.balance : group.totals.day)}`}>
+                            {formatMobileCellNumber(isOverSettleView ? group.totals.balance : group.totals.day)}
+                          </div>
+                          <div className={`weekly-mobile-balance-cell ${getSignedValueClass(isOverSettleView ? group.totals.lifetime : group.totals.balance)}`}>
+                            {formatMobileCellNumber(isOverSettleView ? group.totals.lifetime : group.totals.balance)}
                           </div>
                         </div>
-                      </section>
-                    )) : (
-                      <div className="weekly-empty-state">
-                        No players matched this filter.
                       </div>
-                    )}
-                  </div>
-                </div>
-              ) : (
-                <div className="table-container scrollable">
-                  {isOverSettleView ? (
-                    <table className="data-table customer-table">
-                      <thead>
-                        <tr>
-                          <th>Customer</th>
-                          <th>Balance</th>
-                          <th>Lifetime</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {sortedCustomers.length > 0 ? sortedCustomers.map((customer, idx) => (
-                          <tr key={idx} className={customer.isDuplicatePlayer ? 'weekly-duplicate-row' : ''}>
-                            <td>
-                              <div className="customer-identity">
-                                {customer.id && typeof onViewChange === 'function' ? (
-                                  <button
-                                    type="button"
-                                    className="customer-username customer-username-button"
-                                    onClick={() => openCustomerDetails(customer.id)}
-                                  >
-                                    {customer.username}
-                                  </button>
-                                ) : (
-                                  <strong className="customer-username">{customer.username}</strong>
-                                )}
-                                <span className="customer-subname">
-                                  {customer.name || '—'}
-                                </span>
-                                {customer.isDuplicatePlayer && (
-                                  <span className="duplicate-player-badge">Duplicate Player</span>
-                                )}
-                                <span className="customer-subname">
-                                  {String(customer.agentHierarchyPath || customer.agentUsername || 'UNASSIGNED').toUpperCase()}
-                                </span>
-                              </div>
-                            </td>
-                            <td className={`weekly-amount ${getSignedValueClass(parseNumericAmount(customer?.balance ?? 0))}`}>
-                              {formatMoney(parseNumericAmount(customer?.balance ?? 0))}
-                            </td>
-                            <td className={`weekly-amount ${getSignedValueClass(getLifetimePerformance(customer))}`}>
-                              {formatMoney(getLifetimePerformance(customer))}
-                            </td>
-                          </tr>
-                        )) : (
-                          <tr>
-                            <td colSpan={3} className="weekly-empty-state">
-                              No players matched this filter.
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  ) : (
-                    <table className="data-table customer-table">
-                      <thead>
-                        <tr>
-                          <th>Customer</th>
-                          <th>Carry</th>
-                          {summaryDays.map((day, idx) => (
-                            <th key={idx}>{day.day}</th>
-                          ))}
-                          <th>Week</th>
-                          <th>Balance</th>
-                          <th>Pending</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {sortedCustomers.length > 0 ? sortedCustomers.map((customer, idx) => (
-                          <tr key={idx} className={customer.isDuplicatePlayer ? 'weekly-duplicate-row' : ''}>
-                            <td>
-                              <div className="customer-identity">
-                                {customer.id && typeof onViewChange === 'function' ? (
-                                  <button
-                                    type="button"
-                                    className="customer-username customer-username-button"
-                                    onClick={() => openCustomerDetails(customer.id)}
-                                  >
-                                    {customer.username}
-                                  </button>
-                                ) : (
-                                  <strong className="customer-username">{customer.username}</strong>
-                                )}
-                                <span className="customer-subname">
-                                  {customer.name || '—'}
-                                </span>
-                                {customer.isDuplicatePlayer && (
-                                  <span className="duplicate-player-badge">Duplicate Player</span>
-                                )}
-                                <span className="customer-subname">
-                                  {String(customer.agentHierarchyPath || customer.agentUsername || 'UNASSIGNED').toUpperCase()}
-                                </span>
-                              </div>
-                            </td>
-                            <td className={`weekly-amount ${getSignedValueClass(customer.carry)}`}>
-                              {formatMoney(customer.carry)}
-                            </td>
-                            {customer.daily.map((value, dayIdx) => (
-                              <td key={dayIdx} className={`weekly-amount ${getSignedValueClass(value)}`}>{formatMoney(value)}</td>
-                            ))}
-                            <td className={`weekly-amount ${getSignedValueClass(customer.week)}`}>{formatMoney(customer.week)}</td>
-                            <td className={`weekly-amount ${getSignedValueClass(parseNumericAmount(customer?.balance ?? 0))}`}>
-                              {formatMoney(parseNumericAmount(customer?.balance ?? 0))}
-                            </td>
-                            <td className={`weekly-amount ${getSignedValueClass(customer.pending)}`}>{formatMoney(customer.pending)}</td>
-                          </tr>
-                        )) : (
-                          <tr>
-                            <td colSpan={summaryDays.length + 5} className="weekly-empty-state">
-                              No players matched this filter.
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
+                    </section>
+                  )) : (
+                    <div className="weekly-empty-state">
+                      No players matched this filter.
+                    </div>
                   )}
                 </div>
-              )}
+              </div>
             </div>
           </>
         )}

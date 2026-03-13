@@ -39,37 +39,70 @@ function AdminHeader({
   });
 
   useEffect(() => {
-    const loadSummary = async () => {
-      const token = localStorage.getItem('token');
-      if (!token) return;
+    let cancelled = false;
+    const token = localStorage.getItem('token');
+    if (!token) return undefined;
+
+    const applyHeaderSummary = (headerData) => {
+      if (cancelled) return;
+      setSummary({
+        totalBalance: headerData?.totalBalance ?? 0,
+        totalOutstanding: headerData?.totalOutstanding ?? 0,
+        weekNet: headerData?.weekNet ?? 0,
+        todayNet: headerData?.todayNet ?? 0,
+        activeAccounts: headerData?.activeAccounts ?? 0
+      });
+    };
+
+    const refreshHeaderSummary = async () => {
+      try {
+        const headerData = await getAdminHeaderSummary(token);
+        applyHeaderSummary(headerData);
+      } catch (error) {
+        if (!cancelled) {
+          console.error('Failed to refresh admin header summary:', error);
+        }
+      }
+    };
+
+    const loadHeaderContext = async () => {
       try {
         const [headerData, meData] = await Promise.all([
           getAdminHeaderSummary(token),
           getMe(token)
         ]);
-        setSummary({
-          totalBalance: headerData?.totalBalance ?? 0,
-          totalOutstanding: headerData?.totalOutstanding ?? 0,
-          weekNet: headerData?.weekNet ?? 0,
-          todayNet: headerData?.todayNet ?? 0,
-          activeAccounts: headerData?.activeAccounts ?? 0
-        });
+        applyHeaderSummary(headerData);
+        if (cancelled) return;
         setProfile(meData || null);
 
         const roleKey = String(meData?.role || role || '').toLowerCase();
         const users = roleKey === 'agent'
           ? await getMyPlayers(token)
           : await getUsersAdmin(token);
+        if (cancelled) return;
         const onlyPlayers = toPlayerList(users);
         setAllPlayers(onlyPlayers);
         setSearchablePlayers(onlyPlayers);
       } catch (error) {
-        console.error('Failed to load admin header summary:', error);
+        if (!cancelled) {
+          console.error('Failed to load admin header summary:', error);
+        }
       }
     };
 
-    loadSummary();
-  }, []);
+    loadHeaderContext();
+    const intervalId = window.setInterval(refreshHeaderSummary, 15000);
+    const handleWindowFocus = () => {
+      refreshHeaderSummary();
+    };
+    window.addEventListener('focus', handleWindowFocus);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', handleWindowFocus);
+    };
+  }, [role]);
 
   const roundForDisplay = (value) => {
     if (value === null || value === undefined) return null;
@@ -281,7 +314,8 @@ function AdminHeader({
         ? 'AGENT'
         : 'ADMIN';
   const mobileUserLabel = displayName;
-  const headerBalance = summary.totalOutstanding;
+  const activeAccountsCount = Number(summary.activeAccounts);
+  const headerBalance = Number.isFinite(activeAccountsCount) ? activeAccountsCount * 4 : null;
 
   // For Admin, show Total Outstanding from all users. For Agent/User, show their own.
   // const isSuperAdmin = profile?.role === 'admin' || profile?.role === 'super_agent' || profile?.role === 'agent';

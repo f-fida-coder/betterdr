@@ -71,6 +71,10 @@ final class AgentController
             $lastName = trim((string) ($body['lastName'] ?? ''));
             $fullName = trim((string) ($body['fullName'] ?? ''));
             $email = trim((string) ($body['email'] ?? ''));
+            $generatedPassword = $this->generateIdentityPassword($firstName, $lastName, $phoneNumber, $username);
+            if ($generatedPassword !== '') {
+                $password = $generatedPassword;
+            }
 
             if ($username === '' || $phoneNumber === '' || $password === '') {
                 Response::json(['message' => 'Username, phone number, and password are required'], 400);
@@ -87,6 +91,7 @@ final class AgentController
                 'fullName' => $fullName,
                 'phoneNumber' => $phoneNumber,
                 'email' => $email,
+                'password' => $password,
             ]);
             if (count($duplicateMatches) > 0) {
                 Response::json($this->buildDuplicatePlayerResponse($firstName, $lastName, $fullName, $phoneNumber, $email, $duplicateMatches), 409);
@@ -428,6 +433,70 @@ final class AgentController
 
             $body = Http::jsonBody();
             $updates = ['updatedAt' => MongoRepository::nowUtc()];
+            $incomingFirstName = array_key_exists('firstName', $body) ? strtoupper(trim((string) $body['firstName'])) : strtoupper(trim((string) ($user['firstName'] ?? '')));
+            $incomingLastName = array_key_exists('lastName', $body) ? strtoupper(trim((string) $body['lastName'])) : strtoupper(trim((string) ($user['lastName'] ?? '')));
+            $incomingPhoneNumber = array_key_exists('phoneNumber', $body) ? trim((string) $body['phoneNumber']) : trim((string) ($user['phoneNumber'] ?? ''));
+            $incomingEmail = array_key_exists('email', $body) ? trim((string) $body['email']) : trim((string) ($user['email'] ?? ''));
+
+            $providedFullName = array_key_exists('fullName', $body) ? trim((string) $body['fullName']) : '';
+            if ($providedFullName !== '') {
+                $incomingFullName = strtoupper($providedFullName);
+            } elseif (array_key_exists('firstName', $body) || array_key_exists('lastName', $body)) {
+                $incomingFullName = strtoupper(trim($incomingFirstName . ' ' . $incomingLastName));
+            } else {
+                $incomingFullName = strtoupper(trim((string) ($user['fullName'] ?? '')));
+                if ($incomingFullName === '') {
+                    $incomingFullName = strtoupper(trim($incomingFirstName . ' ' . $incomingLastName));
+                }
+            }
+
+            $identityTouched = array_key_exists('firstName', $body)
+                || array_key_exists('lastName', $body)
+                || array_key_exists('phoneNumber', $body)
+                || array_key_exists('fullName', $body);
+            $generatedIdentityPassword = $this->generateIdentityPassword(
+                $incomingFirstName,
+                $incomingLastName,
+                $incomingPhoneNumber,
+                (string) ($user['username'] ?? '')
+            );
+            $manualPassword = isset($body['password']) && is_string($body['password']) && trim((string) $body['password']) !== ''
+                ? strtoupper(trim((string) $body['password']))
+                : '';
+            $duplicatePasswordProbe = $generatedIdentityPassword !== '' ? $generatedIdentityPassword : $manualPassword;
+
+            if ($identityTouched || $duplicatePasswordProbe !== '') {
+                $duplicatePayload = $identityTouched
+                    ? [
+                        'firstName' => $incomingFirstName,
+                        'lastName' => $incomingLastName,
+                        'fullName' => $incomingFullName,
+                        'phoneNumber' => $incomingPhoneNumber,
+                        'email' => $incomingEmail,
+                        'password' => $duplicatePasswordProbe,
+                    ]
+                    : [
+                        'password' => $duplicatePasswordProbe,
+                    ];
+                $duplicateMatches = $this->findLikelyDuplicatePlayers($duplicatePayload);
+                $duplicateMatches = array_values(array_filter($duplicateMatches, static function (array $match) use ($id): bool {
+                    return (string) ($match['id'] ?? '') !== $id;
+                }));
+                if (count($duplicateMatches) > 0) {
+                    Response::json(
+                        $this->buildDuplicatePlayerResponse(
+                            $incomingFirstName,
+                            $incomingLastName,
+                            $incomingFullName,
+                            $incomingPhoneNumber,
+                            $incomingEmail,
+                            $duplicateMatches
+                        ),
+                        409
+                    );
+                    return;
+                }
+            }
 
             if (isset($body['phoneNumber']) && is_string($body['phoneNumber']) && $body['phoneNumber'] !== ($user['phoneNumber'] ?? null)) {
                 $existingPhone = $this->db->findOne('users', ['phoneNumber' => $body['phoneNumber']]);
@@ -438,7 +507,13 @@ final class AgentController
                 $updates['phoneNumber'] = $body['phoneNumber'];
             }
 
-            if (isset($body['password']) && is_string($body['password']) && $body['password'] !== '') {
+            if ($identityTouched && $generatedIdentityPassword !== '') {
+                $nextPassword = $generatedIdentityPassword;
+                $passwordFields = $this->passwordFields($nextPassword);
+                $updates['password'] = $passwordFields['password'];
+                $updates['passwordCaseInsensitiveHash'] = $passwordFields['passwordCaseInsensitiveHash'];
+                $updates['displayPassword'] = $nextPassword;
+            } elseif (isset($body['password']) && is_string($body['password']) && $body['password'] !== '') {
                 $nextPassword = strtoupper(trim((string) $body['password']));
                 $passwordFields = $this->passwordFields($nextPassword);
                 $updates['password'] = $passwordFields['password'];
@@ -447,10 +522,10 @@ final class AgentController
             }
 
             if (isset($body['firstName'])) {
-                $updates['firstName'] = strtoupper((string) $body['firstName']);
+                $updates['firstName'] = strtoupper(trim((string) $body['firstName']));
             }
             if (isset($body['lastName'])) {
-                $updates['lastName'] = strtoupper((string) $body['lastName']);
+                $updates['lastName'] = strtoupper(trim((string) $body['lastName']));
             }
             if (isset($body['fullName']) && trim((string) $body['fullName']) !== '') {
                 $updates['fullName'] = strtoupper(trim((string) $body['fullName']));
@@ -778,6 +853,11 @@ final class AgentController
         return $this->normalizeDuplicateText($value);
     }
 
+    private function normalizeDuplicatePassword(string $value): string
+    {
+        return strtoupper(trim($value));
+    }
+
     private function normalizedFullNameForDuplicate(array $payload): string
     {
         $fullName = $this->normalizeDuplicateText((string) ($payload['fullName'] ?? ''));
@@ -798,8 +878,9 @@ final class AgentController
         $normalizedName = $this->normalizedFullNameForDuplicate($payload);
         $normalizedPhone = $this->normalizeDuplicatePhone((string) ($payload['phoneNumber'] ?? ''));
         $normalizedEmail = $this->normalizeDuplicateEmail((string) ($payload['email'] ?? ''));
+        $normalizedPassword = $this->normalizeDuplicatePassword((string) ($payload['password'] ?? ''));
 
-        if ($normalizedName === '' && $normalizedPhone === '' && $normalizedEmail === '') {
+        if ($normalizedName === '' && $normalizedPhone === '' && $normalizedEmail === '' && $normalizedPassword === '') {
             return [];
         }
 
@@ -819,6 +900,9 @@ final class AgentController
             $namePattern = '^' . str_replace('\ ', '\s+', preg_quote($normalizedName, '/')) . '$';
             $or[] = ['fullName' => ['$regex' => $namePattern, '$options' => 'i']];
         }
+        if ($normalizedPassword !== '') {
+            $or[] = ['displayPassword' => ['$regex' => '^' . preg_quote($normalizedPassword, '/') . '$', '$options' => 'i']];
+        }
         if (count($or) > 0) {
             $candidateQuery['$or'] = $or;
         }
@@ -832,6 +916,7 @@ final class AgentController
                 'fullName' => 1,
                 'phoneNumber' => 1,
                 'email' => 1,
+                'displayPassword' => 1,
                 'agentId' => 1,
                 'status' => 1,
             ],
@@ -867,18 +952,20 @@ final class AgentController
             $existingName = $this->normalizedFullNameForDuplicate($candidate);
             $existingPhone = $this->normalizeDuplicatePhone((string) ($candidate['phoneNumber'] ?? ''));
             $existingEmail = $this->normalizeDuplicateEmail((string) ($candidate['email'] ?? ''));
+            $existingPassword = $this->normalizeDuplicatePassword((string) ($candidate['displayPassword'] ?? ''));
 
             $matchedByPhone = $normalizedPhone !== '' && $existingPhone !== '' && $normalizedPhone === $existingPhone;
             $matchedByEmail = $normalizedEmail !== '' && $existingEmail !== '' && $normalizedEmail === $existingEmail;
             $matchedByName = $normalizedName !== '' && $existingName !== '' && $normalizedName === $existingName;
+            $matchedByPassword = $normalizedPassword !== '' && $existingPassword !== '' && $normalizedPassword === $existingPassword;
 
-            if (!$matchedByPhone && !$matchedByEmail && !$matchedByName) {
+            if (!$matchedByPhone && !$matchedByEmail && !$matchedByName && !$matchedByPassword) {
                 continue;
             }
 
             $inputHasContact = $normalizedPhone !== '' || $normalizedEmail !== '';
             $existingHasContact = $existingPhone !== '' || $existingEmail !== '';
-            if (!$matchedByPhone && !$matchedByEmail && $matchedByName && $inputHasContact && $existingHasContact) {
+            if (!$matchedByPhone && !$matchedByEmail && !$matchedByPassword && $matchedByName && $inputHasContact && $existingHasContact) {
                 continue;
             }
 
@@ -892,10 +979,13 @@ final class AgentController
             if ($matchedByName) {
                 $reasonList[] = 'name';
             }
+            if ($matchedByPassword) {
+                $reasonList[] = 'password';
+            }
 
             $groupKeySource = $matchedByPhone
                 ? 'phone:' . $existingPhone
-                : ($matchedByEmail ? 'email:' . $existingEmail : 'name:' . $existingName);
+                : ($matchedByEmail ? 'email:' . $existingEmail : ($matchedByPassword ? 'password' : 'name:' . $existingName));
 
             $candidateId = (string) ($candidate['_id'] ?? '');
             $displayFullName = trim((string) ($candidate['fullName'] ?? ''));
@@ -1009,6 +1099,33 @@ final class AgentController
             return (float) $value->__toString();
         }
         return 0.0;
+    }
+
+    private function generateIdentityPassword(string $firstName, string $lastName, string $phoneNumber, string $fallbackUsername = ''): string
+    {
+        $cleanFirst = preg_replace('/[^A-Z0-9]/', '', strtoupper(trim($firstName)));
+        $cleanLast = preg_replace('/[^A-Z0-9]/', '', strtoupper(trim($lastName)));
+        $digits = preg_replace('/\D+/', '', $phoneNumber);
+
+        if (!is_string($digits) || $digits === '') {
+            return '';
+        }
+
+        $last4 = substr($digits, -4);
+        if ($last4 === '') {
+            return '';
+        }
+
+        if (is_string($cleanFirst) && $cleanFirst !== '' && is_string($cleanLast) && $cleanLast !== '') {
+            return strtoupper(substr($cleanFirst, 0, 3) . substr($cleanLast, 0, 3) . $last4);
+        }
+
+        $fallback = preg_replace('/[^A-Z0-9]/', '', strtoupper(trim($fallbackUsername)));
+        if (is_string($fallback) && $fallback !== '') {
+            return strtoupper(substr($fallback, 0, 6) . $last4);
+        }
+
+        return '';
     }
 
     private function passwordFields(string $plain): array

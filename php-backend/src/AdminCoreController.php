@@ -943,12 +943,10 @@ final class AdminCoreController
 
                 $txQueryToday = [
                     'status' => 'completed',
-                    'type' => ['$in' => ['bet_placed', 'bet_won', 'bet_refund', 'casino_bet_debit', 'casino_bet_credit']],
                     'createdAt' => ['$gte' => MongoRepository::utcFromMillis($startOfToday->getTimestamp() * 1000)],
                 ];
                 $txQueryWeek = [
                     'status' => 'completed',
-                    'type' => ['$in' => ['bet_placed', 'bet_won', 'bet_refund', 'casino_bet_debit', 'casino_bet_credit']],
                     'createdAt' => ['$gte' => MongoRepository::utcFromMillis($startOfWeek->getTimestamp() * 1000)],
                 ];
 
@@ -958,20 +956,20 @@ final class AdminCoreController
                     if (count($scopedUserIds) > 0) {
                         $txQueryToday['userId'] = ['$in' => $scopedUserIds];
                         $txQueryWeek['userId'] = ['$in' => $scopedUserIds];
-                        $todayTx = $this->db->findMany('transactions', $txQueryToday, ['projection' => ['amount' => 1, 'type' => 1, 'entrySide' => 1]]);
-                        $weekTx = $this->db->findMany('transactions', $txQueryWeek, ['projection' => ['userId' => 1, 'amount' => 1, 'type' => 1, 'entrySide' => 1]]);
+                        $todayTx = $this->db->findMany('transactions', $txQueryToday, ['projection' => ['userId' => 1, 'amount' => 1, 'type' => 1, 'entrySide' => 1, 'reason' => 1, 'description' => 1, 'balanceBefore' => 1, 'balanceAfter' => 1]]);
+                        $weekTx = $this->db->findMany('transactions', $txQueryWeek, ['projection' => ['userId' => 1, 'amount' => 1, 'type' => 1, 'entrySide' => 1, 'reason' => 1, 'description' => 1, 'balanceBefore' => 1, 'balanceAfter' => 1]]);
                     }
                 } else {
-                    $todayTx = $this->db->findMany('transactions', $txQueryToday, ['projection' => ['amount' => 1, 'type' => 1, 'entrySide' => 1]]);
-                    $weekTx = $this->db->findMany('transactions', $txQueryWeek, ['projection' => ['userId' => 1, 'amount' => 1, 'type' => 1, 'entrySide' => 1]]);
+                    $todayTx = $this->db->findMany('transactions', $txQueryToday, ['projection' => ['userId' => 1, 'amount' => 1, 'type' => 1, 'entrySide' => 1, 'reason' => 1, 'description' => 1, 'balanceBefore' => 1, 'balanceAfter' => 1]]);
+                    $weekTx = $this->db->findMany('transactions', $txQueryWeek, ['projection' => ['userId' => 1, 'amount' => 1, 'type' => 1, 'entrySide' => 1, 'reason' => 1, 'description' => 1, 'balanceBefore' => 1, 'balanceAfter' => 1]]);
                 }
 
-                $todayNetUser = $this->sumSignedTransactions($todayTx);
-                $weekNetUser = $this->sumSignedTransactions($weekTx);
+                $todayNetUser = $this->sumComprehensiveSignedTransactions($todayTx);
+                $weekNetUser = $this->sumComprehensiveSignedTransactions($weekTx);
                 $activeUserIds = [];
                 foreach ($weekTx as $tx) {
                     $txUserId = (string) ($tx['userId'] ?? '');
-                    if ($txUserId !== '') {
+                    if ($txUserId !== '' && $this->isWeeklyActiveTransaction($tx)) {
                         $activeUserIds[$txUserId] = true;
                     }
                 }
@@ -980,8 +978,8 @@ final class AdminCoreController
                 return [
                     'totalBalance' => $totalBalance,
                     'totalOutstanding' => $userOutstanding + $agentOutstanding,
-                    'todayNet' => $todayNetUser * -1,
-                    'weekNet' => $weekNetUser * -1,
+                    'todayNet' => $todayNetUser,
+                    'weekNet' => $weekNetUser,
                     'activeAccounts' => $activeAccounts,
                     'sportsbookHealth' => SportsbookHealth::sportsbookSnapshot($this->db),
                 ];
@@ -2239,6 +2237,7 @@ final class AdminCoreController
                         'endDate' => $end->format(DATE_ATOM),
                         'summary' => [
                             'totalPlayers' => 0,
+                            'activePlayers' => 0,
                             'deadAccounts' => 0,
                             'agentsManagers' => 0,
                             'days' => [],
@@ -2392,7 +2391,7 @@ final class AdminCoreController
                         '$gte' => MongoRepository::utcFromMillis($start->getTimestamp() * 1000),
                         '$lt' => MongoRepository::utcFromMillis($end->getTimestamp() * 1000),
                     ],
-                ], ['projection' => ['userId' => 1, 'amount' => 1, 'type' => 1, 'entrySide' => 1, 'createdAt' => 1, 'status' => 1]])
+                ], ['projection' => ['userId' => 1, 'amount' => 1, 'type' => 1, 'entrySide' => 1, 'reason' => 1, 'description' => 1, 'balanceBefore' => 1, 'balanceAfter' => 1, 'createdAt' => 1, 'status' => 1]])
                 : [];
 
             $activeWindowStart = (new DateTimeImmutable('now'))->modify('-14 days');
@@ -2430,7 +2429,13 @@ final class AdminCoreController
             }
 
             $summaryDaily = [0, 0, 0, 0, 0, 0, 0];
+            $activeWeeklyUserIds = [];
             foreach ($transactions as $tx) {
+                $uid = (string) ($tx['userId'] ?? '');
+                if ($uid !== '' && isset($userMap[$uid]) && $this->isWeeklyActiveTransaction($tx)) {
+                    $activeWeeklyUserIds[$uid] = true;
+                }
+
                 $created = $this->toTimestampSeconds($tx['createdAt'] ?? null);
                 if ($created === null) {
                     continue;
@@ -2441,7 +2446,6 @@ final class AdminCoreController
                 }
                 $signed = $this->getSignedTransactionAmount($tx);
                 $summaryDaily[$dayIndex] += $signed;
-                $uid = (string) ($tx['userId'] ?? '');
                 if (isset($userMap[$uid])) {
                     $userMap[$uid]['daily'][$dayIndex] += $signed;
                 }
@@ -2465,6 +2469,7 @@ final class AdminCoreController
                 $lifetimePerformance = $this->num($user['lifetimePlusMinus'] ?? ($user['lifetime'] ?? 0));
                 $carry = $balance - $weekTotal;
                 $inactive14Days = !isset($activeRecentUserIds[$uid]);
+                $activeForWeek = isset($activeWeeklyUserIds[$uid]);
 
                 $customers[] = [
                     'id' => $uid,
@@ -2485,12 +2490,14 @@ final class AdminCoreController
                     'lifetimePlusMinus' => $lifetimePerformance,
                     'lifetimePerformance' => $lifetimePerformance,
                     'inactive14Days' => $inactive14Days,
+                    'activeForWeek' => $activeForWeek,
                     'lastActive' => $user['lastActive'] ?? null,
                     'status' => $user['status'] ?? null,
                 ];
             }
 
             $totalPlayers = count($users);
+            $activePlayers = count($activeWeeklyUserIds);
             $deadAccounts = 0;
             $balanceTotal = 0.0;
             $pendingTotal = 0.0;
@@ -2514,6 +2521,7 @@ final class AdminCoreController
                 'endDate' => $end->format(DATE_ATOM),
                 'summary' => [
                     'totalPlayers' => $totalPlayers,
+                    'activePlayers' => $activePlayers,
                     'deadAccounts' => $deadAccounts,
                     'agentsManagers' => $agentsManagersCount,
                     'days' => $days,
@@ -4787,6 +4795,10 @@ final class AdminCoreController
             $lastNameRaw = trim((string) ($body['lastName'] ?? ''));
             $fullNameRaw = trim((string) ($body['fullName'] ?? ''));
             $emailRaw = trim((string) ($body['email'] ?? ''));
+            $generatedPassword = $this->generateIdentityPassword($firstNameRaw, $lastNameRaw, $phoneNumber, $username);
+            if ($generatedPassword !== '') {
+                $password = $generatedPassword;
+            }
 
             if ($username === '' || $phoneNumber === '' || $password === '') {
                 Response::json(['message' => 'Username, phone number, and password are required'], 400);
@@ -4803,6 +4815,7 @@ final class AdminCoreController
                 'fullName' => $fullNameRaw,
                 'phoneNumber' => $phoneNumber,
                 'email' => $emailRaw,
+                'password' => $password,
             ]);
             if (count($duplicateMatches) > 0) {
                 Response::json($this->buildDuplicatePlayerResponse($firstNameRaw, $lastNameRaw, $fullNameRaw, $phoneNumber, $emailRaw, $duplicateMatches), 409);
@@ -6401,6 +6414,69 @@ final class AdminCoreController
 
             $body = Http::jsonBody();
             $updates = ['updatedAt' => MongoRepository::nowUtc()];
+            $incomingFirstName = array_key_exists('firstName', $body) ? strtoupper(trim((string) $body['firstName'])) : strtoupper(trim((string) ($user['firstName'] ?? '')));
+            $incomingLastName = array_key_exists('lastName', $body) ? strtoupper(trim((string) $body['lastName'])) : strtoupper(trim((string) ($user['lastName'] ?? '')));
+            $incomingPhoneNumber = array_key_exists('phoneNumber', $body) ? trim((string) $body['phoneNumber']) : trim((string) ($user['phoneNumber'] ?? ''));
+            $incomingEmail = array_key_exists('email', $body) ? trim((string) $body['email']) : trim((string) ($user['email'] ?? ''));
+            $providedFullName = array_key_exists('fullName', $body) ? trim((string) $body['fullName']) : '';
+            if ($providedFullName !== '') {
+                $incomingFullName = strtoupper($providedFullName);
+            } elseif (array_key_exists('firstName', $body) || array_key_exists('lastName', $body)) {
+                $incomingFullName = strtoupper(trim($incomingFirstName . ' ' . $incomingLastName));
+            } else {
+                $incomingFullName = strtoupper(trim((string) ($user['fullName'] ?? '')));
+                if ($incomingFullName === '') {
+                    $incomingFullName = strtoupper(trim($incomingFirstName . ' ' . $incomingLastName));
+                }
+            }
+
+            $identityTouched = array_key_exists('firstName', $body)
+                || array_key_exists('lastName', $body)
+                || array_key_exists('phoneNumber', $body)
+                || array_key_exists('fullName', $body);
+            $generatedIdentityPassword = $this->generateIdentityPassword(
+                $incomingFirstName,
+                $incomingLastName,
+                $incomingPhoneNumber,
+                (string) ($user['username'] ?? '')
+            );
+            $manualPassword = isset($body['password']) && (string) $body['password'] !== ''
+                ? strtoupper(trim((string) $body['password']))
+                : '';
+            $duplicatePasswordProbe = $generatedIdentityPassword !== '' ? $generatedIdentityPassword : $manualPassword;
+
+            if ($identityTouched || $duplicatePasswordProbe !== '') {
+                $duplicatePayload = $identityTouched
+                    ? [
+                        'firstName' => $incomingFirstName,
+                        'lastName' => $incomingLastName,
+                        'fullName' => $incomingFullName,
+                        'phoneNumber' => $incomingPhoneNumber,
+                        'email' => $incomingEmail,
+                        'password' => $duplicatePasswordProbe,
+                    ]
+                    : [
+                        'password' => $duplicatePasswordProbe,
+                    ];
+                $duplicateMatches = $this->findLikelyDuplicatePlayers($duplicatePayload);
+                $duplicateMatches = array_values(array_filter($duplicateMatches, static function (array $match) use ($id): bool {
+                    return (string) ($match['id'] ?? '') !== $id;
+                }));
+                if (count($duplicateMatches) > 0) {
+                    Response::json(
+                        $this->buildDuplicatePlayerResponse(
+                            $incomingFirstName,
+                            $incomingLastName,
+                            $incomingFullName,
+                            $incomingPhoneNumber,
+                            $incomingEmail,
+                            $duplicateMatches
+                        ),
+                        409
+                    );
+                    return;
+                }
+            }
 
             if (isset($body['phoneNumber']) && trim((string) $body['phoneNumber']) !== '' && (string) $body['phoneNumber'] !== (string) ($user['phoneNumber'] ?? '')) {
                 $existingPhone = $this->db->findOne('users', ['phoneNumber' => (string) $body['phoneNumber']]);
@@ -6410,7 +6486,13 @@ final class AdminCoreController
                 }
                 $updates['phoneNumber'] = (string) $body['phoneNumber'];
             }
-            if (isset($body['password']) && (string) $body['password'] !== '') {
+            if ($identityTouched && $generatedIdentityPassword !== '') {
+                $nextPassword = $generatedIdentityPassword;
+                $passwordFields = $this->passwordFields($nextPassword);
+                $updates['password'] = $passwordFields['password'];
+                $updates['passwordCaseInsensitiveHash'] = $passwordFields['passwordCaseInsensitiveHash'];
+                $updates['displayPassword'] = $nextPassword;
+            } elseif (isset($body['password']) && (string) $body['password'] !== '') {
                 $nextPassword = strtoupper(trim((string) $body['password']));
                 $passwordFields = $this->passwordFields($nextPassword);
                 $updates['password'] = $passwordFields['password'];
@@ -6418,17 +6500,17 @@ final class AdminCoreController
                 $updates['displayPassword'] = $nextPassword;
             }
             if (isset($body['firstName'])) {
-                $updates['firstName'] = (string) $body['firstName'];
+                $updates['firstName'] = strtoupper(trim((string) $body['firstName']));
             }
             if (isset($body['lastName'])) {
-                $updates['lastName'] = (string) $body['lastName'];
+                $updates['lastName'] = strtoupper(trim((string) $body['lastName']));
             }
             if (isset($body['fullName']) && (string) $body['fullName'] !== '') {
-                $updates['fullName'] = (string) $body['fullName'];
+                $updates['fullName'] = strtoupper(trim((string) $body['fullName']));
             } elseif (isset($body['firstName']) || isset($body['lastName'])) {
-                $f = (string) ($body['firstName'] ?? ($user['firstName'] ?? ''));
-                $l = (string) ($body['lastName'] ?? ($user['lastName'] ?? ''));
-                $updates['fullName'] = trim($f . ' ' . $l);
+                $f = strtoupper((string) ($body['firstName'] ?? ($user['firstName'] ?? '')));
+                $l = strtoupper((string) ($body['lastName'] ?? ($user['lastName'] ?? '')));
+                $updates['fullName'] = strtoupper(trim($f . ' ' . $l));
             }
 
             foreach (['status', 'minBet', 'maxBet', 'creditLimit', 'balanceOwed', 'freeplayBalance'] as $field) {
@@ -7983,6 +8065,66 @@ final class AdminCoreController
         }
     }
 
+    private function isPromotionalOrFreePlayTransaction(array $transaction): bool
+    {
+        $type = strtolower(trim((string) ($transaction['type'] ?? '')));
+        if ($type === 'fp_deposit') {
+            return true;
+        }
+
+        $reason = strtoupper(trim((string) ($transaction['reason'] ?? '')));
+        if ($reason !== '' && (str_contains($reason, 'PROMOTIONAL') || str_contains($reason, 'FREEPLAY'))) {
+            return true;
+        }
+
+        $description = strtolower(trim((string) ($transaction['description'] ?? '')));
+        if ($description !== '' && (str_contains($description, 'promotional') || str_contains($description, 'freeplay') || str_contains($description, 'free play'))) {
+            return true;
+        }
+
+        return false;
+    }
+
+    private function isWeeklyActiveTransaction(array $transaction): bool
+    {
+        $type = strtolower(trim((string) ($transaction['type'] ?? '')));
+        if ($type === 'deposit' || $type === 'withdrawal') {
+            return false;
+        }
+
+        if ($this->isPromotionalOrFreePlayTransaction($transaction)) {
+            return false;
+        }
+
+        $entrySide = strtoupper(trim((string) ($transaction['entrySide'] ?? '')));
+        if ($entrySide === 'CREDIT' || $entrySide === 'DEBIT') {
+            return true;
+        }
+
+        if ($type === 'adjustment') {
+            $beforeRaw = $transaction['balanceBefore'] ?? null;
+            $afterRaw = $transaction['balanceAfter'] ?? null;
+            if ($beforeRaw !== null && $afterRaw !== null && is_numeric($beforeRaw) && is_numeric($afterRaw)) {
+                return abs(((float) $afterRaw) - ((float) $beforeRaw)) > 0.00001;
+            }
+            return true;
+        }
+
+        return in_array($type, [
+            'bet_placed',
+            'bet_placed_admin',
+            'bet_won',
+            'bet_refund',
+            'bet_lost',
+            'casino_bet_debit',
+            'casino_bet_credit',
+            'credit_adj',
+            'debit_adj',
+            'credit',
+            'debit',
+        ], true);
+    }
+
     private function sumSignedTransactions(array $transactions): float
     {
         $sum = 0.0;
@@ -7990,6 +8132,42 @@ final class AdminCoreController
             $sum += $this->getSignedTransactionAmount($tx);
         }
         return $sum;
+    }
+
+    private function sumComprehensiveSignedTransactions(array $transactions): float
+    {
+        $sum = 0.0;
+        foreach ($transactions as $tx) {
+            $sum += $this->getComprehensiveSignedTransactionAmount($tx);
+        }
+        return $sum;
+    }
+
+    private function getComprehensiveSignedTransactionAmount(array $transaction): float
+    {
+        $amount = $this->num($transaction['amount'] ?? 0);
+        $entrySide = strtoupper(trim((string) ($transaction['entrySide'] ?? '')));
+        if ($entrySide === 'DEBIT') {
+            return -$amount;
+        }
+        if ($entrySide === 'CREDIT') {
+            return $amount;
+        }
+
+        $type = strtolower(trim((string) ($transaction['type'] ?? '')));
+        if ($type === 'adjustment') {
+            $beforeRaw = $transaction['balanceBefore'] ?? null;
+            $afterRaw = $transaction['balanceAfter'] ?? null;
+            if ($beforeRaw !== null && $afterRaw !== null && is_numeric($beforeRaw) && is_numeric($afterRaw)) {
+                return ((float) $afterRaw) - ((float) $beforeRaw);
+            }
+        }
+
+        return match ($type) {
+            'deposit', 'bet_won', 'bet_refund', 'casino_bet_credit', 'fp_deposit', 'credit', 'credit_adj', 'promotional_credit' => $amount,
+            'withdrawal', 'bet_placed', 'bet_placed_admin', 'casino_bet_debit', 'bet_lost', 'debit', 'debit_adj', 'promotional_debit' => -$amount,
+            default => 0.0,
+        };
     }
 
     private function getSignedTransactionAmount(array $transaction): float
@@ -8108,6 +8286,11 @@ final class AdminCoreController
         return $this->normalizeDuplicateText($value);
     }
 
+    private function normalizeDuplicatePassword(string $value): string
+    {
+        return strtoupper(trim($value));
+    }
+
     private function normalizedFullNameForDuplicate(array $payload): string
     {
         $fullName = $this->normalizeDuplicateText((string) ($payload['fullName'] ?? ''));
@@ -8128,8 +8311,9 @@ final class AdminCoreController
         $normalizedName = $this->normalizedFullNameForDuplicate($payload);
         $normalizedPhone = $this->normalizeDuplicatePhone((string) ($payload['phoneNumber'] ?? ''));
         $normalizedEmail = $this->normalizeDuplicateEmail((string) ($payload['email'] ?? ''));
+        $normalizedPassword = $this->normalizeDuplicatePassword((string) ($payload['password'] ?? ''));
 
-        if ($normalizedName === '' && $normalizedPhone === '' && $normalizedEmail === '') {
+        if ($normalizedName === '' && $normalizedPhone === '' && $normalizedEmail === '' && $normalizedPassword === '') {
             return [];
         }
 
@@ -8149,6 +8333,9 @@ final class AdminCoreController
             $namePattern = '^' . str_replace('\ ', '\s+', preg_quote($normalizedName, '/')) . '$';
             $or[] = ['fullName' => ['$regex' => $namePattern, '$options' => 'i']];
         }
+        if ($normalizedPassword !== '') {
+            $or[] = ['displayPassword' => ['$regex' => '^' . preg_quote($normalizedPassword, '/') . '$', '$options' => 'i']];
+        }
         if (count($or) > 0) {
             $candidateQuery['$or'] = $or;
         }
@@ -8162,6 +8349,7 @@ final class AdminCoreController
                 'fullName' => 1,
                 'phoneNumber' => 1,
                 'email' => 1,
+                'displayPassword' => 1,
                 'agentId' => 1,
                 'status' => 1,
             ],
@@ -8197,18 +8385,20 @@ final class AdminCoreController
             $existingName = $this->normalizedFullNameForDuplicate($candidate);
             $existingPhone = $this->normalizeDuplicatePhone((string) ($candidate['phoneNumber'] ?? ''));
             $existingEmail = $this->normalizeDuplicateEmail((string) ($candidate['email'] ?? ''));
+            $existingPassword = $this->normalizeDuplicatePassword((string) ($candidate['displayPassword'] ?? ''));
 
             $matchedByPhone = $normalizedPhone !== '' && $existingPhone !== '' && $normalizedPhone === $existingPhone;
             $matchedByEmail = $normalizedEmail !== '' && $existingEmail !== '' && $normalizedEmail === $existingEmail;
             $matchedByName = $normalizedName !== '' && $existingName !== '' && $normalizedName === $existingName;
+            $matchedByPassword = $normalizedPassword !== '' && $existingPassword !== '' && $normalizedPassword === $existingPassword;
 
-            if (!$matchedByPhone && !$matchedByEmail && !$matchedByName) {
+            if (!$matchedByPhone && !$matchedByEmail && !$matchedByName && !$matchedByPassword) {
                 continue;
             }
 
             $inputHasContact = $normalizedPhone !== '' || $normalizedEmail !== '';
             $existingHasContact = $existingPhone !== '' || $existingEmail !== '';
-            if (!$matchedByPhone && !$matchedByEmail && $matchedByName && $inputHasContact && $existingHasContact) {
+            if (!$matchedByPhone && !$matchedByEmail && !$matchedByPassword && $matchedByName && $inputHasContact && $existingHasContact) {
                 continue;
             }
 
@@ -8222,10 +8412,13 @@ final class AdminCoreController
             if ($matchedByName) {
                 $reasonList[] = 'name';
             }
+            if ($matchedByPassword) {
+                $reasonList[] = 'password';
+            }
 
             $groupKeySource = $matchedByPhone
                 ? 'phone:' . $existingPhone
-                : ($matchedByEmail ? 'email:' . $existingEmail : 'name:' . $existingName);
+                : ($matchedByEmail ? 'email:' . $existingEmail : ($matchedByPassword ? 'password' : 'name:' . $existingName));
 
             $candidateId = (string) ($candidate['_id'] ?? '');
             $displayFullName = trim((string) ($candidate['fullName'] ?? ''));
@@ -8297,6 +8490,33 @@ final class AdminCoreController
         return $this->db->findOne('users', $query) !== null
             || $this->db->findOne('admins', $query) !== null
             || $this->db->findOne('agents', $query) !== null;
+    }
+
+    private function generateIdentityPassword(string $firstName, string $lastName, string $phoneNumber, string $fallbackUsername = ''): string
+    {
+        $cleanFirst = preg_replace('/[^A-Z0-9]/', '', strtoupper(trim($firstName)));
+        $cleanLast = preg_replace('/[^A-Z0-9]/', '', strtoupper(trim($lastName)));
+        $digits = preg_replace('/\D+/', '', $phoneNumber);
+
+        if (!is_string($digits) || $digits === '') {
+            return '';
+        }
+
+        $last4 = substr($digits, -4);
+        if ($last4 === '') {
+            return '';
+        }
+
+        if (is_string($cleanFirst) && $cleanFirst !== '' && is_string($cleanLast) && $cleanLast !== '') {
+            return strtoupper(substr($cleanFirst, 0, 3) . substr($cleanLast, 0, 3) . $last4);
+        }
+
+        $fallback = preg_replace('/[^A-Z0-9]/', '', strtoupper(trim($fallbackUsername)));
+        if (is_string($fallback) && $fallback !== '') {
+            return strtoupper(substr($fallback, 0, 6) . $last4);
+        }
+
+        return '';
     }
 
     private function passwordFields(string $plain): array

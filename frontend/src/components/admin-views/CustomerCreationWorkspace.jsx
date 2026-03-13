@@ -11,6 +11,7 @@ import {
   getUsersAdmin,
   importUsersSpreadsheet
 } from '../../api';
+import { formatUsPhone, generateIdentityPassword, normalizeIdentityName } from '../../utils/identityPassword';
 
 const derivePlayerPrefix = (value) => {
   const normalized = String(value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -564,17 +565,12 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
   };
 
   const updateAutoPassword = (firstName, lastName, phoneNumber) => {
-    if (firstName && lastName && phoneNumber) {
-      const last4 = phoneNumber.slice(-4);
-      const first3First = firstName.slice(0, 3).toUpperCase();
-      const first3Last = lastName.slice(0, 3).toUpperCase();
-      const autoPass = `${first3First}${first3Last}${last4}`.toUpperCase();
-      setNewCustomer((prev) => ({ ...prev, password: autoPass }));
-    }
+    const autoPass = generateIdentityPassword(firstName, lastName, phoneNumber, newCustomer.username);
+    setNewCustomer((prev) => ({ ...prev, password: autoPass }));
   };
 
   const handleFirstNameChange = (val) => {
-    const formatted = val.toUpperCase();
+    const formatted = normalizeIdentityName(val);
     setNewCustomer((prev) => {
       const updated = { ...prev, firstName: formatted };
       updateAutoPassword(formatted, updated.lastName, updated.phoneNumber);
@@ -583,7 +579,7 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
   };
 
   const handleLastNameChange = (val) => {
-    const formatted = val.toUpperCase();
+    const formatted = normalizeIdentityName(val);
     setNewCustomer((prev) => {
       const updated = { ...prev, lastName: formatted };
       updateAutoPassword(updated.firstName, formatted, updated.phoneNumber);
@@ -592,18 +588,7 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
   };
 
   const handlePhoneChange = (val) => {
-    const numeric = val.replace(/\D/g, '');
-    let formatted = numeric;
-
-    if (numeric.length > 0) {
-      if (numeric.length <= 3) {
-        formatted = numeric;
-      } else if (numeric.length <= 6) {
-        formatted = `${numeric.slice(0, 3)}-${numeric.slice(3)}`;
-      } else {
-        formatted = `${numeric.slice(0, 3)}-${numeric.slice(3, 6)}-${numeric.slice(6, 10)}`;
-      }
-    }
+    const formatted = formatUsPhone(val);
 
     setNewCustomer((prev) => {
       const updated = { ...prev, phoneNumber: formatted };
@@ -1057,12 +1042,13 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
               />
             </div>
             <div className="filter-group">
-              <label>Password</label>
+              <label>Password <span className="locked-chip">Locked</span></label>
               <input
                 type="text"
                 value={newCustomer.password.toUpperCase()}
-                onChange={(e) => setNewCustomer((prev) => ({ ...prev, password: e.target.value.toUpperCase() }))}
-                placeholder="Set password"
+                readOnly
+                className="readonly-input"
+                placeholder="Auto-generated from name + phone"
               />
             </div>
 
@@ -1365,6 +1351,20 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
               padding: 10px 12px;
               color: #64748b;
               font-size: 12px;
+            }
+            .locked-chip {
+              display: inline-flex;
+              align-items: center;
+              margin-left: 6px;
+              padding: 1px 6px;
+              border-radius: 999px;
+              border: 1px solid #d1d5db;
+              background: #f8fafc;
+              color: #334155;
+              font-size: 10px;
+              font-weight: 700;
+              letter-spacing: 0.02em;
+              text-transform: uppercase;
             }
             .duplicate-warning-state {
               border: 1px solid #f1d178;

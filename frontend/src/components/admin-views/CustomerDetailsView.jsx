@@ -10,10 +10,10 @@ import {
   updateUserByAdmin,
   updateUserByAgent,
   updateUserCredit,
-  resetUserPasswordByAdmin,
   impersonateUser
 } from '../../api';
 import { formatTransactionType, isDebitTransaction } from '../../utils/transactionPresentation';
+import { formatUsPhone, generateIdentityPassword, normalizeIdentityName } from '../../utils/identityPassword';
 
 const DEFAULT_FORM = {
   password: '',
@@ -305,6 +305,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
   const [casinoError, setCasinoError] = useState('');
   const [casinoSuccess, setCasinoSuccess] = useState('');
   const [copyNotice, setCopyNotice] = useState('');
+  const [duplicateWarning, setDuplicateWarning] = useState(null);
 
   const quickMenuItems = [
     { id: 'basics', label: 'The Basics', icon: '🪪' },
@@ -335,6 +336,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
         setSuccess('');
         setTxSuccess('');
         setTxError('');
+        setDuplicateWarning(null);
         setCustomer(null);
         setForm(DEFAULT_FORM);
         setActiveSection('basics');
@@ -686,6 +688,21 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
+  const handleFirstNameChange = (value) => {
+    setDuplicateWarning(null);
+    setForm((prev) => ({ ...prev, firstName: normalizeIdentityName(value) }));
+  };
+
+  const handleLastNameChange = (value) => {
+    setDuplicateWarning(null);
+    setForm((prev) => ({ ...prev, lastName: normalizeIdentityName(value) }));
+  };
+
+  const handlePhoneChange = (value) => {
+    setDuplicateWarning(null);
+    setForm((prev) => ({ ...prev, phoneNumber: formatUsPhone(value) }));
+  };
+
   const fullName = useMemo(() => {
     const byFields = `${form.firstName || ''} ${form.lastName || ''}`.trim();
     if (byFields) return byFields;
@@ -697,10 +714,31 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
     return fullName || customer?.username || 'Player';
   }, [fullName, customer?.username]);
 
+  const generatedPassword = useMemo(() => (
+    generateIdentityPassword(form.firstName, form.lastName, form.phoneNumber, customer?.username || '')
+  ), [form.firstName, form.lastName, form.phoneNumber, customer?.username]);
+
   const displayPassword = useMemo(() => {
+    if (generatedPassword) return generatedPassword;
     if (!customer) return '';
     return customer.displayPassword || 'Not set';
-  }, [customer]);
+  }, [customer, generatedPassword]);
+
+  const duplicateMatchReasons = useMemo(() => {
+    const reasons = new Set();
+    const matches = Array.isArray(duplicateWarning?.matches) ? duplicateWarning.matches : [];
+    matches.forEach((match) => {
+      const reasonList = Array.isArray(match?.matchReasons) ? match.matchReasons : [];
+      reasonList.forEach((reason) => {
+        const normalized = String(reason || '').trim().toLowerCase();
+        if (normalized) reasons.add(normalized);
+      });
+    });
+    return reasons;
+  }, [duplicateWarning]);
+
+  const hasPhoneDuplicate = duplicateMatchReasons.has('phone');
+  const hasPasswordDuplicate = duplicateMatchReasons.has('password');
 
   const roleBadgeLabel = useMemo(() => {
     const roleKey = String(customer?.role || 'player').toLowerCase();
@@ -807,17 +845,33 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
       setSaving(true);
       setError('');
       setSuccess('');
+      setDuplicateWarning(null);
       const token = localStorage.getItem('token');
       if (!token) {
         setError('Please login again.');
         return;
       }
 
+      const normalizedFirstName = normalizeIdentityName(form.firstName).trim();
+      const normalizedLastName = normalizeIdentityName(form.lastName).trim();
+      const normalizedPhoneNumber = formatUsPhone(form.phoneNumber).trim();
+      const policyPassword = generateIdentityPassword(
+        normalizedFirstName,
+        normalizedLastName,
+        normalizedPhoneNumber,
+        customer?.username || ''
+      );
+      if (!normalizedFirstName || !normalizedLastName || !normalizedPhoneNumber || !policyPassword) {
+        setError('First name, last name, and phone number are required to generate password.');
+        return;
+      }
+
       const payload = {
-        firstName: form.firstName.trim(),
-        lastName: form.lastName.trim(),
-        phoneNumber: form.phoneNumber.trim(),
-        fullName: fullName,
+        firstName: normalizedFirstName,
+        lastName: normalizedLastName,
+        phoneNumber: normalizedPhoneNumber,
+        fullName: `${normalizedFirstName} ${normalizedLastName}`.trim(),
+        password: policyPassword,
         status: form.status,
         minBet: Number(form.minBet || 0),
         creditLimit: Number(form.creditLimit || 0),
@@ -852,29 +906,31 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
       } else {
         await updateUserByAdmin(userId, payload, token);
       }
-
-      if ((form.password || '').trim() !== '') {
-        const nextPassword = form.password.trim().toUpperCase();
-        if (role === 'admin') {
-          await resetUserPasswordByAdmin(userId, nextPassword, token);
-        } else {
-          await updateUserByAgent(userId, { password: nextPassword }, token);
-        }
-        setCustomer((prev) => ({ ...(prev || {}), displayPassword: nextPassword }));
-      }
-
-        setCustomer((prev) => ({
+      setCustomer((prev) => ({
         ...prev,
         ...payload,
+        displayPassword: policyPassword || prev?.displayPassword || '',
         settings: {
           ...(prev?.settings || {}),
           ...payload.settings
         }
       }));
-      setForm((prev) => ({ ...prev, password: '' }));
       setSuccess('Changes saved successfully.');
     } catch (err) {
       console.error('Failed to save player details:', err);
+      const duplicateMatches = Array.isArray(err?.duplicateMatches)
+        ? err.duplicateMatches
+        : (Array.isArray(err?.details?.matches) ? err.details.matches : []);
+      const isDuplicateError = err?.isDuplicate === true
+        || err?.duplicate === true
+        || err?.code === 'DUPLICATE_PLAYER'
+        || err?.details?.duplicate === true;
+      if (isDuplicateError) {
+        setDuplicateWarning({
+          message: err?.message || 'Likely duplicate player detected.',
+          matches: duplicateMatches,
+        });
+      }
       setError(err.message || 'Failed to save details');
     } finally {
       setSaving(false);
@@ -927,6 +983,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
     setSuccess('');
     setTxSuccess('');
     setError('');
+    setDuplicateWarning(null);
     setTxError('');
     setPerformanceError('');
     setFreePlayError('');
@@ -1433,6 +1490,23 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
 
       {activeSection === 'transactions' ? txError && <div className="alert error">{txError}</div> : activeSection === 'performance' ? performanceError && <div className="alert error">{performanceError}</div> : activeSection === 'freeplays' ? freePlayError && <div className="alert error">{freePlayError}</div> : activeSection === 'dynamic-live' ? dynamicLiveError && <div className="alert error">{dynamicLiveError}</div> : activeSection === 'live-casino' ? casinoError && <div className="alert error">{casinoError}</div> : error && <div className="alert error">{error}</div>}
       {activeSection === 'transactions' ? txSuccess && <div className="alert success">{txSuccess}</div> : activeSection === 'freeplays' ? freePlaySuccess && <div className="alert success">{freePlaySuccess}</div> : activeSection === 'dynamic-live' ? dynamicLiveSuccess && <div className="alert success">{dynamicLiveSuccess}</div> : activeSection === 'live-casino' ? casinoSuccess && <div className="alert success">{casinoSuccess}</div> : success && <div className="alert success">{success}</div>}
+      {activeSection === 'basics' && duplicateWarning && (
+        <div className="duplicate-warning-state">
+          <div className="duplicate-warning-title">Duplicate Player</div>
+          <div className="duplicate-warning-message">{duplicateWarning.message}</div>
+          {Array.isArray(duplicateWarning.matches) && duplicateWarning.matches.length > 0 && (
+            <div className="duplicate-warning-list">
+              {duplicateWarning.matches.map((match, idx) => (
+                <div key={`${match.id || match.username || 'duplicate'}-${idx}`} className="duplicate-warning-item">
+                  <strong>{String(match.username || 'UNKNOWN')}</strong>
+                  <span>{String(match.fullName || 'No name')}</span>
+                  <span>{String(match.phoneNumber || 'No phone')}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {activeSection === 'transactions' ? (
         <div className="transactions-wrap">
@@ -1704,14 +1778,14 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
           <input
             value={form.firstName}
             placeholder="Enter first name"
-            onChange={(e) => setField('firstName', e.target.value)}
+            onChange={(e) => handleFirstNameChange(e.target.value)}
           />
 
           <label>Last Name</label>
           <input
             value={form.lastName}
             placeholder="Enter last name"
-            onChange={(e) => setField('lastName', e.target.value)}
+            onChange={(e) => handleLastNameChange(e.target.value)}
           />
 
           <label>Phone Number</label>
@@ -1719,15 +1793,16 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
             type="tel"
             value={form.phoneNumber}
             placeholder="Enter phone number"
-            onChange={(e) => setField('phoneNumber', e.target.value)}
+            onChange={(e) => handlePhoneChange(e.target.value)}
+            className={hasPhoneDuplicate ? 'duplicate-input' : ''}
           />
 
-          <label>Password</label>
+          <label>Password <span className="lock-badge">Locked</span></label>
           <input
-            className="password-input-dark"
-            value={form.password}
-            placeholder={displayPassword}
-            onChange={(e) => setField('password', e.target.value.toUpperCase())}
+            value={displayPassword}
+            readOnly
+            placeholder="Auto-generated from identity"
+            className={`password-input-dark ${hasPasswordDuplicate ? 'duplicate-input' : ''}`}
           />
 
           <label>Master Agent</label>
@@ -2262,6 +2337,48 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
         .alert { margin-top:8px; padding:8px 10px; border-radius:3px; font-size: 12px; }
         .alert.error { background:#fee2e2; color:#991b1b; border:1px solid #fecaca; }
         .alert.success { background:#dcfce7; color:#166534; border:1px solid #bbf7d0; }
+        .duplicate-warning-state {
+          border: 1px solid #f1d178;
+          border-radius: 10px;
+          background: #fff8dd;
+          color: #6b4e00;
+          padding: 12px;
+          margin-top: 8px;
+        }
+        .duplicate-warning-title {
+          font-size: 13px;
+          font-weight: 800;
+          text-transform: uppercase;
+          letter-spacing: 0.3px;
+          margin-bottom: 4px;
+        }
+        .duplicate-warning-message {
+          font-size: 13px;
+          line-height: 1.4;
+          margin-bottom: 8px;
+        }
+        .duplicate-warning-list {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+        }
+        .duplicate-warning-item {
+          display: grid;
+          grid-template-columns: minmax(78px, auto) 1fr;
+          gap: 2px 10px;
+          border: 1px solid #ecd28b;
+          border-radius: 8px;
+          background: #fffdf2;
+          padding: 8px 10px;
+          font-size: 12px;
+          line-height: 1.25;
+        }
+        .duplicate-warning-item strong {
+          color: #4f3200;
+        }
+        .duplicate-warning-item span:last-child {
+          color: #6f5400;
+        }
 
         .transactions-wrap {
           margin-top: 8px;
@@ -2525,7 +2642,26 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
         .basics-grid { margin-top:8px; display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; }
         .col-card { background:#fff; border:1px solid #d1d5db; padding:10px; display:flex; flex-direction:column; min-height:500px; }
         .col-card label { color:#4b5563; font-size:11px; margin-top:7px; margin-bottom:3px; }
+        .lock-badge {
+          display: inline-flex;
+          align-items: center;
+          margin-left: 6px;
+          padding: 1px 6px;
+          border-radius: 999px;
+          border: 1px solid #d1d5db;
+          background: #f8fafc;
+          color: #334155;
+          font-size: 10px;
+          font-weight: 700;
+          letter-spacing: 0.02em;
+          text-transform: uppercase;
+        }
         .col-card input, .col-card select, .col-card textarea { width:100%; border:none; border-bottom:1px solid #6b7280; background:transparent; font-size:14px; padding:3px 0; color:#111827; outline:none; }
+        .col-card .duplicate-input {
+          border-bottom-color: #b45309 !important;
+          background: #fff7ed !important;
+          box-shadow: inset 0 -1px 0 #b45309;
+        }
         .col-card .password-input-dark {
           background: transparent;
           color: #020617;
