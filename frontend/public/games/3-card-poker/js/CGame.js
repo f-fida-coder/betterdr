@@ -2,6 +2,7 @@ function CGame(oData){
     var _bUpdate = false;
     var _bFold;
     var _bPairPlus;
+    var _bDealerQualified;
     var _iTimeElaps;
     var _iMaxBet;
     var _iState;
@@ -25,8 +26,14 @@ function CGame(oData){
     var _aCurActiveCardOffset;
     var _aPlayerCardsInfo;
     var _aDealerCardsInfo;
+    var _aPlayerCardsSnapshot;
+    var _aDealerCardsSnapshot;
     var _pStartingPointCard;
     
+    var _oPlayerHandEvaluation;
+    var _oDealerHandEvaluation;
+    var _oRoundSummary;
+
     var _oStartingCardOffset;
     var _oDealerCardOffset;
     var _oReceiveWinOffset;
@@ -119,13 +126,26 @@ function CGame(oData){
         _iCurIndexDeck = 0;
         _iCardIndexToDeal=0;
         _bPairPlus = false;
+        _bFold = false;
+        _bDealerQualified = false;
+        _szHandResult = "";
+        _iTotWin = 0;
+        _iAnteBonusWin = 0;
+        _iTotWinPairPlus = 0;
+        _oPlayerHandEvaluation = null;
+        _oDealerHandEvaluation = null;
+        _oRoundSummary = null;
         _oSeat.reset();
 
         _aCardsDealing=new Array();
         _aCardsDealing.splice(0);
-        
+
         _aCardsInCurHandForDealer = new Array();
         _aCardsInCurHandForPlayer = new Array();
+        _aPlayerCardsInfo = new Array();
+        _aDealerCardsInfo = new Array();
+        _aPlayerCardsSnapshot = new Array();
+        _aDealerCardsSnapshot = new Array();
         
         _oInterface.reset();
 
@@ -171,16 +191,258 @@ function CGame(oData){
         }
     };
     
-    this._calculatePairPlus = function(){
-        
+    this._cloneCardsInfo = function(aCards){
+        var aClone = new Array();
+        for(var i=0; i<aCards.length; i++){
+            aClone.push({
+                fotogram: aCards[i].fotogram,
+                rank: aCards[i].rank,
+                suit: aCards[i].suit
+            });
+        }
+
+        return aClone;
+    };
+
+    this._drawNextCard = function(){
+        var oCardInfo = {
+            fotogram: _aCardDeck[_iCurIndexDeck].fotogram,
+            rank: _aCardDeck[_iCurIndexDeck].rank,
+            suit: _aCardDeck[_iCurIndexDeck].suit
+        };
+
+        _iCurIndexDeck++;
+        this._checkDeckLength();
+
+        return oCardInfo;
+    };
+
+    this._drawRoundCards = function(){
+        var aPlayerCards = new Array();
+        var aDealerCards = new Array();
+
+        for(var i=0; i<CARD_TO_DEAL; i++){
+            aPlayerCards.push(this._drawNextCard());
+            aDealerCards.push(this._drawNextCard());
+        }
+
+        return {
+            player: aPlayerCards,
+            dealer: aDealerCards
+        };
+    };
+
+    this._getPairPlusMultiplier = function(iHandValue){
+        if(iHandValue >= 0 && iHandValue < PAYOUT_PLUS.length){
+            return PAYOUT_PLUS[iHandValue];
+        }
+
+        return 0;
+    };
+
+    this._getAnteBonusMultiplier = function(iHandValue){
+        if(iHandValue >= 0 && iHandValue < PAYOUT_ANTE.length){
+            return PAYOUT_ANTE[iHandValue];
+        }
+
+        return 0;
+    };
+
+    this._getMainResultLabel = function(szResult){
+        switch(szResult){
+            case "player":
+                return "Player";
+            case "dealer":
+                return "Dealer";
+            case "standoff":
+                return "Tie";
+            case "dealer_no_hand":
+                return "Dealer Not Qualified";
+            case "fold":
+                return "Fold";
+            default:
+                return "Unknown";
+        }
+    };
+
+    this._getPlayerOutcomeLabel = function(iNetResult){
+        if(iNetResult > 0){
+            return "Win";
+        }
+
+        if(iNetResult < 0){
+            return "Lose";
+        }
+
+        return "Push";
+    };
+
+    this._rankToText = function(iHandValue){
+        return TEXT_EVALUATOR[iHandValue] || "";
+    };
+
+    this._rankToCardCode = function(iRank){
+        switch(iRank){
+            case CARD_ACE:
+                return "A";
+            case CARD_KING:
+                return "K";
+            case CARD_QUEEN:
+                return "Q";
+            case CARD_JACK:
+                return "J";
+            default:
+                return String(iRank);
+        }
+    };
+
+    this._suitToCardCode = function(iSuit){
+        switch(iSuit){
+            case 0:
+                return "H";
+            case 1:
+                return "D";
+            case 2:
+                return "C";
+            case 3:
+                return "S";
+            default:
+                return "H";
+        }
+    };
+
+    this._cardsToCodes = function(aCards){
+        var aCodes = new Array();
+        for(var i=0; i<aCards.length; i++){
+            aCodes.push(this._rankToCardCode(aCards[i].rank) + this._suitToCardCode(aCards[i].suit));
+        }
+        return aCodes;
+    };
+
+    this._resolveRoundSummary = function(){
+        var iAnteBet = _oSeat.getBetAnte();
+        var iPairPlusBet = _oSeat.getBetPlus();
+        var iPlayBet = _bFold ? 0 : _oSeat.getBetPlay();
+        var iPairPlusMultiplier = this._getPairPlusMultiplier(_iHandPlayer);
+        var iAnteBonusMultiplier = _bFold ? 0 : this._getAnteBonusMultiplier(_iHandPlayer);
+        var iPairPlusReturn = 0;
+        var iAnteReturn = 0;
+        var iPlayReturn = 0;
+        var iAnteBonusReturn = 0;
+        var szMainResult = "fold";
+        var szPlayerOutcome;
+
+        if(iPairPlusBet > 0 && iPairPlusMultiplier > 0){
+            iPairPlusReturn = (iPairPlusBet * iPairPlusMultiplier) + iPairPlusBet;
+        }
+
+        if(iAnteBonusMultiplier > 0){
+            iAnteBonusReturn = iAnteBet * iAnteBonusMultiplier;
+        }
+
+        if(!_bFold){
+            if(!_bDealerQualified){
+                szMainResult = "dealer_no_hand";
+                iAnteReturn = iAnteBet * 2;
+                iPlayReturn = iPlayBet;
+            }else{
+                szMainResult = _oHandEvaluator.getWinnerComparingHands(
+                    _oPlayerHandEvaluation.sort_hand,
+                    _oDealerHandEvaluation.sort_hand,
+                    _iHandPlayer,
+                    _iHandDealer,
+                    _oPlayerHandEvaluation.tiebreak,
+                    _oDealerHandEvaluation.tiebreak
+                );
+
+                if(szMainResult === "player"){
+                    iAnteReturn = iAnteBet * 2;
+                    iPlayReturn = iPlayBet * 2;
+                }else if(szMainResult === "standoff"){
+                    iAnteReturn = iAnteBet;
+                    iPlayReturn = iPlayBet;
+                }
+            }
+        }else{
+            iAnteBonusReturn = 0;
+        }
+
+        _szHandResult = szMainResult;
+        _iTotWin = parseFloat((iAnteReturn + iPlayReturn).toFixed(2));
+        _iAnteBonusWin = parseFloat(iAnteBonusReturn.toFixed(2));
+        _iTotWinPairPlus = parseFloat(iPairPlusReturn.toFixed(2));
+
+        var iTotalWager = parseFloat((iAnteBet + iPairPlusBet + iPlayBet).toFixed(2));
+        var iTotalReturn = parseFloat((_iTotWin + _iAnteBonusWin + _iTotWinPairPlus).toFixed(2));
+        var iNetResult = parseFloat((iTotalReturn - iTotalWager).toFixed(2));
+        var iFinalBalance = parseFloat((_oSeat.getCredit() + iTotalReturn).toFixed(2));
+        var aPlayerCards = this._cardsToCodes(_aPlayerCardsSnapshot);
+        var aDealerCards = this._cardsToCodes(_aDealerCardsSnapshot);
+
+        szPlayerOutcome = this._getPlayerOutcomeLabel(iNetResult);
+
+        _oRoundSummary = {
+            action: _bFold ? "fold" : "play",
+            folded: _bFold,
+            mainResult: szMainResult,
+            mainResultLabel: this._getMainResultLabel(szMainResult),
+            playerOutcome: szPlayerOutcome,
+            dealerQualified: _bDealerQualified,
+            playerHand: this._rankToText(_iHandPlayer),
+            dealerHand: this._rankToText(_iHandDealer),
+            playerCards: aPlayerCards,
+            dealerCards: aDealerCards,
+            bets: {
+                ante: iAnteBet,
+                play: iPlayBet,
+                pairPlus: iPairPlusBet
+            },
+            payoutBreakdown: {
+                ante: {
+                    bet: iAnteBet,
+                    action: _bFold ? "lose" : (!_bDealerQualified || szMainResult === "player" ? "win" : (szMainResult === "standoff" ? "push" : "lose")),
+                    returnAmount: iAnteReturn,
+                    payout: Math.max(0, iAnteReturn - iAnteBet)
+                },
+                play: {
+                    bet: iPlayBet,
+                    action: _bFold ? "not_placed" : (!_bDealerQualified ? "push" : (szMainResult === "player" ? "win" : (szMainResult === "standoff" ? "push" : "lose"))),
+                    returnAmount: iPlayReturn,
+                    payout: iPlayBet > 0 ? Math.max(0, iPlayReturn - iPlayBet) : 0
+                },
+                pairPlus: {
+                    bet: iPairPlusBet,
+                    hand: this._rankToText(_iHandPlayer),
+                    multiplier: iPairPlusMultiplier,
+                    action: iPairPlusReturn > 0 ? "win" : (iPairPlusBet > 0 ? "lose" : "not_placed"),
+                    returnAmount: iPairPlusReturn,
+                    payout: iPairPlusReturn > 0 ? iPairPlusReturn - iPairPlusBet : 0
+                },
+                anteBonus: {
+                    multiplier: iAnteBonusMultiplier,
+                    action: iAnteBonusReturn > 0 ? "win" : (_bFold ? "forfeit" : "lose"),
+                    returnAmount: iAnteBonusReturn,
+                    payout: iAnteBonusReturn
+                }
+            },
+            totalWager: iTotalWager,
+            totalReturn: iTotalReturn,
+            netResult: iNetResult,
+            finalBalance: iFinalBalance,
+            resolvedAt: new Date().toISOString()
+        };
     };
     
     this._showWin = function(){
+        if(_oRoundSummary === null){
+            this._resolveRoundSummary();
+        }
+
 	if(_bFold){
-		this._playerLose();
+		this._playerLose(true);
         }else if(_szHandResult === "player" && _iHandPlayer <= STRAIGHT){
             this._playerWin(TEXT_HAND_WON_PLAYER);
-        }else if(_iHandDealer === NO_HAND){
+        }else if(!_bDealerQualified){
                 this._playerWin(TEXT_DISPLAY_MSG_NOT_QUALIFY);
         }else if(_szHandResult === "player"){
             this._playerWin(TEXT_HAND_WON_PLAYER);
@@ -190,7 +452,7 @@ function CGame(oData){
             this._standOff();
         }
 
-        if(_szHandResult === "player"){
+        if(_oRoundSummary.netResult > 0){
             playSound("win", 1, false);
         }else{
             playSound("lose", 1, false);
@@ -199,7 +461,12 @@ function CGame(oData){
         // BetterDR: submit bet immediately after hand settles so the server
         // balance is confirmed before the next betting phase opens (~3 s later).
         if (typeof window.__3cp_onHandEnd === 'function') {
-            window.__3cp_onHandEnd({ newCredit: _oSeat.getCredit(), handResult: _szHandResult, folded: _bFold });
+            window.__3cp_onHandEnd({
+                newCredit: _oSeat.getCredit(),
+                handResult: _szHandResult,
+                folded: _bFold,
+                round: _oRoundSummary
+            });
         }
         $(s_oMain).trigger("save_score", [_oSeat.getCredit()]);
 
@@ -247,7 +514,7 @@ function CGame(oData){
         
         this._checkPlusWin();
         
-        _oInterface.showResultText(TEXT_HAND_WON_DEALER);
+        _oInterface.showResultText(bFold ? TEXT_FOLD : TEXT_HAND_WON_DEALER);
     };
     
     this._standOff = function(){
@@ -362,7 +629,7 @@ function CGame(oData){
             _oSeat.clearBet();
             _oActionAfterHandReset = this.setBet;
             this._onEndHand();
-            return;
+            return false;
         }
 
 
@@ -376,15 +643,23 @@ function CGame(oData){
             
             if( iTotBet > _iMaxBet){
                 _oMsgBox.show(TEXT_ERROR_MAX_BET);
-                return;
+                return false;
             }
 
             if( iTotBet > _oSeat.getCredit()){
                 _oInterface.displayMsg(TEXT_NO_MONEY_FOR_PLAY);     
-                return;
+                return false;
             }
         }else{
             iTotBet=_oSeat.getBetAnte();
+            if(iTotBet <= 0){
+                return false;
+            }
+
+            if(iTotBet > _oSeat.getCredit()){
+                _oInterface.displayMsg(TEXT_NO_MONEY_FOR_PLAY);
+                return false;
+            }
         }
 
         $(s_oMain).trigger("bet_placed",iTotBet);
@@ -401,6 +676,7 @@ function CGame(oData){
         }
 
         _oInterface.refreshCredit(_oSeat.getCredit());
+        return true;
     };
     
     this.setPairPlusBet = function(iFicheIndex){
@@ -434,7 +710,7 @@ function CGame(oData){
         
         
         _oSeat.decreaseCredit(iFicheValue);
-        _iGameCash += iTotBet;
+        _iGameCash += iFicheValue;
         _oSeat.betPairPlus(iFicheValue);
 
         _oInterface.refreshCredit(_oSeat.getCredit());
@@ -445,34 +721,7 @@ function CGame(oData){
     };
     
     this._calculateTotalWin = function(){
-        //CALCULATE PAIR PLUS BONUS WIN EVENTUALLy
-        _iTotWinPairPlus = 0;
-        if(_oSeat.getBetPlus() > 0 && _iHandPlayer <= ONE_PAIR){
-            _iTotWinPairPlus = (_oSeat.getBetPlus()*PAYOUT_PLUS[_iHandPlayer])+_oSeat.getBetPlus();
-        }
-
-        _iAnteBonusWin = 0;
-        //CALCULATE ANTE BONUS EVENTUALLY
-        if(_iHandPlayer <= STRAIGHT){
-            _iAnteBonusWin += _oSeat.getBetAnte()*PAYOUT_ANTE[_iHandPlayer];
-        }
-
-        _iTotWin = 0;
-        switch(_szHandResult){
-            case "player":{
-                    _iTotWin = (_oSeat.getBetAnte() * 2) + (_oSeat.getBetAnte()*2);
-                    break;
-            }
-            case "standoff":{
-                    _iTotWin = _oSeat.getBetAnte()*2;
-                    break;
-            }
-            case "dealer_no_hand":{
-                    _iTotWin = (_oSeat.getBetAnte() * 2) + _oSeat.getBetAnte();
-                    break;
-            }
-        }
-
+        this._resolveRoundSummary();
     };
     
     this.onRebet = function(){
@@ -484,59 +733,45 @@ function CGame(oData){
 
     this.onDeal = function(){
         _oHelpCursorAnte.hide();
-        var iCurMinWin = _oSeat.getBetAnte() + _oSeat.getBetAnte();
 
         if(_oSeat.getBetAnte() < MIN_BET){
             _oMsgBox.show(TEXT_ERROR_MIN_BET);
-            _oInterface.enableBetFiches(false);
-            _oInterface.enable(false,false,false);
+            _oInterface.enableBetFiches(_oSeat.checkIfRebetIsPossible());
+            _oInterface.enable(_oSeat.getBetAnte() > 0,false,false);
 
+            return;
+        }
+
+        if(_oSeat.getCredit() < _oSeat.getBetAnte()){
+            _oInterface.displayMsg(TEXT_NO_MONEY_FOR_PLAY);
+            _oInterface.enableBetFiches(_oSeat.checkIfRebetIsPossible());
+            _oInterface.enable(true,false,false);
             return;
         }
 
         // BetterDR integration: expose bet info before dealing
         if (typeof window.__3cp_onDeal === 'function') {
-            window.__3cp_onDeal({ ante: _oSeat.getBetAnte(), pairPlus: _oSeat.getBetPlus() });
+            window.__3cp_onDeal({
+                ante: _oSeat.getBetAnte(),
+                pairPlus: _oSeat.getBetPlus(),
+                balanceAfterInitialBets: _oSeat.getCredit()
+            });
         }
 
        _oCardContainer.removeAllChildren();
-        
-        var iRandWin;
-        if(_iGameCash < iCurMinWin){
-            iRandWin = WIN_OCCURRENCE+1;
-        }else{
-            iRandWin = Math.floor(Math.random()*101);
-        }
 
-        if(iRandWin > WIN_OCCURRENCE){
-            //LOSE
-            do{
-                _aPlayerCardsInfo = this._generateRandPlayerCards();
-                _aDealerCardsInfo = this._generateRandDealerCards();
-                
-                var oRetDealer = _oHandEvaluator.evaluate(_aDealerCardsInfo);
-                var oRetPlayer = _oHandEvaluator.evaluate(_aPlayerCardsInfo);
-                _iHandDealer = oRetDealer.ret;
-                _iHandPlayer = oRetPlayer.ret;
-                
-                _szHandResult = _oHandEvaluator.getWinnerComparingHands(oRetPlayer.sort_hand,oRetDealer.sort_hand,_iHandPlayer,_iHandDealer);
-                this._calculateTotalWin();
-            }while( _iHandDealer === NO_HAND ||  _szHandResult === "player" || _szHandResult === "dealer_no_hand");
-        }else{
-            //WIN
-            do{
-                _aPlayerCardsInfo = this._generateRandPlayerCards();
-                _aDealerCardsInfo = this._generateRandDealerCards();
-                
-                var oRetDealer = _oHandEvaluator.evaluate(_aDealerCardsInfo);
-                var oRetPlayer = _oHandEvaluator.evaluate(_aPlayerCardsInfo);
-                _iHandDealer = oRetDealer.ret;
-                _iHandPlayer = oRetPlayer.ret;
-                
-                _szHandResult = _oHandEvaluator.getWinnerComparingHands(oRetPlayer.sort_hand,oRetDealer.sort_hand,_iHandPlayer,_iHandDealer);
-                this._calculateTotalWin();
-            }while(_szHandResult === "dealer" || (_iTotWin+_iTotWinPairPlus+_iAnteBonusWin) > _iGameCash);
-        }
+        var oRoundCards = this._drawRoundCards();
+        _aPlayerCardsSnapshot = this._cloneCardsInfo(oRoundCards.player);
+        _aDealerCardsSnapshot = this._cloneCardsInfo(oRoundCards.dealer);
+        _aPlayerCardsInfo = this._cloneCardsInfo(oRoundCards.player);
+        _aDealerCardsInfo = this._cloneCardsInfo(oRoundCards.dealer);
+
+        _oDealerHandEvaluation = _oHandEvaluator.evaluate(_aDealerCardsSnapshot);
+        _oPlayerHandEvaluation = _oHandEvaluator.evaluate(_aPlayerCardsSnapshot);
+        _iHandDealer = _oDealerHandEvaluation.ret;
+        _iHandPlayer = _oPlayerHandEvaluation.ret;
+        _bDealerQualified = _oHandEvaluator.dealerQualifies(_oDealerHandEvaluation.sort_hand, _iHandDealer);
+        _oRoundSummary = null;
 
         _oSeat.setPrevBet();
         
@@ -548,18 +783,28 @@ function CGame(oData){
     };
     
     this.onFold = function(){
+        if(_iState !== STATE_GAME_PLAYER_TURN){
+            return;
+        }
+
 	_bFold = true;
-        _szHandResult = "dealer";
-        _iCurDealerCardShown = 0;
-        this._showNextDealerCard();
+        this._calculateTotalWin();
+        _oInterface.showHandValue(null,_iHandPlayer);
+        _iState = STATE_GAME_SHOWDOWN;
+        this._showWin();
     };
     
     this.onPlay = function(){
-        if(_iState === STATE_GAME_DISTRIBUTE_FICHES){
+        if(_iState !== STATE_GAME_PLAYER_TURN){
             return;
         }
         
-        this.setBet(_oInterface.getFicheSelected(),BET_PLAY);
+        if(this.setBet(_oInterface.getFicheSelected(),BET_PLAY) !== true){
+            _oInterface.enable(false,true,true);
+            return;
+        }
+        _bFold = false;
+        this._calculateTotalWin();
         _iCurDealerCardShown = 0;
         this._showNextDealerCard();
     };
@@ -570,25 +815,11 @@ function CGame(oData){
     };
     
     this._generateRandDealerCards = function(){
-        var aDealerCards = new Array();
-        for(var i=0;i<CARD_TO_DEAL;i++){
-            aDealerCards.push({fotogram:_aCardDeck[_iCurIndexDeck].fotogram,rank:_aCardDeck[_iCurIndexDeck].rank,suit:_aCardDeck[_iCurIndexDeck].suit});
-            _iCurIndexDeck++;
-            this._checkDeckLength();
-        }
-        
-        return aDealerCards;
+        return this._cloneCardsInfo(_aDealerCardsSnapshot);
     };
     
     this._generateRandPlayerCards = function(){
-        var aPlayerCards = new Array();
-        for(var i=0;i<CARD_TO_DEAL;i++){
-            aPlayerCards.push({fotogram:_aCardDeck[_iCurIndexDeck].fotogram,rank:_aCardDeck[_iCurIndexDeck].rank,suit:_aCardDeck[_iCurIndexDeck].suit});
-            _iCurIndexDeck++;
-            this._checkDeckLength();
-        }
-        
-        return aPlayerCards;
+        return this._cloneCardsInfo(_aPlayerCardsSnapshot);
     };
 
     

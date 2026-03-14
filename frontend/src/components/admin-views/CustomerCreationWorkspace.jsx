@@ -3,6 +3,7 @@ import {
   createAgent,
   createPlayerByAgent,
   createSubAgent,
+  getAgentTree,
   createUserByAdmin,
   getAgents,
   getMe,
@@ -24,15 +25,339 @@ const derivePlayerPrefix = (value) => {
   return withoutTrailingDigits || normalized;
 };
 
-const normalizeAgentUsername = (value) => String(value || '').trim().toUpperCase();
-const isMasterAgentUsername = (value) => normalizeAgentUsername(value).endsWith('MA');
 const normalizeAgentRole = (value) => String(value || '').trim().toLowerCase();
-const isMasterAccountOption = (agent) => {
-  const role = normalizeAgentRole(agent?.role);
-  if (role === 'master_agent' || role === 'super_agent') return true;
-  if (role === 'agent') return false;
-  return isMasterAgentUsername(agent?.username);
+const normalizeHierarchyId = (value) => String(value || '').trim();
+const MANAGER_TREE_ROLES = new Set(['admin', 'agent', 'master_agent', 'super_agent']);
+const isManagerTreeNode = (node) => {
+  const nodeType = String(node?.nodeType || '').trim().toLowerCase();
+  if (nodeType === 'player') return false;
+  return MANAGER_TREE_ROLES.has(normalizeAgentRole(node?.role));
 };
+const isMasterTreeNode = (node) => {
+  const role = normalizeAgentRole(node?.role);
+  return role === 'master_agent' || role === 'super_agent';
+};
+const isRegularAgentTreeNode = (node) => normalizeAgentRole(node?.role) === 'agent';
+const pruneAssignmentTree = (node) => {
+  if (!isManagerTreeNode(node)) return null;
+
+  const children = Array.isArray(node.children)
+    ? node.children.map((child) => pruneAssignmentTree(child)).filter(Boolean)
+    : [];
+
+  return {
+    ...node,
+    id: normalizeHierarchyId(node.id || node._id),
+    children,
+  };
+};
+const findAssignmentTreeNode = (node, targetId) => {
+  const normalizedTargetId = normalizeHierarchyId(targetId);
+  if (!normalizedTargetId || !node) return null;
+
+  if (normalizeHierarchyId(node.id || node._id) === normalizedTargetId) {
+    return node;
+  }
+
+  const children = Array.isArray(node.children) ? node.children : [];
+  for (const child of children) {
+    const match = findAssignmentTreeNode(child, normalizedTargetId);
+    if (match) {
+      return match;
+    }
+  }
+
+  return null;
+};
+const findAssignmentTreePath = (node, targetId) => {
+  const normalizedTargetId = normalizeHierarchyId(targetId);
+  if (!normalizedTargetId || !node) return [];
+
+  const nodeId = normalizeHierarchyId(node.id || node._id);
+  if (nodeId === normalizedTargetId) {
+    return [nodeId];
+  }
+
+  const children = Array.isArray(node.children) ? node.children : [];
+  for (const child of children) {
+    const childPath = findAssignmentTreePath(child, normalizedTargetId);
+    if (childPath.length > 0) {
+      return [nodeId, ...childPath];
+    }
+  }
+
+  return [];
+};
+const flattenAssignmentTree = (node, predicate, includeRoot = true, depth = 0, acc = []) => {
+  if (!node) return acc;
+
+  if ((includeRoot || depth > 0) && predicate(node, depth)) {
+    acc.push(node);
+  }
+
+  const children = Array.isArray(node.children) ? node.children : [];
+  children.forEach((child) => flattenAssignmentTree(child, predicate, true, depth + 1, acc));
+  return acc;
+};
+const assignmentRoleLabel = (node) => {
+  const role = normalizeAgentRole(node?.role);
+  if (role === 'master_agent') return 'MASTER';
+  if (role === 'super_agent') return 'SUPER';
+  if (role === 'agent') return 'AGENT';
+  if (role === 'admin') return 'ADMIN';
+  return role ? role.replace(/_/g, ' ').toUpperCase() : 'ACCOUNT';
+};
+const assignmentRoleClass = (node) => normalizeAgentRole(node?.role).replace(/_/g, '-') || 'account';
+const assignmentSearchText = (node) => {
+  const username = String(node?.username || '').toLowerCase();
+  const role = normalizeAgentRole(node?.role);
+  const roleText = role.replace(/_/g, ' ');
+  return `${username} ${roleText}`.trim();
+};
+const assignmentBranchMatchesQuery = (node, rawQuery) => {
+  const query = String(rawQuery || '').trim().toLowerCase();
+  if (!query) return true;
+  if (assignmentSearchText(node).includes(query)) return true;
+  return (Array.isArray(node?.children) ? node.children : []).some((child) => assignmentBranchMatchesQuery(child, query));
+};
+
+function AssignmentHierarchyPicker({
+  rootNode,
+  loading = false,
+  error = '',
+  searchQuery = '',
+  onSearchQueryChange,
+  expandedNodes,
+  onToggleNode,
+  onSelectNode,
+  onSelectDirect,
+  selectedNodeId = '',
+  directSelected = false,
+  selectionMode = 'player',
+  searchPlaceholder = 'Search accounts...',
+  emptyLabel = 'No matching accounts',
+}) {
+  const normalizedQuery = String(searchQuery || '').trim().toLowerCase();
+  const shouldShowResults = normalizedQuery !== '' || loading || error;
+
+  const renderNode = (node, depth = 0, isRoot = false) => {
+    if (!node || !isManagerTreeNode(node)) return null;
+    if (normalizedQuery && !assignmentBranchMatchesQuery(node, normalizedQuery)) {
+      return null;
+    }
+
+    const nodeId = normalizeHierarchyId(node.id || node._id);
+    const managerChildren = (Array.isArray(node.children) ? node.children : []).filter(isManagerTreeNode);
+    const canExpand = managerChildren.length > 0 && (isRoot || isMasterTreeNode(node));
+    const isExpanded = normalizedQuery ? true : expandedNodes.has(nodeId);
+    const isSelectable = selectionMode === 'player'
+      ? isRegularAgentTreeNode(node)
+      : (isRoot ? typeof onSelectDirect === 'function' : isMasterTreeNode(node));
+    const isSelected = isRoot
+      ? directSelected
+      : (selectedNodeId !== '' && selectedNodeId === nodeId);
+
+    return (
+      <div key={`${nodeId || 'root'}-${depth}`} className="assignment-tree-branch">
+        <div
+          className={`tree-node ${isRoot ? 'root-node' : ''} assignment-tree-row ${isSelected ? 'selected' : ''} ${isSelectable ? 'selectable' : ''}`}
+          style={isRoot ? undefined : { paddingLeft: `${16 + depth * 20}px` }}
+        >
+          <button
+            type="button"
+            className={`assignment-tree-toggle-btn ${canExpand ? '' : 'is-spacer'}`}
+            onClick={() => {
+              if (canExpand) {
+                onToggleNode?.(nodeId);
+              }
+            }}
+            aria-label={canExpand ? (isExpanded ? 'Collapse branch' : 'Expand branch') : 'No child accounts'}
+            disabled={!canExpand}
+          >
+            {canExpand ? (isExpanded ? '−' : '+') : ''}
+          </button>
+          <button
+            type="button"
+            className="assignment-tree-node-btn"
+            onClick={() => {
+              if (isSelectable) {
+                if (isRoot && typeof onSelectDirect === 'function') {
+                  onSelectDirect(node);
+                  return;
+                }
+                onSelectNode?.(node);
+                return;
+              }
+              if (canExpand) {
+                onToggleNode?.(nodeId);
+              }
+            }}
+          >
+            <span className="node-name">{String(node.username || '').toUpperCase()}</span>
+            <span className={`node-role-badge role-${assignmentRoleClass(node)}`}>
+              {assignmentRoleLabel(node)}
+            </span>
+          </button>
+        </div>
+        {canExpand && isExpanded && managerChildren.length > 0 && (
+          <div className="node-children assignment-tree-children">
+            {managerChildren.map((child) => renderNode(child, depth + 1, false))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const hasVisibleTree = Boolean(rootNode) && assignmentBranchMatchesQuery(rootNode, normalizedQuery);
+
+  return (
+    <div className="assignment-tree-picker">
+      <div className="search-pill assignment-tree-search-pill">
+        <span className="pill-label">Tree</span>
+        <input
+          type="text"
+          placeholder={searchPlaceholder}
+          value={searchQuery}
+          onChange={(event) => onSearchQueryChange?.(event.target.value)}
+        />
+      </div>
+
+      {shouldShowResults && (
+        <div className="assignment-tree-results-dropdown">
+          <div className="tree-scroll-area assignment-tree-scroll-area">
+            {loading ? (
+              <div className="tree-loading">Loading hierarchy...</div>
+            ) : error ? (
+              <div className="tree-error">{error}</div>
+            ) : hasVisibleTree ? (
+              renderNode(rootNode, 0, true)
+            ) : (
+              <div className="tree-loading">{emptyLabel}</div>
+            )}
+          </div>
+        </div>
+      )}
+
+      <style>{`
+        .assignment-tree-picker {
+          position: relative;
+          min-width: 0;
+          z-index: 20;
+        }
+
+        .assignment-tree-picker:focus-within {
+          z-index: 160;
+        }
+
+        .assignment-tree-search-pill {
+          min-height: 48px;
+          border-radius: 12px;
+          background: #ffffff;
+          border-color: #d7dee8;
+          box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+        }
+
+        .assignment-tree-search-pill .pill-label {
+          display: inline-flex;
+          align-items: center;
+          padding: 0 16px;
+          background: #f3f6fb;
+          font-size: 14px;
+        }
+
+        .assignment-tree-search-pill input {
+          min-height: 46px;
+          padding: 0 14px;
+          font-size: 14px;
+        }
+
+        .assignment-tree-results-dropdown {
+          position: absolute;
+          top: calc(100% + 8px);
+          left: 0;
+          right: 0;
+          border: 1px solid #dbe4ee;
+          border-radius: 14px;
+          background: #ffffff;
+          box-shadow: 0 18px 34px rgba(15, 23, 42, 0.16);
+          overflow: hidden;
+        }
+
+        .assignment-tree-scroll-area {
+          max-height: 300px;
+          min-height: 0;
+          padding: 8px 0 10px;
+          background: transparent;
+          border-top: none;
+        }
+
+        .assignment-tree-row {
+          gap: 8px;
+          min-height: 42px;
+          transition: background 0.2s ease;
+        }
+
+        .assignment-tree-row:hover {
+          background: #f8fbff;
+        }
+
+        .assignment-tree-row.selected {
+          background: linear-gradient(90deg, rgba(191, 219, 254, 0.78), rgba(239, 246, 255, 0.9));
+        }
+
+        .assignment-tree-row.selectable .assignment-tree-node-btn {
+          cursor: pointer;
+        }
+
+        .assignment-tree-toggle-btn {
+          width: 22px;
+          height: 22px;
+          border: none;
+          background: transparent;
+          color: #475569;
+          font-size: 24px;
+          line-height: 1;
+          padding: 0;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          flex: 0 0 22px;
+        }
+
+        .assignment-tree-toggle-btn:disabled {
+          cursor: default;
+        }
+
+        .assignment-tree-toggle-btn.is-spacer {
+          visibility: hidden;
+        }
+
+        .assignment-tree-node-btn {
+          flex: 1;
+          min-width: 0;
+          border: none;
+          background: transparent;
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          padding: 0;
+          text-align: left;
+        }
+
+        .assignment-tree-node-btn .node-name {
+          flex: 1;
+          min-width: 0;
+          font-weight: 600;
+        }
+
+        .assignment-tree-children {
+          margin-left: 18px;
+        }
+      `}</style>
+    </div>
+  );
+}
 
 const buildCopyInfo = (creationType, customer) => {
   const pass = customer.password || 'N/A';
@@ -131,11 +456,49 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
   const [currentRole, setCurrentRole] = useState('admin');
   const [viewOnly, setViewOnly] = useState(false);
   const [agentSearchQuery, setAgentSearchQuery] = useState('');
-  const [agentSearchOpen, setAgentSearchOpen] = useState(false);
   const [referralSearchQuery, setReferralSearchQuery] = useState('');
   const [referralSearchOpen, setReferralSearchOpen] = useState(false);
   const [adminUsername, setAdminUsername] = useState('');
   const [currentUserId, setCurrentUserId] = useState('');
+  const [assignmentTreeRoot, setAssignmentTreeRoot] = useState(null);
+  const [assignmentTreeLoading, setAssignmentTreeLoading] = useState(false);
+  const [assignmentTreeError, setAssignmentTreeError] = useState('');
+  const [assignmentExpandedNodes, setAssignmentExpandedNodes] = useState(() => new Set());
+
+  const loadAssignmentTree = async (token, role) => {
+    const normalizedRole = normalizeAgentRole(role);
+    if (normalizedRole === 'agent') {
+      setAssignmentTreeRoot(null);
+      setAssignmentTreeError('');
+      setAssignmentExpandedNodes(new Set());
+      setAssignmentTreeLoading(false);
+      return null;
+    }
+
+    try {
+      setAssignmentTreeLoading(true);
+      const payload = await getAgentTree(token);
+      const rootNode = payload?.root
+        ? pruneAssignmentTree({
+          ...payload.root,
+          children: Array.isArray(payload.tree) ? payload.tree : [],
+        })
+        : null;
+
+      setAssignmentTreeRoot(rootNode);
+      setAssignmentTreeError('');
+      setAssignmentExpandedNodes(new Set());
+      return rootNode;
+    } catch (treeError) {
+      console.error('Failed to load assignment hierarchy:', treeError);
+      setAssignmentTreeRoot(null);
+      setAssignmentTreeError(treeError?.message || 'Failed to load hierarchy');
+      setAssignmentExpandedNodes(new Set());
+      return null;
+    } finally {
+      setAssignmentTreeLoading(false);
+    }
+  };
 
   useEffect(() => {
     const fetchContext = async () => {
@@ -145,6 +508,9 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
         if (!token) {
           setCustomers([]);
           setAgents([]);
+          setAssignmentTreeRoot(null);
+          setAssignmentTreeError('');
+          setAssignmentExpandedNodes(new Set());
           setError('Please login to load users.');
           return;
         }
@@ -168,6 +534,7 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
           const data = await getMyPlayers(token);
           setCustomers(data || []);
           setAgents([]);
+          await loadAssignmentTree(token, resolvedRole);
         } else {
           const [usersData, agentsData] = await Promise.all([
             getUsersAdmin(token),
@@ -175,6 +542,7 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
           ]);
           setCustomers(usersData || []);
           setAgents(agentsData || []);
+          await loadAssignmentTree(token, resolvedRole);
         }
         setError('');
 
@@ -318,7 +686,6 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
       setNewCustomer(cleanState);
       setCreationType(createdType);
       setAgentSearchQuery('');
-      setAgentSearchOpen(false);
       setReferralSearchOpen(false);
       setImportFile(null);
       setSelectedImportFileName('');
@@ -336,6 +703,7 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
         ]);
         setCustomers(usersData || []);
         setAgents(agentsData || []);
+        await loadAssignmentTree(token, currentRole);
       }
     } catch (err) {
       console.error('Create user failed:', err);
@@ -464,20 +832,20 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
     }
   };
 
-  const handleAgentChange = async (agentId) => {
+  const handleAgentChange = async (agentId, selectedAgentOverride = null) => {
     const token = localStorage.getItem('token') || sessionStorage.getItem('token');
     if (!token) return;
 
     setNewCustomer((prev) => ({ ...prev, agentId, referredByUserId: '' }));
+    setAgentSearchQuery('');
     const sequenceType = creationType === 'player' ? 'player' : 'agent';
     const suffix = creationType === 'super_agent' ? 'MA' : '';
     // For agent/super_agent creation the user types their own prefix — never overwrite it
     const isAgentCreation = creationType === 'agent' || creationType === 'super_agent';
 
     if (agentId) {
-      const selectedAgent = agents.find((a) => (a.id || a._id) === agentId);
+      const selectedAgent = selectedAgentOverride || agents.find((a) => (a.id || a._id) === agentId);
       if (selectedAgent) {
-        setAgentSearchQuery(selectedAgent.username || '');
         try {
           // Use the user's typed prefix for agent creation; derive from selected agent for player creation
           const playerPrefix = (isAgentCreation && newCustomer.agentPrefix)
@@ -502,7 +870,6 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
         }
       }
     } else {
-      setAgentSearchQuery('');
       if (creationType === 'player' && (currentRole === 'admin' || isMasterContext)) {
         setNewCustomer((prev) => ({ ...prev, username: '' }));
         return;
@@ -535,17 +902,18 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
 
   const handleCreationTypeChange = async (type) => {
     setCreationType(type);
+    setAgentSearchQuery('');
     const token = localStorage.getItem('token') || sessionStorage.getItem('token');
     if (!token) return;
 
     if (type === 'super_agent' || type === 'agent') {
       const selectedAgentId = String(newCustomer.agentId || '').trim();
       const selectedAgent = selectedAgentId
-        ? agents.find((agent) => String(agent.id || agent._id || '') === selectedAgentId)
+        ? findAssignmentTreeNode(assignmentTreeRoot, selectedAgentId)
         : null;
-      const hasValidMasterAssignment = Boolean(selectedAgent && isMasterAccountOption(selectedAgent));
+      const hasValidMasterAssignment = Boolean(selectedAgent && isMasterTreeNode(selectedAgent));
+      const nextParentAgentId = hasValidMasterAssignment ? selectedAgentId : '';
       if (!hasValidMasterAssignment) {
-        setAgentSearchQuery('');
         setNewCustomer((prev) => ({ ...prev, agentId: '', parentAgentId: '' }));
       }
 
@@ -559,8 +927,8 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
       if (prefixToUse) {
         try {
           const query = { suffix, type: sequenceType };
-          if (type === 'agent' && newCustomer.agentId) {
-            query.agentId = newCustomer.agentId;
+          if (type === 'agent' && nextParentAgentId) {
+            query.agentId = nextParentAgentId;
           } else if (type === 'agent' && (currentRole === 'master_agent' || currentRole === 'super_agent') && currentUserId) {
             query.agentId = currentUserId;
           }
@@ -627,45 +995,110 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
       && String(newCustomer.balanceOwed ?? '').trim() !== ''
     ));
 
-  const assignableAgents = useMemo(() => agents.filter(() => {
-    if (currentRole === 'admin') return true;
-    if (currentRole === 'super_agent' || currentRole === 'master_agent') return true;
-    return false;
-  }), [agents, currentRole]);
-
   const isMasterContext = currentRole === 'master_agent' || currentRole === 'super_agent';
   const isMasterAssignmentMode = creationType === 'agent' || creationType === 'super_agent';
   const requiresPlayerAgentSelection = creationType === 'player' && (currentRole === 'admin' || isMasterContext);
 
-  const directAssignmentLabel = useMemo(() => {
-    if (creationType === 'player') {
-      return 'Direct (Under Me)';
-    }
-    if (isMasterContext) {
-      const meLabel = String(adminUsername || '').trim().toUpperCase();
-      return meLabel ? `${meLabel} (Me)` : 'Direct (Created By Me)';
-    }
-    return 'Direct (Created By Me)';
-  }, [creationType, isMasterContext, adminUsername]);
+  const selectableAssignmentNodes = useMemo(() => {
+    if (!assignmentTreeRoot) return [];
 
-  const visibleAssignableAgents = useMemo(() => {
     if (creationType === 'player') {
-      return assignableAgents.filter((agent) => !isMasterAccountOption(agent));
+      return flattenAssignmentTree(
+        assignmentTreeRoot,
+        (node, depth) => depth > 0 && isRegularAgentTreeNode(node),
+        false
+      );
     }
-    if (isMasterAssignmentMode) {
-      return assignableAgents.filter((agent) => isMasterAccountOption(agent));
+
+    return flattenAssignmentTree(
+      assignmentTreeRoot,
+      (node, depth) => depth > 0 && isMasterTreeNode(node),
+      false
+    );
+  }, [assignmentTreeRoot, creationType]);
+
+  const selectedAssignmentNode = useMemo(() => {
+    if (!assignmentTreeRoot) return null;
+
+    const selectedId = String(newCustomer.agentId || '').trim();
+    if (!selectedId) {
+      return isMasterAssignmentMode ? assignmentTreeRoot : null;
     }
-    return assignableAgents;
-  }, [assignableAgents, isMasterAssignmentMode, creationType]);
+
+    return findAssignmentTreeNode(assignmentTreeRoot, selectedId);
+  }, [assignmentTreeRoot, newCustomer.agentId, isMasterAssignmentMode]);
+
+  const selectedAssignmentLabel = useMemo(() => {
+    if (creationType === 'player') {
+      return selectedAssignmentNode ? String(selectedAssignmentNode.username || '').toUpperCase() : 'Select an agent';
+    }
+
+    if (!String(newCustomer.agentId || '').trim()) {
+      const rootName = String(assignmentTreeRoot?.username || adminUsername || '').trim().toUpperCase();
+      return rootName ? `${rootName} (ME)` : 'DIRECT (CREATED BY ME)';
+    }
+
+    return selectedAssignmentNode
+      ? String(selectedAssignmentNode.username || '').toUpperCase()
+      : 'Select a master agent';
+  }, [creationType, selectedAssignmentNode, newCustomer.agentId, assignmentTreeRoot, adminUsername]);
+
+  const assignmentSearchPlaceholder = isMasterAssignmentMode
+    ? 'Search master agents or agents...'
+    : 'Search agents...';
+
+  const assignmentEmptyLabel = isMasterAssignmentMode
+    ? 'No matching master-agent branches'
+    : 'No matching agents';
+
+  const toggleAssignmentNode = (nodeId) => {
+    const normalizedId = normalizeHierarchyId(nodeId);
+    if (!normalizedId) return;
+
+    setAssignmentExpandedNodes((prev) => {
+      const next = new Set(prev);
+      if (next.has(normalizedId)) {
+        next.delete(normalizedId);
+      } else {
+        next.add(normalizedId);
+      }
+      return next;
+    });
+  };
+
+  const expandAssignmentPath = (nodeId) => {
+    const normalizedId = normalizeHierarchyId(nodeId);
+    if (!normalizedId || !assignmentTreeRoot) return;
+
+    setAssignmentExpandedNodes((prev) => {
+      const next = new Set(prev);
+      const path = findAssignmentTreePath(assignmentTreeRoot, normalizedId);
+      path.forEach((id) => next.add(id));
+      return next;
+    });
+  };
+
+  const handleAssignmentNodeSelect = async (node) => {
+    const selectedId = normalizeHierarchyId(node?.id || node?._id);
+    if (!selectedId) return;
+
+    expandAssignmentPath(selectedId);
+    await handleAgentChange(selectedId, node);
+  };
+
+  const handleDirectAssignmentSelect = async (node) => {
+    await handleAgentChange('', node);
+  };
 
   useEffect(() => {
-    if (!isMasterAssignmentMode) return;
-
     const selectedId = String(newCustomer.agentId || '').trim();
     if (!selectedId) return;
 
-    const selectedAgent = agents.find((agent) => String(agent.id || agent._id || '') === selectedId);
-    if (selectedAgent && isMasterAccountOption(selectedAgent)) return;
+    const selectedNode = findAssignmentTreeNode(assignmentTreeRoot, selectedId);
+    const hasValidSelection = creationType === 'player'
+      ? Boolean(selectedNode && isRegularAgentTreeNode(selectedNode))
+      : Boolean(selectedNode && isMasterTreeNode(selectedNode));
+    if (hasValidSelection) return;
 
     setNewCustomer((prev) => {
       if (!String(prev.agentId || '').trim()) return prev;
@@ -676,18 +1109,7 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
       };
     });
     setAgentSearchQuery('');
-  }, [isMasterAssignmentMode, newCustomer.agentId, agents]);
-
-  const showDirectAssignmentOption = useMemo(() => {
-    if (requiresPlayerAgentSelection) {
-      return false;
-    }
-    const query = String(agentSearchQuery || '').trim().toLowerCase();
-    if (!query) {
-      return true;
-    }
-    return directAssignmentLabel.toLowerCase().includes(query);
-  }, [agentSearchQuery, directAssignmentLabel, requiresPlayerAgentSelection]);
+  }, [assignmentTreeRoot, creationType, newCustomer.agentId]);
 
   useEffect(() => {
     if (!requiresPlayerAgentSelection) {
@@ -696,38 +1118,13 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
     if (String(newCustomer.agentId || '').trim() !== '') {
       return;
     }
-    const fallbackId = String(visibleAssignableAgents[0]?.id || visibleAssignableAgents[0]?._id || '');
+    const fallbackNode = selectableAssignmentNodes[0] || null;
+    const fallbackId = normalizeHierarchyId(fallbackNode?.id || fallbackNode?._id);
     if (!fallbackId) {
       return;
     }
-    handleAgentChange(fallbackId);
-  }, [requiresPlayerAgentSelection, visibleAssignableAgents, newCustomer.agentId]);
-
-  useEffect(() => {
-    if (creationType !== 'player') return;
-    const typed = String(agentSearchQuery || '').trim().toLowerCase();
-    if (!typed) return;
-
-    const exact = visibleAssignableAgents.find((a) => String(a.username || '').trim().toLowerCase() === typed);
-    if (!exact) return;
-
-    const exactId = String(exact.id || exact._id || '');
-    if (!exactId) return;
-    if (String(newCustomer.agentId || '') === exactId) return;
-
-    handleAgentChange(exactId);
-  }, [agentSearchQuery, visibleAssignableAgents, creationType, newCustomer.agentId]);
-
-  const filteredAssignableAgents = useMemo(() => visibleAssignableAgents.filter((agent) => {
-    const query = String(agentSearchQuery || '').trim().toLowerCase();
-    if (!query) return true;
-    const username = String(agent.username || '').toLowerCase();
-    const fullName = String(agent.fullName || '').toLowerCase();
-    const roleLabel = isMasterAccountOption(agent)
-      ? 'master agent'
-      : 'agent';
-    return username.includes(query) || fullName.includes(query) || roleLabel.includes(query);
-  }), [visibleAssignableAgents, agentSearchQuery]);
+    handleAgentChange(fallbackId, fallbackNode);
+  }, [requiresPlayerAgentSelection, selectableAssignmentNodes, newCustomer.agentId]);
 
   const referralOptions = (() => {
     const playersOnly = customers.filter((c) => c.role === 'user');
@@ -888,343 +1285,276 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
             </div>
           )}
 
-          <div className="filter-section" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '20px', alignItems: 'end' }}>
-            <div className="filter-group">
-              <label>Type</label>
-              <div className="s-wrapper">
-                <select
-                  value={creationType}
-                  onChange={(e) => handleCreationTypeChange(e.target.value)}
-                >
-                  <option value="player">Player</option>
-                  {(currentRole === 'admin' || currentRole === 'super_agent' || currentRole === 'master_agent') && (
-                    <>
-                      <option value="agent">Agent</option>
-                      <option value="super_agent">Master Agent</option>
-                    </>
-                  )}
-                </select>
-              </div>
-            </div>
+          <div className="customer-create-shell">
+            <div className="customer-create-main">
+              <div className="customer-create-top-row">
+                <div className="filter-group customer-top-field customer-top-field-type">
+                  <label>Type</label>
+                  <div className="s-wrapper">
+                    <select
+                      value={creationType}
+                      onChange={(e) => handleCreationTypeChange(e.target.value)}
+                    >
+                      <option value="player">Player</option>
+                      {(currentRole === 'admin' || currentRole === 'super_agent' || currentRole === 'master_agent') && (
+                        <>
+                          <option value="agent">Agent</option>
+                          <option value="super_agent">Master Agent</option>
+                        </>
+                      )}
+                    </select>
+                  </div>
+                </div>
 
-            {(creationType === 'agent' || creationType === 'super_agent') && (currentRole !== 'super_agent' && currentRole !== 'master_agent' || creationType === 'super_agent') && (
-              <div className="filter-group">
-                <label>Prefix</label>
-                <input
-                  type="text"
-                  value={newCustomer.agentPrefix}
-                  onChange={(e) => handlePrefixChange(e.target.value)}
-                  placeholder="Enter prefix"
-                  maxLength={5}
-                />
-              </div>
-            )}
+                {(creationType === 'agent' || creationType === 'super_agent') && (currentRole !== 'super_agent' && currentRole !== 'master_agent' || creationType === 'super_agent') && (
+                  <div className="filter-group customer-top-field customer-top-field-prefix">
+                    <label>Prefix</label>
+                    <input
+                      type="text"
+                      value={newCustomer.agentPrefix}
+                      onChange={(e) => handlePrefixChange(e.target.value)}
+                      placeholder="Enter prefix"
+                      maxLength={5}
+                    />
+                  </div>
+                )}
 
-            {(creationType === 'player' || creationType === 'agent' || creationType === 'super_agent')
-              && (currentRole === 'admin' || currentRole === 'super_agent' || currentRole === 'master_agent') && (
-                <div className="filter-group">
-                  <label>{creationType === 'player' ? 'Assign to Agent' : 'Assign to Master Agent'}</label>
-                  <div
-                    className="agent-search-picker"
-                    onFocus={() => setAgentSearchOpen(true)}
-                    onBlur={() => {
-                      const typed = String(agentSearchQuery || '').trim().toLowerCase();
-                      const typedMatchesDirectSelf = (
-                        isMasterAssignmentMode
-                        && isMasterContext
-                        && typed !== ''
-                        && directAssignmentLabel.toLowerCase().includes(typed)
-                        && filteredAssignableAgents.length === 0
-                      );
-                      if (typedMatchesDirectSelf) {
-                        handleAgentChange('');
-                        setAgentSearchQuery(String(adminUsername || '').toUpperCase());
-                        setTimeout(() => setAgentSearchOpen(false), 120);
-                        return;
-                      }
-                      if (
-                        isMasterAssignmentMode
-                        && isMasterContext
-                        && String(adminUsername || '').trim() !== ''
-                        && typed === String(adminUsername).trim().toLowerCase()
-                      ) {
-                        handleAgentChange('');
-                        setAgentSearchQuery(String(adminUsername).toUpperCase());
-                        setTimeout(() => setAgentSearchOpen(false), 120);
-                        return;
-                      }
-                      const exact = visibleAssignableAgents.find((a) => String(a.username || '').trim().toLowerCase() === typed);
-                      const exactId = String(exact?.id || exact?._id || '');
-                      if (exactId && String(newCustomer.agentId || '') !== exactId) {
-                        handleAgentChange(exactId);
-                      }
-                      setTimeout(() => setAgentSearchOpen(false), 120);
-                    }}
-                    tabIndex={0}
-                  >
-                    <div className="agent-search-head">
-                      <span className="agent-search-label">Agents</span>
-                      <input
-                        type="text"
-                        value={agentSearchQuery}
-                        onChange={(e) => {
-                          setAgentSearchQuery(e.target.value);
-                          setAgentSearchOpen(true);
-                        }}
-                        placeholder={isMasterAssignmentMode ? 'Search master agent...' : 'Search agent...'}
+                {(creationType === 'player' || creationType === 'agent' || creationType === 'super_agent')
+                  && (currentRole === 'admin' || currentRole === 'super_agent' || currentRole === 'master_agent') && (
+                    <div className="filter-group assignment-tree-filter-group customer-top-field customer-top-field-assignment">
+                      <label className="assignment-field-label">
+                        <span>{creationType === 'player' ? 'Assign to Agent' : 'Assign to Master Agent'}</span>
+                        <span className="assignment-selected-chip">{selectedAssignmentLabel}</span>
+                      </label>
+                      <AssignmentHierarchyPicker
+                        rootNode={assignmentTreeRoot}
+                        loading={assignmentTreeLoading}
+                        error={assignmentTreeError}
+                        searchQuery={agentSearchQuery}
+                        onSearchQueryChange={setAgentSearchQuery}
+                        expandedNodes={assignmentExpandedNodes}
+                        onToggleNode={toggleAssignmentNode}
+                        onSelectNode={handleAssignmentNodeSelect}
+                        onSelectDirect={isMasterAssignmentMode ? handleDirectAssignmentSelect : null}
+                        selectedNodeId={String(newCustomer.agentId || '')}
+                        directSelected={isMasterAssignmentMode && !String(newCustomer.agentId || '').trim()}
+                        selectionMode={isMasterAssignmentMode ? 'master' : 'player'}
+                        searchPlaceholder={assignmentSearchPlaceholder}
+                        emptyLabel={assignmentEmptyLabel}
                       />
                     </div>
-                    {agentSearchOpen && (
-                      <div className="agent-search-list">
-                        {showDirectAssignmentOption && (
+                  )}
+
+                <div className="filter-group customer-top-field customer-top-field-username">
+                  <label>Username</label>
+                  <input
+                    type="text"
+                    value={newCustomer.username}
+                    placeholder="Auto-generated"
+                    readOnly
+                    className="readonly-input"
+                  />
+                </div>
+              </div>
+
+              <div className="customer-create-row">
+                <div className="filter-group customer-field-span-3">
+                  <label>First Name</label>
+                  <input
+                    type="text"
+                    value={newCustomer.firstName}
+                    onChange={(e) => handleFirstNameChange(e.target.value)}
+                    placeholder="Enter first name"
+                  />
+                </div>
+                <div className="filter-group customer-field-span-3">
+                  <label>Last Name</label>
+                  <input
+                    type="text"
+                    value={newCustomer.lastName}
+                    onChange={(e) => handleLastNameChange(e.target.value)}
+                    placeholder="Enter last name"
+                  />
+                </div>
+                <div className="filter-group customer-field-span-3">
+                  <label>Phone Number</label>
+                  <input
+                    type="tel"
+                    value={newCustomer.phoneNumber}
+                    onChange={(e) => handlePhoneChange(e.target.value)}
+                    placeholder="User contact"
+                  />
+                </div>
+                <div className="filter-group customer-field-span-3">
+                  <label>Password <span className="locked-chip">Locked</span></label>
+                  <input
+                    type="text"
+                    value={newCustomer.password.toUpperCase()}
+                    readOnly
+                    className="readonly-input"
+                    placeholder="Auto-generated from name + phone"
+                  />
+                </div>
+              </div>
+
+              {creationType === 'player' && (
+                <div className="customer-create-row">
+                  <div className="filter-group customer-field-span-3">
+                    <label>Min bet:</label>
+                    <input
+                      type="number"
+                      value={newCustomer.minBet}
+                      onChange={(e) => setNewCustomer((prev) => ({ ...prev, minBet: e.target.value }))}
+                    />
+                  </div>
+                  <div className="filter-group customer-field-span-3">
+                    <label>Max bet:</label>
+                    <input
+                      type="number"
+                      value={newCustomer.maxBet}
+                      onChange={(e) => setNewCustomer((prev) => ({ ...prev, maxBet: e.target.value }))}
+                    />
+                  </div>
+                  <div className="filter-group customer-field-span-3">
+                    <label>Credit limit:</label>
+                    <input
+                      type="number"
+                      value={newCustomer.creditLimit}
+                      onChange={(e) => setNewCustomer((prev) => ({ ...prev, creditLimit: e.target.value }))}
+                    />
+                  </div>
+                  <div className="filter-group customer-field-span-3">
+                    <label>Settle limit:</label>
+                    <input
+                      type="number"
+                      value={newCustomer.balanceOwed}
+                      onChange={(e) => setNewCustomer((prev) => ({ ...prev, balanceOwed: e.target.value }))}
+                    />
+                  </div>
+                  <div className="filter-group customer-field-span-12">
+                    <label>Referred By Player</label>
+                    <div
+                      className="agent-search-picker referral-search-picker"
+                      onFocus={() => setReferralSearchOpen(true)}
+                      onBlur={() => {
+                        setTimeout(() => {
+                          handleReferralSearchBlur();
+                          setReferralSearchOpen(false);
+                        }, 120);
+                      }}
+                      tabIndex={0}
+                    >
+                      <div className="referral-search-head">
+                        <input
+                          type="text"
+                          value={referralSearchQuery}
+                          onChange={(e) => {
+                            handleReferralSearchChange(e.target.value);
+                            setReferralSearchOpen(true);
+                          }}
+                          onFocus={() => setReferralSearchOpen(true)}
+                          placeholder="Search player (leave blank for no referral)"
+                          autoComplete="off"
+                        />
+                      </div>
+                      {referralSearchOpen && (
+                        <div className="agent-search-list">
                           <button
                             type="button"
-                            className={`agent-search-item ${newCustomer.agentId ? '' : 'selected'}`}
-                            onClick={() => {
-                              handleAgentChange('');
-                              if (isMasterAssignmentMode && isMasterContext && String(adminUsername || '').trim() !== '') {
-                                setAgentSearchQuery(String(adminUsername).toUpperCase());
-                              }
-                              setAgentSearchOpen(false);
+                            className={`agent-search-item ${newCustomer.referredByUserId ? '' : 'selected'}`}
+                            onMouseDown={(event) => {
+                              event.preventDefault();
+                              handleReferralSelect(null);
                             }}
                           >
-                            <span>{directAssignmentLabel}</span>
+                            <span>No referral</span>
                           </button>
-                        )}
-                        {filteredAssignableAgents.map((a) => {
-                          const id = a.id || a._id;
-                          const isMaster = isMasterAccountOption(a);
-                          return (
+                          {filteredReferralOptions.map((option) => (
                             <button
-                              key={id}
+                              key={option.id}
                               type="button"
-                              className={`agent-search-item ${String(newCustomer.agentId || '') === String(id) ? 'selected' : ''}`}
-                              onClick={() => {
-                                handleAgentChange(id);
-                                setAgentSearchOpen(false);
+                              className={`agent-search-item ${String(newCustomer.referredByUserId || '') === String(option.id) ? 'selected' : ''}`}
+                              onMouseDown={(event) => {
+                                event.preventDefault();
+                                handleReferralSelect(option);
                               }}
                             >
-                              <span>{a.username}</span>
-                              <span className={`agent-type-badge ${isMaster ? 'master' : 'agent'}`}>{isMaster ? 'M' : 'A'}</span>
+                              <span>{option.label}</span>
                             </button>
-                          );
-                        })}
-                        {filteredAssignableAgents.length === 0 && !showDirectAssignmentOption && (
-                          <div className="agent-search-empty">No matching agents</div>
-                        )}
-                      </div>
-                    )}
+                          ))}
+                          {filteredReferralOptions.length === 0 && (
+                            <div className="agent-search-empty">No matching players</div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    <small style={{ display: 'block', marginTop: '6px', color: '#64748b' }}>
+                      {selectedReferralOption ? `Selected: ${selectedReferralOption.label}` : 'No referral selected'}
+                    </small>
                   </div>
                 </div>
               )}
 
-            <div className="filter-group">
-              <label>Username</label>
-              <input
-                type="text"
-                value={newCustomer.username}
-                placeholder="Auto-generated"
-                readOnly
-                className="readonly-input"
-              />
-            </div>
-
-            <div className="filter-group">
-              <label>First Name</label>
-              <input
-                type="text"
-                value={newCustomer.firstName}
-                onChange={(e) => handleFirstNameChange(e.target.value)}
-                placeholder="Enter first name"
-              />
-            </div>
-            <div className="filter-group">
-              <label>Last Name</label>
-              <input
-                type="text"
-                value={newCustomer.lastName}
-                onChange={(e) => handleLastNameChange(e.target.value)}
-                placeholder="Enter last name"
-              />
-            </div>
-            <div className="filter-group">
-              <label>Phone Number</label>
-              <input
-                type="tel"
-                value={newCustomer.phoneNumber}
-                onChange={(e) => handlePhoneChange(e.target.value)}
-                placeholder="User contact"
-              />
-            </div>
-            <div className="filter-group">
-              <label>Password <span className="locked-chip">Locked</span></label>
-              <input
-                type="text"
-                value={newCustomer.password.toUpperCase()}
-                readOnly
-                className="readonly-input"
-                placeholder="Auto-generated from name + phone"
-              />
-            </div>
-
-            {creationType === 'player' && (
-              <>
-                <div className="filter-group">
-                  <label>Min bet:</label>
-                  <input
-                    type="number"
-                    value={newCustomer.minBet}
-                    onChange={(e) => setNewCustomer((prev) => ({ ...prev, minBet: e.target.value }))}
-                  />
-                </div>
-                <div className="filter-group">
-                  <label>Max bet:</label>
-                  <input
-                    type="number"
-                    value={newCustomer.maxBet}
-                    onChange={(e) => setNewCustomer((prev) => ({ ...prev, maxBet: e.target.value }))}
-                  />
-                </div>
-                <div className="filter-group">
-                  <label>Credit limit:</label>
-                  <input
-                    type="number"
-                    value={newCustomer.creditLimit}
-                    onChange={(e) => setNewCustomer((prev) => ({ ...prev, creditLimit: e.target.value }))}
-                  />
-                </div>
-                <div className="filter-group">
-                  <label>Settle limit:</label>
-                  <input
-                    type="number"
-                    value={newCustomer.balanceOwed}
-                    onChange={(e) => setNewCustomer((prev) => ({ ...prev, balanceOwed: e.target.value }))}
-                  />
-                </div>
-                <div className="filter-group">
-                  <label>Referred By Player</label>
-                  <div
-                    className="agent-search-picker referral-search-picker"
-                    onFocus={() => setReferralSearchOpen(true)}
-                    onBlur={() => {
-                      setTimeout(() => {
-                        handleReferralSearchBlur();
-                        setReferralSearchOpen(false);
-                      }, 120);
-                    }}
-                    tabIndex={0}
-                  >
-                    <div className="referral-search-head">
-                      <input
-                        type="text"
-                        value={referralSearchQuery}
-                        onChange={(e) => {
-                          handleReferralSearchChange(e.target.value);
-                          setReferralSearchOpen(true);
-                        }}
-                        onFocus={() => setReferralSearchOpen(true)}
-                        placeholder="Search player (leave blank for no referral)"
-                        autoComplete="off"
-                      />
-                    </div>
-                    {referralSearchOpen && (
-                      <div className="agent-search-list">
-                        <button
-                          type="button"
-                          className={`agent-search-item ${newCustomer.referredByUserId ? '' : 'selected'}`}
-                          onMouseDown={(event) => {
-                            event.preventDefault();
-                            handleReferralSelect(null);
-                          }}
-                        >
-                          <span>No referral</span>
-                        </button>
-                        {filteredReferralOptions.map((option) => (
-                          <button
-                            key={option.id}
-                            type="button"
-                            className={`agent-search-item ${String(newCustomer.referredByUserId || '') === String(option.id) ? 'selected' : ''}`}
-                            onMouseDown={(event) => {
-                              event.preventDefault();
-                              handleReferralSelect(option);
-                            }}
-                          >
-                            <span>{option.label}</span>
-                          </button>
-                        ))}
-                        {filteredReferralOptions.length === 0 && (
-                          <div className="agent-search-empty">No matching players</div>
-                        )}
-                      </div>
-                    )}
+              {creationType === 'agent' && (
+                <div className="customer-create-row">
+                  <div className="filter-group customer-field-span-3">
+                    <label>Min bet: (Standard)</label>
+                    <input
+                      type="number"
+                      value={newCustomer.defaultMinBet}
+                      onChange={(e) => setNewCustomer((prev) => ({ ...prev, defaultMinBet: e.target.value }))}
+                    />
                   </div>
-                  <small style={{ display: 'block', marginTop: '6px', color: '#64748b' }}>
-                    {selectedReferralOption ? `Selected: ${selectedReferralOption.label}` : 'No referral selected'}
-                  </small>
+                  <div className="filter-group customer-field-span-3">
+                    <label>Max bet: (Standard)</label>
+                    <input
+                      type="number"
+                      value={newCustomer.defaultMaxBet}
+                      onChange={(e) => setNewCustomer((prev) => ({ ...prev, defaultMaxBet: e.target.value }))}
+                    />
+                  </div>
+                  <div className="filter-group customer-field-span-3">
+                    <label>Credit limit: (Standard)</label>
+                    <input
+                      type="number"
+                      value={newCustomer.defaultCreditLimit}
+                      onChange={(e) => setNewCustomer((prev) => ({ ...prev, defaultCreditLimit: e.target.value }))}
+                    />
+                  </div>
+                  <div className="filter-group customer-field-span-3">
+                    <label>Settle limit: (Standard)</label>
+                    <input
+                      type="number"
+                      value={newCustomer.defaultSettleLimit}
+                      onChange={(e) => setNewCustomer((prev) => ({ ...prev, defaultSettleLimit: e.target.value }))}
+                    />
+                  </div>
                 </div>
-              </>
-            )}
-            {creationType === 'agent' && (
-              <>
-                <div className="filter-group">
-                  <label>Min bet: (Standard)</label>
-                  <input
-                    type="number"
-                    value={newCustomer.defaultMinBet}
-                    onChange={(e) => setNewCustomer((prev) => ({ ...prev, defaultMinBet: e.target.value }))}
-                  />
-                </div>
-                <div className="filter-group">
-                  <label>Max bet: (Standard)</label>
-                  <input
-                    type="number"
-                    value={newCustomer.defaultMaxBet}
-                    onChange={(e) => setNewCustomer((prev) => ({ ...prev, defaultMaxBet: e.target.value }))}
-                  />
-                </div>
-                <div className="filter-group">
-                  <label>Credit limit: (Standard)</label>
-                  <input
-                    type="number"
-                    value={newCustomer.defaultCreditLimit}
-                    onChange={(e) => setNewCustomer((prev) => ({ ...prev, defaultCreditLimit: e.target.value }))}
-                  />
-                </div>
-                <div className="filter-group">
-                  <label>Settle limit: (Standard)</label>
-                  <input
-                    type="number"
-                    value={newCustomer.defaultSettleLimit}
-                    onChange={(e) => setNewCustomer((prev) => ({ ...prev, defaultSettleLimit: e.target.value }))}
-                  />
-                </div>
-              </>
-            )}
-
-            <div className="filter-group" style={{ display: 'flex', gap: '10px' }}>
-              <button
-                className="btn-primary"
-                style={{ flex: 1 }}
-                onClick={handleCreateCustomer}
-                disabled={!canCreateCustomer}
-              >
-                {createLoading ? 'Deploying...' : `Create ${creationType === 'player' ? 'Player' : creationType === 'agent' ? 'Agent' : 'Master Agent'}`}
-              </button>
-              <button
-                type="button"
-                className="btn-secondary"
-                style={{ backgroundColor: '#17a2b8', color: 'white', flex: 0.5 }}
-                onClick={() => {
-                  navigator.clipboard.writeText(buildCopyInfo(creationType, newCustomer)).then(() => alert('Copied to clipboard!'));
-                }}
-              >
-                Copy Info
-              </button>
+              )}
             </div>
 
-            {(currentRole === 'admin' || currentRole === 'master_agent' || currentRole === 'super_agent' || currentRole === 'agent') && (
-              <div className="filter-group" style={{ gridColumn: '1 / -1', display: 'flex', gap: '10px', alignItems: 'end' }}>
-                <div style={{ flex: 1 }}>
+            <aside className="customer-create-sidebar">
+              <div className="customer-create-side-card customer-create-actions">
+                <button
+                  className="btn-primary"
+                  onClick={handleCreateCustomer}
+                  disabled={!canCreateCustomer}
+                >
+                  {createLoading ? 'Deploying...' : `Create ${creationType === 'player' ? 'Player' : creationType === 'agent' ? 'Agent' : 'Master Agent'}`}
+                </button>
+                <button
+                  type="button"
+                  className="btn-secondary customer-copy-button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(buildCopyInfo(creationType, newCustomer)).then(() => alert('Copied to clipboard!'));
+                  }}
+                >
+                  Copy Info
+                </button>
+              </div>
+
+              {(currentRole === 'admin' || currentRole === 'master_agent' || currentRole === 'super_agent' || currentRole === 'agent') && (
+                <div className="customer-create-side-card customer-create-import-panel">
                   <label>Import Players (.xlsx / .csv)</label>
                   <input
                     type="file"
@@ -1236,40 +1566,170 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
                     }}
                   />
                   {selectedImportFileName && (
-                    <small style={{ display: 'block', marginTop: '6px', color: '#64748b' }}>
+                    <small className="customer-import-file-name">
                       Selected file: {selectedImportFileName}
                     </small>
                   )}
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px', fontSize: '12px', color: '#64748b' }}>
+                  <label className="customer-import-toggle">
                     <input
                       type="checkbox"
                       checked={importForceAgentAssignment}
                       onChange={(e) => setImportForceAgentAssignment(e.target.checked)}
                     />
-                    {currentRole === 'agent'
-                      ? 'Assign all imported players to me'
-                      : 'Assign all imported players to selected agent'}
+                    <span>
+                      {currentRole === 'agent'
+                        ? 'Assign all imported players to me'
+                        : 'Assign all imported players to selected agent'}
+                    </span>
                   </label>
                   {importForceAgentAssignment && currentRole === 'admin' && !newCustomer.agentId && (
-                    <small style={{ display: 'block', marginTop: '4px', color: '#ef4444' }}>
+                    <small className="customer-import-warning">
                       Pick an agent in "Assign to Agent" before importing.
                     </small>
                   )}
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    onClick={handleImportCustomers}
+                    disabled={!importFile || importLoading}
+                  >
+                    {importLoading ? 'Importing...' : 'Import File'}
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  className="btn-primary"
-                  onClick={handleImportCustomers}
-                  disabled={!importFile || importLoading}
-                  style={{ minWidth: '140px' }}
-                >
-                  {importLoading ? 'Importing...' : 'Import File'}
-                </button>
-              </div>
-            )}
+              )}
+            </aside>
           </div>
 
           <style>{`
+            .customer-create-shell {
+              display: grid;
+              grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
+              gap: 24px;
+              align-items: start;
+            }
+            .customer-create-main {
+              display: flex;
+              flex-direction: column;
+              gap: 18px;
+              min-width: 0;
+            }
+            .customer-create-top-row {
+              display: flex;
+              flex-wrap: wrap;
+              gap: 18px 20px;
+              align-items: flex-start;
+            }
+            .customer-top-field {
+              min-width: 0;
+            }
+            .customer-top-field-type {
+              flex: 0 0 180px;
+            }
+            .customer-top-field-prefix {
+              flex: 0 0 180px;
+            }
+            .customer-top-field-assignment {
+              flex: 1.4 1 320px;
+            }
+            .customer-top-field-username {
+              flex: 1 1 240px;
+            }
+            .customer-create-row {
+              display: grid;
+              grid-template-columns: repeat(12, minmax(0, 1fr));
+              gap: 18px 20px;
+              align-items: start;
+            }
+            .customer-field-span-2 {
+              grid-column: span 2;
+            }
+            .customer-field-span-3 {
+              grid-column: span 3;
+            }
+            .customer-field-span-4 {
+              grid-column: span 4;
+            }
+            .customer-field-span-12 {
+              grid-column: 1 / -1;
+            }
+            .assignment-tree-filter-group {
+              min-width: 0;
+            }
+            .assignment-field-label {
+              display: flex;
+              align-items: center;
+              justify-content: space-between;
+              gap: 10px;
+              flex-wrap: wrap;
+            }
+            .assignment-selected-chip {
+              display: inline-flex;
+              align-items: center;
+              padding: 4px 10px;
+              border-radius: 999px;
+              background: #eff6ff;
+              color: #1d4ed8;
+              border: 1px solid #bfdbfe;
+              font-size: 11px;
+              font-weight: 700;
+              letter-spacing: 0.02em;
+              text-transform: uppercase;
+            }
+            .customer-create-sidebar {
+              display: flex;
+              flex-direction: column;
+              gap: 16px;
+            }
+            .customer-create-side-card {
+              display: flex;
+              flex-direction: column;
+              gap: 12px;
+              padding: 18px;
+              border: 1px solid #e2e8f0;
+              border-radius: 16px;
+              background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+              box-shadow: 0 10px 26px rgba(15, 23, 42, 0.06);
+            }
+            .customer-create-actions .btn-primary,
+            .customer-create-actions .btn-secondary,
+            .customer-create-import-panel .btn-primary {
+              width: 100%;
+              min-height: 48px;
+            }
+            .customer-copy-button {
+              background: #17a2b8 !important;
+              color: #ffffff !important;
+            }
+            .customer-create-import-panel label {
+              font-size: 13px;
+              font-weight: 700;
+              color: #334155;
+            }
+            .customer-create-import-panel input[type="file"] {
+              width: 100%;
+            }
+            .customer-import-file-name {
+              display: block;
+              color: #64748b;
+              line-height: 1.35;
+            }
+            .customer-import-toggle {
+              display: flex;
+              align-items: flex-start;
+              gap: 10px;
+              color: #64748b !important;
+              font-size: 12px !important;
+              font-weight: 600 !important;
+              line-height: 1.4;
+            }
+            .customer-import-toggle input {
+              margin-top: 2px;
+            }
+            .customer-import-warning {
+              display: block;
+              color: #ef4444;
+              line-height: 1.4;
+            }
             .agent-search-picker {
               position: relative;
               border: 1px solid #cbd5e1;
@@ -1427,6 +1887,79 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
               .duplicate-warning-item {
                 grid-template-columns: 1fr;
                 gap: 3px;
+              }
+            }
+            @media (max-width: 1280px) {
+              .customer-create-shell {
+                grid-template-columns: minmax(0, 1fr);
+              }
+              .customer-create-sidebar {
+                display: grid;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+              }
+            }
+            @media (max-width: 900px) {
+              .customer-create-top-row {
+                gap: 14px;
+              }
+              .customer-top-field-type,
+              .customer-top-field-prefix {
+                flex-basis: 160px;
+              }
+              .customer-top-field-assignment,
+              .customer-top-field-username {
+                flex-basis: 220px;
+              }
+              .customer-create-row {
+                grid-template-columns: repeat(6, minmax(0, 1fr));
+              }
+              .customer-field-span-2,
+              .customer-field-span-3,
+              .customer-field-span-4 {
+                grid-column: span 3;
+              }
+              .customer-field-span-12 {
+                grid-column: 1 / -1;
+              }
+              .assignment-tree-filter-group {
+                grid-column: span 6;
+              }
+            }
+            @media (max-width: 720px) {
+              .customer-create-sidebar {
+                grid-template-columns: 1fr;
+              }
+            }
+            @media (max-width: 640px) {
+              .customer-create-top-row {
+                display: grid;
+                grid-template-columns: 1fr;
+                gap: 14px;
+              }
+              .customer-top-field-type,
+              .customer-top-field-prefix,
+              .customer-top-field-assignment,
+              .customer-top-field-username {
+                flex: none;
+              }
+              .customer-create-row {
+                grid-template-columns: 1fr;
+                gap: 14px;
+              }
+              .customer-field-span-2,
+              .customer-field-span-3,
+              .customer-field-span-4,
+              .customer-field-span-12,
+              .assignment-tree-filter-group {
+                grid-column: 1 / -1;
+              }
+              .assignment-field-label {
+                align-items: flex-start;
+                flex-direction: column;
+                gap: 6px;
+              }
+              .customer-create-side-card {
+                padding: 16px;
               }
             }
           `}</style>

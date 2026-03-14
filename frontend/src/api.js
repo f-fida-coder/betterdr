@@ -350,7 +350,7 @@ export const placeCasinoBet = async (game, bets, token, { requestId = '', payloa
     const response = await fetch(buildApiUrl('/casino/bet'), {
         method: 'POST',
         headers: getHeaders(token),
-        body: JSON.stringify({ game, bets, requestId: safeRequestId, ...payload })
+        body: JSON.stringify({ game, bets, requestId: safeRequestId, payload })
     });
     if (!response.ok) {
         const error = await response.json().catch(() => ({}));

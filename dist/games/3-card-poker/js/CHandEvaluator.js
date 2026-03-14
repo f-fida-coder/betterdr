@@ -1,226 +1,200 @@
 function CHandEvaluator(){
-    var _aOrigSortedHand;
-    var _aSortedHand;
-    var _aCardIndexInCombo;
-    
     this.evaluate = function(aHand){
-        _aSortedHand = new Array();
-        _aOrigSortedHand = new Array();
-        for(var i=0;i<aHand.length;i++){
-            _aSortedHand[i] = {rank:aHand[i].rank,suit:aHand[i].suit};
-            _aOrigSortedHand[i] = {rank:aHand[i].rank,suit:aHand[i].suit};
-        }
-        
-        _aSortedHand.sort(this.compareRank);
-        _aOrigSortedHand.sort(this.compareRank);
-        
-        _aCardIndexInCombo = new Array(0,1,2);
+        var aSortedHand = new Array();
 
-        return {ret:this.rankHand(),sort_hand:_aOrigSortedHand};
-    };
-    
-    this.rankHand = function(){
-        if(this._checkForStraightFlush()){
-            return STRAIGHT_FLUSH;
-        }else if(this._checkForFlush()){
-            return FLUSH;
-        }else if(this._checkForStraight()){
-            return STRAIGHT;
-        }else if(this._checkForThreeOfAKind()){
-            return THREE_OF_A_KIND;
-        }else if(this._checkForOnePair()){
-            return ONE_PAIR;
-        }else if(this._checkHighCard()){
-            return HIGH_CARD;
-        }else{
-            return NO_HAND;
+        for(var i=0; i<aHand.length; i++){
+            aSortedHand[i] = {
+                rank: aHand[i].rank,
+                suit: aHand[i].suit
+            };
         }
+
+        aSortedHand.sort(this.compareRank);
+
+        var oRankData = this.rankHand(aSortedHand);
+
+        return {
+            ret: oRankData.ret,
+            name: oRankData.name,
+            sort_hand: this._cloneHand(aSortedHand),
+            tiebreak: oRankData.tiebreak
+        };
     };
 
-    this._checkForStraightFlush = function(){
-        if(this._isStraight() && this._isFlush()){
+    this.rankHand = function(aSortedHand){
+        if(this._isStraight(aSortedHand) && this._isFlush(aSortedHand)){
+            return {
+                ret: STRAIGHT_FLUSH,
+                name: "STRAIGHT_FLUSH",
+                tiebreak: [this._getStraightHighRank(aSortedHand)]
+            };
+        }
+
+        if(this._isThreeOfAKind(aSortedHand)){
+            return {
+                ret: THREE_OF_A_KIND,
+                name: "THREE_OF_A_KIND",
+                tiebreak: [aSortedHand[2].rank]
+            };
+        }
+
+        if(this._isStraight(aSortedHand)){
+            return {
+                ret: STRAIGHT,
+                name: "STRAIGHT",
+                tiebreak: [this._getStraightHighRank(aSortedHand)]
+            };
+        }
+
+        if(this._isFlush(aSortedHand)){
+            return {
+                ret: FLUSH,
+                name: "FLUSH",
+                tiebreak: this._buildHighCardTiebreak(aSortedHand)
+            };
+        }
+
+        if(this._isOnePair(aSortedHand)){
+            return {
+                ret: ONE_PAIR,
+                name: "ONE_PAIR",
+                tiebreak: this._buildPairTiebreak(aSortedHand)
+            };
+        }
+
+        return {
+            ret: HIGH_CARD,
+            name: "HIGH_CARD",
+            tiebreak: this._buildHighCardTiebreak(aSortedHand)
+        };
+    };
+
+    this.dealerQualifies = function(aSortedHand, iHandValue){
+        if(iHandValue !== HIGH_CARD){
             return true;
-        }else {
-            return false;
         }
+
+        return aSortedHand[aSortedHand.length - 1].rank >= CARD_QUEEN;
     };
 
-    this._checkForFlush = function(){
-        if(this._isFlush()){
-            return true;
-        } else{
-            return false;
+    this.getWinnerComparingHands = function(aHandPlayer, aHandDealer, iHandPlayerValue, iHandDealerValue, aPlayerTiebreak, aDealerTiebreak){
+        if(iHandPlayerValue < iHandDealerValue){
+            return "player";
         }
-    };
 
-    this._checkForStraight = function(){
-        if(this._isStraight()){
-            return true;
-        } else{
-            return false;
+        if(iHandPlayerValue > iHandDealerValue){
+            return "dealer";
         }
-     };
 
-    this._checkForThreeOfAKind = function() {
-        if(_aSortedHand[0].rank === _aSortedHand[1].rank && _aSortedHand[0].rank === _aSortedHand[2].rank){
-            return true;
-        }else{
-            return false;
-        }
-    };
+        var aResolvedPlayerTiebreak = Array.isArray(aPlayerTiebreak) ? aPlayerTiebreak : this._buildTiebreak(aHandPlayer, iHandPlayerValue);
+        var aResolvedDealerTiebreak = Array.isArray(aDealerTiebreak) ? aDealerTiebreak : this._buildTiebreak(aHandDealer, iHandDealerValue);
+        var iLength = Math.max(aResolvedPlayerTiebreak.length, aResolvedDealerTiebreak.length);
 
-    this._checkForOnePair = function(){
-        for(var i = 0; i < 2; i++){
-            if(_aSortedHand[i].rank === _aSortedHand[i + 1].rank){
-                
-                _aCardIndexInCombo = new Array(i,i+1);
-                return true;
+        for(var i=0; i<iLength; i++){
+            var iPlayerValue = aResolvedPlayerTiebreak[i] || 0;
+            var iDealerValue = aResolvedDealerTiebreak[i] || 0;
+
+            if(iPlayerValue > iDealerValue){
+                return "player";
+            }
+
+            if(iPlayerValue < iDealerValue){
+                return "dealer";
             }
         }
 
-        return false;
+        return "standoff";
     };
 
-    this._checkHighCard = function(){
-        var bHighHand = false;
-        for(var i = 0; i < 3; i++){
-            if(_aSortedHand[i].rank > CARD_JACK){
-                bHighHand = true;
-            }
+    this._cloneHand = function(aHand){
+        var aClone = new Array();
+
+        for(var i=0; i<aHand.length; i++){
+            aClone.push({
+                rank: aHand[i].rank,
+                suit: aHand[i].suit
+            });
         }
 
-        if(bHighHand){
-            return true;
-        }else{
-            return false;
-        }
+        return aClone;
     };
-    
-    this._isFlush = function(){
-        if(_aSortedHand[0].suit === _aSortedHand[1].suit
-            && _aSortedHand[0].suit === _aSortedHand[2].suit){
-            return true;
-        }else{
-            return false;
+
+    this._buildTiebreak = function(aSortedHand, iHandValue){
+        switch(iHandValue){
+            case STRAIGHT_FLUSH:
+            case STRAIGHT:
+                return [this._getStraightHighRank(aSortedHand)];
+            case THREE_OF_A_KIND:
+                return [aSortedHand[2].rank];
+            case FLUSH:
+            case HIGH_CARD:
+                return this._buildHighCardTiebreak(aSortedHand);
+            case ONE_PAIR:
+                return this._buildPairTiebreak(aSortedHand);
+            default:
+                return this._buildHighCardTiebreak(aSortedHand);
         }
     };
 
-    this._isStraight = function(){
-        var bFirstTwoStraight = _aSortedHand[0].rank + 1 === _aSortedHand[1].rank;
-
-        if(bFirstTwoStraight && _aSortedHand[0].rank === CARD_TWO && _aSortedHand[2].rank === CARD_ACE){
-            return true;
-        }else if(bFirstTwoStraight && _aSortedHand[1].rank + 1 === _aSortedHand[2].rank){
-            return true;
-        } else{
-            return false;
-        }
+    this._buildHighCardTiebreak = function(aSortedHand){
+        return [
+            aSortedHand[2].rank,
+            aSortedHand[1].rank,
+            aSortedHand[0].rank
+        ];
     };
-    
-    this.compareRank = function(a,b) {
-        if (a.rank < b.rank)
-           return -1;
-        if (a.rank > b.rank)
-          return 1;
+
+    this._buildPairTiebreak = function(aSortedHand){
+        if(aSortedHand[0].rank === aSortedHand[1].rank){
+            return [aSortedHand[0].rank, aSortedHand[2].rank];
+        }
+
+        return [aSortedHand[1].rank, aSortedHand[0].rank];
+    };
+
+    this._isThreeOfAKind = function(aSortedHand){
+        return aSortedHand[0].rank === aSortedHand[1].rank
+            && aSortedHand[1].rank === aSortedHand[2].rank;
+    };
+
+    this._isOnePair = function(aSortedHand){
+        return aSortedHand[0].rank === aSortedHand[1].rank
+            || aSortedHand[1].rank === aSortedHand[2].rank;
+    };
+
+    this._isFlush = function(aSortedHand){
+        return aSortedHand[0].suit === aSortedHand[1].suit
+            && aSortedHand[1].suit === aSortedHand[2].suit;
+    };
+
+    this._isStraight = function(aSortedHand){
+        if(aSortedHand[0].rank === CARD_TWO
+            && aSortedHand[1].rank === CARD_THREE
+            && aSortedHand[2].rank === CARD_ACE){
+            return true;
+        }
+
+        return aSortedHand[0].rank + 1 === aSortedHand[1].rank
+            && aSortedHand[1].rank + 1 === aSortedHand[2].rank;
+    };
+
+    this._getStraightHighRank = function(aSortedHand){
+        if(aSortedHand[0].rank === CARD_TWO
+            && aSortedHand[1].rank === CARD_THREE
+            && aSortedHand[2].rank === CARD_ACE){
+            return CARD_THREE;
+        }
+
+        return aSortedHand[2].rank;
+    };
+
+    this.compareRank = function(a, b) {
+        if (a.rank < b.rank){
+            return -1;
+        }
+        if (a.rank > b.rank){
+            return 1;
+        }
         return 0;
     };
-
-    this.getWinnerComparingHands = function(aHandPlayer,aHandDealer,iHandPlayerValue,iHandDealerValue){
-        if(iHandPlayerValue === iHandDealerValue){
-            switch(iHandPlayerValue){
-                case STRAIGHT_FLUSH:{
-						if(aHandPlayer[1].rank === aHandDealer[1].rank){
-							if(aHandPlayer[0].suit > aHandDealer[0].suit){
-								return "dealer";
-							}else if(aHandPlayer[0].suit < aHandDealer[0].suit){
-								return "player";
-							}else{
-								return "standoff";
-							}
-						}else if(aHandPlayer[1].rank > aHandDealer[1].rank){
-							return "player";
-						}else{
-							return "dealer";
-						}
-                        
-                }
-                case FLUSH:{
-                        if(aHandPlayer[0].suit > aHandDealer[0].suit){
-                            return "dealer";
-                        }else if(aHandPlayer[0].suit < aHandDealer[0].suit){
-                            return "player";
-                        }else{
-                            return "standoff";
-                        }
-                }
-                case STRAIGHT:{
-                        if(aHandPlayer[2].rank > aHandDealer[2].rank){
-                            return "player";
-                        }else if(aHandPlayer[2].rank < aHandDealer[2].rank){
-                            return "dealer";
-                        }else{
-                            return "standoff";
-                        }
-                }
-                case THREE_OF_A_KIND:{
-                        if(aHandPlayer[2].rank > aHandDealer[2].rank){
-                            return "player";
-                        }else if(aHandPlayer[2].rank < aHandDealer[2].rank){
-                            return "dealer";
-                        }else{
-                            return "standoff";
-                        }
-                }
-                case ONE_PAIR:{
-                        var iValue1 = 0;
-                        for(var i=0;i<aHandPlayer.length-1;i++){
-                            if(aHandPlayer[i].rank === aHandPlayer[i+1].rank){
-                                iValue1 = aHandPlayer[i].rank;
-                                break;
-                            }
-                        }
-                        
-                        var iValue2 = 0;
-                        for(var i=0;i<aHandDealer.length-1;i++){
-                            if(aHandDealer[i].rank === aHandDealer[i+1].rank){
-                                iValue2 = aHandDealer[i].rank;
-                                break;
-                            }
-                        }
-
-                        if(iValue1 > iValue2){
-                            return "player";
-                        }else if (iValue1 < iValue2){
-                            return "dealer";
-                        }else{
-                            return "standoff";
-                        }
-                }
-                
-                case HIGH_CARD:{
-                        var iIndex = 2;
-
-                        var iValueDealer = aHandDealer[iIndex].rank;
-                        var iValuePlayer = aHandPlayer[iIndex].rank;
-                        if(iValuePlayer > iValueDealer){
-                            return "player";
-                        }else if (iValuePlayer < iValueDealer){
-                            return "dealer";
-                        }
-
-                        return "standoff";
-                } 
-                default:{
-                        return "standoff";
-                }
-            }
-        }else{
-            if(iHandDealerValue === NO_HAND){
-                return "dealer_no_hand";
-            }
-            
-            return iHandPlayerValue>iHandDealerValue?"dealer":"player";
-        }
-    };
-
 }

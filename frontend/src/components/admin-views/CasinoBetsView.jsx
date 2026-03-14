@@ -182,6 +182,17 @@ function CasinoBetsView() {
       if (parts.length > 0) return parts.join(' | ');
     }
 
+    if (String(row.game || '').toLowerCase() === '3card-poker') {
+      const mainLabel = String(row?.roundData?.mainResultLabel || row?.result || '').trim();
+      const playerHand = String(row?.playerHand || row?.roundData?.playerHand || '').trim();
+      const dealerHand = String(row?.dealerHand || row?.roundData?.dealerHand || '').trim();
+      const parts = [];
+      if (mainLabel) parts.push(mainLabel);
+      if (playerHand) parts.push(`P ${playerHand}`);
+      if (dealerHand) parts.push(`D ${dealerHand}`);
+      return parts.length > 0 ? parts.join(' | ') : '—';
+    }
+
     return row.result || '—';
   };
   const formatOutcomeSource = (value) => {
@@ -673,11 +684,47 @@ function CasinoBetsView() {
                     ) : selectedDetail.game === '3card-poker' ? (
                       <>
                         <div className="casino-detail-row"><span>Ante Bet</span><strong>{formatMoney(selectedDetail?.bets?.Ante ?? 0)}</strong></div>
-                        <div className="casino-detail-row"><span>Play Bet</span><strong>{formatMoney(Number(selectedDetail?.bets?.folded) === 1 ? 0 : (selectedDetail?.bets?.Ante ?? 0))}</strong></div>
+                        <div className="casino-detail-row"><span>Play Bet</span><strong>{formatMoney(selectedDetail?.bets?.Play ?? (Number(selectedDetail?.bets?.folded) === 1 ? 0 : (selectedDetail?.bets?.Ante ?? 0)))}</strong></div>
                         <div className="casino-detail-row"><span>Pair Plus Bet</span><strong>{formatMoney(selectedDetail?.bets?.PairPlus ?? 0)}</strong></div>
                         <div className="casino-detail-row"><span>Action</span><span>{Number(selectedDetail?.bets?.folded) === 1 ? 'Folded' : 'Played'}</span></div>
-                        <div className="casino-detail-row"><span>Hand Result</span><span>{selectedDetail?.result || '—'}</span></div>
-                        <div className="casino-detail-row"><span>Outcome Source</span><span>Client Native RNG</span></div>
+                        <div className="casino-detail-row"><span>Main Result</span><span>{selectedDetail?.roundData?.mainResultLabel || selectedDetail?.result || '—'}</span></div>
+                        <div className="casino-detail-row"><span>Player Hand</span><span>{selectedDetail?.playerHand || selectedDetail?.roundData?.playerHand || '—'}</span></div>
+                        <div className="casino-detail-row"><span>Dealer Hand</span><span>{selectedDetail?.dealerHand || selectedDetail?.roundData?.dealerHand || '—'}</span></div>
+                        <div className="casino-detail-row"><span>Dealer Qualifies</span><span>{selectedDetail?.dealerQualifies ? 'Yes' : 'No'}</span></div>
+                        <div className="casino-detail-row"><span>Outcome Source</span><span>{formatOutcomeSource(selectedDetail?.outcomeSource)}</span></div>
+                        <div className="casino-detail-stack">
+                          <span>Player Cards</span>
+                          <div className="casino-card-list">
+                            {(selectedDetail.playerCards || []).length > 0
+                              ? (selectedDetail.playerCards || []).map((card) => <span className="casino-card-chip" key={`3cp-p-${card}`}>{card}</span>)
+                              : <span>—</span>}
+                          </div>
+                        </div>
+                        <div className="casino-detail-stack">
+                          <span>Dealer Cards</span>
+                          <div className="casino-card-list">
+                            {(selectedDetail.dealerCards || []).length > 0
+                              ? (selectedDetail.dealerCards || []).map((card) => <span className="casino-card-chip" key={`3cp-d-${card}`}>{card}</span>)
+                              : <span>—</span>}
+                          </div>
+                        </div>
+                        <div className="casino-detail-stack">
+                          <span>Payout Breakdown</span>
+                          <div className="casino-card-list">
+                            <span className="casino-card-chip">
+                              Ante {formatMoney(selectedDetail?.roundData?.payoutBreakdown?.ante?.returnAmount ?? 0)}
+                            </span>
+                            <span className="casino-card-chip">
+                              Play {formatMoney(selectedDetail?.roundData?.payoutBreakdown?.play?.returnAmount ?? 0)}
+                            </span>
+                            <span className="casino-card-chip">
+                              Pair+ {formatMoney(selectedDetail?.roundData?.payoutBreakdown?.pairPlus?.returnAmount ?? 0)}
+                            </span>
+                            <span className="casino-card-chip">
+                              Ante Bonus {formatMoney(selectedDetail?.roundData?.payoutBreakdown?.anteBonus?.returnAmount ?? 0)}
+                            </span>
+                          </div>
+                        </div>
                       </>
                     ) : (
                       <>

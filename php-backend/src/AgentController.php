@@ -114,16 +114,16 @@ final class AgentController
                 $assignedAgentId = $requested;
             } elseif (in_array($actorRole, ['master_agent', 'super_agent'], true)) {
                 $requested = trim((string) ($body['agentId'] ?? ''));
-                $directAgents = $this->listDirectPlayerAssignableAgentIds((string) ($actor['_id'] ?? ''));
+                $assignableAgents = $this->listManagedPlayerAssignableAgentIds((string) ($actor['_id'] ?? ''));
                 if ($requested === '') {
-                    $assignedAgentId = $directAgents[0] ?? '';
+                    $assignedAgentId = $assignableAgents[0] ?? '';
                     if ($assignedAgentId === '') {
-                        Response::json(['message' => 'Create or select a direct Agent before creating players.'], 400);
+                        Response::json(['message' => 'Create or select an Agent in your hierarchy before creating players.'], 400);
                         return;
                     }
                 } else {
-                    if (preg_match('/^[a-f0-9]{24}$/i', $requested) !== 1 || !in_array($requested, $directAgents, true)) {
-                        Response::json(['message' => 'You can only create players for your direct Agents.'], 403);
+                    if (preg_match('/^[a-f0-9]{24}$/i', $requested) !== 1 || !in_array($requested, $assignableAgents, true)) {
+                        Response::json(['message' => 'You can only create players for Agents in your hierarchy.'], 403);
                         return;
                     }
                     $assignedAgentId = $requested;
@@ -606,10 +606,33 @@ final class AgentController
             $username = trim((string) ($body['username'] ?? ''));
             $phoneNumber = trim((string) ($body['phoneNumber'] ?? ''));
             $password = strtoupper(trim((string) ($body['password'] ?? '')));
+            $parentAgentId = trim((string) ($body['parentAgentId'] ?? $body['agentId'] ?? ''));
             $referredByUserId = trim((string) ($body['referredByUserId'] ?? ''));
             if ($username === '' || $phoneNumber === '' || $password === '') {
                 Response::json(['message' => 'Username, phone number, and password are required'], 400);
                 return;
+            }
+
+            $resolvedParentAgentId = (string) ($actor['_id'] ?? '');
+            if ($parentAgentId !== '') {
+                if (preg_match('/^[a-f0-9]{24}$/i', $parentAgentId) !== 1) {
+                    Response::json(['message' => 'Invalid parentAgentId'], 400);
+                    return;
+                }
+
+                $managedAgentIds = $this->listManagedAgentIds((string) ($actor['_id'] ?? ''));
+                if (!in_array($parentAgentId, $managedAgentIds, true)) {
+                    Response::json(['message' => 'You can only create sub-agents under master agents in your hierarchy'], 403);
+                    return;
+                }
+
+                $parentAgent = $this->db->findOne('agents', ['_id' => MongoRepository::id($parentAgentId)], ['projection' => ['role' => 1]]);
+                if ($parentAgent === null || !in_array((string) ($parentAgent['role'] ?? ''), ['master_agent', 'super_agent'], true)) {
+                    Response::json(['message' => 'parentAgentId must reference a valid Master Agent'], 400);
+                    return;
+                }
+
+                $resolvedParentAgentId = $parentAgentId;
             }
 
             $existing = $this->findExistingAgentByIdentity($username, $phoneNumber);
@@ -623,7 +646,7 @@ final class AgentController
                 $existingId = (string) $existing['_id'];
                 $this->db->updateOne('agents', ['_id' => MongoRepository::id($existingId)], [
                     '$set' => [
-                        'createdBy'      => MongoRepository::id((string) $actor['_id']),
+                        'createdBy'      => MongoRepository::id($resolvedParentAgentId),
                         'createdByModel' => 'Agent',
                         'updatedAt'      => MongoRepository::nowUtc(),
                     ],
@@ -683,7 +706,7 @@ final class AgentController
                 'defaultMaxBet' => $this->safeNumber($body['defaultMaxBet'] ?? null, 200),
                 'defaultCreditLimit' => $this->safeNumber($body['defaultCreditLimit'] ?? null, 1000),
                 'defaultSettleLimit' => $this->safeNumber($body['defaultSettleLimit'] ?? null, 0),
-                'createdBy' => MongoRepository::id((string) $actor['_id']),
+                'createdBy' => MongoRepository::id($resolvedParentAgentId),
                 'createdByModel' => 'Agent',
                 'referredByUserId' => $referrerObjectId,
                 'createdAt' => MongoRepository::nowUtc(),
@@ -845,15 +868,55 @@ final class AgentController
     /**
      * @return array<int,string>
      */
-    private function listDirectPlayerAssignableAgentIds(string $masterAgentId): array
+    private function listManagedAgentIds(string $rootAgentId): array
+    {
+        if ($rootAgentId === '' || preg_match('/^[a-f0-9]{24}$/i', $rootAgentId) !== 1) {
+            return [];
+        }
+
+        $seen = [];
+        $queue = [$rootAgentId];
+
+        while (count($queue) > 0) {
+            $currentId = array_shift($queue);
+            if (!is_string($currentId) || $currentId === '' || isset($seen[$currentId])) {
+                continue;
+            }
+
+            $seen[$currentId] = true;
+            $children = $this->db->findMany('agents', [
+                'createdBy' => MongoRepository::id($currentId),
+                'createdByModel' => 'Agent',
+            ], ['projection' => ['_id' => 1]]);
+
+            foreach ($children as $child) {
+                $childId = (string) ($child['_id'] ?? '');
+                if ($childId !== '' && !isset($seen[$childId])) {
+                    $queue[] = $childId;
+                }
+            }
+        }
+
+        return array_keys($seen);
+    }
+
+    /**
+     * @return array<int,string>
+     */
+    private function listManagedPlayerAssignableAgentIds(string $masterAgentId): array
     {
         if ($masterAgentId === '' || preg_match('/^[a-f0-9]{24}$/i', $masterAgentId) !== 1) {
             return [];
         }
 
+        $managedAgentIds = $this->listManagedAgentIds($masterAgentId);
+        if (count($managedAgentIds) === 0) {
+            return [];
+        }
+
+        $managedObjectIds = array_map(static fn (string $id): string => MongoRepository::id($id), $managedAgentIds);
         $agents = $this->db->findMany('agents', [
-            'createdBy' => MongoRepository::id($masterAgentId),
-            'createdByModel' => 'Agent',
+            '_id' => ['$in' => $managedObjectIds],
             'role' => 'agent',
         ], ['projection' => ['_id' => 1], 'sort' => ['username' => 1]]);
 

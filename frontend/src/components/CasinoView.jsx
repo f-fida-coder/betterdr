@@ -48,7 +48,7 @@ const LOCAL_GAME_META = {
     '3card-poker': {
         id: 'local-3card-poker',
         provider: 'In-House',
-        url: '/games/3-card-poker/index.html?v=20260314b',
+        url: '/games/3-card-poker/index.html?v=20260314c',
         poster: '/games/3-card-poker/sprites/200x200.jpg',
         themeColor: '#1a3a5c',
     },
@@ -443,6 +443,8 @@ const CasinoView = () => {
                 return 'Server Simulation';
             case 'native_client_round':
                 return 'Client Native';
+            case 'client_actions_server_rules':
+                return 'Server Rules';
             case '':
                 return '—';
             default:
@@ -514,6 +516,17 @@ const CasinoView = () => {
             }
         }
 
+        if (String(row.game || '').toLowerCase() === '3card-poker') {
+            const mainLabel = String(row?.roundData?.mainResultLabel || row?.result || '').trim();
+            const playerHand = String(row?.playerHand || row?.roundData?.playerHand || '').trim();
+            const dealerHand = String(row?.dealerHand || row?.roundData?.dealerHand || '').trim();
+            const parts = [];
+            if (mainLabel) parts.push(mainLabel);
+            if (playerHand) parts.push(`P ${playerHand}`);
+            if (dealerHand) parts.push(`D ${dealerHand}`);
+            return parts.length > 0 ? parts.join(' | ') : '—';
+        }
+
         return row.result || '—';
     };
     const formatRoundId = (value) => {
@@ -559,11 +572,13 @@ const CasinoView = () => {
 
         if (game === '3card-poker') {
             const ante = Number(row?.bets?.Ante ?? 0);
+            const play = Number(row?.bets?.Play ?? (Number(row?.bets?.folded ?? 0) === 1 ? 0 : ante));
             const pairPlus = Number(row?.bets?.PairPlus ?? 0);
             const folded = Number(row?.bets?.folded ?? 0) === 1;
             const parts = [`Ante ${formatMoney(ante)}`];
+            if (play > 0) parts.push(`Play ${formatMoney(play)}`);
             if (pairPlus > 0) parts.push(`PP ${formatMoney(pairPlus)}`);
-            if (folded) parts.push('Folded');
+            parts.push(folded ? 'Fold' : 'Play');
             return parts.join(' | ');
         }
 

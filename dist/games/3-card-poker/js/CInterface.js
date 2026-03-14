@@ -303,8 +303,8 @@ function CInterface(iMoney){
     };
     
     this.showHandValue = function(iHandDealer,iHandPlayer){
-        _oCurDealerCardValueText.text = TEXT_EVALUATOR[iHandDealer];
-        _oCurPlayerCardValueText.text = TEXT_EVALUATOR[iHandPlayer];
+        _oCurDealerCardValueText.text = (iHandDealer === null || iHandDealer === undefined) ? "" : TEXT_EVALUATOR[iHandDealer];
+        _oCurPlayerCardValueText.text = (iHandPlayer === null || iHandPlayer === undefined) ? "" : TEXT_EVALUATOR[iHandPlayer];
     };
     
     this._onButClearRelease = function(){

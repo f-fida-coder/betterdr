@@ -13,15 +13,19 @@ function AgentTreeView({
     const normalizeRole = (role) => String(role || '').trim().toLowerCase();
     const roleLabelForNode = (node) => {
         const role = normalizeRole(node?.role);
-        if (role === 'master_agent') return 'MASTER';
-        if (role === 'super_agent') return 'SUPER';
-        if (role === 'agent') return 'AGENT';
+        if (role === 'master_agent') return 'M';
+        if (role === 'super_agent') return 'S';
+        if (role === 'agent') return 'A';
         if (role === 'admin') return 'ADMIN';
         return String(node?.role || '').replace(/_/g, ' ').toUpperCase() || 'ACCOUNT';
     };
     const roleClassForNode = (node) => {
         const role = normalizeRole(node?.role).replace(/_/g, '-');
         return role || 'account';
+    };
+    const isExpandableRole = (node) => {
+        const role = normalizeRole(node?.role);
+        return role === 'admin' || role === 'master_agent' || role === 'super_agent';
     };
     const getNodeSearchText = (node) => {
         const username = String(node?.username || '').toLowerCase();
@@ -157,14 +161,20 @@ function AgentTreeView({
     const currentContextId = normalizeNodeId(currentContext?.id);
     const treeRootId = normalizeNodeId(treeData?.root?.id);
     const isViewingOriginTree = Boolean(canRestoreBaseContext && currentContextId && treeRootId && currentContextId !== treeRootId);
+    const rootChildren = (treeData?.tree || []).filter((node) => isAgentNode(node));
+    const rootHasChildren = rootChildren.length > 0;
+    const rootCanExpand = Boolean(treeData?.root) && isExpandableRole(treeData.root);
+    const rootExpanded = expandedNodes.has(treeData?.root?.id);
 
     const renderNode = (node, depth = 0) => {
         const isAgent = isAgentNode(node);
         if (!isAgent) return null;
 
-        const isExpanded = expandedNodes.has(node.id);
+        const nodeId = normalizeNodeId(node.id);
+        const isExpanded = expandedNodes.has(nodeId);
         const visibleChildren = (node.children || []).filter((child) => isAgentNode(child));
         const hasChildren = visibleChildren.length > 0;
+        const canExpand = hasChildren && isExpandableRole(node);
         const isDead = node.isDead || node.username?.toUpperCase() === 'DEAD';
         const normalizedSearchQuery = searchQuery.trim().toLowerCase();
         const roleLabel = roleLabelForNode(node);
@@ -175,25 +185,25 @@ function AgentTreeView({
         }
 
         return (
-            <div key={node.id} className={`tree-node-wrapper depth-${depth}`}>
+            <div key={nodeId} className={`tree-node-wrapper depth-${depth}`}>
                 <div className={`tree-node ${isDead ? 'dead-node' : ''}`}>
-                    <div className="node-content" onClick={() => isAgent && toggleNode(node.id)}>
-                        {isAgent ? (
+                    <div className="node-content" onClick={() => canExpand && toggleNode(nodeId)}>
+                        {canExpand ? (
                             <span className="node-toggle">
                                 {isExpanded ? '−' : '+'}
                             </span>
                         ) : (
-                            <span className="node-dot">•</span>
+                            <span className="node-toggle node-toggle-spacer" aria-hidden="true"></span>
                         )}
                         <span className="node-name">{node.username.toUpperCase()}</span>
                         <span className={`node-role-badge role-${roleClassName}`}>{roleLabel}</span>
                         {isDead && <span className="dead-tag">DEAD</span>}
                     </div>
-                    <button className="node-go-btn" onClick={() => onGo(node.id, node.role)}>
+                    <button className="node-go-btn" onClick={() => onGo(nodeId, node.role)}>
                         Go
                     </button>
                 </div>
-                {isAgent && (isExpanded || searchQuery) && hasChildren && (
+                {canExpand && (isExpanded || searchQuery) && (
                     <div className="node-children">
                         {visibleChildren.map(child => renderNode(child, depth + 1))}
                     </div>
@@ -231,10 +241,14 @@ function AgentTreeView({
                         <div className="tree-root">
                             {/* Render Root */}
                             <div className="tree-node depth-0 root-node">
-                                <div className="node-content" onClick={() => toggleNode(treeData.root.id)}>
-                                    <span className="node-toggle">
-                                        {expandedNodes.has(treeData.root.id) ? '−' : '+'}
-                                    </span>
+                                <div className="node-content" onClick={() => rootCanExpand && toggleNode(treeData.root.id)}>
+                                    {rootCanExpand ? (
+                                        <span className="node-toggle">
+                                            {rootExpanded ? '−' : '+'}
+                                        </span>
+                                    ) : (
+                                        <span className="node-toggle node-toggle-spacer" aria-hidden="true"></span>
+                                    )}
                                     <span className="node-name">{treeData.root.username.toUpperCase()}</span>
                                     <span className={`node-role-badge role-${roleClassForNode(treeData.root)}`}>
                                         {roleLabelForNode(treeData.root)}
@@ -253,7 +267,7 @@ function AgentTreeView({
                                     Go
                                 </button>
                             </div>
-                            {(expandedNodes.has(treeData.root.id) || searchQuery) && (
+                            {rootHasChildren && (rootExpanded || searchQuery) && (
                                 <div className="node-children">
                                     {treeData.tree.map(node => renderNode(node, 1))}
                                 </div>

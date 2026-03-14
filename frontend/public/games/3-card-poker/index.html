@@ -161,7 +161,8 @@
                 _pendingResult = {
                     newCredit  : parseFloat(info.newCredit) || 0,
                     handResult : info.handResult || 'unknown',
-                    folded     : !!info.folded
+                    folded     : !!info.folded,
+                    round      : info && typeof info.round === 'object' ? info.round : null
                 };
             };
 
@@ -188,14 +189,22 @@
                         return;
                     }
 
-                    var newCredit  = parseFloat(iMoney) || 0;
+                    var round      = _pendingResult && _pendingResult.round && typeof _pendingResult.round === 'object'
+                        ? _pendingResult.round
+                        : {};
+                    if (!Array.isArray(round.playerCards) || !Array.isArray(round.dealerCards)) {
+                        _waitingForBet = false;
+                        return;
+                    }
+                    var newCredit  = parseFloat(round.finalBalance != null ? round.finalBalance : iMoney) || 0;
                     var prevCredit = _serverBalance;
-                    var netResult  = Math.round((newCredit - prevCredit) * 100) / 100;
+                    var netResult  = Math.round(((round.netResult != null ? round.netResult : (newCredit - prevCredit)) * 100)) / 100;
 
                     var ante      = _pendingAnte;
                     var pairPlus  = _pendingPairPlus;
                     var folded    = _pendingResult ? _pendingResult.folded     : false;
                     var handRes   = _pendingResult ? _pendingResult.handResult : 'unknown';
+                    var playBet   = Math.round(((round.bets && round.bets.play != null ? round.bets.play : (folded ? 0 : ante)) * 100)) / 100;
                     var reqId     = _pendingReqId;
 
                     // Reset pending state before sending (idempotent)
@@ -213,14 +222,27 @@
                         bets      : {
                             Ante     : ante,
                             PairPlus : pairPlus,
+                            Play     : playBet,
                             folded   : folded ? 1 : 0
                         },
                         payload   : {
-                            netResult  : netResult,
-                            newCredit  : newCredit,
-                            prevCredit : prevCredit,
-                            handResult : handRes,
-                            folded     : folded
+                            netResult       : netResult,
+                            newCredit       : newCredit,
+                            prevCredit      : prevCredit,
+                            handResult      : handRes,
+                            folded          : folded,
+                            playerAction    : round.action || (folded ? 'fold' : 'play'),
+                            dealerQualified : !!round.dealerQualified,
+                            playerCards     : Array.isArray(round.playerCards) ? round.playerCards : [],
+                            dealerCards     : Array.isArray(round.dealerCards) ? round.dealerCards : [],
+                            playerHand      : round.playerHand || '',
+                            dealerHand      : round.dealerHand || '',
+                            totalWager      : Number(round.totalWager || (ante + pairPlus + playBet)),
+                            totalReturn     : Number(round.totalReturn || 0),
+                            payoutBreakdown : round.payoutBreakdown && typeof round.payoutBreakdown === 'object'
+                                ? round.payoutBreakdown
+                                : {},
+                            roundData       : round
                         }
                     });
                 });

@@ -4577,6 +4577,10 @@
   font-size: 1.2rem;
 }
 
+.node-toggle-spacer {
+  color: transparent;
+}
+
 .node-dot {
   width: 16px;
   text-align: center;
@@ -4597,6 +4601,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  margin-left: auto;
+  min-width: 28px;
   padding: 1px 6px;
   border-radius: 999px;
   font-size: 0.62rem;
@@ -4610,6 +4616,7 @@
   background: #e6f4ea;
   color: #1e7d3d;
   border-color: #b6dfbf;
+  min-width: auto;
 }
 
 .node-role-badge.role-master-agent {

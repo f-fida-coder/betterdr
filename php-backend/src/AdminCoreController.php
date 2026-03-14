@@ -1120,8 +1120,7 @@ final class AdminCoreController
                     $allowed = $actorId !== '' && $actorId === $agentId;
                 } elseif (in_array($actorRole, ['master_agent', 'super_agent'], true)) {
                     $allowed = $actorId !== ''
-                        && ((string) ($targetAgent['createdBy'] ?? '') === $actorId)
-                        && ((string) ($targetAgent['createdByModel'] ?? '') === 'Agent');
+                        && in_array($agentId, $this->listManagedAgentIds($actorId), true);
                 }
                 if (!$allowed) {
                     Response::json(['message' => 'Not authorized for this agent scope'], 403);
