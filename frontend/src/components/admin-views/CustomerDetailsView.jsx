@@ -723,9 +723,8 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
   ), [form.firstName, form.lastName, form.phoneNumber, customer?.username]);
 
   const displayPassword = useMemo(() => {
-    if (generatedPassword) return generatedPassword;
     if (!customer) return '';
-    return customer.displayPassword || 'Not set';
+    return customer.displayPassword || generatedPassword || 'Not set';
   }, [customer, generatedPassword]);
 
   const duplicateMatchReasons = useMemo(() => {
