@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { getAdminHeaderSummary, getMe, getMyPlayers, getUsersAdmin } from '../api';
+import { getAdminHeaderSummary, getAgents, getMe, getMyPlayers, getUsersAdmin } from '../api';
 import AgentTreeView from './admin-views/AgentTreeView';
 import { annotateDuplicatePlayers } from '../utils/duplicatePlayers';
 
@@ -23,6 +23,7 @@ function AdminHeader({
   const [headerPlayerOpen, setHeaderPlayerOpen] = useState(false);
   const [allPlayers, setAllPlayers] = useState([]);
   const [searchablePlayers, setSearchablePlayers] = useState([]);
+  const [allAgents, setAllAgents] = useState([]);
   const [selectedSearchPlayer, setSelectedSearchPlayer] = useState(null);
   const [summary, setSummary] = useState({
     totalBalance: null,
@@ -78,13 +79,16 @@ function AdminHeader({
         setProfile(meData || null);
 
         const roleKey = String(meData?.role || role || '').toLowerCase();
-        const users = roleKey === 'agent'
-          ? await getMyPlayers(token)
-          : await getUsersAdmin(token);
+        const isAgentRole = roleKey === 'agent';
+        const [users, agentsData] = await Promise.all([
+          isAgentRole ? getMyPlayers(token) : getUsersAdmin(token),
+          isAgentRole ? Promise.resolve([]) : getAgents(token).catch(() => []),
+        ]);
         if (cancelled) return;
         const onlyPlayers = toPlayerList(users);
         setAllPlayers(onlyPlayers);
         setSearchablePlayers(onlyPlayers);
+        setAllAgents(Array.isArray(agentsData) ? agentsData : []);
       } catch (error) {
         if (!cancelled) {
           console.error('Failed to load admin header summary:', error);
@@ -243,6 +247,28 @@ function AdminHeader({
       || (queryDigits !== '' && phoneDigits.includes(queryDigits));
   };
 
+  const agentMatchesHeaderSearch = (agent, rawQuery) => {
+    const query = normalizeSearchValue(rawQuery);
+    if (!query) return true;
+    const username = normalizeSearchValue(agent?.username);
+    const fullName = normalizeSearchValue(getPlayerFullName(agent));
+    const displayPassword = normalizeSearchValue(agent?.displayPassword);
+    const phone = normalizeSearchValue(agent?.phoneNumber);
+    const queryDigits = String(rawQuery || '').replace(/\D/g, '');
+    const phoneDigits = String(agent?.phoneNumber || '').replace(/\D/g, '');
+    return username.includes(query)
+      || fullName.includes(query)
+      || displayPassword.includes(query)
+      || phone.includes(query)
+      || (queryDigits !== '' && phoneDigits.includes(queryDigits));
+  };
+
+  const getAgentRoleLabel = (agent) => {
+    const r = String(agent?.role || '').toLowerCase();
+    if (r === 'master_agent' || r === 'super_agent') return 'Master';
+    return 'Agent';
+  };
+
   useEffect(() => {
     const token = localStorage.getItem('token');
     if (!token) return undefined;
@@ -303,12 +329,34 @@ function AdminHeader({
     }
   };
 
+  const selectAgentFromSearch = (agent, closeMobileSheet = false) => {
+    if (!agent) return;
+    const agentId = getPlayerId(agent);
+    if (agentId && onViewChange) {
+      onViewChange('user-details', agentId);
+    }
+    setHeaderSearchQuery(agent.username || '');
+    setSelectedSearchPlayer(null);
+    setHeaderPlayerOpen(false);
+    if (closeMobileSheet) {
+      setShowMobilePlayerSearch(false);
+    }
+  };
+
   const filteredPlayers = useMemo(() => {
     const query = headerSearchQuery.trim();
     if (!query) return [];
     return searchablePlayersWithDuplicateMeta.filter((player) => playerMatchesHeaderSearch(player, query));
   }, [searchablePlayersWithDuplicateMeta, headerSearchQuery]);
+
+  const filteredAgents = useMemo(() => {
+    const query = headerSearchQuery.trim();
+    if (!query) return [];
+    return allAgents.filter((agent) => agentMatchesHeaderSearch(agent, query));
+  }, [allAgents, headerSearchQuery]);
+
   const hasSearchQuery = headerSearchQuery.trim() !== '';
+  const hasAnyResults = filteredPlayers.length > 0 || filteredAgents.length > 0;
 
   const displayName = profile?.username
     ? profile.username.toUpperCase()
@@ -375,7 +423,7 @@ function AdminHeader({
               </span>
               <input
                 type="text"
-                placeholder="Search players..."
+                placeholder="Search players & agents..."
                 value={headerSearchQuery}
                 onChange={(e) => {
                   const nextValue = e.target.value;
@@ -388,36 +436,74 @@ function AdminHeader({
               />
               {headerPlayerOpen && hasSearchQuery && (
                 <div className="admin-header-search-list">
-                  {filteredPlayers.length > 0 ? filteredPlayers.map((player, idx) => {
-                    const userId = getPlayerId(player);
-                    const fullName = getPlayerFullName(player);
-                    const displayPassword = String(player.displayPassword || '').trim().toUpperCase() || '—';
-                    const duplicateReasonLabel = formatDuplicateReasons(player);
-                    return (
-                      <button
-                        key={`${String(userId || player.username || 'player')}-${idx}`}
-                        type="button"
-                        className={`admin-header-search-item ${player.isDuplicatePlayer ? 'is-duplicate-player' : ''}`}
-                        onMouseDown={(event) => event.preventDefault()}
-                        onClick={() => selectPlayerFromSearch(player)}
-                      >
-                        <span className="search-item-user-wrap">
-                          <span className="search-item-user">{String(player.username || '').toUpperCase()}</span>
-                          {player.isDuplicatePlayer && (
-                            <span className="search-item-dup-badge">Duplicate Player</span>
-                          )}
-                        </span>
-                        <span className="search-item-pass">{displayPassword}</span>
-                        <span className="search-item-name-wrap">
-                          <span className="search-item-name">{fullName || '—'}</span>
-                          {player.isDuplicatePlayer && duplicateReasonLabel && (
-                            <span className="search-item-dup-reason">{duplicateReasonLabel}</span>
-                          )}
-                        </span>
-                      </button>
-                    );
-                  }) : (
-                    <div className="admin-header-search-empty">No matching players</div>
+                  {hasAnyResults ? (
+                    <>
+                      {filteredPlayers.length > 0 && filteredAgents.length > 0 && (
+                        <div className="search-section-label">Players</div>
+                      )}
+                      {filteredPlayers.map((player, idx) => {
+                        const userId = getPlayerId(player);
+                        const fullName = getPlayerFullName(player);
+                        const displayPassword = String(player.displayPassword || '').trim().toUpperCase() || '—';
+                        const phone = String(player.phoneNumber || '').trim() || '—';
+                        const duplicateReasonLabel = formatDuplicateReasons(player);
+                        return (
+                          <button
+                            key={`player-${String(userId || player.username || idx)}`}
+                            type="button"
+                            className={`admin-header-search-item ${player.isDuplicatePlayer ? 'is-duplicate-player' : ''}`}
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => selectPlayerFromSearch(player)}
+                          >
+                            <span className="search-item-user-wrap">
+                              <span className="search-item-user">{String(player.username || '').toUpperCase()}</span>
+                              {player.isDuplicatePlayer && (
+                                <span className="search-item-dup-badge">Duplicate Player</span>
+                              )}
+                            </span>
+                            <span className="search-item-pass">{displayPassword}</span>
+                            <span className="search-item-name-wrap">
+                              <span className="search-item-name">{fullName || '—'}</span>
+                              <span className="search-item-phone">{phone}</span>
+                              {player.isDuplicatePlayer && duplicateReasonLabel && (
+                                <span className="search-item-dup-reason">{duplicateReasonLabel}</span>
+                              )}
+                            </span>
+                          </button>
+                        );
+                      })}
+                      {filteredPlayers.length > 0 && filteredAgents.length > 0 && (
+                        <div className="search-section-label">Agents</div>
+                      )}
+                      {filteredAgents.map((agent, idx) => {
+                        const agentId = getPlayerId(agent);
+                        const fullName = getPlayerFullName(agent);
+                        const displayPassword = String(agent.displayPassword || '').trim().toUpperCase() || '—';
+                        const phone = String(agent.phoneNumber || '').trim() || '—';
+                        const roleLabel = getAgentRoleLabel(agent);
+                        return (
+                          <button
+                            key={`agent-${String(agentId || agent.username || idx)}`}
+                            type="button"
+                            className="admin-header-search-item search-item-agent"
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => selectAgentFromSearch(agent)}
+                          >
+                            <span className="search-item-user-wrap">
+                              <span className="search-item-user">{String(agent.username || '').toUpperCase()}</span>
+                              <span className="search-item-role-badge">{roleLabel}</span>
+                            </span>
+                            <span className="search-item-pass">{displayPassword}</span>
+                            <span className="search-item-name-wrap">
+                              <span className="search-item-name">{fullName || '—'}</span>
+                              <span className="search-item-phone">{phone}</span>
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </>
+                  ) : (
+                    <div className="admin-header-search-empty">No matching results</div>
                   )}
                 </div>
               )}
@@ -490,7 +576,7 @@ function AdminHeader({
             <input
               type="text"
               autoFocus
-              placeholder="Search players..."
+              placeholder="Search players & agents..."
               value={headerSearchQuery}
               onChange={(e) => {
                 const nextValue = e.target.value;
@@ -522,37 +608,72 @@ function AdminHeader({
           )}
 
           <div className="mobile-player-search-results">
-            {!hasSearchQuery ? null : (
-              filteredPlayers.length > 0 ? filteredPlayers.map((player, idx) => {
-                const userId = getPlayerId(player);
-                const fullName = getPlayerFullName(player);
-                const displayPassword = String(player.displayPassword || '').trim().toUpperCase() || '—';
-                const duplicateReasonLabel = formatDuplicateReasons(player);
-                return (
-                  <button
-                    key={`${String(userId || player.username || 'player')}-${idx}`}
-                    type="button"
-                    className={`mobile-player-search-item ${player.isDuplicatePlayer ? 'is-duplicate-player' : ''}`}
-                    onClick={() => selectPlayerFromSearch(player, true)}
-                  >
-                    <span className="search-item-user-wrap">
-                      <span className="search-item-user">{String(player.username || '').toUpperCase()}</span>
-                      {player.isDuplicatePlayer && (
-                        <span className="search-item-dup-badge">Duplicate Player</span>
-                      )}
-                    </span>
-                    <span className="search-item-pass">{displayPassword}</span>
-                    <span className="search-item-name-wrap">
-                      <span className="search-item-name">{fullName || '—'}</span>
-                      {player.isDuplicatePlayer && duplicateReasonLabel && (
-                        <span className="search-item-dup-reason">{duplicateReasonLabel}</span>
-                      )}
-                    </span>
-                  </button>
-                );
-              }) : (
-                <div className="admin-header-search-empty">No matching players</div>
-              )
+            {!hasSearchQuery ? null : !hasAnyResults ? (
+              <div className="admin-header-search-empty">No matching results</div>
+            ) : (
+              <>
+                {filteredPlayers.length > 0 && filteredAgents.length > 0 && (
+                  <div className="search-section-label">Players</div>
+                )}
+                {filteredPlayers.map((player, idx) => {
+                  const userId = getPlayerId(player);
+                  const fullName = getPlayerFullName(player);
+                  const displayPassword = String(player.displayPassword || '').trim().toUpperCase() || '—';
+                  const phone = String(player.phoneNumber || '').trim() || '—';
+                  const duplicateReasonLabel = formatDuplicateReasons(player);
+                  return (
+                    <button
+                      key={`player-${String(userId || player.username || idx)}`}
+                      type="button"
+                      className={`mobile-player-search-item ${player.isDuplicatePlayer ? 'is-duplicate-player' : ''}`}
+                      onClick={() => selectPlayerFromSearch(player, true)}
+                    >
+                      <span className="search-item-user-wrap">
+                        <span className="search-item-user">{String(player.username || '').toUpperCase()}</span>
+                        {player.isDuplicatePlayer && (
+                          <span className="search-item-dup-badge">Duplicate Player</span>
+                        )}
+                      </span>
+                      <span className="search-item-pass">{displayPassword}</span>
+                      <span className="search-item-name-wrap">
+                        <span className="search-item-name">{fullName || '—'}</span>
+                        <span className="search-item-phone">{phone}</span>
+                        {player.isDuplicatePlayer && duplicateReasonLabel && (
+                          <span className="search-item-dup-reason">{duplicateReasonLabel}</span>
+                        )}
+                      </span>
+                    </button>
+                  );
+                })}
+                {filteredPlayers.length > 0 && filteredAgents.length > 0 && (
+                  <div className="search-section-label">Agents</div>
+                )}
+                {filteredAgents.map((agent, idx) => {
+                  const agentId = getPlayerId(agent);
+                  const fullName = getPlayerFullName(agent);
+                  const displayPassword = String(agent.displayPassword || '').trim().toUpperCase() || '—';
+                  const phone = String(agent.phoneNumber || '').trim() || '—';
+                  const roleLabel = getAgentRoleLabel(agent);
+                  return (
+                    <button
+                      key={`agent-${String(agentId || agent.username || idx)}`}
+                      type="button"
+                      className="mobile-player-search-item search-item-agent"
+                      onClick={() => selectAgentFromSearch(agent, true)}
+                    >
+                      <span className="search-item-user-wrap">
+                        <span className="search-item-user">{String(agent.username || '').toUpperCase()}</span>
+                        <span className="search-item-role-badge">{roleLabel}</span>
+                      </span>
+                      <span className="search-item-pass">{displayPassword}</span>
+                      <span className="search-item-name-wrap">
+                        <span className="search-item-name">{fullName || '—'}</span>
+                        <span className="search-item-phone">{phone}</span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </>
             )}
           </div>
         </div>

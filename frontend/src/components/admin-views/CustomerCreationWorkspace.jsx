@@ -469,13 +469,18 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
     setNewCustomer((prev) => ({ ...prev, agentId, referredByUserId: '' }));
     const sequenceType = creationType === 'player' ? 'player' : 'agent';
     const suffix = creationType === 'super_agent' ? 'MA' : '';
+    // For agent/super_agent creation the user types their own prefix — never overwrite it
+    const isAgentCreation = creationType === 'agent' || creationType === 'super_agent';
 
     if (agentId) {
       const selectedAgent = agents.find((a) => (a.id || a._id) === agentId);
       if (selectedAgent) {
         setAgentSearchQuery(selectedAgent.username || '');
         try {
-          const playerPrefix = derivePlayerPrefix(selectedAgent.username);
+          // Use the user's typed prefix for agent creation; derive from selected agent for player creation
+          const playerPrefix = (isAgentCreation && newCustomer.agentPrefix)
+            ? newCustomer.agentPrefix
+            : derivePlayerPrefix(selectedAgent.username);
           if (!playerPrefix) {
             setNewCustomer((prev) => ({ ...prev, username: '' }));
             return;
@@ -484,7 +489,12 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
             ? { suffix, type: sequenceType, agentId }
             : { suffix, type: sequenceType, ...(creationType === 'agent' ? { agentId } : {}) };
           const { nextUsername } = await getNextUsername(playerPrefix, token, query);
-          setNewCustomer((prev) => ({ ...prev, username: nextUsername, agentPrefix: playerPrefix }));
+          setNewCustomer((prev) => ({
+            ...prev,
+            username: nextUsername,
+            // Preserve user's typed prefix for agent/super_agent creation
+            agentPrefix: (isAgentCreation && prev.agentPrefix) ? prev.agentPrefix : playerPrefix,
+          }));
         } catch (err) {
           console.error('Failed to get next username:', err);
         }
@@ -495,19 +505,22 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
         setNewCustomer((prev) => ({ ...prev, username: '' }));
         return;
       }
-      if (adminUsername) {
+      // For agent/super_agent creation use typed prefix; for player creation derive from admin username
+      const prefixToUse = (isAgentCreation && newCustomer.agentPrefix)
+        ? newCustomer.agentPrefix
+        : (adminUsername ? derivePlayerPrefix(adminUsername) : '');
+      if (prefixToUse) {
         try {
-          const playerPrefix = derivePlayerPrefix(adminUsername);
-          if (!playerPrefix) {
-            setNewCustomer((prev) => ({ ...prev, username: '' }));
-            return;
-          }
           const query = { suffix, type: sequenceType };
           if (sequenceType === 'agent' && creationType === 'agent' && (currentRole === 'master_agent' || currentRole === 'super_agent') && currentUserId) {
             query.agentId = currentUserId;
           }
-          const { nextUsername } = await getNextUsername(playerPrefix, token, query);
-          setNewCustomer((prev) => ({ ...prev, username: nextUsername, agentPrefix: playerPrefix }));
+          const { nextUsername } = await getNextUsername(prefixToUse, token, query);
+          setNewCustomer((prev) => ({
+            ...prev,
+            username: nextUsername,
+            agentPrefix: (isAgentCreation && prev.agentPrefix) ? prev.agentPrefix : prefixToUse,
+          }));
         } catch (err) {
           console.error('Failed to fetch username for admin:', err);
           setNewCustomer((prev) => ({ ...prev, username: '' }));

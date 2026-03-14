@@ -611,13 +611,16 @@ function WeeklyFiguresView({ onViewChange = null }) {
               </div>
               <div className="weekly-mobile-customer-shell">
                 <div className="weekly-mobile-groups">
-                  {groupedCustomers.length > 0 ? groupedCustomers.map((group) => (
-                    <section key={group.key} className="weekly-mobile-group weekly-mobile-table-block">
+                  {groupedCustomers.length > 0 ? groupedCustomers.map((group) => {
+                    const isOverSettle = playerFilter === 'over-settle-winners' || playerFilter === 'over-settle-losers';
+                    return (
+                    <section key={group.key} className={`weekly-mobile-group weekly-mobile-table-block${isOverSettle ? ' weekly-mobile-has-lifetime' : ''}`}>
                       <div className="weekly-mobile-hierarchy">{group.hierarchyLabel}</div>
                       <div className="weekly-mobile-table-head">
                         <span>Customer</span>
                         <div className="weekly-mobile-table-day-head">{renderInlineDayToggle()}</div>
                         <span>Balance</span>
+                        {isOverSettle && <span className="weekly-mobile-lifetime-head">Lifetime</span>}
                       </div>
                       <div className="weekly-mobile-rows">
                         {group.customers.map((customer, rowIdx) => {
@@ -625,9 +628,7 @@ function WeeklyFiguresView({ onViewChange = null }) {
                           const balanceValue = parseNumericAmount(customer?.balance ?? 0);
                           const primaryValue = dayValue;
                           const secondaryValue = balanceValue;
-                          const receivedDayLabel = typeof customer?.receivedDayLabel === 'string'
-                            ? customer.receivedDayLabel
-                            : '';
+                          const lifetimeValue = getLifetimePerformance(customer);
                           return (
                             <div
                               key={`${group.key}-${String(customer.id || customer.username || rowIdx)}`}
@@ -655,12 +656,12 @@ function WeeklyFiguresView({ onViewChange = null }) {
                               </div>
                               <div className={`weekly-mobile-balance-cell ${getSignedValueClass(secondaryValue)}`}>
                                 <span className="weekly-mobile-balance-value">{formatMobileCellNumber(secondaryValue)}</span>
-                                {receivedDayLabel && (
-                                  <span className="weekly-mobile-balance-meta">
-                                    Received {receivedDayLabel}
-                                  </span>
-                                )}
                               </div>
+                              {isOverSettle && (
+                                <div className={`weekly-mobile-lifetime-cell ${getSignedValueClass(lifetimeValue)}`}>
+                                  {formatMobileCellNumber(lifetimeValue)}
+                                </div>
+                              )}
                             </div>
                           );
                         })}
@@ -674,10 +675,16 @@ function WeeklyFiguresView({ onViewChange = null }) {
                           <div className={`weekly-mobile-balance-cell ${getSignedValueClass(group.totals.balance)}`}>
                             {formatMobileCellNumber(group.totals.balance)}
                           </div>
+                          {isOverSettle && (
+                            <div className={`weekly-mobile-lifetime-cell ${getSignedValueClass(group.totals.lifetime)}`}>
+                              {formatMobileCellNumber(group.totals.lifetime)}
+                            </div>
+                          )}
                         </div>
                       </div>
                     </section>
-                  )) : (
+                    );
+                  }) : (
                     <div className="weekly-empty-state">
                       No players matched this filter.
                     </div>

@@ -188,6 +188,45 @@
   text-overflow: ellipsis;
 }
 
+.search-item-phone {
+  color: #617181;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: right;
+}
+
+.search-item-role-badge {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: #1e4d72;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.25px;
+  text-transform: uppercase;
+  line-height: 1.2;
+}
+
+.search-item-agent {
+  border-left: 3px solid #1e4d72;
+}
+
+.search-section-label {
+  padding: 4px 12px 3px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: #8fa5b8;
+  background: #f4f7fa;
+  border-bottom: 1px solid #e3eaf0;
+}
+
 .admin-header-search-empty {
   padding: 10px 12px;
   color: #617181;
@@ -3027,6 +3066,49 @@
 .weekly-mobile-group-total-row .weekly-mobile-day-cell,
 .weekly-mobile-group-total-row .weekly-mobile-balance-cell {
   font-size: 17px;
+}
+
+/* Over Settle: 4-column layout with Lifetime */
+.weekly-mobile-has-lifetime .weekly-mobile-table-head,
+.weekly-mobile-has-lifetime .weekly-mobile-table-row {
+  grid-template-columns: minmax(0, 1fr) 65px 75px 75px;
+}
+
+.weekly-mobile-has-lifetime .weekly-mobile-table-head > span:nth-child(4) {
+  text-align: right;
+  padding-right: 12px;
+}
+
+.weekly-mobile-lifetime-head {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 7px 8px;
+  text-align: right;
+  padding-right: 12px;
+}
+
+.weekly-mobile-lifetime-cell {
+  padding: 8px 12px 8px 4px;
+  text-align: right;
+  font-size: 15px;
+  font-weight: 500;
+  color: #0f1d2a;
+}
+
+.weekly-mobile-lifetime-cell.is-positive {
+  color: #1c8f4f;
+}
+
+.weekly-mobile-lifetime-cell.is-negative {
+  color: #d11f1f;
+}
+
+.weekly-mobile-lifetime-cell.is-neutral {
+  color: #0f1d2a;
+}
+
+.weekly-mobile-group-total-row .weekly-mobile-lifetime-cell {
+  font-size: 15px;
 }
 
 .weekly-mobile-user {
