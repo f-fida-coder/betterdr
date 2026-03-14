@@ -266,23 +266,24 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
         payload.parentAgentId = payload.agentId;
       }
 
+      let result = null;
       if (creationType === 'player') {
         if (currentRole === 'agent' || currentRole === 'super_agent' || currentRole === 'master_agent') {
-          await createPlayerByAgent(payload, token);
+          result = await createPlayerByAgent(payload, token);
         } else {
-          await createUserByAdmin(payload, token);
+          result = await createUserByAdmin(payload, token);
         }
       } else if (creationType === 'agent') {
         if (currentRole === 'admin') {
-          await createAgent({ ...payload, role: 'agent' }, token);
+          result = await createAgent({ ...payload, role: 'agent' }, token);
         } else {
-          await createSubAgent({ ...payload, role: 'agent' }, token);
+          result = await createSubAgent({ ...payload, role: 'agent' }, token);
         }
       } else if (creationType === 'super_agent') {
         if (currentRole === 'admin') {
-          await createAgent({ ...payload, role: 'master_agent' }, token);
+          result = await createAgent({ ...payload, role: 'master_agent' }, token);
         } else {
-          await createSubAgent({ ...payload, role: 'master_agent' }, token);
+          result = await createSubAgent({ ...payload, role: 'master_agent' }, token);
         }
       }
 
@@ -322,7 +323,8 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
       setImportFile(null);
       setSelectedImportFileName('');
       setImportForceAgentAssignment(true);
-      setImportSummary(`${createdType === 'player' ? 'Player' : createdType === 'agent' ? 'Agent' : 'Master Agent'} created successfully.`);
+      const createdLabel = createdType === 'player' ? 'Player' : createdType === 'agent' ? 'Agent' : 'Master Agent';
+      setImportSummary(result?.assigned ? `${createdLabel} assigned successfully.` : `${createdLabel} created successfully.`);
 
       if (currentRole === 'agent') {
         const data = await getMyPlayers(token);

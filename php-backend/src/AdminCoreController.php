@@ -4970,11 +4970,6 @@ final class AdminCoreController
                 Response::json(['message' => 'Username, phone number, and password are required'], 400);
                 return;
             }
-            if ($this->existsUsernameOrPhone($username, $phoneNumber)) {
-                Response::json(['message' => 'Username or Phone number already exists in the system'], 409);
-                return;
-            }
-
             $agentRole = ($role === 'agent' || $role === 'master_agent') ? $role : 'master_agent';
             $createdById = MongoRepository::id((string) ($actor['_id'] ?? ''));
             $createdByModel = (($actor['role'] ?? '') === 'admin') ? 'Admin' : 'Agent';
@@ -4986,6 +4981,44 @@ final class AdminCoreController
                 }
                 $createdById = MongoRepository::id($parentAgentId);
                 $createdByModel = 'Agent';
+            }
+
+            $existing = $this->findExistingAgentByIdentity($username, $phoneNumber);
+            if ($existing !== null) {
+                $existingRole = (string) ($existing['role'] ?? '');
+                if (!in_array($existingRole, ['agent', 'master_agent'], true)) {
+                    Response::json(['message' => 'Username or Phone number already exists in the system'], 409);
+                    return;
+                }
+                // Reassign the existing agent under the resolved parent
+                $existingId = (string) $existing['_id'];
+                $this->db->updateOne('agents', ['_id' => MongoRepository::id($existingId)], [
+                    '$set' => [
+                        'createdBy'      => $createdById,
+                        'createdByModel' => $createdByModel,
+                        'updatedAt'      => MongoRepository::nowUtc(),
+                    ],
+                ]);
+                if ($existingRole === 'master_agent') {
+                    $updated = $this->db->findOne('agents', ['_id' => MongoRepository::id($existingId)]);
+                    if ($updated !== null) {
+                        $this->syncMasterAgentCollection($updated);
+                    }
+                }
+                Response::json([
+                    'message'  => 'Agent assigned successfully',
+                    'assigned' => true,
+                    'agent'    => [
+                        'id'          => $existingId,
+                        'username'    => (string) ($existing['username'] ?? ''),
+                        'phoneNumber' => (string) ($existing['phoneNumber'] ?? ''),
+                        'fullName'    => (string) ($existing['fullName'] ?? ''),
+                        'role'        => $existingRole,
+                        'status'      => (string) ($existing['status'] ?? 'active'),
+                        'createdAt'   => gmdate(DATE_ATOM),
+                    ],
+                ], 200);
+                return;
             }
 
             $referrerObjectId = null;
@@ -8899,6 +8932,26 @@ final class AdminCoreController
         return $this->db->findOne('users', $query) !== null
             || $this->db->findOne('admins', $query) !== null
             || $this->db->findOne('agents', $query) !== null;
+    }
+
+    private function findExistingAgentByIdentity(string $username, string $phoneNumber): ?array
+    {
+        $normalizedUsername = trim($username);
+        $or = [];
+
+        if ($phoneNumber !== '') {
+            $or[] = ['phoneNumber' => $phoneNumber];
+        }
+        if ($normalizedUsername !== '') {
+            $or[] = ['username' => strtoupper($normalizedUsername)];
+            $or[] = ['username' => strtolower($normalizedUsername)];
+            $or[] = ['username' => ['$regex' => '^' . preg_quote($normalizedUsername, '/') . '$', '$options' => 'i']];
+        }
+        if (count($or) === 0) {
+            return null;
+        }
+
+        return $this->db->findOne('agents', ['$or' => $or]);
     }
 
     private function generateIdentityPassword(string $firstName, string $lastName, string $phoneNumber, string $fallbackUsername = ''): string

@@ -230,31 +230,33 @@ function CustomerAdminView({ onViewChange }) {
         payload.parentAgentId = payload.agentId;
       }
 
+      let result = null;
       if (creationType === 'player') {
         if (currentRole === 'agent' || currentRole === 'super_agent' || currentRole === 'master_agent') {
-          await createPlayerByAgent(payload, token);
+          result = await createPlayerByAgent(payload, token);
         } else {
-          await createUserByAdmin(payload, token);
+          result = await createUserByAdmin(payload, token);
         }
       } else if (creationType === 'agent') {
         if (currentRole === 'admin') {
           // Admin creating standard Agent
-          await createAgent({ ...payload, role: 'agent' }, token);
+          result = await createAgent({ ...payload, role: 'agent' }, token);
         } else {
           // Super Agent creating Sub-Agent (Agent)
-          await createSubAgent({ ...payload, role: 'agent' }, token);
+          result = await createSubAgent({ ...payload, role: 'agent' }, token);
         }
       } else if (creationType === 'super_agent') {
         if (currentRole === 'admin') {
           // Admin creating Master Agent
-          await createAgent({ ...payload, role: 'master_agent' }, token); // Changed to master_agent for consistency if supported, or 'super_agent'
+          result = await createAgent({ ...payload, role: 'master_agent' }, token); // Changed to master_agent for consistency if supported, or 'super_agent'
         } else {
           // Super Agent creating Sub-Master Agent
-          await createSubAgent({ ...payload, role: 'master_agent' }, token);
+          result = await createSubAgent({ ...payload, role: 'master_agent' }, token);
         }
       }
 
-      alert(`${creationType === 'player' ? 'Player' : creationType === 'agent' ? 'Agent' : 'Master Agent'} initialized successfully!`);
+      const entityLabel = creationType === 'player' ? 'Player' : creationType === 'agent' ? 'Agent' : 'Master Agent';
+      alert(result?.assigned ? `${entityLabel} assigned successfully!` : `${entityLabel} initialized successfully!`);
 
       const createdType = creationType;
       const cleanState = {

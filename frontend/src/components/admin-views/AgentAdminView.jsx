@@ -76,8 +76,8 @@ function AgentAdminView() {
       if (!token) throw new Error('No token found');
 
       // Create agent - explicitly backend sets role: 'master_agent'
-      await createAgent(newAgent, token);
-      alert('Master Agent created successfully');
+      const result = await createAgent(newAgent, token);
+      alert(result?.assigned ? 'Master Agent assigned successfully' : 'Master Agent created successfully');
       setShowAddModal(false);
       setNewAgent({ username: '', phoneNumber: '', password: '', agentPrefix: '' });
       fetchAgents();

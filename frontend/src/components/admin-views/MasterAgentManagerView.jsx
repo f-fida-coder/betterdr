@@ -71,8 +71,8 @@ function MasterAgentManagerView() {
             const token = localStorage.getItem('token');
             if (!token) throw new Error('No token found');
 
-            await createSubAgent(newAgent, token);
-            alert('Agent created successfully');
+            const result = await createSubAgent(newAgent, token);
+            alert(result?.assigned ? 'Agent assigned successfully' : 'Agent created successfully');
             setShowAddModal(false);
             setNewAgent({ username: '', phoneNumber: '', password: '', fullName: '', agentPrefix: '', role: 'agent' });
             fetchSubAgents();
