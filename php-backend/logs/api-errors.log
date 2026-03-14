@@ -2245,3 +2245,6 @@
 2026-03-13 08:51:25 [401] {"message":"Not authorized, token failed: Token expired"}
 2026-03-13 08:51:35 [401] {"message":"Not authorized, token failed: Token expired"}
 2026-03-13 11:18:34 [400] {"message":"agentId must reference a valid Master Agent"}
+2026-03-13 22:44:33 [401] {"message":"Not authorized, token failed: Token expired"}
+2026-03-14 11:16:52 [400] {"message":"Minimum bet for your account is $25.00"}
+2026-03-14 12:01:49 [400] {"message":"Minimum bet for your account is $25.00"}

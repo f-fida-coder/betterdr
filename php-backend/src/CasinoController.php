@@ -13,6 +13,7 @@ final class CasinoController
     private const BLACKJACK_GAME_SLUG = 'blackjack';
     private const CRAPS_GAME_SLUG = 'craps';
     private const ARABIAN_GAME_SLUG = 'arabian';
+    private const THREE_CARD_POKER_GAME_SLUG = '3card-poker';
     private const LEGACY_ARABIAN_TREASURE_GAME_SLUG = 'arabian-treasure';
     private const ROULETTE_GAME_SLUG = 'roulette';
     private const STUD_POKER_GAME_SLUG = 'stud-poker';
@@ -25,6 +26,7 @@ final class CasinoController
     private const BLACKJACK_SOURCE_TYPE = 'casino_blackjack';
     private const CRAPS_SOURCE_TYPE = 'casino_craps';
     private const ARABIAN_SOURCE_TYPE = 'casino_arabian';
+    private const THREE_CARD_POKER_SOURCE_TYPE = 'casino_3card_poker';
     private const ROULETTE_SOURCE_TYPE = 'casino_roulette';
     private const STUD_POKER_SOURCE_TYPE = 'casino_stud_poker';
     private const BACCARAT_RNG_VERSION = 'csprng-v1';
@@ -34,6 +36,7 @@ final class CasinoController
     private const BLACKJACK_MAX_DECK_COUNT = 8;
     private const CRAPS_RNG_VERSION = 'server-rules-v1';
     private const ARABIAN_RNG_VERSION = 'server-slot-v1';
+    private const THREE_CARD_POKER_RNG_VERSION = 'client-native-v1';
     private const ROULETTE_RNG_VERSION = 'csprng-wheel-v2';
     private const STUD_POKER_RNG_VERSION = 'stud-house-v1';
     private const IN_HOUSE_OVERLAY_ONLY_GAME_MESSAGES = [
@@ -41,6 +44,7 @@ final class CasinoController
         self::BLACKJACK_GAME_SLUG => 'Blackjack is available only from the in-house casino table.',
         self::CRAPS_GAME_SLUG => 'Craps is available only from the in-house casino table.',
         self::ARABIAN_GAME_SLUG => 'Arabian Game is available only from the in-house casino table.',
+        self::THREE_CARD_POKER_GAME_SLUG => '3-Card Poker is available only from the in-house casino table.',
     ];
     private const REQUEST_ID_PATTERN = '/^[A-Za-z0-9_-]{8,128}$/';
     private const ROULETTE_RED_NUMBERS = [1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36];
@@ -120,6 +124,7 @@ final class CasinoController
         ['provider' => 'internal', 'name' => 'Blackjack', 'slug' => 'blackjack', 'category' => 'table_games', 'minBet' => 1, 'maxBet' => 10000, 'themeColor' => '#0b5563', 'icon' => 'fa-solid fa-club', 'imageUrl' => '/games/blackjack/src/images/misc/table.png', 'tags' => ['table games', 'blackjack', 'in-house', 'live casino'], 'isFeatured' => true],
         ['provider' => 'internal', 'name' => 'Craps', 'slug' => 'craps', 'category' => 'table_games', 'minBet' => 1, 'maxBet' => 10000, 'themeColor' => '#0a4f3a', 'icon' => 'fa-solid fa-dice-six', 'imageUrl' => '/games/craps/sprites/board_table.jpg', 'tags' => ['table games', 'craps', 'in-house', 'live casino'], 'isFeatured' => true],
         ['provider' => 'internal', 'name' => 'Arabian Game', 'slug' => 'arabian', 'category' => 'slots', 'minBet' => 0.3, 'maxBet' => 30, 'themeColor' => '#7e22ce', 'icon' => 'fa-solid fa-scroll', 'imageUrl' => '/games/arabian/sprites/200x200.jpg', 'tags' => ['slots', 'arabian', 'in-house', 'server settled'], 'isFeatured' => true],
+        ['provider' => 'internal', 'name' => '3-Card Poker', 'slug' => '3card-poker', 'category' => 'table_games', 'minBet' => 1, 'maxBet' => 300, 'themeColor' => '#1a3a5c', 'icon' => 'fa-solid fa-cards', 'imageUrl' => '/games/3-card-poker/sprites/200x200.jpg', 'tags' => ['table games', 'poker', '3-card poker', 'in-house'], 'isFeatured' => true],
         ['provider' => 'internal', 'name' => 'Jacks or Better', 'slug' => 'jacks-or-better', 'category' => 'video_poker', 'minBet' => 1, 'maxBet' => 100, 'themeColor' => '#be123c', 'icon' => 'fa-solid fa-cards'],
         ['provider' => 'internal', 'name' => 'Video Keno', 'slug' => 'video-keno', 'category' => 'specialty_games', 'minBet' => 1, 'maxBet' => 100, 'themeColor' => '#0ea5e9', 'icon' => 'fa-solid fa-table-cells-large'],
     ];
@@ -739,6 +744,19 @@ final class CasinoController
     private function ensureCasinoSeeded(): void
     {
         $now = MongoRepository::nowUtc();
+        // One-time patch: fix stale imageUrl for 3card-poker if it has the old /game/ subpath
+        $stale3cp = $this->db->findOne('casinogames', [
+            'slug' => self::THREE_CARD_POKER_GAME_SLUG,
+            'imageUrl' => '/games/3-card-poker/game/sprites/200x200.jpg',
+        ]);
+        if ($stale3cp !== null) {
+            $this->db->updateOne(
+                'casinogames',
+                ['_id' => MongoRepository::id((string) $stale3cp['_id'])],
+                ['imageUrl' => '/games/3-card-poker/sprites/200x200.jpg', 'updatedAt' => $now]
+            );
+        }
+
         foreach (self::DEFAULT_CASINO_GAMES as $idx => $game) {
             $slug = (string) ($game['slug'] ?? ('game-' . ($idx + 1)));
             $existing = $this->db->findOne('casinogames', ['slug' => $slug]);
@@ -860,6 +878,10 @@ final class CasinoController
             }
             if ($game === self::ARABIAN_GAME_SLUG) {
                 $this->placeArabianBet($actor, $body, $requestId, $startedAt);
+                return;
+            }
+            if ($game === self::THREE_CARD_POKER_GAME_SLUG) {
+                $this->place3CardPokerBet($actor, $body, $requestId, $startedAt);
                 return;
             }
             if (in_array($game, self::REMOVED_GAME_SLUGS, true)) {
@@ -1349,6 +1371,308 @@ final class CasinoController
                 'error' => $e->getMessage(),
             ]);
             Response::json(['message' => 'Server error placing roulette bet'], 500);
+        }
+    }
+
+    // ════════════════════════════════════════════════════════
+    //  IN-HOUSE 3-CARD POKER BETTING
+    // ════════════════════════════════════════════════════════
+
+    private function place3CardPokerBet(array $actor, array $body, string $requestId, float $startedAt): void
+    {
+        $userId = (string) ($actor['_id'] ?? '');
+
+        try {
+            // ── Validate game is active ────────────────────────────────
+            $gameConfig = $this->db->findOne('casinogames', ['slug' => self::THREE_CARD_POKER_GAME_SLUG]);
+            if ($gameConfig !== null) {
+                $gameStatus = strtolower(trim((string) ($gameConfig['status'] ?? 'active')));
+                if ($gameStatus !== '' && $gameStatus !== 'active') {
+                    Response::json(['message' => 'Game is currently ' . ($gameConfig['status'] ?? 'disabled')], 400);
+                    return;
+                }
+            }
+
+            // ── Parse bets ────────────────────────────────────────────
+            $bets       = is_array($body['bets'] ?? null) ? $body['bets'] : [];
+            $payload    = is_array($body['payload'] ?? null) ? $body['payload'] : [];
+
+            $anteBet     = $this->parseMoneyValue($bets['Ante']     ?? 0, 'bets.Ante');
+            $pairPlusBet = $this->parseMoneyValue($bets['PairPlus'] ?? 0, 'bets.PairPlus');
+            $folded      = (int) ($bets['folded'] ?? 0) === 1;
+
+            if ($anteBet <= 0) {
+                Response::json(['message' => 'Ante bet is required for 3-Card Poker'], 400);
+                return;
+            }
+
+            // ── Bet limits ────────────────────────────────────────────
+            [$gameMinBet, $gameMaxBet] = $this->resolveGameBetLimits(self::THREE_CARD_POKER_GAME_SLUG, 1.0, 300.0);
+            if ($anteBet < $gameMinBet) {
+                Response::json(['message' => 'Minimum ante bet is $' . number_format($gameMinBet, 2)], 400);
+                return;
+            }
+            if ($anteBet > $gameMaxBet) {
+                Response::json(['message' => 'Maximum ante bet is $' . number_format($gameMaxBet, 2)], 400);
+                return;
+            }
+            if ($pairPlusBet > $gameMaxBet) {
+                Response::json(['message' => 'Maximum Pair Plus bet is $' . number_format($gameMaxBet, 2)], 400);
+                return;
+            }
+
+            // ── Total wager ───────────────────────────────────────────
+            // If player folded: wager = ante + pairPlus (no play bet)
+            // If player played: wager = ante + ante(play) + pairPlus
+            $playBet     = $folded ? 0.0 : $anteBet;
+            $totalWager  = round($anteBet + $playBet + $pairPlusBet, 2);
+
+            // ── Net result from client (game settled client-side) ─────
+            $netResult   = round((float) ($payload['netResult'] ?? 0), 2);
+            $totalReturn = round($totalWager + $netResult, 2);
+
+            // Validate totalReturn is within theoretical maximum:
+            // Max win: ante-bonus SF (5x) + ante win (1x) + play win (1x) = 7x ante
+            //          pair-plus SF (40x) + bet returned (1x) = 41x pairPlus
+            $maxReturn = round(($anteBet * 9.0) + ($pairPlusBet * 41.0), 2);
+            if ($totalReturn < 0.0 || $totalReturn > $maxReturn) {
+                $this->writeCasinoAuditLog('3card_poker_invalid_result', [
+                    'userId'      => $userId,
+                    'requestId'   => $requestId,
+                    'anteBet'     => $anteBet,
+                    'pairPlusBet' => $pairPlusBet,
+                    'netResult'   => $netResult,
+                    'totalReturn' => $totalReturn,
+                    'maxReturn'   => $maxReturn,
+                ]);
+                Response::json(['message' => 'Invalid game result reported by client'], 400);
+                return;
+            }
+
+            // ── Determine outcome label ───────────────────────────────
+            if ($netResult > 0.0) {
+                $playerOutcome = 'Win';
+            } elseif ($netResult < 0.0) {
+                $playerOutcome = 'Lose';
+            } else {
+                $playerOutcome = 'Push';
+            }
+
+            $handResult = strtolower(trim((string) ($payload['handResult'] ?? 'unknown')));
+
+            // ── Transactional balance update ──────────────────────────
+            $this->db->beginTransaction();
+            try {
+                $lockedUser = $this->db->findOneForUpdate('users', ['_id' => MongoRepository::id($userId)]);
+                if ($lockedUser === null) {
+                    $this->db->rollback();
+                    Response::json(['message' => 'User not found'], 404);
+                    return;
+                }
+
+                $lockedAccessError = $this->casinoAccessError($lockedUser, true);
+                if ($lockedAccessError !== null) {
+                    $this->db->rollback();
+                    Response::json(['message' => $lockedAccessError], 403);
+                    return;
+                }
+
+                // ── Idempotency check ─────────────────────────────────
+                $existingRound = $this->db->findOne('casino_bets', [
+                    'userId'    => $userId,
+                    'requestId' => $requestId,
+                    'game'      => self::THREE_CARD_POKER_GAME_SLUG,
+                ]);
+                if ($existingRound !== null) {
+                    $roundId       = (string) ($existingRound['roundId'] ?? $existingRound['_id'] ?? '');
+                    $ledgerEntries = $this->findRoundLedgerEntries($roundId);
+                    $this->db->commit();
+                    Response::json($this->formatCasinoBetResponse($existingRound, $ledgerEntries, true));
+                    return;
+                }
+
+                // ── Account-level bet limits ──────────────────────────
+                $userMinBet = $this->safeNumber($lockedUser['minBet'] ?? null, null);
+                $userMaxBet = $this->safeNumber($lockedUser['maxBet'] ?? null, null);
+                if ($userMinBet !== null && $userMinBet > 0 && $anteBet < $userMinBet) {
+                    $this->db->rollback();
+                    Response::json(['message' => 'Minimum bet for your account is $' . number_format($userMinBet, 2)], 400);
+                    return;
+                }
+                if ($userMaxBet !== null && $userMaxBet > 0 && $anteBet > $userMaxBet) {
+                    $this->db->rollback();
+                    Response::json(['message' => 'Maximum bet for your account is $' . number_format($userMaxBet, 2)], 400);
+                    return;
+                }
+                $this->assertCasinoLossLimits($lockedUser, $totalWager);
+
+                // ── Balance check ─────────────────────────────────────
+                $balanceBefore    = round($this->num($lockedUser['balance'] ?? 0), 2);
+                $pendingBalance   = round($this->num($lockedUser['pendingBalance'] ?? 0), 2);
+                $availableBalance = round(max(0, $balanceBefore - $pendingBalance), 2);
+                if ($totalWager > $availableBalance) {
+                    $this->db->rollback();
+                    Response::json(['message' => 'Insufficient balance. Available: $' . number_format($availableBalance, 2)], 400);
+                    return;
+                }
+
+                // ── Compute new balance ───────────────────────────────
+                $balanceAfterDebit        = round($balanceBefore - $totalWager, 2);
+                $balanceAfter             = round($balanceAfterDebit + $totalReturn, 2);
+                $availableBalanceBefore   = $availableBalance;
+                $availableBalanceAfter    = round(max(0, $balanceAfter - $pendingBalance), 2);
+
+                $roundId    = $this->newRoundId();
+                $now        = MongoRepository::nowUtc();
+                $ipAddress  = IpUtils::clientIp();
+                $userAgent  = Http::header('user-agent') !== '' ? Http::header('user-agent') : null;
+                $latencyMs  = max(0, (int) round((microtime(true) - $startedAt) * 1000));
+
+                // ── Ledger: DEBIT ─────────────────────────────────────
+                $debitEntry = [
+                    'userId'        => $userId,
+                    'amount'        => $totalWager,
+                    'type'          => 'casino_bet_debit',
+                    'entrySide'     => 'DEBIT',
+                    'entryGroupId'  => $roundId,
+                    'sourceType'    => self::THREE_CARD_POKER_SOURCE_TYPE,
+                    'sourceId'      => $roundId,
+                    'status'        => 'completed',
+                    'balanceBefore' => $balanceBefore,
+                    'balanceAfter'  => $balanceAfterDebit,
+                    'referenceType' => 'CasinoRound',
+                    'referenceId'   => $roundId,
+                    'reason'        => 'CASINO_3CARD_POKER_WAGER',
+                    'description'   => '3-Card Poker wager charged',
+                    'ipAddress'     => $ipAddress,
+                    'userAgent'     => $userAgent,
+                    'createdAt'     => $now,
+                    'updatedAt'     => $now,
+                ];
+                $debitEntryId = $this->db->insertOne('transactions', $debitEntry);
+
+                // ── Ledger: CREDIT ────────────────────────────────────
+                $creditEntry = [
+                    'userId'        => $userId,
+                    'amount'        => $totalReturn,
+                    'type'          => 'casino_bet_credit',
+                    'entrySide'     => 'CREDIT',
+                    'entryGroupId'  => $roundId,
+                    'sourceType'    => self::THREE_CARD_POKER_SOURCE_TYPE,
+                    'sourceId'      => $roundId,
+                    'status'        => 'completed',
+                    'balanceBefore' => $balanceAfterDebit,
+                    'balanceAfter'  => $balanceAfter,
+                    'referenceType' => 'CasinoRound',
+                    'referenceId'   => $roundId,
+                    'reason'        => 'CASINO_3CARD_POKER_PAYOUT',
+                    'description'   => '3-Card Poker payout/refund credited',
+                    'ipAddress'     => $ipAddress,
+                    'userAgent'     => $userAgent,
+                    'createdAt'     => $now,
+                    'updatedAt'     => $now,
+                ];
+                $creditEntryId = $this->db->insertOne('transactions', $creditEntry);
+
+                // ── Update user balance ───────────────────────────────
+                $this->db->updateOne('users', ['_id' => MongoRepository::id($userId)], [
+                    'balance'   => $balanceAfter,
+                    'updatedAt' => $now,
+                ]);
+
+                // ── Integrity hash ────────────────────────────────────
+                $integrityHash = $this->buildIntegrityHash([
+                    'roundId'      => $roundId,
+                    'requestId'    => $requestId,
+                    'userId'       => $userId,
+                    'game'         => self::THREE_CARD_POKER_GAME_SLUG,
+                    'ante'         => $anteBet,
+                    'pairPlus'     => $pairPlusBet,
+                    'folded'       => $folded,
+                    'netResult'    => $netResult,
+                    'totalWager'   => $totalWager,
+                    'totalReturn'  => $totalReturn,
+                    'balanceBefore'=> $balanceBefore,
+                    'balanceAfter' => $balanceAfter,
+                ]);
+
+                // ── Casino bet record ─────────────────────────────────
+                $betRecord = [
+                    '_id'                    => $roundId,
+                    'roundId'                => $roundId,
+                    'requestId'              => $requestId,
+                    'userId'                 => $userId,
+                    'username'               => (string) ($lockedUser['username'] ?? $actor['username'] ?? ''),
+                    'game'                   => self::THREE_CARD_POKER_GAME_SLUG,
+                    'bets'                   => [
+                        'Ante'     => $anteBet,
+                        'PairPlus' => $pairPlusBet,
+                        'folded'   => $folded ? 1 : 0,
+                    ],
+                    'totalWager'             => $totalWager,
+                    'totalReturn'            => $totalReturn,
+                    'profit'                 => $netResult,
+                    'netResult'              => $netResult,
+                    'playerOutcome'          => $playerOutcome,
+                    'result'                 => $handResult,
+                    'roundStatus'            => 'settled',
+                    'rngVersion'             => self::THREE_CARD_POKER_RNG_VERSION,
+                    'outcomeSource'          => 'native_client_round',
+                    'balanceBefore'          => $balanceBefore,
+                    'balanceAfter'           => $balanceAfter,
+                    'availableBalanceBefore' => $availableBalanceBefore,
+                    'availableBalanceAfter'  => $availableBalanceAfter,
+                    'integrityHash'          => $integrityHash,
+                    'ledgerEntries'          => ['debit' => $debitEntryId, 'credit' => $creditEntryId],
+                    'latencyMs'              => $latencyMs,
+                    'ipAddress'              => $ipAddress,
+                    'createdAt'              => $now,
+                    'updatedAt'              => $now,
+                ];
+                $this->db->insertOne('casino_bets', $betRecord);
+
+                // ── Audit record ──────────────────────────────────────
+                $this->db->insertOne('casino_round_audit', array_merge($betRecord, [
+                    'auditCreatedAt' => $now,
+                ]));
+
+                $this->db->commit();
+
+                $ledgerEntries = $this->findRoundLedgerEntries($roundId);
+                $this->writeCasinoAuditLog('3card_poker_round_settled', [
+                    'roundId'      => $roundId,
+                    'userId'       => $userId,
+                    'username'     => (string) ($lockedUser['username'] ?? ''),
+                    'anteBet'      => $anteBet,
+                    'pairPlusBet'  => $pairPlusBet,
+                    'folded'       => $folded,
+                    'netResult'    => $netResult,
+                    'totalWager'   => $totalWager,
+                    'totalReturn'  => $totalReturn,
+                    'playerOutcome'=> $playerOutcome,
+                    'balanceBefore'=> $balanceBefore,
+                    'balanceAfter' => $balanceAfter,
+                ]);
+
+                Response::json($this->formatCasinoBetResponse($betRecord, $ledgerEntries, false));
+            } catch (\Throwable $inner) {
+                $this->db->rollback();
+                throw $inner;
+            }
+        } catch (\InvalidArgumentException $e) {
+            $this->writeCasinoAuditLog('3card_poker_validation_error', [
+                'requestId' => $requestId,
+                'userId'    => $userId,
+                'error'     => $e->getMessage(),
+            ]);
+            Response::json(['message' => $e->getMessage()], 400);
+        } catch (\Throwable $e) {
+            $this->writeCasinoAuditLog('3card_poker_server_error', [
+                'requestId' => $requestId,
+                'userId'    => $userId,
+                'error'     => $e->getMessage(),
+            ]);
+            Response::json(['message' => 'Server error placing 3-Card Poker bet', 'error' => $e->getMessage()], 500);
         }
     }
 

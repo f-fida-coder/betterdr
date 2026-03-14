@@ -123,6 +123,8 @@ function CasinoBetsView() {
         return 'Arabian Game';
       case 'arabian-treasure':
         return 'Arabian Game';
+      case '3card-poker':
+        return '3-Card Poker';
       default:
         return value || '—';
     }
@@ -422,6 +424,7 @@ function CasinoBetsView() {
                   <option value="blackjack">Blackjack</option>
                   <option value="craps">Craps</option>
                   <option value="arabian">Arabian Game</option>
+                  <option value="3card-poker">3-Card Poker</option>
                 </select>
               </div>
               <div className="filter-group">
@@ -632,7 +635,9 @@ function CasinoBetsView() {
                           ? 'Dice'
                           : selectedDetail.game === 'arabian'
                             ? 'Spin'
-                            : 'Cards'}
+                            : selectedDetail.game === '3card-poker'
+                              ? 'Bet Breakdown'
+                              : 'Cards'}
                     </h4>
                     {selectedDetail.game === 'roulette' ? (
                       <>
@@ -664,6 +669,15 @@ function CasinoBetsView() {
                         <div className="casino-detail-row"><span>Free Spins Awarded</span><span>{selectedDetail?.roundData?.freeSpinsAwarded ?? '0'}</span></div>
                         <div className="casino-detail-row"><span>Free Spins After</span><span>{selectedDetail?.roundData?.freeSpinsAfter ?? '0'}</span></div>
                         <div className="casino-detail-row"><span>Bonus Triggered</span><span>{selectedDetail?.roundData?.bonusTriggered ? 'Yes' : 'No'}</span></div>
+                      </>
+                    ) : selectedDetail.game === '3card-poker' ? (
+                      <>
+                        <div className="casino-detail-row"><span>Ante Bet</span><strong>{formatMoney(selectedDetail?.bets?.Ante ?? 0)}</strong></div>
+                        <div className="casino-detail-row"><span>Play Bet</span><strong>{formatMoney(Number(selectedDetail?.bets?.folded) === 1 ? 0 : (selectedDetail?.bets?.Ante ?? 0))}</strong></div>
+                        <div className="casino-detail-row"><span>Pair Plus Bet</span><strong>{formatMoney(selectedDetail?.bets?.PairPlus ?? 0)}</strong></div>
+                        <div className="casino-detail-row"><span>Action</span><span>{Number(selectedDetail?.bets?.folded) === 1 ? 'Folded' : 'Played'}</span></div>
+                        <div className="casino-detail-row"><span>Hand Result</span><span>{selectedDetail?.result || '—'}</span></div>
+                        <div className="casino-detail-row"><span>Outcome Source</span><span>Client Native RNG</span></div>
                       </>
                     ) : (
                       <>

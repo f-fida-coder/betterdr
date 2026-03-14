@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>3 CARD POKER</title>
+        <link rel="stylesheet" href="css/reset.css" type="text/css">
+        <link rel="stylesheet" href="css/main.css" type="text/css">
+        <link rel="stylesheet" href="css/orientation_utils.css" type="text/css">
+        <link rel="stylesheet" href="css/ios_fullscreen.css" type="text/css">
+        <link rel='shortcut icon' type='image/x-icon' href='./favicon.ico' />
+        <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+
+        <meta name="viewport" content="width=device-width, user-scalable=no, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0,minimal-ui" />
+	<meta name="msapplication-tap-highlight" content="no"/>
+
+        <script type="text/javascript" src="js/jquery-3.1.1.min.js"></script>
+        <script type="text/javascript" src="js/createjs-2015.11.26.min.js"></script>
+        <script type="text/javascript" src="js/howler.min.js"></script>
+        <script type="text/javascript" src="js/screenfull.js"></script>
+        <script type="text/javascript" src="js/platform.js"></script>
+        <script type="text/javascript" src="js/ios_fullscreen.js"></script>
+        <script type="text/javascript" src="js/ctl_utils.js"></script>
+        <script type="text/javascript" src="js/sprite_lib.js"></script>
+        <script type="text/javascript" src="js/settings.js"></script>
+        <script type="text/javascript" src="js/CLang.js"></script>
+        <script type="text/javascript" src="js/CPreloader.js"></script>
+        <script type="text/javascript" src="js/CMain.js"></script>
+        <script type="text/javascript" src="js/CTextButton.js"></script>
+        <script type="text/javascript" src="js/CGfxButton.js"></script>
+        <script type="text/javascript" src="js/CToggle.js"></script>
+        <script type="text/javascript" src="js/CMenu.js"></script>
+        <script type="text/javascript" src="js/CGame.js"></script>
+        <script type="text/javascript" src="js/CInterface.js"></script>
+        <script type="text/javascript" src="js/CTweenController.js"></script>
+        <script type="text/javascript" src="js/CSeat.js"></script>
+        <script type="text/javascript" src="js/CFichesController.js"></script>
+        <script type="text/javascript" src="js/CVector2.js"></script>
+        <script type="text/javascript" src="js/CGameSettings.js"></script>
+        <script type="text/javascript" src="js/CEasing.js"></script>
+        <script type="text/javascript" src="js/CCard.js"></script>
+	<script type="text/javascript" src="js/CGameOver.js"></script>
+        <script type="text/javascript" src="js/CMsgBox.js"></script>
+        <script type="text/javascript" src="js/CHandEvaluator.js"></script>
+        <script type="text/javascript" src="js/CAnimText.js"></script>
+        <script type="text/javascript" src="js/CPaytablePanel.js"></script>
+        <script type="text/javascript" src="js/CHelpCursor.js"></script>
+        <script type="text/javascript" src="js/CCreditsPanel.js"></script>
+        <script type="text/javascript" src="js/CAreYouSurePanel.js"></script>
+        <script type="text/javascript" src="js/CCTLText.js"></script>
+        <script type="text/javascript" src="js/CFiche.js"></script>
+
+    </head>
+    <body ondragstart="return false;" ondrop="return false;" >
+	<div style="position: fixed; background-color: transparent; top: 0px; left: 0px; width: 100%; height: 100%"></div>
+
+        <!-- ═══════════════════════════════════════════════════════════════════
+             BetterDR postMessage integration bridge for 3-Card Poker
+             Must run before $(document).ready so __3cp_attachEvents is defined
+             ═══════════════════════════════════════════════════════════════════ -->
+        <script>
+        (function () {
+            'use strict';
+
+            var _serverBalance   = null;  // last authoritative balance from parent
+            var _pendingAnte     = 0;
+            var _pendingPairPlus = 0;
+            var _pendingReqId    = null;
+            var _pendingResult   = null;  // set by __3cp_onHandEnd before save_score
+            var _waitingForBet   = false; // prevent duplicate sends per hand
+
+            function _createReqId() {
+                return Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 12);
+            }
+
+            function _sendToParent(msg) {
+                try { window.parent.postMessage(msg, '*'); } catch (e) { /* standalone */ }
+            }
+
+            function _requestBalance(reqId) {
+                _sendToParent({ type: 'getBalance', requestId: reqId || _createReqId() });
+            }
+
+            function _applyBalance(raw) {
+                var b = parseFloat(raw);
+                if (!isFinite(b) || b < 0) return;
+                _serverBalance = b;
+                if (typeof s_oGame !== 'undefined' && s_oGame &&
+                    typeof s_oGame.setCredit === 'function') {
+                    s_oGame.setCredit(b);
+                }
+            }
+
+            // ── Receive messages from parent (CasinoView.jsx) ─────────────
+            window.addEventListener('message', function (evt) {
+                var msg = evt.data;
+                if (!msg || typeof msg !== 'object' || !msg.type) return;
+
+                if (msg.type === 'balanceUpdate') {
+                    var bal = parseFloat(
+                        msg.availableBalance != null ? msg.availableBalance : msg.balance
+                    );
+                    if (!isFinite(bal) || bal < 0) return;
+                    // Always keep _serverBalance in sync (used as prevCredit for netResult).
+                    _serverBalance = bal;
+                    // Only push the balance into the game when no hand is active.
+                    // During a hand (_pendingReqId set) or while waiting for betResult
+                    // (_waitingForBet), the game already tracks the correct credit
+                    // internally – overwriting it here would break the running hand.
+                    if (_pendingReqId === null && !_waitingForBet) {
+                        if (typeof s_oGame !== 'undefined' && s_oGame &&
+                                typeof s_oGame.setCredit === 'function') {
+                            s_oGame.setCredit(bal);
+                        }
+                    }
+                    return;
+                }
+
+                if (msg.type === 'betResult') {
+                    var newBal = parseFloat(
+                        msg.availableBalance != null ? msg.availableBalance :
+                        msg.balance != null          ? msg.balance :
+                        msg.newBalance != null        ? msg.newBalance : _serverBalance
+                    );
+                    _waitingForBet = false;
+                    if (isFinite(newBal) && newBal >= 0) {
+                        _serverBalance = newBal;
+                        // Only push authoritative balance into the game when no new
+                        // hand has already started. If __3cp_onDeal already fired
+                        // for the next hand (_pendingReqId set), the game has
+                        // correctly deducted those bets; forcing setCredit here
+                        // would revert the display to the pre-bet balance.
+                        if (_pendingReqId === null &&
+                                typeof s_oGame !== 'undefined' && s_oGame &&
+                                typeof s_oGame.setCredit === 'function') {
+                            s_oGame.setCredit(newBal);
+                        }
+                    }
+                    return;
+                }
+
+                if (msg.type === 'betError') {
+                    _waitingForBet = false;
+                    // Re-sync so the game shows the correct balance after an error.
+                    _requestBalance();
+                    return;
+                }
+            });
+
+            // ── Global callbacks invoked by CGame.js hooks ────────────────
+
+            /** Called in CGame.onDeal() right before cards are dealt. */
+            window.__3cp_onDeal = function (info) {
+                _pendingAnte     = parseFloat(info.ante)     || 0;
+                _pendingPairPlus = parseFloat(info.pairPlus) || 0;
+                _pendingReqId    = _createReqId();
+                _pendingResult   = null;
+                _waitingForBet   = false;
+            };
+
+            /** Called in CGame._onEndHand() before save_score fires. */
+            window.__3cp_onHandEnd = function (info) {
+                _pendingResult = {
+                    newCredit  : parseFloat(info.newCredit) || 0,
+                    handResult : info.handResult || 'unknown',
+                    folded     : !!info.folded
+                };
+            };
+
+            // ── Attach jQuery game events (called after CMain is created) ──
+            window.__3cp_attachEvents = function (oMain) {
+
+                $(oMain).on('recharge', function () {
+                    _requestBalance();
+                });
+
+                $(oMain).on('start_session', function () {
+                    _requestBalance();
+                });
+
+                $(oMain).on('end_session', function () { /* noop */ });
+
+                $(oMain).on('bet_placed', function (evt, iTotBet) {
+                    /* ante amount accumulates; final value captured in __3cp_onDeal */
+                });
+
+                $(oMain).on('save_score', function (evt, iMoney) {
+                    // iMoney = game's internal credit after the hand settled
+                    if (_serverBalance === null || _pendingReqId === null || _waitingForBet) {
+                        return;
+                    }
+
+                    var newCredit  = parseFloat(iMoney) || 0;
+                    var prevCredit = _serverBalance;
+                    var netResult  = Math.round((newCredit - prevCredit) * 100) / 100;
+
+                    var ante      = _pendingAnte;
+                    var pairPlus  = _pendingPairPlus;
+                    var folded    = _pendingResult ? _pendingResult.folded     : false;
+                    var handRes   = _pendingResult ? _pendingResult.handResult : 'unknown';
+                    var reqId     = _pendingReqId;
+
+                    // Reset pending state before sending (idempotent)
+                    _pendingReqId  = null;
+                    _pendingResult = null;
+                    _waitingForBet = true;
+
+                    // Optimistically advance local reference (will be overwritten by betResult)
+                    _serverBalance = newCredit;
+
+                    _sendToParent({
+                        type      : 'placeBet',
+                        game      : '3card-poker',
+                        requestId : reqId,
+                        bets      : {
+                            Ante     : ante,
+                            PairPlus : pairPlus,
+                            folded   : folded ? 1 : 0
+                        },
+                        payload   : {
+                            netResult  : netResult,
+                            newCredit  : newCredit,
+                            prevCredit : prevCredit,
+                            handResult : handRes,
+                            folded     : folded
+                        }
+                    });
+                });
+
+                $(oMain).on('show_interlevel_ad', function () { /* noop */ });
+                $(oMain).on('share_event',        function () { /* noop */ });
+            };
+
+            // Request balance on load; retry once in case the iframe isn't ready yet
+            window.addEventListener('load', function () {
+                _requestBalance();
+                setTimeout(_requestBalance, 1500);
+            });
+
+        }());
+        </script>
+
+        <!-- ═══════════════════════════════════════════════════════════════════
+             Game initialisation
+             ═══════════════════════════════════════════════════════════════════ -->
+        <script>
+            $(document).ready(function(){
+                var oMain = new CMain({
+                    win_occurrence: 40,         // WIN OCCURRENCE PERCENTAGE (0-100)
+                    min_bet: 1,                 // MIN BET ($1)
+                    max_bet: 300,               // MAX BET ($300)
+                    money: 100,                 // STARTING CREDIT (overridden by server balance)
+                    game_cash: 100,             // HOUSE BANKROLL
+                    ante_payout:[
+                        5,                      // STRAIGHT FLUSH multiplier
+                        4,                      // THREE OF A KIND multiplier
+                        1                       // STRAIGHT multiplier
+                    ],
+                    plus_payouts:[
+                        40,                     // STRAIGHT FLUSH
+                        30,                     // THREE OF A KIND
+                         6,                     // STRAIGHT
+                         4,                     // FLUSH
+                         1                      // PAIR
+                    ],
+                    time_show_hand: 1500,
+                    audio_enable_on_startup: false,
+                    show_credits: true,
+                    fullscreen: true,
+                    check_orientation: true,
+                    ad_show_counter: 10
+                });
+
+                // Attach BetterDR integration event hooks
+                if (typeof window.__3cp_attachEvents === 'function') {
+                    window.__3cp_attachEvents(oMain);
+                }
+
+                if (isIOS()) {
+                    setTimeout(function () { sizeHandler(); }, 200);
+                } else {
+                    sizeHandler();
+                }
+            });
+        </script>
+
+        <div class="check-fonts">
+            <p class="check-font-1">test 1</p>
+            <p class="check-font-2">test 2</p>
+        </div>
+
+        <canvas id="canvas" class='ani_hack' width="1700" height="768"> </canvas>
+        <div data-orientation="landscape" class="orientation-msg-container"><p class="orientation-msg-text">Please rotate your device</p></div>
+	<div id="block_game" style="position: fixed; background-color: transparent; top: 0px; left: 0px; width: 100%; height: 100%; display:none"></div>
+    </body>
+</html>

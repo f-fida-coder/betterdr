@@ -306,6 +306,8 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
   const [casinoSuccess, setCasinoSuccess] = useState('');
   const [copyNotice, setCopyNotice] = useState('');
   const [duplicateWarning, setDuplicateWarning] = useState(null);
+  const [impersonating, setImpersonating] = useState(false);
+  const [impersonateError, setImpersonateError] = useState('');
 
   const quickMenuItems = [
     { id: 'basics', label: 'The Basics', icon: '🪪' },
@@ -788,12 +790,25 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
   };
 
   const handleImpersonate = async () => {
+    setImpersonateError('');
+    setImpersonating(true);
     try {
       const token = localStorage.getItem('token');
+      if (!token) throw new Error('No admin token found. Please log in again.');
+
       const data = await impersonateUser(userId, token);
+      if (!data?.token) throw new Error('Login failed: no token returned from server.');
+
+      // Save original admin token so we can return later
+      if (!sessionStorage.getItem('impersonationBaseToken')) {
+        sessionStorage.setItem('impersonationBaseToken', token);
+        const storedRole = localStorage.getItem('userRole') || '';
+        if (storedRole) sessionStorage.setItem('impersonationBaseRole', storedRole);
+      }
+
       localStorage.setItem('token', data.token);
-      localStorage.setItem('user', JSON.stringify(data));
       localStorage.setItem('userRole', String(data?.role || 'user'));
+      localStorage.removeItem('user');
 
       const nextRole = String(data?.role || '').toLowerCase();
       let nextPath = '/';
@@ -807,7 +822,8 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
 
       window.location.href = nextPath;
     } catch (err) {
-      setError('Impersonation failed: ' + err.message);
+      setImpersonateError(err.message || 'Failed to login as user. Please try again.');
+      setImpersonating(false);
     }
   };
 
@@ -1541,11 +1557,16 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
                 <strong>Bettorplays365.com</strong>
               </div>
               <div className="top-actions">
-                <button className="btn btn-user" onClick={handleImpersonate}>Login User</button>
+                <button className="btn btn-user" onClick={handleImpersonate} disabled={impersonating}>
+                  {impersonating ? 'Logging in...' : 'Login User'}
+                </button>
                 <button className="btn btn-copy-all" onClick={copyAllDetails}>Copy Details</button>
               </div>
             </div>
           </div>
+          {impersonateError && (
+            <div className="copy-notice" style={{ color: '#c0392b', background: '#ffeaea' }}>{impersonateError}</div>
+          )}
           {copyNotice && (
             <div className="copy-notice">{copyNotice}</div>
           )}
@@ -2111,8 +2132,18 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
         <div className="modal-overlay" onClick={() => setShowNewFreePlayModal(false)}>
           <div className="modal-card" onClick={(e) => e.stopPropagation()}>
             <h4>New Free Play</h4>
+            <label>Transaction</label>
+            <div className="fp-modal-type-badge">Deposit</div>
             <label>Amount</label>
             <input type="number" value={newFreePlayAmount} onChange={(e) => setNewFreePlayAmount(e.target.value)} placeholder="0.00" />
+            <div className="tx-modal-balance-strip fp-modal-balance-strip" role="status" aria-live="polite">
+              <div className="tx-modal-balance-item">
+                <span>Free Play Balance</span>
+                <b className={freePlayBalance < 0 ? 'neg' : freePlayBalance > 0 ? 'pos' : 'neutral'}>
+                  {formatCurrency(freePlayBalance)}
+                </b>
+              </div>
+            </div>
             <label>Description</label>
             <input value={newFreePlayDescription} onChange={(e) => setNewFreePlayDescription(e.target.value)} placeholder="Optional note" />
             <div className="modal-actions">
@@ -2957,6 +2988,22 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
           padding: 7px 9px;
           font-size: 13px;
           color: #111827;
+        }
+        .fp-modal-type-badge {
+          display: inline-flex;
+          align-items: center;
+          padding: 5px 14px;
+          border-radius: 6px;
+          background: #e8f5ee;
+          border: 1px solid #a7d7b8;
+          color: #1a7a42;
+          font-size: 13px;
+          font-weight: 700;
+          margin-bottom: 10px;
+          letter-spacing: 0.02em;
+        }
+        .fp-modal-balance-strip {
+          grid-template-columns: 1fr;
         }
         .tx-modal-balance-strip {
           display: grid;

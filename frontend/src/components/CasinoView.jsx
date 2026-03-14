@@ -44,7 +44,14 @@ const LOCAL_GAME_META = {
         url: '/games/arabian/index.html?v=20260311a',
         poster: '/games/arabian/sprites/200x200.jpg',
         themeColor: '#7e22ce',
-    }
+    },
+    '3card-poker': {
+        id: 'local-3card-poker',
+        provider: 'In-House',
+        url: '/games/3-card-poker/index.html?v=20260314b',
+        poster: '/games/3-card-poker/sprites/200x200.jpg',
+        themeColor: '#1a3a5c',
+    },
 };
 
 const CATEGORY_META = {
@@ -64,6 +71,7 @@ const normalizeEmbeddedGameSlug = (value) => {
     if (normalized.includes('baccarat')) return 'baccarat';
     if (normalized.includes('craps')) return 'craps';
     if (normalized.includes('arabian')) return 'arabian';
+    if (normalized.includes('3card') || normalized.includes('3-card') || normalized === 'poker') return '3card-poker';
     return '';
 };
 
@@ -421,6 +429,8 @@ const CasinoView = () => {
                 return 'Arabian Game';
             case 'arabian-treasure':
                 return 'Arabian Game';
+            case '3card-poker':
+                return '3-Card Poker';
             default:
                 return value || '—';
         }
@@ -545,6 +555,16 @@ const CasinoView = () => {
             if (keys.length === 0) return '—';
             const preview = keys.slice(0, 3).map((key) => `${key} ${formatMoney(bets[key])}`).join(' | ');
             return keys.length > 3 ? `${preview} +${keys.length - 3} more` : preview;
+        }
+
+        if (game === '3card-poker') {
+            const ante = Number(row?.bets?.Ante ?? 0);
+            const pairPlus = Number(row?.bets?.PairPlus ?? 0);
+            const folded = Number(row?.bets?.folded ?? 0) === 1;
+            const parts = [`Ante ${formatMoney(ante)}`];
+            if (pairPlus > 0) parts.push(`PP ${formatMoney(pairPlus)}`);
+            if (folded) parts.push('Folded');
+            return parts.join(' | ');
         }
 
         if (game === 'arabian') {
@@ -758,6 +778,7 @@ const CasinoView = () => {
                             <option value="blackjack">Blackjack</option>
                             <option value="craps">Craps</option>
                             <option value="arabian">Arabian Game</option>
+                            <option value="3card-poker">3-Card Poker</option>
                         </select>
                     </label>
                     <label>
