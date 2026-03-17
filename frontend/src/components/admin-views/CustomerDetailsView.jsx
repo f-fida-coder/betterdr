@@ -1025,7 +1025,8 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
 
   const openTransactionSlip = () => {
     openSection('transactions');
-    setNewTxType('deposit');
+    const balance = Number(customer?.balance || 0);
+    setNewTxType(balance > 0 ? 'withdrawal' : 'deposit');
     setNewTxAmount('');
     setNewTxDescription('');
     setShowNewTxModal(true);
@@ -2116,7 +2117,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
                   className={txModalBalance < 0 ? 'neg' : txModalBalance > 0 ? 'pos' : 'neutral'}
                   style={{ cursor: 'pointer' }}
                   title="Click to use this amount"
-                  onClick={() => setNewTxAmount(String(Math.abs(txModalBalance)))}
+                  onClick={() => setNewTxAmount(String(Math.round(Math.abs(txModalBalance))))}
                 >
                   {formatCurrency(txModalBalance)}
                 </b>
@@ -2127,7 +2128,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
                   className={txModalCarry < 0 ? 'neg' : txModalCarry > 0 ? 'pos' : 'neutral'}
                   style={{ cursor: 'pointer' }}
                   title="Click to use this amount"
-                  onClick={() => setNewTxAmount(String(Math.abs(txModalCarry)))}
+                  onClick={() => setNewTxAmount(String(Math.round(Math.abs(txModalCarry))))}
                 >
                   {formatCurrency(txModalCarry)}
                 </b>
