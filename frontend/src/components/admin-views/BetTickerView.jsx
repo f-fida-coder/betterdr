@@ -19,7 +19,7 @@ function BetTickerView() {
           type: b.matchSnapshot?.status === 'live' ? 'LIVE' : 'UPCOMING', // Infer from snapshot or Match
           match: b.description || (b.matchSnapshot ? `${b.matchSnapshot.homeTeam} vs ${b.matchSnapshot.awayTeam}` : 'Unknown Match'),
           bet: `${b.selection} @ ${parseFloat(b.odds).toFixed(2)}`,
-          amount: `$${parseFloat(b.amount).toFixed(2)}`,
+          amount: `$${Math.round(parseFloat(b.amount))}`,
           odds: parseFloat(b.odds).toFixed(2),
           time: new Date(b.createdAt).toLocaleTimeString(),
           status: b.matchSnapshot?.status === 'live' ? 'LIVE' : 'UPCOMING', // Simplified status mapping

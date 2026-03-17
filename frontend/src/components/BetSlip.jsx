@@ -55,27 +55,27 @@ const BetSlip = ({ user, balance, onBetPlaced }) => {
         if (amount <= 0) return 0;
 
         if (betType === 'straight') {
-            return selections.reduce((sum, s) => sum + (s.odds * amount), 0).toFixed(2);
+            return Math.round(selections.reduce((sum, s) => sum + (s.odds * amount), 0));
         }
 
         if (betType === 'parlay') {
             const combinedOdds = selections.reduce((acc, s) => acc * s.odds, 1);
-            return (amount * combinedOdds).toFixed(2);
+            return Math.round(amount * combinedOdds);
         }
 
         if (betType === 'teaser') {
             const teaserOdds = selections.length === 2 ? 1.83 : (selections.length === 3 ? 2.62 : 4.1);
-            return (amount * teaserOdds).toFixed(2);
+            return Math.round(amount * teaserOdds);
         }
 
         if (betType === 'if_bet') {
             const combinedOdds = selections.slice(0, 2).reduce((acc, s) => acc * s.odds, 1);
-            return (amount * combinedOdds).toFixed(2);
+            return Math.round(amount * combinedOdds);
         }
 
         if (betType === 'reverse') {
             const combinedOdds = selections.slice(0, 2).reduce((acc, s) => acc * s.odds, 1);
-            return (amount * combinedOdds * 2).toFixed(2);
+            return Math.round(amount * combinedOdds * 2);
         }
 
         return 0;
@@ -273,7 +273,7 @@ const BetSlip = ({ user, balance, onBetPlaced }) => {
                         <div className="wager-input" style={{ marginBottom: '15px' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px', fontSize: '12px' }}>
                                 <span>WAGER</span>
-                                <span style={{ color: '#aaa' }}>Bal: ${balance?.toFixed(2) || '0.00'}</span>
+                                <span style={{ color: '#aaa' }}>Bal: ${Math.round(balance || 0)}</span>
                             </div>
                             <input
                                 type="number"

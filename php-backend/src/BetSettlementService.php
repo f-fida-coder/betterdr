@@ -179,7 +179,7 @@ final class BetSettlementService
                     );
 
                     $ticketStatus = (string) ($evaluation['status'] ?? 'pending');
-                    $ticketPayout = round(self::num($evaluation['payout'] ?? 0), 2);
+                    $ticketPayout = round(self::num($evaluation['payout'] ?? 0));
 
                     if ($ticketStatus === 'pending') {
                         $db->updateOne('bets', ['_id' => MongoRepository::id($betId)], [

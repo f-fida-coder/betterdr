@@ -1,0 +1,359 @@
+<!DOCTYPE HTML>
+<html lang="en">
+    <head>
+        <meta http-equiv="content-type" content="text/html;charset=utf-8">
+        <title>Slot Machine - Jurassic Giants</title>
+        <!-- Framework CSS -->
+        <link rel="stylesheet" href="assets/blueprint-css/screen.css" type="text/css" media="screen, projection">
+        <link rel="stylesheet" href="assets/blueprint-css/print.css" type="text/css" media="print">
+        <link rel="stylesheet" href="styles/shCore.css" type="text/css" >
+        <link rel="stylesheet" href="styles/shCoreDefault.css" type="text/css" >
+        <link rel="stylesheet" href="styles/shThemeDefault.css" type="text/css" >
+        <!--[if lt IE 8]><link rel="stylesheet" href="assets/blueprint-css/ie.css" type="text/css" media="screen, projection"><![endif]-->
+        <link rel="stylesheet" href="assets/blueprint-css/plugins/fancy-type/screen.css" type="text/css" media="screen, projection">
+        <style type="text/css" media="screen">
+            p, table, hr, .box { margin-bottom:25px; }
+            .box p { margin-bottom:10px; }
+        </style>
+        <script type="text/javascript" src="scripts/shCore.js"></script>
+        <script type="text/javascript" src="scripts/shBrushJScript.js"></script>
+        <script type="text/javascript" src="scripts/shBrushXml.js"></script>
+    </head>
+    <body>
+        <div class="container">
+
+            <h3 class="center alt">&ldquo;Slot Machine - Jurassic Giants&rdquo; Documentation by &ldquo;All-Scripts&rdquo; v1.0</h3>
+
+            <hr>
+
+            <h1 class="center">&ldquo;Slot Machine - Jurassic Giants&rdquo;</h1>
+            <div class="borderTop">
+                <div class="span-6 colborder info prepend-1">
+                    <p class="prepend-top">
+                        <strong>
+                            Created: 30/08/2025<br>
+                            By: <a href="https://www.all-scripts.de">All-Scripts</a><br>
+                            Email: <a href="mailto:info@all-scripts.de">info@all-scripts.de</a>
+                        </strong>
+                    </p>
+                </div><!-- end div .span-6 -->
+                <div class="span-12 last">
+                    <p class="prepend-top append-0">
+                        Thank you for purchasing our game. If you have any questions that are beyond the scope of this help file, please feel free to email via user page
+                        contact form <a href="http://themeforest.net/user/all-scripts">here</a>. Thanks so much!
+                    </p>
+                </div>
+            </div><!-- end div .borderTop -->
+
+            <hr>
+
+            <h2 id="toc" class="alt">Table of Contents</h2>
+            <ol class="alpha">
+                <li><a href="#description">Description</a></li>
+                <li><a href="#started">Getting Started</a></li>
+                <li><a href="#language">Language</a></li>
+                <li><a href="#resolution">Resolution</a></li>
+                <li><a href="#filetree">Filetree</a></li>
+                <li><a href="#javascript">JavaScript</a></li>
+                <li><a href="#update">Update Log</a></li>
+            </ol>
+
+            <hr>
+
+            <h3 id="description"><strong>A) Description</strong> - <a href="#toc">top</a></h3>
+            <p>
+                The Jurassic Giants is a HTML5 casino game.<br/>
+                This game has been developed in PHP / HTML5 / JavaScript and Phaser 3<br>
+                with the <a href="https://www.all-scripts.de/html5slotbuilder" target="_blank">HTML5 Slotbuilder</a> - a no-code tool to build custom slots without programming!<br>
+                <br/>
+                Features:<br>
+                &bull; Audio / Musik on off<br>
+                &bull; Fullscreen<br>
+                &bull; Multilanguage Support (German, English, Spanish, French, Portuguese, Russian, Chinese, Hindi, Arabic, Bengali, Urdu, Indonesian, Japanese)<br>
+                &bull; Multiple Resolutions: (low: 640x360 / middle: 1280x720 / high: 2560x1440)<br>
+                &bull; Autoplay<br>
+                &bull; 10 Winlines<br>    
+                &bull; Jackpot<br>
+                &bull; Wild<br>
+                &bull; Freegames<br>
+                <br/>
+                The ZIP package contains the game with multiple resolution (low: 640x360 / middle: 1280x720 / high: 2560x1440) that scales to fit the current screen device.<br/>
+                The game is fully compatible with all most common mobile devices.<br/>
+            </p>
+
+            <hr>
+
+            <h3 id="started"><strong>B) Getting Started</strong> - <a href="#toc">top</a></h3>
+            <p>
+                To install the game just upload on your server the game folder game.
+                <ul>
+                    <li><strong>Game Resize:</strong> All game resolution automatically center itself and fits on the screen.
+                    If you want to avoid this, you can change this in <strong>index.php</strong> file</li>
+
+                    <pre class="brush: js">
+						<div id="game-container" style="width: 800px;"></div>
+                    </pre>
+                    to this (with the size you like):<br>
+                    <pre class="brush: js">
+                        <div id="game-container" style="width: 800px; height: 700px;"></div>
+                    </pre>
+
+                    <li><strong>insert game in a existing page:</strong> Do you want insert the game in an existing page</li>
+
+                    <pre class="brush: js">
+                        <iframe src="PATH_TO_GAME/index.php"></iframe>
+                    </pre>
+
+                    <li><strong>Game option:</strong> You can easily customize game setting in <strong>config/config.json</strong> file.</li>
+                    <pre class="brush: js">
+                        {
+                            "gamefile": "THE GAME FILENAME",
+                            "game_name": "THE GAME TITLE",
+                            "game_active": true,
+                            "decimals": 0,
+                            "allowed_bets": [
+                                10,
+                                50,
+                                100,
+                                150,
+                                300,
+                                500,
+                                750,
+                                1000,
+                                2000
+                            ],
+                            "bet_starts": 0,
+                            "symbols": [
+                                "1",
+                                "2",
+                                "3",
+                                "4",
+                                "5",
+                                "6",
+                                "7",
+                                "8",
+                                "9",
+                                "FreeSpin",
+                                "Wild",
+                                "JP"
+                            ],
+                            "weights": [
+                                20,
+                                20,
+                                20,
+                                18,
+                                15,
+                                13,
+                                13,
+                                13,
+                                12,
+                                15,
+                                5,
+                                2
+                            ],
+                            "payout_multipliers": {
+                                "sym_1": {
+                                    "c_3": 0.5,
+                                    "c_4": 1.5,
+                                    "c_5": 2.5
+                                },
+                                "sym_2": {
+                                    "c_3": 1,
+                                    "c_4": 3,
+                                    "c_5": 5
+                                },
+                                "sym_3": {
+                                    "c_3": 1.5,
+                                    "c_4": 4.5,
+                                    "c_5": 7.5
+                                },
+                                "sym_4": {
+                                    "c_3": 2,
+                                    "c_4": 6,
+                                    "c_5": 10
+                                },
+                                "sym_5": {
+                                    "c_3": 3,
+                                    "c_4": 9,
+                                    "c_5": 15
+                                },
+                                "sym_6": {
+                                    "c_2": 1,
+                                    "c_3": 5,
+                                    "c_4": 15,
+                                    "c_5": 25
+                                },
+                                "sym_7": {
+                                    "c_2": 2,
+                                    "c_3": 10,
+                                    "c_4": 30,
+                                    "c_5": 50
+                                },
+                                "sym_8": {
+                                    "c_2": 3,
+                                    "c_3": 15,
+                                    "c_4": 45,
+                                    "c_5": 75
+                                },
+                                "sym_9": {
+                                    "c_2": 4,
+                                    "c_3": 20,
+                                    "c_4": 60,
+                                    "c_5": 100
+                                },
+                                "sym_FreeSpin": {
+                                    "c_3": 10,
+                                    "c_4": 20,
+                                    "c_5": 30
+                                }
+                            },
+                            "owner_fee": 10,
+                            "jackpot_fee": 5,
+                            "winlines": [
+                                [
+                                    0,
+                                    0,
+                                    0,
+                                    0,
+                                    0
+                                ],
+                                [
+                                    1,
+                                    1,
+                                    1,
+                                    1,
+                                    1
+                                ],
+                                [
+                                    2,
+                                    2,
+                                    2,
+                                    2,
+                                    2
+                                ],
+                                [
+                                    0,
+                                    1,
+                                    2,
+                                    1,
+                                    0
+                                ],
+                                [
+                                    2,
+                                    1,
+                                    0,
+                                    1,
+                                    2
+                                ],
+                                [
+                                    0,
+                                    0,
+                                    1,
+                                    2,
+                                    2
+                                ],
+                                [
+                                    2,
+                                    2,
+                                    1,
+                                    0,
+                                    0
+                                ],
+                                [
+                                    1,
+                                    0,
+                                    0,
+                                    0,
+                                    1
+                                ],
+                                [
+                                    1,
+                                    2,
+                                    2,
+                                    2,
+                                    1
+                                ]
+                            ]
+                        }
+                    </pre>
+                </ul>
+            </p>
+
+            <hr>
+
+            <h3 id="language"><strong>C) Language</strong> - <a href="#toc">top</a></h3>
+            <p>
+                The game can be accessed via the URL with the additional parameter `?lang=`, to select the desired language. The following languages are supported:
+                <ul>
+                    <li>`de` (German)</li>
+                    <li>`en` (English)</li>
+                    <li>`es` (Spanish)</li>
+                    <li>`fr` (French)</li>
+                    <li>`pt` (Portuguese)</li>
+                    <li>`ru` (Russian)</li>
+                    <li>`zh` (Chinese)</li>
+                    <li>`hi` (Hindi)</li>
+                    <li>`ar` (Arabic)</li>
+                    <li>`bn` (Bengali)</li>
+                    <li>`ur` (Urdu)</li>
+                    <li>`id` (Indonesian)</li>
+                    <li>`ja` (Japanese)</li>
+                </ul>
+                Example: `your-domain.com/path-to-game/?lang=en`
+            </p>
+
+            <hr>
+
+            <h3 id="resolution"><strong>D) Resolution</strong> - <a href="#toc">top</a></h3>
+            <p>
+                The game can be accessed via the URL with the additional parameter `?resolution=`, to select the desired resolution. The following resolution are supported:
+                <ul>
+                    <li>`low` (Scalefactor x0.5)</li>
+                    <li>`middle` (Scalefactor x1)</li>
+                    <li>`high` (Scalefactor x2)</li>
+                </ul>
+                Example: `your-domain.com/path-to-game/?resolution=low`
+            </p>
+
+            <hr>
+
+            <h3 id="filetree"><strong>E) Filetree</strong> - <a href="#toc">top</a></h3>
+            <p>
+            	<ul><li>assets<ul><li>animations<ul><li>symbols_high-0.webp</li><li>symbols_high.json</li><li>symbols_low-0.webp</li><li>symbols_low.json</li><li>symbols_middle-0.webp</li><li>symbols_middle.json</li></ul></li><li>audio<ul><li>click.mp3</li><li>click.ogg</li><li>fsmusic.mp3</li><li>fsmusic.ogg</li><li>music.mp3</li><li>music.ogg</li><li>reel_start.mp3</li><li>reel_start.ogg</li><li>reel_stop.mp3</li><li>reel_stop.ogg</li><li>win_big.mp3</li><li>win_big.ogg</li><li>win_freespin.mp3</li><li>win_freespin.ogg</li><li>win_jackpot.mp3</li><li>win_jackpot.ogg</li><li>win_middle.mp3</li><li>win_middle.ogg</li><li>win_small.mp3</li><li>win_small.ogg</li></ul></li><li>images<ul><li>background_high.webp</li><li>background_low.webp</li><li>background_middle.webp</li><li>buttons_high.json</li><li>buttons_high.webp</li><li>buttons_low.json</li><li>buttons_low.webp</li><li>buttons_middle.json</li><li>buttons_middle.webp</li><li>mask_high.webp</li><li>mask_low.webp</li><li>mask_middle.webp</li><li>paytable_background_high.webp</li><li>paytable_background_low.webp</li><li>paytable_background_middle.webp</li><li>preloader_background_high.webp</li><li>preloader_background_low.webp</li><li>preloader_background_middle.webp</li><li>preloader_bar_high.webp</li><li>preloader_bar_low.webp</li><li>preloader_bar_middle.webp</li><li>preloader_mask_high.webp</li><li>preloader_mask_low.webp</li><li>preloader_mask_middle.webp</li></ul></li></ul></li><li>classes<ul><li>Api.php</li><li>SlotGame.php</li></ul></li><li>config<ul><li>config.json</li></ul></li><li>fonts<ul><li>upcfb.ttf</li></ul></li><li>index.php</li><li>js<ul><li>game.js</li><li>phaser.min.js</li><li>reel_animation.js</li></ul></li><li>lang<ul><li>lang.php</li></ul></li><li>README.md</li><li>remote.php</li></ul>
+            </p>
+
+            <hr>
+
+            <h3 id="javascript"><strong>F) JavaScript</strong> - <a href="#toc">top</a></h3>
+            <p>This game contains tree JavaScript files.</p>
+            <ol>
+                <li>Our custom script - js/game.js</li>
+                <li>Phaser v3.19 - js/phaser.min.js</li>                
+                <li>Our custom script - js/reel_animation.js</li>                
+            </ol>
+            <ol>
+                <li>Phaser is an open source HTML5 game framework created by Photon Storm. It's designed to create games that will run on desktop and mobile web browsers.</li>
+                <li>In The configuration file you can change debugmode (so developers get a console output), bets, jackpot, chances and many more.</li>
+                <li>The Game</li>
+            </ol>
+
+            <hr>
+
+            <h3 id="update"><strong>G) Update log</strong> - <a href="#toc">top</a></h3>
+
+            <hr>
+
+            <p>
+                Once again, thank you so much for purchasing this game. Fell free to contact us if you have any questions or issue relating to this game. No guarantees, but we'll do our best to assist.
+            </p>
+            <p class="append-bottom alt large"><strong><a href="https://www.all-scripts.de">All-Scripts</a></strong></p>
+            <p><a href="#toc">Go To Table of Contents</a></p>
+
+            <hr class="space">
+		</div><!-- end div .container -->
+
+        <script type="text/javascript">
+             SyntaxHighlighter.all()
+        </script>
+	</body>
+</html>

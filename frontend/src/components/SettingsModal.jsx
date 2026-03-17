@@ -6,7 +6,7 @@ const SettingsModal = ({ onClose, balance, pendingBalance, availableBalance }) =
         if (value === null || value === undefined || value === '') return '—';
         const num = Number(value);
         if (Number.isNaN(num)) return '—';
-        return `$ ${num.toFixed(2)}`;
+        return `$ ${Math.round(num)}`;
     };
     
     return (

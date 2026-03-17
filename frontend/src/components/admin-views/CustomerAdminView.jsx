@@ -648,7 +648,7 @@ function CustomerAdminView({ onViewChange }) {
     if (balance === null || balance === undefined || balance === '') return '—';
     const num = Number(balance);
     if (Number.isNaN(num)) return '—';
-    return `$${num.toFixed(2)}`;
+    return `$${Math.round(num)}`;
   };
 
   const canCreateCustomer = !viewOnly

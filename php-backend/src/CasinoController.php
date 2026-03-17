@@ -906,7 +906,7 @@ final class CasinoController
             $playerBet = $this->parseMoneyValue($bets['Player'] ?? 0, 'bets.Player');
             $bankerBet = $this->parseMoneyValue($bets['Banker'] ?? 0, 'bets.Banker');
             $tieBet = $this->parseMoneyValue($bets['Tie'] ?? 0, 'bets.Tie');
-            $totalWager = round($playerBet + $bankerBet + $tieBet, 2);
+            $totalWager = round($playerBet + $bankerBet + $tieBet);
 
             if ($totalWager <= 0) {
                 Response::json(['message' => 'No bets placed'], 400);
@@ -915,11 +915,11 @@ final class CasinoController
 
             [$gameMinBet, $gameMaxBet] = $this->resolveGameBetLimits(self::BACCARAT_GAME_SLUG, 1.0, 100.0);
             if ($totalWager < $gameMinBet) {
-                Response::json(['message' => 'Minimum baccarat wager is $' . number_format($gameMinBet, 2)], 400);
+                Response::json(['message' => 'Minimum baccarat wager is $' . round($gameMinBet)], 400);
                 return;
             }
             if ($totalWager > $gameMaxBet) {
-                Response::json(['message' => 'Maximum baccarat wager is $' . number_format($gameMaxBet, 2)], 400);
+                Response::json(['message' => 'Maximum baccarat wager is $' . round($gameMaxBet)], 400);
                 return;
             }
 
@@ -964,22 +964,22 @@ final class CasinoController
                 $userMaxBet = $this->safeNumber($lockedUser['maxBet'] ?? null, null);
                 if ($userMinBet !== null && $userMinBet > 0 && $totalWager < $userMinBet) {
                     $this->db->rollback();
-                    Response::json(['message' => 'Minimum bet for your account is $' . number_format($userMinBet, 2)], 400);
+                    Response::json(['message' => 'Minimum bet for your account is $' . round($userMinBet)], 400);
                     return;
                 }
                 if ($userMaxBet !== null && $userMaxBet > 0 && $totalWager > $userMaxBet) {
                     $this->db->rollback();
-                    Response::json(['message' => 'Maximum bet for your account is $' . number_format($userMaxBet, 2)], 400);
+                    Response::json(['message' => 'Maximum bet for your account is $' . round($userMaxBet)], 400);
                     return;
                 }
                 $this->assertCasinoLossLimits($lockedUser, $totalWager);
 
-                $balanceBefore = round($this->num($lockedUser['balance'] ?? 0), 2);
-                $pendingBalance = round($this->num($lockedUser['pendingBalance'] ?? 0), 2);
-                $availableBalance = round(max(0, $balanceBefore - $pendingBalance), 2);
+                $balanceBefore = round($this->num($lockedUser['balance'] ?? 0));
+                $pendingBalance = round($this->num($lockedUser['pendingBalance'] ?? 0));
+                $availableBalance = round(max(0, $balanceBefore - $pendingBalance));
                 if ($totalWager > $availableBalance) {
                     $this->db->rollback();
-                    Response::json(['message' => 'Insufficient balance. Available: $' . number_format($availableBalance, 2)], 400);
+                    Response::json(['message' => 'Insufficient balance. Available: $' . round($availableBalance)], 400);
                     return;
                 }
 
@@ -992,9 +992,9 @@ final class CasinoController
                 $profit = $payout['profit'];
                 $netResult = $payout['netResult'];
 
-                $balanceAfterDebit = round($balanceBefore - $totalWager, 2);
-                $balanceAfter = round($balanceAfterDebit + $totalReturn, 2);
-                $availableBalanceAfter = round(max(0, $balanceAfter - $pendingBalance), 2);
+                $balanceAfterDebit = round($balanceBefore - $totalWager);
+                $balanceAfter = round($balanceAfterDebit + $totalReturn);
+                $availableBalanceAfter = round(max(0, $balanceAfter - $pendingBalance));
 
                 $now = MongoRepository::nowUtc();
                 $ipAddress = IpUtils::clientIp();
@@ -1179,11 +1179,11 @@ final class CasinoController
 
             [$gameMinBet, $gameMaxBet] = $this->resolveGameBetLimits(self::ROULETTE_GAME_SLUG, 1.0, 5000.0);
             if ($totalWager < $gameMinBet) {
-                Response::json(['message' => 'Minimum roulette wager is $' . number_format($gameMinBet, 2)], 400);
+                Response::json(['message' => 'Minimum roulette wager is $' . round($gameMinBet)], 400);
                 return;
             }
             if ($totalWager > $gameMaxBet) {
-                Response::json(['message' => 'Maximum roulette wager is $' . number_format($gameMaxBet, 2)], 400);
+                Response::json(['message' => 'Maximum roulette wager is $' . round($gameMaxBet)], 400);
                 return;
             }
 
@@ -1216,7 +1216,7 @@ final class CasinoController
                 $balanceSnapshot = $this->getUserBalanceSnapshot($lockedUser);
                 if ($totalWager > $balanceSnapshot['availableBalance']) {
                     $this->db->rollback();
-                    Response::json(['message' => 'Insufficient balance. Available: $' . number_format($balanceSnapshot['availableBalance'], 2)], 400);
+                    Response::json(['message' => 'Insufficient balance. Available: $' . round($balanceSnapshot['availableBalance'])], 400);
                     return;
                 }
 
@@ -1225,11 +1225,11 @@ final class CasinoController
                 $outcome = $this->pickRouletteOutcome($parsedBets['entries']);
 
                 $totalReturn = $outcome['totalReturn'];
-                $profit = round(max(0, $totalReturn - $totalWager), 2);
-                $netResult = round($totalReturn - $totalWager, 2);
-                $balanceAfterDebit = round($balanceSnapshot['balanceBefore'] - $totalWager, 2);
-                $balanceAfter = round($balanceAfterDebit + $totalReturn, 2);
-                $availableBalanceAfter = round(max(0, $balanceAfter - $balanceSnapshot['pendingBalance']), 2);
+                $profit = round(max(0, $totalReturn - $totalWager));
+                $netResult = round($totalReturn - $totalWager);
+                $balanceAfterDebit = round($balanceSnapshot['balanceBefore'] - $totalWager);
+                $balanceAfter = round($balanceAfterDebit + $totalReturn);
+                $availableBalanceAfter = round(max(0, $balanceAfter - $balanceSnapshot['pendingBalance']));
 
                 $now = MongoRepository::nowUtc();
                 $ipAddress = IpUtils::clientIp();
@@ -1425,22 +1425,22 @@ final class CasinoController
                 return;
             }
 
-            if (!$folded && round(abs($playBet - $anteBet), 2) > 0) {
+            if (!$folded && round(abs($playBet - $anteBet)) > 0) {
                 Response::json(['message' => 'Play bet must match the Ante amount exactly'], 400);
                 return;
             }
 
             [$gameMinBet, $gameMaxBet] = $this->resolveGameBetLimits(self::THREE_CARD_POKER_GAME_SLUG, 1.0, 300.0);
             if ($anteBet < $gameMinBet) {
-                Response::json(['message' => 'Minimum ante bet is $' . number_format($gameMinBet, 2)], 400);
+                Response::json(['message' => 'Minimum ante bet is $' . round($gameMinBet)], 400);
                 return;
             }
             if ($anteBet > $gameMaxBet) {
-                Response::json(['message' => 'Maximum ante bet is $' . number_format($gameMaxBet, 2)], 400);
+                Response::json(['message' => 'Maximum ante bet is $' . round($gameMaxBet)], 400);
                 return;
             }
             if ($pairPlusBet > $gameMaxBet) {
-                Response::json(['message' => 'Maximum Pair Plus bet is $' . number_format($gameMaxBet, 2)], 400);
+                Response::json(['message' => 'Maximum Pair Plus bet is $' . round($gameMaxBet)], 400);
                 return;
             }
 
@@ -1504,7 +1504,7 @@ final class CasinoController
                 $balanceSnapshot = $this->getUserBalanceSnapshot($lockedUser);
                 if ($totalWager > $balanceSnapshot['availableBalance']) {
                     $this->db->rollback();
-                    Response::json(['message' => 'Insufficient balance. Available: $' . number_format($balanceSnapshot['availableBalance'], 2)], 400);
+                    Response::json(['message' => 'Insufficient balance. Available: $' . round($balanceSnapshot['availableBalance'])], 400);
                     return;
                 }
 
@@ -1513,9 +1513,9 @@ final class CasinoController
                 $ipAddress = IpUtils::clientIp();
                 $userAgent = Http::header('user-agent') !== '' ? Http::header('user-agent') : null;
 
-                $balanceAfterDebit = round($balanceSnapshot['balanceBefore'] - $totalWager, 2);
-                $balanceAfter = round($balanceAfterDebit + $totalReturn, 2);
-                $availableBalanceAfter = round(max(0, $balanceAfter - $balanceSnapshot['pendingBalance']), 2);
+                $balanceAfterDebit = round($balanceSnapshot['balanceBefore'] - $totalWager);
+                $balanceAfter = round($balanceAfterDebit + $totalReturn);
+                $availableBalanceAfter = round(max(0, $balanceAfter - $balanceSnapshot['pendingBalance']));
 
                 $debitEntry = $this->buildCasinoTransactionEntry(
                     $userId,
@@ -1774,10 +1774,10 @@ final class CasinoController
         $pairPlusMultiplier = $this->threeCardPokerPairPlusMultiplier($playerEval['key']);
         $anteBonusMultiplier = $folded ? 0.0 : $this->threeCardPokerAnteBonusMultiplier($playerEval['key']);
         $pairPlusReturn = ($pairPlusBet > 0 && $pairPlusMultiplier > 0)
-            ? round(($pairPlusBet * $pairPlusMultiplier) + $pairPlusBet, 2)
+            ? round(($pairPlusBet * $pairPlusMultiplier) + $pairPlusBet)
             : 0.0;
         $anteBonusReturn = $anteBonusMultiplier > 0
-            ? round($anteBet * $anteBonusMultiplier, 2)
+            ? round($anteBet * $anteBonusMultiplier)
             : 0.0;
 
         $mainResultKey = 'fold';
@@ -1789,32 +1789,32 @@ final class CasinoController
             if (!$dealerQualifies) {
                 $mainResultKey = 'dealer_not_qualified';
                 $mainResultLabel = 'Dealer Not Qualified';
-                $anteReturn = round($anteBet * 2, 2);
-                $playReturn = round($playBet, 2);
+                $anteReturn = round($anteBet * 2);
+                $playReturn = round($playBet);
             } else {
                 $comparison = $this->compare3CardPokerHands($playerEval, $dealerEval);
                 if ($comparison === 'player') {
                     $mainResultKey = 'player';
                     $mainResultLabel = 'Player';
-                    $anteReturn = round($anteBet * 2, 2);
-                    $playReturn = round($playBet * 2, 2);
+                    $anteReturn = round($anteBet * 2);
+                    $playReturn = round($playBet * 2);
                 } elseif ($comparison === 'dealer') {
                     $mainResultKey = 'dealer';
                     $mainResultLabel = 'Dealer';
                 } else {
                     $mainResultKey = 'tie';
                     $mainResultLabel = 'Tie';
-                    $anteReturn = round($anteBet, 2);
-                    $playReturn = round($playBet, 2);
+                    $anteReturn = round($anteBet);
+                    $playReturn = round($playBet);
                 }
             }
         } else {
             $anteBonusReturn = 0.0;
         }
 
-        $totalWager = round($anteBet + $pairPlusBet + $playBet, 2);
-        $totalReturn = round($anteReturn + $playReturn + $pairPlusReturn + $anteBonusReturn, 2);
-        $netResult = round($totalReturn - $totalWager, 2);
+        $totalWager = round($anteBet + $pairPlusBet + $playBet);
+        $totalReturn = round($anteReturn + $playReturn + $pairPlusReturn + $anteBonusReturn);
+        $netResult = round($totalReturn - $totalWager);
 
         return [
             'playerCards' => array_values(array_map(static fn(array $card): string => (string) ($card['code'] ?? ''), $playerCards)),
@@ -1826,27 +1826,27 @@ final class CasinoController
             'mainResultLabel' => $mainResultLabel,
             'payoutBreakdown' => [
                 'ante' => [
-                    'bet' => round($anteBet, 2),
+                    'bet' => round($anteBet),
                     'action' => $folded ? 'lose' : (!$dealerQualifies || $mainResultKey === 'player' ? 'win' : ($mainResultKey === 'tie' ? 'push' : 'lose')),
                     'returnAmount' => $anteReturn,
-                    'payout' => $anteReturn > $anteBet ? round($anteReturn - $anteBet, 2) : 0.0,
+                    'payout' => $anteReturn > $anteBet ? round($anteReturn - $anteBet) : 0.0,
                 ],
                 'play' => [
-                    'bet' => round($playBet, 2),
+                    'bet' => round($playBet),
                     'action' => $folded ? 'not_placed' : (!$dealerQualifies ? 'push' : ($mainResultKey === 'player' ? 'win' : ($mainResultKey === 'tie' ? 'push' : 'lose'))),
                     'returnAmount' => $playReturn,
-                    'payout' => $playBet > 0 && $playReturn > $playBet ? round($playReturn - $playBet, 2) : 0.0,
+                    'payout' => $playBet > 0 && $playReturn > $playBet ? round($playReturn - $playBet) : 0.0,
                 ],
                 'pairPlus' => [
-                    'bet' => round($pairPlusBet, 2),
+                    'bet' => round($pairPlusBet),
                     'hand' => (string) $playerEval['name'],
                     'multiplier' => $pairPlusMultiplier,
                     'action' => $pairPlusBet <= 0 ? 'not_placed' : ($pairPlusReturn > 0 ? 'win' : 'lose'),
                     'returnAmount' => $pairPlusReturn,
-                    'payout' => $pairPlusReturn > 0 ? round($pairPlusReturn - $pairPlusBet, 2) : 0.0,
+                    'payout' => $pairPlusReturn > 0 ? round($pairPlusReturn - $pairPlusBet) : 0.0,
                 ],
                 'anteBonus' => [
-                    'betBase' => round($anteBet, 2),
+                    'betBase' => round($anteBet),
                     'hand' => (string) $playerEval['name'],
                     'multiplier' => $anteBonusMultiplier,
                     'action' => $anteBonusReturn > 0 ? 'win' : ($folded ? 'forfeit' : 'lose'),
@@ -2042,11 +2042,11 @@ final class CasinoController
 
             [$gameMinBet, $gameMaxBet] = $this->resolveGameBetLimits(self::BLACKJACK_GAME_SLUG, 1.0, 10000.0);
             if ($totalWager < $gameMinBet) {
-                Response::json(['message' => 'Minimum blackjack wager is $' . number_format($gameMinBet, 2)], 400);
+                Response::json(['message' => 'Minimum blackjack wager is $' . round($gameMinBet)], 400);
                 return;
             }
             if ($totalWager > $gameMaxBet) {
-                Response::json(['message' => 'Maximum blackjack wager is $' . number_format($gameMaxBet, 2)], 400);
+                Response::json(['message' => 'Maximum blackjack wager is $' . round($gameMaxBet)], 400);
                 return;
             }
 
@@ -2079,7 +2079,7 @@ final class CasinoController
                 $balanceSnapshot = $this->getUserBalanceSnapshot($lockedUser);
                 if ($totalWager > $balanceSnapshot['availableBalance']) {
                     $this->db->rollback();
-                    Response::json(['message' => 'Insufficient balance. Available: $' . number_format($balanceSnapshot['availableBalance'], 2)], 400);
+                    Response::json(['message' => 'Insufficient balance. Available: $' . round($balanceSnapshot['availableBalance'])], 400);
                     return;
                 }
 
@@ -2088,9 +2088,9 @@ final class CasinoController
                 $ipAddress = IpUtils::clientIp();
                 $userAgent = Http::header('user-agent') !== '' ? Http::header('user-agent') : null;
 
-                $balanceAfterDebit = round($balanceSnapshot['balanceBefore'] - $totalWager, 2);
-                $balanceAfter = round($balanceAfterDebit + $totalReturn, 2);
-                $availableBalanceAfter = round(max(0, $balanceAfter - $balanceSnapshot['pendingBalance']), 2);
+                $balanceAfterDebit = round($balanceSnapshot['balanceBefore'] - $totalWager);
+                $balanceAfter = round($balanceAfterDebit + $totalReturn);
+                $availableBalanceAfter = round(max(0, $balanceAfter - $balanceSnapshot['pendingBalance']));
 
                 $debitEntry = $this->buildCasinoTransactionEntry(
                     $userId,
@@ -2278,11 +2278,11 @@ final class CasinoController
 
             [$gameMinBet, $gameMaxBet] = $this->resolveGameBetLimits(self::CRAPS_GAME_SLUG, 1.0, 10000.0);
             if ($currentExposure < $gameMinBet) {
-                Response::json(['message' => 'Minimum craps wager is $' . number_format($gameMinBet, 2)], 400);
+                Response::json(['message' => 'Minimum craps wager is $' . round($gameMinBet)], 400);
                 return;
             }
             if ($currentExposure > $gameMaxBet) {
-                Response::json(['message' => 'Maximum craps wager is $' . number_format($gameMaxBet, 2)], 400);
+                Response::json(['message' => 'Maximum craps wager is $' . round($gameMaxBet)], 400);
                 return;
             }
 
@@ -2328,8 +2328,8 @@ final class CasinoController
                         $releasedStake += ($prev - $curr);
                     }
                 }
-                $addedStake = round($addedStake, 2);
-                $releasedStake = round($releasedStake, 2);
+                $addedStake = round($addedStake);
+                $releasedStake = round($releasedStake);
 
                 if ($addedStake > 0) {
                     $this->assertUserWagerWithinLimits($lockedUser, $addedStake);
@@ -2339,7 +2339,7 @@ final class CasinoController
                 $balanceSnapshot = $this->getUserBalanceSnapshot($lockedUser);
                 if ($addedStake > $balanceSnapshot['availableBalance']) {
                     $this->db->rollback();
-                    Response::json(['message' => 'Insufficient balance. Available: $' . number_format($balanceSnapshot['availableBalance'], 2)], 400);
+                    Response::json(['message' => 'Insufficient balance. Available: $' . round($balanceSnapshot['availableBalance'])], 400);
                     return;
                 }
 
@@ -2358,13 +2358,13 @@ final class CasinoController
                 $dice = $settlement['dice'];
 
                 $totalWager = $addedStake;
-                $totalReturn = round($releasedStake + $settledReturn, 2);
-                $netResult = round($totalReturn - $totalWager, 2);
-                $profit = round(max(0, $netResult), 2);
+                $totalReturn = round($releasedStake + $settledReturn);
+                $netResult = round($totalReturn - $totalWager);
+                $profit = round(max(0, $netResult));
 
-                $balanceAfterDebit = round($balanceSnapshot['balanceBefore'] - $totalWager, 2);
-                $balanceAfter = round($balanceAfterDebit + $totalReturn, 2);
-                $availableBalanceAfter = round(max(0, $balanceAfter - $balanceSnapshot['pendingBalance']), 2);
+                $balanceAfterDebit = round($balanceSnapshot['balanceBefore'] - $totalWager);
+                $balanceAfter = round($balanceAfterDebit + $totalReturn);
+                $availableBalanceAfter = round(max(0, $balanceAfter - $balanceSnapshot['pendingBalance']));
 
                 $roundId = $this->newRoundId();
                 $now = MongoRepository::nowUtc();
@@ -2594,7 +2594,7 @@ final class CasinoController
                     ?? 0,
                 'bets.totalBet'
             );
-            $requestedTotalBet = round($requestedCoinBet * $requestedLineCount, 2);
+            $requestedTotalBet = round($requestedCoinBet * $requestedLineCount);
 
             if ($requestedTotalBet <= 0) {
                 Response::json(['message' => 'Arabian spin bet must be greater than zero'], 400);
@@ -2645,10 +2645,10 @@ final class CasinoController
                     && $this->num($lockedFreeSpinCoinBet) > 0
                 ) {
                     $lineCount = $lockedFreeSpinLineCount;
-                    $coinBet = round($this->num($lockedFreeSpinCoinBet), 2);
+                    $coinBet = round($this->num($lockedFreeSpinCoinBet));
                 }
 
-                $baseTotalBet = round($coinBet * $lineCount, 2);
+                $baseTotalBet = round($coinBet * $lineCount);
                 $totalWager = $isFreeSpinRound ? 0.0 : $baseTotalBet;
                 if ($isFreeSpinRound && ($lineCount !== $requestedLineCount || abs($coinBet - $requestedCoinBet) > 0.00001)) {
                     $this->writeCasinoAuditLog('arabian_freespin_bet_locked', [
@@ -2664,19 +2664,19 @@ final class CasinoController
 
                 if ($baseTotalBet > $gameMaxBet) {
                     $this->db->rollback();
-                    Response::json(['message' => 'Maximum Arabian wager is $' . number_format($gameMaxBet, 2)], 400);
+                    Response::json(['message' => 'Maximum Arabian wager is $' . round($gameMaxBet)], 400);
                     return;
                 }
 
                 if (!$isFreeSpinRound) {
                     if ($totalWager < $gameMinBet) {
                         $this->db->rollback();
-                        Response::json(['message' => 'Minimum Arabian wager is $' . number_format($gameMinBet, 2)], 400);
+                        Response::json(['message' => 'Minimum Arabian wager is $' . round($gameMinBet)], 400);
                         return;
                     }
                     if ($totalWager > $gameMaxBet) {
                         $this->db->rollback();
-                        Response::json(['message' => 'Maximum Arabian wager is $' . number_format($gameMaxBet, 2)], 400);
+                        Response::json(['message' => 'Maximum Arabian wager is $' . round($gameMaxBet)], 400);
                         return;
                     }
 
@@ -2687,15 +2687,15 @@ final class CasinoController
                 $balanceSnapshot = $this->getUserBalanceSnapshot($lockedUser);
                 if ($totalWager > $balanceSnapshot['availableBalance']) {
                     $this->db->rollback();
-                    Response::json(['message' => 'Insufficient balance. Available: $' . number_format($balanceSnapshot['availableBalance'], 2)], 400);
+                    Response::json(['message' => 'Insufficient balance. Available: $' . round($balanceSnapshot['availableBalance'])], 400);
                     return;
                 }
 
                 $roundId = $this->deterministicRoundId(self::ARABIAN_GAME_SLUG, $userId, $requestId);
                 $settlement = $this->settleArabianSpin($coinBet, $lineCount, $stateBefore);
-                $totalReturn = round($this->num($settlement['totalReturn'] ?? 0), 2);
-                $netResult = round($totalReturn - $totalWager, 2);
-                $profit = round(max(0, $netResult), 2);
+                $totalReturn = round($this->num($settlement['totalReturn'] ?? 0));
+                $netResult = round($totalReturn - $totalWager);
+                $profit = round(max(0, $netResult));
                 $result = (string) ($settlement['result'] ?? ($totalReturn > 0 ? 'Win' : 'Lose'));
                 $resultType = (string) ($settlement['resultType'] ?? '');
                 $roundData = is_array($settlement['roundData'] ?? null) ? $settlement['roundData'] : [];
@@ -2704,9 +2704,9 @@ final class CasinoController
                 $now = MongoRepository::nowUtc();
                 $ipAddress = IpUtils::clientIp();
                 $userAgent = Http::header('user-agent') !== '' ? Http::header('user-agent') : null;
-                $balanceAfterDebit = round($balanceSnapshot['balanceBefore'] - $totalWager, 2);
-                $balanceAfter = round($balanceAfterDebit + $totalReturn, 2);
-                $availableBalanceAfter = round(max(0, $balanceAfter - $balanceSnapshot['pendingBalance']), 2);
+                $balanceAfterDebit = round($balanceSnapshot['balanceBefore'] - $totalWager);
+                $balanceAfter = round($balanceAfterDebit + $totalReturn);
+                $availableBalanceAfter = round(max(0, $balanceAfter - $balanceSnapshot['pendingBalance']));
 
                 $debitEntry = null;
                 $debitEntryId = null;
@@ -2796,8 +2796,8 @@ final class CasinoController
 
                 $betDetails = [
                     'winningLines' => is_array($roundData['winningLines'] ?? null) ? $roundData['winningLines'] : [],
-                    'lineWin' => round($this->num($roundData['lineWin'] ?? 0), 2),
-                    'bonusWin' => round($this->num($roundData['bonusWin'] ?? 0), 2),
+                    'lineWin' => round($this->num($roundData['lineWin'] ?? 0)),
+                    'bonusWin' => round($this->num($roundData['bonusWin'] ?? 0)),
                     'bonusTriggered' => (bool) ($roundData['bonusTriggered'] ?? false),
                     'bonusPrizeIndex' => (int) ($roundData['bonusPrizeIndex'] ?? -1),
                     'bonusSymbolCount' => (int) ($roundData['bonusSymbolCount'] ?? 0),
@@ -2893,7 +2893,7 @@ final class CasinoController
                     'balanceAfter' => $balanceAfter,
                     'freeSpinsBefore' => (int) ($roundData['freeSpinsBefore'] ?? 0),
                     'freeSpinsAfter' => (int) ($roundData['freeSpinsAfter'] ?? 0),
-                    'bonusWin' => round($this->num($roundData['bonusWin'] ?? 0), 2),
+                    'bonusWin' => round($this->num($roundData['bonusWin'] ?? 0)),
                 ]);
                 Response::json($this->formatCasinoBetResponse($betRecord, $ledgerEntries, false));
             } catch (Throwable $txErr) {
@@ -2936,7 +2936,7 @@ final class CasinoController
         $coinBetRaw = $this->safeNumber($raw['freeSpinCoinBet'] ?? null, null);
         $freeSpinCoinBet = null;
         if ($coinBetRaw !== null && $coinBetRaw > 0 && $coinBetRaw <= 1000) {
-            $freeSpinCoinBet = round($coinBetRaw, 2);
+            $freeSpinCoinBet = round($coinBetRaw);
         }
 
         return [
@@ -2979,7 +2979,7 @@ final class CasinoController
         $coinStepCents = (int) round(self::ARABIAN_COIN_STEP * 100);
         $coinBetCents = (int) round($coinBet * 100);
         if ($coinStepCents <= 0 || ($coinBetCents % $coinStepCents) !== 0) {
-            throw new InvalidArgumentException('bets.coinBet must use ' . number_format(self::ARABIAN_COIN_STEP, 2) . ' increments');
+            throw new InvalidArgumentException('bets.coinBet must use ' . round(self::ARABIAN_COIN_STEP) . ' increments');
         }
 
         return $coinBet;
@@ -3002,8 +3002,8 @@ final class CasinoController
     {
         $accountMinRaw = $this->safeNumber($lockedUser['minBet'] ?? null, null);
         $accountMaxRaw = $this->safeNumber($lockedUser['maxBet'] ?? null, null);
-        $accountMinBet = ($accountMinRaw !== null && $accountMinRaw > 0) ? round($accountMinRaw, 2) : null;
-        $accountMaxBet = ($accountMaxRaw !== null && $accountMaxRaw > 0) ? round($accountMaxRaw, 2) : null;
+        $accountMinBet = ($accountMinRaw !== null && $accountMinRaw > 0) ? round($accountMinRaw) : null;
+        $accountMaxBet = ($accountMaxRaw !== null && $accountMaxRaw > 0) ? round($accountMaxRaw) : null;
 
         $effectiveMinBet = $accountMinBet !== null ? max($gameMinBet, $accountMinBet) : $gameMinBet;
         $effectiveMaxBet = $accountMaxBet !== null ? min($gameMaxBet, $accountMaxBet) : $gameMaxBet;
@@ -3014,10 +3014,10 @@ final class CasinoController
         return [
             'accountMinBet' => $accountMinBet,
             'accountMaxBet' => $accountMaxBet,
-            'gameMinBet' => round($gameMinBet, 2),
-            'gameMaxBet' => round($gameMaxBet, 2),
-            'effectiveMinBet' => round($effectiveMinBet, 2),
-            'effectiveMaxBet' => round($effectiveMaxBet, 2),
+            'gameMinBet' => round($gameMinBet),
+            'gameMaxBet' => round($gameMaxBet),
+            'effectiveMinBet' => round($effectiveMinBet),
+            'effectiveMaxBet' => round($effectiveMaxBet),
             'lineMin' => 1,
             'lineMax' => self::ARABIAN_MAX_LINES,
             'coinStep' => self::ARABIAN_COIN_STEP,
@@ -3040,7 +3040,7 @@ final class CasinoController
         $isFreeSpinRound = $freeSpinsBefore > 0;
         $freeSpinsAfter = $isFreeSpinRound ? ($freeSpinsBefore - 1) : $freeSpinsBefore;
         $lockedLineCountBefore = is_int($stateBefore['freeSpinLineCount'] ?? null) ? (int) $stateBefore['freeSpinLineCount'] : null;
-        $lockedCoinBetBefore = is_numeric($stateBefore['freeSpinCoinBet'] ?? null) ? round($this->num($stateBefore['freeSpinCoinBet']), 2) : null;
+        $lockedCoinBetBefore = is_numeric($stateBefore['freeSpinCoinBet'] ?? null) ? round($this->num($stateBefore['freeSpinCoinBet'])) : null;
 
         $pattern = $this->generateArabianPattern();
         $winningLines = $this->evaluateArabianWinningLines($pattern, $lineCount, $coinBet);
@@ -3048,7 +3048,7 @@ final class CasinoController
         foreach ($winningLines as $lineWinEntry) {
             $lineWin += $this->num($lineWinEntry['amount'] ?? 0);
         }
-        $lineWin = round($lineWin, 2);
+        $lineWin = round($lineWin);
 
         $bonusSymbolCount = $this->countArabianSymbol($pattern, self::ARABIAN_BONUS_SYMBOL);
         $bonusTriggered = $bonusSymbolCount >= 3;
@@ -3056,7 +3056,7 @@ final class CasinoController
         $bonusWin = 0.0;
         if ($bonusTriggered) {
             [$bonusPrizeIndex, $bonusMultiplier] = $this->pickArabianBonusPrize();
-            $bonusWin = round($bonusMultiplier * $coinBet, 2);
+            $bonusWin = round($bonusMultiplier * $coinBet);
         }
 
         $freeSpinSymbolCount = $this->countArabianSymbol($pattern, self::ARABIAN_FREESPIN_SYMBOL);
@@ -3075,7 +3075,7 @@ final class CasinoController
             }
         }
 
-        $totalReturn = round($lineWin + $bonusWin, 2);
+        $totalReturn = round($lineWin + $bonusWin);
         $result = $totalReturn > 0 ? 'Win' : ($isFreeSpinRound ? 'Free Spin' : 'Lose');
         $resultType = $totalReturn > 0
             ? ($bonusTriggered ? 'bonus_win' : 'spin_win')
@@ -3084,7 +3084,7 @@ final class CasinoController
         $roundData = [
             'lineCount' => $lineCount,
             'coinBet' => $coinBet,
-            'totalBet' => round($coinBet * $lineCount, 2),
+            'totalBet' => round($coinBet * $lineCount),
             'isFreeSpinRound' => $isFreeSpinRound,
             'freeSpinsBefore' => $freeSpinsBefore,
             'freeSpinsAwarded' => $freeSpinsAwarded,
@@ -3213,7 +3213,7 @@ final class CasinoController
                 continue;
             }
 
-            $amount = round($multiplier * $coinBet, 2);
+            $amount = round($multiplier * $coinBet);
             if ($amount <= 0) {
                 continue;
             }
@@ -3267,7 +3267,7 @@ final class CasinoController
         foreach (self::ARABIAN_BONUS_PRIZE_WEIGHTS as $idx => $weight) {
             $cursor += max(0, (int) $weight);
             if ($roll <= $cursor) {
-                return [(int) $idx, round($this->num(self::ARABIAN_BONUS_PRIZES[$idx] ?? 0), 2)];
+                return [(int) $idx, round($this->num(self::ARABIAN_BONUS_PRIZES[$idx] ?? 0))];
             }
         }
 
@@ -3287,7 +3287,7 @@ final class CasinoController
 
                 if ($mode === 'snapshot') {
                     $this->db->commit();
-                    $availableBalance = round(max(0, $this->num($lockedUser['balance'] ?? 0) - $this->num($lockedUser['pendingBalance'] ?? 0)), 2);
+                    $availableBalance = round(max(0, $this->num($lockedUser['balance'] ?? 0) - $this->num($lockedUser['pendingBalance'] ?? 0)));
                     $this->writeCasinoAuditLog('craps_state_snapshot', [
                         'requestId' => $requestId,
                         'mode' => $mode,
@@ -3338,12 +3338,12 @@ final class CasinoController
                 [$gameMinBet, $gameMaxBet] = $this->resolveGameBetLimits(self::CRAPS_GAME_SLUG, 1.0, 10000.0);
                 if ($nextExposure > 0 && $nextExposure < $gameMinBet) {
                     $this->db->rollback();
-                    Response::json(['message' => 'Minimum craps wager is $' . number_format($gameMinBet, 2)], 400);
+                    Response::json(['message' => 'Minimum craps wager is $' . round($gameMinBet)], 400);
                     return;
                 }
                 if ($nextExposure > $gameMaxBet) {
                     $this->db->rollback();
-                    Response::json(['message' => 'Maximum craps wager is $' . number_format($gameMaxBet, 2)], 400);
+                    Response::json(['message' => 'Maximum craps wager is $' . round($gameMaxBet)], 400);
                     return;
                 }
 
@@ -3359,8 +3359,8 @@ final class CasinoController
                         $releasedStake += ($prev - $curr);
                     }
                 }
-                $addedStake = round($addedStake, 2);
-                $releasedStake = round($releasedStake, 2);
+                $addedStake = round($addedStake);
+                $releasedStake = round($releasedStake);
 
                 if ($addedStake > 0) {
                     $this->assertUserWagerWithinLimits($lockedUser, $addedStake);
@@ -3370,15 +3370,15 @@ final class CasinoController
                 $balanceSnapshot = $this->getUserBalanceSnapshot($lockedUser);
                 if ($addedStake > $balanceSnapshot['availableBalance']) {
                     $this->db->rollback();
-                    Response::json(['message' => 'Insufficient balance. Available: $' . number_format($balanceSnapshot['availableBalance'], 2)], 400);
+                    Response::json(['message' => 'Insufficient balance. Available: $' . round($balanceSnapshot['availableBalance'])], 400);
                     return;
                 }
 
                 $totalWager = $addedStake;
                 $totalReturn = $releasedStake;
-                $balanceAfterDebit = round($balanceSnapshot['balanceBefore'] - $totalWager, 2);
-                $balanceAfter = round($balanceAfterDebit + $totalReturn, 2);
-                $availableBalanceAfter = round(max(0, $balanceAfter - $balanceSnapshot['pendingBalance']), 2);
+                $balanceAfterDebit = round($balanceSnapshot['balanceBefore'] - $totalWager);
+                $balanceAfter = round($balanceAfterDebit + $totalReturn);
+                $availableBalanceAfter = round(max(0, $balanceAfter - $balanceSnapshot['pendingBalance']));
 
                 $now = MongoRepository::nowUtc();
                 $roundId = $this->newRoundId();
@@ -3464,7 +3464,7 @@ final class CasinoController
                     'roundStatus' => 'synced',
                     'totalWager' => $totalWager,
                     'totalReturn' => $totalReturn,
-                    'netResult' => round($totalReturn - $totalWager, 2),
+                    'netResult' => round($totalReturn - $totalWager),
                     'balanceBefore' => $balanceSnapshot['balanceBefore'],
                     'balanceAfter' => $balanceAfter,
                     'availableBalanceBefore' => $balanceSnapshot['availableBalance'],
@@ -3582,7 +3582,7 @@ final class CasinoController
                 throw new InvalidArgumentException('Craps bets must be whole-dollar amounts');
             }
 
-            $bets[$betKey] = round(($bets[$betKey] ?? 0.0) + $amount, 2);
+            $bets[$betKey] = round(($bets[$betKey] ?? 0.0) + $amount);
         }
 
         ksort($bets);
@@ -3668,7 +3668,7 @@ final class CasinoController
         foreach ($bets as $amount) {
             $total += $this->num($amount);
         }
-        return round($total, 2);
+        return round($total);
     }
 
     /**
@@ -3680,12 +3680,12 @@ final class CasinoController
     private function assertCrapsComePointLockedBets(array $activeBefore, array $nextBets): void
     {
         foreach (['pass_line', 'dont_pass1', 'dont_pass2'] as $lockedBet) {
-            $previous = round(max(0, $this->num($activeBefore[$lockedBet] ?? 0)), 2);
+            $previous = round(max(0, $this->num($activeBefore[$lockedBet] ?? 0)));
             if ($previous <= 0) {
                 continue;
             }
 
-            $next = round(max(0, $this->num($nextBets[$lockedBet] ?? 0)), 2);
+            $next = round(max(0, $this->num($nextBets[$lockedBet] ?? 0)));
             if ($next + 0.0001 < $previous) {
                 throw new InvalidArgumentException(str_replace('_', ' ', $lockedBet) . ' cannot be reduced while point is active');
             }
@@ -3764,7 +3764,7 @@ final class CasinoController
         $totalReturn = 0.0;
 
         foreach ($bets as $bet => $amountRaw) {
-            $amount = round(max(0.0, $this->num($amountRaw)), 2);
+            $amount = round(max(0.0, $this->num($amountRaw)));
             if ($amount <= 0) {
                 continue;
             }
@@ -3781,14 +3781,14 @@ final class CasinoController
                             $outcome = 'lose';
                         } elseif (in_array($sum, [7, 11], true)) {
                             $outcome = 'win';
-                            $profit = round($amount * $multiplier, 2);
+                            $profit = round($amount * $multiplier);
                         }
                     } else {
                         if ($sum === 7) {
                             $outcome = 'lose';
                         } elseif ($point !== null && $sum === $point) {
                             $outcome = 'win';
-                            $profit = round($amount * $multiplier, 2);
+                            $profit = round($amount * $multiplier);
                         }
                     }
                     break;
@@ -3796,7 +3796,7 @@ final class CasinoController
                 case 'come':
                     if (in_array($sum, [7, 11], true)) {
                         $outcome = 'win';
-                        $profit = round($amount * $multiplier, 2);
+                        $profit = round($amount * $multiplier);
                     } elseif (in_array($sum, [2, 3, 12], true)) {
                         $outcome = 'lose';
                     } else {
@@ -3809,17 +3809,17 @@ final class CasinoController
                     if ($phase === 'come_out') {
                         if (in_array($sum, [2, 3], true)) {
                             $outcome = 'win';
-                            $profit = round($amount * $multiplier, 2);
+                            $profit = round($amount * $multiplier);
                         } elseif (in_array($sum, [7, 11], true)) {
                             $outcome = 'lose';
                         } elseif ($sum === 12) {
                             $outcome = 'win';
-                            $profit = round($amount, 2);
+                            $profit = round($amount);
                         }
                     } else {
                         if ($sum === 7) {
                             $outcome = 'win';
-                            $profit = round($amount * $multiplier, 2);
+                            $profit = round($amount * $multiplier);
                         } elseif ($point !== null && $sum === $point) {
                             $outcome = 'lose';
                         }
@@ -3829,7 +3829,7 @@ final class CasinoController
                 case 'dont_come':
                     if (in_array($sum, [2, 7], true)) {
                         $outcome = 'win';
-                        $profit = round($amount * $multiplier, 2);
+                        $profit = round($amount * $multiplier);
                     } elseif (in_array($sum, [7, 11], true)) {
                         $outcome = 'lose';
                     } else {
@@ -3842,9 +3842,9 @@ final class CasinoController
                         $outcome = 'lose';
                     } else {
                         $outcome = 'win';
-                        $profit = round($amount * $multiplier, 2);
+                        $profit = round($amount * $multiplier);
                         if (in_array($sum, [2, 12], true)) {
-                            $profit = round($profit * 2, 2);
+                            $profit = round($profit * 2);
                         }
                     }
                     break;
@@ -3852,7 +3852,7 @@ final class CasinoController
                 case 'big_6':
                     if ($sum === 6) {
                         $outcome = 'win';
-                        $profit = round($amount * $multiplier, 2);
+                        $profit = round($amount * $multiplier);
                     } elseif ($sum === 7) {
                         $outcome = 'lose';
                     }
@@ -3861,7 +3861,7 @@ final class CasinoController
                 case 'big_8':
                     if ($sum === 8) {
                         $outcome = 'win';
-                        $profit = round($amount * $multiplier, 2);
+                        $profit = round($amount * $multiplier);
                     } elseif ($sum === 7) {
                         $outcome = 'lose';
                     }
@@ -3871,9 +3871,9 @@ final class CasinoController
                 case 'lose_bet4':
                     if ($sum === 7) {
                         $outcome = 'win';
-                        $profit = round($amount * $multiplier, 2);
+                        $profit = round($amount * $multiplier);
                         if ($bet === 'lay_bet4') {
-                            $profit = round($profit * 0.05, 2);
+                            $profit = round($profit * 0.05);
                         }
                     } elseif ($sum === 4) {
                         $outcome = 'lose';
@@ -3884,9 +3884,9 @@ final class CasinoController
                 case 'lose_bet5':
                     if ($sum === 7) {
                         $outcome = 'win';
-                        $profit = round($amount * $multiplier, 2);
+                        $profit = round($amount * $multiplier);
                         if ($bet === 'lay_bet5') {
-                            $profit = round($profit * 0.05, 2);
+                            $profit = round($profit * 0.05);
                         }
                     } elseif ($sum === 5) {
                         $outcome = 'lose';
@@ -3897,9 +3897,9 @@ final class CasinoController
                 case 'lose_bet6':
                     if ($sum === 7) {
                         $outcome = 'win';
-                        $profit = round($amount * $multiplier, 2);
+                        $profit = round($amount * $multiplier);
                         if ($bet === 'lay_bet6') {
-                            $profit = round($profit * 0.05, 2);
+                            $profit = round($profit * 0.05);
                         }
                     } elseif ($sum === 6) {
                         $outcome = 'lose';
@@ -3910,9 +3910,9 @@ final class CasinoController
                 case 'lose_bet8':
                     if ($sum === 7) {
                         $outcome = 'win';
-                        $profit = round($amount * $multiplier, 2);
+                        $profit = round($amount * $multiplier);
                         if ($bet === 'lay_bet8') {
-                            $profit = round($profit * 0.05, 2);
+                            $profit = round($profit * 0.05);
                         }
                     } elseif ($sum === 8) {
                         $outcome = 'lose';
@@ -3923,9 +3923,9 @@ final class CasinoController
                 case 'lose_bet9':
                     if ($sum === 7) {
                         $outcome = 'win';
-                        $profit = round($amount * $multiplier, 2);
+                        $profit = round($amount * $multiplier);
                         if ($bet === 'lay_bet9') {
-                            $profit = round($profit * 0.05, 2);
+                            $profit = round($profit * 0.05);
                         }
                     } elseif ($sum === 9) {
                         $outcome = 'lose';
@@ -3936,9 +3936,9 @@ final class CasinoController
                 case 'lose_bet10':
                     if ($sum === 7) {
                         $outcome = 'win';
-                        $profit = round($amount * $multiplier, 2);
+                        $profit = round($amount * $multiplier);
                         if ($bet === 'lay_bet10') {
-                            $profit = round($profit * 0.05, 2);
+                            $profit = round($profit * 0.05);
                         }
                     } elseif ($sum === 10) {
                         $outcome = 'lose';
@@ -3950,9 +3950,9 @@ final class CasinoController
                     if ($phase === 'come_point') {
                         if ($sum === 4) {
                             $outcome = 'win';
-                            $profit = round($amount * $multiplier, 2);
+                            $profit = round($amount * $multiplier);
                             if ($bet === 'number4') {
-                                $profit = round($amount * 0.05, 2);
+                                $profit = round($amount * 0.05);
                             }
                         } elseif ($sum === 7) {
                             $outcome = 'lose';
@@ -3965,9 +3965,9 @@ final class CasinoController
                     if ($phase === 'come_point') {
                         if ($sum === 5) {
                             $outcome = 'win';
-                            $profit = round($amount * $multiplier, 2);
+                            $profit = round($amount * $multiplier);
                             if ($bet === 'number5') {
-                                $profit = round($amount * 0.05, 2);
+                                $profit = round($amount * 0.05);
                             }
                         } elseif ($sum === 7) {
                             $outcome = 'lose';
@@ -3980,9 +3980,9 @@ final class CasinoController
                     if ($phase === 'come_point') {
                         if ($sum === 6) {
                             $outcome = 'win';
-                            $profit = round($amount * $multiplier, 2);
+                            $profit = round($amount * $multiplier);
                             if ($bet === 'number6') {
-                                $profit = round($amount * 0.05, 2);
+                                $profit = round($amount * 0.05);
                             }
                         } elseif ($sum === 7) {
                             $outcome = 'lose';
@@ -3995,9 +3995,9 @@ final class CasinoController
                     if ($phase === 'come_point') {
                         if ($sum === 8) {
                             $outcome = 'win';
-                            $profit = round($amount * $multiplier, 2);
+                            $profit = round($amount * $multiplier);
                             if ($bet === 'number8') {
-                                $profit = round($amount * 0.05, 2);
+                                $profit = round($amount * 0.05);
                             }
                         } elseif ($sum === 7) {
                             $outcome = 'lose';
@@ -4010,9 +4010,9 @@ final class CasinoController
                     if ($phase === 'come_point') {
                         if ($sum === 9) {
                             $outcome = 'win';
-                            $profit = round($amount * $multiplier, 2);
+                            $profit = round($amount * $multiplier);
                             if ($bet === 'number9') {
-                                $profit = round($amount * 0.05, 2);
+                                $profit = round($amount * 0.05);
                             }
                         } elseif ($sum === 7) {
                             $outcome = 'lose';
@@ -4025,9 +4025,9 @@ final class CasinoController
                     if ($phase === 'come_point') {
                         if ($sum === 10) {
                             $outcome = 'win';
-                            $profit = round($amount * $multiplier, 2);
+                            $profit = round($amount * $multiplier);
                             if ($bet === 'number10') {
-                                $profit = round($amount * 0.05, 2);
+                                $profit = round($amount * 0.05);
                             }
                         } elseif ($sum === 7) {
                             $outcome = 'lose';
@@ -4038,7 +4038,7 @@ final class CasinoController
                 case 'any11_7':
                     if ($sum === 11) {
                         $outcome = 'win';
-                        $profit = round($amount * $multiplier, 2);
+                        $profit = round($amount * $multiplier);
                     } else {
                         $outcome = 'lose';
                     }
@@ -4047,7 +4047,7 @@ final class CasinoController
                 case 'any_craps_7':
                     if (in_array($sum, [2, 3, 12], true)) {
                         $outcome = 'win';
-                        $profit = round($amount * $multiplier, 2);
+                        $profit = round($amount * $multiplier);
                     } else {
                         $outcome = 'lose';
                     }
@@ -4056,7 +4056,7 @@ final class CasinoController
                 case 'seven_bet':
                     if ($sum === 7) {
                         $outcome = 'win';
-                        $profit = round($amount * $multiplier, 2);
+                        $profit = round($amount * $multiplier);
                     } else {
                         $outcome = 'lose';
                     }
@@ -4065,7 +4065,7 @@ final class CasinoController
                 case 'hardway6':
                     if ($die1 === 3 && $die2 === 3) {
                         $outcome = 'win';
-                        $profit = round($amount * $multiplier, 2);
+                        $profit = round($amount * $multiplier);
                     } else {
                         $outcome = 'lose';
                     }
@@ -4074,7 +4074,7 @@ final class CasinoController
                 case 'hardway10':
                     if ($die1 === 5 && $die2 === 5) {
                         $outcome = 'win';
-                        $profit = round($amount * $multiplier, 2);
+                        $profit = round($amount * $multiplier);
                     } else {
                         $outcome = 'lose';
                     }
@@ -4083,7 +4083,7 @@ final class CasinoController
                 case 'hardway8':
                     if ($die1 === 4 && $die2 === 4) {
                         $outcome = 'win';
-                        $profit = round($amount * $multiplier, 2);
+                        $profit = round($amount * $multiplier);
                     } else {
                         $outcome = 'lose';
                     }
@@ -4092,7 +4092,7 @@ final class CasinoController
                 case 'hardway4':
                     if ($die1 === 2 && $die2 === 2) {
                         $outcome = 'win';
-                        $profit = round($amount * $multiplier, 2);
+                        $profit = round($amount * $multiplier);
                     } else {
                         $outcome = 'lose';
                     }
@@ -4101,7 +4101,7 @@ final class CasinoController
                 case 'horn3':
                     if ($sum === 3) {
                         $outcome = 'win';
-                        $profit = round($amount * $multiplier, 2);
+                        $profit = round($amount * $multiplier);
                     } else {
                         $outcome = 'lose';
                     }
@@ -4110,7 +4110,7 @@ final class CasinoController
                 case 'horn2':
                     if ($sum === 2) {
                         $outcome = 'win';
-                        $profit = round($amount * $multiplier, 2);
+                        $profit = round($amount * $multiplier);
                     } else {
                         $outcome = 'lose';
                     }
@@ -4119,7 +4119,7 @@ final class CasinoController
                 case 'horn12':
                     if ($sum === 12) {
                         $outcome = 'win';
-                        $profit = round($amount * $multiplier, 2);
+                        $profit = round($amount * $multiplier);
                     } else {
                         $outcome = 'lose';
                     }
@@ -4127,7 +4127,7 @@ final class CasinoController
             }
 
             if ($moveTo !== null) {
-                $activeAfter[$moveTo] = round(($activeAfter[$moveTo] ?? 0.0) + $amount, 2);
+                $activeAfter[$moveTo] = round(($activeAfter[$moveTo] ?? 0.0) + $amount);
                 $resolved[] = [
                     'bet' => $bet,
                     'wager' => $amount,
@@ -4140,21 +4140,21 @@ final class CasinoController
             }
 
             if ($outcome === '') {
-                $activeAfter[$bet] = round(($activeAfter[$bet] ?? 0.0) + $amount, 2);
+                $activeAfter[$bet] = round(($activeAfter[$bet] ?? 0.0) + $amount);
                 continue;
             }
 
             $returnAmount = 0.0;
             if ($outcome === 'win') {
-                $returnAmount = round($amount + $profit, 2);
+                $returnAmount = round($amount + $profit);
             }
-            $totalReturn = round($totalReturn + $returnAmount, 2);
+            $totalReturn = round($totalReturn + $returnAmount);
 
             $resolved[] = [
                 'bet' => $bet,
                 'wager' => $amount,
                 'outcome' => $outcome,
-                'profit' => round($profit, 2),
+                'profit' => round($profit),
                 'return' => $returnAmount,
                 'moveTo' => null,
             ];
@@ -4187,7 +4187,7 @@ final class CasinoController
             'pointNumberAfter' => $pointAfter,
             'activeBetsAfter' => $activeAfter,
             'resolvedBets' => $resolved,
-            'totalReturn' => round($totalReturn, 2),
+            'totalReturn' => round($totalReturn),
         ];
     }
 
@@ -4230,11 +4230,11 @@ final class CasinoController
 
             [$gameMinBet, $gameMaxBet] = $this->resolveGameBetLimits(self::STUD_POKER_GAME_SLUG, 1.0, 100.0);
             if ($anteBet < $gameMinBet) {
-                Response::json(['message' => 'Minimum stud poker ante is $' . number_format($gameMinBet, 2)], 400);
+                Response::json(['message' => 'Minimum stud poker ante is $' . round($gameMinBet)], 400);
                 return;
             }
             if ($anteBet > $gameMaxBet) {
-                Response::json(['message' => 'Maximum stud poker ante is $' . number_format($gameMaxBet, 2)], 400);
+                Response::json(['message' => 'Maximum stud poker ante is $' . round($gameMaxBet)], 400);
                 return;
             }
 
@@ -4256,20 +4256,20 @@ final class CasinoController
                     return;
                 }
 
-                $roundExposure = round($anteBet * 3, 2);
+                $roundExposure = round($anteBet * 3);
                 $this->assertUserWagerWithinLimits($lockedUser, $roundExposure);
                 $this->assertCasinoLossLimits($lockedUser, $anteBet);
 
                 $balanceSnapshot = $this->getUserBalanceSnapshot($lockedUser);
                 if ($roundExposure > $balanceSnapshot['availableBalance']) {
                     $this->db->rollback();
-                    Response::json(['message' => 'Insufficient balance to cover ante and raise. Available: $' . number_format($balanceSnapshot['availableBalance'], 2)], 400);
+                    Response::json(['message' => 'Insufficient balance to cover ante and raise. Available: $' . round($balanceSnapshot['availableBalance'])], 400);
                     return;
                 }
 
                 $roundId = $this->newRoundId();
                 $openingRound = $this->dealStudPokerOpeningRound();
-                $balanceAfterAnte = round($balanceSnapshot['balanceBefore'] - $anteBet, 2);
+                $balanceAfterAnte = round($balanceSnapshot['balanceBefore'] - $anteBet);
                 $now = MongoRepository::nowUtc();
                 $ipAddress = IpUtils::clientIp();
                 $userAgent = Http::header('user-agent') !== '' ? Http::header('user-agent') : null;
@@ -4459,7 +4459,7 @@ final class CasinoController
                 }
 
                 $anteBet = $this->parseMoneyValue($round['anteBet'] ?? 0, 'anteBet');
-                $raiseBet = $action === 'raise' ? round($anteBet * 2, 2) : 0.0;
+                $raiseBet = $action === 'raise' ? round($anteBet * 2) : 0.0;
                 $balanceSnapshot = $this->getUserBalanceSnapshot($lockedUser);
 
                 $ledgerEntries = $this->findRoundLedgerEntries($roundId);
@@ -4473,7 +4473,7 @@ final class CasinoController
                     $this->assertCasinoLossLimits($lockedUser, $raiseBet);
                     if ($raiseBet > $balanceSnapshot['availableBalance']) {
                         $this->db->rollback();
-                        Response::json(['message' => 'Insufficient balance to raise. Available: $' . number_format($balanceSnapshot['availableBalance'], 2)], 400);
+                        Response::json(['message' => 'Insufficient balance to raise. Available: $' . round($balanceSnapshot['availableBalance'])], 400);
                         return;
                     }
 
@@ -4485,7 +4485,7 @@ final class CasinoController
                         'DEBIT',
                         'casino_bet_debit',
                         $balanceSnapshot['balanceBefore'],
-                        round($balanceSnapshot['balanceBefore'] - $raiseBet, 2),
+                        round($balanceSnapshot['balanceBefore'] - $raiseBet),
                         'CASINO_STUD_POKER_RAISE',
                         'Stud poker raise charged',
                         $now,
@@ -4494,7 +4494,7 @@ final class CasinoController
                     );
                     $raiseDebitEntryId = $this->db->insertOne('transactions', $raiseDebitEntry);
                     $additionalLedgerEntries[] = array_merge($raiseDebitEntry, ['_id' => $raiseDebitEntryId]);
-                    $balanceAfterWagers = round($balanceSnapshot['balanceBefore'] - $raiseBet, 2);
+                    $balanceAfterWagers = round($balanceSnapshot['balanceBefore'] - $raiseBet);
                 }
 
                 $resolution = $this->buildStudPokerResolution(
@@ -4505,11 +4505,11 @@ final class CasinoController
                     $this->safeNumber($gameConfig['rtp'] ?? null, null)
                 );
 
-                $totalWager = $action === 'raise' ? round($anteBet + $raiseBet, 2) : $anteBet;
+                $totalWager = $action === 'raise' ? round($anteBet + $raiseBet) : $anteBet;
                 $totalReturn = $resolution['totalReturn'];
-                $profit = round(max(0, $totalReturn - $totalWager), 2);
-                $netResult = round($totalReturn - $totalWager, 2);
-                $balanceAfter = round($balanceAfterWagers + $totalReturn, 2);
+                $profit = round(max(0, $totalReturn - $totalWager));
+                $netResult = round($totalReturn - $totalWager);
+                $balanceAfter = round($balanceAfterWagers + $totalReturn);
 
                 $creditEntryId = null;
                 if ($totalReturn > 0) {
@@ -5001,9 +5001,9 @@ final class CasinoController
                         'roundId' => $roundId,
                         'game' => $rowGame,
                         'username' => $rowUsername,
-                        'netResult' => round($netResult, 2),
-                        'totalWager' => round($wager, 2),
-                        'totalReturn' => round($return, 2),
+                        'netResult' => round($netResult),
+                        'totalWager' => round($wager),
+                        'totalReturn' => round($return),
                         'createdAt' => $row['createdAt'] ?? null,
                     ];
                 }
@@ -5012,9 +5012,9 @@ final class CasinoController
                         'roundId' => $roundId,
                         'game' => $rowGame,
                         'username' => $rowUsername,
-                        'netResult' => round($netResult, 2),
-                        'totalWager' => round($wager, 2),
-                        'totalReturn' => round($return, 2),
+                        'netResult' => round($netResult),
+                        'totalWager' => round($wager),
+                        'totalReturn' => round($return),
                         'createdAt' => $row['createdAt'] ?? null,
                     ];
                 }
@@ -5026,10 +5026,10 @@ final class CasinoController
                 if ($wager < 0 || $return < 0) {
                     $anomalyReasons[] = 'negative_amounts';
                 }
-                if (abs(round(($return - $wager) - $netResult, 2)) > 0.01) {
+                if (abs(round(($return - $wager) - $netResult)) > 0.01) {
                     $anomalyReasons[] = 'net_mismatch';
                 }
-                if (abs(round(($balanceAfter - $balanceBefore) - $netResult, 2)) > 0.01) {
+                if (abs(round(($balanceAfter - $balanceBefore) - $netResult)) > 0.01) {
                     $anomalyReasons[] = 'balance_delta_mismatch';
                 }
                 if ($anomalyReasons !== []) {
@@ -5040,11 +5040,11 @@ final class CasinoController
                             'game' => $rowGame,
                             'username' => $rowUsername,
                             'reasons' => $anomalyReasons,
-                            'totalWager' => round($wager, 2),
-                            'totalReturn' => round($return, 2),
-                            'netResult' => round($netResult, 2),
-                            'balanceBefore' => round($balanceBefore, 2),
-                            'balanceAfter' => round($balanceAfter, 2),
+                            'totalWager' => round($wager),
+                            'totalReturn' => round($return),
+                            'netResult' => round($netResult),
+                            'balanceBefore' => round($balanceBefore),
+                            'balanceAfter' => round($balanceAfter),
                             'createdAt' => $row['createdAt'] ?? null,
                         ];
                     }
@@ -5054,20 +5054,20 @@ final class CasinoController
             arsort($netByUser);
             $topWinners = [];
             foreach (array_slice($netByUser, 0, 5, true) as $username => $net) {
-                $topWinners[] = ['username' => $username, 'netResult' => round((float) $net, 2)];
+                $topWinners[] = ['username' => $username, 'netResult' => round((float) $net)];
             }
 
             asort($netByUser);
             $topLosers = [];
             foreach (array_slice($netByUser, 0, 5, true) as $username => $net) {
-                $topLosers[] = ['username' => $username, 'netResult' => round((float) $net, 2)];
+                $topLosers[] = ['username' => $username, 'netResult' => round((float) $net)];
             }
 
             $rounds = count($rows);
-            $grossGamingRevenue = round($totalWager - $totalReturn, 2);
-            $payoutRatio = $totalWager > 0 ? round(($totalReturn / $totalWager) * 100, 2) : 0.0;
+            $grossGamingRevenue = round($totalWager - $totalReturn);
+            $payoutRatio = $totalWager > 0 ? round(($totalReturn / $totalWager) * 100) : 0.0;
             $errorRate = $rounds > 0 ? round(($errorCount / $rounds) * 100, 4) : 0.0;
-            $averageBet = $rounds > 0 ? round($totalWager / $rounds, 2) : 0.0;
+            $averageBet = $rounds > 0 ? round($totalWager / $rounds) : 0.0;
             $rtpEstimate = $payoutRatio;
 
             uasort($byGame, static function (array $a, array $b): int {
@@ -5091,14 +5091,14 @@ final class CasinoController
             Response::json([
                 'summary' => [
                     'rounds' => $rounds,
-                    'totalWager' => round($totalWager, 2),
-                    'totalReturn' => round($totalReturn, 2),
-                    'playerProfit' => round($totalProfit, 2),
-                    'totalNet' => round($totalNet, 2),
+                    'totalWager' => round($totalWager),
+                    'totalReturn' => round($totalReturn),
+                    'playerProfit' => round($totalProfit),
+                    'totalNet' => round($totalNet),
                     'grossGamingRevenue' => $grossGamingRevenue,
                     'payoutRatio' => $payoutRatio,
                     'rtpEstimate' => $rtpEstimate,
-                    'houseEdgePercent' => round(100 - $payoutRatio, 2),
+                    'houseEdgePercent' => round(100 - $payoutRatio),
                     'averageBet' => $averageBet,
                     'biggestWin' => $biggestWin,
                     'biggestLoss' => $biggestLoss,
@@ -5108,30 +5108,30 @@ final class CasinoController
                 'byGame' => array_values(array_map(static fn(array $item): array => [
                     'game' => $item['game'],
                     'rounds' => $item['rounds'],
-                    'totalWager' => round((float) $item['totalWager'], 2),
-                    'totalReturn' => round((float) $item['totalReturn'], 2),
-                    'profit' => round((float) $item['profit'], 2),
-                    'netResult' => round((float) $item['netResult'], 2),
-                    'averageBet' => $item['rounds'] > 0 ? round(((float) $item['totalWager']) / (float) $item['rounds'], 2) : 0.0,
-                    'grossGamingRevenue' => round((float) $item['totalWager'] - (float) $item['totalReturn'], 2),
+                    'totalWager' => round((float) $item['totalWager']),
+                    'totalReturn' => round((float) $item['totalReturn']),
+                    'profit' => round((float) $item['profit']),
+                    'netResult' => round((float) $item['netResult']),
+                    'averageBet' => $item['rounds'] > 0 ? round(((float) $item['totalWager']) / (float) $item['rounds']) : 0.0,
+                    'grossGamingRevenue' => round((float) $item['totalWager'] - (float) $item['totalReturn']),
                     'payoutRatio' => ((float) $item['totalWager']) > 0
-                        ? round((((float) $item['totalReturn']) / ((float) $item['totalWager'])) * 100, 2)
+                        ? round((((float) $item['totalReturn']) / ((float) $item['totalWager'])) * 100)
                         : 0.0,
-                    'biggestWin' => $item['biggestWin'] !== null ? round((float) $item['biggestWin'], 2) : null,
-                    'biggestLoss' => $item['biggestLoss'] !== null ? round((float) $item['biggestLoss'], 2) : null,
+                    'biggestWin' => $item['biggestWin'] !== null ? round((float) $item['biggestWin']) : null,
+                    'biggestLoss' => $item['biggestLoss'] !== null ? round((float) $item['biggestLoss']) : null,
                 ], $byGame)),
                 'byUser' => array_values(array_map(static fn(array $item): array => [
                     'username' => (string) ($item['username'] ?? ''),
                     'userId' => (string) ($item['userId'] ?? ''),
                     'rounds' => (int) ($item['rounds'] ?? 0),
-                    'totalWager' => round((float) ($item['totalWager'] ?? 0), 2),
-                    'totalReturn' => round((float) ($item['totalReturn'] ?? 0), 2),
-                    'netResult' => round((float) ($item['netResult'] ?? 0), 2),
+                    'totalWager' => round((float) ($item['totalWager'] ?? 0)),
+                    'totalReturn' => round((float) ($item['totalReturn'] ?? 0)),
+                    'netResult' => round((float) ($item['netResult'] ?? 0)),
                     'averageBet' => (int) ($item['rounds'] ?? 0) > 0
-                        ? round(((float) ($item['totalWager'] ?? 0)) / (float) ($item['rounds'] ?? 1), 2)
+                        ? round(((float) ($item['totalWager'] ?? 0)) / (float) ($item['rounds'] ?? 1))
                         : 0.0,
-                    'biggestWin' => $item['biggestWin'] !== null ? round((float) $item['biggestWin'], 2) : null,
-                    'biggestLoss' => $item['biggestLoss'] !== null ? round((float) $item['biggestLoss'], 2) : null,
+                    'biggestWin' => $item['biggestWin'] !== null ? round((float) $item['biggestWin']) : null,
+                    'biggestLoss' => $item['biggestLoss'] !== null ? round((float) $item['biggestLoss']) : null,
                 ], array_slice(array_values($byUser), 0, 100))),
                 'topWinners' => $topWinners,
                 'topLosers' => $topLosers,
@@ -5326,7 +5326,7 @@ final class CasinoController
 
     private function calculateBaccaratPayout(float $playerBet, float $bankerBet, float $tieBet, string $result): array
     {
-        $totalWager = round($playerBet + $bankerBet + $tieBet, 2);
+        $totalWager = round($playerBet + $bankerBet + $tieBet);
         $totalReturn = 0.0;
         $profit = 0.0;
 
@@ -5353,9 +5353,9 @@ final class CasinoController
             }
         }
 
-        $totalReturn = round($totalReturn, 2);
-        $profit = round($profit, 2);
-        $netResult = round($totalReturn - $totalWager, 2);
+        $totalReturn = round($totalReturn);
+        $profit = round($profit);
+        $netResult = round($totalReturn - $totalWager);
 
         return [
             'totalReturn' => $totalReturn,
@@ -5398,17 +5398,17 @@ final class CasinoController
     {
         $userMinBet = $this->safeNumber($lockedUser['minBet'] ?? null, null);
         $userMaxBet = $this->safeNumber($lockedUser['maxBet'] ?? null, null);
-        $normalizedMinBet = ($userMinBet !== null && $userMinBet > 0) ? round($userMinBet, 2) : null;
-        $normalizedMaxBet = ($userMaxBet !== null && $userMaxBet > 0) ? round($userMaxBet, 2) : null;
+        $normalizedMinBet = ($userMinBet !== null && $userMinBet > 0) ? round($userMinBet) : null;
+        $normalizedMaxBet = ($userMaxBet !== null && $userMaxBet > 0) ? round($userMaxBet) : null;
         if ($normalizedMinBet !== null && $normalizedMaxBet !== null && $normalizedMaxBet < $normalizedMinBet) {
             $normalizedMaxBet = $normalizedMinBet;
         }
 
         if ($normalizedMinBet !== null && $totalWager < $normalizedMinBet) {
-            throw new InvalidArgumentException('Minimum bet for your account is $' . number_format($normalizedMinBet, 2));
+            throw new InvalidArgumentException('Minimum bet for your account is $' . round($normalizedMinBet));
         }
         if ($normalizedMaxBet !== null && $totalWager > $normalizedMaxBet) {
-            throw new InvalidArgumentException('Maximum bet for your account is $' . number_format($normalizedMaxBet, 2));
+            throw new InvalidArgumentException('Maximum bet for your account is $' . round($normalizedMaxBet));
         }
     }
 
@@ -5474,14 +5474,14 @@ final class CasinoController
                 $totalWon += $this->num($casinoBet['totalReturn'] ?? 0);
             }
 
-            $netLoss = round($totalWagered - $totalWon, 2);
+            $netLoss = round($totalWagered - $totalWon);
             if (($netLoss + $wagerAmount) > $limit) {
                 return 'This wager would exceed your '
                     . $label
                     . ' loss limit of $'
-                    . number_format($limit, 2)
+                    . round($limit)
                     . '. Current net loss: $'
-                    . number_format($netLoss, 2)
+                    . round($netLoss)
                     . '.';
             }
         }
@@ -5491,9 +5491,9 @@ final class CasinoController
 
     private function getUserBalanceSnapshot(array $lockedUser): array
     {
-        $balanceBefore = round($this->num($lockedUser['balance'] ?? 0), 2);
-        $pendingBalance = round($this->num($lockedUser['pendingBalance'] ?? 0), 2);
-        $availableBalance = round(max(0, $balanceBefore - $pendingBalance), 2);
+        $balanceBefore = round($this->num($lockedUser['balance'] ?? 0));
+        $pendingBalance = round($this->num($lockedUser['pendingBalance'] ?? 0));
+        $availableBalance = round(max(0, $balanceBefore - $pendingBalance));
 
         return [
             'balanceBefore' => $balanceBefore,
@@ -5519,15 +5519,15 @@ final class CasinoController
     ): array {
         return [
             'userId' => $userId,
-            'amount' => round($amount, 2),
+            'amount' => round($amount),
             'type' => $type,
             'entrySide' => $entrySide,
             'entryGroupId' => $roundId,
             'sourceType' => $sourceType,
             'sourceId' => $roundId,
             'status' => 'completed',
-            'balanceBefore' => round($balanceBefore, 2),
-            'balanceAfter' => round($balanceAfter, 2),
+            'balanceBefore' => round($balanceBefore),
+            'balanceAfter' => round($balanceAfter),
             'referenceType' => 'CasinoRound',
             'referenceId' => $roundId,
             'reason' => $reason,
@@ -6204,7 +6204,7 @@ final class CasinoController
                         throw new InvalidArgumentException('Blackjack hand has already been doubled');
                     }
                     $hand['doubled'] = true;
-                    $hand['bet'] = round($this->parseMoneyValue($hand['bet'] ?? 0, 'bets.hands.' . $targetZone . '.bet') * 2, 2);
+                    $hand['bet'] = round($this->parseMoneyValue($hand['bet'] ?? 0, 'bets.hands.' . $targetZone . '.bet') * 2);
                     $hand['cards'][] = $this->blackjackDrawDeckCard($deck);
                     $hand['completed'] = true;
                     $hand['standingReason'] = 'double_down';
@@ -6483,10 +6483,10 @@ final class CasinoController
             $resultType = 'lose';
 
             if ($isSurrendered) {
-                $handReturn = round($bet * 0.5, 2);
+                $handReturn = round($bet * 0.5);
                 $resultType = 'surrender';
             } elseif ($isEvenMoney && $playerBlackjack) {
-                $handReturn = round($bet * 2, 2);
+                $handReturn = round($bet * 2);
                 $resultType = 'even_money';
             } elseif ($playerBust) {
                 $handReturn = 0.0;
@@ -6500,10 +6500,10 @@ final class CasinoController
                     $resultType = 'dealer_blackjack';
                 }
             } elseif ($playerBlackjack) {
-                $handReturn = round($bet * 2.5, 2);
+                $handReturn = round($bet * 2.5);
                 $resultType = 'blackjack';
             } elseif ($dealerBust || $playerScore > $dealerScore) {
-                $handReturn = round($bet * 2, 2);
+                $handReturn = round($bet * 2);
                 $resultType = 'win';
             } elseif ($playerScore === $dealerScore) {
                 $handReturn = $bet;
@@ -6513,8 +6513,8 @@ final class CasinoController
                 $resultType = 'lose';
             }
 
-            $mainWager = round($mainWager + $bet, 2);
-            $mainReturn = round($mainReturn + $handReturn, 2);
+            $mainWager = round($mainWager + $bet);
+            $mainReturn = round($mainReturn + $handReturn);
             $handResult = [
                 'zone' => $zone,
                 'baseZone' => $baseZone,
@@ -6522,7 +6522,7 @@ final class CasinoController
                 'score' => $playerScore,
                 'bet' => $bet,
                 'return' => $handReturn,
-                'net' => round($handReturn - $bet, 2),
+                'net' => round($handReturn - $bet),
                 'isSplit' => $isSplit,
                 'resultType' => $resultType,
             ];
@@ -6580,7 +6580,7 @@ final class CasinoController
                     throw new InvalidArgumentException('Side bets cannot exceed $100.00 per zone');
                 }
             }
-            if ($insuranceStake > 0 && $insuranceStake > round($mainStake / 2, 2)) {
+            if ($insuranceStake > 0 && $insuranceStake > round($mainStake / 2)) {
                 throw new InvalidArgumentException('Insurance bet cannot exceed half of the main bet');
             }
 
@@ -6639,13 +6639,13 @@ final class CasinoController
                         $suitA = (string) ($firstTwo[0]['suit'] ?? '');
                         $suitB = (string) ($firstTwo[1]['suit'] ?? '');
                         if ($suitA !== '' && $suitA === $suitB) {
-                            $pairReturn = round($pairsStake * 26, 2);
+                            $pairReturn = round($pairsStake * 26);
                             $pairOutcome = 'perfect_pair';
                         } elseif ($this->blackjackCardColor($firstTwo[0]) === $this->blackjackCardColor($firstTwo[1])) {
-                            $pairReturn = round($pairsStake * 13, 2);
+                            $pairReturn = round($pairsStake * 13);
                             $pairOutcome = 'colored_pair';
                         } else {
-                            $pairReturn = round($pairsStake * 6, 2);
+                            $pairReturn = round($pairsStake * 6);
                             $pairOutcome = 'mixed_pair';
                         }
                     }
@@ -6656,7 +6656,7 @@ final class CasinoController
                     'type' => 'pairs',
                     'stake' => $pairsStake,
                     'return' => $pairReturn,
-                    'net' => round($pairReturn - $pairsStake, 2),
+                    'net' => round($pairReturn - $pairsStake),
                     'outcome' => $pairOutcome,
                 ];
             }
@@ -6674,19 +6674,19 @@ final class CasinoController
                     $isStraight = $this->blackjackIsThreeCardStraight($three);
 
                     if ($isTrips && $isFlush) {
-                        $plusReturn = round($plusStake * 101, 2);
+                        $plusReturn = round($plusStake * 101);
                         $plusOutcome = 'suited_trips';
                     } elseif ($isTrips) {
-                        $plusReturn = round($plusStake * 31, 2);
+                        $plusReturn = round($plusStake * 31);
                         $plusOutcome = 'trips';
                     } elseif ($isStraight && $isFlush) {
-                        $plusReturn = round($plusStake * 41, 2);
+                        $plusReturn = round($plusStake * 41);
                         $plusOutcome = 'straight_flush';
                     } elseif ($isStraight) {
-                        $plusReturn = round($plusStake * 11, 2);
+                        $plusReturn = round($plusStake * 11);
                         $plusOutcome = 'straight';
                     } elseif ($isFlush) {
-                        $plusReturn = round($plusStake * 6, 2);
+                        $plusReturn = round($plusStake * 6);
                         $plusOutcome = 'flush';
                     }
                 }
@@ -6696,7 +6696,7 @@ final class CasinoController
                     'type' => 'plus21',
                     'stake' => $plusStake,
                     'return' => $plusReturn,
-                    'net' => round($plusReturn - $plusStake, 2),
+                    'net' => round($plusReturn - $plusStake),
                     'outcome' => $plusOutcome,
                 ];
             }
@@ -6714,10 +6714,10 @@ final class CasinoController
                         && (string) ($firstTwo[0]['suit'] ?? '') === (string) ($firstTwo[1]['suit'] ?? '');
                     $hasKQ = in_array('K', $ranks, true) && in_array('Q', $ranks, true);
                     if ($hasKQ && $isSuited) {
-                        $royalReturn = round($royalStake * 26, 2);
+                        $royalReturn = round($royalStake * 26);
                         $royalOutcome = 'royal_match';
                     } elseif ($isSuited) {
-                        $royalReturn = round($royalStake * 6, 2);
+                        $royalReturn = round($royalStake * 6);
                         $royalOutcome = 'suited';
                     }
                 }
@@ -6727,7 +6727,7 @@ final class CasinoController
                     'type' => 'royal',
                     'stake' => $royalStake,
                     'return' => $royalReturn,
-                    'net' => round($royalReturn - $royalStake, 2),
+                    'net' => round($royalReturn - $royalStake),
                     'outcome' => $royalOutcome,
                 ];
             }
@@ -6746,26 +6746,26 @@ final class CasinoController
                 ));
                 $sevenCount = count($sevens);
                 if ($sevenCount === 1) {
-                    $superReturn = round($superStake * 4, 2);
+                    $superReturn = round($superStake * 4);
                     $superOutcome = 'one_seven';
                 } elseif ($sevenCount === 2) {
                     $sameSuit = (string) ($sevens[0]['suit'] ?? '') !== ''
                         && (string) ($sevens[0]['suit'] ?? '') === (string) ($sevens[1]['suit'] ?? '');
                     if ($sameSuit) {
-                        $superReturn = round($superStake * 101, 2);
+                        $superReturn = round($superStake * 101);
                         $superOutcome = 'two_sevens_suited';
                     } else {
-                        $superReturn = round($superStake * 51, 2);
+                        $superReturn = round($superStake * 51);
                         $superOutcome = 'two_sevens_unsuited';
                     }
                 } elseif ($sevenCount >= 3) {
                     $suits = array_values(array_map(static fn(array $card): string => (string) ($card['suit'] ?? ''), $sevens));
                     $allSameSuit = count(array_unique($suits)) === 1;
                     if ($allSameSuit) {
-                        $superReturn = round($superStake * 5001, 2);
+                        $superReturn = round($superStake * 5001);
                         $superOutcome = 'three_sevens_suited';
                     } else {
-                        $superReturn = round($superStake * 501, 2);
+                        $superReturn = round($superStake * 501);
                         $superOutcome = 'three_sevens_unsuited';
                     }
                 }
@@ -6775,7 +6775,7 @@ final class CasinoController
                     'type' => 'superSeven',
                     'stake' => $superStake,
                     'return' => $superReturn,
-                    'net' => round($superReturn - $superStake, 2),
+                    'net' => round($superReturn - $superStake),
                     'outcome' => $superOutcome,
                 ];
             }
@@ -6785,7 +6785,7 @@ final class CasinoController
                 $insuranceReturn = 0.0;
                 $insuranceOutcome = 'lose';
                 if ($dealerBlackjack && !$baseNatural) {
-                    $insuranceReturn = round($insuranceStake * 3, 2);
+                    $insuranceReturn = round($insuranceStake * 3);
                     $insuranceOutcome = 'win';
                 }
                 $zoneSideReturn += $insuranceReturn;
@@ -6794,13 +6794,13 @@ final class CasinoController
                     'type' => 'insurance',
                     'stake' => $insuranceStake,
                     'return' => $insuranceReturn,
-                    'net' => round($insuranceReturn - $insuranceStake, 2),
+                    'net' => round($insuranceReturn - $insuranceStake),
                     'outcome' => $insuranceOutcome,
                 ];
             }
 
-            $sideWager = round($sideWager + $zoneSideWager, 2);
-            $sideReturn = round($sideReturn + $zoneSideReturn, 2);
+            $sideWager = round($sideWager + $zoneSideWager);
+            $sideReturn = round($sideReturn + $zoneSideReturn);
 
             $betBreakdown[] = [
                 'zone' => $zoneName,
@@ -6814,10 +6814,10 @@ final class CasinoController
             ];
         }
 
-        $totalWager = round($mainWager + $sideWager, 2);
-        $totalReturn = round($mainReturn + $sideReturn, 2);
-        $netResult = round($totalReturn - $totalWager, 2);
-        $profit = round(max(0, $netResult), 2);
+        $totalWager = round($mainWager + $sideWager);
+        $totalReturn = round($mainReturn + $sideReturn);
+        $netResult = round($totalReturn - $totalWager);
+        $profit = round(max(0, $netResult));
 
         $result = $netResult > 0 ? 'Win' : ($netResult < 0 ? 'Lose' : 'Push');
         $resultType = 'standard';
@@ -6931,7 +6931,7 @@ final class CasinoController
         return [
             'entries' => $entries,
             'normalizedBets' => $normalizedBets,
-            'totalWager' => round($totalWager, 2),
+            'totalWager' => round($totalWager),
         ];
     }
 
@@ -7047,13 +7047,13 @@ final class CasinoController
 
         foreach ($entries as $entry) {
             if ($this->rouletteBetWins($entry, $outcome)) {
-                $totalReturn += round($entry['amount'] * $entry['returnMultiplier'], 2);
+                $totalReturn += round($entry['amount'] * $entry['returnMultiplier']);
                 $winningBetKeys[] = (string) $entry['key'];
             }
         }
 
         return [
-            'totalReturn' => round($totalReturn, 2),
+            'totalReturn' => round($totalReturn),
             'winningBetKeys' => $winningBetKeys,
         ];
     }
@@ -7157,7 +7157,7 @@ final class CasinoController
 
         $targetReturn = null;
         if ($action === 'raise' && $configuredRtp !== null && $configuredRtp >= 0 && $configuredRtp <= 100) {
-            $targetReturn = round(($anteBet * 3) * ($configuredRtp / 100), 2);
+            $targetReturn = round(($anteBet * 3) * ($configuredRtp / 100));
         }
 
         $dealerCards = $this->pickStudPokerDealerHand($playerCardCodes, $dealerUpCard, $action, $anteBet, $targetReturn);
@@ -7173,7 +7173,7 @@ final class CasinoController
             'dealerHand' => $dealerEval['displayName'],
             'dealerQualifies' => $dealerEval['qualifies'],
             'result' => $result,
-            'totalReturn' => round($totalReturn, 2),
+            'totalReturn' => round($totalReturn),
         ];
     }
 
@@ -7257,16 +7257,16 @@ final class CasinoController
         }
 
         if (!$dealerEval['qualifies'] && $result !== 'Dealer') {
-            return round(($anteBet * 2) + ($anteBet * 2), 2);
+            return round(($anteBet * 2) + ($anteBet * 2));
         }
 
         if ($result === 'Player') {
             $raiseBet = $anteBet * 2;
             $multiplier = self::STUD_POKER_PAYOUTS[$playerEval['name']] ?? 1;
-            return round($raiseBet + ($raiseBet * $multiplier) + $raiseBet, 2);
+            return round($raiseBet + ($raiseBet * $multiplier) + $raiseBet);
         }
 
-        return round($anteBet + ($anteBet * 2), 2);
+        return round($anteBet + ($anteBet * 2));
     }
 
     private function compareStudPokerHands(array $playerEval, array $dealerEval): string
@@ -7586,10 +7586,10 @@ final class CasinoController
         $availableBalanceAfter = $this->safeNumber($bet['availableBalanceAfter'] ?? null, null);
 
         if ($availableBalanceBefore === null && $pendingBalanceSnapshot !== null) {
-            $availableBalanceBefore = round(max(0, $balanceBefore - $pendingBalanceSnapshot), 2);
+            $availableBalanceBefore = round(max(0, $balanceBefore - $pendingBalanceSnapshot));
         }
         if ($availableBalanceAfter === null && $pendingBalanceSnapshot !== null) {
-            $availableBalanceAfter = round(max(0, $balanceAfter - $pendingBalanceSnapshot), 2);
+            $availableBalanceAfter = round(max(0, $balanceAfter - $pendingBalanceSnapshot));
         }
         if ($availableBalanceBefore === null) {
             $availableBalanceBefore = $balanceBefore;
@@ -7631,8 +7631,8 @@ final class CasinoController
             'netResult' => $this->num($bet['netResult'] ?? 0),
             'balanceBefore' => $balanceBefore,
             'balanceAfter' => $balanceAfter,
-            'availableBalanceBefore' => round(max(0, $availableBalanceBefore), 2),
-            'availableBalanceAfter' => round(max(0, $availableBalanceAfter), 2),
+            'availableBalanceBefore' => round(max(0, $availableBalanceBefore)),
+            'availableBalanceAfter' => round(max(0, $availableBalanceAfter)),
             'rngVersion' => (string) ($bet['rngVersion'] ?? ''),
             'deckHash' => (string) ($bet['deckHash'] ?? ''),
             'integrityHash' => (string) ($bet['integrityHash'] ?? ''),
@@ -7677,21 +7677,21 @@ final class CasinoController
         $availableBalanceBefore = $this->safeNumber($betRecord['availableBalanceBefore'] ?? null, null);
         $availableBalanceAfter = $this->safeNumber($betRecord['availableBalanceAfter'] ?? null, null);
         if ($availableBalanceBefore === null && $pendingBalanceSnapshot !== null) {
-            $availableBalanceBefore = round(max(0, $balanceBefore - $pendingBalanceSnapshot), 2);
+            $availableBalanceBefore = round(max(0, $balanceBefore - $pendingBalanceSnapshot));
         }
         if ($availableBalanceBefore === null) {
             $availableBalanceBefore = $balanceBefore;
         }
         if ($availableBalanceAfter === null) {
             if ($pendingBalanceSnapshot !== null) {
-                $availableBalanceAfter = round(max(0, $balanceAfter - $pendingBalanceSnapshot), 2);
+                $availableBalanceAfter = round(max(0, $balanceAfter - $pendingBalanceSnapshot));
             }
         }
         if ($availableBalanceAfter === null) {
             $availableBalanceAfter = $balanceAfter;
         }
-        $availableBalanceBefore = round(max(0, $availableBalanceBefore), 2);
-        $availableBalanceAfter = round(max(0, $availableBalanceAfter), 2);
+        $availableBalanceBefore = round(max(0, $availableBalanceBefore));
+        $availableBalanceAfter = round(max(0, $availableBalanceAfter));
 
         return [
             'roundId' => $roundId,
@@ -7844,8 +7844,8 @@ final class CasinoController
         $min = $this->safeNumber($game['minBet'] ?? null, $fallbackMin);
         $max = $this->safeNumber($game['maxBet'] ?? null, $fallbackMax);
 
-        $resolvedMin = $min !== null && $min > 0 ? round($min, 2) : round($fallbackMin, 2);
-        $resolvedMax = $max !== null && $max > 0 ? round($max, 2) : round($fallbackMax, 2);
+        $resolvedMin = $min !== null && $min > 0 ? round($min) : round($fallbackMin);
+        $resolvedMax = $max !== null && $max > 0 ? round($max) : round($fallbackMax);
         if ($resolvedMax < $resolvedMin) {
             $resolvedMax = $resolvedMin;
         }
@@ -7865,7 +7865,7 @@ final class CasinoController
         if (!is_finite($amount) || $amount < 0) {
             throw new InvalidArgumentException($fieldName . ' must be a valid non-negative amount');
         }
-        $rounded = round($amount, 2);
+        $rounded = round($amount);
         if (abs($amount - $rounded) > 0.00001) {
             throw new InvalidArgumentException($fieldName . ' must have at most 2 decimal places');
         }

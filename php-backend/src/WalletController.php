@@ -337,7 +337,7 @@ final class WalletController
     private function parseAmount(mixed $value): float
     {
         $amount = is_numeric($value) ? (float) $value : 0.0;
-        return (float) number_format($amount, 2, '.', '');
+        return (float) round($amount);
     }
 
     private function toOptionalId(mixed $value): mixed

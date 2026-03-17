@@ -1768,3 +1768,23 @@
 [2026-03-14T15:05:10+00:00] [ERROR] [2026-03-14T15:05:09+00:00] update failed: Odds sync failed: all upstream API requests failed
 [2026-03-14T15:07:10+00:00] [ERROR] [2026-03-14T15:07:08+00:00] update failed: Odds sync failed: all upstream API requests failed
 [2026-03-14T15:09:10+00:00] [ERROR] [2026-03-14T15:09:08+00:00] update failed: Odds sync failed: all upstream API requests failed
+[2026-03-17T15:55:46+00:00] [INFO] PHP odds worker started. interval=2m db=betterdr_local once=false
+[2026-03-17T15:55:46+00:00] [ERROR] [2026-03-17T15:55:46+00:00] update failed: SQLSTATE[HY000] [1045] Access denied for user 'root'@'localhost' (using password: YES) | hosts tried: localhost, 127.0.0.1
+[2026-03-17T15:57:46+00:00] [ERROR] [2026-03-17T15:57:46+00:00] update failed: SQLSTATE[HY000] [1045] Access denied for user 'root'@'localhost' (using password: YES) | hosts tried: localhost, 127.0.0.1
+[2026-03-17T15:59:46+00:00] [ERROR] [2026-03-17T15:59:46+00:00] update failed: SQLSTATE[HY000] [1045] Access denied for user 'root'@'localhost' (using password: YES) | hosts tried: localhost, 127.0.0.1
+[2026-03-17T16:01:46+00:00] [ERROR] [2026-03-17T16:01:46+00:00] update failed: SQLSTATE[HY000] [1045] Access denied for user 'root'@'localhost' (using password: YES) | hosts tried: localhost, 127.0.0.1
+[2026-03-17T16:03:46+00:00] [ERROR] [2026-03-17T16:03:46+00:00] update failed: SQLSTATE[HY000] [1045] Access denied for user 'root'@'localhost' (using password: YES) | hosts tried: localhost, 127.0.0.1
+[2026-03-17T16:05:46+00:00] [ERROR] [2026-03-17T16:05:46+00:00] update failed: SQLSTATE[HY000] [1045] Access denied for user 'root'@'localhost' (using password: YES) | hosts tried: localhost, 127.0.0.1
+[2026-03-17T16:07:46+00:00] [ERROR] [2026-03-17T16:07:46+00:00] update failed: SQLSTATE[HY000] [1045] Access denied for user 'root'@'localhost' (using password: YES) | hosts tried: localhost, 127.0.0.1
+[2026-03-17T16:09:46+00:00] [ERROR] [2026-03-17T16:09:46+00:00] update failed: SQLSTATE[HY000] [1045] Access denied for user 'root'@'localhost' (using password: YES) | hosts tried: localhost, 127.0.0.1
+[2026-03-17T16:11:46+00:00] [ERROR] [2026-03-17T16:11:46+00:00] update failed: SQLSTATE[HY000] [2002] Connection refused | hosts tried: localhost, 127.0.0.1
+[2026-03-17T16:13:46+00:00] [ERROR] [2026-03-17T16:13:45+00:00] update failed: SQLSTATE[HY000] [2002] Connection refused | hosts tried: localhost, 127.0.0.1
+[2026-03-17T16:15:45+00:00] [ERROR] [2026-03-17T16:15:45+00:00] update failed: SQLSTATE[HY000] [2002] Connection refused | hosts tried: localhost, 127.0.0.1
+[2026-03-17T16:17:45+00:00] [ERROR] [2026-03-17T16:17:44+00:00] update failed: SQLSTATE[HY000] [2002] Connection refused | hosts tried: localhost, 127.0.0.1
+[2026-03-17T16:19:44+00:00] [ERROR] [2026-03-17T16:19:44+00:00] update failed: SQLSTATE[HY000] [2002] Connection refused | hosts tried: localhost, 127.0.0.1
+[2026-03-17T16:21:43+00:00] [ERROR] [2026-03-17T16:21:43+00:00] update failed: SQLSTATE[HY000] [1045] Access denied for user 'root'@'localhost' (using password: YES) | hosts tried: localhost, 127.0.0.1
+[2026-03-17T16:23:43+00:00] [ERROR] [2026-03-17T16:23:43+00:00] update failed: SQLSTATE[HY000] [1045] Access denied for user 'root'@'localhost' (using password: YES) | hosts tried: localhost, 127.0.0.1
+[2026-03-17T16:25:43+00:00] [ERROR] [2026-03-17T16:25:43+00:00] update failed: SQLSTATE[HY000] [1045] Access denied for user 'root'@'localhost' (using password: YES) | hosts tried: localhost, 127.0.0.1
+[2026-03-17T16:27:43+00:00] [ERROR] [2026-03-17T16:27:43+00:00] update failed: SQLSTATE[HY000] [1045] Access denied for user 'root'@'localhost' (using password: YES) | hosts tried: localhost, 127.0.0.1
+[2026-03-17T16:30:14+00:00] [INFO] PHP odds worker started. interval=2m db=betterdr_local once=false
+[2026-03-17T16:30:16+00:00] [ERROR] [2026-03-17T16:30:14+00:00] update failed: Odds sync failed: all upstream API requests failed

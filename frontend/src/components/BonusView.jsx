@@ -26,7 +26,7 @@ const WITHDRAW_METHODS = [
 
 const QUICK_AMOUNTS = [25, 50, 100, 250, 500, 1000];
 
-const money = (value) => `$${Number(value || 0).toFixed(2)}`;
+const money = (value) => `$${Math.round(Number(value || 0))}`;
 
 const BonusView = () => {
     const token = localStorage.getItem('token');

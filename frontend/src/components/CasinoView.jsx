@@ -97,7 +97,7 @@ const resolveWalletBalance = (payload, fallbackValue = null) => {
 
 const normalizePositiveNumber = (value) => {
     const num = Number(value);
-    return Number.isFinite(num) && num > 0 ? Number(num.toFixed(2)) : null;
+    return Number.isFinite(num) && num > 0 ? Math.round(num) : null;
 };
 
 const buildLocalGameBetLimits = (activeGame, walletPayload, availableBalance) => {
@@ -124,9 +124,9 @@ const buildLocalGameBetLimits = (activeGame, walletPayload, availableBalance) =>
         accountMaxBet,
         gameMinBet,
         gameMaxBet,
-        effectiveMinBet: Number.isFinite(effectiveMinBet) ? Number(effectiveMinBet.toFixed(2)) : 0,
-        effectiveMaxBet: effectiveMaxBet === null ? null : Number(effectiveMaxBet.toFixed(2)),
-        availableBalance: Number.isFinite(Number(availableBalance)) ? Number(Number(availableBalance).toFixed(2)) : null,
+        effectiveMinBet: Number.isFinite(effectiveMinBet) ? Math.round(effectiveMinBet) : 0,
+        effectiveMaxBet: effectiveMaxBet === null ? null : Math.round(effectiveMaxBet),
+        availableBalance: Number.isFinite(Number(availableBalance)) ? Math.round(Number(availableBalance)) : null,
         lineMin: 1,
         lineMax: 20,
         coinStep: 0.05,
@@ -406,12 +406,12 @@ const CasinoView = () => {
         const min = Number(minBet);
         const max = Number(maxBet);
         if (!Number.isFinite(min) || !Number.isFinite(max)) return 'MIN/MAX set by table rules';
-        return `MIN: $${min.toFixed(2)} | MAX: $${max.toFixed(2)}`;
+        return `MIN: $${Math.round(min)} | MAX: $${Math.round(max)}`;
     };
     const formatMoney = (value) => {
         const num = Number(value || 0);
-        if (Number.isNaN(num)) return '$0.00';
-        return `$${num.toFixed(2)}`;
+        if (Number.isNaN(num)) return '$0';
+        return `$${Math.round(num)}`;
     };
     const formatGameLabel = (value) => {
         switch (String(value || '').toLowerCase()) {

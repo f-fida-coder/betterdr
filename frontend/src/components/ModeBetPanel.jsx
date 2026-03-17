@@ -23,7 +23,7 @@ const MODE_TABS = [
 
 const formatAmount = (value) => {
     const n = Number(value);
-    return Number.isFinite(n) ? n.toFixed(2) : '0.00';
+    return Number.isFinite(n) ? String(Math.round(n)) : '0';
 };
 
 const getTeaserMultiplier = (rule, legCount) => {
@@ -94,8 +94,8 @@ const ModeBetPanel = ({
 
     const ticketSignature = useMemo(() => JSON.stringify({
         type: normalizedMode,
-        amount: Number.isFinite(wagerAmount) ? Number(wagerAmount.toFixed(2)) : null,
-        teaserPoints: normalizedMode === 'teaser' ? Number(teaserPointValue.toFixed(2)) : 0,
+        amount: Number.isFinite(wagerAmount) ? Math.round(wagerAmount) : null,
+        teaserPoints: normalizedMode === 'teaser' ? Math.round(teaserPointValue) : 0,
         selections: selections.map((sel) => ({
             matchId: String(sel?.matchId || ''),
             selection: String(sel?.selection || ''),

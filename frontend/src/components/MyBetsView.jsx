@@ -4,7 +4,7 @@ import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { formatLineValue, formatOdds } from '../utils/odds';
 import '../mybets.css';
 
-const money = (value) => `$${Number(value || 0).toFixed(2)}`;
+const money = (value) => `$${Math.round(Number(value || 0))}`;
 const normalizeStatus = (value) => String(value || 'pending').trim().toLowerCase();
 
 const formatStatus = (value) => {

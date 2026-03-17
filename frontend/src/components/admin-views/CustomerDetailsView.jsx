@@ -774,19 +774,13 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
   }, [transactions, customer?.pendingBalance, customer?.balance, available]);
 
   const formatCurrency = (value) => {
-    return Number(value || 0).toLocaleString('en-US', {
-      style: 'currency',
-      currency: 'USD'
-    });
+    return '$' + Math.round(Number(value || 0)).toLocaleString('en-US');
   };
 
   const formatDetailMoney = (value) => {
     const num = Number(value || 0);
     if (Number.isNaN(num)) return '$0';
-    return `$${num.toLocaleString('en-US', {
-      minimumFractionDigits: Number.isInteger(num) ? 0 : 2,
-      maximumFractionDigits: Number.isInteger(num) ? 0 : 2
-    })}`;
+    return `$${Math.round(num).toLocaleString('en-US')}`;
   };
 
   const handleImpersonate = async () => {
@@ -1769,7 +1763,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
                   ) : performanceRows.map((row) => (
                     <tr key={row.key} className={performanceSelectedKey === row.key ? 'selected' : ''} onClick={() => setPerformanceSelectedKey(row.key)}>
                       <td>{row.periodLabel}</td>
-                      <td>{Number(row.net || 0).toFixed(2)}</td>
+                      <td>{Math.round(Number(row.net || 0))}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -1790,7 +1784,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
                   ) : performanceDayBets.map((wager) => (
                     <tr key={wager.id} className={wager?.synthetic ? 'perf-synthetic' : ''}>
                       <td>{wager.label || 'Wager'}</td>
-                      <td>{Number(wager.amount || 0).toFixed(2)}</td>
+                      <td>{Math.round(Number(wager.amount || 0))}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -1810,8 +1804,8 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
                 <option value="all">All Time</option>
               </select>
             </div>
-            <div className="tx-stat"><label>Balance</label><b>{Number(freePlayBalance).toFixed(2)}</b></div>
-            <div className="tx-stat"><label>Pending</label><b>{Number(freePlayPending).toFixed(2)}</b></div>
+            <div className="tx-stat"><label>Balance</label><b>{Math.round(Number(freePlayBalance))}</b></div>
+            <div className="tx-stat"><label>Pending</label><b>{Math.round(Number(freePlayPending))}</b></div>
           </div>
 
           <div className="tx-table-wrap">
@@ -1842,9 +1836,9 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
                       <td>{customer.username}</td>
                       <td>{toTxDate(txn.date)}</td>
                       <td>{txn.description || 'Free Play Adjustment'}</td>
-                      <td>{credit > 0 ? Number(credit).toFixed(2) : '—'}</td>
+                      <td>{credit > 0 ? Math.round(Number(credit)) : '—'}</td>
                       <td>—</td>
-                      <td>{Number(rowBalance || 0).toFixed(2)}</td>
+                      <td>{Math.round(Number(rowBalance || 0))}</td>
                       <td className="tx-actions-col">
                         <button
                           type="button"
@@ -2107,13 +2101,23 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
             <div className="tx-modal-balance-strip" role="status" aria-live="polite">
               <div className="tx-modal-balance-item">
                 <span>Current Balance</span>
-                <b className={txModalBalance < 0 ? 'neg' : txModalBalance > 0 ? 'pos' : 'neutral'}>
+                <b
+                  className={txModalBalance < 0 ? 'neg' : txModalBalance > 0 ? 'pos' : 'neutral'}
+                  style={{ cursor: 'pointer' }}
+                  title="Click to use this amount"
+                  onClick={() => setNewTxAmount(String(Math.abs(txModalBalance)))}
+                >
                   {formatCurrency(txModalBalance)}
                 </b>
               </div>
               <div className="tx-modal-balance-item">
                 <span>Carry</span>
-                <b className={txModalCarry < 0 ? 'neg' : txModalCarry > 0 ? 'pos' : 'neutral'}>
+                <b
+                  className={txModalCarry < 0 ? 'neg' : txModalCarry > 0 ? 'pos' : 'neutral'}
+                  style={{ cursor: 'pointer' }}
+                  title="Click to use this amount"
+                  onClick={() => setNewTxAmount(String(Math.abs(txModalCarry)))}
+                >
                   {formatCurrency(txModalCarry)}
                 </b>
               </div>

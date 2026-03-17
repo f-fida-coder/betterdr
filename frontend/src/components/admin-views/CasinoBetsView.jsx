@@ -98,8 +98,8 @@ function CasinoBetsView() {
 
   const formatMoney = (value) => {
     const num = Number(value || 0);
-    if (Number.isNaN(num)) return '$0.00';
-    return `$${num.toFixed(2)}`;
+    if (Number.isNaN(num)) return '$0';
+    return `$${Math.round(num)}`;
   };
 
   const formatDateTime = (value) => {

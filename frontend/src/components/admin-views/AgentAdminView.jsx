@@ -29,7 +29,7 @@ function AgentAdminView() {
     if (value === null || value === undefined || value === '') return '—';
     const num = Number(value);
     if (Number.isNaN(num)) return '—';
-    return `$${num.toFixed(2)}`;
+    return `$${Math.round(num)}`;
   };
 
   React.useEffect(() => {
@@ -337,8 +337,8 @@ function AgentAdminView() {
             <div className="detail-row"><label>Active Customers:</label> <span>{selectedAgent.activeCustomerCount || 0}</span></div>
             <div className="detail-row"><label>Balance:</label> <span>{formatMoney(selectedAgent.balance)}</span></div>
             <div className="detail-row"><label>Outstanding Balance:</label> <span>{formatMoney(selectedAgent.balanceOwed)}</span></div>
-            <div className="detail-row"><label>Rate per Customer:</label> <span>${Number(selectedAgent.agentBillingRate || 0).toFixed(2)}</span></div>
-            <div className="detail-row"><label>Weekly Charge:</label> <span>${Number(selectedAgent.weeklyCharge || 0).toFixed(2)}</span></div>
+            <div className="detail-row"><label>Rate per Customer:</label> <span>${Math.round(Number(selectedAgent.agentBillingRate || 0))}</span></div>
+            <div className="detail-row"><label>Weekly Charge:</label> <span>${Math.round(Number(selectedAgent.weeklyCharge || 0))}</span></div>
             <div className="detail-row"><label>Billing Status:</label> <span>{selectedAgent.agentBillingStatus || 'paid'}</span></div>
             <div className="detail-row"><label>View Only:</label> <span>{selectedAgent.viewOnly ? 'Yes' : 'No'}</span></div>
 
@@ -408,8 +408,8 @@ function AgentAdminView() {
                   <td>{agent.role === 'master_agent' ? (agent.totalUsersInHierarchy || 0) : (agent.userCount || 0)}</td>
                   <td>{formatMoney(agent.balance)}</td>
                   <td>{formatMoney(agent.balanceOwed)}</td>
-                  <td>${Number(agent.agentBillingRate || 0).toFixed(2)}</td>
-                  <td>${Number(agent.weeklyCharge || 0).toFixed(2)}</td>
+                  <td>${Math.round(Number(agent.agentBillingRate || 0))}</td>
+                  <td>${Math.round(Number(agent.weeklyCharge || 0))}</td>
                   <td><span className={`badge ${agent.agentBillingStatus === 'unpaid' ? 'warning' : 'active'}`}>{agent.agentBillingStatus || 'paid'}</span></td>
                   <td>
                     <button className="btn-small" onClick={() => openEditModal(agent)}>Edit</button>

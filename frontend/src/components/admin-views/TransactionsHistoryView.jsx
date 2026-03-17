@@ -106,11 +106,8 @@ const toIsoDate = (date) => {
 
 const formatMoney = (value) => {
   const num = Number(value || 0);
-  if (Number.isNaN(num)) return '0.00';
-  return num.toLocaleString('en-US', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
+  if (Number.isNaN(num)) return '0';
+  return Math.round(num).toLocaleString('en-US');
 };
 
 const formatDateTime = (value) => {

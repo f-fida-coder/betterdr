@@ -4891,11 +4891,11 @@ final class AdminCoreController
             $pending = $this->num($user['pendingBalance'] ?? 0);
 
             if (abs($balance) > 0.01) {
-                Response::json(['message' => 'Cannot delete user with non-zero balance ($' . number_format($balance, 2, '.', '') . '). Please settle first.'], 400);
+                Response::json(['message' => 'Cannot delete user with non-zero balance ($' . round($balance) . '). Please settle first.'], 400);
                 return;
             }
             if ($pending > 0) {
-                Response::json(['message' => 'Cannot delete user with pending bets ($' . number_format($pending, 2, '.', '') . ').'], 400);
+                Response::json(['message' => 'Cannot delete user with pending bets ($' . round($pending) . ').'], 400);
                 return;
             }
 
@@ -4922,7 +4922,7 @@ final class AdminCoreController
 
             $balance = $this->num($agent['balance'] ?? 0);
             if (abs($balance) > 0.01) {
-                Response::json(['message' => 'Cannot delete agent with non-zero balance ($' . number_format($balance, 2, '.', '') . '). Settle first.'], 400);
+                Response::json(['message' => 'Cannot delete agent with non-zero balance ($' . round($balance) . '). Settle first.'], 400);
                 return;
             }
 
@@ -7029,7 +7029,7 @@ final class AdminCoreController
             if (is_array($agent)) {
                 $agentBalance = $this->num($agent['balance'] ?? 0);
                 if ($diff > 0 && $agentBalance < $diff) {
-                    Response::json(['message' => 'Insufficient balance. You need ' . number_format($diff, 2, '.', '') . ' but only have ' . number_format($agentBalance, 2, '.', '')], 400);
+                    Response::json(['message' => 'Insufficient balance. You need ' . round($diff) . ' but only have ' . round($agentBalance)], 400);
                     return;
                 }
             }
@@ -8453,7 +8453,7 @@ final class AdminCoreController
                     'totalPayout' => $totalPayout,
                     'ggr' => $ggr,
                     'holdPct' => (float) number_format($holdPct, 1, '.', ''),
-                    'avgRisk' => (float) number_format($avgRisk, 2, '.', ''),
+                    'avgRisk' => (int) round($avgRisk),
                     'lastBetAt' => $lastBetAt,
                 ],
                 'topCustomers' => $topCustomers,

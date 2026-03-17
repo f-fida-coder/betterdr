@@ -107,7 +107,7 @@ function PendingView() {
     if (amount === null || amount === undefined) return '—';
     const num = Number(amount);
     if (Number.isNaN(num)) return '—';
-    return `$${num.toFixed(2)}`;
+    return `$${Math.round(num)}`;
   };
 
   const formatDate = (value) => {

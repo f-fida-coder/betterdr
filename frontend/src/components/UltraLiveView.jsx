@@ -406,8 +406,8 @@ const UltraLiveView = () => {
                                                 <span>{(bet.type || 'bet').toUpperCase()}</span>
                                                 <span className={`ultra-bet-status ${bet.status || 'pending'}`}>{bet.status || 'pending'}</span>
                                             </div>
-                                            <div className="ultra-my-bet-row">Risk: ${Number(bet.amount || 0).toFixed(2)}</div>
-                                            <div className="ultra-my-bet-row">To Win: ${Number(bet.potentialPayout || 0).toFixed(2)}</div>
+                                            <div className="ultra-my-bet-row">Risk: ${Math.round(Number(bet.amount || 0))}</div>
+                                            <div className="ultra-my-bet-row">To Win: ${Math.round(Number(bet.potentialPayout || 0))}</div>
                                         </div>
                                     ))}
                                 </div>
