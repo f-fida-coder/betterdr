@@ -1788,3 +1788,6 @@
 [2026-03-17T16:27:43+00:00] [ERROR] [2026-03-17T16:27:43+00:00] update failed: SQLSTATE[HY000] [1045] Access denied for user 'root'@'localhost' (using password: YES) | hosts tried: localhost, 127.0.0.1
 [2026-03-17T16:30:14+00:00] [INFO] PHP odds worker started. interval=2m db=betterdr_local once=false
 [2026-03-17T16:30:16+00:00] [ERROR] [2026-03-17T16:30:14+00:00] update failed: Odds sync failed: all upstream API requests failed
+[2026-03-17T16:37:47+00:00] [INFO] PHP odds worker started. interval=2m db=betterdr_local once=false
+[2026-03-17T16:37:49+00:00] [ERROR] [2026-03-17T16:37:47+00:00] update failed: Odds sync failed: all upstream API requests failed
+[2026-03-17T16:39:49+00:00] [ERROR] [2026-03-17T16:39:47+00:00] update failed: Odds sync failed: all upstream API requests failed

@@ -296,6 +296,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
   const [freePlayDisplayFilter, setFreePlayDisplayFilter] = useState('7d');
   const [freePlaySelectedIds, setFreePlaySelectedIds] = useState([]);
   const [showNewFreePlayModal, setShowNewFreePlayModal] = useState(false);
+  const [freePlayModalMode, setFreePlayModalMode] = useState('deposit'); // 'deposit' | 'withdraw'
   const [newFreePlayAmount, setNewFreePlayAmount] = useState('');
   const [newFreePlayDescription, setNewFreePlayDescription] = useState('');
   const [dynamicLiveSaving, setDynamicLiveSaving] = useState(false);
@@ -1144,13 +1145,20 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
         setFreePlayError('Please login again.');
         return;
       }
-      const nextFreeplay = Number(customer.freeplayBalance || 0) + amount;
+      const currentFP = Number(customer.freeplayBalance || 0);
+      const isWithdraw = freePlayModalMode === 'withdraw';
+      if (isWithdraw && amount > currentFP) {
+        setFreePlayError('Withdraw amount exceeds current free play balance.');
+        return;
+      }
+      const nextFreeplay = isWithdraw ? Math.max(0, currentFP - amount) : currentFP + amount;
       await updateUserFreeplay(userId, nextFreeplay, token, newFreePlayDescription.trim());
       setCustomer((prev) => ({ ...prev, freeplayBalance: nextFreeplay }));
+      const verb = isWithdraw ? 'withdrawn' : 'added';
       if (newFreePlayDescription.trim()) {
-        setFreePlaySuccess(`Free play added. Note: "${newFreePlayDescription.trim()}"`);
+        setFreePlaySuccess(`Free play ${verb}. Note: "${newFreePlayDescription.trim()}"`);
       } else {
-        setFreePlaySuccess('Free play added successfully.');
+        setFreePlaySuccess(`Free play ${verb} successfully.`);
       }
       setFreePlayError('');
       setShowNewFreePlayModal(false);
@@ -1158,7 +1166,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
       setNewFreePlayDescription('');
       await refreshFreePlay();
     } catch (err) {
-      setFreePlayError(err.message || 'Failed to add free play');
+      setFreePlayError(err.message || 'Failed to update free play');
     }
   };
 
@@ -1609,7 +1617,10 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
         {activeSection === 'transactions' ? (
           <button className="btn btn-back" onClick={openTransactionSlip}>New transaction</button>
         ) : activeSection === 'freeplays' ? (
-          <button className="btn btn-back" onClick={() => setShowNewFreePlayModal(true)}>New Free Play</button>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button className="btn btn-back" onClick={() => { setFreePlayModalMode('withdraw'); setShowNewFreePlayModal(true); }}>Withdraw</button>
+            <button className="btn btn-save" onClick={() => { setFreePlayModalMode('deposit'); setShowNewFreePlayModal(true); }}>Add Free Play</button>
+          </div>
         ) : activeSection === 'dynamic-live' ? (
           <button className="btn btn-save" onClick={handleSaveDynamicLive} disabled={dynamicLiveSaving}>{dynamicLiveSaving ? 'Saving...' : 'Save'}</button>
         ) : activeSection === 'live-casino' ? (
@@ -2135,15 +2146,22 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
       {showNewFreePlayModal && (
         <div className="modal-overlay" onClick={() => setShowNewFreePlayModal(false)}>
           <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-            <h4>New Free Play</h4>
+            <h4>{freePlayModalMode === 'withdraw' ? 'Withdraw Free Play' : 'New Free Play'}</h4>
             <label>Transaction</label>
-            <div className="fp-modal-type-badge">Deposit</div>
+            <div className="fp-modal-type-badge" style={{ background: freePlayModalMode === 'withdraw' ? '#fee2e2' : undefined, color: freePlayModalMode === 'withdraw' ? '#dc2626' : undefined }}>
+              {freePlayModalMode === 'withdraw' ? 'Withdraw' : 'Deposit'}
+            </div>
             <label>Amount</label>
             <input type="number" value={newFreePlayAmount} onChange={(e) => setNewFreePlayAmount(e.target.value)} placeholder="0.00" />
             <div className="tx-modal-balance-strip fp-modal-balance-strip" role="status" aria-live="polite">
               <div className="tx-modal-balance-item">
                 <span>Free Play Balance</span>
-                <b className={freePlayBalance < 0 ? 'neg' : freePlayBalance > 0 ? 'pos' : 'neutral'}>
+                <b
+                  className={freePlayBalance < 0 ? 'neg' : freePlayBalance > 0 ? 'pos' : 'neutral'}
+                  style={{ cursor: 'pointer' }}
+                  title="Click to use this amount"
+                  onClick={() => setNewFreePlayAmount(String(Math.abs(freePlayBalance)))}
+                >
                   {formatCurrency(freePlayBalance)}
                 </b>
               </div>
