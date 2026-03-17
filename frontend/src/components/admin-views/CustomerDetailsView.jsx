@@ -1840,7 +1840,11 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
                   <tr><td colSpan={7} className="tx-empty">No free play transactions found</td></tr>
                 ) : freePlayRows.map((txn) => {
                   const amount = Number(txn.amount || 0);
-                  const credit = amount > 0 ? amount : 0;
+                  const balanceBefore = Number(txn.balanceBefore ?? 0);
+                  const balanceAfter = Number(txn.balanceAfter ?? freePlayBalance);
+                  const isCredit = balanceAfter >= balanceBefore;
+                  const credit = isCredit ? amount : 0;
+                  const debit = !isCredit ? amount : 0;
                   const rowBalance = txn?.balanceAfter ?? freePlayBalance;
                   const selected = freePlaySelectedIds.includes(txn.id);
                   return (
@@ -1848,8 +1852,8 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
                       <td>{customer.username}</td>
                       <td>{toTxDate(txn.date)}</td>
                       <td>{txn.description || 'Free Play Adjustment'}</td>
-                      <td>{credit > 0 ? Math.round(Number(credit)) : '—'}</td>
-                      <td>—</td>
+                      <td>{credit > 0 ? Math.round(credit) : '—'}</td>
+                      <td>{debit > 0 ? Math.round(debit) : '—'}</td>
                       <td>{Math.round(Number(rowBalance || 0))}</td>
                       <td className="tx-actions-col">
                         <button
@@ -2109,7 +2113,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
               ))}
             </select>
             <label>Amount</label>
-            <input type="number" value={newTxAmount} onChange={(e) => setNewTxAmount(e.target.value)} placeholder="0.00" />
+            <input type="number" step="1" min="0" value={newTxAmount} onChange={(e) => setNewTxAmount(e.target.value === '' ? '' : String(Math.round(Number(e.target.value))))} placeholder="0" />
             <div className="tx-modal-balance-strip" role="status" aria-live="polite">
               <div className="tx-modal-balance-item">
                 <span>Current Balance</span>
@@ -2153,7 +2157,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
               {freePlayModalMode === 'withdraw' ? 'Withdraw' : 'Deposit'}
             </div>
             <label>Amount</label>
-            <input type="number" value={newFreePlayAmount} onChange={(e) => setNewFreePlayAmount(e.target.value)} placeholder="0.00" />
+            <input type="number" step="1" min="0" value={newFreePlayAmount} onChange={(e) => setNewFreePlayAmount(e.target.value === '' ? '' : String(Math.round(Number(e.target.value))))} placeholder="0" />
             <div className="tx-modal-balance-strip fp-modal-balance-strip" role="status" aria-live="polite">
               <div className="tx-modal-balance-item">
                 <span>Free Play Balance</span>

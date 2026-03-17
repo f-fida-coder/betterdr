@@ -2311,3 +2311,4 @@
 #2 {main}
 2026-03-17 16:22:57 [503] {"message":"Database connection failed. Please try again later.","error":"SQLSTATE[HY000] [1045] Access denied for user 'root'@'localhost' (using password: YES) | hosts tried: localhost, 127.0.0.1"}
 2026-03-17 16:26:56 [401] {"message":"Invalid credentials"}
+2026-03-17 16:56:36 [401] {"message":"Not authorized, token failed: Token expired"}
