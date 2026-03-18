@@ -20,6 +20,10 @@ final class DebugController
             $this->emitMatch();
             return true;
         }
+        if ($method === 'GET' && $path === '/api/debug/sports-api-smoke-test') {
+            $this->sportsApiSmokeTest();
+            return true;
+        }
         return false;
     }
 
@@ -48,6 +52,32 @@ final class DebugController
             // Socket emission is still handled by the legacy Node service.
             Response::json(['ok' => true, 'emitted' => $payload]);
         } catch (Throwable $e) {
+            Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    private function sportsApiSmokeTest(): void
+    {
+        try {
+            $actor = $this->protectAdminOnly();
+            if ($actor === null) {
+                return;
+            }
+
+            $result = OddsSyncService::smokeTest();
+
+            Logger::info('Sports API smoke test run', [
+                'ok'             => $result['ok'],
+                'httpStatus'     => $result['httpStatus'],
+                'responseTimeMs' => $result['responseTimeMs'],
+                'quotaRemaining' => $result['quotaRemaining'],
+                'missingSports'  => $result['missingSports'],
+            ], 'sportsbook');
+
+            $httpStatus = $result['ok'] ? 200 : ($result['configured'] ? 502 : 503);
+            Response::json($result, $httpStatus);
+        } catch (Throwable $e) {
+            Logger::exception($e, 'Sports API smoke test error');
             Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
         }
     }

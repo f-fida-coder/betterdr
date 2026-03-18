@@ -72,6 +72,9 @@ final class BetsController
                 throw new ApiException('Bet amount must be positive', 400);
             }
 
+            // useFreeplay: client requests to wager from freeplay balance instead of real balance.
+            $useFreeplay = (bool) ($body['useFreeplay'] ?? false);
+
             $modeRule = $this->getModeRule($type);
             if ($modeRule === null) {
                 throw new ApiException('Bet mode ' . $type . ' is not supported', 400);
@@ -233,35 +236,87 @@ final class BetsController
                     throw new ApiException('User not found', 404);
                 }
 
-                $balance = $this->num($lockedUser['balance'] ?? 0);
-                $pending = $this->num($lockedUser['pendingBalance'] ?? 0);
-                $available = max(0, $balance - $pending);
+                $balance        = $this->num($lockedUser['balance'] ?? 0);
+                $pending        = $this->num($lockedUser['pendingBalance'] ?? 0);
+                $freeplayBalance = $this->num($lockedUser['freeplayBalance'] ?? 0);
+                $available      = max(0, $balance - $pending);
 
-                if ($available < $totalRisk) {
-                    $this->db->rollback();
-                    throw new ApiException('Insufficient available balance', 400, [
-                        'code' => 'INSUFFICIENT_BALANCE',
+                // ── Freeplay expiry check ──────────────────────────────────────────
+                // If freeplayExpiresAt is set and in the past, zero out the balance.
+                if ($freeplayBalance > 0) {
+                    $fpExpiry = $lockedUser['freeplayExpiresAt'] ?? null;
+                    if ($fpExpiry !== null) {
+                        $fpExpiryTs = is_numeric($fpExpiry) ? (int) $fpExpiry : strtotime((string) $fpExpiry);
+                        if ($fpExpiryTs !== false && $fpExpiryTs > 0 && $fpExpiryTs < time()) {
+                            // Expired — zero out silently so the user sees $0 freeplay
+                            $this->db->updateOne('users', ['_id' => MongoRepository::id((string) $lockedUser['_id'])], [
+                                'freeplayBalance' => 0.0,
+                                'freeplayExpiresAt' => null,
+                                'updatedAt' => MongoRepository::nowUtc(),
+                            ]);
+                            $freeplayBalance = 0.0;
+                        }
+                    }
+                }
+
+                if ($useFreeplay) {
+                    // ── Freeplay path ──────────────────────────────────────────────
+                    // Freeplay credits are a separate pool — does not touch real balance
+                    // or pendingBalance. Winnings credit profit-only to real balance.
+                    if ($freeplayBalance <= 0) {
+                        $this->db->rollback();
+                        throw new ApiException(
+                            'Your freeplay credits have expired or been used.',
+                            400,
+                            ['code' => 'FREEPLAY_EXPIRED']
+                        );
+                    }
+                    if ($freeplayBalance < $totalRisk) {
+                        $this->db->rollback();
+                        throw new ApiException(
+                            'Insufficient freeplay balance. Available: $' . number_format($freeplayBalance, 2),
+                            400,
+                            ['code' => 'INSUFFICIENT_FREEPLAY_BALANCE']
+                        );
+                    }
+                    $newBalance  = $balance;           // real balance unchanged
+                    $newPending  = $pending;           // real pending unchanged
+                    $newFreeplay = $freeplayBalance - $totalRisk;
+
+                    $this->db->updateOne('users', ['_id' => MongoRepository::id((string) $lockedUser['_id'])], [
+                        'freeplayBalance' => $newFreeplay,
+                        'betCount'        => ((int) ($lockedUser['betCount'] ?? 0)) + 1,
+                        'updatedAt'       => MongoRepository::nowUtc(),
+                    ]);
+                } else {
+                    // ── Real-balance path (existing logic) ─────────────────────────
+                    if ($available < $totalRisk) {
+                        $this->db->rollback();
+                        throw new ApiException('Insufficient available balance', 400, [
+                            'code' => 'INSUFFICIENT_BALANCE',
+                        ]);
+                    }
+
+                    // Check gambling loss limits (only applies to real-money bets)
+                    $gamblingLimits = is_array($lockedUser['gamblingLimits'] ?? null) ? $lockedUser['gamblingLimits'] : [];
+                    $lossLimitMsg = $this->checkLossLimits($lockedUser, $gamblingLimits, $totalRisk);
+                    if ($lossLimitMsg !== null) {
+                        $this->db->rollback();
+                        throw new ApiException($lossLimitMsg, 400);
+                    }
+
+                    $newBalance  = $balance - $totalRisk;
+                    $newPending  = $pending + $totalRisk;
+                    $newFreeplay = $freeplayBalance; // unchanged
+
+                    $this->db->updateOne('users', ['_id' => MongoRepository::id((string) $lockedUser['_id'])], [
+                        'balance'        => $newBalance,
+                        'pendingBalance' => $newPending,
+                        'betCount'       => ((int) ($lockedUser['betCount'] ?? 0)) + 1,
+                        'totalWagered'   => $this->num($lockedUser['totalWagered'] ?? 0) + $totalRisk,
+                        'updatedAt'      => MongoRepository::nowUtc(),
                     ]);
                 }
-
-                // Check gambling loss limits
-                $gamblingLimits = is_array($lockedUser['gamblingLimits'] ?? null) ? $lockedUser['gamblingLimits'] : [];
-                $lossLimitMsg = $this->checkLossLimits($lockedUser, $gamblingLimits, $totalRisk);
-                if ($lossLimitMsg !== null) {
-                    $this->db->rollback();
-                    throw new ApiException($lossLimitMsg, 400);
-                }
-
-                $newBalance = $balance - $totalRisk;
-                $newPending = $pending + $totalRisk;
-
-                $this->db->updateOne('users', ['_id' => MongoRepository::id((string) $lockedUser['_id'])], [
-                    'balance' => $newBalance,
-                    'pendingBalance' => $newPending,
-                    'betCount' => ((int) ($lockedUser['betCount'] ?? 0)) + 1,
-                    'totalWagered' => $this->num($lockedUser['totalWagered'] ?? 0) + $totalRisk,
-                    'updatedAt' => MongoRepository::nowUtc(),
-                ]);
 
                 $ipAddress = IpUtils::clientIp();
                 $userAgent = Http::header('user-agent');
@@ -278,6 +333,7 @@ final class BetsController
                     'potentialPayout' => $potentialPayout,
                     'combinedOdds' => $combinedOdds,
                     'status' => 'pending',
+                    'isFreeplay' => $useFreeplay,
                     'ipAddress' => $ipAddress,
                     'userAgent' => $userAgent,
                     'teaserPoints' => $type === 'teaser' ? $teaserPoints : 0.0,
@@ -303,14 +359,15 @@ final class BetsController
                 $this->db->insertOne('transactions', [
                     'userId' => $userId,
                     'amount' => $totalRisk,
-                    'type' => 'bet_placed',
+                    'type' => $useFreeplay ? 'fp_bet_placed' : 'bet_placed',
                     'status' => 'completed',
-                    'balanceBefore' => $balance,
-                    'balanceAfter' => $newBalance,
+                    'isFreeplay' => $useFreeplay,
+                    'balanceBefore' => $useFreeplay ? $freeplayBalance : $balance,
+                    'balanceAfter'  => $useFreeplay ? $newFreeplay  : $newBalance,
                     'referenceType' => 'Bet',
                     'referenceId' => MongoRepository::id($createdBetIds[0]),
-                    'reason' => 'BET_PLACED',
-                    'description' => strtoupper($type) . ' bet placed',
+                    'reason' => $useFreeplay ? 'FP_BET_PLACED' : 'BET_PLACED',
+                    'description' => strtoupper($type) . ($useFreeplay ? ' freeplay' : '') . ' bet placed',
                     'ipAddress' => $ipAddress,
                     'userAgent' => $userAgent,
                     'createdAt' => $now,
@@ -817,11 +874,39 @@ final class BetsController
     private function getModeRule(string $mode): ?array
     {
         $normalized = BetModeRules::normalize($mode);
+
+        // Ensure DB is seeded before reading so rules are always present even if the
+        // admin betting-rules endpoint was never called (e.g. fresh install).
+        $this->ensureBetModeRulesSeeded($normalized);
+
         $dbRule = $this->db->findOne('betmoderules', ['mode' => $normalized, 'isActive' => true]);
         if ($dbRule !== null) {
             return $dbRule;
         }
         return BetModeRules::getDefault($normalized);
+    }
+
+    private function ensureBetModeRulesSeeded(string $mode): void
+    {
+        $exists = $this->db->findOne('betmoderules', ['mode' => $mode]);
+        if ($exists !== null) {
+            return; // already seeded — skip upsert on every bet placement
+        }
+        $rule = BetModeRules::getDefault($mode);
+        if ($rule === null) {
+            return;
+        }
+        $now = MongoRepository::nowUtc();
+        try {
+            $this->db->updateOneUpsert(
+                'betmoderules',
+                ['mode' => $mode],
+                ['updatedAt' => $now],
+                array_merge($rule, ['createdAt' => $now, 'updatedAt' => $now])
+            );
+        } catch (Throwable $ignored) {
+            // Non-fatal: fallback will use BetModeRules::getDefault()
+        }
     }
 
     private function getTeaserMultiplier(array $rule, int $legCount): float

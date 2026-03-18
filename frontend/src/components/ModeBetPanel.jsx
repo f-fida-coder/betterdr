@@ -5,12 +5,14 @@ import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { formatOdds } from '../utils/odds';
 import BetConfirmationModal from './BetConfirmationModal';
 
+// Minimal structural fallbacks — NO hardcoded multipliers.
+// Real values always come from rulesByMode (loaded from DB via /api/betting/rules).
 const DEFAULT_RULES = {
-    straight: { minLegs: 1, maxLegs: 1, teaserPointOptions: [], payoutProfile: { multipliers: {} } },
-    parlay: { minLegs: 2, maxLegs: 12, teaserPointOptions: [], payoutProfile: { multipliers: {} } },
-    teaser: { minLegs: 2, maxLegs: 6, teaserPointOptions: [6, 6.5, 7], payoutProfile: { multipliers: { '2': 1.8, '3': 2.6, '4': 4.0, '5': 6.5, '6': 9.5 } } },
-    if_bet: { minLegs: 2, maxLegs: 2, teaserPointOptions: [], payoutProfile: { multipliers: {} } },
-    reverse: { minLegs: 2, maxLegs: 2, teaserPointOptions: [], payoutProfile: { multipliers: {} } }
+    straight: { minLegs: 1, maxLegs: 1, teaserPointOptions: [], payoutProfile: { type: 'odds_product', multipliers: {} } },
+    parlay:   { minLegs: 2, maxLegs: 12, teaserPointOptions: [], payoutProfile: { type: 'odds_product', multipliers: {} } },
+    teaser:   { minLegs: 2, maxLegs: 6,  teaserPointOptions: [], payoutProfile: { type: 'table_multiplier', multipliers: {} } },
+    if_bet:   { minLegs: 2, maxLegs: 2,  teaserPointOptions: [], payoutProfile: { type: 'odds_product', multipliers: {} } },
+    reverse:  { minLegs: 2, maxLegs: 2,  teaserPointOptions: [], payoutProfile: { type: 'odds_product', multipliers: {} } },
 };
 
 const MODE_TABS = [
@@ -36,6 +38,8 @@ const ModeBetPanel = ({
     user,
     balance = 0,
     availableBalance = null,
+    freeplayBalance = 0,
+    freeplayExpiresAt = null,
     mode,
     onModeChange,
     selections,
@@ -54,8 +58,18 @@ const ModeBetPanel = ({
     const [isMobile, setIsMobile] = useState(false);
     const [submitAttempted, setSubmitAttempted] = useState(false);
     const [showConfirm, setShowConfirm] = useState(false);
+    const [useFreeplay, setUseFreeplay] = useState(false);
     const requestStateRef = useRef({ requestId: '', signature: '' });
     const submissionLockRef = useRef(false);
+
+    const parsedFreeplayBalance = Number.isFinite(Number(freeplayBalance)) ? Number(freeplayBalance) : 0;
+    const hasFreeplay = parsedFreeplayBalance > 0;
+    const freeplayExpiryLabel = (() => {
+        if (!freeplayExpiresAt || !hasFreeplay) return null;
+        const ts = typeof freeplayExpiresAt === 'number' ? freeplayExpiresAt * 1000 : Date.parse(freeplayExpiresAt);
+        if (!Number.isFinite(ts)) return null;
+        return new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+    })();
 
     useEffect(() => {
         const media = window.matchMedia('(max-width: 768px)');
@@ -137,7 +151,9 @@ const ModeBetPanel = ({
         ? availableBalance
         : balance;
     const parsedAvailableBalance = Number(rawAvailableBalance);
-    const effectiveAvailableBalance = Number.isFinite(parsedAvailableBalance) ? parsedAvailableBalance : 0;
+    const effectiveAvailableBalance = useFreeplay
+        ? parsedFreeplayBalance
+        : (Number.isFinite(parsedAvailableBalance) ? parsedAvailableBalance : 0);
     const canPlace = validationErrors.length === 0 && !placing;
     const hasSelections = legCount > 0;
     const [isOpen, setIsOpen] = useState(hasSelections);
@@ -157,6 +173,7 @@ const ModeBetPanel = ({
         onWagerChange('');
         setMessage(null);
         setSubmitAttempted(false);
+        setUseFreeplay(false);
         requestStateRef.current = { requestId: '', signature: '' };
     };
 
@@ -216,7 +233,8 @@ const ModeBetPanel = ({
         const payload = {
             type: normalizedMode,
             amount: wagerAmount,
-            teaserPoints: normalizedMode === 'teaser' ? teaserPointValue : 0
+            teaserPoints: normalizedMode === 'teaser' ? teaserPointValue : 0,
+            useFreeplay: useFreeplay && hasFreeplay
         };
 
         if (normalizedMode === 'straight') {
@@ -410,7 +428,31 @@ const ModeBetPanel = ({
                         placeholder="0.00"
                         style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid #cfd4dd' }}
                     />
-                    <div style={{ fontSize: 11, color: '#666', marginTop: 4 }}>Balance: ${formatAmount(balance)}</div>
+                    <div style={{ fontSize: 11, color: '#666', marginTop: 4 }}>
+                        Balance: ${formatAmount(balance)}
+                        {hasFreeplay && (
+                            <span style={{ marginLeft: 8, color: '#0b6623' }}>
+                                | Freeplay: ${formatAmount(parsedFreeplayBalance)}
+                                {freeplayExpiryLabel && (
+                                    <span style={{ color: '#888', fontStyle: 'italic' }}> (exp {freeplayExpiryLabel})</span>
+                                )}
+                            </span>
+                        )}
+                    </div>
+                    {hasFreeplay && (
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 12, cursor: 'pointer', userSelect: 'none' }}>
+                            <input
+                                type="checkbox"
+                                checked={useFreeplay}
+                                onChange={(e) => setUseFreeplay(e.target.checked)}
+                                style={{ width: 15, height: 15, cursor: 'pointer' }}
+                            />
+                            <span style={{ color: useFreeplay ? '#0b6623' : '#444', fontWeight: useFreeplay ? 700 : 400 }}>
+                                Use Freeplay Credits
+                                {useFreeplay && ' (profit only credited on win)'}
+                            </span>
+                        </label>
+                    )}
                 </div>
 
                 {normalizedMode === 'teaser' && Array.isArray(rule.teaserPointOptions) && rule.teaserPointOptions.length > 0 && (
@@ -474,6 +516,7 @@ const ModeBetPanel = ({
                 wager={wagerAmount}
                 totalRisk={totalRisk}
                 potentialPayout={potentialPayout}
+                isFreeplay={useFreeplay && hasFreeplay}
                 onCancel={() => setShowConfirm(false)}
                 onConfirm={executePlaceBet}
                 isSubmitting={placing}

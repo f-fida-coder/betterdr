@@ -739,4 +739,112 @@ final class OddsSyncService
             'score' => count($score) > 0 ? $score : new stdClass(),
         ];
     }
+
+    /**
+     * Smoke-test the Odds API: performs one cheap /sports call, verifies the
+     * response shape, checks quota, and confirms that configured sports exist.
+     *
+     * @return array<string, mixed>
+     */
+    public static function smokeTest(): array
+    {
+        $result = [
+            'ok'                => false,
+            'configured'        => false,
+            'sportsApiEnabled'  => false,
+            'apiKeyPresent'     => false,
+            'httpStatus'        => null,
+            'responseTimeMs'    => null,
+            'quotaRemaining'    => null,
+            'quotaUsed'         => null,
+            'totalSportsInApi'  => null,
+            'configuredSports'  => [],
+            'missingSports'     => [],
+            'sampleSports'      => [],
+            'error'             => null,
+        ];
+
+        $sportsApiEnabled = strtolower((string) Env::get('SPORTS_API_ENABLED', 'true')) === 'true';
+        $result['sportsApiEnabled'] = $sportsApiEnabled;
+
+        $apiKey = (string) Env::get('ODDS_API_KEY', '');
+        $result['apiKeyPresent'] = $apiKey !== '';
+
+        if (!$sportsApiEnabled) {
+            $result['error'] = 'SPORTS_API_ENABLED is false — API is disabled by config.';
+            return $result;
+        }
+        if ($apiKey === '') {
+            $result['error'] = 'ODDS_API_KEY is not set.';
+            return $result;
+        }
+
+        $result['configured'] = true;
+
+        // ── Hit the /sports endpoint (cheapest call — lists available sports) ──
+        $apiBase  = 'https://api.the-odds-api.com/v4';
+        $url      = $apiBase . '/sports?' . http_build_query(['apiKey' => $apiKey, 'all' => 'false']);
+        $start    = microtime(true);
+        $response = self::httpGetDetailed($url);
+        $result['responseTimeMs'] = round((microtime(true) - $start) * 1000, 1);
+        $result['httpStatus']     = $response['status'];
+
+        // Quota headers
+        $headers = $response['headers'] ?? [];
+        if (isset($headers['x-requests-remaining'])) {
+            $result['quotaRemaining'] = (int) $headers['x-requests-remaining'];
+        }
+        if (isset($headers['x-requests-used'])) {
+            $result['quotaUsed'] = (int) $headers['x-requests-used'];
+        }
+
+        if ($response['body'] === null) {
+            $result['error'] = 'HTTP ' . $response['status'] . ': ' . ($response['error'] ?? 'empty response');
+            return $result;
+        }
+
+        $decoded = json_decode((string) $response['body'], true);
+        if (!is_array($decoded)) {
+            $result['error'] = 'Response is not valid JSON.';
+            return $result;
+        }
+
+        // The /sports endpoint returns an array of sport objects
+        if (!array_is_list($decoded)) {
+            // Might be an error object from the API
+            $result['error'] = (string) ($decoded['message'] ?? 'Unexpected response shape from /sports endpoint.');
+            return $result;
+        }
+
+        $result['totalSportsInApi'] = count($decoded);
+        $result['sampleSports']     = array_slice(array_map(
+            static fn(array $s): string => (string) ($s['key'] ?? ''),
+            $decoded
+        ), 0, 10);
+
+        // ── Verify configured sports exist in the API ─────────────────────────
+        $allowedSportsRaw  = (string) Env::get('ODDS_ALLOWED_SPORTS', 'basketball_nba,americanfootball_nfl,soccer_epl,baseball_mlb,icehockey_nhl');
+        $configuredSports  = array_values(array_filter(array_map('trim', explode(',', $allowedSportsRaw))));
+        $result['configuredSports'] = $configuredSports;
+
+        $apiSportKeys = array_flip(array_map(
+            static fn(array $s): string => strtolower((string) ($s['key'] ?? '')),
+            $decoded
+        ));
+
+        $missing = [];
+        foreach ($configuredSports as $sportKey) {
+            if (!isset($apiSportKeys[strtolower($sportKey)])) {
+                $missing[] = $sportKey;
+            }
+        }
+        $result['missingSports'] = $missing;
+
+        $result['ok'] = $missing === [];
+        if ($missing !== []) {
+            $result['error'] = 'Sports not found in API: ' . implode(', ', $missing) . '. They may be off-season or the key is wrong.';
+        }
+
+        return $result;
+    }
 }

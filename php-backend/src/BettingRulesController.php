@@ -109,7 +109,21 @@ final class BettingRulesController
 
             $payoutProfile = $rule['payoutProfile'] ?? [];
             if (array_key_exists('payoutProfile', $body) && is_array($body['payoutProfile'])) {
-                $payoutProfile = $body['payoutProfile'];
+                $incoming = $body['payoutProfile'];
+                // Validate multipliers: all keys must be positive integers, values must be > 1.0
+                if (isset($incoming['multipliers']) && is_array($incoming['multipliers'])) {
+                    foreach ($incoming['multipliers'] as $legKey => $mult) {
+                        if (!ctype_digit((string) $legKey) || (int) $legKey < 2) {
+                            Response::json(['message' => "Invalid multiplier key '{$legKey}' — must be a positive integer >= 2"], 400);
+                            return;
+                        }
+                        if (!is_numeric($mult) || (float) $mult <= 1.0) {
+                            Response::json(['message' => "Multiplier for {$legKey} legs must be greater than 1.0"], 400);
+                            return;
+                        }
+                    }
+                }
+                $payoutProfile = $incoming;
             }
 
             $isActive = array_key_exists('isActive', $body) ? (bool) $body['isActive'] : (bool) ($rule['isActive'] ?? true);

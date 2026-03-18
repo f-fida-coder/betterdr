@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { loginUser, getMe, getPublicBetModeRules, normalizeBetMode, updateProfile } from './api';
+import { loginUser, getMe, getSession, logoutSession, getPublicBetModeRules, normalizeBetMode, updateProfile } from './api';
 import Header from './components/Header';
 import LeagueNav from './components/LeagueNav';
 import Hero from './components/Hero';
@@ -30,19 +30,23 @@ import { normalizeOddsFormat, readStoredOddsFormat, writeStoredOddsFormat } from
 import './index.css';
 import './dashboard.css';
 
+// Structural placeholder only — no hardcoded multipliers.
+// Real values are loaded from /api/betting/rules (DB) on login and merged in below.
 const DEFAULT_BET_MODE_RULES = {
-  straight: { minLegs: 1, maxLegs: 1, teaserPointOptions: [], payoutProfile: { multipliers: {} } },
-  parlay: { minLegs: 2, maxLegs: 12, teaserPointOptions: [], payoutProfile: { multipliers: {} } },
-  teaser: { minLegs: 2, maxLegs: 6, teaserPointOptions: [6, 6.5, 7], payoutProfile: { multipliers: { '2': 1.8, '3': 2.6, '4': 4.0, '5': 6.5, '6': 9.5 } } },
-  if_bet: { minLegs: 2, maxLegs: 2, teaserPointOptions: [], payoutProfile: { multipliers: {} } },
-  reverse: { minLegs: 2, maxLegs: 2, teaserPointOptions: [], payoutProfile: { multipliers: {} } }
+  straight: { minLegs: 1, maxLegs: 1, teaserPointOptions: [], payoutProfile: { type: 'odds_product', multipliers: {} } },
+  parlay:   { minLegs: 2, maxLegs: 12, teaserPointOptions: [], payoutProfile: { type: 'odds_product', multipliers: {} } },
+  teaser:   { minLegs: 2, maxLegs: 6,  teaserPointOptions: [], payoutProfile: { type: 'table_multiplier', multipliers: {} } },
+  if_bet:   { minLegs: 2, maxLegs: 2,  teaserPointOptions: [], payoutProfile: { type: 'odds_product', multipliers: {} } },
+  reverse:  { minLegs: 2, maxLegs: 2,  teaserPointOptions: [], payoutProfile: { type: 'odds_product', multipliers: {} } },
 };
 
 function App() {
   const navigate = useNavigate();
   const { showToast } = useToast();
-  const [token, setToken] = useState(localStorage.getItem('token') || null);
-  const [isLoggedIn, setIsLoggedIn] = useState(Boolean(token));
+  // Token lives in React memory only — never written to localStorage (XSS protection).
+  // On page load we restore it from the httpOnly cookie via getSession().
+  const [token, setToken] = useState(null);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [activeLeague, setActiveLeague] = useState('all');
   const [dashboardView, setDashboardView] = useState('dashboard');
   const [selectedSports, setSelectedSports] = useState([]);
@@ -72,17 +76,34 @@ function App() {
     return normalized;
   };
 
-  // Initial Load - Check for token (simplified)
+  // On mount: attempt to restore session from the httpOnly cookie.
+  // If the cookie is valid the backend returns a fresh token + user data.
   useEffect(() => {
-    if (token) {
-      setIsLoggedIn(true);
-      document.body.classList.add('dashboard-mode');
-      fetchUserData(token);
-    } else {
-      setIsLoggedIn(false);
-      document.body.classList.remove('dashboard-mode');
-    }
-  }, [token]);
+    const restoreSession = async () => {
+      try {
+        const result = await getSession();
+        if (result?.token) {
+          setToken(result.token);
+          setIsLoggedIn(true);
+          document.body.classList.add('dashboard-mode');
+          setUser({
+            username: result.username,
+            phoneNumber: result.phoneNumber,
+            balance: result.balance,
+            pendingBalance: result.pendingBalance,
+            availableBalance: result.availableBalance,
+            id: result.id,
+            role: result.role,
+            unlimitedBalance: result.unlimitedBalance,
+            settings: result.settings || null,
+          });
+        }
+      } catch {
+        // No valid cookie — user needs to log in
+      }
+    };
+    restoreSession();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!user?.id) return;
@@ -176,7 +197,9 @@ function App() {
       // Call real backend authentication
       const result = await loginUser(username, password);
 
-      // Store the token from the real backend
+      // Primary auth: httpOnly cookie is set by the backend on every login response.
+      // localStorage write below is kept for backward compat with legacy admin/agent
+      // components — migrate them to use the cookie/session gradually.
       setToken(result.token);
       localStorage.setItem('token', result.token);
       localStorage.setItem('userRole', result.role);
@@ -217,9 +240,11 @@ function App() {
     setSlipSelections([]);
     setWager('');
     setTeaserPoints('');
-    localStorage.removeItem('token');
+    localStorage.removeItem('token');   // clear legacy cache
     localStorage.removeItem('userRole');
     document.body.classList.remove('dashboard-mode');
+    // Clear the httpOnly cookie server-side (best-effort, fire-and-forget)
+    logoutSession();
     handleHomeClick();
   };
 
@@ -436,6 +461,8 @@ function App() {
               user={user}
               balance={user.balance}
               availableBalance={user.availableBalance ?? user.balance}
+              freeplayBalance={user.freeplayBalance ?? 0}
+              freeplayExpiresAt={user.freeplayExpiresAt ?? null}
               mode={betMode}
               onModeChange={handleBetModeChange}
               selections={slipSelections}

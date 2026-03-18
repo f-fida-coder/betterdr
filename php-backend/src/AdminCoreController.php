@@ -1437,7 +1437,24 @@ final class AdminCoreController
                 return;
             }
 
+            // Optional expiry: ISO-8601 string or Unix timestamp in seconds.
+            // If not provided and balance > 0, default to 30 days from now.
+            $expiresAtRaw = $body['expiresAt'] ?? null;
+            $fpExpiresAt = null;
             $nextFreeplay = max(0.0, (float) $freeplayBalance);
+            if ($nextFreeplay > 0) {
+                if ($expiresAtRaw !== null) {
+                    $parsed = is_numeric($expiresAtRaw) ? (int) $expiresAtRaw : strtotime((string) $expiresAtRaw);
+                    if ($parsed === false || $parsed <= time()) {
+                        Response::json(['message' => 'expiresAt must be a future date/time'], 400);
+                        return;
+                    }
+                    $fpExpiresAt = $parsed;
+                } else {
+                    $fpExpiresAt = time() + (30 * 24 * 3600); // default: 30 days
+                }
+            }
+
             $this->db->beginTransaction();
             try {
                 $lockedUser = $this->db->findOneForUpdate('users', ['_id' => MongoRepository::id($userId)]);
@@ -1457,6 +1474,7 @@ final class AdminCoreController
 
                 $this->db->updateOne('users', ['_id' => MongoRepository::id($userId)], [
                     'freeplayBalance' => $nextFreeplay,
+                    'freeplayExpiresAt' => $fpExpiresAt,
                     'updatedAt' => $now,
                 ]);
 
@@ -1466,6 +1484,7 @@ final class AdminCoreController
                     'amount' => abs($nextFreeplay - $freeplayBefore),
                     'type' => 'adjustment',
                     'status' => 'completed',
+                    'isFreeplay' => true,
                     'balanceBefore' => $freeplayBefore,
                     'balanceAfter' => $nextFreeplay,
                     'referenceType' => 'Adjustment',
@@ -1487,6 +1506,7 @@ final class AdminCoreController
                 'user' => [
                     'id' => $userId,
                     'freeplayBalance' => $nextFreeplay,
+                    'freeplayExpiresAt' => $fpExpiresAt,
                 ],
             ]);
         } catch (Throwable $e) {
@@ -5306,6 +5326,8 @@ final class AdminCoreController
                 'creditLimit' => $this->numOr($body['creditLimit'] ?? null, 1000),
                 'balanceOwed' => $this->numOr($body['balanceOwed'] ?? null, 0),
                 'freeplayBalance' => $this->numOr($body['freeplayBalance'] ?? null, 200),
+                'freeplayExpiresAt' => time() + (30 * 24 * 3600), // 30 days from creation
+                'maxFpCredit' => $this->numOr($body['maxFpCredit'] ?? null, 500), // safe default cap
                 'pendingBalance' => 0,
                 'agentId' => ($assignedAgentId !== null && preg_match('/^[a-f0-9]{24}$/i', $assignedAgentId) === 1) ? MongoRepository::id($assignedAgentId) : null,
                 'createdBy' => MongoRepository::id((string) ($actor['_id'] ?? '')),
@@ -5942,6 +5964,8 @@ final class AdminCoreController
                     'creditLimit' => $this->numOr($row['creditLimit'] ?? null, 1000),
                     'balanceOwed' => $this->numOr($row['balanceOwed'] ?? null, 0),
                     'freeplayBalance' => $this->numOr($row['freeplayBalance'] ?? null, 200),
+                    'freeplayExpiresAt' => time() + (30 * 24 * 3600),
+                    'maxFpCredit' => $this->numOr($row['maxFpCredit'] ?? null, 500),
                     'lifetime' => $this->numOr($row['lifetime'] ?? null, 0),
                     'playerNotes' => $playerNotes,
                     'pendingBalance' => 0,
@@ -8669,9 +8693,14 @@ final class AdminCoreController
             ];
         }
 
+        // maxFpCredit = 0 or unset previously meant "no cap" (unlimited), which is unsafe.
+        // Safe default is 500. Operators who want a higher cap must set it explicitly.
+        // A value of -1 is the explicit opt-in for truly unlimited freeplay bonus.
         $capSource = $settings['maxFpCredit'] ?? ($user['maxFpCredit'] ?? null);
-        $cap = round(max(0.0, $this->numOr($capSource, 0.0)), 2);
-        $bonusAmount = $cap > 0 ? min($rawBonus, $cap) : $rawBonus;
+        $capRaw = $this->numOr($capSource === null ? 500.0 : $capSource, 500.0);
+        $cap = round(max(0.0, $capRaw), 2);
+        $unlimited = ($capSource !== null && $capRaw < 0); // explicit -1 = unlimited
+        $bonusAmount = (!$unlimited && $cap > 0) ? min($rawBonus, $cap) : ($unlimited ? $rawBonus : min($rawBonus, 500.0));
         $bonusAmount = round(max(0.0, $bonusAmount), 2);
 
         return [

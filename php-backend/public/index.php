@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../src/Env.php';
+require_once __DIR__ . '/../src/Logger.php';
 require_once __DIR__ . '/../src/Http.php';
 require_once __DIR__ . '/../src/IpUtils.php';
 require_once __DIR__ . '/../src/Jwt.php';
@@ -34,18 +35,62 @@ $projectRoot = dirname(__DIR__, 2);
 $phpBackendDir = dirname(__DIR__);
 Env::load($projectRoot, $phpBackendDir);
 
-$origin = $_SERVER['HTTP_ORIGIN'] ?? '';
-$allowedOrigins = array_values(array_filter(array_map('trim', explode(',', Env::get('CORS_ORIGIN', '')))));
-$allowOrigin = $origin !== '' && count($allowedOrigins) > 0 && in_array($origin, $allowedOrigins, true);
-if ($allowOrigin) {
+// ─── Logging init ─────────────────────────────────────────────────────────────
+Logger::init($phpBackendDir . '/logs');
+$_requestStartTime = microtime(true);
+// Emit X-Request-Id so clients can correlate logs with API responses
+header('X-Request-Id: ' . Logger::getRequestId());
+// Log every completed request (including fatal shutdown) at the end
+register_shutdown_function(static function () use (&$_requestStartTime): void {
+    $status = http_response_code();
+    $status = is_int($status) ? $status : 200;
+    // Skip OPTIONS preflights from access log to reduce noise
+    if (($_SERVER['REQUEST_METHOD'] ?? '') === 'OPTIONS') {
+        return;
+    }
+    Logger::request(
+        (string) ($_SERVER['REQUEST_METHOD'] ?? 'GET'),
+        Http::path(),
+        $status,
+        microtime(true) - $_requestStartTime
+    );
+});
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ─── CORS ─────────────────────────────────────────────────────────────────────
+$origin  = $_SERVER['HTTP_ORIGIN'] ?? '';
+$appEnvForCors = strtolower((string) Env::get('APP_ENV', 'production'));
+$isProductionCors = $appEnvForCors === 'production';
+
+// Parse and sanitise the allowed-origins list.
+$rawAllowedOrigins = array_values(array_filter(array_map('trim', explode(',', Env::get('CORS_ORIGIN', '')))));
+
+$allowedOrigins = [];
+foreach ($rawAllowedOrigins as $candidate) {
+    // Reject bare wildcards — browsers refuse credentials with Access-Control-Allow-Origin: *
+    if ($candidate === '*') {
+        continue;
+    }
+    // Must look like a URL with a scheme (http/https)
+    if (!preg_match('#^https?://#i', $candidate)) {
+        continue;
+    }
+    // Strip localhost/127.x/::1 origins in production to prevent local-machine attacks
+    if ($isProductionCors && preg_match('#^https?://(localhost|127\.\d+\.\d+\.\d+|\[?::1\]?)#i', $candidate)) {
+        continue;
+    }
+    $allowedOrigins[] = rtrim($candidate, '/'); // normalise: no trailing slash
+}
+
+$originAllowed = $origin !== '' && in_array(rtrim($origin, '/'), $allowedOrigins, true);
+
+if ($originAllowed) {
     header('Access-Control-Allow-Origin: ' . $origin);
     header('Access-Control-Allow-Credentials: true');
 }
 header('Vary: Origin');
-header('Access-Control-Allow-Headers: Content-Type, Authorization, Bypass-Tunnel-Remainder');
-header('Access-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS');
 
-// Security headers
+// Security headers (always emitted)
 header('X-Frame-Options: DENY');
 header('X-Content-Type-Options: nosniff');
 header('Referrer-Policy: strict-origin-when-cross-origin');
@@ -53,10 +98,107 @@ if (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') {
     header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
 }
 
+// Preflight — emit method/header hints only here, then exit
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') {
+    if ($originAllowed) {
+        header('Access-Control-Allow-Headers: Content-Type, Authorization, Bypass-Tunnel-Remainder, X-CSRF-Token');
+        header('Access-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS');
+        header('Access-Control-Max-Age: 86400'); // cache preflight for 24 h
+    }
     http_response_code(204);
     exit;
 }
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ─── Startup env validation ───────────────────────────────────────────────────
+// In production: hard-fail with HTTP 500 listing every misconfigured var.
+// In development: emit X-Config-Warning headers so issues show in devtools.
+(static function (): void {
+    $appEnv  = strtolower((string) Env::get('APP_ENV', 'production'));
+    $isProd  = $appEnv === 'production';
+
+    // Skip for health-check so ops tooling can still reach it.
+    $path = Http::path();
+    if ($path === '/api/_php/health') {
+        return;
+    }
+
+    $knownPlaceholders = [
+        'sk_test_placeholder', 'whsec_placeholder',
+        'your_rapidapi_key_here', 'your_key_here', 'placeholder',
+        'changeme', 'replace_with',
+    ];
+    $isPlaceholder = static function (string $v) use ($knownPlaceholders): bool {
+        $lower = strtolower($v);
+        foreach ($knownPlaceholders as $ph) {
+            if (str_contains($lower, $ph)) {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    $errors   = []; // block startup in production
+    $warnings = []; // surface in dev headers only
+
+    // Database — always required
+    foreach (['MYSQL_HOST', 'MYSQL_DB', 'MYSQL_USER'] as $key) {
+        $val = (string) Env::get($key, '');
+        if ($val === '') {
+            $errors[] = "{$key} is missing";
+        }
+    }
+
+    // CORS — required in production (empty = all cross-origin requests blocked/uncredentialled)
+    $corsOrigin = (string) Env::get('CORS_ORIGIN', '');
+    if ($corsOrigin === '') {
+        if ($isProd) {
+            $errors[] = 'CORS_ORIGIN is missing — cross-origin requests will be rejected';
+        } else {
+            $warnings[] = 'CORS_ORIGIN not set';
+        }
+    }
+
+    // Sports API — warn if enabled but key is absent/placeholder
+    $sportsEnabled = strtolower((string) Env::get('SPORTS_API_ENABLED', 'true')) === 'true';
+    if ($sportsEnabled) {
+        $oddsKey = (string) Env::get('ODDS_API_KEY', '');
+        if ($oddsKey === '' || $isPlaceholder($oddsKey)) {
+            if ($isProd) {
+                $errors[] = 'ODDS_API_KEY is missing or placeholder — sports data will not sync';
+            } else {
+                $warnings[] = 'ODDS_API_KEY not configured';
+            }
+        }
+    }
+
+    // Stripe — warn if placeholders (don't hard-fail; operator may use manual cashier)
+    $stripeKey     = (string) Env::get('STRIPE_SECRET_KEY', '');
+    $stripeWebhook = (string) Env::get('STRIPE_WEBHOOK_SECRET', '');
+    if ($stripeKey === '' || $isPlaceholder($stripeKey)) {
+        $warnings[] = 'STRIPE_SECRET_KEY is missing or placeholder — card deposits disabled';
+    }
+    if ($stripeWebhook === '' || $isPlaceholder($stripeWebhook)) {
+        $warnings[] = 'STRIPE_WEBHOOK_SECRET is missing or placeholder — deposit webhooks disabled';
+    }
+
+    if ($isProd && count($errors) > 0) {
+        Logger::error('Server startup config errors', ['errors' => $errors], 'error');
+
+        Response::json([
+            'message' => 'Server configuration error. Contact the system administrator.',
+            'errors'  => $errors,
+        ], 500);
+        exit;
+    }
+
+    // Development: surface warnings as response headers (visible in browser devtools)
+    foreach ($warnings as $i => $w) {
+        header("X-Config-Warning-{$i}: {$w}");
+        Logger::warning($w, [], 'error');
+    }
+})();
+// ─────────────────────────────────────────────────────────────────────────────
 
 $uriPath = Http::path();
 $method = Http::method();
@@ -136,7 +278,26 @@ if (
     if ($authNativeEnabled) {
         try {
             $repo = new MongoRepository($mongoUri, $dbName);
-            $jwtSecret = Env::get('JWT_SECRET', 'secret');
+            $jwtSecret = (string) Env::get('JWT_SECRET', '');
+
+            // Fail-fast: refuse to start with a missing or weak JWT_SECRET.
+            // An attacker who knows the secret can forge tokens for any user/admin.
+            $knownWeakSecrets = ['secret', 'your_secure_secret', 'changeme', 'password', 'jwt_secret', 'mysecret', '12345678'];
+            if (
+                $jwtSecret === ''
+                || strlen($jwtSecret) < 32
+                || in_array(strtolower($jwtSecret), $knownWeakSecrets, true)
+            ) {
+                $appEnv = strtolower((string) Env::get('APP_ENV', 'production'));
+                if ($appEnv === 'production') {
+                    Response::json([
+                        'message' => 'Server configuration error: JWT_SECRET is missing or insecure. Set a random string of at least 32 characters in your .env file.',
+                    ], 500);
+                    exit;
+                }
+                // In development: warn loudly in every response header but don't block.
+                header('X-Security-Warning: JWT_SECRET is weak or missing — do not use in production');
+            }
             $authController = new AuthController($repo, $jwtSecret);
             $walletController = new WalletController($repo, $jwtSecret);
             $betsController = new BetsController($repo, $jwtSecret);
@@ -191,7 +352,7 @@ if ($nativeError !== null) {
 
     if (str_starts_with($uriPath, '/api/casino')) {
         try {
-            if (CasinoController::handleFallbackRoute($method, $uriPath, Env::get('JWT_SECRET', 'secret'))) {
+            if (CasinoController::handleFallbackRoute($method, $uriPath, (string) Env::get('JWT_SECRET', ''))) {
                 exit;
             }
         } catch (Throwable $fallbackError) {
@@ -207,15 +368,13 @@ if ($nativeError !== null) {
         || str_contains(strtolower($errorMessage), 'getaddrinfo')
         || str_contains(strtolower($errorMessage), 'connection refused');
 
-    // Log the full exception details for debugging
-    $logFile = __DIR__ . '/../logs/api-errors.log';
-    $logDir = dirname($logFile);
-    if (!is_dir($logDir)) {
-        @mkdir($logDir, 0775, true);
-    }
     $status = $isDbConnectionError ? 503 : 500;
-    $logMsg = date('Y-m-d H:i:s') . " [{$status}] Exception: " . $errorMessage . "\n" . $nativeError->getTraceAsString() . "\n";
-    @file_put_contents($logFile, $logMsg, FILE_APPEND);
+    Logger::exception($nativeError, 'Unhandled exception on ' . $method . ' ' . $uriPath, [
+        'method' => $method,
+        'path'   => $uriPath,
+        'status' => $status,
+        'dbError' => $isDbConnectionError,
+    ]);
 
     $isDev = strtolower((string) Env::get('APP_ENV', 'production')) === 'development';
 

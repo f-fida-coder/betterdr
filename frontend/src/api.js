@@ -67,6 +67,18 @@ const getHeaders = (token = null) => {
     return headers;
 };
 
+// Reads the csrf_token cookie set by the backend after login/refresh/session restore.
+// The backend issues this as a readable (non-httpOnly) cookie so JS can echo it back
+// as X-CSRF-Token on state-changing cookie-auth requests (Double Submit Cookie pattern).
+export const getCsrfToken = () => {
+    try {
+        const match = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/);
+        return match ? decodeURIComponent(match[1]) : '';
+    } catch {
+        return '';
+    }
+};
+
 const createDuplicatePlayerError = (payload, fallbackMessage, status = 409) => {
     const error = new Error(payload?.message || fallbackMessage);
     error.status = status;
@@ -110,6 +122,94 @@ const parseJsonResponse = async (response, fallbackMessage) => {
     }
 
     throw new Error(`${fallbackMessage}: expected JSON but received non-JSON response from ${response.url}`);
+};
+
+// ─── Token refresh ───────────────────────────────────────────────────────────
+// Calls POST /api/auth/refresh with the current token and returns the new one.
+// Called automatically by fetchWithRefresh() when a 401 is received.
+let _refreshPromise = null; // deduplicate concurrent refresh calls
+
+export const refreshToken = async (token) => {
+    // If we have an in-memory token, send it as Bearer (CSRF-safe path).
+    // If not, fall back to cookie auth and include the CSRF header.
+    const headers = token
+        ? getHeaders(token)
+        : { 'Content-Type': 'application/json', 'Bypass-Tunnel-Remainder': 'true', 'X-CSRF-Token': getCsrfToken() };
+
+    const response = await fetch(buildApiUrl('/auth/refresh'), {
+        method: 'POST',
+        credentials: 'include', // needed for cookie-auth fallback
+        headers,
+    });
+    if (!response.ok) throw new Error('Session expired. Please log in again.');
+    const data = await response.json();
+    if (!data.token) throw new Error('Session expired. Please log in again.');
+    return data.token;
+};
+
+// Wrapper: makes a fetch call and, on a 401, attempts one token refresh then retries.
+// Usage is identical to fetch() but also accepts a `token` option.
+// On refresh success it saves the new token to localStorage under the same key
+// the app uses ('token' or scoped by userId).
+export const fetchWithRefresh = async (url, options = {}) => {
+    const { token, ...fetchOptions } = options;
+    let response = await fetch(url, {
+        ...fetchOptions,
+        headers: { ...getHeaders(token), ...(fetchOptions.headers || {}) },
+    });
+
+    if (response.status === 401 && token) {
+        // Deduplicate: if a refresh is already in-flight, wait for it.
+        if (!_refreshPromise) {
+            _refreshPromise = refreshToken(token).finally(() => { _refreshPromise = null; });
+        }
+        let newToken;
+        try {
+            newToken = await _refreshPromise;
+        } catch {
+            // Refresh failed — propagate original 401 so caller can log out.
+            return response;
+        }
+        // Persist the new token using the same key the app already uses.
+        try {
+            const stored = localStorage.getItem('token');
+            if (stored) localStorage.setItem('token', newToken);
+        } catch { /* ignore */ }
+        // Retry original request with fresh token.
+        response = await fetch(url, {
+            ...fetchOptions,
+            headers: { ...getHeaders(newToken), ...(fetchOptions.headers || {}) },
+        });
+    }
+
+    return response;
+};
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Restore session from httpOnly cookie on page reload (GET — no CSRF token needed).
+export const getSession = async () => {
+    const response = await fetch(buildApiUrl('/auth/session'), {
+        method: 'GET',
+        credentials: 'include', // sends the auth_token httpOnly cookie
+        headers: { 'Content-Type': 'application/json', 'Bypass-Tunnel-Remainder': 'true' },
+    });
+    return parseJsonResponse(response, 'Session restore failed');
+};
+
+// Clears the httpOnly cookie server-side.
+// Sends X-CSRF-Token because this is a state-changing cookie-auth request.
+export const logoutSession = async () => {
+    try {
+        await fetch(buildApiUrl('/auth/logout'), {
+            method: 'POST',
+            credentials: 'include',
+            headers: {
+                'Content-Type': 'application/json',
+                'Bypass-Tunnel-Remainder': 'true',
+                'X-CSRF-Token': getCsrfToken(),
+            },
+        });
+    } catch { /* best-effort */ }
 };
 
 export const loginUser = async (username, password) => {

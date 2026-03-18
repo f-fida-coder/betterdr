@@ -418,20 +418,17 @@ final class SportsbookHealth
      */
     private static function writeFileLog(string $event, string $severity, array $payload): void
     {
-        $logDir = dirname(__DIR__) . '/logs';
-        if (!is_dir($logDir)) {
-            @mkdir($logDir, 0775, true);
-        }
-        $line = json_encode([
-            'time' => gmdate(DATE_ATOM),
-            'event' => $event,
-            'severity' => $severity,
-            'payload' => $payload,
-        ], JSON_UNESCAPED_SLASHES);
-        if (!is_string($line)) {
-            return;
-        }
-        @file_put_contents($logDir . '/sportsbook-ops.log', $line . PHP_EOL, FILE_APPEND);
+        $level = match (strtolower($severity)) {
+            'error', 'critical' => 'error',
+            'warning', 'warn'   => 'warning',
+            default             => 'info',
+        };
+        $method = match ($level) {
+            'error'   => [Logger::class, 'error'],
+            'warning' => [Logger::class, 'warning'],
+            default   => [Logger::class, 'info'],
+        };
+        ($method)($event, $payload, 'sportsbook');
     }
 
     private static function newRunId(string $prefix): string

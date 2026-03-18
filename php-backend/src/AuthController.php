@@ -32,6 +32,18 @@ final class AuthController
             $this->loginAgent();
             return true;
         }
+        if ($path === '/api/auth/refresh' && $method === 'POST') {
+            $this->refreshToken();
+            return true;
+        }
+        if ($path === '/api/auth/session' && $method === 'GET') {
+            $this->getSession();
+            return true;
+        }
+        if ($path === '/api/auth/logout' && $method === 'POST') {
+            $this->logoutUser();
+            return true;
+        }
         if ($path === '/api/auth/me' && $method === 'GET') {
             $this->getMe();
             return true;
@@ -183,8 +195,10 @@ final class AuthController
             }
 
             $this->trackLoginIpSafely($user);
+            Logger::info('User login success', ['userId' => (string) ($user['_id'] ?? ''), 'username' => (string) ($user['username'] ?? '')]);
             Response::json($this->buildAuthPayload($user));
         } catch (Throwable $e) {
+            Logger::exception($e, 'User login error');
             Response::json(['message' => 'Server error', 'error' => $e->getMessage()], 500);
         }
     }
@@ -218,8 +232,10 @@ final class AuthController
             }
 
             $this->trackLoginIpSafely($user);
+            Logger::info('Admin login success', ['userId' => (string) ($user['_id'] ?? ''), 'username' => (string) ($user['username'] ?? '')]);
             Response::json($this->buildAuthPayload($user));
         } catch (Throwable $e) {
+            Logger::exception($e, 'Admin login error');
             Response::json(['message' => 'Server error', 'error' => $e->getMessage()], 500);
         }
     }
@@ -253,10 +269,162 @@ final class AuthController
             }
 
             $this->trackLoginIpSafely($user);
+            Logger::info('Agent login success', ['userId' => (string) ($user['_id'] ?? ''), 'username' => (string) ($user['username'] ?? '')]);
             Response::json($this->buildAuthPayload($user));
         } catch (Throwable $e) {
+            Logger::exception($e, 'Agent login error');
             Response::json(['message' => 'Server error', 'error' => $e->getMessage()], 500);
         }
+    }
+
+    private function refreshToken(): void
+    {
+        try {
+            // Validate the current token (protect() already re-fetches the user from DB).
+            // Also accepts a cookie-based token when no Authorization header is present.
+            $user = $this->protectOrCookie();
+            if ($user === null) {
+                return;
+            }
+
+            $ttl = 8 * 3600;
+            $newToken = Jwt::encode([
+                'id'      => (string) $user['_id'],
+                'role'    => (string) ($user['role'] ?? 'user'),
+                'agentId' => $user['agentId'] ?? null,
+            ], $this->jwtSecret, $ttl);
+
+            // Rotate the httpOnly cookie and CSRF cookie together
+            $isHttps = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
+            $cookieOptions = ['expires' => time() + $ttl, 'path' => '/', 'httponly' => true, 'samesite' => 'Lax'];
+            if ($isHttps) {
+                $cookieOptions['secure'] = true;
+            }
+            setcookie('auth_token', $newToken, $cookieOptions);
+            $this->issueCsrfCookie($ttl, $isHttps);
+
+            Response::json(['token' => $newToken]);
+        } catch (Throwable $e) {
+            Response::json(['message' => 'Token refresh failed: ' . $e->getMessage()], 401);
+        }
+    }
+
+    private function getSession(): void
+    {
+        try {
+            // Restore session purely from the httpOnly cookie (called on page reload).
+            $cookieToken = $_COOKIE['auth_token'] ?? '';
+            if ($cookieToken === '') {
+                Response::json(['message' => 'No session cookie'], 401);
+                return;
+            }
+
+            try {
+                $decoded = Jwt::decode($cookieToken, $this->jwtSecret);
+            } catch (Throwable $e) {
+                // Cookie token is expired/invalid — clear it
+                setcookie('auth_token', '', ['expires' => time() - 3600, 'path' => '/', 'httponly' => true, 'samesite' => 'Lax']);
+                Response::json(['message' => 'Session expired'], 401);
+                return;
+            }
+
+            $role = (string) ($decoded['role'] ?? 'user');
+            $id   = (string) ($decoded['id'] ?? '');
+            if ($id === '' || preg_match('/^[a-f0-9]{24}$/i', $id) !== 1) {
+                Response::json(['message' => 'Invalid session token'], 401);
+                return;
+            }
+
+            $collection = $this->collectionByRole($role);
+            $user = $this->db->findOne($collection, ['_id' => MongoRepository::id($id)]);
+            if ($user === null) {
+                Response::json(['message' => 'User not found'], 401);
+                return;
+            }
+
+            if ($this->isSuspended($user)) {
+                Response::json(['message' => 'Account suspended'], 403);
+                return;
+            }
+
+            // Return the full auth payload (with a freshly-signed token in body)
+            Response::json($this->buildAuthPayload($user));
+        } catch (Throwable $e) {
+            Response::json(['message' => 'Session check failed'], 500);
+        }
+    }
+
+    private function logoutUser(): void
+    {
+        $isHttps = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
+        // Clear the httpOnly auth cookie
+        $expiredOptions = ['expires' => time() - 3600, 'path' => '/', 'httponly' => true, 'samesite' => 'Lax'];
+        if ($isHttps) {
+            $expiredOptions['secure'] = true;
+        }
+        setcookie('auth_token', '', $expiredOptions);
+        // Clear the CSRF cookie (not httpOnly)
+        $csrfExpired = ['expires' => time() - 3600, 'path' => '/', 'httponly' => false, 'samesite' => 'Lax'];
+        if ($isHttps) {
+            $csrfExpired['secure'] = true;
+        }
+        setcookie('csrf_token', '', $csrfExpired);
+        Response::json(['message' => 'Logged out successfully']);
+    }
+
+    // Like protect() but also accepts the httpOnly cookie as a fallback (used by refresh).
+    // When using cookie auth, requires X-CSRF-Token header to match csrf_token cookie
+    // (Double Submit Cookie pattern — prevents CSRF attacks on cookie-auth endpoints).
+    private function protectOrCookie(): ?array
+    {
+        $auth = Http::header('authorization');
+        if (str_starts_with($auth, 'Bearer ')) {
+            // Bearer header path — CSRF-safe by nature (custom headers can't be forged cross-site)
+            return $this->protect();
+        }
+
+        // Cookie path — enforce CSRF double-submit check before any DB lookup
+        $csrfHeader = Http::header('x-csrf-token');
+        $csrfCookie = $_COOKIE['csrf_token'] ?? '';
+        if ($csrfHeader === '' || $csrfCookie === '' || !hash_equals($csrfCookie, $csrfHeader)) {
+            Response::json(['message' => 'CSRF validation failed'], 403);
+            return null;
+        }
+
+        // Fall back to cookie
+        $cookieToken = $_COOKIE['auth_token'] ?? '';
+        if ($cookieToken === '') {
+            Response::json(['message' => 'Not authorized, no token'], 401);
+            return null;
+        }
+
+        try {
+            $decoded = Jwt::decode($cookieToken, $this->jwtSecret);
+        } catch (Throwable $e) {
+            Response::json(['message' => 'Not authorized, token failed: ' . $e->getMessage()], 401);
+            return null;
+        }
+
+        $role = (string) ($decoded['role'] ?? 'user');
+        $id   = (string) ($decoded['id'] ?? '');
+        if ($id === '' || preg_match('/^[a-f0-9]{24}$/i', $id) !== 1) {
+            Response::json(['message' => 'Not authorized, invalid user id'], 401);
+            return null;
+        }
+
+        $collection = $this->collectionByRole($role);
+        $user = $this->db->findOne($collection, ['_id' => MongoRepository::id($id)]);
+        if ($user === null) {
+            Response::json(['message' => 'Not authorized, user not found'], 403);
+            return null;
+        }
+
+        if ($this->isSuspended($user)) {
+            Response::json(['message' => 'Not authorized, account suspended'], 403);
+            return null;
+        }
+
+        return $user;
     }
 
     private function getMe(): void
@@ -417,6 +585,44 @@ final class AuthController
         $balanceOwed = $this->num($user['balanceOwed'] ?? 0);
         $creditLimit = $this->num($user['creditLimit'] ?? 0);
 
+        $ttl = 8 * 3600;
+        $token = Jwt::encode([
+            'id'      => (string) $user['_id'],
+            'role'    => (string) ($user['role'] ?? 'user'),
+            'agentId' => $user['agentId'] ?? null,
+        ], $this->jwtSecret, $ttl);
+
+        // Set httpOnly cookie so JS cannot read the token directly (prevents XSS theft).
+        // SameSite=Lax allows normal navigation; use SameSite=None + Secure only if frontend
+        // and backend are on different origins (cross-site). The cookie mirrors the JWT TTL.
+        $isHttps = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
+        $cookieOptions = [
+            'expires'  => time() + $ttl,
+            'path'     => '/',
+            'httponly' => true,
+            'samesite' => 'Lax',
+        ];
+        if ($isHttps) {
+            $cookieOptions['secure'] = true;
+        }
+        setcookie('auth_token', $token, $cookieOptions);
+
+        // CSRF double-submit cookie: readable by JS (no httponly) so the frontend can echo
+        // it back in the X-CSRF-Token header. A cross-origin attacker cannot read it.
+        $this->issueCsrfCookie($ttl, $isHttps);
+
+        $freeplayBalance = $this->num($user['freeplayBalance'] ?? 0);
+        $freeplayExpiresAt = $user['freeplayExpiresAt'] ?? null;
+        // Auto-expire: if expiry passed, report freeplay as 0 in the payload (background
+        // zeroing happens on next bet attempt; this prevents UI from showing stale balance)
+        if ($freeplayBalance > 0 && $freeplayExpiresAt !== null) {
+            $expTs = is_numeric($freeplayExpiresAt) ? (int) $freeplayExpiresAt : strtotime((string) $freeplayExpiresAt);
+            if ($expTs !== false && $expTs > 0 && $expTs < time()) {
+                $freeplayBalance = 0.0;
+                $freeplayExpiresAt = null;
+            }
+        }
+
         return [
             'id' => (string) $user['_id'],
             'username' => $user['username'] ?? null,
@@ -426,6 +632,8 @@ final class AuthController
             'availableBalance' => $availableBalance,
             'balanceOwed' => $balanceOwed,
             'creditLimit' => $creditLimit,
+            'freeplayBalance' => $freeplayBalance,
+            'freeplayExpiresAt' => $freeplayExpiresAt,
             'unlimitedBalance' => (bool) ($user['unlimitedBalance'] ?? false),
             'isSuperAdmin' => (bool) ($user['isSuperAdmin'] ?? false),
             'totalWinnings' => $user['totalWinnings'] ?? 0,
@@ -439,11 +647,7 @@ final class AuthController
             'selfExcludedUntil' => $user['selfExcludedUntil'] ?? null,
             'coolingOffUntil' => $user['coolingOffUntil'] ?? null,
             'realityCheckIntervalMinutes' => $user['realityCheckIntervalMinutes'] ?? 60,
-            'token' => Jwt::encode([
-                'id' => (string) $user['_id'],
-                'role' => (string) ($user['role'] ?? 'user'),
-                'agentId' => $user['agentId'] ?? null,
-            ], $this->jwtSecret, 8 * 3600),
+            'token' => $token, // also returned in body so frontend can hold it in memory
         ];
     }
 
@@ -454,6 +658,15 @@ final class AuthController
         $availableBalance = max(0, $balance - $pendingBalance);
         $balanceOwed = $this->num($user['balanceOwed'] ?? 0);
         $creditLimit = $this->num($user['creditLimit'] ?? 0);
+        $freeplayBalance = $this->num($user['freeplayBalance'] ?? 0);
+        $freeplayExpiresAt = $user['freeplayExpiresAt'] ?? null;
+        if ($freeplayBalance > 0 && $freeplayExpiresAt !== null) {
+            $expTs = is_numeric($freeplayExpiresAt) ? (int) $freeplayExpiresAt : strtotime((string) $freeplayExpiresAt);
+            if ($expTs !== false && $expTs > 0 && $expTs < time()) {
+                $freeplayBalance = 0.0;
+                $freeplayExpiresAt = null;
+            }
+        }
 
         return [
             'id' => (string) $user['_id'],
@@ -464,6 +677,8 @@ final class AuthController
             'availableBalance' => $availableBalance,
             'balanceOwed' => $balanceOwed,
             'creditLimit' => $creditLimit,
+            'freeplayBalance' => $freeplayBalance,
+            'freeplayExpiresAt' => $freeplayExpiresAt,
             'unlimitedBalance' => (bool) ($user['unlimitedBalance'] ?? false),
             'isSuperAdmin' => (bool) ($user['isSuperAdmin'] ?? false),
             'totalWinnings' => $user['totalWinnings'] ?? 0,
@@ -572,7 +787,7 @@ final class AuthController
             if (!is_dir($logDir)) {
                 @mkdir($logDir, 0775, true);
             }
-            @file_put_contents($logFile, date('Y-m-d H:i:s') . ' IP check failed: ' . $e->getMessage() . "\n", FILE_APPEND);
+            Logger::exception($e, 'IP allowlist check failed', ['userId' => (string) ($user['_id'] ?? '')], 'error');
             return ['allowed' => false, 'message' => 'Security check failed. Please contact support.'];
         }
     }
@@ -939,5 +1154,18 @@ final class AuthController
         }
 
         return 0.0;
+    }
+
+    // Issues a readable (non-httpOnly) CSRF cookie with a fresh random value.
+    // The frontend reads this cookie and echoes it back as X-CSRF-Token on
+    // state-changing cookie-auth requests (Double Submit Cookie pattern).
+    private function issueCsrfCookie(int $ttl, bool $secure): void
+    {
+        $csrfToken = bin2hex(random_bytes(32)); // 64-char hex, cryptographically random
+        $opts = ['expires' => time() + $ttl, 'path' => '/', 'httponly' => false, 'samesite' => 'Lax'];
+        if ($secure) {
+            $opts['secure'] = true;
+        }
+        setcookie('csrf_token', $csrfToken, $opts);
     }
 }

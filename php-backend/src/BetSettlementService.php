@@ -190,47 +190,72 @@ final class BetSettlementService
                         continue;
                     }
 
-                    $riskAmount = SportsbookBetSupport::riskAmount($bet);
-                    $balance = self::num($user['balance'] ?? 0);
+                    $riskAmount     = SportsbookBetSupport::riskAmount($bet);
+                    $isFreeplay     = (bool) ($bet['isFreeplay'] ?? false);
+                    $balance        = self::num($user['balance'] ?? 0);
                     $pendingBalance = self::num($user['pendingBalance'] ?? 0);
-                    $newPendingBalance = max(0.0, $pendingBalance - $riskAmount);
+                    $freeplayBalance = self::num($user['freeplayBalance'] ?? 0);
                     $acceptedPayout = self::num($bet['acceptedPayout'] ?? ($bet['potentialPayout'] ?? 0));
 
+                    // Freeplay bets never touched pendingBalance at placement, so don't adjust it.
+                    $newPendingBalance = $isFreeplay
+                        ? $pendingBalance
+                        : max(0.0, $pendingBalance - $riskAmount);
+
                     $db->updateOne('bets', ['_id' => MongoRepository::id($betId)], [
-                        'selections' => $normalizedSelections,
-                        'status' => $ticketStatus,
-                        'result' => $ticketStatus,
-                        'settledAt' => $now,
-                        'settledBy' => $settledBy,
+                        'selections'    => $normalizedSelections,
+                        'status'        => $ticketStatus,
+                        'result'        => $ticketStatus,
+                        'settledAt'     => $now,
+                        'settledBy'     => $settledBy,
                         'acceptedPayout' => $acceptedPayout > 0 ? $acceptedPayout : $ticketPayout,
                         'potentialPayout' => $ticketPayout,
-                        'combinedOdds' => SportsbookBetSupport::combinedOdds($riskAmount, $ticketPayout),
-                        'updatedAt' => $now,
+                        'combinedOdds'  => SportsbookBetSupport::combinedOdds($riskAmount, $ticketPayout),
+                        'updatedAt'     => $now,
                     ]);
 
-                    $userUpdate = [
-                        'pendingBalance' => $newPendingBalance,
-                        'updatedAt' => $now,
-                    ];
-                    $transactionType = 'bet_lost';
+                    $userUpdate       = ['pendingBalance' => $newPendingBalance, 'updatedAt' => $now];
+                    $transactionType  = $isFreeplay ? 'fp_bet_lost' : 'bet_lost';
                     $transactionAmount = $riskAmount;
-                    $balanceAfter = $balance;
-                    $description = strtoupper((string) ($bet['type'] ?? 'straight')) . ' bet lost';
+                    $balanceBefore    = $isFreeplay ? $freeplayBalance : $balance;
+                    $balanceAfter     = $isFreeplay ? $freeplayBalance : $balance; // default: no change
+                    $description      = strtoupper((string) ($bet['type'] ?? 'straight')) . ($isFreeplay ? ' freeplay' : '') . ' bet lost';
 
                     if ($ticketStatus === 'void') {
-                        $balanceAfter = $balance + $riskAmount;
-                        $userUpdate['balance'] = $balanceAfter;
-                        $transactionType = 'bet_void';
+                        if ($isFreeplay) {
+                            // Refund the freeplay stake back to freeplayBalance
+                            $balanceAfter = $freeplayBalance + $riskAmount;
+                            $userUpdate['freeplayBalance'] = $balanceAfter;
+                            $transactionType = 'fp_bet_void';
+                        } else {
+                            $balanceAfter = $balance + $riskAmount;
+                            $userUpdate['balance'] = $balanceAfter;
+                            $transactionType = 'bet_void';
+                        }
                         $transactionAmount = $riskAmount;
-                        $description = strtoupper((string) ($bet['type'] ?? 'straight')) . ' bet voided - wager refunded';
+                        $description = strtoupper((string) ($bet['type'] ?? 'straight')) . ($isFreeplay ? ' freeplay' : '') . ' bet voided - wager refunded';
                         $results['voided']++;
                     } elseif ($ticketStatus === 'won') {
-                        $balanceAfter = $balance + $ticketPayout;
-                        $userUpdate['balance'] = $balanceAfter;
-                        $userUpdate['totalWinnings'] = self::num($user['totalWinnings'] ?? 0) + max(0, $ticketPayout - $riskAmount);
-                        $transactionType = 'bet_won';
-                        $transactionAmount = $ticketPayout;
-                        $description = strtoupper((string) ($bet['type'] ?? 'straight')) . ' bet won';
+                        if ($isFreeplay) {
+                            // Freeplay win: credit PROFIT ONLY to real balance (stake is not returned).
+                            // e.g. $10 freeplay wins $25 payout → user gets $15 profit in real balance.
+                            $profit = max(0.0, $ticketPayout - $riskAmount);
+                            $balanceBefore = $balance;
+                            $balanceAfter  = $balance + $profit;
+                            $userUpdate['balance'] = $balanceAfter;
+                            $userUpdate['totalWinnings'] = self::num($user['totalWinnings'] ?? 0) + $profit;
+                            $transactionType  = 'fp_bet_won';
+                            $transactionAmount = $profit;
+                            $description = strtoupper((string) ($bet['type'] ?? 'straight')) . ' freeplay bet won - profit credited';
+                        } else {
+                            $balanceBefore = $balance;
+                            $balanceAfter  = $balance + $ticketPayout;
+                            $userUpdate['balance'] = $balanceAfter;
+                            $userUpdate['totalWinnings'] = self::num($user['totalWinnings'] ?? 0) + max(0, $ticketPayout - $riskAmount);
+                            $transactionType  = 'bet_won';
+                            $transactionAmount = $ticketPayout;
+                            $description = strtoupper((string) ($bet['type'] ?? 'straight')) . ' bet won';
+                        }
                         $results['won']++;
                     } else {
                         $results['lost']++;
@@ -238,18 +263,19 @@ final class BetSettlementService
 
                     $db->updateOne('users', ['_id' => MongoRepository::id($userId)], $userUpdate);
                     $db->insertOne('transactions', [
-                        'userId' => MongoRepository::id($userId),
-                        'amount' => $transactionAmount,
-                        'type' => $transactionType,
-                        'status' => 'completed',
-                        'balanceBefore' => $balance,
-                        'balanceAfter' => $balanceAfter,
+                        'userId'        => MongoRepository::id($userId),
+                        'amount'        => $transactionAmount,
+                        'type'          => $transactionType,
+                        'status'        => 'completed',
+                        'isFreeplay'    => $isFreeplay,
+                        'balanceBefore' => $balanceBefore,
+                        'balanceAfter'  => $balanceAfter,
                         'referenceType' => 'Bet',
-                        'referenceId' => MongoRepository::id($betId),
-                        'reason' => strtoupper($transactionType),
-                        'description' => $description,
-                        'createdAt' => $now,
-                        'updatedAt' => $now,
+                        'referenceId'   => MongoRepository::id($betId),
+                        'reason'        => strtoupper($transactionType),
+                        'description'   => $description,
+                        'createdAt'     => $now,
+                        'updatedAt'     => $now,
                     ]);
 
                     $results['settledBetIds'][] = $betId;

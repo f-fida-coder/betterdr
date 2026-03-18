@@ -178,6 +178,8 @@ final class AgentController
                 'creditLimit' => $this->safeNumber($body['creditLimit'] ?? null, $this->safeNumber($actor['defaultCreditLimit'] ?? null, 1000)),
                 'balanceOwed' => $this->safeNumber($body['balanceOwed'] ?? null, $this->safeNumber($actor['defaultSettleLimit'] ?? null, 0)),
                 'freeplayBalance' => $this->safeNumber($body['freeplayBalance'] ?? null, 200),
+                'freeplayExpiresAt' => time() + (30 * 24 * 3600), // 30 days from creation
+                'maxFpCredit' => $this->safeNumber($body['maxFpCredit'] ?? null, 500), // safe default cap
                 'pendingBalance' => 0,
                 'agentId' => MongoRepository::id($assignedAgentId),
                 'createdBy' => MongoRepository::id((string) $actor['_id']),
@@ -542,9 +544,25 @@ final class AgentController
                 $updates['fullName'] = strtoupper(trim($fName . ' ' . $lName));
             }
 
-            foreach (['minBet', 'maxBet', 'creditLimit', 'balanceOwed', 'freeplayBalance', 'status'] as $field) {
+            foreach (['minBet', 'maxBet', 'creditLimit', 'balanceOwed', 'status'] as $field) {
                 if (array_key_exists($field, $body)) {
                     $updates[$field] = $body[$field];
+                }
+            }
+            // freeplayBalance update: also set/reset expiry (default 30 days)
+            if (array_key_exists('freeplayBalance', $body)) {
+                $newFp = max(0.0, (float) $body['freeplayBalance']);
+                $updates['freeplayBalance'] = $newFp;
+                if ($newFp > 0) {
+                    $expiresAtRaw = $body['freeplayExpiresAt'] ?? null;
+                    if ($expiresAtRaw !== null) {
+                        $parsed = is_numeric($expiresAtRaw) ? (int) $expiresAtRaw : strtotime((string) $expiresAtRaw);
+                        $updates['freeplayExpiresAt'] = ($parsed !== false && $parsed > time()) ? $parsed : time() + (30 * 24 * 3600);
+                    } else {
+                        $updates['freeplayExpiresAt'] = time() + (30 * 24 * 3600);
+                    }
+                } else {
+                    $updates['freeplayExpiresAt'] = null;
                 }
             }
 

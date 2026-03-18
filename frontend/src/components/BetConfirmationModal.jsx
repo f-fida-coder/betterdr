@@ -16,6 +16,7 @@ const BetConfirmationModal = ({
   wager = 0,
   totalRisk = 0,
   potentialPayout = 0,
+  isFreeplay = false,
   onConfirm,
   onCancel,
   isSubmitting = false,
@@ -83,10 +84,15 @@ const BetConfirmationModal = ({
             </div>
           )}
 
+          {isFreeplay && (
+            <div style={{ marginTop: 10, padding: '6px 10px', borderRadius: 6, background: 'rgba(11,102,35,0.28)', fontSize: 12, color: '#7ee7a8', fontWeight: 700 }}>
+              FREEPLAY BET — Stake from freeplay credits. Only profit credited on win.
+            </div>
+          )}
           <div style={{ marginTop: 16, borderTop: '1px solid rgba(255,255,255,0.12)', paddingTop: 12, fontSize: 14 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-              <span>Wager</span>
-              <strong>${formatAmount(wager)}</strong>
+              <span>{isFreeplay ? 'Freeplay Stake' : 'Wager'}</span>
+              <strong style={isFreeplay ? { color: '#7ee7a8' } : {}}>${formatAmount(wager)}</strong>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
               <span>Total Risk</span>
@@ -96,6 +102,12 @@ const BetConfirmationModal = ({
               <span>Potential Payout</span>
               <strong style={{ color: '#7ee7a8' }}>${formatAmount(potentialPayout)}</strong>
             </div>
+            {isFreeplay && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 12, color: '#b8c3d8' }}>
+                <span>Profit if won (credited to real balance)</span>
+                <span>${formatAmount(Math.max(0, potentialPayout - wager))}</span>
+              </div>
+            )}
           </div>
         </div>
 
