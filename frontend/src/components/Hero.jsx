@@ -8,6 +8,14 @@ const BANNER_DATA = [
 
 const Hero = () => {
     const [currentIndex, setCurrentIndex] = useState(0);
+    const [isImageReady, setIsImageReady] = useState(false);
+
+    useEffect(() => {
+        BANNER_DATA.forEach(({ img }) => {
+            const preloadedImage = new Image();
+            preloadedImage.src = img;
+        });
+    }, []);
 
     useEffect(() => {
         const interval = setInterval(() => {
@@ -16,16 +24,23 @@ const Hero = () => {
         return () => clearInterval(interval);
     }, []);
 
+    useEffect(() => {
+        setIsImageReady(false);
+    }, [currentIndex]);
+
     const currentBanner = BANNER_DATA[currentIndex];
 
     return (
         <div className="hero-container">
             <section className="hero-section">
                 <img
+                    key={currentBanner.img}
+                    className={`hero-banner-image ${isImageReady ? 'is-ready' : ''}`}
                     src={currentBanner.img}
                     alt="Sportsbook board"
                     id="heroImage"
-                    style={{ animation: 'fadeIn 0.5s ease-in-out' }}
+                    onLoad={() => setIsImageReady(true)}
+                    onError={() => setIsImageReady(true)}
                 />
                 <div className="hero-overlay">
                     <div className="hero-text">
