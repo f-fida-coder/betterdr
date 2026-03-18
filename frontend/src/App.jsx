@@ -24,6 +24,7 @@ import MyBetsView from './components/MyBetsView';
 import AdminPanel from './components/AdminPanel';
 import LandingPage from './components/LandingPage';
 import ModeBetPanel from './components/ModeBetPanel';
+import LoadingSpinner from './components/LoadingSpinner';
 import { useToast } from './contexts/ToastContext';
 import { OddsFormatProvider } from './contexts/OddsFormatContext';
 import { normalizeOddsFormat, readStoredOddsFormat, writeStoredOddsFormat } from './utils/odds';
@@ -65,6 +66,7 @@ function App() {
   const [user, setUser] = useState(null); // Store full user object
   const [oddsFormat, setOddsFormat] = useState(readStoredOddsFormat());
   const [isUpdatingOddsFormat, setIsUpdatingOddsFormat] = useState(false);
+  const [isSessionBootstrapping, setIsSessionBootstrapping] = useState(true);
 
   const applyOddsFormat = (nextFormat, userId = '') => {
     const normalized = normalizeOddsFormat(nextFormat);
@@ -79,10 +81,12 @@ function App() {
   // On mount: attempt to restore session from the httpOnly cookie.
   // If the cookie is valid the backend returns a fresh token + user data.
   useEffect(() => {
+    let isMounted = true;
+
     const restoreSession = async () => {
       try {
-        const result = await getSession();
-        if (result?.token) {
+        const result = await getSession({ timeoutMs: 8000 });
+        if (isMounted && result?.token) {
           setToken(result.token);
           setIsLoggedIn(true);
           document.body.classList.add('dashboard-mode');
@@ -100,9 +104,16 @@ function App() {
         }
       } catch {
         // No valid cookie — user needs to log in
+      } finally {
+        if (isMounted) {
+          setIsSessionBootstrapping(false);
+        }
       }
     };
     restoreSession();
+    return () => {
+      isMounted = false;
+    };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -341,7 +352,9 @@ function App() {
     <OddsFormatProvider value={oddsFormatContextValue}>
       <div className="app-container">
       {/* Standard User Interface */}
-      {!isLoggedIn ? (
+      {isSessionBootstrapping ? (
+        <LoadingSpinner variant="overlay" label="Loading session..." />
+      ) : !isLoggedIn ? (
         <LandingPage onLogin={handleLogin} isLoggedIn={isLoggedIn} />
       ) : (
         <div className="dashboard-layout">

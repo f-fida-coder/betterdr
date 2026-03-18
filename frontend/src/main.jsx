@@ -7,7 +7,7 @@ import App from './App.jsx'
 import AdminPanel from './components/AdminPanel.jsx'
 import LoadingSpinner from './components/LoadingSpinner.jsx'
 import ErrorBoundary from './components/ErrorBoundary.jsx'
-import { getMe } from './api'
+import { getMe, logoutSession } from './api'
 import { useEffect, useState } from 'react'
 import { ToastProvider } from './contexts/ToastContext.jsx'
 
@@ -17,6 +17,7 @@ const clearAuthSession = () => {
   localStorage.removeItem('user');
   sessionStorage.removeItem('token');
   sessionStorage.removeItem('userRole');
+  document.body.classList.remove('dashboard-mode');
 
   const sessionKeys = [
     'adminAuthenticated',
@@ -99,9 +100,15 @@ const RouteShell = ({ children }) => (
   </ErrorBoundary>
 );
 
-const handleExitToHome = () => {
+const handleExitToHome = async () => {
   clearAuthSession();
-  window.location.href = '/';
+  try {
+    await logoutSession();
+  } catch {
+    // Best effort: continue to root even if cookie cleanup request fails.
+  } finally {
+    window.location.replace('/');
+  }
 };
 
 createRoot(document.getElementById('root')).render(

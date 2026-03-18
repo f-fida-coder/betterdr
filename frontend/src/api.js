@@ -187,13 +187,29 @@ export const fetchWithRefresh = async (url, options = {}) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Restore session from httpOnly cookie on page reload (GET — no CSRF token needed).
-export const getSession = async () => {
-    const response = await fetch(buildApiUrl('/auth/session'), {
-        method: 'GET',
-        credentials: 'include', // sends the auth_token httpOnly cookie
-        headers: { 'Content-Type': 'application/json', 'Bypass-Tunnel-Remainder': 'true' },
-    });
-    return parseJsonResponse(response, 'Session restore failed');
+export const getSession = async (options = {}) => {
+    const timeoutMs = Number.isFinite(options?.timeoutMs) ? Number(options.timeoutMs) : 8000;
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timeoutId = controller ? setTimeout(() => controller.abort(), Math.max(1000, timeoutMs)) : null;
+
+    try {
+        const response = await fetch(buildApiUrl('/auth/session'), {
+            method: 'GET',
+            credentials: 'include', // sends the auth_token httpOnly cookie
+            headers: { 'Content-Type': 'application/json', 'Bypass-Tunnel-Remainder': 'true' },
+            signal: controller?.signal
+        });
+        return parseJsonResponse(response, 'Session restore failed');
+    } catch (error) {
+        if (error?.name === 'AbortError') {
+            const timeoutError = new Error('Session restore timed out');
+            timeoutError.status = 408;
+            throw timeoutError;
+        }
+        throw error;
+    } finally {
+        if (timeoutId) clearTimeout(timeoutId);
+    }
 };
 
 // Clears the httpOnly cookie server-side.
