@@ -1096,6 +1096,14 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
     return Math.round(num * 100) / 100;
   };
 
+  const getSignedBalanceColor = (value) => {
+    const num = Number(value);
+    if (!Number.isFinite(num) || Math.abs(num) < 0.00001) {
+      return '#111827';
+    }
+    return num < 0 ? '#dc2626' : '#16a34a';
+  };
+
   const selectedTxDraftType = TRANSACTION_TYPE_OPTIONS.find((option) => option.value === newTxType)
     || TRANSACTION_TYPE_OPTIONS[0];
   const txDraftAmount = Number(newTxAmount || 0);
@@ -2270,9 +2278,9 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
                   <h4 style={{ marginBottom: '16px' }}>Confirm Transaction</h4>
                   <div className="tx-confirm-table">
                     <div className="tx-confirm-row"><span>Date</span><span>{today}</span></div>
-                    <div className="tx-confirm-row"><span>Previous Balance</span><span style={{ color: '#16a34a' }}>{formatCurrency(prevBal)}</span></div>
+                    <div className="tx-confirm-row"><span>Previous Balance</span><span style={{ color: getSignedBalanceColor(prevBal) }}>{formatCurrency(prevBal)}</span></div>
                     <div className="tx-confirm-row"><span>{selectedTxType.label} :</span><span style={{ color: isDebit ? '#dc2626' : '#1f2937' }}>{isDebit ? '-' : ''}{formatCurrency(amount)}</span></div>
-                    <div className="tx-confirm-row tx-confirm-total"><span>New Balance</span><span style={{ color: '#16a34a' }}>{formatCurrency(newBal)}</span></div>
+                    <div className="tx-confirm-row tx-confirm-total"><span>New Balance</span><span style={{ color: getSignedBalanceColor(newBal) }}>{formatCurrency(newBal)}</span></div>
                   </div>
                   {txError && (
                     <div style={{ marginTop: '12px', marginBottom: '12px', background: '#fee2e2', color: '#991b1b', border: '1px solid #fecaca', borderRadius: '8px', padding: '10px 12px', fontWeight: 600 }}>
@@ -2352,9 +2360,9 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
                   <h4 style={{ marginBottom: '16px' }}>Confirm Free Play</h4>
                   <div className="tx-confirm-table">
                     <div className="tx-confirm-row"><span>Date</span><span>{today}</span></div>
-                    <div className="tx-confirm-row"><span>Previous Balance</span><span style={{ color: '#16a34a' }}>{formatCurrency(prevBal)}</span></div>
+                    <div className="tx-confirm-row"><span>Previous Balance</span><span style={{ color: getSignedBalanceColor(prevBal) }}>{formatCurrency(prevBal)}</span></div>
                     <div className="tx-confirm-row"><span>{isWithdraw ? 'Withdrawals' : 'Deposits'} :</span><span style={{ color: isWithdraw ? '#dc2626' : '#1f2937' }}>{isWithdraw ? '-' : ''}{formatCurrency(amount)}</span></div>
-                    <div className="tx-confirm-row tx-confirm-total"><span>New Balance</span><span style={{ color: '#16a34a' }}>{formatCurrency(newBal)}</span></div>
+                    <div className="tx-confirm-row tx-confirm-total"><span>New Balance</span><span style={{ color: getSignedBalanceColor(newBal) }}>{formatCurrency(newBal)}</span></div>
                   </div>
                   {freePlayError && (
                     <div style={{ marginTop: '12px', marginBottom: '12px', background: '#fee2e2', color: '#991b1b', border: '1px solid #fecaca', borderRadius: '8px', padding: '10px 12px', fontWeight: 600 }}>
