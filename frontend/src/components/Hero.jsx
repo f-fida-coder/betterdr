@@ -33,7 +33,6 @@ const Hero = () => {
                         <h1 id="heroTitle">{currentBanner.title}</h1>
                         <p id="heroSubtitle">{currentBanner.subtitle}</p>
                     </div>
-                    <button className="btn-login" style={{ background: 'var(--gold)', color: 'black' }}>BET NOW</button>
                 </div>
                 <div className="hero-controls">
                     {BANNER_DATA.map((_, index) => (
@@ -53,7 +52,7 @@ const Hero = () => {
                         <h3>NFL PLAYOFFS</h3>
                         <p>Live Odds & Analysis</p>
                     </div>
-                    <div className="promo-badge">betterbet365</div>
+                    <div className="promo-badge">bettorplays247</div>
                 </div>
                 <div className="promo-card">
                     <img src="/arena-banner.png" alt="Arena Promo" />
@@ -61,7 +60,7 @@ const Hero = () => {
                         <h3>NBA FINALS</h3>
                         <p>Get in on the action</p>
                     </div>
-                    <div className="promo-badge">betterbet365</div>
+                    <div className="promo-badge">bettorplays247</div>
                 </div>
             </div>
         </div>

@@ -40,7 +40,14 @@ const DEFAULT_FORM = {
   messaging: false,
   dynamicLive: true,
   propPlus: true,
-  liveCasino: false
+  liveCasino: false,
+  appsVenmo: '',
+  appsCashapp: '',
+  appsApplePay: '',
+  appsZelle: '',
+  appsPaypal: '',
+  appsBtc: '',
+  appsOther: ''
   ,
   freePlayPercent: 20,
   maxFpCredit: 0,
@@ -283,6 +290,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
   const [newTxType, setNewTxType] = useState('deposit');
   const [newTxAmount, setNewTxAmount] = useState('');
   const [newTxDescription, setNewTxDescription] = useState('');
+  const [showTxConfirm, setShowTxConfirm] = useState(false);
   const [performancePeriod, setPerformancePeriod] = useState('daily');
   const [performanceLoading, setPerformanceLoading] = useState(false);
   const [performanceError, setPerformanceError] = useState('');
@@ -299,6 +307,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
   const [freePlayModalMode, setFreePlayModalMode] = useState('deposit'); // 'deposit' | 'withdraw'
   const [newFreePlayAmount, setNewFreePlayAmount] = useState('');
   const [newFreePlayDescription, setNewFreePlayDescription] = useState('');
+  const [showFpConfirm, setShowFpConfirm] = useState(false);
   const [dynamicLiveSaving, setDynamicLiveSaving] = useState(false);
   const [dynamicLiveError, setDynamicLiveError] = useState('');
   const [dynamicLiveSuccess, setDynamicLiveSuccess] = useState('');
@@ -433,7 +442,14 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
           casinoPlayerMaxWinDay: Number(cslPlayer.maxWinDay ?? 1000),
           casinoPlayerMaxLossDay: Number(cslPlayer.maxLossDay ?? 1000),
           casinoPlayerMaxWinWeek: Number(cslPlayer.maxWinWeek ?? 5000),
-          casinoPlayerMaxLossWeek: Number(cslPlayer.maxLossWeek ?? 5000)
+          casinoPlayerMaxLossWeek: Number(cslPlayer.maxLossWeek ?? 5000),
+          appsVenmo: user.apps?.venmo || '',
+          appsCashapp: user.apps?.cashapp || '',
+          appsApplePay: user.apps?.applePay || '',
+          appsZelle: user.apps?.zelle || '',
+          appsPaypal: user.apps?.paypal || '',
+          appsBtc: user.apps?.btc || '',
+          appsOther: user.apps?.other || ''
         });
       } catch (err) {
         console.error('Failed to load player details:', err);
@@ -849,7 +865,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
       `Credit: ${formatDetailMoney(credit)}`,
       `Settle: +/- ${formatDetailMoney(settle)}`,
       '',
-      'Bettorplays365.com'
+      'bettorplays247.com'
     ].join('\n');
     await copyText(details, 'All details');
   };
@@ -910,6 +926,16 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
           props: !!form.propPlus,
           liveCasino: !!form.liveCasino
         }
+      };
+
+      payload.apps = {
+        venmo: form.appsVenmo || '',
+        cashapp: form.appsCashapp || '',
+        applePay: form.appsApplePay || '',
+        zelle: form.appsZelle || '',
+        paypal: form.appsPaypal || '',
+        btc: form.appsBtc || '',
+        other: form.appsOther || ''
       };
 
       if (['admin', 'super_agent', 'master_agent'].includes(role) && form.agentId) {
@@ -1163,6 +1189,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
       }
       setFreePlayError('');
       setShowNewFreePlayModal(false);
+      setShowFpConfirm(false);
       setNewFreePlayAmount('');
       setNewFreePlayDescription('');
       await refreshFreePlay();
@@ -1445,6 +1472,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
       }
       setTxError('');
       setShowNewTxModal(false);
+      setShowTxConfirm(false);
       setNewTxType('deposit');
       setNewTxAmount('');
       setNewTxDescription('');
@@ -1515,88 +1543,89 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
   return (
     <div className="customer-details-v2">
       <div className="top-panel">
-        <div className="top-left">
-          <div className="player-card">
-            <div className="player-card-head">
-              <div className="player-title-wrap">
-                <div className="player-title-main">
-                  <span className="player-kicker">Player ID</span>
-                  <h2>{customer.username || 'USER'}</h2>
-                </div>
-                <span className="player-badge">{roleBadgeLabel}</span>
+        <div className="player-card">
+          <div className="player-card-head">
+            <div className="player-title-wrap">
+              <div className="player-title-main">
+                <span className="player-kicker">Player ID</span>
+                <h2>{customer.username || 'USER'}</h2>
               </div>
-            </div>
-
-            <div className="details-grid">
-              <div className="detail-item">
-                <span className="detail-label">Login</span>
-                <strong className="detail-value">{customer.username || ''}</strong>
-              </div>
-              <div className="detail-item">
-                <span className="detail-label">Password</span>
-                <strong className="detail-value detail-secret">{displayPassword}</strong>
-              </div>
-              <div className="detail-item">
-                <span className="detail-label">Min Bet</span>
-                <strong className="detail-value">{formatDetailMoney(customer.minBet ?? 0)}</strong>
-              </div>
-              <div className="detail-item">
-                <span className="detail-label">Max Bet</span>
-                <strong className="detail-value">{formatDetailMoney(customer.maxBet ?? customer.wagerLimit ?? form.wagerLimit ?? 0)}</strong>
-              </div>
-              <div className="detail-item">
-                <span className="detail-label">Credit</span>
-                <strong className="detail-value">{formatDetailMoney(form.creditLimit || customer.creditLimit || 0)}</strong>
-              </div>
-              <div className="detail-item">
-                <span className="detail-label">Settle</span>
-                <strong className="detail-value">+/- {formatDetailMoney(form.settleLimit || customer.balanceOwed || 0)}</strong>
-              </div>
-            </div>
-
-            <div className="player-card-foot">
-              <div className="details-domain">
-                <span className="domain-label">Site</span>
-                <strong>Bettorplays365.com</strong>
-              </div>
-              <div className="top-actions">
-                <button className="btn btn-user" onClick={handleImpersonate} disabled={impersonating}>
-                  {impersonating ? 'Logging in...' : 'Login User'}
-                </button>
-                <button className="btn btn-copy-all" onClick={copyAllDetails}>Copy Details</button>
-              </div>
+              <span className="player-badge">{roleBadgeLabel}</span>
             </div>
           </div>
-          {impersonateError && (
-            <div className="copy-notice" style={{ color: '#c0392b', background: '#ffeaea' }}>{impersonateError}</div>
-          )}
-          {copyNotice && (
-            <div className="copy-notice">{copyNotice}</div>
-          )}
-        </div>
-        <div className="top-right">
-          <div className="summary-title">Financial Summary</div>
-          <button type="button" className={`metric ${activeSection === 'transactions' ? 'metric-active' : ''}`} onClick={openTransactionSlip}>
-            <span>Balance</span>
-            <b className={Number(customer.balance || 0) < 0 ? 'neg' : 'pos'}>{formatCurrency(customer.balance || 0)}</b>
-          </button>
-          <button type="button" className={`metric ${activeSection === 'transactions' && txStatusFilter === 'pending' ? 'metric-active' : ''}`} onClick={() => openSection('pending')}>
-            <span>Pending</span>
-            <b className="neutral">{formatCurrency(customer.pendingBalance || 0)}</b>
-          </button>
-          <div className="metric metric-static">
-            <span>Available</span>
-            <b className="neutral">{formatCurrency(available)}</b>
+
+          <div className="paired-grid">
+            <div className="detail-item">
+              <span className="detail-label">Login</span>
+              <strong className="detail-value">{customer.username || ''}</strong>
+            </div>
+            <button type="button" className={`detail-item detail-metric${activeSection === 'transactions' ? ' detail-metric-active' : ''}`} onClick={openTransactionSlip}>
+              <span className="detail-label">Balance</span>
+              <strong className={`detail-value ${Number(customer.balance || 0) < 0 ? 'neg' : 'pos'}`}>{formatCurrency(customer.balance || 0)}</strong>
+            </button>
+
+            <div className="detail-item">
+              <span className="detail-label">Password</span>
+              <strong className="detail-value detail-secret">{displayPassword}</strong>
+            </div>
+            <button type="button" className={`detail-item detail-metric${activeSection === 'transactions' && txStatusFilter === 'pending' ? ' detail-metric-active' : ''}`} onClick={() => openSection('pending')}>
+              <span className="detail-label">Pending</span>
+              <strong className="detail-value neutral">{formatCurrency(customer.pendingBalance || 0)}</strong>
+            </button>
+
+            <div className="detail-item">
+              <span className="detail-label">Min Bet</span>
+              <strong className="detail-value">{formatDetailMoney(customer.minBet ?? 0)}</strong>
+            </div>
+            <div className="detail-item detail-metric">
+              <span className="detail-label">Available</span>
+              <strong className="detail-value neutral">{formatCurrency(available)}</strong>
+            </div>
+
+            <div className="detail-item">
+              <span className="detail-label">Max Bet</span>
+              <strong className="detail-value">{formatDetailMoney(customer.maxBet ?? customer.wagerLimit ?? form.wagerLimit ?? 0)}</strong>
+            </div>
+            <button type="button" className={`detail-item detail-metric${activeSection === 'freeplays' ? ' detail-metric-active' : ''}`} onClick={() => openSection('freeplays')}>
+              <span className="detail-label">Freeplay</span>
+              <strong className="detail-value neutral">{formatCurrency(customer.freeplayBalance || 0)}</strong>
+            </button>
+
+            <div className="detail-item">
+              <span className="detail-label">Credit</span>
+              <strong className="detail-value">{formatDetailMoney(form.creditLimit || customer.creditLimit || 0)}</strong>
+            </div>
+            <button type="button" className={`detail-item detail-metric${activeSection === 'performance' ? ' detail-metric-active' : ''}`} onClick={() => openSection('performance')}>
+              <span className="detail-label">Lifetime +/-</span>
+              <strong className={`detail-value ${Number(customer.lifetimePlusMinus ?? customer.lifetime ?? 0) < 0 ? 'neg' : 'pos'}`}>{formatCurrency(customer.lifetimePlusMinus ?? customer.lifetime ?? 0)}</strong>
+            </button>
+
+            <div className="detail-item">
+              <span className="detail-label">Settle</span>
+              <strong className="detail-value">+/- {formatDetailMoney(form.settleLimit || customer.balanceOwed || 0)}</strong>
+            </div>
+            <div className="detail-item detail-empty" aria-hidden="true"></div>
           </div>
-          <button type="button" className={`metric ${activeSection === 'freeplays' ? 'metric-active' : ''}`} onClick={() => openSection('freeplays')}>
-            <span>Freeplay</span>
-            <b className="neutral">{formatCurrency(customer.freeplayBalance || 0)}</b>
-          </button>
-          <button type="button" className={`metric ${activeSection === 'performance' ? 'metric-active' : ''}`} onClick={() => openSection('performance')}>
-            <span>Lifetime +/-</span>
-            <b className={Number(customer.lifetimePlusMinus ?? customer.lifetime ?? 0) < 0 ? 'neg' : 'pos'}>{formatCurrency(customer.lifetimePlusMinus ?? customer.lifetime ?? 0)}</b>
-          </button>
+
+          <div className="player-card-foot">
+            <div className="details-domain">
+              <span className="domain-label">Site</span>
+              <strong>bettorplays247.com</strong>
+            </div>
+            <div className="top-actions">
+              <button className="btn btn-copy-all" onClick={copyAllDetails}>Copy Details</button>
+              <button className="btn btn-user" onClick={handleImpersonate} disabled={impersonating}>
+                {impersonating ? 'Logging in...' : 'Login User'}
+              </button>
+            </div>
+          </div>
         </div>
+        {impersonateError && (
+          <div className="copy-notice" style={{ color: '#c0392b', background: '#ffeaea' }}>{impersonateError}</div>
+        )}
+        {copyNotice && (
+          <div className="copy-notice">{copyNotice}</div>
+        )}
       </div>
 
       <div className="basics-header">
@@ -2095,6 +2124,40 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
         </div>
       </div>
 
+      <div className="apps-card">
+        <h3 className="apps-title">Apps</h3>
+        <div className="apps-grid">
+          <div className="apps-field">
+            <label>Venmo:</label>
+            <input value={form.appsVenmo} onChange={(e) => setField('appsVenmo', e.target.value)} placeholder="@username" />
+          </div>
+          <div className="apps-field">
+            <label>Cashapp:</label>
+            <input value={form.appsCashapp} onChange={(e) => setField('appsCashapp', e.target.value)} placeholder="$cashtag" />
+          </div>
+          <div className="apps-field">
+            <label>Apple Pay:</label>
+            <input value={form.appsApplePay} onChange={(e) => setField('appsApplePay', e.target.value)} placeholder="Phone or email" />
+          </div>
+          <div className="apps-field">
+            <label>Zelle:</label>
+            <input value={form.appsZelle} onChange={(e) => setField('appsZelle', e.target.value)} placeholder="Phone or email" />
+          </div>
+          <div className="apps-field">
+            <label>PayPal:</label>
+            <input value={form.appsPaypal} onChange={(e) => setField('appsPaypal', e.target.value)} placeholder="Email or @username" />
+          </div>
+          <div className="apps-field">
+            <label>BTC:</label>
+            <input value={form.appsBtc} onChange={(e) => setField('appsBtc', e.target.value)} placeholder="Wallet address" />
+          </div>
+          <div className="apps-field apps-field-full">
+            <label>Other:</label>
+            <input value={form.appsOther} onChange={(e) => setField('appsOther', e.target.value)} placeholder="Other handle" />
+          </div>
+        </div>
+      </div>
+
       <div className="bottom-line">
         <span>Total Wagered: {formatCurrency(stats.totalWagered || 0)}</span>
         <span>Net: <b className={Number(stats.netProfit || 0) < 0 ? 'neg' : 'pos'}>{formatCurrency(stats.netProfit || 0)}</b></span>
@@ -2103,80 +2166,144 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
       )}
 
       {showNewTxModal && (
-        <div className="modal-overlay" onClick={() => setShowNewTxModal(false)}>
+        <div className="modal-overlay" onClick={() => { setShowNewTxModal(false); setShowTxConfirm(false); }}>
           <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-            <h4>New transaction</h4>
-            <label>Transaction</label>
-            <select value={newTxType} onChange={(e) => setNewTxType(e.target.value)}>
-              {TRANSACTION_TYPE_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </select>
-            <label>Amount</label>
-            <input type="number" step="1" min="0" value={newTxAmount} onChange={(e) => setNewTxAmount(e.target.value === '' ? '' : String(Math.round(Number(e.target.value))))} placeholder="0" />
-            <div className="tx-modal-balance-strip" role="status" aria-live="polite">
-              <div className="tx-modal-balance-item">
-                <span>Current Balance</span>
-                <b
-                  className={txModalBalance < 0 ? 'neg' : txModalBalance > 0 ? 'pos' : 'neutral'}
-                  style={{ cursor: 'pointer' }}
-                  title="Click to use this amount"
-                  onClick={() => setNewTxAmount(String(Math.round(Math.abs(txModalBalance))))}
-                >
-                  {formatCurrency(txModalBalance)}
-                </b>
-              </div>
-              <div className="tx-modal-balance-item">
-                <span>Carry</span>
-                <b
-                  className={txModalCarry < 0 ? 'neg' : txModalCarry > 0 ? 'pos' : 'neutral'}
-                  style={{ cursor: 'pointer' }}
-                  title="Click to use this amount"
-                  onClick={() => setNewTxAmount(String(Math.round(Math.abs(txModalCarry))))}
-                >
-                  {formatCurrency(txModalCarry)}
-                </b>
-              </div>
-            </div>
-            <label>Description</label>
-            <input value={newTxDescription} onChange={(e) => setNewTxDescription(e.target.value)} placeholder="Optional note" />
-            <div className="modal-actions">
-              <button className="btn btn-back" onClick={() => setShowNewTxModal(false)}>Cancel</button>
-              <button className="btn btn-save" onClick={handleCreateTransaction}>Save</button>
-            </div>
+            {!showTxConfirm ? (
+              <>
+                <h4>New transaction</h4>
+                <label>Transaction</label>
+                <select value={newTxType} onChange={(e) => setNewTxType(e.target.value)}>
+                  {TRANSACTION_TYPE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+                <label>Amount</label>
+                <input type="number" step="1" min="0" value={newTxAmount} onChange={(e) => setNewTxAmount(e.target.value === '' ? '' : String(Math.round(Number(e.target.value))))} placeholder="0" />
+                <div className="tx-modal-balance-strip" role="status" aria-live="polite">
+                  <div className="tx-modal-balance-item">
+                    <span>Current Balance</span>
+                    <b
+                      className={txModalBalance < 0 ? 'neg' : txModalBalance > 0 ? 'pos' : 'neutral'}
+                      style={{ cursor: 'pointer' }}
+                      title="Click to use this amount"
+                      onClick={() => setNewTxAmount(String(Math.round(Math.abs(txModalBalance))))}
+                    >
+                      {formatCurrency(txModalBalance)}
+                    </b>
+                  </div>
+                  <div className="tx-modal-balance-item">
+                    <span>Carry</span>
+                    <b
+                      className={txModalCarry < 0 ? 'neg' : txModalCarry > 0 ? 'pos' : 'neutral'}
+                      style={{ cursor: 'pointer' }}
+                      title="Click to use this amount"
+                      onClick={() => setNewTxAmount(String(Math.round(Math.abs(txModalCarry))))}
+                    >
+                      {formatCurrency(txModalCarry)}
+                    </b>
+                  </div>
+                </div>
+                <label>Description</label>
+                <input value={newTxDescription} onChange={(e) => setNewTxDescription(e.target.value)} placeholder="Optional note" />
+                <div className="modal-actions">
+                  <button className="btn btn-back" onClick={() => setShowNewTxModal(false)}>Cancel</button>
+                  <button className="btn btn-save" onClick={() => {
+                    const amount = Number(newTxAmount || 0);
+                    if (amount <= 0 || Number.isNaN(amount)) { setTxError('Enter a valid amount greater than 0.'); return; }
+                    setTxError('');
+                    setShowTxConfirm(true);
+                  }}>Next</button>
+                </div>
+              </>
+            ) : (() => {
+              const amount = Number(newTxAmount || 0);
+              const selectedTxType = TRANSACTION_TYPE_OPTIONS.find((o) => o.value === newTxType) || TRANSACTION_TYPE_OPTIONS[0];
+              const prevBal = txModalBalance;
+              const newBal = selectedTxType.balanceDirection === 'credit' ? prevBal + amount : Math.max(0, prevBal - amount);
+              const isDebit = selectedTxType.balanceDirection === 'debit';
+              const today = new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }).replace(/\//g, '-');
+              return (
+                <>
+                  <h4 style={{ marginBottom: '16px' }}>Confirm Transaction</h4>
+                  <div className="tx-confirm-table">
+                    <div className="tx-confirm-row"><span>Date</span><span>{today}</span></div>
+                    <div className="tx-confirm-row"><span>Previous Balance</span><span style={{ color: '#16a34a' }}>{formatCurrency(prevBal)}</span></div>
+                    <div className="tx-confirm-row"><span>{selectedTxType.label} :</span><span style={{ color: isDebit ? '#dc2626' : '#1f2937' }}>{isDebit ? '-' : ''}{formatCurrency(amount)}</span></div>
+                    <div className="tx-confirm-row tx-confirm-total"><span>New Balance</span><span style={{ color: '#16a34a' }}>{formatCurrency(newBal)}</span></div>
+                  </div>
+                  <div className="modal-actions">
+                    <button className="btn btn-back" onClick={() => setShowTxConfirm(false)}>Cancel</button>
+                    <button className="btn btn-save" onClick={handleCreateTransaction}>Confirm</button>
+                  </div>
+                </>
+              );
+            })()}
           </div>
         </div>
       )}
 
       {showNewFreePlayModal && (
-        <div className="modal-overlay" onClick={() => setShowNewFreePlayModal(false)}>
+        <div className="modal-overlay" onClick={() => { setShowNewFreePlayModal(false); setShowFpConfirm(false); }}>
           <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-            <h4>{freePlayModalMode === 'withdraw' ? 'Withdraw Free Play' : 'New Free Play'}</h4>
-            <label>Transaction</label>
-            <div className="fp-modal-type-badge" style={{ background: freePlayModalMode === 'withdraw' ? '#fee2e2' : undefined, color: freePlayModalMode === 'withdraw' ? '#dc2626' : undefined }}>
-              {freePlayModalMode === 'withdraw' ? 'Withdraw' : 'Deposit'}
-            </div>
-            <label>Amount</label>
-            <input type="number" step="1" min="0" value={newFreePlayAmount} onChange={(e) => setNewFreePlayAmount(e.target.value === '' ? '' : String(Math.round(Number(e.target.value))))} placeholder="0" />
-            <div className="tx-modal-balance-strip fp-modal-balance-strip" role="status" aria-live="polite">
-              <div className="tx-modal-balance-item">
-                <span>Free Play Balance</span>
-                <b
-                  className={freePlayBalance < 0 ? 'neg' : freePlayBalance > 0 ? 'pos' : 'neutral'}
-                  style={{ cursor: 'pointer' }}
-                  title="Click to use this amount"
-                  onClick={() => setNewFreePlayAmount(String(Math.abs(freePlayBalance)))}
-                >
-                  {formatCurrency(freePlayBalance)}
-                </b>
-              </div>
-            </div>
-            <label>Description</label>
-            <input value={newFreePlayDescription} onChange={(e) => setNewFreePlayDescription(e.target.value)} placeholder="Optional note" />
-            <div className="modal-actions">
-              <button className="btn btn-back" onClick={() => setShowNewFreePlayModal(false)}>Cancel</button>
-              <button className="btn btn-save" onClick={handleCreateFreePlay}>Save</button>
-            </div>
+            {!showFpConfirm ? (
+              <>
+                <h4>{freePlayModalMode === 'withdraw' ? 'Withdraw Free Play' : 'New Free Play'}</h4>
+                <label>Transaction</label>
+                <div className="fp-modal-type-badge" style={{ background: freePlayModalMode === 'withdraw' ? '#fee2e2' : undefined, color: freePlayModalMode === 'withdraw' ? '#dc2626' : undefined }}>
+                  {freePlayModalMode === 'withdraw' ? 'Withdraw' : 'Deposit'}
+                </div>
+                <label>Amount</label>
+                <input type="number" step="1" min="0" value={newFreePlayAmount} onChange={(e) => setNewFreePlayAmount(e.target.value === '' ? '' : String(Math.round(Number(e.target.value))))} placeholder="0" />
+                <div className="tx-modal-balance-strip fp-modal-balance-strip" role="status" aria-live="polite">
+                  <div className="tx-modal-balance-item">
+                    <span>Free Play Balance</span>
+                    <b
+                      className={freePlayBalance < 0 ? 'neg' : freePlayBalance > 0 ? 'pos' : 'neutral'}
+                      style={{ cursor: 'pointer' }}
+                      title="Click to use this amount"
+                      onClick={() => setNewFreePlayAmount(String(Math.abs(freePlayBalance)))}
+                    >
+                      {formatCurrency(freePlayBalance)}
+                    </b>
+                  </div>
+                </div>
+                <label>Description</label>
+                <input value={newFreePlayDescription} onChange={(e) => setNewFreePlayDescription(e.target.value)} placeholder="Optional note" />
+                <div className="modal-actions">
+                  <button className="btn btn-back" onClick={() => setShowNewFreePlayModal(false)}>Cancel</button>
+                  <button className="btn btn-save" onClick={() => {
+                    const amount = Number(newFreePlayAmount || 0);
+                    if (amount <= 0 || Number.isNaN(amount)) { setFreePlayError('Enter a valid free play amount greater than 0.'); return; }
+                    const isWithdraw = freePlayModalMode === 'withdraw';
+                    const currentFP = Number(customer?.freeplayBalance || 0);
+                    if (isWithdraw && amount > currentFP) { setFreePlayError('Withdraw amount exceeds current free play balance.'); return; }
+                    setFreePlayError('');
+                    setShowFpConfirm(true);
+                  }}>Next</button>
+                </div>
+              </>
+            ) : (() => {
+              const amount = Number(newFreePlayAmount || 0);
+              const isWithdraw = freePlayModalMode === 'withdraw';
+              const prevBal = freePlayBalance;
+              const newBal = isWithdraw ? Math.max(0, prevBal - amount) : prevBal + amount;
+              const today = new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }).replace(/\//g, '-');
+              return (
+                <>
+                  <h4 style={{ marginBottom: '16px' }}>Confirm Free Play</h4>
+                  <div className="tx-confirm-table">
+                    <div className="tx-confirm-row"><span>Date</span><span>{today}</span></div>
+                    <div className="tx-confirm-row"><span>Previous Balance</span><span style={{ color: '#16a34a' }}>{formatCurrency(prevBal)}</span></div>
+                    <div className="tx-confirm-row"><span>{isWithdraw ? 'Withdrawals' : 'Deposits'} :</span><span style={{ color: isWithdraw ? '#dc2626' : '#1f2937' }}>{isWithdraw ? '-' : ''}{formatCurrency(amount)}</span></div>
+                    <div className="tx-confirm-row tx-confirm-total"><span>New Balance</span><span style={{ color: '#16a34a' }}>{formatCurrency(newBal)}</span></div>
+                  </div>
+                  <div className="modal-actions">
+                    <button className="btn btn-back" onClick={() => setShowFpConfirm(false)}>Cancel</button>
+                    <button className="btn btn-save" onClick={handleCreateFreePlay}>Confirm</button>
+                  </div>
+                </>
+              );
+            })()}
           </div>
         </div>
       )}
@@ -2184,10 +2311,6 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
       <style>{`
         .customer-details-v2 { background:#f3f4f6; min-height:100vh; padding:10px; color:#1f2937; }
         .top-panel {
-          display: grid;
-          grid-template-columns: minmax(0, 1fr) 248px;
-          gap: 10px;
-          align-items: stretch;
           background: #fff;
           border: 1px solid #d1d5db;
           border-radius: 10px;
@@ -2250,9 +2373,41 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
         }
         .details-grid {
           display: grid;
-          grid-template-columns: repeat(2, minmax(0, 1fr));
+          grid-template-columns: 1fr;
           gap: 7px;
         }
+        .paired-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 7px;
+        }
+        .detail-metric {
+          align-items: flex-end;
+          text-align: right;
+        }
+        button.detail-item {
+          cursor: pointer;
+          font-family: inherit;
+          text-align: right;
+          border: 1px solid #dde7f2;
+        }
+        button.detail-item:hover {
+          background: #eef5ff;
+          border-color: #a8c9e8;
+        }
+        .detail-metric-active {
+          background: #deeeff !important;
+          border-color: #4f9bce !important;
+        }
+        .detail-empty {
+          background: transparent !important;
+          border-color: transparent !important;
+          box-shadow: none !important;
+          pointer-events: none;
+        }
+        .detail-value.pos { color: #16a34a; }
+        .detail-value.neg { color: #dc2626; }
+        .detail-value.neutral { color: #1f2937; }
         .detail-item {
           border: 1px solid #dde7f2;
           background: #f8fbff;
@@ -2278,7 +2433,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
         }
         .detail-secret {
           letter-spacing: 0.35px;
-          font-weight: 500;
+          font-weight: 600;
         }
         .player-card-foot {
           margin-top: 10px;
@@ -3064,6 +3219,32 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
         .tx-modal-balance-item b.neg { color: #dc2626; }
         .tx-modal-balance-item b.pos { color: #15803d; }
         .tx-modal-balance-item b.neutral { color: #111827; }
+        .apps-card { background:#fff; border:1px solid #d1d5db; padding:16px; margin-top:10px; border-radius:4px; }
+        .apps-title { font-size:15px; font-weight:700; color:#1e3a5f; margin:0 0 12px 0; }
+        .apps-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px 20px; }
+        .apps-field { display:flex; flex-direction:column; }
+        .apps-field label { color:#4b5563; font-size:11px; margin-bottom:3px; font-weight:600; }
+        .apps-field input { width:100%; border:none; border-bottom:1px solid #6b7280; background:transparent; font-size:14px; padding:3px 0; color:#111827; outline:none; }
+        .apps-field input:focus { border-bottom-color:#1e40af; }
+        .apps-field-full { grid-column:1/-1; }
+        .tx-confirm-table {
+          width: 100%;
+          border-top: 1px solid #e5e7eb;
+          margin-bottom: 20px;
+        }
+        .tx-confirm-row {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 10px 0;
+          border-bottom: 1px solid #e5e7eb;
+          font-size: 14px;
+          color: #374151;
+        }
+        .tx-confirm-row span:first-child { font-weight: 500; }
+        .tx-confirm-row span:last-child { font-weight: 600; }
+        .tx-confirm-total span:first-child { font-weight: 700; font-size: 15px; }
+        .tx-confirm-total span:last-child { font-weight: 700; font-size: 15px; }
         .modal-actions {
           margin-top: 8px;
           display: flex;
@@ -3073,8 +3254,6 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
 
         @media (max-width: 1300px) {
           .basics-grid { grid-template-columns:1fr; }
-          .top-panel { grid-template-columns: 1fr; gap:12px; }
-          .top-right { text-align:left; width: 100%; }
           .player-card { max-width: 100%; }
           .player-card-foot { flex-direction: column; align-items: flex-start; }
           .creds-row { grid-template-columns: 90px 1fr 32px; }
@@ -3103,20 +3282,63 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
           .performance-panel,
           .dynamic-live-card,
           .live-casino-card {
-            padding: 10px;
+            padding: 8px;
           }
 
-          .top-actions,
-          .top-right {
+          .top-actions {
             width: 100%;
           }
 
           .details-grid {
             grid-template-columns: 1fr;
+            gap: 5px;
+          }
+
+          .detail-item {
+            padding: 5px 7px;
+            gap: 2px;
+          }
+
+          .detail-label {
+            font-size: 9px;
+            letter-spacing: 0.4px;
+          }
+
+          .detail-value {
+            font-size: 12px;
+          }
+
+          .player-card {
+            width: 100%;
+            max-width: 100%;
+            padding: 8px;
+          }
+
+          .player-card-head {
+            margin-bottom: 6px;
+          }
+
+          .top-left h2 {
+            font-size: 17px;
+          }
+
+          .player-badge {
+            font-size: 9px;
+            padding: 3px 7px;
           }
 
           .player-card-foot {
             align-items: stretch;
+            margin-top: 7px;
+            padding-top: 7px;
+          }
+
+          .details-domain strong {
+            font-size: 12px;
+          }
+
+          .domain-label {
+            font-size: 9px;
           }
 
           .top-actions .btn {
@@ -3124,8 +3346,29 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
             text-align: center;
           }
 
+          /* Compact financial summary — tight rows like bettorjuice */
+          .top-right {
+            padding: 6px;
+            gap: 4px;
+          }
+
+          .summary-title {
+            font-size: 9px;
+            padding: 0 2px 1px;
+          }
+
+          .metric {
+            min-height: 34px;
+            padding: 5px 8px;
+            border-radius: 6px;
+          }
+
+          .metric span {
+            font-size: 9px;
+          }
+
           .metric b {
-            font-size: 17px;
+            font-size: 14px;
           }
 
           .tx-controls,
@@ -3137,12 +3380,12 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
             grid-template-columns: 1fr 1fr;
           }
           .tx-actions-col {
-            width: 84px;
-            min-width: 84px;
+            width: 70px;
+            min-width: 70px;
           }
           .tx-row-delete {
             min-height: 24px;
-            padding: 5px 8px;
+            padding: 4px 6px;
             font-size: 10px;
           }
 
@@ -3150,11 +3393,6 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
             flex-direction: column;
             align-items: flex-start;
             gap: 6px;
-          }
-
-          .player-card {
-            width: 100%;
-            max-width: 100%;
           }
 
           .modal-actions {
@@ -3173,27 +3411,11 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
           .live-casino-grid {
             grid-template-columns: 1fr;
           }
-
-          .top-left h2 {
-            font-size: 20px;
-          }
-
-          .detail-value {
-            font-size: 13px;
-          }
-
-          .details-domain strong {
-            font-size: 13px;
-          }
         }
 
         @media (max-width: 480px) {
-          .tx-summary {
-            grid-template-columns: 1fr;
-          }
-
           .customer-details-v2 {
-            padding: 6px;
+            padding: 5px;
           }
 
           .top-panel,
@@ -3202,19 +3424,61 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
           .dynamic-live-wrap,
           .live-casino-wrap,
           .col-card {
-            padding: 8px;
+            padding: 7px;
+          }
+
+          .tx-summary {
+            grid-template-columns: 1fr 1fr;
+          }
+
+          .details-grid {
+            grid-template-columns: 1fr;
+            gap: 4px;
+          }
+
+          .detail-item {
+            padding: 4px 6px;
+          }
+
+          .detail-label {
+            font-size: 8px;
+          }
+
+          .detail-value {
+            font-size: 11px;
+          }
+
+          .top-left h2 {
+            font-size: 15px;
+          }
+
+          .metric {
+            min-height: 30px;
+            padding: 4px 7px;
+          }
+
+          .metric span {
+            font-size: 8px;
+          }
+
+          .metric b {
+            font-size: 13px;
           }
 
           .basics-left h3 {
-            font-size: 15px;
+            font-size: 14px;
           }
 
           .btn-save,
           .btn-back,
           .btn-user,
           .btn-copy-all {
-            font-size: 12px;
-            padding: 6px 10px;
+            font-size: 11px;
+            padding: 5px 8px;
+          }
+
+          .basics-header {
+            padding: 6px 8px;
           }
         }
       `}</style>

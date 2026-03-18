@@ -69,7 +69,7 @@ const AgentLogin = () => {
             }}>
                 <div style={{ textAlign: 'center', marginBottom: '30px' }}>
                     <img
-                        src="/bgremlogo.png"
+                        src="/logo.png"
                         alt="Agent"
                         style={{ height: '60px', marginBottom: '20px' }}
                     />

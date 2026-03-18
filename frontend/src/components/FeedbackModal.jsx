@@ -82,7 +82,7 @@ const FeedbackModal = ({ isOpen, onClose }) => {
                 {!isSubmitted ? (
                     <>
                         <h2 style={{ marginBottom: '10px', fontSize: '24px', fontWeight: '800' }}>Your Feedback</h2>
-                        <p style={{ color: '#aaa', fontSize: '14px', marginBottom: '25px' }}>Help us improve your betterbet365 experience.</p>
+                        <p style={{ color: '#aaa', fontSize: '14px', marginBottom: '25px' }}>Help us improve your bettorplays247 experience.</p>
 
                         <form onSubmit={handleSubmit}>
                             <div style={{ marginBottom: '25px' }}>

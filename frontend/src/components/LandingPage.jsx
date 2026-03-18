@@ -23,15 +23,15 @@ const LandingPage = ({ onLogin, isLoggedIn }) => {
             <LeagueNav activeLeague={activeLeague} onSelectLeague={setActiveLeague} />
             <Hero />
             <div className="banner-content-centered">
-                <img src="/bgremlogo.png" alt="betterbet365" className="banner-logo" />
+                <img src="/logo.png" alt="bettorplays247" className="banner-logo" />
                 <div className="banner-divider"></div>
                 <p className="banner-tagline">THE PREMIUM CHOICE FOR WINNERS</p>
             </div>
             <footer className="main-footer">
                 <div className="footer-content">
                     <div className="footer-left">
-                        <img src="/bgremlogo.png" alt="Logo" className="footer-logo" />
-                        <p className="copyright">© 2026 betterbet365 | All Rights Reserved</p>
+                        <img src="/logo.png" alt="Logo" className="footer-logo" />
+                        <p className="copyright">© 2026 bettorplays247 | All Rights Reserved</p>
                     </div>
                     <div className="footer-right">
                         <span>RESPONSIBLE GAMING</span>

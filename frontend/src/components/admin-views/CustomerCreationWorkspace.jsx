@@ -452,6 +452,7 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
     agentPrefix: '',
     parentAgentId: ''
   });
+  const [newApps, setNewApps] = useState({ venmo: '', cashapp: '', applePay: '', zelle: '', paypal: '', btc: '', other: '' });
   const [creationType, setCreationType] = useState(initialType || 'player');
   const [currentRole, setCurrentRole] = useState('admin');
   const [viewOnly, setViewOnly] = useState(false);
@@ -613,7 +614,7 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
         }
       }
 
-      const payload = { ...newCustomer };
+      const payload = { ...newCustomer, apps: newApps };
       if (payload.balance === '') delete payload.balance;
       if (creationType !== 'player') {
         delete payload.referredByUserId;
@@ -661,6 +662,7 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
       setImportSummary('');
       setImportedUsernames([]);
 
+      setNewApps({ venmo: '', cashapp: '', applePay: '', zelle: '', paypal: '', btc: '', other: '' });
       const cleanState = {
         username: '',
         phoneNumber: '',
@@ -1531,6 +1533,40 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
                   </div>
                 </div>
               )}
+
+              <div className="apps-card" style={{ marginTop: '12px' }}>
+                <h3 className="apps-title">Apps</h3>
+                <div className="apps-grid">
+                  <div className="apps-field">
+                    <label>Venmo:</label>
+                    <input value={newApps.venmo} onChange={(e) => setNewApps((p) => ({ ...p, venmo: e.target.value }))} placeholder="@username" />
+                  </div>
+                  <div className="apps-field">
+                    <label>Cashapp:</label>
+                    <input value={newApps.cashapp} onChange={(e) => setNewApps((p) => ({ ...p, cashapp: e.target.value }))} placeholder="$cashtag" />
+                  </div>
+                  <div className="apps-field">
+                    <label>Apple Pay:</label>
+                    <input value={newApps.applePay} onChange={(e) => setNewApps((p) => ({ ...p, applePay: e.target.value }))} placeholder="Phone or email" />
+                  </div>
+                  <div className="apps-field">
+                    <label>Zelle:</label>
+                    <input value={newApps.zelle} onChange={(e) => setNewApps((p) => ({ ...p, zelle: e.target.value }))} placeholder="Phone or email" />
+                  </div>
+                  <div className="apps-field">
+                    <label>PayPal:</label>
+                    <input value={newApps.paypal} onChange={(e) => setNewApps((p) => ({ ...p, paypal: e.target.value }))} placeholder="Email or @username" />
+                  </div>
+                  <div className="apps-field">
+                    <label>BTC:</label>
+                    <input value={newApps.btc} onChange={(e) => setNewApps((p) => ({ ...p, btc: e.target.value }))} placeholder="Wallet address" />
+                  </div>
+                  <div className="apps-field apps-field-full">
+                    <label>Other:</label>
+                    <input value={newApps.other} onChange={(e) => setNewApps((p) => ({ ...p, other: e.target.value }))} placeholder="Other handle" />
+                  </div>
+                </div>
+              </div>
             </div>
 
             <aside className="customer-create-sidebar">
@@ -1601,6 +1637,14 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
           </div>
 
           <style>{`
+            .apps-card { background:#fff; border:1px solid #d1d5db; padding:16px; border-radius:4px; }
+            .apps-title { font-size:15px; font-weight:700; color:#1e3a5f; margin:0 0 12px 0; }
+            .apps-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px 20px; }
+            .apps-field { display:flex; flex-direction:column; }
+            .apps-field label { color:#4b5563; font-size:11px; margin-bottom:3px; font-weight:600; }
+            .apps-field input { width:100%; border:none; border-bottom:1px solid #6b7280; background:transparent; font-size:14px; padding:3px 0; color:#111827; outline:none; }
+            .apps-field input:focus { border-bottom-color:#1e40af; }
+            .apps-field-full { grid-column:1/-1; }
             .customer-create-shell {
               display: grid;
               grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);

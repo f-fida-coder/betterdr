@@ -35,8 +35,13 @@ const Header = ({ onLogin, isLoggedIn }) => {
     return (
         <header className="main-header">
             <div className="logo">
-                <img src="/bgremlogo.png" alt="betterbet365" />
+                <img src="/logo.png" alt="bettorplays247" />
             </div>
+
+            {!isLoggedIn ? (
+                <button className="mobile-login-btn mobile-only" onClick={() => setShowMobileLogin(!showMobileLogin)}>LOGIN</button>
+            ) : null}
+
             <div className="login-section desktop-only">
                 {!isLoggedIn ? (
                     <>
@@ -77,36 +82,23 @@ const Header = ({ onLogin, isLoggedIn }) => {
             </div>
 
             <div className="mobile-header-container mobile-only">
-                <div className="top-header">
-
-                    {isLoggedIn && (
-                        <>
-                            <div className="icon-btn">
-                                <i className="fa-solid fa-magnifying-glass"></i>
-                                <span>SEARCH</span>
+                {isLoggedIn && (
+                    <div className="landing-top-bar">
+                        <div className="icon-btn">
+                            <i className="fa-solid fa-magnifying-glass"></i>
+                            <span>SEARCH</span>
+                        </div>
+                        <div className="icon-btn">
+                            <i className="fa-solid fa-cash-register"></i>
+                            <span>CASHIER</span>
+                        </div>
+                        <div className="mobile-user-trigger" onClick={() => setShowMobileLogin(!showMobileLogin)}>
+                            <div style={{ width: '30px', height: '30px', background: '#00ff66', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'black', fontWeight: 'bold' }}>
+                                {username ? username.charAt(0).toUpperCase() : 'U'}
                             </div>
-
-                            <div className="icon-btn">
-                                <i className="fa-solid fa-cash-register"></i>
-                                <span>CASHIER</span>
-                            </div>
-                        </>
-                    )}
-
-                    <div className="right-section">
-                        {!isLoggedIn ? (
-                            <div style={{ display: 'flex', alignItems: 'center' }}>
-                                <button className="mobile-login-btn" onClick={() => setShowMobileLogin(!showMobileLogin)}>LOGIN</button>
-                            </div>
-                        ) : (
-                            <div className="mobile-user-trigger" onClick={() => setShowMobileLogin(!showMobileLogin)}>
-                                <div style={{ width: '30px', height: '30px', background: '#00ff66', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'black', fontWeight: 'bold' }}>
-                                    {username ? username.charAt(0).toUpperCase() : 'U'}
-                                </div>
-                            </div>
-                        )}
+                        </div>
                     </div>
-                </div>
+                )}
 
                 {isLoggedIn && (
                     <div className="tabs-bar">

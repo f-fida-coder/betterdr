@@ -948,6 +948,15 @@ body::after {
     width: auto;
   }
 
+  .landing-top-bar {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    background: transparent;
+  }
+
   /* Hide desktop elements on mobile */
   .login-section.desktop-only {
     display: none !important;
@@ -958,15 +967,19 @@ body::after {
   }
 
   .mobile-login-btn {
-    background: #444;
-    color: white;
+    display: flex !important;
+    background: #dc3545;
+    color: #fff;
     border: none;
-    padding: 8px 16px;
+    padding: 9px 22px;
     border-radius: 6px;
     cursor: pointer;
-    font-size: 12px;
+    font-size: 14px;
     font-weight: 700;
     white-space: nowrap;
+    letter-spacing: 0.5px;
+    margin-left: auto;
+    z-index: 10;
   }
 
   .mobile-join-btn {
@@ -1143,11 +1156,11 @@ body::after {
 
   /* League nav mobile */
   .league-icons {
-    gap: 20px;
-    overflow-x: auto;
+    gap: 16px;
     padding: 10px;
-    justify-content: flex-start;
+    justify-content: center;
     width: 100%;
+    flex-wrap: wrap;
   }
 
   .league-nav {
