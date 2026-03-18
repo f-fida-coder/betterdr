@@ -1278,12 +1278,15 @@ export const updateUserByAdmin = async (userId, userData, token) => {
     }
 };
 
-export const updateUserFreeplay = async (userId, freeplayBalance, token, description = '') => {
+export const updateUserFreeplay = async (userId, freeplayInput, token, description = '') => {
     try {
+        const payload = (typeof freeplayInput === 'object' && freeplayInput !== null && !Array.isArray(freeplayInput))
+            ? freeplayInput
+            : { freeplayBalance: freeplayInput, description };
         const response = await fetch(buildApiUrl(`/admin/users/${userId}/freeplay`), {
             method: 'PUT',
             headers: getHeaders(token),
-            body: JSON.stringify({ freeplayBalance, description })
+            body: JSON.stringify(payload)
         });
         const data = await response.json();
         if (!response.ok) throw new Error(data.message || 'Failed to update freeplay');

@@ -1430,29 +1430,35 @@ final class AdminCoreController
             }
 
             $body = Http::jsonBody();
-            $freeplayBalance = $body['freeplayBalance'] ?? null;
             $note = trim((string) ($body['description'] ?? ''));
-            if ($freeplayBalance === null || !is_numeric($freeplayBalance)) {
-                Response::json(['message' => 'Freeplay balance is required'], 400);
-                return;
-            }
-
-            // Optional expiry: ISO-8601 string or Unix timestamp in seconds.
-            // If not provided and balance > 0, default to 30 days from now.
+            $operationMode = strtolower(trim((string) ($body['operationMode'] ?? 'exact')));
             $expiresAtRaw = $body['expiresAt'] ?? null;
-            $fpExpiresAt = null;
-            $nextFreeplay = max(0.0, (float) $freeplayBalance);
-            if ($nextFreeplay > 0) {
-                if ($expiresAtRaw !== null) {
-                    $parsed = is_numeric($expiresAtRaw) ? (int) $expiresAtRaw : strtotime((string) $expiresAtRaw);
-                    if ($parsed === false || $parsed <= time()) {
-                        Response::json(['message' => 'expiresAt must be a future date/time'], 400);
-                        return;
-                    }
-                    $fpExpiresAt = $parsed;
-                } else {
-                    $fpExpiresAt = time() + (30 * 24 * 3600); // default: 30 days
+            $requestedAmount = null;
+            $requestedDirection = null;
+            $nextFreeplayTarget = null;
+
+            if ($operationMode === 'transaction') {
+                if (!array_key_exists('amount', $body) || !is_numeric($body['amount'])) {
+                    Response::json(['message' => 'Amount is required'], 400);
+                    return;
                 }
+                $requestedAmount = round((float) $body['amount'], 2);
+                if ($requestedAmount <= 0) {
+                    Response::json(['message' => 'Amount must be greater than 0'], 400);
+                    return;
+                }
+                $requestedDirection = strtolower(trim((string) ($body['direction'] ?? '')));
+                if (!in_array($requestedDirection, ['credit', 'debit'], true)) {
+                    Response::json(['message' => 'direction must be either credit or debit'], 400);
+                    return;
+                }
+            } else {
+                $freeplayBalance = $body['freeplayBalance'] ?? null;
+                if ($freeplayBalance === null || !is_numeric($freeplayBalance)) {
+                    Response::json(['message' => 'Freeplay balance is required'], 400);
+                    return;
+                }
+                $nextFreeplayTarget = max(0.0, (float) $freeplayBalance);
             }
 
             $this->db->beginTransaction();
@@ -1471,6 +1477,41 @@ final class AdminCoreController
 
                 $freeplayBefore = $this->num($lockedUser['freeplayBalance'] ?? 0);
                 $now = MongoRepository::nowUtc();
+                $nextFreeplay = $nextFreeplayTarget;
+
+                if ($operationMode === 'transaction') {
+                    $delta = $requestedDirection === 'credit' ? $requestedAmount : -$requestedAmount;
+                    $nextFreeplay = round($freeplayBefore + $delta, 2);
+                }
+
+                $fpExpiresAt = null;
+                $existingExpiry = $lockedUser['freeplayExpiresAt'] ?? null;
+                $parsedExistingExpiry = null;
+                if ($existingExpiry !== null) {
+                    $parsedExistingExpiry = is_numeric($existingExpiry)
+                        ? (int) $existingExpiry
+                        : strtotime((string) $existingExpiry);
+                    if ($parsedExistingExpiry === false || $parsedExistingExpiry <= time()) {
+                        $parsedExistingExpiry = null;
+                    }
+                }
+                if ($nextFreeplay > 0) {
+                    if ($expiresAtRaw !== null) {
+                        $parsed = is_numeric($expiresAtRaw) ? (int) $expiresAtRaw : strtotime((string) $expiresAtRaw);
+                        if ($parsed === false || $parsed <= time()) {
+                            $this->db->rollback();
+                            Response::json(['message' => 'expiresAt must be a future date/time'], 400);
+                            return;
+                        }
+                        $fpExpiresAt = $parsed;
+                    } elseif ($operationMode !== 'transaction') {
+                        $fpExpiresAt = time() + (30 * 24 * 3600);
+                    } elseif ($parsedExistingExpiry !== null) {
+                        $fpExpiresAt = $parsedExistingExpiry;
+                    } else {
+                        $fpExpiresAt = time() + (30 * 24 * 3600);
+                    }
+                }
 
                 $this->db->updateOne('users', ['_id' => MongoRepository::id($userId)], [
                     'freeplayBalance' => $nextFreeplay,
@@ -7028,14 +7069,6 @@ final class AdminCoreController
             }
 
             $body = Http::jsonBody();
-            if (!array_key_exists('balance', $body) || !is_numeric($body['balance'])) {
-                Response::json(['message' => 'Balance is required'], 400);
-                return;
-            }
-
-            $nextBalance = max(0, (float) $body['balance']);
-            $balanceBefore = $this->num($user['balance'] ?? 0);
-            $diff = $nextBalance - $balanceBefore;
             $requestedType = strtolower(trim((string) ($body['type'] ?? 'adjustment')));
             $txType = in_array($requestedType, ['adjustment', 'deposit', 'withdrawal'], true) ? $requestedType : 'adjustment';
             $txReason = trim((string) ($body['reason'] ?? ''));
@@ -7049,13 +7082,35 @@ final class AdminCoreController
                     : 'Admin updated user balance';
             }
 
-            $agentBalance = 0.0;
-            if (is_array($agent)) {
-                $agentBalance = $this->num($agent['balance'] ?? 0);
-                if ($diff > 0 && $agentBalance < $diff) {
-                    Response::json(['message' => 'Insufficient balance. You need ' . round($diff) . ' but only have ' . round($agentBalance)], 400);
+            $operationMode = strtolower(trim((string) ($body['operationMode'] ?? 'exact')));
+            $requestedAmount = null;
+            $requestedDirection = null;
+            $nextBalanceTarget = null;
+            if ($operationMode === 'transaction') {
+                if (!array_key_exists('amount', $body) || !is_numeric($body['amount'])) {
+                    Response::json(['message' => 'Amount is required'], 400);
                     return;
                 }
+                $requestedAmount = round((float) $body['amount'], 2);
+                if ($requestedAmount <= 0) {
+                    Response::json(['message' => 'Amount must be greater than 0'], 400);
+                    return;
+                }
+                $requestedDirection = $this->resolveBalanceTransactionDirection(
+                    $txType,
+                    $txReason,
+                    (string) ($body['direction'] ?? '')
+                );
+                if ($requestedDirection === null) {
+                    Response::json(['message' => 'Unable to determine transaction direction for this balance update'], 400);
+                    return;
+                }
+            } else {
+                if (!array_key_exists('balance', $body) || !is_numeric($body['balance'])) {
+                    Response::json(['message' => 'Balance is required'], 400);
+                    return;
+                }
+                $nextBalanceTarget = max(0.0, round((float) $body['balance'], 2));
             }
 
             $normalizedReason = strtoupper($txReason);
@@ -7066,81 +7121,130 @@ final class AdminCoreController
                 'CASHIER_CREDIT_ADJUSTMENT',
                 'CASHIER_DEBIT_ADJUSTMENT',
             ];
-            $lifetimeBefore = $this->num($user['lifetime'] ?? 0);
-            $lifetimeAfter = $lifetimeBefore;
-            $shouldAdjustLifetime = $txType === 'adjustment'
-                && in_array($normalizedReason, $lifetimeAdjustmentReasons, true);
-
-            $userUpdates = [
-                'balance' => $nextBalance,
-                'updatedAt' => MongoRepository::nowUtc(),
-            ];
-            if ($shouldAdjustLifetime) {
-                $lifetimeAfter = $lifetimeBefore + $diff;
-                $userUpdates['lifetime'] = $lifetimeAfter;
-            }
-
+            $balanceBefore = 0.0;
+            $nextBalance = 0.0;
+            $lifetimeAfter = 0.0;
+            $pendingBalance = 0.0;
+            $updatedFreeplayBalance = $this->num($user['freeplayBalance'] ?? 0);
             $freePlayBonusAmount = 0.0;
             $freePlayBonusPercent = 0.0;
             $freePlayBonusCap = 0.0;
-            $freePlayBalanceBefore = $this->num($user['freeplayBalance'] ?? 0);
-            $freePlayBalanceAfter = $freePlayBalanceBefore;
+            $freePlayBalanceAfter = $updatedFreeplayBalance;
             $freePlayTransactionDoc = null;
-            if ($txType === 'deposit' && $diff > 0) {
-                $bonusConfig = $this->resolveDepositFreePlayBonus($user, $diff);
-                $freePlayBonusAmount = $bonusConfig['bonusAmount'];
-                $freePlayBonusPercent = $bonusConfig['percent'];
-                $freePlayBonusCap = $bonusConfig['cap'];
-                if ($freePlayBonusAmount > 0) {
-                    $freePlayBalanceAfter = $freePlayBalanceBefore + $freePlayBonusAmount;
-                    $userUpdates['freeplayBalance'] = $freePlayBalanceAfter;
-                    $freePlayTransactionDoc = [
-                        'userId' => MongoRepository::id($id),
-                        'agentId' => isset($user['agentId']) && preg_match('/^[a-f0-9]{24}$/i', (string) $user['agentId']) === 1
-                            ? MongoRepository::id((string) $user['agentId'])
-                            : null,
-                        'adminId' => isset($actor['_id']) ? MongoRepository::id((string) $actor['_id']) : null,
-                        'amount' => $freePlayBonusAmount,
-                        'type' => 'adjustment',
-                        'status' => 'completed',
-                        'balanceBefore' => $freePlayBalanceBefore,
-                        'balanceAfter' => $freePlayBalanceAfter,
-                        'referenceType' => 'FreePlayBonus',
-                        'reason' => 'DEPOSIT_FREEPLAY_BONUS',
-                        'description' => 'Auto free play bonus ' . rtrim(rtrim(number_format($freePlayBonusPercent, 2, '.', ''), '0'), '.') . '% on deposit $' . number_format(abs($diff), 2, '.', ''),
-                        'metadata' => [
-                            'depositAmount' => round(abs($diff), 2),
-                            'freePlayPercent' => $freePlayBonusPercent,
-                            'maxFpCredit' => $freePlayBonusCap,
-                        ],
-                        'createdAt' => MongoRepository::nowUtc(),
-                        'updatedAt' => MongoRepository::nowUtc(),
-                    ];
-                }
-            }
-
-            $transactionDoc = [
-                'userId' => MongoRepository::id($id),
-                'adminId' => MongoRepository::id((string) ($actor['_id'] ?? '')),
-                'amount' => abs($diff),
-                'type' => $txType,
-                'status' => 'completed',
-                'balanceBefore' => $balanceBefore,
-                'balanceAfter' => $nextBalance,
-                'referenceType' => 'Adjustment',
-                'reason' => $txReason,
-                'description' => $txDescription,
-                'createdAt' => MongoRepository::nowUtc(),
-                'updatedAt' => MongoRepository::nowUtc(),
-            ];
             $transactionId = '';
             $freePlayTransactionId = '';
+            $agentBalanceOut = null;
 
             $this->db->beginTransaction();
             try {
+                $lockedUser = $this->db->findOneForUpdate('users', ['_id' => MongoRepository::id($id)]);
+                if ($lockedUser === null || (($lockedUser['role'] ?? 'user') !== 'user')) {
+                    $this->db->rollback();
+                    Response::json(['message' => 'User not found'], 404);
+                    return;
+                }
+                if (($actor['role'] ?? '') === 'agent' && (string) ($lockedUser['agentId'] ?? '') !== (string) ($actor['_id'] ?? '')) {
+                    $this->db->rollback();
+                    Response::json(['message' => 'Not authorized to update this user'], 403);
+                    return;
+                }
+
+                $balanceBefore = $this->num($lockedUser['balance'] ?? 0);
+                if ($operationMode === 'transaction') {
+                    $diff = $requestedDirection === 'credit' ? $requestedAmount : -$requestedAmount;
+                    $nextBalance = round($balanceBefore + $diff, 2);
+                } else {
+                    $nextBalance = $nextBalanceTarget;
+                    $diff = $nextBalance - $balanceBefore;
+                }
+
+                $lockedAgent = null;
+                $agentBalance = 0.0;
                 if (is_array($agent)) {
+                    $lockedAgent = $this->db->findOneForUpdate('agents', ['_id' => MongoRepository::id((string) $actor['_id'])]);
+                    if ($lockedAgent === null) {
+                        $this->db->rollback();
+                        Response::json(['message' => 'Agent account not found'], 404);
+                        return;
+                    }
+                    $agentBalance = $this->num($lockedAgent['balance'] ?? 0);
+                    if ($diff > 0 && $agentBalance < $diff) {
+                        $this->db->rollback();
+                        Response::json(['message' => 'Insufficient balance. You need ' . round($diff) . ' but only have ' . round($agentBalance)], 400);
+                        return;
+                    }
+                }
+
+                $lifetimeBefore = $this->num($lockedUser['lifetime'] ?? 0);
+                $lifetimeAfter = $lifetimeBefore;
+                $shouldAdjustLifetime = $txType === 'adjustment'
+                    && in_array($normalizedReason, $lifetimeAdjustmentReasons, true);
+                $userUpdates = [
+                    'balance' => $nextBalance,
+                    'updatedAt' => MongoRepository::nowUtc(),
+                ];
+                if ($shouldAdjustLifetime) {
+                    $lifetimeAfter = $lifetimeBefore + $diff;
+                    $userUpdates['lifetime'] = $lifetimeAfter;
+                }
+
+                $freePlayBalanceBefore = $this->num($lockedUser['freeplayBalance'] ?? 0);
+                $freePlayBalanceAfter = $freePlayBalanceBefore;
+                if ($txType === 'deposit' && $diff > 0) {
+                    $bonusConfig = $this->resolveDepositFreePlayBonus($lockedUser, $diff);
+                    $freePlayBonusAmount = $bonusConfig['bonusAmount'];
+                    $freePlayBonusPercent = $bonusConfig['percent'];
+                    $freePlayBonusCap = $bonusConfig['cap'];
+                    if ($freePlayBonusAmount > 0) {
+                        $freePlayBalanceAfter = $freePlayBalanceBefore + $freePlayBonusAmount;
+                        $userUpdates['freeplayBalance'] = $freePlayBalanceAfter;
+                        $freePlayTransactionDoc = [
+                            'userId' => MongoRepository::id($id),
+                            'agentId' => isset($lockedUser['agentId']) && preg_match('/^[a-f0-9]{24}$/i', (string) $lockedUser['agentId']) === 1
+                                ? MongoRepository::id((string) $lockedUser['agentId'])
+                                : null,
+                            'adminId' => isset($actor['_id']) ? MongoRepository::id((string) $actor['_id']) : null,
+                            'amount' => $freePlayBonusAmount,
+                            'type' => 'adjustment',
+                            'status' => 'completed',
+                            'balanceBefore' => $freePlayBalanceBefore,
+                            'balanceAfter' => $freePlayBalanceAfter,
+                            'referenceType' => 'FreePlayBonus',
+                            'reason' => 'DEPOSIT_FREEPLAY_BONUS',
+                            'description' => 'Auto free play bonus ' . rtrim(rtrim(number_format($freePlayBonusPercent, 2, '.', ''), '0'), '.') . '% on deposit $' . number_format(abs($diff), 2, '.', ''),
+                            'metadata' => [
+                                'depositAmount' => round(abs($diff), 2),
+                                'freePlayPercent' => $freePlayBonusPercent,
+                                'maxFpCredit' => $freePlayBonusCap,
+                            ],
+                            'createdAt' => MongoRepository::nowUtc(),
+                            'updatedAt' => MongoRepository::nowUtc(),
+                        ];
+                    }
+                }
+                $updatedFreeplayBalance = array_key_exists('freeplayBalance', $userUpdates)
+                    ? $this->num($userUpdates['freeplayBalance'])
+                    : $freePlayBalanceBefore;
+
+                $transactionDoc = [
+                    'userId' => MongoRepository::id($id),
+                    'adminId' => MongoRepository::id((string) ($actor['_id'] ?? '')),
+                    'amount' => abs($diff),
+                    'type' => $txType,
+                    'status' => 'completed',
+                    'balanceBefore' => $balanceBefore,
+                    'balanceAfter' => $nextBalance,
+                    'referenceType' => 'Adjustment',
+                    'reason' => $txReason,
+                    'description' => $txDescription,
+                    'createdAt' => MongoRepository::nowUtc(),
+                    'updatedAt' => MongoRepository::nowUtc(),
+                ];
+
+                if (is_array($lockedAgent)) {
+                    $agentBalanceOut = round($agentBalance - $diff, 2);
                     $this->db->updateOne('agents', ['_id' => MongoRepository::id((string) $actor['_id'])], [
-                        'balance' => $agentBalance - $diff,
+                        'balance' => $agentBalanceOut,
                         'updatedAt' => MongoRepository::nowUtc(),
                     ]);
                 }
@@ -7157,18 +7261,12 @@ final class AdminCoreController
                     $freePlayTransactionId = $this->db->insertOne('transactions', $freePlayTransactionDoc);
                 }
                 $this->db->commit();
+                $pendingBalance = $this->num($lockedUser['pendingBalance'] ?? 0);
             } catch (Throwable $txErr) {
                 $this->db->rollback();
                 throw $txErr;
             }
             $this->invalidateHeaderSummaryCache();
-
-            $pendingBalance = $this->num($user['pendingBalance'] ?? 0);
-            $agentBalanceOut = null;
-            if (is_array($agent)) {
-                $updatedAgent = $this->db->findOne('agents', ['_id' => MongoRepository::id((string) $actor['_id'])], ['projection' => ['balance' => 1]]);
-                $agentBalanceOut = $this->num($updatedAgent['balance'] ?? 0);
-            }
 
             $resp = [
                 'message' => 'User balance updated',
@@ -7177,9 +7275,7 @@ final class AdminCoreController
                     'balance' => $nextBalance,
                     'pendingBalance' => $pendingBalance,
                     'availableBalance' => max(0, $nextBalance - $pendingBalance),
-                    'freeplayBalance' => array_key_exists('freeplayBalance', $userUpdates)
-                        ? $this->num($userUpdates['freeplayBalance'])
-                        : $this->num($user['freeplayBalance'] ?? 0),
+                    'freeplayBalance' => $updatedFreeplayBalance,
                     'lifetime' => $lifetimeAfter,
                     'lifetimePlusMinus' => $lifetimeAfter,
                 ],
@@ -7209,6 +7305,41 @@ final class AdminCoreController
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error updating user balance', 'details' => $e->getMessage()], 500);
         }
+    }
+
+    private function resolveBalanceTransactionDirection(string $txType, string $txReason, string $requestedDirection): ?string
+    {
+        if ($txType === 'deposit') {
+            return 'credit';
+        }
+        if ($txType === 'withdrawal') {
+            return 'debit';
+        }
+
+        $direction = strtolower(trim($requestedDirection));
+        if (in_array($direction, ['credit', 'debit'], true)) {
+            return $direction;
+        }
+
+        $normalizedReason = strtoupper(trim($txReason));
+        $creditReasons = [
+            'ADMIN_CREDIT_ADJUSTMENT',
+            'CASHIER_CREDIT_ADJUSTMENT',
+            'ADMIN_PROMOTIONAL_CREDIT',
+        ];
+        $debitReasons = [
+            'ADMIN_DEBIT_ADJUSTMENT',
+            'CASHIER_DEBIT_ADJUSTMENT',
+            'ADMIN_PROMOTIONAL_DEBIT',
+        ];
+        if (in_array($normalizedReason, $creditReasons, true)) {
+            return 'credit';
+        }
+        if (in_array($normalizedReason, $debitReasons, true)) {
+            return 'debit';
+        }
+
+        return null;
     }
 
     private function getUserStats(string $userId): void

@@ -1055,6 +1055,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
     setNewTxType(balance > 0 ? 'withdrawal' : 'deposit');
     setNewTxAmount('');
     setNewTxDescription('');
+    setTxError('');
     setShowNewTxModal(true);
   };
 
@@ -1088,6 +1089,23 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
   }, [freePlayRows]);
 
   const freePlayBalance = Number(customer?.freeplayBalance || 0);
+
+  const roundMoney = (value) => {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return 0;
+    return Math.round(num * 100) / 100;
+  };
+
+  const selectedTxDraftType = TRANSACTION_TYPE_OPTIONS.find((option) => option.value === newTxType)
+    || TRANSACTION_TYPE_OPTIONS[0];
+  const txDraftAmount = Number(newTxAmount || 0);
+  const txDraftHasAmount = Number.isFinite(txDraftAmount) && txDraftAmount > 0;
+  const txDraftCanContinue = txDraftHasAmount;
+
+  const freePlayIsWithdraw = freePlayModalMode === 'withdraw';
+  const freePlayDraftAmount = Number(newFreePlayAmount || 0);
+  const freePlayDraftHasAmount = Number.isFinite(freePlayDraftAmount) && freePlayDraftAmount > 0;
+  const freePlayDraftCanContinue = freePlayDraftHasAmount;
 
   const refreshFreePlay = async () => {
     if (!customer?.username) return;
@@ -1174,13 +1192,24 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
       }
       const currentFP = Number(customer.freeplayBalance || 0);
       const isWithdraw = freePlayModalMode === 'withdraw';
-      if (isWithdraw && amount > currentFP) {
-        setFreePlayError('Withdraw amount exceeds current free play balance.');
-        return;
-      }
-      const nextFreeplay = isWithdraw ? Math.max(0, currentFP - amount) : currentFP + amount;
-      await updateUserFreeplay(userId, nextFreeplay, token, newFreePlayDescription.trim());
-      setCustomer((prev) => ({ ...prev, freeplayBalance: nextFreeplay }));
+      const result = await updateUserFreeplay(userId, {
+        operationMode: 'transaction',
+        amount,
+        direction: isWithdraw ? 'debit' : 'credit',
+        description: newFreePlayDescription.trim(),
+      }, token);
+      const nextFreeplay = Number(result?.user?.freeplayBalance);
+      const nextExpiresAt = result?.user?.freeplayExpiresAt ?? null;
+      setCustomer((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          freeplayBalance: Number.isFinite(nextFreeplay)
+            ? nextFreeplay
+            : roundMoney(currentFP + (isWithdraw ? -amount : amount)),
+          freeplayExpiresAt: nextExpiresAt,
+        };
+      });
       const verb = isWithdraw ? 'withdrawn' : 'added';
       if (newFreePlayDescription.trim()) {
         setFreePlaySuccess(`Free play ${verb}. Note: "${newFreePlayDescription.trim()}"`);
@@ -1430,12 +1459,12 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
       const selectedTxType = TRANSACTION_TYPE_OPTIONS.find((option) => option.value === newTxType)
         || TRANSACTION_TYPE_OPTIONS[0];
       const currentBalance = Number(customer.balance || 0);
-      const nextBalance = selectedTxType.balanceDirection === 'credit'
-        ? currentBalance + amount
-        : Math.max(0, currentBalance - amount);
+      const nextBalance = roundMoney(currentBalance + (selectedTxType.balanceDirection === 'credit' ? amount : -amount));
       const customDescription = newTxDescription.trim();
       const result = await updateUserCredit(userId, {
-        balance: nextBalance,
+        operationMode: 'transaction',
+        amount,
+        direction: selectedTxType.balanceDirection,
         type: selectedTxType.apiType,
         reason: selectedTxType.reason,
         description: customDescription || selectedTxType.defaultDescription
@@ -1648,8 +1677,8 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
           <button className="btn btn-back" onClick={openTransactionSlip}>New transaction</button>
         ) : activeSection === 'freeplays' ? (
           <div style={{ display: 'flex', gap: '8px' }}>
-            <button className="btn btn-back" onClick={() => { setFreePlayModalMode('withdraw'); setShowNewFreePlayModal(true); }}>Withdraw</button>
-            <button className="btn btn-save" onClick={() => { setFreePlayModalMode('deposit'); setShowNewFreePlayModal(true); }}>Add Free Play</button>
+            <button className="btn btn-back" onClick={() => { setFreePlayModalMode('withdraw'); setFreePlayError(''); setShowNewFreePlayModal(true); }}>Withdraw</button>
+            <button className="btn btn-save" onClick={() => { setFreePlayModalMode('deposit'); setFreePlayError(''); setShowNewFreePlayModal(true); }}>Add Free Play</button>
           </div>
         ) : activeSection === 'dynamic-live' ? (
           <button className="btn btn-save" onClick={handleSaveDynamicLive} disabled={dynamicLiveSaving}>{dynamicLiveSaving ? 'Saving...' : 'Save'}</button>
@@ -2172,13 +2201,23 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
               <>
                 <h4>New transaction</h4>
                 <label>Transaction</label>
-                <select value={newTxType} onChange={(e) => setNewTxType(e.target.value)}>
+                <select value={newTxType} onChange={(e) => { setNewTxType(e.target.value); setTxError(''); }}>
                   {TRANSACTION_TYPE_OPTIONS.map((option) => (
                     <option key={option.value} value={option.value}>{option.label}</option>
                   ))}
                 </select>
                 <label>Amount</label>
-                <input type="number" step="1" min="0" value={newTxAmount} onChange={(e) => setNewTxAmount(e.target.value === '' ? '' : String(Math.round(Number(e.target.value))))} placeholder="0" />
+                <input
+                  type="number"
+                  step="1"
+                  min="0"
+                  value={newTxAmount}
+                  onChange={(e) => {
+                    setNewTxAmount(e.target.value === '' ? '' : String(Math.round(Number(e.target.value))));
+                    setTxError('');
+                  }}
+                  placeholder="0"
+                />
                 <div className="tx-modal-balance-strip" role="status" aria-live="polite">
                   <div className="tx-modal-balance-item">
                     <span>Current Balance</span>
@@ -2205,21 +2244,25 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
                 </div>
                 <label>Description</label>
                 <input value={newTxDescription} onChange={(e) => setNewTxDescription(e.target.value)} placeholder="Optional note" />
+                {txError && (
+                  <div style={{ marginTop: '12px', marginBottom: '12px', background: '#fee2e2', color: '#991b1b', border: '1px solid #fecaca', borderRadius: '8px', padding: '10px 12px', fontWeight: 600 }}>
+                    {txError}
+                  </div>
+                )}
                 <div className="modal-actions">
                   <button className="btn btn-back" onClick={() => setShowNewTxModal(false)}>Cancel</button>
-                  <button className="btn btn-save" onClick={() => {
-                    const amount = Number(newTxAmount || 0);
-                    if (amount <= 0 || Number.isNaN(amount)) { setTxError('Enter a valid amount greater than 0.'); return; }
+                  <button className="btn btn-save" disabled={!txDraftCanContinue} onClick={() => {
+                    if (!txDraftHasAmount) { setTxError('Enter a valid amount greater than 0.'); return; }
                     setTxError('');
                     setShowTxConfirm(true);
                   }}>Next</button>
                 </div>
               </>
             ) : (() => {
-              const amount = Number(newTxAmount || 0);
-              const selectedTxType = TRANSACTION_TYPE_OPTIONS.find((o) => o.value === newTxType) || TRANSACTION_TYPE_OPTIONS[0];
+              const amount = txDraftAmount;
+              const selectedTxType = selectedTxDraftType;
               const prevBal = txModalBalance;
-              const newBal = selectedTxType.balanceDirection === 'credit' ? prevBal + amount : Math.max(0, prevBal - amount);
+              const newBal = roundMoney(prevBal + (selectedTxType.balanceDirection === 'credit' ? amount : -amount));
               const isDebit = selectedTxType.balanceDirection === 'debit';
               const today = new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }).replace(/\//g, '-');
               return (
@@ -2231,9 +2274,14 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
                     <div className="tx-confirm-row"><span>{selectedTxType.label} :</span><span style={{ color: isDebit ? '#dc2626' : '#1f2937' }}>{isDebit ? '-' : ''}{formatCurrency(amount)}</span></div>
                     <div className="tx-confirm-row tx-confirm-total"><span>New Balance</span><span style={{ color: '#16a34a' }}>{formatCurrency(newBal)}</span></div>
                   </div>
+                  {txError && (
+                    <div style={{ marginTop: '12px', marginBottom: '12px', background: '#fee2e2', color: '#991b1b', border: '1px solid #fecaca', borderRadius: '8px', padding: '10px 12px', fontWeight: 600 }}>
+                      {txError}
+                    </div>
+                  )}
                   <div className="modal-actions">
                     <button className="btn btn-back" onClick={() => setShowTxConfirm(false)}>Cancel</button>
-                    <button className="btn btn-save" onClick={handleCreateTransaction}>Confirm</button>
+                    <button className="btn btn-save" disabled={!txDraftCanContinue} onClick={handleCreateTransaction}>Confirm</button>
                   </div>
                 </>
               );
@@ -2253,7 +2301,17 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
                   {freePlayModalMode === 'withdraw' ? 'Withdraw' : 'Deposit'}
                 </div>
                 <label>Amount</label>
-                <input type="number" step="1" min="0" value={newFreePlayAmount} onChange={(e) => setNewFreePlayAmount(e.target.value === '' ? '' : String(Math.round(Number(e.target.value))))} placeholder="0" />
+                <input
+                  type="number"
+                  step="1"
+                  min="0"
+                  value={newFreePlayAmount}
+                  onChange={(e) => {
+                    setNewFreePlayAmount(e.target.value === '' ? '' : String(Math.round(Number(e.target.value))));
+                    setFreePlayError('');
+                  }}
+                  placeholder="0"
+                />
                 <div className="tx-modal-balance-strip fp-modal-balance-strip" role="status" aria-live="polite">
                   <div className="tx-modal-balance-item">
                     <span>Free Play Balance</span>
@@ -2269,24 +2327,25 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
                 </div>
                 <label>Description</label>
                 <input value={newFreePlayDescription} onChange={(e) => setNewFreePlayDescription(e.target.value)} placeholder="Optional note" />
+                {freePlayError && (
+                  <div style={{ marginTop: '12px', marginBottom: '12px', background: '#fee2e2', color: '#991b1b', border: '1px solid #fecaca', borderRadius: '8px', padding: '10px 12px', fontWeight: 600 }}>
+                    {freePlayError}
+                  </div>
+                )}
                 <div className="modal-actions">
                   <button className="btn btn-back" onClick={() => setShowNewFreePlayModal(false)}>Cancel</button>
-                  <button className="btn btn-save" onClick={() => {
-                    const amount = Number(newFreePlayAmount || 0);
-                    if (amount <= 0 || Number.isNaN(amount)) { setFreePlayError('Enter a valid free play amount greater than 0.'); return; }
-                    const isWithdraw = freePlayModalMode === 'withdraw';
-                    const currentFP = Number(customer?.freeplayBalance || 0);
-                    if (isWithdraw && amount > currentFP) { setFreePlayError('Withdraw amount exceeds current free play balance.'); return; }
+                  <button className="btn btn-save" disabled={!freePlayDraftCanContinue} onClick={() => {
+                    if (!freePlayDraftHasAmount) { setFreePlayError('Enter a valid free play amount greater than 0.'); return; }
                     setFreePlayError('');
                     setShowFpConfirm(true);
                   }}>Next</button>
                 </div>
               </>
             ) : (() => {
-              const amount = Number(newFreePlayAmount || 0);
-              const isWithdraw = freePlayModalMode === 'withdraw';
+              const amount = freePlayDraftAmount;
+              const isWithdraw = freePlayIsWithdraw;
               const prevBal = freePlayBalance;
-              const newBal = isWithdraw ? Math.max(0, prevBal - amount) : prevBal + amount;
+              const newBal = roundMoney(prevBal + (isWithdraw ? -amount : amount));
               const today = new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }).replace(/\//g, '-');
               return (
                 <>
@@ -2297,9 +2356,14 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
                     <div className="tx-confirm-row"><span>{isWithdraw ? 'Withdrawals' : 'Deposits'} :</span><span style={{ color: isWithdraw ? '#dc2626' : '#1f2937' }}>{isWithdraw ? '-' : ''}{formatCurrency(amount)}</span></div>
                     <div className="tx-confirm-row tx-confirm-total"><span>New Balance</span><span style={{ color: '#16a34a' }}>{formatCurrency(newBal)}</span></div>
                   </div>
+                  {freePlayError && (
+                    <div style={{ marginTop: '12px', marginBottom: '12px', background: '#fee2e2', color: '#991b1b', border: '1px solid #fecaca', borderRadius: '8px', padding: '10px 12px', fontWeight: 600 }}>
+                      {freePlayError}
+                    </div>
+                  )}
                   <div className="modal-actions">
                     <button className="btn btn-back" onClick={() => setShowFpConfirm(false)}>Cancel</button>
-                    <button className="btn btn-save" onClick={handleCreateFreePlay}>Confirm</button>
+                    <button className="btn btn-save" disabled={!freePlayDraftCanContinue} onClick={handleCreateFreePlay}>Confirm</button>
                   </div>
                 </>
               );

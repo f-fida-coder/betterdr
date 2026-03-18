@@ -232,6 +232,12 @@ function CashierView() {
 
   const isCreditDirection = (type) => type === 'deposit' || type === 'credit_adj';
 
+  const roundMoney = (value) => {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return 0;
+    return Math.round(num * 100) / 100;
+  };
+
   const updateEntryById = (id, updater, isAgentMode = false) => {
     if (isAgentMode) {
       setAgentEntries((prev) => {
@@ -283,11 +289,21 @@ function CashierView() {
       let freePlayBonusAmount = 0;
 
       if (entry.type === 'fp_deposit') {
-        nextFreeplay = currentFreeplay + amount;
-        await updateUserFreeplay(selectedUserId, nextFreeplay, token, effectiveDescription);
+        const freeplayResult = await updateUserFreeplay(selectedUserId, {
+          operationMode: 'transaction',
+          amount,
+          direction: 'credit',
+          description: effectiveDescription
+        }, token);
+        const serverFreeplay = Number(freeplayResult?.user?.freeplayBalance);
+        if (Number.isFinite(serverFreeplay)) {
+          nextFreeplay = serverFreeplay;
+        } else {
+          nextFreeplay = roundMoney(currentFreeplay + amount);
+        }
       } else {
         const isCredit = isCreditDirection(entry.type);
-        nextBalance = isCredit ? currentBalance + amount : Math.max(0, currentBalance - amount);
+        nextBalance = roundMoney(currentBalance + (isCredit ? amount : -amount));
 
         if (entry.type === 'deposit') {
           reason = 'CASHIER_DEPOSIT';
@@ -304,7 +320,9 @@ function CashierView() {
         }
 
         const creditResult = await updateUserCredit(selectedUserId, {
-          balance: nextBalance,
+          operationMode: 'transaction',
+          amount,
+          direction: isCredit ? 'credit' : 'debit',
           type: txType,
           reason,
           description: effectiveDescription
