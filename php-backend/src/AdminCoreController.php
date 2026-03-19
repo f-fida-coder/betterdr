@@ -7113,6 +7113,23 @@ final class AdminCoreController
                 $nextBalanceTarget = max(0.0, round((float) $body['balance'], 2));
             }
 
+            $applyDepositFreePlayBonus = true;
+            if ($txType === 'deposit' && array_key_exists('applyDepositFreeplayBonus', $body)) {
+                $rawApplyDepositFreePlayBonus = $body['applyDepositFreeplayBonus'];
+                if (is_bool($rawApplyDepositFreePlayBonus)) {
+                    $applyDepositFreePlayBonus = $rawApplyDepositFreePlayBonus;
+                } else {
+                    $parsedApplyDepositFreePlayBonus = filter_var(
+                        (string) $rawApplyDepositFreePlayBonus,
+                        FILTER_VALIDATE_BOOLEAN,
+                        FILTER_NULL_ON_FAILURE
+                    );
+                    if ($parsedApplyDepositFreePlayBonus !== null) {
+                        $applyDepositFreePlayBonus = $parsedApplyDepositFreePlayBonus;
+                    }
+                }
+            }
+
             $normalizedReason = strtoupper($txReason);
             // Lifetime +/- should only move for explicit credit/debit adjustments.
             $lifetimeAdjustmentReasons = [
@@ -7190,7 +7207,7 @@ final class AdminCoreController
 
                 $freePlayBalanceBefore = $this->num($lockedUser['freeplayBalance'] ?? 0);
                 $freePlayBalanceAfter = $freePlayBalanceBefore;
-                if ($txType === 'deposit' && $diff > 0) {
+                if ($txType === 'deposit' && $diff > 0 && $applyDepositFreePlayBonus) {
                     $bonusConfig = $this->resolveDepositFreePlayBonus($lockedUser, $diff);
                     $freePlayBonusAmount = $bonusConfig['bonusAmount'];
                     $freePlayBonusPercent = $bonusConfig['percent'];
@@ -7226,6 +7243,20 @@ final class AdminCoreController
                     ? $this->num($userUpdates['freeplayBalance'])
                     : $freePlayBalanceBefore;
 
+                $transactionMetadata = null;
+                if ($txType === 'deposit') {
+                    $transactionMetadata = [
+                        'applyDepositFreeplayBonus' => $applyDepositFreePlayBonus,
+                    ];
+                    if ($freePlayBonusAmount > 0) {
+                        $transactionMetadata['depositFreeplayBonusAmount'] = $freePlayBonusAmount;
+                        $transactionMetadata['freePlayPercent'] = $freePlayBonusPercent;
+                        $transactionMetadata['maxFpCredit'] = $freePlayBonusCap;
+                    } elseif (!$applyDepositFreePlayBonus) {
+                        $transactionMetadata['depositFreeplayBonusSuppressed'] = true;
+                    }
+                }
+
                 $transactionDoc = [
                     'userId' => MongoRepository::id($id),
                     'adminId' => MongoRepository::id((string) ($actor['_id'] ?? '')),
@@ -7240,6 +7271,9 @@ final class AdminCoreController
                     'createdAt' => MongoRepository::nowUtc(),
                     'updatedAt' => MongoRepository::nowUtc(),
                 ];
+                if (is_array($transactionMetadata)) {
+                    $transactionDoc['metadata'] = $transactionMetadata;
+                }
 
                 if (is_array($lockedAgent)) {
                     $agentBalanceOut = round($agentBalance - $diff, 2);

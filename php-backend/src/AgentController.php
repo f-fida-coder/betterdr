@@ -269,6 +269,7 @@ final class AgentController
                     'referredByUsername' => null,
                     'referralBonusGranted' => (bool) ($user['referralBonusGranted'] ?? false),
                     'referralBonusAmount' => $this->safeNumber($user['referralBonusAmount'] ?? null, 0),
+                    'settings' => $user['settings'] ?? null,
                 ];
             }
 

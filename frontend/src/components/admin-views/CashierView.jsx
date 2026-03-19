@@ -9,6 +9,7 @@ import {
   updateUserFreeplay,
   getMe
 } from '../../api';
+import { resolveDepositFreeplayBonusPreview } from '../../utils/freeplayBonus';
 
 const TX_OPTIONS = [
   { value: 'deposit', label: 'Deposit' },
@@ -43,6 +44,7 @@ const createEntry = (id, agentId = '') => ({
   searchQuery: '',
   selectedUserId: '',
   type: 'deposit',
+  applyDepositFreeplayBonus: true,
   amount: '',
   figureDate: toDateInput(),
   description: defaultDescriptionByType.deposit,
@@ -325,7 +327,8 @@ function CashierView() {
           direction: isCredit ? 'credit' : 'debit',
           type: txType,
           reason,
-          description: effectiveDescription
+          description: effectiveDescription,
+          applyDepositFreeplayBonus: entry.type === 'deposit' ? entry.applyDepositFreeplayBonus !== false : undefined
         }, token);
         const serverBalance = Number(creditResult?.user?.balance);
         if (Number.isFinite(serverBalance)) {
@@ -382,6 +385,7 @@ function CashierView() {
       updateEntryById(entry.id, (e) => ({
         ...e,
         amount: '',
+        applyDepositFreeplayBonus: true,
         description: defaultDescriptionByType[e.type],
         busy: false,
         error: ''
@@ -445,6 +449,7 @@ function CashierView() {
     const selectedUser = usersById.get(String(entry.selectedUserId || ''));
     const settle = Number(selectedUser?.balanceOwed || 0);
     const balance = Number(selectedUser?.balance || 0);
+    const depositFreeplayPreview = resolveDepositFreeplayBonusPreview(selectedUser, Number(entry.amount || 0));
 
     const updateEntry = (nextEntry) => {
       updateEntryById(entry.id, () => nextEntry, isAgentMode);
@@ -507,6 +512,26 @@ function CashierView() {
             value={entry.description}
             onChange={(e) => updateEntry({ ...entry, description: e.target.value })}
           />
+          {entry.type === 'deposit' && (
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                marginTop: '8px',
+                fontSize: '12px',
+                color: '#111827',
+                cursor: 'pointer'
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={entry.applyDepositFreeplayBonus !== false}
+                onChange={(e) => updateEntry({ ...entry, applyDepositFreeplayBonus: e.target.checked })}
+              />
+              <span>{`${depositFreeplayPreview.percent}% Freeplay (${formatAmount(depositFreeplayPreview.bonusAmount)})`}</span>
+            </label>
+          )}
         </td>
         <td>
           <button

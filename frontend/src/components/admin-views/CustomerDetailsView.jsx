@@ -13,6 +13,7 @@ import {
   impersonateUser
 } from '../../api';
 import { formatTransactionType, isDebitTransaction } from '../../utils/transactionPresentation';
+import { resolveDepositFreeplayBonusPreview } from '../../utils/freeplayBonus';
 import { formatUsPhone, generateIdentityPassword, normalizeIdentityName } from '../../utils/identityPassword';
 
 const DEFAULT_FORM = {
@@ -290,6 +291,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
   const [newTxType, setNewTxType] = useState('deposit');
   const [newTxAmount, setNewTxAmount] = useState('');
   const [newTxDescription, setNewTxDescription] = useState('');
+  const [newTxApplyFreeplayBonus, setNewTxApplyFreeplayBonus] = useState(true);
   const [showTxConfirm, setShowTxConfirm] = useState(false);
   const [performancePeriod, setPerformancePeriod] = useState('daily');
   const [performanceLoading, setPerformanceLoading] = useState(false);
@@ -1055,6 +1057,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
     setNewTxType(balance > 0 ? 'withdrawal' : 'deposit');
     setNewTxAmount('');
     setNewTxDescription('');
+    setNewTxApplyFreeplayBonus(true);
     setTxError('');
     setShowNewTxModal(true);
   };
@@ -1109,6 +1112,10 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
   const txDraftAmount = Number(newTxAmount || 0);
   const txDraftHasAmount = Number.isFinite(txDraftAmount) && txDraftAmount > 0;
   const txDraftCanContinue = txDraftHasAmount;
+  const txDraftFreeplayPreview = useMemo(
+    () => resolveDepositFreeplayBonusPreview(customer, txDraftAmount),
+    [customer, txDraftAmount]
+  );
 
   const freePlayIsWithdraw = freePlayModalMode === 'withdraw';
   const freePlayDraftAmount = Number(newFreePlayAmount || 0);
@@ -1475,7 +1482,8 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
         direction: selectedTxType.balanceDirection,
         type: selectedTxType.apiType,
         reason: selectedTxType.reason,
-        description: customDescription || selectedTxType.defaultDescription
+        description: customDescription || selectedTxType.defaultDescription,
+        applyDepositFreeplayBonus: selectedTxType.value === 'deposit' ? newTxApplyFreeplayBonus : undefined
       }, token);
       const freePlayBonusAmount = Number(result?.freeplayBonus?.amount || 0);
       setCustomer((prev) => {
@@ -1513,6 +1521,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
       setNewTxType('deposit');
       setNewTxAmount('');
       setNewTxDescription('');
+      setNewTxApplyFreeplayBonus(true);
       await refreshTransactions();
     } catch (err) {
       setTxError(err.message || 'Failed to save transaction');
@@ -2203,13 +2212,22 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
       )}
 
       {showNewTxModal && (
-        <div className="modal-overlay" onClick={() => { setShowNewTxModal(false); setShowTxConfirm(false); }}>
+        <div className="modal-overlay" onClick={() => { setShowNewTxModal(false); setShowTxConfirm(false); setNewTxApplyFreeplayBonus(true); }}>
           <div className="modal-card" onClick={(e) => e.stopPropagation()}>
             {!showTxConfirm ? (
               <>
                 <h4>New transaction</h4>
                 <label>Transaction</label>
-                <select value={newTxType} onChange={(e) => { setNewTxType(e.target.value); setTxError(''); }}>
+                <select
+                  value={newTxType}
+                  onChange={(e) => {
+                    setNewTxType(e.target.value);
+                    if (e.target.value === 'deposit') {
+                      setNewTxApplyFreeplayBonus(true);
+                    }
+                    setTxError('');
+                  }}
+                >
                   {TRANSACTION_TYPE_OPTIONS.map((option) => (
                     <option key={option.value} value={option.value}>{option.label}</option>
                   ))}
@@ -2252,13 +2270,37 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
                 </div>
                 <label>Description</label>
                 <input value={newTxDescription} onChange={(e) => setNewTxDescription(e.target.value)} placeholder="Optional note" />
+                {selectedTxDraftType.value === 'deposit' && (
+                  <label
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '10px',
+                      marginTop: '14px',
+                      padding: '10px 12px',
+                      borderRadius: '10px',
+                      border: '1px solid #d1d5db',
+                      background: '#f9fafb',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={newTxApplyFreeplayBonus}
+                      onChange={(e) => setNewTxApplyFreeplayBonus(e.target.checked)}
+                    />
+                    <span style={{ fontWeight: 600, color: '#111827' }}>
+                      {`${txDraftFreeplayPreview.percent}% Freeplay (${formatCurrency(txDraftFreeplayPreview.bonusAmount)})`}
+                    </span>
+                  </label>
+                )}
                 {txError && (
                   <div style={{ marginTop: '12px', marginBottom: '12px', background: '#fee2e2', color: '#991b1b', border: '1px solid #fecaca', borderRadius: '8px', padding: '10px 12px', fontWeight: 600 }}>
                     {txError}
                   </div>
                 )}
                 <div className="modal-actions">
-                  <button className="btn btn-back" onClick={() => setShowNewTxModal(false)}>Cancel</button>
+                  <button className="btn btn-back" onClick={() => { setShowNewTxModal(false); setNewTxApplyFreeplayBonus(true); }}>Cancel</button>
                   <button className="btn btn-save" disabled={!txDraftCanContinue} onClick={() => {
                     if (!txDraftHasAmount) { setTxError('Enter a valid amount greater than 0.'); return; }
                     setTxError('');
@@ -2280,6 +2322,16 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
                     <div className="tx-confirm-row"><span>Date</span><span>{today}</span></div>
                     <div className="tx-confirm-row"><span>Previous Balance</span><span style={{ color: getSignedBalanceColor(prevBal) }}>{formatCurrency(prevBal)}</span></div>
                     <div className="tx-confirm-row"><span>{selectedTxType.label} :</span><span style={{ color: isDebit ? '#dc2626' : '#1f2937' }}>{isDebit ? '-' : ''}{formatCurrency(amount)}</span></div>
+                    {selectedTxType.value === 'deposit' && (
+                      <div className="tx-confirm-row">
+                        <span>Freeplay Bonus</span>
+                        <span style={{ color: newTxApplyFreeplayBonus ? '#166534' : '#6b7280' }}>
+                          {newTxApplyFreeplayBonus
+                            ? `${txDraftFreeplayPreview.percent}% (${formatCurrency(txDraftFreeplayPreview.bonusAmount)})`
+                            : 'Off'}
+                        </span>
+                      </div>
+                    )}
                     <div className="tx-confirm-row tx-confirm-total"><span>New Balance</span><span style={{ color: getSignedBalanceColor(newBal) }}>{formatCurrency(newBal)}</span></div>
                   </div>
                   {txError && (
