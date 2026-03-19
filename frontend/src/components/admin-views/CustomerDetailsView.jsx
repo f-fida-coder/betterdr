@@ -792,8 +792,16 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
     };
   }, [transactions, customer?.pendingBalance, customer?.balance, available]);
 
+  const roundDisplayedMoney = (value) => {
+    const num = Number(value || 0);
+    if (!Number.isFinite(num)) return 0;
+    return Math.round(num);
+  };
+
+  const amountFromDisplayedMoney = (value) => String(Math.abs(roundDisplayedMoney(value)));
+
   const formatCurrency = (value) => {
-    return '$' + Math.round(Number(value || 0)).toLocaleString('en-US');
+    return '$' + roundDisplayedMoney(value).toLocaleString('en-US');
   };
 
   const formatDetailMoney = (value) => {
@@ -2251,7 +2259,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
                       className={txModalBalance < 0 ? 'neg' : txModalBalance > 0 ? 'pos' : 'neutral'}
                       style={{ cursor: 'pointer' }}
                       title="Click to use this amount"
-                      onClick={() => setNewTxAmount(String(Math.round(Math.abs(txModalBalance))))}
+                      onClick={() => setNewTxAmount(amountFromDisplayedMoney(txModalBalance))}
                     >
                       {formatCurrency(txModalBalance)}
                     </b>
@@ -2262,7 +2270,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
                       className={txModalCarry < 0 ? 'neg' : txModalCarry > 0 ? 'pos' : 'neutral'}
                       style={{ cursor: 'pointer' }}
                       title="Click to use this amount"
-                      onClick={() => setNewTxAmount(String(Math.round(Math.abs(txModalCarry))))}
+                      onClick={() => setNewTxAmount(amountFromDisplayedMoney(txModalCarry))}
                     >
                       {formatCurrency(txModalCarry)}
                     </b>
@@ -2379,7 +2387,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
                       className={freePlayBalance < 0 ? 'neg' : freePlayBalance > 0 ? 'pos' : 'neutral'}
                       style={{ cursor: 'pointer' }}
                       title="Click to use this amount"
-                      onClick={() => setNewFreePlayAmount(String(Math.abs(freePlayBalance)))}
+                      onClick={() => setNewFreePlayAmount(amountFromDisplayedMoney(freePlayBalance))}
                     >
                       {formatCurrency(freePlayBalance)}
                     </b>
