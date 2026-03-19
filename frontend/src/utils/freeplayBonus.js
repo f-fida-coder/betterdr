@@ -25,8 +25,8 @@ export const resolveDepositFreeplayBonusPreview = (user, depositAmount) => {
   const normalizedDeposit = roundMoney(Math.max(0, toNumberOr(depositAmount, 0)));
 
   const capSource = settings.maxFpCredit ?? user?.maxFpCredit ?? null;
-  const capRaw = toNumberOr(capSource === null ? 500 : capSource, 500);
-  const unlimited = capSource !== null && capRaw < 0;
+  const capRaw = capSource === null ? 0 : toNumberOr(capSource, 0);
+  const unlimited = capSource === null || capRaw <= 0;
   const cap = roundMoney(Math.max(0, capRaw));
 
   const rawBonus = roundMoney(normalizedDeposit * (percent / 100));
@@ -37,8 +37,6 @@ export const resolveDepositFreeplayBonusPreview = (user, depositAmount) => {
       bonusAmount = rawBonus;
     } else if (cap > 0) {
       bonusAmount = Math.min(rawBonus, cap);
-    } else {
-      bonusAmount = Math.min(rawBonus, 500);
     }
   }
 

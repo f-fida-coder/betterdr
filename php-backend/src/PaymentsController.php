@@ -369,14 +369,11 @@ final class PaymentsController
             ];
         }
 
-        // maxFpCredit = 0 or unset previously meant "no cap" (unlimited), which is unsafe.
-        // Safe default is 500. Operators who want a higher cap must set it explicitly.
-        // A value of -1 is the explicit opt-in for truly unlimited freeplay bonus.
         $capSource = $settings['maxFpCredit'] ?? ($user['maxFpCredit'] ?? null);
-        $capRaw = $this->num($capSource === null ? 500.0 : $capSource);
+        $capRaw = $this->num($capSource === null ? 0.0 : $capSource);
         $cap = round(max(0.0, $capRaw), 2);
-        $unlimited = ($capSource !== null && $capRaw < 0); // explicit -1 = unlimited
-        $bonusAmount = (!$unlimited && $cap > 0) ? min($rawBonus, $cap) : ($unlimited ? $rawBonus : min($rawBonus, 500.0));
+        $unlimited = ($capSource === null || $capRaw <= 0);
+        $bonusAmount = (!$unlimited && $cap > 0) ? min($rawBonus, $cap) : $rawBonus;
         $bonusAmount = round(max(0.0, $bonusAmount), 2);
 
         return [

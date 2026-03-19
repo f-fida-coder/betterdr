@@ -4229,10 +4229,7 @@ final class AdminCoreController
                         if ($balanceNeedsUpdate) {
                             $currentBalance = $this->num($user['balance'] ?? 0);
                             $nextBalanceRaw = $currentBalance - $mainBalanceDelta;
-                            if ($nextBalanceRaw < -0.00001) {
-                                throw new RuntimeException('Cannot delete transaction because balance would become negative.');
-                            }
-                            $userUpdates['balance'] = max(0.0, round($nextBalanceRaw, 2));
+                            $userUpdates['balance'] = round($nextBalanceRaw, 2);
                         }
 
                         if ($freeplayNeedsUpdate) {
@@ -5368,7 +5365,7 @@ final class AdminCoreController
                 'balanceOwed' => $this->numOr($body['balanceOwed'] ?? null, 0),
                 'freeplayBalance' => $this->numOr($body['freeplayBalance'] ?? null, 200),
                 'freeplayExpiresAt' => time() + (30 * 24 * 3600), // 30 days from creation
-                'maxFpCredit' => $this->numOr($body['maxFpCredit'] ?? null, 500), // safe default cap
+                'maxFpCredit' => $this->numOr($body['maxFpCredit'] ?? null, 0), // 0 = uncapped
                 'pendingBalance' => 0,
                 'agentId' => ($assignedAgentId !== null && preg_match('/^[a-f0-9]{24}$/i', $assignedAgentId) === 1) ? MongoRepository::id($assignedAgentId) : null,
                 'createdBy' => MongoRepository::id((string) ($actor['_id'] ?? '')),
@@ -6006,7 +6003,7 @@ final class AdminCoreController
                     'balanceOwed' => $this->numOr($row['balanceOwed'] ?? null, 0),
                     'freeplayBalance' => $this->numOr($row['freeplayBalance'] ?? null, 200),
                     'freeplayExpiresAt' => time() + (30 * 24 * 3600),
-                    'maxFpCredit' => $this->numOr($row['maxFpCredit'] ?? null, 500),
+                    'maxFpCredit' => $this->numOr($row['maxFpCredit'] ?? null, 0),
                     'lifetime' => $this->numOr($row['lifetime'] ?? null, 0),
                     'playerNotes' => $playerNotes,
                     'pendingBalance' => 0,
@@ -8858,14 +8855,11 @@ final class AdminCoreController
             ];
         }
 
-        // maxFpCredit = 0 or unset previously meant "no cap" (unlimited), which is unsafe.
-        // Safe default is 500. Operators who want a higher cap must set it explicitly.
-        // A value of -1 is the explicit opt-in for truly unlimited freeplay bonus.
         $capSource = $settings['maxFpCredit'] ?? ($user['maxFpCredit'] ?? null);
-        $capRaw = $this->numOr($capSource === null ? 500.0 : $capSource, 500.0);
+        $capRaw = $this->numOr($capSource === null ? 0.0 : $capSource, 0.0);
         $cap = round(max(0.0, $capRaw), 2);
-        $unlimited = ($capSource !== null && $capRaw < 0); // explicit -1 = unlimited
-        $bonusAmount = (!$unlimited && $cap > 0) ? min($rawBonus, $cap) : ($unlimited ? $rawBonus : min($rawBonus, 500.0));
+        $unlimited = ($capSource === null || $capRaw <= 0);
+        $bonusAmount = (!$unlimited && $cap > 0) ? min($rawBonus, $cap) : $rawBonus;
         $bonusAmount = round(max(0.0, $bonusAmount), 2);
 
         return [

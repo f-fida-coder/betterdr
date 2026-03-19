@@ -179,7 +179,7 @@ final class AgentController
                 'balanceOwed' => $this->safeNumber($body['balanceOwed'] ?? null, $this->safeNumber($actor['defaultSettleLimit'] ?? null, 0)),
                 'freeplayBalance' => $this->safeNumber($body['freeplayBalance'] ?? null, 200),
                 'freeplayExpiresAt' => time() + (30 * 24 * 3600), // 30 days from creation
-                'maxFpCredit' => $this->safeNumber($body['maxFpCredit'] ?? null, 500), // safe default cap
+                'maxFpCredit' => $this->safeNumber($body['maxFpCredit'] ?? null, 0), // 0 = uncapped
                 'pendingBalance' => 0,
                 'agentId' => MongoRepository::id($assignedAgentId),
                 'createdBy' => MongoRepository::id((string) $actor['_id']),
