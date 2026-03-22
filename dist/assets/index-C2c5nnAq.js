@@ -1543,7 +1543,7 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
           border-radius: 6px;
           background: #fff;
           box-shadow: 0 16px 34px rgba(15, 23, 42, 0.2);
-          padding: 10px 14px;
+          padding: 8px 12px 10px;
           z-index: 190;
           max-height: min(520px, calc(100dvh - 120px));
           overflow-y: auto;
@@ -1558,10 +1558,11 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
           display: flex;
           align-items: center;
           justify-content: space-between;
-          gap: 14px;
-          padding: 9px 0;
+          gap: 12px;
+          padding: 8px 0;
           border-bottom: 1px solid #eef1f5;
-          font-size: 16px;
+          font-size: 15px;
+          line-height: 1.2;
           color: #111827;
         }
         .txh-type-toggle-row:last-child {
@@ -1569,8 +1570,8 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
         }
         .txh-switch {
           position: relative;
-          width: 52px;
-          height: 28px;
+          width: 48px;
+          height: 26px;
           display: inline-block;
           flex-shrink: 0;
         }
@@ -1589,8 +1590,8 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
         .txh-switch-slider:before {
           content: '';
           position: absolute;
-          width: 22px;
-          height: 22px;
+          width: 20px;
+          height: 20px;
           left: 3px;
           top: 3px;
           background: #fff;
@@ -1602,7 +1603,7 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
           background: #22c55e;
         }
         .txh-switch input:checked + .txh-switch-slider:before {
-          transform: translateX(24px);
+          transform: translateX(22px);
         }
         .txh-search-btn {
           width: 70px;
@@ -1833,12 +1834,26 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
             padding: 0 10px;
           }
           .txh-type-menu {
-            width: min(360px, calc(100vw - 32px));
-            max-height: min(62dvh, 420px);
-            padding-bottom: 14px;
+            width: min(332px, calc(100vw - 24px));
+            max-height: min(56dvh, 360px);
+            padding: 6px 10px 10px;
           }
           .txh-type-toggle-row {
-            font-size: 15px;
+            gap: 8px;
+            padding: 6px 0;
+            font-size: 13px;
+            line-height: 1.15;
+          }
+          .txh-switch {
+            width: 42px;
+            height: 22px;
+          }
+          .txh-switch-slider:before {
+            width: 16px;
+            height: 16px;
+          }
+          .txh-switch input:checked + .txh-switch-slider:before {
+            transform: translateX(20px);
           }
           .txh-search-btn {
             width: 64px;
