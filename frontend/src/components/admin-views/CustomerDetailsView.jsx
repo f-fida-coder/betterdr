@@ -15,6 +15,7 @@ import {
 import { formatTransactionType, isDebitTransaction } from '../../utils/transactionPresentation';
 import { resolveDepositFreeplayBonusPreview } from '../../utils/freeplayBonus';
 import { formatUsPhone, generateIdentityPassword, normalizeIdentityName } from '../../utils/identityPassword';
+import { getMoneyToneClass, toMoneyNumber } from '../../utils/money';
 
 const DEFAULT_FORM = {
   password: '',
@@ -137,15 +138,18 @@ const TRANSACTION_TYPE_OPTIONS = [
 ];
 
 const TRANSACTION_FILTER_OPTIONS = [
-  { value: 'non_wager', label: 'Non-Wager' },
+  { value: 'deposit_withdrawal', label: 'Deposits/Withdrawals' },
+  { value: 'credit_debit_adjustments', label: 'Credit/Debit Adjustments' },
+  { value: 'promotional_adjustments', label: 'Promotional Credits/Debits' },
+  { value: 'freeplay_transactions', label: 'Freeplay Transactions' },
   { value: 'all_transactions', label: 'All Transactions' },
-  { value: 'deposit_withdrawal', label: 'Deposit/Withdrawal' },
-  { value: 'betting_adjustments', label: 'Betting Adjustments' },
-  { value: 'wagers_only', label: 'Wagers Only' },
-  { value: 'deleted_changed', label: 'Deleted/Changed' }
+  { value: 'deleted_transactions', label: 'Deleted Transactions' },
+  { value: 'non_wager', label: 'Non-Wagers' },
+  { value: 'wagers_only', label: 'Wagers' }
 ];
 
 const normalizeTxnValue = (value) => String(value || '').trim().toLowerCase();
+const normalizeTxnReason = (value) => String(value || '').trim().toUpperCase();
 const WAGER_ONLY_TYPES = new Set(['bet_placed', 'bet_placed_admin', 'casino_bet_debit']);
 const WAGER_RELATED_TYPES = new Set([
   ...WAGER_ONLY_TYPES,
@@ -157,6 +161,118 @@ const WAGER_RELATED_TYPES = new Set([
   'casino_bet_credit'
 ]);
 const DELETED_CHANGED_TYPES = new Set(['bet_void', 'bet_void_admin', 'deleted_wager']);
+const CREDIT_DEBIT_ADJUSTMENT_REASONS = new Set(['ADMIN_CREDIT_ADJUSTMENT', 'ADMIN_DEBIT_ADJUSTMENT']);
+const PROMOTIONAL_ADJUSTMENT_REASONS = new Set(['ADMIN_PROMOTIONAL_CREDIT', 'ADMIN_PROMOTIONAL_DEBIT']);
+const FREEPLAY_TRANSACTION_REASONS = new Set(['FREEPLAY_ADJUSTMENT', 'DEPOSIT_FREEPLAY_BONUS', 'REFERRAL_FREEPLAY_BONUS']);
+
+const isFreePlayTransaction = (txn) => {
+  const txnType = normalizeTxnValue(txn?.type);
+  const reason = normalizeTxnReason(txn?.reason);
+  const desc = String(txn?.description || '').toLowerCase();
+
+  return txnType === 'fp_deposit'
+    || FREEPLAY_TRANSACTION_REASONS.has(reason)
+    || (
+      (txnType === 'adjustment' || txnType === 'fp_deposit')
+      && (desc.includes('freeplay') || desc.includes('free play'))
+    );
+};
+
+const isCreditDebitAdjustmentTransaction = (txn) => {
+  const txnType = normalizeTxnValue(txn?.type);
+  const reason = normalizeTxnReason(txn?.reason);
+
+  return txnType === 'credit_adj'
+    || txnType === 'debit_adj'
+    || CREDIT_DEBIT_ADJUSTMENT_REASONS.has(reason);
+};
+
+const isPromotionalAdjustmentTransaction = (txn) => {
+  const reason = normalizeTxnReason(txn?.reason);
+  return PROMOTIONAL_ADJUSTMENT_REASONS.has(reason);
+};
+
+const PLAYER_COPY_DETAILS_FOOTER = `PAYOUTS
+PAY-INS are Tuesday and PAY-OUTS are Tuesday/Wednesday by end of day. Week starts Tuesday and ends Monday night. You must bet $500 of your own money to collect your FIRST payout. If your account is inactive for 2 weeks you'll be required to settle your balance even if it's under your settle limit. Max weekly payouts are 2-3x your credit limit depending on size. Balance will still be paid out but will roll to the following week.
+
+All we ask for is communication when it comes to payouts so  we can get everyone paid quickly and as smoothly as possible. If you can't pay right away let us know and we can set up a payment schedule. We accept Venmo, Cashapp and Apple Pay. You are REQUIRED to have multiple apps to send or receive payment on. PLEASE DO NOT SEND MONEY without asking where to send first and DO NOT LABEL anything to do with sports or gambling. We will let you know Tuesday where to send.
+
+We kick back 20% freeplay of all losses if you pay ON TIME and in FULL and 30% if you pay in CASH. If you are a hassle to collect from and don't respond or don't pay on time or in full then you will be shown the same reciprocation when it comes to payouts.
+
+REFFERALS
+$200 freeplay bonuses for any ACTIVE  and TRUSTWORTHY referrals. YOU are responsible for your referrals debt if they DO NOT PAY and vise versa. In order for you to get your free play bonus your refferal must go through one settle up of $200.
+
+RULES
+NO BOTS OR SHARP PLAY. We have IT monitoring to make sure there is no cheating. If we find out you are using a VPN and there are multiple people using your IP address or someone is logging into the same account, or you are using a system to place bets for you, you will be automatically kicked off and we reserve the right to not pay. No excuses. We've heard them all so don't waste your time.
+
+FREEPLAY
+I start all NEW players off with $200 in freeplay. In order to collect your winnings you have to place $500 of bets with your own money. (This is to prevent everyone who abuses the free play to win free money and leave). When you place a bet you have to click "Use your freeplay balance $" (If you don't you're using your own money). Since we are very generous with freeplay unfortunately it is limited to straight bets only and no parlays. I offer 20% free play to anyone above settle to roll your balance to limit transactions. If you chose to roll for free play you must be actively betting with your own money or your free play will not count.
+
+I need active players so if you could do me a solid and place a bet today even if it's with freeplay. Good luck! Lmk that you've read all the rules and or if you have any questions and need me to adjust anything!`;
+
+const normalizeCustomerFinancials = (user) => {
+  if (!user || typeof user !== 'object') return user;
+
+  return {
+    ...user,
+    minBet: toMoneyNumber(user.minBet, 0),
+    maxBet: toMoneyNumber(user.maxBet ?? user.wagerLimit, 0),
+    wagerLimit: toMoneyNumber(user.wagerLimit ?? user.maxBet, 0),
+    creditLimit: toMoneyNumber(user.creditLimit, 0),
+    balanceOwed: toMoneyNumber(user.balanceOwed, 0),
+    balance: toMoneyNumber(user.balance, 0),
+    pendingBalance: toMoneyNumber(user.pendingBalance, 0),
+    freeplayBalance: toMoneyNumber(user.freeplayBalance, 0),
+    lifetime: toMoneyNumber(user.lifetime, 0),
+    lifetimePlusMinus: toMoneyNumber(user.lifetimePlusMinus ?? user.lifetime, 0)
+  };
+};
+
+const pickMoneyValue = (primary, fallback = 0) => (
+  primary === '' || primary === null || primary === undefined
+    ? toMoneyNumber(fallback, 0)
+    : toMoneyNumber(primary, 0)
+);
+
+const normalizeTransactionNoteToken = (value) => (
+  String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '')
+);
+
+const getTransactionDisplayLabel = (txn) => {
+  const txnType = normalizeTxnValue(txn?.type);
+  if (txnType === 'deleted_wager') {
+    return String(txn?.status || '').trim().toLowerCase() === 'restored'
+      ? 'Changed Wager'
+      : 'Deleted Transaction';
+  }
+  return formatTransactionType(txn);
+};
+
+const getTransactionNotes = (txn) => {
+  const rawDescription = String(txn?.description || '').trim();
+  if (!rawDescription) return '—';
+
+  const rawToken = normalizeTransactionNoteToken(rawDescription);
+  const labelToken = normalizeTransactionNoteToken(getTransactionDisplayLabel(txn));
+  if (!rawToken) return '—';
+  if (
+    labelToken
+    && (rawToken === labelToken || rawToken === `${labelToken}s` || `${rawToken}s` === labelToken)
+  ) {
+    return '—';
+  }
+
+  return rawDescription;
+};
+
+const getTransactionEnteredBy = (txn) => String(
+  txn?.actorUsername
+  ?? txn?.deletedByUsername
+  ?? ''
+).trim() || '—';
 
 const txDateToEpoch = (value) => {
   if (!value) return 0;
@@ -197,7 +313,11 @@ const mapDeletedWagerToTx = (wager) => {
 
 const getApiTypeForTransactionFilter = (filterValue) => {
   const normalizedFilter = normalizeTxnValue(filterValue);
-  if (normalizedFilter === 'betting_adjustments') {
+  if (
+    normalizedFilter === 'betting_adjustments'
+    || normalizedFilter === 'credit_debit_adjustments'
+    || normalizedFilter === 'promotional_adjustments'
+  ) {
     return 'adjustment';
   }
   return 'all';
@@ -216,13 +336,19 @@ const matchesTransactionFilter = (txn, filterValue) => {
   if (normalizedFilter === 'deposit_withdrawal') {
     return txnType === 'deposit' || txnType === 'withdrawal';
   }
-  if (normalizedFilter === 'betting_adjustments') {
-    return txnType === 'adjustment';
+  if (normalizedFilter === 'betting_adjustments' || normalizedFilter === 'credit_debit_adjustments') {
+    return isCreditDebitAdjustmentTransaction(txn);
+  }
+  if (normalizedFilter === 'promotional_adjustments') {
+    return isPromotionalAdjustmentTransaction(txn);
+  }
+  if (normalizedFilter === 'freeplay_transactions') {
+    return isFreePlayTransaction(txn);
   }
   if (normalizedFilter === 'wagers_only') {
     return WAGER_ONLY_TYPES.has(txnType);
   }
-  if (normalizedFilter === 'deleted_changed') {
+  if (normalizedFilter === 'deleted_changed' || normalizedFilter === 'deleted_transactions') {
     return DELETED_CHANGED_TYPES.has(txnType);
   }
 
@@ -379,24 +505,26 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
           return;
         }
 
-        setCustomer(user);
+        const normalizedUser = normalizeCustomerFinancials(user);
+
+        setCustomer(normalizedUser);
         setStats(detailData?.stats || {});
         setAgents(Array.isArray(agentsData) ? agentsData : []);
         setForm({
           password: '',
-          firstName: user.firstName || '',
-          lastName: user.lastName || '',
-          phoneNumber: user.phoneNumber || '',
-          minBet: Number(user.minBet || 0),
+          firstName: normalizedUser.firstName || '',
+          lastName: normalizedUser.lastName || '',
+          phoneNumber: normalizedUser.phoneNumber || '',
+          minBet: normalizedUser.minBet,
           agentId: (
             role === 'admin'
-              ? (user.masterAgentId || user.agentId?._id || user.agentId || '')
-              : (user.agentId?._id || user.agentId || '')
+              ? (normalizedUser.masterAgentId || normalizedUser.agentId?._id || normalizedUser.agentId || '')
+              : (normalizedUser.agentId?._id || normalizedUser.agentId || '')
           ),
-          status: (user.status || 'active').toLowerCase(),
-          creditLimit: Number(user.creditLimit || 0),
-          wagerLimit: Number(user.wagerLimit ?? user.maxBet ?? 0),
-          settleLimit: Number(user.balanceOwed || 0),
+          status: (normalizedUser.status || 'active').toLowerCase(),
+          creditLimit: normalizedUser.creditLimit,
+          wagerLimit: normalizedUser.wagerLimit,
+          settleLimit: normalizedUser.balanceOwed,
           accountType: userSettings.accountType || 'credit',
           zeroBalanceWeekly: userSettings.zeroBalanceWeekly || 'standard',
           tempCredit: Number(userSettings.tempCredit || 0),
@@ -483,7 +611,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
     const forCustomer = list.filter((txn) => isTransactionForCustomer(txn, userId, customer.username));
 
     let mergedRows = [...forCustomer];
-    if (normalizeTxnValue(txTypeFilter) === 'deleted_changed') {
+    if (['deleted_changed', 'deleted_transactions'].includes(normalizeTxnValue(txTypeFilter))) {
       try {
         const deletedWagersData = await getDeletedWagers({
           user: customer.username || '',
@@ -618,7 +746,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
 
         // Keep yearly performance aligned with account lifetime (+/-), including legacy/imported carry.
         if (performancePeriod === 'yearly') {
-          const lifetimeValue = Number(customer?.lifetimePlusMinus ?? customer?.lifetime ?? 0);
+          const lifetimeValue = toMoneyNumber(customer?.lifetimePlusMinus ?? customer?.lifetime, 0);
           if (Number.isFinite(lifetimeValue)) {
             const computedNet = rows.reduce((sum, row) => sum + Number(row.net || 0), 0);
             const carry = lifetimeValue - computedNet;
@@ -682,22 +810,16 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
         }
         const data = await getTransactionsHistory({
           user: customer.username,
-          type: 'adjustment',
+          type: 'all',
           status: 'all',
           time: freePlayDisplayFilter,
           limit: 300
         }, token);
         const list = Array.isArray(data?.transactions) ? data.transactions : [];
-        const filtered = list.filter((txn) => {
-          if (!isTransactionForCustomer(txn, userId, customer.username)) return false;
-          const reason = String(txn.reason || '').toUpperCase();
-          const desc = String(txn.description || '').toLowerCase();
-          return reason === 'FREEPLAY_ADJUSTMENT'
-            || reason === 'DEPOSIT_FREEPLAY_BONUS'
-            || reason === 'REFERRAL_FREEPLAY_BONUS'
-            || desc.includes('freeplay')
-            || desc.includes('free play');
-        });
+        const filtered = list.filter((txn) => (
+          isTransactionForCustomer(txn, userId, customer.username)
+          && isFreePlayTransaction(txn)
+        ));
         setFreePlayRows(filtered);
       } catch (err) {
         setFreePlayError(err.message || 'Failed to load free play');
@@ -770,12 +892,18 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
     return roleKey.replace(/_/g, ' ').toUpperCase();
   }, [customer?.role]);
 
+  const customerBalance = toMoneyNumber(customer?.balance, 0);
+  const pendingBalance = toMoneyNumber(customer?.pendingBalance, 0);
+  const freeplayBalanceValue = toMoneyNumber(customer?.freeplayBalance, 0);
+  const lifetimePlusMinusValue = toMoneyNumber(customer?.lifetimePlusMinus ?? customer?.lifetime, 0);
+  const creditLimitValue = pickMoneyValue(form.creditLimit, customer?.creditLimit);
+  const settleLimitValue = pickMoneyValue(form.settleLimit, customer?.balanceOwed);
+  const minBetValue = toMoneyNumber(customer?.minBet ?? form.minBet, 0);
+  const maxBetValue = toMoneyNumber(customer?.maxBet ?? customer?.wagerLimit ?? form.wagerLimit, 0);
+
   const available = useMemo(() => {
-    const creditLimit = Number(form.creditLimit || customer?.creditLimit || 0);
-    const balance = Number(customer?.balance || 0);
-    const pending = Number(customer?.pendingBalance || 0);
-    return creditLimit + balance - pending;
-  }, [form.creditLimit, customer?.creditLimit, customer?.balance, customer?.pendingBalance]);
+    return creditLimitValue + customerBalance - pendingBalance;
+  }, [creditLimitValue, customerBalance, pendingBalance]);
 
   const txSummary = useMemo(() => {
     let nonPostedCasino = 0;
@@ -785,17 +913,15 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
       }
     }
     return {
-      pending: Number(customer?.pendingBalance || 0),
+      pending: pendingBalance,
       available: Number(available || 0),
-      carry: Number(customer?.balance || 0),
+      carry: customerBalance,
       nonPostedCasino
     };
-  }, [transactions, customer?.pendingBalance, customer?.balance, available]);
+  }, [transactions, pendingBalance, customerBalance, available]);
 
   const roundDisplayedMoney = (value) => {
-    const num = Number(value || 0);
-    if (!Number.isFinite(num)) return 0;
-    return Math.round(num);
+    return Math.round(toMoneyNumber(value, 0));
   };
 
   const amountFromDisplayedMoney = (value) => String(Math.abs(roundDisplayedMoney(value)));
@@ -805,8 +931,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
   };
 
   const formatDetailMoney = (value) => {
-    const num = Number(value || 0);
-    if (Number.isNaN(num)) return '$0';
+    const num = toMoneyNumber(value, 0);
     return `$${Math.round(num).toLocaleString('en-US')}`;
   };
 
@@ -862,21 +987,39 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
   };
 
   const copyAllDetails = async () => {
-    const minBet = Number(customer?.minBet ?? 0);
-    const maxBet = Number(customer?.maxBet ?? customer?.wagerLimit ?? form.wagerLimit ?? 0);
-    const credit = Number(form.creditLimit || customer?.creditLimit || 0);
-    const settle = Number(form.settleLimit || customer?.balanceOwed || 0);
+    const minBet = minBetValue;
+    const maxBet = maxBetValue;
+    const credit = creditLimitValue;
+    const settle = settleLimitValue;
+    const copiedPassword = String(displayPassword ?? '');
+    const roleKey = String(customer?.role || '').toLowerCase();
+    const isPlayerAccount = roleKey === 'user' || roleKey === 'player' || roleKey === '';
 
-    const details = [
-      `Login: ${customer?.username || ''}`,
-      `Password: ${displayPassword || ''}`,
-      `Min bet: ${formatDetailMoney(minBet)}`,
-      `Max bet: ${formatDetailMoney(maxBet)}`,
-      `Credit: ${formatDetailMoney(credit)}`,
-      `Settle: +/- ${formatDetailMoney(settle)}`,
-      '',
-      'bettorplays247.com'
-    ].join('\n');
+    const details = isPlayerAccount
+      ? [
+        "Here's your account info. PLEASE READ ALL RULES THOROUGHLY.",
+        '',
+        `Login: ${customer?.username || ''}`,
+        `Password: ${copiedPassword}`,
+        `Min bet: ${formatDetailMoney(minBet)}`,
+        `Max bet: ${formatDetailMoney(maxBet)}`,
+        `Credit: ${formatDetailMoney(credit)}`,
+        `Settle: +/- ${formatDetailMoney(settle)}`,
+        '',
+        'Site: bettorplays247.com',
+        '',
+        PLAYER_COPY_DETAILS_FOOTER
+      ].join('\n')
+      : [
+        `Login: ${customer?.username || ''}`,
+        `Password: ${copiedPassword}`,
+        `Min bet: ${formatDetailMoney(minBet)}`,
+        `Max bet: ${formatDetailMoney(maxBet)}`,
+        `Credit: ${formatDetailMoney(credit)}`,
+        `Settle: +/- ${formatDetailMoney(settle)}`,
+        '',
+        'Site: bettorplays247.com'
+      ].join('\n');
     await copyText(details, 'All details');
   };
 
@@ -1006,7 +1149,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
     try {
       const token = localStorage.getItem('token');
       if (!token || !customer) return;
-      await updateUserCredit(userId, { balance: Number(customer.balance || 0) }, token);
+      await updateUserCredit(userId, { balance: toMoneyNumber(customer.balance, 0) }, token);
       setSuccess('Balance updated.');
       setError('');
     } catch (err) {
@@ -1061,7 +1204,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
 
   const openTransactionSlip = () => {
     openSection('transactions');
-    const balance = Number(customer?.balance || 0);
+    const balance = toMoneyNumber(customer?.balance, 0);
     setNewTxType(balance > 0 ? 'withdrawal' : 'deposit');
     setNewTxAmount('');
     setNewTxDescription('');
@@ -1090,29 +1233,28 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
     return performanceDayBets.filter((row) => !row?.synthetic).length;
   }, [performanceDayBets]);
 
-  const txModalBalance = useMemo(() => Number(customer?.balance || 0), [customer?.balance]);
-  const txModalCarry = useMemo(() => Number(txSummary?.carry || 0), [txSummary?.carry]);
+  const txModalBalance = useMemo(() => toMoneyNumber(customer?.balance, 0), [customer?.balance]);
+  const txModalCarry = useMemo(() => toMoneyNumber(txSummary?.carry, 0), [txSummary?.carry]);
 
   const freePlayPending = useMemo(() => {
     return freePlayRows
       .filter((txn) => String(txn.status || '').toLowerCase() === 'pending')
-      .reduce((sum, txn) => sum + Number(txn.amount || 0), 0);
+      .reduce((sum, txn) => sum + toMoneyNumber(txn.amount, 0), 0);
   }, [freePlayRows]);
 
-  const freePlayBalance = Number(customer?.freeplayBalance || 0);
+  const freePlayBalance = freeplayBalanceValue;
 
   const roundMoney = (value) => {
-    const num = Number(value);
+    const num = toMoneyNumber(value, 0);
     if (!Number.isFinite(num)) return 0;
     return Math.round(num * 100) / 100;
   };
 
   const getSignedBalanceColor = (value) => {
-    const num = Number(value);
-    if (!Number.isFinite(num) || Math.abs(num) < 0.00001) {
-      return '#111827';
-    }
-    return num < 0 ? '#dc2626' : '#16a34a';
+    const tone = getMoneyToneClass(value);
+    if (tone === 'neg') return '#dc2626';
+    if (tone === 'pos') return '#16a34a';
+    return '#000000';
   };
 
   const selectedTxDraftType = TRANSACTION_TYPE_OPTIONS.find((option) => option.value === newTxType)
@@ -1138,22 +1280,16 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
       if (!token) return;
       const data = await getTransactionsHistory({
         user: customer.username,
-        type: 'adjustment',
+        type: 'all',
         status: 'all',
         time: freePlayDisplayFilter,
         limit: 300
       }, token);
       const list = Array.isArray(data?.transactions) ? data.transactions : [];
-      setFreePlayRows(list.filter((txn) => {
-        if (!isTransactionForCustomer(txn, userId, customer.username)) return false;
-        const reason = String(txn.reason || '').toUpperCase();
-        const desc = String(txn.description || '').toLowerCase();
-        return reason === 'FREEPLAY_ADJUSTMENT'
-          || reason === 'DEPOSIT_FREEPLAY_BONUS'
-          || reason === 'REFERRAL_FREEPLAY_BONUS'
-          || desc.includes('freeplay')
-          || desc.includes('free play');
-      }));
+      setFreePlayRows(list.filter((txn) => (
+        isTransactionForCustomer(txn, userId, customer.username)
+        && isFreePlayTransaction(txn)
+      )));
     } catch (err) {
       setFreePlayError(err.message || 'Failed to refresh free play');
     } finally {
@@ -1213,7 +1349,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
         setFreePlayError('Please login again.');
         return;
       }
-      const currentFP = Number(customer.freeplayBalance || 0);
+      const currentFP = toMoneyNumber(customer.freeplayBalance, 0);
       const isWithdraw = freePlayModalMode === 'withdraw';
       const result = await updateUserFreeplay(userId, {
         operationMode: 'transaction',
@@ -1221,7 +1357,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
         direction: isWithdraw ? 'debit' : 'credit',
         description: newFreePlayDescription.trim(),
       }, token);
-      const nextFreeplay = Number(result?.user?.freeplayBalance);
+      const nextFreeplay = toMoneyNumber(result?.user?.freeplayBalance, NaN);
       const nextExpiresAt = result?.user?.freeplayExpiresAt ?? null;
       setCustomer((prev) => {
         if (!prev) return prev;
@@ -1445,18 +1581,19 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
       const detailData = await getUserStatistics(userId, token);
       const latestUser = detailData?.user;
       if (!latestUser || typeof latestUser !== 'object') return;
+      const normalizedLatestUser = normalizeCustomerFinancials(latestUser);
       setCustomer((prev) => {
         if (!prev) return prev;
         return {
           ...prev,
-          balance: latestUser.balance,
-          pendingBalance: latestUser.pendingBalance,
-          freeplayBalance: latestUser.freeplayBalance,
-          lifetime: latestUser.lifetime,
-          lifetimePlusMinus: latestUser.lifetimePlusMinus ?? latestUser.lifetime,
-          balanceOwed: latestUser.balanceOwed,
-          creditLimit: latestUser.creditLimit,
-          updatedAt: latestUser.updatedAt,
+          balance: normalizedLatestUser.balance,
+          pendingBalance: normalizedLatestUser.pendingBalance,
+          freeplayBalance: normalizedLatestUser.freeplayBalance,
+          lifetime: normalizedLatestUser.lifetime,
+          lifetimePlusMinus: normalizedLatestUser.lifetimePlusMinus,
+          balanceOwed: normalizedLatestUser.balanceOwed,
+          creditLimit: normalizedLatestUser.creditLimit,
+          updatedAt: normalizedLatestUser.updatedAt,
         };
       });
       if (detailData?.stats && typeof detailData.stats === 'object') {
@@ -1481,7 +1618,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
       }
       const selectedTxType = TRANSACTION_TYPE_OPTIONS.find((option) => option.value === newTxType)
         || TRANSACTION_TYPE_OPTIONS[0];
-      const currentBalance = Number(customer.balance || 0);
+      const currentBalance = toMoneyNumber(customer.balance, 0);
       const nextBalance = roundMoney(currentBalance + (selectedTxType.balanceDirection === 'credit' ? amount : -amount));
       const customDescription = newTxDescription.trim();
       const result = await updateUserCredit(userId, {
@@ -1493,22 +1630,22 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
         description: customDescription || selectedTxType.defaultDescription,
         applyDepositFreeplayBonus: selectedTxType.value === 'deposit' ? newTxApplyFreeplayBonus : undefined
       }, token);
-      const freePlayBonusAmount = Number(result?.freeplayBonus?.amount || 0);
+      const freePlayBonusAmount = toMoneyNumber(result?.freeplayBonus?.amount, 0);
       setCustomer((prev) => {
         if (!prev) return prev;
-        const serverBalance = Number(result?.user?.balance);
+        const serverBalance = toMoneyNumber(result?.user?.balance, NaN);
         const nextBalanceValue = Number.isFinite(serverBalance) ? serverBalance : nextBalance;
-        const serverFreeplay = Number(result?.user?.freeplayBalance);
-        const nextFreeplayValue = Number.isFinite(serverFreeplay) ? serverFreeplay : Number(prev.freeplayBalance || 0);
+        const serverFreeplay = toMoneyNumber(result?.user?.freeplayBalance, NaN);
+        const nextFreeplayValue = Number.isFinite(serverFreeplay) ? serverFreeplay : toMoneyNumber(prev.freeplayBalance, 0);
         const rawLifetime = result?.user?.lifetimePlusMinus
           ?? result?.user?.lifetime
           ?? prev.lifetimePlusMinus
           ?? prev.lifetime
           ?? 0;
-        const parsedLifetime = Number(rawLifetime);
+        const parsedLifetime = toMoneyNumber(rawLifetime, NaN);
         const nextLifetime = Number.isFinite(parsedLifetime)
           ? parsedLifetime
-          : Number(prev.lifetimePlusMinus ?? prev.lifetime ?? 0);
+          : toMoneyNumber(prev.lifetimePlusMinus ?? prev.lifetime, 0);
 
         return {
           ...prev,
@@ -1615,7 +1752,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
             </div>
             <button type="button" className={`detail-item detail-metric${activeSection === 'transactions' ? ' detail-metric-active' : ''}`} onClick={openTransactionSlip}>
               <span className="detail-label">Balance</span>
-              <strong className={`detail-value ${Number(customer.balance || 0) < 0 ? 'neg' : 'pos'}`}>{formatCurrency(customer.balance || 0)}</strong>
+              <strong className={`detail-value ${getMoneyToneClass(customerBalance)}`}>{formatCurrency(customerBalance)}</strong>
             </button>
 
             <div className="detail-item">
@@ -1624,12 +1761,12 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
             </div>
             <button type="button" className={`detail-item detail-metric${activeSection === 'transactions' && txStatusFilter === 'pending' ? ' detail-metric-active' : ''}`} onClick={() => openSection('pending')}>
               <span className="detail-label">Pending</span>
-              <strong className="detail-value neutral">{formatCurrency(customer.pendingBalance || 0)}</strong>
+              <strong className="detail-value neutral">{formatCurrency(pendingBalance)}</strong>
             </button>
 
             <div className="detail-item">
               <span className="detail-label">Min Bet</span>
-              <strong className="detail-value">{formatDetailMoney(customer.minBet ?? 0)}</strong>
+              <strong className="detail-value">{formatDetailMoney(minBetValue)}</strong>
             </div>
             <div className="detail-item detail-metric">
               <span className="detail-label">Available</span>
@@ -1638,25 +1775,25 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
 
             <div className="detail-item">
               <span className="detail-label">Max Bet</span>
-              <strong className="detail-value">{formatDetailMoney(customer.maxBet ?? customer.wagerLimit ?? form.wagerLimit ?? 0)}</strong>
+              <strong className="detail-value">{formatDetailMoney(maxBetValue)}</strong>
             </div>
             <button type="button" className={`detail-item detail-metric${activeSection === 'freeplays' ? ' detail-metric-active' : ''}`} onClick={() => openSection('freeplays')}>
               <span className="detail-label">Freeplay</span>
-              <strong className="detail-value neutral">{formatCurrency(customer.freeplayBalance || 0)}</strong>
+              <strong className="detail-value neutral">{formatCurrency(freeplayBalanceValue)}</strong>
             </button>
 
             <div className="detail-item">
               <span className="detail-label">Credit</span>
-              <strong className="detail-value">{formatDetailMoney(form.creditLimit || customer.creditLimit || 0)}</strong>
+              <strong className="detail-value">{formatDetailMoney(creditLimitValue)}</strong>
             </div>
             <button type="button" className={`detail-item detail-metric${activeSection === 'performance' ? ' detail-metric-active' : ''}`} onClick={() => openSection('performance')}>
               <span className="detail-label">Lifetime +/-</span>
-              <strong className={`detail-value ${Number(customer.lifetimePlusMinus ?? customer.lifetime ?? 0) < 0 ? 'neg' : 'pos'}`}>{formatCurrency(customer.lifetimePlusMinus ?? customer.lifetime ?? 0)}</strong>
+              <strong className={`detail-value ${getMoneyToneClass(lifetimePlusMinusValue)}`}>{formatCurrency(lifetimePlusMinusValue)}</strong>
             </button>
 
             <div className="detail-item">
               <span className="detail-label">Settle</span>
-              <strong className="detail-value">+/- {formatDetailMoney(form.settleLimit || customer.balanceOwed || 0)}</strong>
+              <strong className="detail-value">+/- {formatDetailMoney(settleLimitValue)}</strong>
             </div>
             <div className="detail-item detail-empty" aria-hidden="true"></div>
           </div>
@@ -1785,31 +1922,38 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
                 <tr>
                   <th>Date</th>
                   <th>Description</th>
+                  <th>Notes</th>
                   <th>Credit</th>
                   <th>Debit</th>
                   <th>Balance</th>
+                  <th>Entered By</th>
                   <th className="tx-actions-col">Action</th>
                 </tr>
               </thead>
               <tbody>
                 {txLoading ? (
-                  <tr><td colSpan={6} className="tx-empty">Loading transactions...</td></tr>
+                  <tr><td colSpan={8} className="tx-empty">Loading transactions...</td></tr>
                 ) : transactions.length === 0 ? (
-                  <tr><td colSpan={6} className="tx-empty">No transactions found</td></tr>
+                  <tr><td colSpan={8} className="tx-empty">No transactions found</td></tr>
                 ) : transactions.map((txn) => {
                   const isDebit = isDebitTransaction(txn);
-                  const amount = Number(txn.amount || 0);
+                  const amount = toMoneyNumber(txn.amount, 0);
                   const credit = isDebit ? 0 : amount;
                   const debit = isDebit ? amount : 0;
                   const balanceAfter = txn.balanceAfter;
+                  const displayDescription = getTransactionDisplayLabel(txn);
+                  const notes = getTransactionNotes(txn);
+                  const enteredBy = getTransactionEnteredBy(txn);
                   const selected = selectedTxIds.includes(txn.id);
                   return (
                     <tr key={txn.id} className={selected ? 'selected' : ''} onClick={() => toggleTxSelection(txn.id)}>
                       <td>{toTxDate(txn.date)}</td>
-                      <td>{txn.description || formatTransactionType(txn)}</td>
+                      <td>{displayDescription}</td>
+                      <td>{notes}</td>
                       <td>{credit > 0 ? formatCurrency(credit) : '—'}</td>
                       <td>{debit > 0 ? formatCurrency(debit) : '—'}</td>
-                      <td className={Number(balanceAfter || 0) < 0 ? 'neg' : ''}>{balanceAfter !== null && balanceAfter !== undefined ? formatCurrency(balanceAfter) : '—'}</td>
+                      <td className={getMoneyToneClass(balanceAfter)}>{balanceAfter !== null && balanceAfter !== undefined ? formatCurrency(balanceAfter) : '—'}</td>
+                      <td>{enteredBy}</td>
                       <td className="tx-actions-col">
                         <button
                           type="button"
@@ -1910,34 +2054,41 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
                   <th>Customer</th>
                   <th>Date</th>
                   <th>Description</th>
+                  <th>Notes</th>
                   <th>Credit</th>
                   <th>Debit</th>
                   <th>Balance</th>
+                  <th>Entered By</th>
                   <th className="tx-actions-col">Action</th>
                 </tr>
               </thead>
               <tbody>
                 {freePlayLoading ? (
-                  <tr><td colSpan={7} className="tx-empty">Loading free play...</td></tr>
+                  <tr><td colSpan={9} className="tx-empty">Loading free play...</td></tr>
                 ) : freePlayRows.length === 0 ? (
-                  <tr><td colSpan={7} className="tx-empty">No free play transactions found</td></tr>
+                  <tr><td colSpan={9} className="tx-empty">No free play transactions found</td></tr>
                 ) : freePlayRows.map((txn) => {
-                  const amount = Number(txn.amount || 0);
-                  const balanceBefore = Number(txn.balanceBefore ?? 0);
-                  const balanceAfter = Number(txn.balanceAfter ?? freePlayBalance);
+                  const amount = toMoneyNumber(txn.amount, 0);
+                  const balanceBefore = toMoneyNumber(txn.balanceBefore, 0);
+                  const balanceAfter = toMoneyNumber(txn.balanceAfter ?? freePlayBalance, 0);
                   const isCredit = balanceAfter >= balanceBefore;
                   const credit = isCredit ? amount : 0;
                   const debit = !isCredit ? amount : 0;
-                  const rowBalance = txn?.balanceAfter ?? freePlayBalance;
+                  const rowBalance = toMoneyNumber(txn?.balanceAfter ?? freePlayBalance, 0);
+                  const displayDescription = getTransactionDisplayLabel(txn);
+                  const notes = getTransactionNotes(txn);
+                  const enteredBy = getTransactionEnteredBy(txn);
                   const selected = freePlaySelectedIds.includes(txn.id);
                   return (
                     <tr key={txn.id} className={selected ? 'selected' : ''} onClick={() => toggleFreePlaySelection(txn.id)}>
                       <td>{customer.username}</td>
                       <td>{toTxDate(txn.date)}</td>
-                      <td>{txn.description || 'Free Play Adjustment'}</td>
+                      <td>{displayDescription}</td>
+                      <td>{notes}</td>
                       <td>{credit > 0 ? Math.round(credit) : '—'}</td>
                       <td>{debit > 0 ? Math.round(debit) : '—'}</td>
-                      <td>{Math.round(Number(rowBalance || 0))}</td>
+                      <td>{Math.round(rowBalance)}</td>
+                      <td>{enteredBy}</td>
                       <td className="tx-actions-col">
                         <button
                           type="button"
@@ -2214,7 +2365,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
 
       <div className="bottom-line">
         <span>Total Wagered: {formatCurrency(stats.totalWagered || 0)}</span>
-        <span>Net: <b className={Number(stats.netProfit || 0) < 0 ? 'neg' : 'pos'}>{formatCurrency(stats.netProfit || 0)}</b></span>
+        <span>Net: <b className={getMoneyToneClass(stats.netProfit || 0)}>{formatCurrency(stats.netProfit || 0)}</b></span>
       </div>
       </>
       )}
@@ -2256,7 +2407,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
                   <div className="tx-modal-balance-item">
                     <span>Current Balance</span>
                     <b
-                      className={txModalBalance < 0 ? 'neg' : txModalBalance > 0 ? 'pos' : 'neutral'}
+                      className={getMoneyToneClass(txModalBalance)}
                       style={{ cursor: 'pointer' }}
                       title="Click to use this amount"
                       onClick={() => setNewTxAmount(amountFromDisplayedMoney(txModalBalance))}
@@ -2267,7 +2418,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
                   <div className="tx-modal-balance-item">
                     <span>Carry</span>
                     <b
-                      className={txModalCarry < 0 ? 'neg' : txModalCarry > 0 ? 'pos' : 'neutral'}
+                      className={getMoneyToneClass(txModalCarry)}
                       style={{ cursor: 'pointer' }}
                       title="Click to use this amount"
                       onClick={() => setNewTxAmount(amountFromDisplayedMoney(txModalCarry))}
@@ -2384,7 +2535,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
                   <div className="tx-modal-balance-item">
                     <span>Free Play Balance</span>
                     <b
-                      className={freePlayBalance < 0 ? 'neg' : freePlayBalance > 0 ? 'pos' : 'neutral'}
+                      className={getMoneyToneClass(freePlayBalance)}
                       style={{ cursor: 'pointer' }}
                       title="Click to use this amount"
                       onClick={() => setNewFreePlayAmount(amountFromDisplayedMoney(freePlayBalance))}
@@ -2539,7 +2690,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
         }
         .detail-value.pos { color: #16a34a; }
         .detail-value.neg { color: #dc2626; }
-        .detail-value.neutral { color: #1f2937; }
+        .detail-value.neutral { color: #000000; }
         .detail-item {
           border: 1px solid #dde7f2;
           background: #f8fbff;
@@ -2727,7 +2878,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
         }
         .metric .neg { color:#dc2626; }
         .metric .pos { color:#15803d; }
-        .metric .neutral { color:#111827; }
+        .metric .neutral { color:#000000; }
         .metric-circle { background: transparent; border: none; border-radius: 0; padding: 0; margin-top: 0; }
 
         .basics-header { margin-top:8px; background:#fff; border:1px solid #d1d5db; border-radius:8px; padding:8px 10px; display:flex; align-items:center; justify-content:space-between; }
@@ -3350,7 +3501,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
         }
         .tx-modal-balance-item b.neg { color: #dc2626; }
         .tx-modal-balance-item b.pos { color: #15803d; }
-        .tx-modal-balance-item b.neutral { color: #111827; }
+        .tx-modal-balance-item b.neutral { color: #000000; }
         .apps-card { background:#fff; border:1px solid #d1d5db; padding:16px; margin-top:10px; border-radius:4px; }
         .apps-title { font-size:15px; font-weight:700; color:#1e3a5f; margin:0 0 12px 0; }
         .apps-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px 20px; }

@@ -26,16 +26,46 @@ const CREDIT_TYPES = new Set([
 ]);
 
 const normalize = (value) => String(value || '').trim().toLowerCase();
+const normalizeReason = (value) => String(value || '').trim().toUpperCase();
+const FREEPLAY_BALANCE_REASONS = new Set([
+  'FREEPLAY_ADJUSTMENT',
+  'DEPOSIT_FREEPLAY_BONUS',
+  'REFERRAL_FREEPLAY_BONUS',
+]);
 
 const casinoGamePrefix = (txn) => {
   const sourceType = normalize(txn?.sourceType);
   return CASINO_GAME_LABELS[sourceType] || '';
 };
 
+const isFreeplayBalanceTransaction = (txn) => {
+  const type = normalize(txn?.type);
+  const reason = normalizeReason(txn?.reason);
+  return type === 'fp_deposit' || FREEPLAY_BALANCE_REASONS.has(reason);
+};
+
+const isDebitByDirection = (txn) => {
+  const entrySide = String(txn?.entrySide || '').trim().toUpperCase();
+  if (entrySide === 'DEBIT') return true;
+  if (entrySide === 'CREDIT') return false;
+
+  const balanceBefore = Number(txn?.balanceBefore);
+  const balanceAfter = Number(txn?.balanceAfter);
+  if (Number.isFinite(balanceBefore) && Number.isFinite(balanceAfter)) {
+    return balanceAfter < balanceBefore;
+  }
+
+  return Number(txn?.amount || 0) < 0;
+};
+
 export const formatTransactionType = (txn) => {
   const type = normalize(txn?.type);
   const gamePrefix = casinoGamePrefix(txn);
-  const reason = String(txn?.reason || '').trim().toUpperCase();
+  const reason = normalizeReason(txn?.reason);
+
+  if (isFreeplayBalanceTransaction(txn)) {
+    return isDebitByDirection(txn) ? 'Freeplay Withdrawal' : 'Freeplay Deposit';
+  }
 
   switch (type) {
     case 'deposit':
@@ -60,8 +90,6 @@ export const formatTransactionType = (txn) => {
       if (reason === 'ADMIN_PROMOTIONAL_CREDIT') return 'Promotional Credit';
       if (reason === 'ADMIN_PROMOTIONAL_DEBIT') return 'Promotional Debit';
       return 'Adjustment';
-    case 'fp_deposit':
-      return 'Free Play';
     default:
       return String(txn?.type || 'Transaction');
   }

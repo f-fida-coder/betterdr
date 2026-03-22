@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { createUserByAdmin, createPlayerByAgent, createAgent, createSubAgent, getAgents, getMyPlayers, getMe, updateUserCredit, updateUserBalanceOwedByAgent, resetUserPasswordByAdmin, updateUserByAdmin, updateUserByAgent, getUserStatistics, getNextUsername, getUsersAdmin, deleteUser, deleteAgent, importUsersSpreadsheet } from '../../api';
 import { annotateDuplicatePlayers } from '../../utils/duplicatePlayers';
+import { getMoneyToneClass, toMoneyNumber } from '../../utils/money';
 
 const alphaNumericCompare = (a, b) => String(a || '').localeCompare(String(b || ''), undefined, { sensitivity: 'base', numeric: true });
 const derivePlayerPrefix = (value) => {
@@ -386,16 +387,16 @@ function CustomerAdminView({ onViewChange }) {
               lastName: row?.lastName || '',
               fullName: row?.fullName || '',
               displayPassword: row?.displayPassword || '',
-              minBet: Number(row?.minBet ?? 0),
-              maxBet: Number(row?.maxBet ?? 0),
-              creditLimit: Number(row?.creditLimit ?? 0),
-              balanceOwed: Number(row?.balanceOwed ?? 0),
-              freeplayBalance: Number(row?.freeplayBalance ?? 0),
-              lifetime: Number(row?.lifetime ?? 0),
+              minBet: toMoneyNumber(row?.minBet, 0),
+              maxBet: toMoneyNumber(row?.maxBet, 0),
+              creditLimit: toMoneyNumber(row?.creditLimit, 0),
+              balanceOwed: toMoneyNumber(row?.balanceOwed, 0),
+              freeplayBalance: toMoneyNumber(row?.freeplayBalance, 0),
+              lifetime: toMoneyNumber(row?.lifetime, 0),
               playerNotes: row?.playerNotes || '',
-              balance: Number(row?.balance ?? 0),
+              balance: toMoneyNumber(row?.balance, 0),
               pendingBalance: 0,
-              availableBalance: Math.max(0, Number(row?.balance ?? 0)),
+              availableBalance: Math.max(0, toMoneyNumber(row?.balance, 0)),
               agentId: row?.agentId || (newCustomer.agentId ? { _id: newCustomer.agentId } : null)
             }));
           return [...appended, ...prev];
@@ -646,9 +647,9 @@ function CustomerAdminView({ onViewChange }) {
 
   const formatBalance = (balance) => {
     if (balance === null || balance === undefined || balance === '') return '—';
-    const num = Number(balance);
+    const num = toMoneyNumber(balance, NaN);
     if (Number.isNaN(num)) return '—';
-    return `$${Math.round(num)}`;
+    return `$${Math.round(num).toLocaleString('en-US')}`;
   };
 
   const canCreateCustomer = !viewOnly
@@ -666,11 +667,12 @@ function CustomerAdminView({ onViewChange }) {
     ));
 
   const handleAdjustBalance = (customer) => {
+    const currentBalance = toMoneyNumber(customer.balance, 0);
     setBalanceForm({
       customerId: customer.id || customer._id,
       username: customer.username,
-      currentBalance: customer.balance ?? 0,
-      nextBalance: `${customer.balance ?? 0}`
+      currentBalance,
+      nextBalance: `${currentBalance}`
     });
     setShowBalanceModal(true);
     setError('');
@@ -702,7 +704,7 @@ function CustomerAdminView({ onViewChange }) {
 
       setCustomers(prev => prev.map(c => (
         (c.id || c._id) === customerId
-          ? { ...c, balance: nextBalance, availableBalance: Math.max(0, nextBalance - Number(c.pendingBalance || 0)) }
+          ? { ...c, balance: nextBalance, availableBalance: Math.max(0, nextBalance - toMoneyNumber(c.pendingBalance, 0)) }
           : c
       )));
       setShowBalanceModal(false);
@@ -1099,7 +1101,7 @@ function CustomerAdminView({ onViewChange }) {
       setActionLoadingId('bulk-update');
       await Promise.all(visiblePlayers.map((player) => {
         const playerId = player.id || player._id;
-        const nextBalance = Number(player.balance || 0) + delta;
+        const nextBalance = toMoneyNumber(player.balance, 0) + delta;
         if (currentRole === 'agent') return updateUserBalanceOwedByAgent(playerId, nextBalance, token);
         return updateUserCredit(playerId, { balance: nextBalance }, token);
       }));
@@ -1109,7 +1111,7 @@ function CustomerAdminView({ onViewChange }) {
         if (!targetPlayerIds.has(customerId)) return customer;
         return {
           ...customer,
-          balance: Number(customer.balance || 0) + delta
+          balance: toMoneyNumber(customer.balance, 0) + delta
         };
       }));
       setShowBulkEditModal(false);
@@ -2070,14 +2072,14 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
                                 <span>{customer.displayPassword || '—'}</span>
                               </td>
                               <td>{`${customer.firstName || ''} ${customer.lastName || ''}`.trim() || '—'}</td>
-                              <td>{Number(customer.minBet ?? 0).toLocaleString()}</td>
-                              <td>{Number(customer.maxBet ?? customer.wagerLimit ?? 0).toLocaleString()}</td>
-                              <td className="highlight-cell">{Number(customer.creditLimit || 1000).toLocaleString()}</td>
-                              <td className="highlight-cell">{Number(customer.balanceOwed || 0).toLocaleString()}</td>
-                              <td className={`balance-cell ${Number(customer.balance) < 0 ? 'neg' : 'pos'}`}>
+                              <td>{toMoneyNumber(customer.minBet, 0).toLocaleString('en-US')}</td>
+                              <td>{toMoneyNumber(customer.maxBet ?? customer.wagerLimit, 0).toLocaleString('en-US')}</td>
+                              <td className="highlight-cell">{toMoneyNumber(customer.creditLimit ?? 1000, 0).toLocaleString('en-US')}</td>
+                              <td className="highlight-cell">{toMoneyNumber(customer.balanceOwed, 0).toLocaleString('en-US')}</td>
+                              <td className={`balance-cell ${getMoneyToneClass(customer.balance)}`}>
                                 {formatBalance(customer.balance)}
                               </td>
-                              <td>{Number(customer.lifetime ?? 0).toLocaleString()}</td>
+                              <td>{toMoneyNumber(customer.lifetime, 0).toLocaleString('en-US')}</td>
                               <td>{getDisplayStatus(customer.status)}</td>
                               <td>
                                 {customer.role === 'user' ? (
@@ -2156,12 +2158,12 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
                                         <span>{customer.displayPassword || '—'}</span>
                                       </div>
                                       <div className="detail-line"><span>Name</span><span>{`${customer.firstName || ''} ${customer.lastName || ''}`.trim() || '—'} <button type="button" className="link-edit-btn" onClick={() => openQuickEditModal(customer, 'name')}>change</button></span></div>
-                                      <div className="detail-line"><span>Min Bet</span><span>{isInlineEdit ? <input type="number" value={detailDraft.minBet} onChange={(e) => updateRowDetailDraft(customer, 'minBet', e.target.value)} /> : `$${Number(customer.minBet ?? 0).toLocaleString()}`}</span></div>
-                                      <div className="detail-line"><span>Max Bet</span><span>{isInlineEdit ? <input type="number" value={detailDraft.maxBet} onChange={(e) => updateRowDetailDraft(customer, 'maxBet', e.target.value)} /> : `$${Number(customer.maxBet ?? customer.wagerLimit ?? 0).toLocaleString()}`}</span></div>
-                                      <div className="detail-line"><span>Credit Limit</span><span>{isInlineEdit ? <input type="number" value={detailDraft.creditLimit} onChange={(e) => updateRowDetailDraft(customer, 'creditLimit', e.target.value)} /> : `$${Number(customer.creditLimit || 0).toLocaleString()}`}</span></div>
-                                      <div className="detail-line"><span>Settle Limit</span><span>{isInlineEdit ? <input type="number" value={detailDraft.settleLimit} onChange={(e) => updateRowDetailDraft(customer, 'settleLimit', e.target.value)} /> : `$${Number(customer.balanceOwed || 0).toLocaleString()}`}</span></div>
-                                      <div className="detail-line"><span>Balance</span><span className={Number(customer.balance) < 0 ? 'neg' : 'pos'}>{formatBalance(customer.balance)} <button type="button" className="link-edit-btn" onClick={() => openQuickEditModal(customer, 'balance')}>change</button></span></div>
-                                      <div className="detail-line"><span>Lifetime</span><span>{Number(customer.lifetime ?? 0).toLocaleString()}</span></div>
+                                      <div className="detail-line"><span>Min Bet</span><span>{isInlineEdit ? <input type="number" value={detailDraft.minBet} onChange={(e) => updateRowDetailDraft(customer, 'minBet', e.target.value)} /> : `$${toMoneyNumber(customer.minBet, 0).toLocaleString('en-US')}`}</span></div>
+                                      <div className="detail-line"><span>Max Bet</span><span>{isInlineEdit ? <input type="number" value={detailDraft.maxBet} onChange={(e) => updateRowDetailDraft(customer, 'maxBet', e.target.value)} /> : `$${toMoneyNumber(customer.maxBet ?? customer.wagerLimit, 0).toLocaleString('en-US')}`}</span></div>
+                                      <div className="detail-line"><span>Credit Limit</span><span>{isInlineEdit ? <input type="number" value={detailDraft.creditLimit} onChange={(e) => updateRowDetailDraft(customer, 'creditLimit', e.target.value)} /> : `$${toMoneyNumber(customer.creditLimit, 0).toLocaleString('en-US')}`}</span></div>
+                                      <div className="detail-line"><span>Settle Limit</span><span>{isInlineEdit ? <input type="number" value={detailDraft.settleLimit} onChange={(e) => updateRowDetailDraft(customer, 'settleLimit', e.target.value)} /> : `$${toMoneyNumber(customer.balanceOwed, 0).toLocaleString('en-US')}`}</span></div>
+                                      <div className="detail-line"><span>Balance</span><span className={getMoneyToneClass(customer.balance)}>{formatBalance(customer.balance)} <button type="button" className="link-edit-btn" onClick={() => openQuickEditModal(customer, 'balance')}>change</button></span></div>
+                                      <div className="detail-line"><span>Lifetime</span><span>{toMoneyNumber(customer.lifetime, 0).toLocaleString('en-US')}</span></div>
                                     </div>
                                     <div className="detail-card">
                                       <div className="detail-line"><span>Pending</span><span>{formatBalance(customer.pendingBalance || 0)}</span></div>
@@ -2505,7 +2507,7 @@ I need active players so if you could do me a solid and place a bet today even i
                     <form onSubmit={handleConfirmBalanceUpdate}>
                       <div className="premium-field-info">
                         <label>Current Net Balance</label>
-                        <div className={`large-val ${balanceForm.currentBalance < 0 ? 'neg' : 'pos'}`}>
+                        <div className={`large-val ${getMoneyToneClass(balanceForm.currentBalance)}`}>
                           {formatBalance(balanceForm.currentBalance)}
                         </div>
                       </div>
@@ -2767,6 +2769,9 @@ I need active players so if you could do me a solid and place a bet today even i
         .detail-line:last-child {
           border-bottom: none;
         }
+        .detail-line span.pos { color: #10b981; }
+        .detail-line span.neg { color: #ef4444; }
+        .detail-line span.neutral { color: #000000; }
         .detail-line input,
         .detail-line select {
           width: 140px;
@@ -2858,6 +2863,7 @@ I need active players so if you could do me a solid and place a bet today even i
         }
         .balance-cell.pos { color: #10b981; }
         .balance-cell.neg { color: #ef4444; }
+        .balance-cell.neutral { color: #000000; }
 
         .status-select {
           background: none; border: none; color: white; font-weight: 700;
@@ -2937,6 +2943,9 @@ I need active players so if you could do me a solid and place a bet today even i
         .premium-field-info { background: rgba(0,0,0,0.2); border-radius: 16px; padding: 20px; margin-bottom: 24px; text-align: center; }
         .premium-field-info label { display: block; font-size: 11px; text-transform: uppercase; color: #64748b; margin-bottom: 8px; font-weight: 800; }
         .large-val { font-size: 32px; font-weight: 900; }
+        .large-val.pos { color: #10b981; }
+        .large-val.neg { color: #ef4444; }
+        .large-val.neutral { color: #000000; }
         .input-with-symbol { position: relative; }
         .input-with-symbol .sym { position: absolute; left: 16px; top: 50%; transform: translateY(-50%); color: #64748b; font-weight: 700; }
         .input-with-symbol input { padding-left: 32px; width: 100%; font-size: 18px; font-weight: 800; }
