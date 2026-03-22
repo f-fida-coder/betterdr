@@ -453,179 +453,185 @@ function TransactionsHistoryView() {
 
   const modeLabel = MODE_OPTIONS.find((option) => option.value === mode)?.label || 'Transaction History';
 
-  const renderTransactionsTable = () => (
-    <div className="table-container txh-table-wrap">
-      <table className="data-table txh-table">
-        <thead>
-          <tr>
-            <th>Date</th>
-            <th>Player</th>
-            <th>Agent</th>
-            <th>Type</th>
-            <th>Amount</th>
-            <th>Status</th>
-            <th>Details</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.length === 0 ? (
-            <tr>
-              <td colSpan={7} className="txh-empty">No transactions matched these filters.</td>
-            </tr>
-          ) : rows.map((row, idx) => {
-            const signed = Number(row?.signedAmount || 0);
-            return (
-              <tr key={`${String(row.id || row.transactionId || 'tx')}-${idx}`}>
-                <td>{formatDateTime(row.date)}</td>
-                <td>{String(row.playerUsername || 'Unknown').toUpperCase()}</td>
-                <td>{String(row.agentUsername || 'UNASSIGNED').toUpperCase()}</td>
-                <td>{formatTransactionType(row)}</td>
-                <td className={signed < 0 ? 'negative' : 'positive'}>{signed < 0 ? '-' : ''}{formatMoney(Math.abs(signed || Number(row.amount || 0)))}</td>
-                <td>{row.status || '—'}</td>
-                <td>{row.description || row.reason || '—'}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
+  const formatSignedAmount = (signed, fallback) => {
+    const val = signed !== 0 ? signed : Number(fallback || 0);
+    const abs = formatMoney(Math.abs(val));
+    return val >= 0 ? `+$${abs}` : `-$${abs}`;
+  };
 
-  const renderFreePlayAnalysisTable = () => (
-    <div className="table-container txh-table-wrap">
-      <table className="data-table txh-table">
-        <thead>
-          <tr>
-            <th>Player</th>
-            <th>Agent</th>
-            <th>Tx Count</th>
-            <th>Credits</th>
-            <th>Debits</th>
-            <th>Net</th>
-            <th>Current Free Play</th>
-            <th>Last Tx</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.length === 0 ? (
-            <tr>
-              <td colSpan={8} className="txh-empty">No free play analysis data found.</td>
-            </tr>
-          ) : rows.map((row, idx) => (
-            <tr key={`${String(row.playerId || row.playerUsername || 'fp')}-${idx}`}>
-              <td>{String(row.playerUsername || 'Unknown').toUpperCase()}</td>
-              <td>{String(row.agentUsername || 'UNASSIGNED').toUpperCase()}</td>
-              <td>{Number(row.transactionCount || 0)}</td>
-              <td className="positive">{formatMoney(row.creditAmount)}</td>
-              <td className="negative">{formatMoney(row.debitAmount)}</td>
-              <td className={Number(row.netAmount || 0) < 0 ? 'negative' : 'positive'}>{formatMoney(row.netAmount)}</td>
-              <td>{formatMoney(row.currentFreeplayBalance)}</td>
-              <td>{formatDateTime(row.lastTransactionAt)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-
-  const renderPlayerSummaryTable = () => (
-    <div className="table-container txh-table-wrap">
-      <table className="data-table txh-table">
-        <thead>
-          <tr>
-            <th>Player</th>
-            <th>Agent</th>
-            <th>Tx Count</th>
-            <th>Credits</th>
-            <th>Debits</th>
-            <th>Net</th>
-            <th>Wagered</th>
-            <th>Payout</th>
-            <th>Current Balance</th>
-            <th>Last Tx</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.length === 0 ? (
-            <tr>
-              <td colSpan={10} className="txh-empty">No player summary data found.</td>
-            </tr>
-          ) : rows.map((row, idx) => (
-            <tr key={`${String(row.playerId || row.playerUsername || 'summary')}-${idx}`}>
-              <td>{String(row.playerUsername || 'Unknown').toUpperCase()}</td>
-              <td>{String(row.agentUsername || 'UNASSIGNED').toUpperCase()}</td>
-              <td>{Number(row.transactionCount || 0)}</td>
-              <td className="positive">{formatMoney(row.creditAmount)}</td>
-              <td className="negative">{formatMoney(row.debitAmount)}</td>
-              <td className={Number(row.netAmount || 0) < 0 ? 'negative' : 'positive'}>{formatMoney(row.netAmount)}</td>
-              <td>{formatMoney(row.wagerAmount)}</td>
-              <td>{formatMoney(row.payoutAmount)}</td>
-              <td>{formatMoney(row.currentBalance)}</td>
-              <td>{formatDateTime(row.lastTransactionAt)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-
-  const renderMobileRows = () => {
-    if (rows.length === 0) {
-      return <div className="txh-empty">No data matched these filters.</div>;
-    }
-
+  const renderTransactionsTable = () => {
+    const totalSigned = rows.reduce((acc, row) => {
+      const s = Number(row?.signedAmount || 0);
+      return acc + (s !== 0 ? s : Number(row?.amount || 0));
+    }, 0);
     return (
-      <div className="txh-mobile-list">
-        {rows.map((row, index) => {
-          const key = String(row.id || row.playerId || index);
-          const isSummary = resultType === 'summary';
-          const isAnalysis = resultType === 'analysis';
-          const signed = Number(row.signedAmount || 0);
+      <div className="txh-table-wrap">
+        <div className="txh-total-bar">
+          Total: <span className={totalSigned < 0 ? 'negative' : 'txh-total-green'}>${formatMoney(Math.abs(totalSigned))}</span>
+        </div>
+        <div className="txh-scroll">
+          <table className="txh-pro-table txh-pro-table-transactions">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Agent</th>
+                <th>Customer</th>
+                <th>Transaction</th>
+                <th>Description</th>
+                <th>Amount</th>
+                <th>Entered By</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.length === 0 ? (
+                <tr><td colSpan={7} className="txh-empty-cell">No transactions matched these filters.</td></tr>
+              ) : rows.map((row, idx) => {
+                const signed = Number(row?.signedAmount || 0);
+                const isCredit = signed >= 0;
+                return (
+                  <tr key={`${String(row.id || row.transactionId || 'tx')}-${idx}`} className={idx % 2 === 0 ? 'txh-row-even' : 'txh-row-odd'}>
+                    <td className="txh-col-date">{formatDateTime(row.date)}</td>
+                    <td className="txh-col-user">{String(row.agentUsername || '—').toUpperCase()}</td>
+                    <td className="txh-col-user">{String(row.playerUsername || '—').toUpperCase()}</td>
+                    <td className="txh-col-type">{formatTransactionType(row)}</td>
+                    <td className="txh-col-desc">{row.description || row.reason || '—'}</td>
+                    <td className={`txh-col-amount ${isCredit ? 'txh-credit' : 'txh-debit'}`}>
+                      {formatSignedAmount(signed, row.amount)}
+                    </td>
+                    <td className="txh-col-user">{String(row.actorUsername || row.enteredBy || 'ME').toUpperCase()}</td>
+                  </tr>
+                );
+              })}
+              {rows.length > 0 && (
+                <tr className="txh-total-row">
+                  <td colSpan={5}><strong>Total</strong></td>
+                  <td className={`txh-col-amount ${totalSigned >= 0 ? 'txh-credit' : 'txh-debit'}`}>
+                    <strong>{totalSigned >= 0 ? '+' : '-'}${formatMoney(Math.abs(totalSigned))}</strong>
+                  </td>
+                  <td />
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
 
-          if (isSummary || isAnalysis) {
-            const net = Number(row.netAmount || 0);
-            return (
-              <article key={key} className="txh-mobile-card">
-                <header>
-                  <strong>{String(row.playerUsername || 'Unknown').toUpperCase()}</strong>
-                  <span>{String(row.agentUsername || 'UNASSIGNED').toUpperCase()}</span>
-                </header>
-                <div className="txh-mobile-grid">
-                  <div><label>Count</label><span>{Number(row.transactionCount || 0)}</span></div>
-                  <div><label>Credit</label><span className="positive">{formatMoney(row.creditAmount)}</span></div>
-                  <div><label>Debit</label><span className="negative">{formatMoney(row.debitAmount)}</span></div>
-                  <div><label>Net</label><span className={net < 0 ? 'negative' : 'positive'}>{formatMoney(net)}</span></div>
-                  {isSummary ? (
-                    <>
-                      <div><label>Wagered</label><span>{formatMoney(row.wagerAmount)}</span></div>
-                      <div><label>Payout</label><span>{formatMoney(row.payoutAmount)}</span></div>
-                      <div><label>Balance</label><span>{formatMoney(row.currentBalance)}</span></div>
-                    </>
-                  ) : (
-                    <div><label>Free Play</label><span>{formatMoney(row.currentFreeplayBalance)}</span></div>
-                  )}
-                </div>
-                <footer>{formatDateTime(row.lastTransactionAt)}</footer>
-              </article>
-            );
-          }
+  const renderFreePlayAnalysisTable = () => {
+    const totalCredits = rows.reduce((acc, r) => acc + Number(r.creditAmount || 0), 0);
+    const totalDebits = rows.reduce((acc, r) => acc + Number(r.debitAmount || 0), 0);
+    const totalNet = totalCredits - totalDebits;
+    return (
+      <div className="txh-table-wrap">
+        <div className="txh-total-bar">
+          Net Free Play: <span className={totalNet < 0 ? 'negative' : 'txh-total-green'}>${formatMoney(Math.abs(totalNet))}</span>
+        </div>
+        <div className="txh-scroll">
+          <table className="txh-pro-table txh-pro-table-analysis">
+            <thead>
+              <tr>
+                <th>Player</th>
+                <th>Agent</th>
+                <th>Tx Count</th>
+                <th>Credits</th>
+                <th>Debits</th>
+                <th>Net</th>
+                <th>Free Play Balance</th>
+                <th>Last Transaction</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.length === 0 ? (
+                <tr><td colSpan={8} className="txh-empty-cell">No free play analysis data found.</td></tr>
+              ) : rows.map((row, idx) => {
+                const net = Number(row.netAmount || 0);
+                return (
+                  <tr key={`${String(row.playerId || row.playerUsername || 'fp')}-${idx}`} className={idx % 2 === 0 ? 'txh-row-even' : 'txh-row-odd'}>
+                    <td className="txh-col-user">{String(row.playerUsername || '—').toUpperCase()}</td>
+                    <td className="txh-col-user">{String(row.agentUsername || '—').toUpperCase()}</td>
+                    <td>{Number(row.transactionCount || 0)}</td>
+                    <td className="txh-credit">+${formatMoney(row.creditAmount)}</td>
+                    <td className="txh-debit">-${formatMoney(row.debitAmount)}</td>
+                    <td className={net < 0 ? 'txh-debit' : 'txh-credit'}>{net >= 0 ? '+' : '-'}${formatMoney(Math.abs(net))}</td>
+                    <td>${formatMoney(row.currentFreeplayBalance)}</td>
+                    <td className="txh-col-date">{formatDateTime(row.lastTransactionAt)}</td>
+                  </tr>
+                );
+              })}
+              {rows.length > 0 && (
+                <tr className="txh-total-row">
+                  <td colSpan={3}><strong>Total</strong></td>
+                  <td className="txh-credit"><strong>+${formatMoney(totalCredits)}</strong></td>
+                  <td className="txh-debit"><strong>-${formatMoney(totalDebits)}</strong></td>
+                  <td className={totalNet < 0 ? 'txh-debit' : 'txh-credit'}><strong>{totalNet >= 0 ? '+' : '-'}${formatMoney(Math.abs(totalNet))}</strong></td>
+                  <td colSpan={2} />
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
 
-          return (
-            <article key={key} className="txh-mobile-card">
-              <header>
-                <strong>{String(row.playerUsername || 'Unknown').toUpperCase()}</strong>
-                <span>{formatTransactionType(row)}</span>
-              </header>
-              <div className="txh-mobile-grid">
-                <div><label>Agent</label><span>{String(row.agentUsername || 'UNASSIGNED').toUpperCase()}</span></div>
-                <div><label>Status</label><span>{row.status || '—'}</span></div>
-                <div><label>Amount</label><span className={signed < 0 ? 'negative' : 'positive'}>{signed < 0 ? '-' : ''}{formatMoney(Math.abs(signed || Number(row.amount || 0)))}</span></div>
-                <div><label>Date</label><span>{formatDateTime(row.date)}</span></div>
-              </div>
-              <footer>{row.description || row.reason || '—'}</footer>
-            </article>
-          );
-        })}
+  const renderPlayerSummaryTable = () => {
+    const totalCredits = rows.reduce((acc, r) => acc + Number(r.creditAmount || 0), 0);
+    const totalDebits = rows.reduce((acc, r) => acc + Number(r.debitAmount || 0), 0);
+    const totalNet = totalCredits - totalDebits;
+    return (
+      <div className="txh-table-wrap">
+        <div className="txh-total-bar">
+          Net: <span className={totalNet < 0 ? 'negative' : 'txh-total-green'}>${formatMoney(Math.abs(totalNet))}</span>
+        </div>
+        <div className="txh-scroll">
+          <table className="txh-pro-table txh-pro-table-summary">
+            <thead>
+              <tr>
+                <th>Player</th>
+                <th>Agent</th>
+                <th>Tx Count</th>
+                <th>Credits</th>
+                <th>Debits</th>
+                <th>Net</th>
+                <th>Wagered</th>
+                <th>Payout</th>
+                <th>Balance</th>
+                <th>Last Transaction</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.length === 0 ? (
+                <tr><td colSpan={10} className="txh-empty-cell">No player summary data found.</td></tr>
+              ) : rows.map((row, idx) => {
+                const net = Number(row.netAmount || 0);
+                return (
+                  <tr key={`${String(row.playerId || row.playerUsername || 'summary')}-${idx}`} className={idx % 2 === 0 ? 'txh-row-even' : 'txh-row-odd'}>
+                    <td className="txh-col-user">{String(row.playerUsername || '—').toUpperCase()}</td>
+                    <td className="txh-col-user">{String(row.agentUsername || '—').toUpperCase()}</td>
+                    <td>{Number(row.transactionCount || 0)}</td>
+                    <td className="txh-credit">+${formatMoney(row.creditAmount)}</td>
+                    <td className="txh-debit">-${formatMoney(row.debitAmount)}</td>
+                    <td className={net < 0 ? 'txh-debit' : 'txh-credit'}>{net >= 0 ? '+' : '-'}${formatMoney(Math.abs(net))}</td>
+                    <td>${formatMoney(row.wagerAmount)}</td>
+                    <td>${formatMoney(row.payoutAmount)}</td>
+                    <td>${formatMoney(row.currentBalance)}</td>
+                    <td className="txh-col-date">{formatDateTime(row.lastTransactionAt)}</td>
+                  </tr>
+                );
+              })}
+              {rows.length > 0 && (
+                <tr className="txh-total-row">
+                  <td colSpan={3}><strong>Total</strong></td>
+                  <td className="txh-credit"><strong>+${formatMoney(totalCredits)}</strong></td>
+                  <td className="txh-debit"><strong>-${formatMoney(totalDebits)}</strong></td>
+                  <td className={totalNet < 0 ? 'txh-debit' : 'txh-credit'}><strong>{totalNet >= 0 ? '+' : '-'}${formatMoney(Math.abs(totalNet))}</strong></td>
+                  <td colSpan={4} />
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     );
   };
@@ -818,13 +824,11 @@ function TransactionsHistoryView() {
         {!loading && error && <div className="txh-empty txh-error">{error}</div>}
 
         {!loading && !error && searched && (
-          isMobile
-            ? renderMobileRows()
-            : (resultType === 'analysis'
-              ? renderFreePlayAnalysisTable()
-              : resultType === 'summary'
-                ? renderPlayerSummaryTable()
-                : renderTransactionsTable())
+          resultType === 'analysis'
+            ? renderFreePlayAnalysisTable()
+            : resultType === 'summary'
+              ? renderPlayerSummaryTable()
+              : renderTransactionsTable()
         )}
       </div>
 
@@ -1143,11 +1147,140 @@ function TransactionsHistoryView() {
           color: #475569;
           font-weight: 600;
         }
+        /* ── Table wrapper ── */
         .txh-table-wrap {
-          overflow-x: auto;
+          display: flex;
+          flex-direction: column;
+          gap: 0;
+          border-radius: 8px;
+          overflow: hidden;
+          box-shadow: 0 2px 12px rgba(0,0,0,0.10);
         }
-        .txh-table {
-          min-width: 860px;
+        .txh-total-bar {
+          background: #fff;
+          border: 1px solid #e2e8f0;
+          border-bottom: none;
+          padding: 10px 18px;
+          font-size: 15px;
+          font-weight: 600;
+          color: #374151;
+          text-align: right;
+        }
+        .txh-total-green { color: #16a34a; }
+        .txh-scroll {
+          overflow: auto;
+          -webkit-overflow-scrolling: touch;
+          max-height: min(70vh, 720px);
+          background: #fff;
+        }
+        /* ── Professional table ── */
+        .txh-pro-table {
+          width: 100%;
+          border-collapse: collapse;
+          font-size: 13px;
+        }
+        .txh-pro-table-transactions {
+          min-width: 980px;
+        }
+        .txh-pro-table-analysis {
+          min-width: 980px;
+        }
+        .txh-pro-table-summary {
+          min-width: 1160px;
+        }
+        .txh-pro-table thead tr {
+          background: #1a2535;
+        }
+        .txh-pro-table thead th {
+          color: #fff;
+          font-weight: 700;
+          font-size: 12px;
+          letter-spacing: 0.04em;
+          text-transform: uppercase;
+          padding: 13px 14px;
+          text-align: left;
+          white-space: nowrap;
+          border: none;
+          border-right: 1px solid #314157;
+          position: sticky;
+          top: 0;
+          z-index: 2;
+        }
+        .txh-pro-table thead th:last-child {
+          border-right: none;
+        }
+        .txh-pro-table tbody tr {
+          border-bottom: 1px solid #edf2f7;
+          transition: background 0.12s;
+        }
+        .txh-pro-table tbody tr:hover {
+          background: #f0f7ff !important;
+        }
+        .txh-row-even { background: #ffffff; }
+        .txh-row-odd  { background: #f8fafc; }
+        .txh-pro-table td {
+          padding: 11px 14px;
+          color: #1e293b;
+          vertical-align: middle;
+          border-right: 1px solid #e2e8f0;
+          border-bottom: 1px solid #edf2f7;
+        }
+        .txh-pro-table td:last-child {
+          border-right: none;
+        }
+        .txh-col-date {
+          white-space: nowrap;
+          font-size: 12px;
+          color: #475569;
+          min-width: 170px;
+        }
+        .txh-col-user {
+          font-weight: 700;
+          letter-spacing: 0.02em;
+          font-size: 12px;
+          min-width: 100px;
+        }
+        .txh-col-type {
+          font-weight: 600;
+          min-width: 150px;
+        }
+        .txh-col-desc {
+          color: #64748b;
+          font-size: 12px;
+          min-width: 220px;
+          max-width: 320px;
+          line-height: 1.35;
+          word-break: break-word;
+        }
+        .txh-col-amount {
+          font-weight: 700;
+          font-size: 14px;
+          white-space: nowrap;
+          text-align: right;
+          min-width: 130px;
+        }
+        .txh-credit { color: #16a34a; }
+        .txh-debit  { color: #dc2626; }
+        /* ── Total row ── */
+        .txh-total-row {
+          background: #1a2535 !important;
+          border-top: 2px solid #334155;
+        }
+        .txh-total-row td {
+          color: #fff;
+          font-size: 13px;
+          padding: 12px 14px;
+          border-right-color: #314157;
+          border-bottom: none;
+        }
+        .txh-total-row .txh-credit { color: #4ade80; }
+        .txh-total-row .txh-debit  { color: #f87171; }
+        /* ── Empty / error ── */
+        .txh-empty-cell {
+          padding: 32px 18px;
+          text-align: center;
+          color: #64748b;
+          font-size: 14px;
         }
         .txh-empty {
           padding: 18px;
@@ -1162,64 +1295,6 @@ function TransactionsHistoryView() {
           color: #b91c1c;
           background: #fff7f7;
         }
-        .txh-mobile-list {
-          display: grid;
-          gap: 10px;
-        }
-        .txh-mobile-card {
-          border: 1px solid #d8dee6;
-          border-radius: 10px;
-          background: #fff;
-          padding: 12px;
-          display: grid;
-          gap: 8px;
-        }
-        .txh-mobile-card header {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 8px;
-          font-size: 13px;
-        }
-        .txh-mobile-card header strong {
-          color: #0f2b42;
-          font-size: 14px;
-        }
-        .txh-mobile-card header span {
-          color: #4f5f70;
-          font-size: 12px;
-          text-align: right;
-        }
-        .txh-mobile-grid {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 8px;
-        }
-        .txh-mobile-grid div {
-          background: #f7f9fc;
-          border: 1px solid #e5ebf1;
-          border-radius: 8px;
-          padding: 8px;
-          display: grid;
-          gap: 3px;
-        }
-        .txh-mobile-grid label {
-          font-size: 10px;
-          color: #64748b;
-          text-transform: uppercase;
-          letter-spacing: 0.04em;
-          font-weight: 700;
-        }
-        .txh-mobile-grid span {
-          font-size: 12px;
-          color: #111827;
-          font-weight: 600;
-        }
-        .txh-mobile-card footer {
-          font-size: 11px;
-          color: #4b5563;
-        }
-
         @media (max-width: 768px) {
           .txh-filter-panel {
             padding: 10px;
@@ -1270,6 +1345,49 @@ function TransactionsHistoryView() {
           .txh-summary-inline {
             font-size: 12px;
             gap: 8px;
+          }
+          .txh-total-bar {
+            padding: 10px 12px;
+            font-size: 14px;
+          }
+          .txh-scroll {
+            max-height: min(58vh, 560px);
+          }
+          .txh-pro-table {
+            font-size: 12px;
+          }
+          .txh-pro-table-transactions {
+            min-width: 860px;
+          }
+          .txh-pro-table-analysis {
+            min-width: 900px;
+          }
+          .txh-pro-table-summary {
+            min-width: 1040px;
+          }
+          .txh-pro-table thead th {
+            padding: 11px 10px;
+            font-size: 11px;
+          }
+          .txh-pro-table td {
+            padding: 10px;
+            font-size: 12px;
+          }
+          .txh-col-date {
+            min-width: 150px;
+          }
+          .txh-col-user {
+            min-width: 92px;
+          }
+          .txh-col-type {
+            min-width: 140px;
+          }
+          .txh-col-desc {
+            min-width: 190px;
+            max-width: 240px;
+          }
+          .txh-col-amount {
+            min-width: 120px;
           }
         }
       `}</style>
