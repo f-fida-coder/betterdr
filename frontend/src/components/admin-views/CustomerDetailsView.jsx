@@ -410,7 +410,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
   const [txError, setTxError] = useState('');
   const [txSuccess, setTxSuccess] = useState('');
   const [txDisplayFilter, setTxDisplayFilter] = useState('7d');
-  const [txTypeFilter, setTxTypeFilter] = useState('non_wager');
+  const [txTypeFilter, setTxTypeFilter] = useState('deposit_withdrawal');
   const [txStatusFilter, setTxStatusFilter] = useState('all');
   const [selectedTxIds, setSelectedTxIds] = useState([]);
   const [showNewTxModal, setShowNewTxModal] = useState(false);
@@ -1169,12 +1169,12 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
     if (sectionId === 'transactions') {
       setActiveSection('transactions');
       setTxDisplayFilter('7d');
-      setTxTypeFilter('non_wager');
+      setTxTypeFilter('deposit_withdrawal');
       setTxStatusFilter('all');
     } else if (sectionId === 'pending') {
       setActiveSection('transactions');
       setTxDisplayFilter('7d');
-      setTxTypeFilter('non_wager');
+      setTxTypeFilter('deposit_withdrawal');
       setTxStatusFilter('pending');
     } else if (sectionId === 'performance') {
       setActiveSection('performance');

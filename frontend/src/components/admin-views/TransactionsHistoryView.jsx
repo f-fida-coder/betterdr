@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { getAgentTree, getTransactionsHistory, getUsersAdmin } from '../../api';
 import { formatTransactionType } from '../../utils/transactionPresentation';
 
@@ -165,15 +165,20 @@ const mapUsersToSuggestions = (users) => {
 
 function TransactionsHistoryView() {
   const today = useMemo(() => toIsoDate(new Date()), []);
+  const sevenDaysAgo = useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 7);
+    return toIsoDate(d);
+  }, []);
   const [isMobile, setIsMobile] = useState(() => (
     typeof window !== 'undefined' ? window.innerWidth <= 768 : false
   ));
   const [agentsSearch, setAgentsSearch] = useState('');
   const [playersSearch, setPlayersSearch] = useState('');
-  const [selectedTransactionTypes, setSelectedTransactionTypes] = useState(['all-types']);
+  const [selectedTransactionTypes, setSelectedTransactionTypes] = useState(['deposit', 'withdrawal']);
   const [typeFilterOpen, setTypeFilterOpen] = useState(false);
   const [mode, setMode] = useState('player-transactions');
-  const [startDate, setStartDate] = useState(today);
+  const [startDate, setStartDate] = useState(sevenDaysAgo);
   const [endDate, setEndDate] = useState(today);
 
   const [rows, setRows] = useState([]);
@@ -339,7 +344,7 @@ function TransactionsHistoryView() {
     return 'AGENT';
   };
 
-  const loadHistory = async () => {
+  const loadHistory = async (overrides = {}) => {
     const token = localStorage.getItem('token');
     if (!token) {
       setError('Please login to view transaction history.');
@@ -347,21 +352,29 @@ function TransactionsHistoryView() {
       return;
     }
 
-    if (startDate && endDate && startDate > endDate) {
+    const effectiveMode = overrides.mode !== undefined ? overrides.mode : mode;
+    const effectiveStart = overrides.startDate !== undefined ? overrides.startDate : startDate;
+    const effectiveEnd = overrides.endDate !== undefined ? overrides.endDate : endDate;
+    const effectiveTypeValues = overrides.selectedTypeValues !== undefined ? overrides.selectedTypeValues : selectedTypeValues;
+    const effectiveAgents = overrides.agentsSearch !== undefined ? overrides.agentsSearch : agentsSearch;
+    const effectivePlayers = overrides.playersSearch !== undefined ? overrides.playersSearch : playersSearch;
+
+    if (effectiveStart && effectiveEnd && effectiveStart > effectiveEnd) {
       setError('Start date cannot be after end date.');
       return;
     }
 
     try {
       setLoading(true);
-      const transactionType = selectedTypeValues.length === 1 ? selectedTypeValues[0] : 'all-types';
+      setError('');
+      const transactionType = effectiveTypeValues.length === 1 ? effectiveTypeValues[0] : 'all-types';
       const data = await getTransactionsHistory({
-        mode,
-        agents: agentsSearch,
-        players: playersSearch,
+        mode: effectiveMode,
+        agents: effectiveAgents,
+        players: effectivePlayers,
         transactionType,
-        startDate,
-        endDate,
+        startDate: effectiveStart,
+        endDate: effectiveEnd,
         limit: isMobile ? 300 : 700,
       }, token);
 
@@ -371,10 +384,10 @@ function TransactionsHistoryView() {
 
       const nextResultType = String(data?.resultType || 'transactions');
       const shouldApplyClientTypeFilter = nextResultType === 'transactions'
-        && selectedTypeValues.length > 1
-        && !selectedTypeValues.includes('all-types');
+        && effectiveTypeValues.length > 1
+        && !effectiveTypeValues.includes('all-types');
       const filteredRows = shouldApplyClientTypeFilter
-        ? filterRowsBySelectedTypes(list, selectedTypeValues)
+        ? filterRowsBySelectedTypes(list, effectiveTypeValues)
         : list;
       setRows(filteredRows);
       setResultType(nextResultType);
@@ -387,7 +400,6 @@ function TransactionsHistoryView() {
       );
       const apiTypeOptions = Array.isArray(data?.meta?.transactionTypes) ? data.meta.transactionTypes : [];
       setTypeOptions(apiTypeOptions.length > 0 ? apiTypeOptions : DEFAULT_TYPE_OPTIONS);
-      setError('');
       setSearched(true);
     } catch (err) {
       console.error('Failed to load transaction history:', err);
@@ -413,6 +425,7 @@ function TransactionsHistoryView() {
     if (!normalizedValue) return;
     if (normalizedValue === 'all-types' || toggleableTypeValues.length === 0) {
       setSelectedTransactionTypes(['all-types']);
+      loadHistory({ selectedTypeValues: ['all-types'] });
       return;
     }
 
@@ -427,11 +440,14 @@ function TransactionsHistoryView() {
         ? normalizedPrev.filter((value) => value !== normalizedValue)
         : [...normalizedPrev, normalizedValue];
 
-      if (next.length === 0 || next.length === toggleableTypeValues.length) {
-        return ['all-types'];
-      }
+      const nextTypes = (next.length === 0 || next.length === toggleableTypeValues.length)
+        ? ['all-types']
+        : next;
 
-      return next;
+      // Trigger fetch with the resolved next value (state update is async)
+      loadHistory({ selectedTypeValues: nextTypes });
+
+      return nextTypes;
     });
   };
 
@@ -718,7 +734,11 @@ function TransactionsHistoryView() {
                 aria-haspopup="menu"
                 aria-label="Transactions type"
               >
-                <span>Transactions Type</span>
+                <span>
+                  {selectedTypeValues.includes('all-types')
+                    ? 'All Types'
+                    : `${selectedTypeValues.length} Type${selectedTypeValues.length !== 1 ? 's' : ''}`}
+                </span>
                 <i className={`fa-solid fa-chevron-${typeFilterOpen ? 'up' : 'down'}`} aria-hidden="true"></i>
               </button>
               {typeFilterOpen && (
@@ -753,7 +773,17 @@ function TransactionsHistoryView() {
               )}
             </div>
 
-            <select value={mode} onChange={(e) => setMode(e.target.value)} className="txh-mode-select" aria-label="Report mode">
+            <select
+              value={mode}
+              onChange={(e) => {
+                const newMode = e.target.value;
+                setMode(newMode);
+                setTypeFilterOpen(false);
+                loadHistory({ mode: newMode });
+              }}
+              className="txh-mode-select"
+              aria-label="Report mode"
+            >
               {MODE_OPTIONS.map((option) => (
                 <option key={option.value} value={option.value}>{option.label}</option>
               ))}
