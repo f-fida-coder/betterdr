@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getAgentTree, getTransactionsHistory, getUsersAdmin } from '../../api';
-import { formatTransactionType } from '../../utils/transactionPresentation';
+import { formatTransactionType, isDebitTransaction } from '../../utils/transactionPresentation';
 
 const MODE_OPTIONS = [
   { value: 'player-transactions', label: 'Player Transactions' },
@@ -72,14 +72,21 @@ const getSignedAmount = (row) => {
 
   const amount = Number(row?.amount || 0);
   if (!Number.isFinite(amount)) return 0;
+  if (amount < 0) return amount;
 
   const entrySide = String(row?.entrySide || '').trim().toUpperCase();
   if (entrySide === 'DEBIT') return -Math.abs(amount);
   if (entrySide === 'CREDIT') return Math.abs(amount);
 
+  const balanceBefore = Number(row?.balanceBefore);
+  const balanceAfter = Number(row?.balanceAfter);
+  if (Number.isFinite(balanceBefore) && Number.isFinite(balanceAfter) && balanceBefore !== balanceAfter) {
+    return balanceAfter < balanceBefore ? -Math.abs(amount) : Math.abs(amount);
+  }
+
   const rowType = normalizeTypeValue(row?.type);
   if (DEBIT_TYPES.has(rowType)) return -Math.abs(amount);
-  return amount;
+  return isDebitTransaction(row) ? -Math.abs(amount) : Math.abs(amount);
 };
 
 const summarizeTransactionRows = (rows) => rows.reduce((acc, row) => {
@@ -461,8 +468,7 @@ function TransactionsHistoryView() {
 
   const renderTransactionsTable = () => {
     const totalSigned = rows.reduce((acc, row) => {
-      const s = Number(row?.signedAmount || 0);
-      return acc + (s !== 0 ? s : Number(row?.amount || 0));
+      return acc + getSignedAmount(row);
     }, 0);
     return (
       <div className="txh-table-wrap">
@@ -486,7 +492,7 @@ function TransactionsHistoryView() {
               {rows.length === 0 ? (
                 <tr><td colSpan={7} className="txh-empty-cell">No transactions matched these filters.</td></tr>
               ) : rows.map((row, idx) => {
-                const signed = Number(row?.signedAmount || 0);
+                const signed = getSignedAmount(row);
                 const isCredit = signed >= 0;
                 return (
                   <tr key={`${String(row.id || row.transactionId || 'tx')}-${idx}`} className={idx % 2 === 0 ? 'txh-row-even' : 'txh-row-odd'}>
@@ -1261,6 +1267,14 @@ function TransactionsHistoryView() {
         }
         .txh-credit { color: #16a34a; }
         .txh-debit  { color: #dc2626; }
+        .txh-pro-table td.txh-credit,
+        .txh-pro-table td.txh-credit strong {
+          color: #16a34a;
+        }
+        .txh-pro-table td.txh-debit,
+        .txh-pro-table td.txh-debit strong {
+          color: #dc2626;
+        }
         /* ── Total row ── */
         .txh-total-row {
           background: #1a2535 !important;
@@ -1273,8 +1287,10 @@ function TransactionsHistoryView() {
           border-right-color: #314157;
           border-bottom: none;
         }
-        .txh-total-row .txh-credit { color: #4ade80; }
-        .txh-total-row .txh-debit  { color: #f87171; }
+        .txh-total-row td.txh-credit,
+        .txh-total-row td.txh-credit strong { color: #4ade80; }
+        .txh-total-row td.txh-debit,
+        .txh-total-row td.txh-debit strong { color: #f87171; }
         /* ── Empty / error ── */
         .txh-empty-cell {
           padding: 32px 18px;
