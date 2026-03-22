@@ -3472,11 +3472,24 @@ final class AdminCoreController
                 }
 
                 $matchedAgents = $this->db->findMany('agents', $agentQuery, ['projection' => ['_id' => 1], 'limit' => 5000]);
-                $matchedAgentIds = [];
+                $matchedAgentRootIds = [];
                 foreach ($matchedAgents as $agentDoc) {
                     $id = (string) ($agentDoc['_id'] ?? '');
                     if ($id !== '' && preg_match('/^[a-f0-9]{24}$/i', $id) === 1) {
-                        $matchedAgentIds[$id] = true;
+                        $matchedAgentRootIds[$id] = true;
+                    }
+                }
+                $matchedAgentIds = [];
+                foreach (array_keys($matchedAgentRootIds) as $matchedAgentId) {
+                    foreach ($this->listManagedAgentIds($matchedAgentId) as $managedAgentId) {
+                        $managedAgentId = trim((string) $managedAgentId);
+                        if ($managedAgentId === '' || preg_match('/^[a-f0-9]{24}$/i', $managedAgentId) !== 1) {
+                            continue;
+                        }
+                        if ($actorRole !== 'admin' && !isset($scopedAgentIdSet[$managedAgentId])) {
+                            continue;
+                        }
+                        $matchedAgentIds[$managedAgentId] = true;
                     }
                 }
                 $matchedAgentIds = array_keys($matchedAgentIds);
@@ -3883,8 +3896,9 @@ final class AdminCoreController
                 return str_contains(strtolower($haystack), $needleLc);
             };
 
-            if ($playersSearchLc !== '' || $agentsSearchLc !== '') {
-                $formatted = array_values(array_filter($formatted, static function (array $row) use ($playersSearchLc, $agentsSearchLc, $containsNeedle): bool {
+            $applyAgentTextFilter = $agentsSearchLc !== '' && $matchedAgentIds === null;
+            if ($playersSearchLc !== '' || $applyAgentTextFilter) {
+                $formatted = array_values(array_filter($formatted, static function (array $row) use ($playersSearchLc, $agentsSearchLc, $applyAgentTextFilter, $containsNeedle): bool {
                     if ($playersSearchLc !== '') {
                         $playerMatch = $containsNeedle((string) ($row['playerUsername'] ?? ''), $playersSearchLc)
                             || $containsNeedle((string) ($row['playerName'] ?? ''), $playersSearchLc)
@@ -3895,7 +3909,7 @@ final class AdminCoreController
                         }
                     }
 
-                    if ($agentsSearchLc !== '') {
+                    if ($applyAgentTextFilter) {
                         $agentMatch = $containsNeedle((string) ($row['agentUsername'] ?? ''), $agentsSearchLc)
                             || $containsNeedle((string) ($row['actorUsername'] ?? ''), $agentsSearchLc)
                             || $containsNeedle((string) ($row['description'] ?? ''), $agentsSearchLc);

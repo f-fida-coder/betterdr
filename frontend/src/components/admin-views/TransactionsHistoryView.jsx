@@ -375,6 +375,7 @@ function TransactionsHistoryView() {
       setLoading(true);
       setError('');
       const transactionType = effectiveTypeValues.length === 1 ? effectiveTypeValues[0] : 'all-types';
+      const hasScopedSearch = effectiveAgents.trim() !== '' || effectivePlayers.trim() !== '';
       const data = await getTransactionsHistory({
         mode: effectiveMode,
         agents: effectiveAgents,
@@ -382,7 +383,7 @@ function TransactionsHistoryView() {
         transactionType,
         startDate: effectiveStart,
         endDate: effectiveEnd,
-        limit: isMobile ? 300 : 700,
+        limit: hasScopedSearch ? 1000 : 700,
       }, token);
 
       const list = Array.isArray(data?.rows)
@@ -1060,6 +1061,9 @@ function TransactionsHistoryView() {
           box-shadow: 0 16px 34px rgba(15, 23, 42, 0.2);
           padding: 10px 14px;
           z-index: 190;
+          max-height: min(520px, calc(100dvh - 120px));
+          overflow-y: auto;
+          overscroll-behavior: contain;
         }
         .txh-type-empty {
           padding: 8px 0;
@@ -1346,6 +1350,8 @@ function TransactionsHistoryView() {
           }
           .txh-type-menu {
             width: min(360px, calc(100vw - 32px));
+            max-height: min(62dvh, 420px);
+            padding-bottom: 14px;
           }
           .txh-type-toggle-row {
             font-size: 15px;
