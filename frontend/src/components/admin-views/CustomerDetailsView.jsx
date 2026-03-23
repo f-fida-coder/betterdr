@@ -646,8 +646,8 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
       setCommissionSaveError('Agent % must be a number between 0 and 100');
       return;
     }
-    if (playerRateDraft !== '' && (isNaN(rate) || rate < 0 || rate > 100)) {
-      setCommissionSaveError('Player Rate must be a number between 0 and 100');
+    if (playerRateDraft !== '' && (isNaN(rate) || rate < 0)) {
+      setCommissionSaveError('Player Rate must be a valid dollar amount');
       return;
     }
     try {
@@ -1896,7 +1896,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
             {isAgent ? (
               <button type="button" className={`detail-item detail-metric${activeSection === 'commission' ? ' detail-metric-active' : ''}`} onClick={() => openSection('commission')}>
                 <span className="detail-label">Player Rate</span>
-                <strong className="detail-value">{customer?.playerRate != null ? `${customer.playerRate}%` : '—'}</strong>
+                <strong className="detail-value">{customer?.playerRate != null ? `$${customer.playerRate}` : '—'}</strong>
               </button>
             ) : (
               <button type="button" className={`detail-item detail-metric${activeSection === 'transactions' && txStatusFilter === 'pending' ? ' detail-metric-active' : ''}`} onClick={() => openSection('pending')}>
@@ -2055,7 +2055,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
       {activeSection === 'commission' && (
         <div className="commission-section">
 
-          {/* ── Save Agent % / Player Rate ─────────────────────────── */}
+          {/* ── Edit Agent % / Player Rate ─────────────────────────── */}
           <div className="commission-edit-card">
             <h4 className="commission-card-title">Edit Commission Fields</h4>
             <div className="commission-edit-row">
@@ -2073,17 +2073,19 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
                 />
               </div>
               <div className="commission-edit-field">
-                <label className="commission-field-label">Player Rate %</label>
-                <input
-                  type="number"
-                  min="0"
-                  max="100"
-                  step="0.01"
-                  className="commission-input"
-                  placeholder="e.g. 25"
-                  value={playerRateDraft}
-                  onChange={(e) => setPlayerRateDraft(e.target.value)}
-                />
+                <label className="commission-field-label">Player Rate ($)</label>
+                <div className="commission-input-prefix-wrap">
+                  <span className="commission-input-prefix">$</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    className="commission-input commission-input-with-prefix"
+                    placeholder="e.g. 25"
+                    value={playerRateDraft}
+                    onChange={(e) => setPlayerRateDraft(e.target.value)}
+                  />
+                </div>
               </div>
               <button
                 className="btn btn-save"
@@ -2097,7 +2099,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
             {commissionSaveSuccess && <div className="alert success" style={{ marginTop: 8 }}>{commissionSaveSuccess}</div>}
           </div>
 
-          {/* ── Chain Display ──────────────────────────────────────── */}
+          {/* ── Hierarchy Box ──────────────────────────────────────── */}
           {commissionLoading && <div className="commission-loading">Loading chain...</div>}
           {commissionError && <div className="alert error">{commissionError}</div>}
           {commissionChain && !commissionLoading && (
@@ -2117,51 +2119,64 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
                 </div>
               )}
 
-              {/* Upline tree (leaf → root) */}
-              <div className="commission-tree-card">
-                <h4 className="commission-card-title">Commission Chain (leaf → root)</h4>
-                <div className="commission-tree">
-                  {commissionChain.upline.map((node, idx) => (
-                    <div key={node.id || idx} className="commission-tree-node" style={{ paddingLeft: idx * 20 }}>
-                      <span className="commission-tree-connector">{idx === 0 ? '' : '└── '}</span>
-                      <span className="commission-tree-username">{node.username || '—'}</span>
-                      <span className="commission-tree-role">{node.role ? `(${node.role.replace(/_/g, ' ')})` : ''}</span>
-                      <span className={`commission-tree-pct ${node.agentPercent == null ? 'unset' : ''}`}>
-                        {node.agentPercent != null ? `${node.agentPercent}%` : 'not set'}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              {/* ── Hierarchy summary box ────────────────────────── */}
+              <div className="commission-hierarchy-box">
+                {/* Current agent — always index 0 */}
+                {commissionChain.upline[0] && (
+                  <div className="ch-row ch-row-agent">
+                    <span className="ch-row-label">Agent</span>
+                    <span className="ch-row-username">({commissionChain.upline[0].username || '—'})</span>
+                    <span className={`ch-row-pct ${commissionChain.upline[0].agentPercent == null ? 'unset' : ''}`}>
+                      {commissionChain.upline[0].agentPercent != null ? `(${commissionChain.upline[0].agentPercent}%)` : '(not set)'}
+                    </span>
+                  </div>
+                )}
 
-              {/* Downlines */}
-              {commissionChain.downlines.length > 0 && (
-                <div className="commission-tree-card">
-                  <h4 className="commission-card-title">Direct Sub-Agents</h4>
-                  <table className="commission-table">
-                    <thead>
-                      <tr>
-                        <th>Username</th>
-                        <th>Role</th>
-                        <th>Agent %</th>
-                        <th>Player Rate</th>
-                        <th>Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {commissionChain.downlines.map((d, idx) => (
-                        <tr key={d.id || idx}>
-                          <td className="commission-username">{d.username || '—'}</td>
-                          <td>{d.role ? d.role.replace(/_/g, ' ') : '—'}</td>
-                          <td className={d.agentPercent == null ? 'commission-unset' : ''}>{d.agentPercent != null ? `${d.agentPercent}%` : '—'}</td>
-                          <td className={d.playerRate == null ? 'commission-unset' : ''}>{d.playerRate != null ? `${d.playerRate}%` : '—'}</td>
-                          <td><span className={`status-badge ${d.status === 'active' ? 'active' : 'inactive'}`}>{d.status || '—'}</span></td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
+                {/* Hiring agent — index 1 (direct parent) */}
+                {commissionChain.upline[1] && (
+                  <div className="ch-row ch-row-hiring">
+                    <span className="ch-row-label">Hiring agent</span>
+                    <span className="ch-row-username">({commissionChain.upline[1].username || '—'})</span>
+                    <span className={`ch-row-pct ${commissionChain.upline[1].agentPercent == null ? 'unset' : ''}`}>
+                      {commissionChain.upline[1].agentPercent != null ? `(${commissionChain.upline[1].agentPercent}%)` : '(not set)'}
+                    </span>
+                  </div>
+                )}
+
+                {/* Any higher upline nodes (grandparent, etc.) */}
+                {commissionChain.upline.slice(2).map((node, idx) => (
+                  <div key={node.id || idx} className="ch-row ch-row-upline">
+                    <span className="ch-row-label">{node.role === 'admin' ? 'Admin' : `Upline ${idx + 2}`}</span>
+                    <span className="ch-row-username">({node.username || '—'})</span>
+                    <span className={`ch-row-pct ${node.agentPercent == null ? 'unset' : ''}`}>
+                      {node.agentPercent != null ? `(${node.agentPercent}%)` : '(not set)'}
+                    </span>
+                  </div>
+                ))}
+
+                {/* Divider before sub-agents */}
+                {commissionChain.downlines.length > 0 && (
+                  <div className="ch-divider" />
+                )}
+
+                {/* Sub-agents (direct children) */}
+                {commissionChain.downlines.map((d, idx) => (
+                  <div key={d.id || idx} className="ch-row ch-row-sub">
+                    <span className="ch-row-label">Sub Agent {idx + 1}</span>
+                    <span className="ch-row-username">({d.username || '—'})</span>
+                    <span className={`ch-row-pct ${d.agentPercent == null ? 'unset' : ''}`}>
+                      {d.agentPercent != null ? `(${d.agentPercent}%)` : '(not set)'}
+                    </span>
+                    <span className={`ch-row-status ${d.status === 'active' ? 'active' : 'inactive'}`}>{d.status || ''}</span>
+                  </div>
+                ))}
+
+                {commissionChain.downlines.length === 0 && (
+                  <div className="ch-row ch-row-empty">
+                    <span className="ch-row-label" style={{ color: '#94a3b8', fontStyle: 'italic' }}>No sub-agents yet</span>
+                  </div>
+                )}
+              </div>
 
               {/* Commission Calculator */}
               <div className="commission-tree-card">

@@ -725,11 +725,11 @@ final class AgentController
             $playerRate = null;
             if (isset($body['playerRate']) && is_numeric($body['playerRate'])) {
                 $rate = (float) $body['playerRate'];
-                if ($rate < 0 || $rate > 100) {
-                    Response::json(['message' => 'playerRate must be between 0 and 100'], 400);
+                if ($rate < 0) {
+                    Response::json(['message' => 'playerRate cannot be negative'], 400);
                     return;
                 }
-                $playerRate = round($rate, 4);
+                $playerRate = round($rate, 2);
             }
 
             $referrerObjectId = null;

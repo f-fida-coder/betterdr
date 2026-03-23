@@ -5856,4 +5856,93 @@
   .commission-input { width: 100%; }
   .commission-calc-row { flex-direction: column; align-items: flex-start; }
 }
+/* ── Player Rate $ prefix input ── */
+.commission-input-prefix-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+.commission-input-prefix {
+  position: absolute;
+  left: 10px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #475569;
+  pointer-events: none;
+  user-select: none;
+}
+.commission-input-with-prefix {
+  padding-left: 22px !important;
+}
+
+/* ── Hierarchy summary box ── */
+.commission-hierarchy-box {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.ch-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 18px;
+  border-bottom: 1px solid #f1f5f9;
+  font-size: 13px;
+}
+.ch-row:last-child { border-bottom: none; }
+
+.ch-row-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  min-width: 110px;
+  flex-shrink: 0;
+}
+
+.ch-row-agent   .ch-row-label { color: #1d4ed8; }
+.ch-row-hiring  .ch-row-label { color: #6d28d9; }
+.ch-row-upline  .ch-row-label { color: #0f766e; }
+.ch-row-sub     .ch-row-label { color: #475569; }
+
+.ch-row-username {
+  font-weight: 700;
+  color: #1e293b;
+  letter-spacing: 0.02em;
+}
+
+.ch-row-pct {
+  font-weight: 700;
+  color: #2563eb;
+  margin-left: 4px;
+}
+.ch-row-pct.unset {
+  color: #ef4444;
+  font-weight: 400;
+  font-style: italic;
+}
+
+.ch-row-status {
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 2px 7px;
+  border-radius: 20px;
+}
+.ch-row-status.active   { background: #dcfce7; color: #15803d; }
+.ch-row-status.inactive { background: #f1f5f9; color: #64748b; }
+
+.ch-divider {
+  height: 1px;
+  background: #e2e8f0;
+  margin: 0;
+}
+
+/* Stripe alternating sub-agent rows */
+.ch-row-sub:nth-child(even) { background: #f8fafc; }
+
 /* ─── End Commission Tree Section ────────────────────────────────────────────── */

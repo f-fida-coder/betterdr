@@ -5211,14 +5211,14 @@ final class AdminCoreController
                 }
                 $updates['agentPercent'] = round($pct, 4);
             }
-            // Rate applied to players under this agent
+            // Dollar rate applied to players under this agent (no upper cap — it's a $ value)
             if (array_key_exists('playerRate', $body) && is_numeric($body['playerRate'])) {
                 $rate = (float) $body['playerRate'];
-                if ($rate < 0 || $rate > 100) {
-                    Response::json(['message' => 'playerRate must be between 0 and 100'], 400);
+                if ($rate < 0) {
+                    Response::json(['message' => 'playerRate cannot be negative'], 400);
                     return;
                 }
-                $updates['playerRate'] = round($rate, 4);
+                $updates['playerRate'] = round($rate, 2);
             }
 
             $balanceBefore = null;
