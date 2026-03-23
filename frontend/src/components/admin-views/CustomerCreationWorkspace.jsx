@@ -1308,7 +1308,7 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
                   </div>
                 </div>
 
-                {(creationType === 'agent' || creationType === 'super_agent') && (currentRole !== 'super_agent' && currentRole !== 'master_agent' || creationType === 'super_agent') && (
+                {(creationType === 'agent' || creationType === 'super_agent') && (
                   <div className="filter-group customer-top-field customer-top-field-prefix">
                     <label>Prefix</label>
                     <input
