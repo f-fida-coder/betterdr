@@ -1534,39 +1534,6 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
                 </div>
               )}
 
-              <div className="apps-card" style={{ marginTop: '12px' }}>
-                <h3 className="apps-title">Apps</h3>
-                <div className="apps-grid">
-                  <div className="apps-field">
-                    <label>Venmo:</label>
-                    <input value={newApps.venmo} onChange={(e) => setNewApps((p) => ({ ...p, venmo: e.target.value }))} placeholder="@username" />
-                  </div>
-                  <div className="apps-field">
-                    <label>Cashapp:</label>
-                    <input value={newApps.cashapp} onChange={(e) => setNewApps((p) => ({ ...p, cashapp: e.target.value }))} placeholder="$cashtag" />
-                  </div>
-                  <div className="apps-field">
-                    <label>Apple Pay:</label>
-                    <input value={newApps.applePay} onChange={(e) => setNewApps((p) => ({ ...p, applePay: e.target.value }))} placeholder="Phone or email" />
-                  </div>
-                  <div className="apps-field">
-                    <label>Zelle:</label>
-                    <input value={newApps.zelle} onChange={(e) => setNewApps((p) => ({ ...p, zelle: e.target.value }))} placeholder="Phone or email" />
-                  </div>
-                  <div className="apps-field">
-                    <label>PayPal:</label>
-                    <input value={newApps.paypal} onChange={(e) => setNewApps((p) => ({ ...p, paypal: e.target.value }))} placeholder="Email or @username" />
-                  </div>
-                  <div className="apps-field">
-                    <label>BTC:</label>
-                    <input value={newApps.btc} onChange={(e) => setNewApps((p) => ({ ...p, btc: e.target.value }))} placeholder="Wallet address" />
-                  </div>
-                  <div className="apps-field apps-field-full">
-                    <label>Other:</label>
-                    <input value={newApps.other} onChange={(e) => setNewApps((p) => ({ ...p, other: e.target.value }))} placeholder="Other handle" />
-                  </div>
-                </div>
-              </div>
             </div>
 
             <aside className="customer-create-sidebar">
