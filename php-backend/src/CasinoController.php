@@ -124,20 +124,28 @@ final class CasinoController
     private const JURASSIC_RUN_ALLOWED_BETS = [10, 50, 100, 200, 400, 500, 1000, 2000, 5000];
     private const JURASSIC_RUN_DEFAULT_BET_ID = 0;
     private const JURASSIC_RUN_DEFAULT_JACKPOT = 10000;
+    private const JURASSIC_RUN_DISCLOSED_RTP = 95.0;
+    private const JURASSIC_RUN_FIXED_PAYLINES = 10;
+    private const JURASSIC_RUN_VOLATILITY = 'medium';
     private const JURASSIC_RUN_MAX_FREE_SPINS = 500;
     private const JURASSIC_RUN_JACKPOT_FEE_PERCENT = 5;
+    private const JURASSIC_RUN_PAYOUT_SCALE = 0.47;
     private const JURASSIC_RUN_SYMBOLS = ['1', '2', '3', '4', '5', '6', '7', '8', 'FreeSpin', 'Wild', 'JP'];
     private const JURASSIC_RUN_SYMBOL_WEIGHTS = [16, 16, 15, 14, 14, 14, 13, 12, 15, 5, 1];
     private const JURASSIC_RUN_PAYOUT_MULTIPLIERS = [
-        '1' => [3 => 1, 4 => 2, 5 => 4],
-        '2' => [3 => 2, 4 => 4, 5 => 8],
-        '3' => [3 => 3, 4 => 6, 5 => 10],
-        '4' => [3 => 4, 4 => 9, 5 => 15],
-        '5' => [3 => 5, 4 => 15, 5 => 30],
-        '6' => [3 => 10, 4 => 30, 5 => 50],
-        '7' => [3 => 15, 4 => 45, 5 => 75],
-        '8' => [3 => 20, 4 => 60, 5 => 100],
-        'FreeSpin' => [3 => 10, 4 => 15, 5 => 25],
+        '1' => [3 => 1.0, 4 => 2.0, 5 => 4.0],
+        '2' => [3 => 2.0, 4 => 4.0, 5 => 8.0],
+        '3' => [3 => 3.0, 4 => 6.0, 5 => 10.0],
+        '4' => [3 => 4.0, 4 => 9.0, 5 => 15.0],
+        '5' => [3 => 5.0, 4 => 15.0, 5 => 30.0],
+        '6' => [3 => 10.0, 4 => 30.0, 5 => 50.0],
+        '7' => [3 => 15.0, 4 => 45.0, 5 => 75.0],
+        '8' => [3 => 20.0, 4 => 60.0, 5 => 100.0],
+    ];
+    private const JURASSIC_RUN_FREE_SPIN_AWARDS = [
+        3 => 2,
+        4 => 3,
+        5 => 4,
     ];
     private const JURASSIC_RUN_LINE_PATTERNS = [
         [0, 0, 0, 0, 0],
@@ -158,7 +166,7 @@ final class CasinoController
         ['provider' => 'internal', 'name' => 'Blackjack', 'slug' => 'blackjack', 'category' => 'table_games', 'minBet' => 1, 'maxBet' => 10000, 'themeColor' => '#0b5563', 'icon' => 'fa-solid fa-club', 'imageUrl' => '/games/blackjack/src/images/misc/table.png', 'tags' => ['table games', 'blackjack', 'in-house', 'live casino'], 'isFeatured' => true],
         ['provider' => 'internal', 'name' => 'Craps', 'slug' => 'craps', 'category' => 'table_games', 'minBet' => 1, 'maxBet' => 10000, 'themeColor' => '#0a4f3a', 'icon' => 'fa-solid fa-dice-six', 'imageUrl' => '/games/craps/sprites/board_table.jpg', 'tags' => ['table games', 'craps', 'in-house', 'live casino'], 'isFeatured' => true],
         ['provider' => 'internal', 'name' => 'Arabian Game', 'slug' => 'arabian', 'category' => 'slots', 'minBet' => 0.3, 'maxBet' => 30, 'themeColor' => '#7e22ce', 'icon' => 'fa-solid fa-scroll', 'imageUrl' => '/games/arabian/sprites/200x200.jpg', 'tags' => ['slots', 'arabian', 'in-house', 'server settled'], 'isFeatured' => true],
-        ['provider' => 'internal', 'name' => 'Jurassic Run', 'slug' => 'jurassic-run', 'category' => 'slots', 'minBet' => 10, 'maxBet' => 5000, 'themeColor' => '#166534', 'icon' => 'fa-solid fa-dragon', 'imageUrl' => '/games/jurassic-run/assets/images/background_middle.webp', 'tags' => ['slots', 'jurassic', 'in-house', 'server settled'], 'isFeatured' => true],
+        ['provider' => 'internal', 'name' => 'Jurassic Run', 'slug' => 'jurassic-run', 'category' => 'slots', 'minBet' => 10, 'maxBet' => 5000, 'rtp' => 95.0, 'volatility' => 'medium', 'themeColor' => '#166534', 'icon' => 'fa-solid fa-dragon', 'imageUrl' => '/games/jurassic-run/assets/images/background_middle.webp', 'tags' => ['slots', 'jurassic', 'in-house', 'server settled', 'progressive jackpot'], 'isFeatured' => true, 'metadata' => ['paylines' => 10, 'reels' => 5, 'rows' => 3, 'jackpotType' => 'progressive', 'jackpotContributionPercent' => 5, 'freeSpinAwards' => [3 => 2, 4 => 3, 5 => 4], 'rngVersion' => 'jurassic-slot-v1', 'fairness' => ['outcomeSource' => 'server_rng', 'spinIndependence' => true], 'features' => ['wild', 'free_spins', 'progressive_jackpot']]],
         ['provider' => 'internal', 'name' => '3-Card Poker', 'slug' => '3card-poker', 'category' => 'table_games', 'minBet' => 1, 'maxBet' => 300, 'themeColor' => '#1a3a5c', 'icon' => 'fa-solid fa-cards', 'imageUrl' => '/games/3-card-poker/sprites/200x200.jpg', 'tags' => ['table games', 'poker', '3-card poker', 'in-house'], 'isFeatured' => true],
         ['provider' => 'internal', 'name' => 'Jacks or Better', 'slug' => 'jacks-or-better', 'category' => 'video_poker', 'minBet' => 1, 'maxBet' => 100, 'themeColor' => '#be123c', 'icon' => 'fa-solid fa-cards'],
         ['provider' => 'internal', 'name' => 'Video Keno', 'slug' => 'video-keno', 'category' => 'specialty_games', 'minBet' => 1, 'maxBet' => 100, 'themeColor' => '#0ea5e9', 'icon' => 'fa-solid fa-table-cells-large'],
@@ -497,12 +505,41 @@ final class CasinoController
 
             if ($slug === self::JURASSIC_RUN_GAME_SLUG) {
                 $state = $this->getUserJurassicRunState($actor);
+                $progressiveState = $this->getJurassicRunProgressiveState();
                 Response::json([
                     'game' => $slug,
                     'state' => [
                         'freeSpinsRemaining' => (int) ($state['freeSpinsRemaining'] ?? 0),
                         'lockedBetId' => $state['lockedBetId'] ?? null,
-                        'jackpotPool' => round($this->num($state['jackpotPool'] ?? self::JURASSIC_RUN_DEFAULT_JACKPOT)),
+                        'activePaylines' => (int) ($state['activePaylines'] ?? self::JURASSIC_RUN_FIXED_PAYLINES),
+                        'lastBetId' => $state['lastBetId'] ?? null,
+                        'lastBet' => round($this->num($state['lastBet'] ?? 0)),
+                        'lastLineBet' => round($this->num($state['lastLineBet'] ?? 0)),
+                        'bonusRoundActive' => !empty($state['bonusRoundActive']),
+                        'activeMultiplier' => round($this->num($state['activeMultiplier'] ?? 1)),
+                        'totalRounds' => (int) ($state['totalRounds'] ?? 0),
+                        'paidRounds' => (int) ($state['paidRounds'] ?? 0),
+                        'freeSpinRounds' => (int) ($state['freeSpinRounds'] ?? 0),
+                        'totalWagered' => round($this->num($state['totalWagered'] ?? 0)),
+                        'totalPaidOut' => round($this->num($state['totalPaidOut'] ?? 0)),
+                        'totalFreeSpinsAwarded' => (int) ($state['totalFreeSpinsAwarded'] ?? 0),
+                        'jackpotsWon' => (int) ($state['jackpotsWon'] ?? 0),
+                        'lastTotalWager' => round($this->num($state['lastTotalWager'] ?? 0)),
+                        'lastTotalReturn' => round($this->num($state['lastTotalReturn'] ?? 0)),
+                        'lastNetResult' => round($this->num($state['lastNetResult'] ?? 0)),
+                        'lastResultType' => (string) ($state['lastResultType'] ?? ''),
+                        'jackpotPool' => round($this->num($progressiveState['jackpotPool'] ?? self::JURASSIC_RUN_DEFAULT_JACKPOT)),
+                        'progressive' => [
+                            'jackpotContributionPercent' => self::JURASSIC_RUN_JACKPOT_FEE_PERCENT,
+                            'totalRounds' => (int) ($progressiveState['totalRounds'] ?? 0),
+                            'paidRounds' => (int) ($progressiveState['paidRounds'] ?? 0),
+                            'freeSpinRounds' => (int) ($progressiveState['freeSpinRounds'] ?? 0),
+                            'totalWagered' => round($this->num($progressiveState['totalWagered'] ?? 0)),
+                            'totalPaidOut' => round($this->num($progressiveState['totalPaidOut'] ?? 0)),
+                            'totalFreeSpinsAwarded' => (int) ($progressiveState['totalFreeSpinsAwarded'] ?? 0),
+                            'totalJackpotsHit' => (int) ($progressiveState['totalJackpotsHit'] ?? 0),
+                        ],
+                        'gameConfig' => self::jurassicRunPublicMetadata(),
                     ],
                 ]);
                 return;
@@ -834,6 +871,31 @@ final class CasinoController
             );
         }
 
+        $jurassicGame = $this->db->findOne('casinogames', ['slug' => self::JURASSIC_RUN_GAME_SLUG]);
+        if ($jurassicGame !== null) {
+            $existingMetadata = is_array($jurassicGame['metadata'] ?? null) ? $jurassicGame['metadata'] : [];
+            $nextMetadata = array_replace_recursive($existingMetadata, self::jurassicRunPublicMetadata());
+            $jurassicUpdates = [
+                'updatedAt' => $now,
+            ];
+            if (!is_numeric($jurassicGame['rtp'] ?? null)) {
+                $jurassicUpdates['rtp'] = self::JURASSIC_RUN_DISCLOSED_RTP;
+            }
+            if (!is_string($jurassicGame['volatility'] ?? null) || trim((string) ($jurassicGame['volatility'] ?? '')) === '') {
+                $jurassicUpdates['volatility'] = self::JURASSIC_RUN_VOLATILITY;
+            }
+            if ($nextMetadata !== $existingMetadata) {
+                $jurassicUpdates['metadata'] = $nextMetadata;
+            }
+            if (count($jurassicUpdates) > 1) {
+                $this->db->updateOne(
+                    'casinogames',
+                    ['_id' => MongoRepository::id((string) $jurassicGame['_id'])],
+                    $jurassicUpdates
+                );
+            }
+        }
+
         foreach (self::DEFAULT_CASINO_GAMES as $idx => $game) {
             $slug = (string) ($game['slug'] ?? ('game-' . ($idx + 1)));
             $existing = $this->db->findOne('casinogames', ['slug' => $slug]);
@@ -860,7 +922,7 @@ final class CasinoController
                 'sortOrder' => $idx + 1,
                 'status' => 'active',
                 'supportsDemo' => true,
-                'metadata' => new stdClass(),
+                'metadata' => is_array($game['metadata'] ?? null) ? $game['metadata'] : new stdClass(),
                 'createdAt' => $now,
                 'updatedAt' => $now,
             ]);
@@ -899,6 +961,7 @@ final class CasinoController
             'maxBet' => $game['maxBet'] ?? null,
             'rtp' => $game['rtp'] ?? null,
             'volatility' => $game['volatility'] ?? null,
+            'metadata' => is_array($game['metadata'] ?? null) ? $game['metadata'] : new stdClass(),
             'tags' => is_array($game['tags'] ?? null) ? $game['tags'] : [],
             'isFeatured' => (bool) ($game['isFeatured'] ?? false),
             'status' => $game['status'] ?? null,
@@ -3400,12 +3463,14 @@ final class CasinoController
                     return;
                 }
 
+                $progressiveStateBefore = $this->loadJurassicRunProgressiveStateForUpdate();
                 $stateBefore = $this->getUserJurassicRunState($lockedUser);
                 $isFreeSpinRound = ($stateBefore['freeSpinsRemaining'] ?? 0) > 0;
                 $betId = $isFreeSpinRound && is_int($stateBefore['lockedBetId'] ?? null)
                     ? (int) $stateBefore['lockedBetId']
                     : $this->resolveJurassicRunBetId($requestedBetId, $betLimits);
                 $bet = $this->jurassicRunBetAmountForId($betId);
+                $lineBet = round($bet / self::JURASSIC_RUN_FIXED_PAYLINES);
                 $totalWager = $isFreeSpinRound ? 0.0 : $bet;
 
                 if (!$isFreeSpinRound) {
@@ -3432,7 +3497,7 @@ final class CasinoController
                 }
 
                 $roundId = $this->deterministicRoundId(self::JURASSIC_RUN_GAME_SLUG, $userId, $requestId);
-                $settlement = $this->settleJurassicRunSpin($bet, $betId, $stateBefore);
+                $settlement = $this->settleJurassicRunSpin($bet, $betId, $stateBefore, $progressiveStateBefore);
                 $totalReturn = round($this->num($settlement['totalReturn'] ?? 0));
                 $netResult = round($totalReturn - $totalWager);
                 $profit = round(max(0, $netResult));
@@ -3440,6 +3505,7 @@ final class CasinoController
                 $resultType = (string) ($settlement['resultType'] ?? '');
                 $roundData = is_array($settlement['roundData'] ?? null) ? $settlement['roundData'] : [];
                 $stateAfter = is_array($settlement['stateAfter'] ?? null) ? $settlement['stateAfter'] : [];
+                $progressiveStateAfter = is_array($settlement['progressiveStateAfter'] ?? null) ? $settlement['progressiveStateAfter'] : $progressiveStateBefore;
 
                 $now = MongoRepository::nowUtc();
                 $ipAddress = IpUtils::clientIp();
@@ -3493,12 +3559,25 @@ final class CasinoController
                 $stateAfter['updatedAt'] = $now;
                 $stateAfter['lastRoundId'] = $roundId;
                 $stateAfter['lastSpinAt'] = $now;
+                $stateAfter = $this->buildJurassicRunUserStateAfter(
+                    $stateBefore,
+                    $stateAfter,
+                    $betId,
+                    $bet,
+                    $totalWager,
+                    $totalReturn,
+                    $resultType,
+                    (bool) ($roundData['jackpotWon'] ?? false),
+                    (int) ($roundData['freeSpinsAwarded'] ?? 0)
+                );
+                $progressiveStateAfter['updatedAt'] = $now;
 
                 $this->db->updateOne('users', ['_id' => MongoRepository::id($userId)], [
                     'balance' => $balanceAfter,
                     'casinoJurassicRunState' => $stateAfter,
                     'updatedAt' => $now,
                 ]);
+                $this->db->updateOne('casino_game_state', ['_id' => self::JURASSIC_RUN_GAME_SLUG], $progressiveStateAfter);
 
                 $serverDecisionAt = MongoRepository::nowUtc();
                 $latencyMs = max(0, (int) round((microtime(true) - $startedAt) * 1000));
@@ -3519,6 +3598,8 @@ final class CasinoController
                     'winningLines' => $roundData['winningLines'] ?? [],
                     'freeSpinsBefore' => $roundData['freeSpinsBefore'] ?? 0,
                     'freeSpinsAfter' => $roundData['freeSpinsAfter'] ?? 0,
+                    'activePaylines' => $roundData['activePaylines'] ?? self::JURASSIC_RUN_FIXED_PAYLINES,
+                    'lineBet' => $roundData['lineBet'] ?? $lineBet,
                     'jackpotBefore' => $roundData['jackpotBefore'] ?? 0,
                     'jackpotAfter' => $roundData['jackpotAfter'] ?? 0,
                     'jackpotPayout' => $roundData['jackpotPayout'] ?? 0,
@@ -3539,6 +3620,8 @@ final class CasinoController
                     'winningLines' => is_array($roundData['winningLines'] ?? null) ? $roundData['winningLines'] : [],
                     'slotWin' => round($this->num($roundData['slotWin'] ?? 0)),
                     'lineWin' => round($this->num($roundData['lineWin'] ?? 0)),
+                    'activePaylines' => (int) ($roundData['activePaylines'] ?? self::JURASSIC_RUN_FIXED_PAYLINES),
+                    'lineBet' => round($this->num($roundData['lineBet'] ?? $lineBet)),
                     'jackpotWon' => (bool) ($roundData['jackpotWon'] ?? false),
                     'jackpotPayout' => round($this->num($roundData['jackpotPayout'] ?? 0)),
                     'freeSpinsBefore' => (int) ($roundData['freeSpinsBefore'] ?? 0),
@@ -3558,6 +3641,8 @@ final class CasinoController
                     'bets' => [
                         'betId' => $betId,
                         'bet' => $bet,
+                        'lineBet' => $lineBet,
+                        'paylines' => self::JURASSIC_RUN_FIXED_PAYLINES,
                         'clientRequestedBetId' => $requestedBetId,
                         'clientDeclaredBet' => $declaredBet,
                         'isFreeSpinRound' => $isFreeSpinRound,
@@ -3623,16 +3708,19 @@ final class CasinoController
                     'username' => (string) ($lockedUser['username'] ?? ''),
                     'betId' => $betId,
                     'bet' => $bet,
+                    'lineBet' => $lineBet,
                     'isFreeSpinRound' => $isFreeSpinRound,
                     'wager' => $totalWager,
                     'totalReturn' => $totalReturn,
                     'netResult' => $netResult,
                     'balanceBefore' => $balanceSnapshot['balanceBefore'],
                     'balanceAfter' => $balanceAfter,
+                    'activePaylines' => self::JURASSIC_RUN_FIXED_PAYLINES,
                     'freeSpinsBefore' => (int) ($roundData['freeSpinsBefore'] ?? 0),
                     'freeSpinsAfter' => (int) ($roundData['freeSpinsAfter'] ?? 0),
                     'jackpotWon' => (bool) ($roundData['jackpotWon'] ?? false),
                     'jackpotPayout' => round($this->num($roundData['jackpotPayout'] ?? 0)),
+                    'progressiveJackpotAfter' => round($this->num($progressiveStateAfter['jackpotPool'] ?? 0)),
                 ]);
                 Response::json($this->formatCasinoBetResponse($betRecord, $ledgerEntries, false));
             } catch (Throwable $txErr) {
@@ -3660,7 +3748,23 @@ final class CasinoController
      * @return array{
      *   freeSpinsRemaining:int,
      *   lockedBetId:?int,
-     *   jackpotPool:float
+     *   activePaylines:int,
+     *   lastBetId:?int,
+     *   lastBet:float,
+     *   lastLineBet:float,
+     *   totalRounds:int,
+     *   paidRounds:int,
+     *   freeSpinRounds:int,
+     *   totalWagered:float,
+     *   totalPaidOut:float,
+     *   totalFreeSpinsAwarded:int,
+     *   jackpotsWon:int,
+     *   lastTotalWager:float,
+     *   lastTotalReturn:float,
+     *   lastNetResult:float,
+     *   lastResultType:string,
+     *   activeMultiplier:float,
+     *   bonusRoundActive:bool
      * }
      */
     private function getUserJurassicRunState(array $user): array
@@ -3685,16 +3789,162 @@ final class CasinoController
             $lockedBetId = null;
         }
 
-        $jackpotRaw = $this->safeNumber($raw['jackpotPool'] ?? null, null);
-        $jackpotPool = $jackpotRaw === null
-            ? self::JURASSIC_RUN_DEFAULT_JACKPOT
-            : round(max(0, $jackpotRaw));
+        $lastBetId = null;
+        $lastBetIdRaw = $this->safeNumber($raw['lastBetId'] ?? null, null);
+        if ($lastBetIdRaw !== null) {
+            $candidateBetId = (int) round($lastBetIdRaw);
+            if (
+                abs($lastBetIdRaw - $candidateBetId) <= 0.00001
+                && $candidateBetId >= 0
+                && $candidateBetId < count(self::JURASSIC_RUN_ALLOWED_BETS)
+            ) {
+                $lastBetId = $candidateBetId;
+            }
+        }
 
         return [
             'freeSpinsRemaining' => $freeSpinsRemaining,
             'lockedBetId' => $lockedBetId,
-            'jackpotPool' => $jackpotPool,
+            'activePaylines' => self::JURASSIC_RUN_FIXED_PAYLINES,
+            'lastBetId' => $lastBetId,
+            'lastBet' => round(max(0, $this->num($raw['lastBet'] ?? 0))),
+            'lastLineBet' => round(max(0, $this->num($raw['lastLineBet'] ?? 0))),
+            'totalRounds' => max(0, (int) round($this->num($raw['totalRounds'] ?? 0))),
+            'paidRounds' => max(0, (int) round($this->num($raw['paidRounds'] ?? 0))),
+            'freeSpinRounds' => max(0, (int) round($this->num($raw['freeSpinRounds'] ?? 0))),
+            'totalWagered' => round(max(0, $this->num($raw['totalWagered'] ?? 0))),
+            'totalPaidOut' => round(max(0, $this->num($raw['totalPaidOut'] ?? 0))),
+            'totalFreeSpinsAwarded' => max(0, (int) round($this->num($raw['totalFreeSpinsAwarded'] ?? 0))),
+            'jackpotsWon' => max(0, (int) round($this->num($raw['jackpotsWon'] ?? 0))),
+            'lastTotalWager' => round(max(0, $this->num($raw['lastTotalWager'] ?? 0))),
+            'lastTotalReturn' => round(max(0, $this->num($raw['lastTotalReturn'] ?? 0))),
+            'lastNetResult' => round($this->num($raw['lastNetResult'] ?? 0)),
+            'lastResultType' => trim((string) ($raw['lastResultType'] ?? '')),
+            'activeMultiplier' => 1.0,
+            'bonusRoundActive' => $freeSpinsRemaining > 0,
         ];
+    }
+
+    /**
+     * @return array{
+     *   jackpotPool:float,
+     *   totalRounds:int,
+     *   paidRounds:int,
+     *   freeSpinRounds:int,
+     *   totalWagered:float,
+     *   totalPaidOut:float,
+     *   totalFreeSpinsAwarded:int,
+     *   totalJackpotsHit:int
+     * }
+     */
+    private function getJurassicRunProgressiveState(): array
+    {
+        $doc = $this->db->findOne('casino_game_state', ['_id' => self::JURASSIC_RUN_GAME_SLUG]);
+        return $this->normalizeJurassicRunProgressiveState($doc);
+    }
+
+    /**
+     * @return array{
+     *   jackpotPool:float,
+     *   totalRounds:int,
+     *   paidRounds:int,
+     *   freeSpinRounds:int,
+     *   totalWagered:float,
+     *   totalPaidOut:float,
+     *   totalFreeSpinsAwarded:int,
+     *   totalJackpotsHit:int
+     * }
+     */
+    private function loadJurassicRunProgressiveStateForUpdate(): array
+    {
+        $doc = $this->db->findOneForUpdate('casino_game_state', ['_id' => self::JURASSIC_RUN_GAME_SLUG]);
+        if ($doc === null) {
+            $now = MongoRepository::nowUtc();
+            $this->db->insertOne('casino_game_state', [
+                '_id' => self::JURASSIC_RUN_GAME_SLUG,
+                'game' => self::JURASSIC_RUN_GAME_SLUG,
+                'jackpotPool' => self::JURASSIC_RUN_DEFAULT_JACKPOT,
+                'totalRounds' => 0,
+                'paidRounds' => 0,
+                'freeSpinRounds' => 0,
+                'totalWagered' => 0,
+                'totalPaidOut' => 0,
+                'totalFreeSpinsAwarded' => 0,
+                'totalJackpotsHit' => 0,
+                'createdAt' => $now,
+                'updatedAt' => $now,
+            ]);
+            $doc = $this->db->findOneForUpdate('casino_game_state', ['_id' => self::JURASSIC_RUN_GAME_SLUG]);
+        }
+
+        return $this->normalizeJurassicRunProgressiveState($doc);
+    }
+
+    /**
+     * @param ?array<string, mixed> $doc
+     * @return array{
+     *   jackpotPool:float,
+     *   totalRounds:int,
+     *   paidRounds:int,
+     *   freeSpinRounds:int,
+     *   totalWagered:float,
+     *   totalPaidOut:float,
+     *   totalFreeSpinsAwarded:int,
+     *   totalJackpotsHit:int
+     * }
+     */
+    private function normalizeJurassicRunProgressiveState(?array $doc): array
+    {
+        $raw = is_array($doc) ? $doc : [];
+
+        return [
+            'jackpotPool' => round(max(0, $this->num($raw['jackpotPool'] ?? self::JURASSIC_RUN_DEFAULT_JACKPOT))),
+            'totalRounds' => max(0, (int) round($this->num($raw['totalRounds'] ?? 0))),
+            'paidRounds' => max(0, (int) round($this->num($raw['paidRounds'] ?? 0))),
+            'freeSpinRounds' => max(0, (int) round($this->num($raw['freeSpinRounds'] ?? 0))),
+            'totalWagered' => round(max(0, $this->num($raw['totalWagered'] ?? 0))),
+            'totalPaidOut' => round(max(0, $this->num($raw['totalPaidOut'] ?? 0))),
+            'totalFreeSpinsAwarded' => max(0, (int) round($this->num($raw['totalFreeSpinsAwarded'] ?? 0))),
+            'totalJackpotsHit' => max(0, (int) round($this->num($raw['totalJackpotsHit'] ?? 0))),
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $stateBefore
+     * @param array<string, mixed> $stateAfter
+     * @return array<string, mixed>
+     */
+    private function buildJurassicRunUserStateAfter(
+        array $stateBefore,
+        array $stateAfter,
+        int $betId,
+        float $bet,
+        float $totalWager,
+        float $totalReturn,
+        string $resultType,
+        bool $jackpotWon,
+        int $freeSpinsAwarded
+    ): array {
+        $nextState = $stateAfter;
+        $nextState['activePaylines'] = self::JURASSIC_RUN_FIXED_PAYLINES;
+        $nextState['lastBetId'] = $betId;
+        $nextState['lastBet'] = round($bet);
+        $nextState['lastLineBet'] = round($bet / self::JURASSIC_RUN_FIXED_PAYLINES);
+        $nextState['totalRounds'] = max(0, (int) ($stateBefore['totalRounds'] ?? 0)) + 1;
+        $nextState['paidRounds'] = max(0, (int) ($stateBefore['paidRounds'] ?? 0)) + ($totalWager > 0 ? 1 : 0);
+        $nextState['freeSpinRounds'] = max(0, (int) ($stateBefore['freeSpinRounds'] ?? 0)) + ($totalWager <= 0 ? 1 : 0);
+        $nextState['totalWagered'] = round($this->num($stateBefore['totalWagered'] ?? 0) + $totalWager);
+        $nextState['totalPaidOut'] = round($this->num($stateBefore['totalPaidOut'] ?? 0) + $totalReturn);
+        $nextState['totalFreeSpinsAwarded'] = max(0, (int) ($stateBefore['totalFreeSpinsAwarded'] ?? 0)) + max(0, $freeSpinsAwarded);
+        $nextState['jackpotsWon'] = max(0, (int) ($stateBefore['jackpotsWon'] ?? 0)) + ($jackpotWon ? 1 : 0);
+        $nextState['lastTotalWager'] = round($totalWager);
+        $nextState['lastTotalReturn'] = round($totalReturn);
+        $nextState['lastNetResult'] = round($totalReturn - $totalWager);
+        $nextState['lastResultType'] = $resultType;
+        $nextState['activeMultiplier'] = 1;
+        $nextState['bonusRoundActive'] = ((int) ($nextState['freeSpinsRemaining'] ?? 0)) > 0;
+
+        return $nextState;
     }
 
     private function parseJurassicRunBetId(mixed $value): int
@@ -3726,6 +3976,7 @@ final class CasinoController
      *   gameMaxBet:float,
      *   effectiveMinBet:float,
      *   effectiveMaxBet:float,
+     *   paylines:int,
      *   allowedBetIds: array<int, int>,
      *   allowedBets: array<int, float>
      * }
@@ -3756,6 +4007,7 @@ final class CasinoController
             'gameMaxBet' => round($gameMaxBet),
             'effectiveMinBet' => round($effectiveMinBet),
             'effectiveMaxBet' => round($effectiveMaxBet),
+            'paylines' => self::JURASSIC_RUN_FIXED_PAYLINES,
             'allowedBetIds' => $allowedBetIds,
             'allowedBets' => $allowedBets,
         ];
@@ -3764,25 +4016,34 @@ final class CasinoController
     /**
      * @param array{
      *   freeSpinsRemaining:int,
-     *   lockedBetId:?int,
-     *   jackpotPool:float
+     *   lockedBetId:?int
      * } $stateBefore
+     * @param array{
+     *   jackpotPool:float,
+     *   totalRounds:int,
+     *   paidRounds:int,
+     *   freeSpinRounds:int,
+     *   totalWagered:float,
+     *   totalPaidOut:float,
+     *   totalFreeSpinsAwarded:int,
+     *   totalJackpotsHit:int
+     * } $progressiveStateBefore
      * @return array{
      *   totalReturn: float,
      *   result: string,
      *   resultType: string,
      *   roundData: array<string, mixed>,
-     *   stateAfter: array<string, mixed>
+     *   stateAfter: array<string, mixed>,
+     *   progressiveStateAfter: array<string, mixed>
      * }
      */
-    private function settleJurassicRunSpin(float $bet, int $betId, array $stateBefore): array
+    private function settleJurassicRunSpin(float $bet, int $betId, array $stateBefore, array $progressiveStateBefore): array
     {
         $freeSpinsBefore = max(0, (int) ($stateBefore['freeSpinsRemaining'] ?? 0));
         $isFreeSpinRound = $freeSpinsBefore > 0;
         $freeSpinsAfter = $isFreeSpinRound ? ($freeSpinsBefore - 1) : $freeSpinsBefore;
 
-        $jackpotStored = $this->safeNumber($stateBefore['jackpotPool'] ?? null, self::JURASSIC_RUN_DEFAULT_JACKPOT);
-        $jackpotStartingPool = round(max(0, $jackpotStored ?? self::JURASSIC_RUN_DEFAULT_JACKPOT));
+        $jackpotStartingPool = round(max(0, $this->num($progressiveStateBefore['jackpotPool'] ?? self::JURASSIC_RUN_DEFAULT_JACKPOT)));
         $jackpotContribution = $isFreeSpinRound ? 0.0 : round(($bet * self::JURASSIC_RUN_JACKPOT_FEE_PERCENT) / 100);
         $jackpotBefore = round($jackpotStartingPool + $jackpotContribution);
 
@@ -3811,6 +4072,8 @@ final class CasinoController
             'betId' => $betId,
             'bet' => $bet,
             'totalBet' => $bet,
+            'activePaylines' => self::JURASSIC_RUN_FIXED_PAYLINES,
+            'lineBet' => round($bet / self::JURASSIC_RUN_FIXED_PAYLINES),
             'isFreeSpinRound' => $isFreeSpinRound,
             'freeSpinsBefore' => $freeSpinsBefore,
             'freeSpinsWon' => $freeSpinsWon,
@@ -3824,15 +4087,36 @@ final class CasinoController
             'slotWin' => $slotWin,
             'lineWin' => $slotWin,
             'totalWin' => $totalReturn,
+            'paytableMultiplierScale' => self::JURASSIC_RUN_PAYOUT_SCALE,
             'symbols' => $symbols,
             'winningLines' => is_array($winningData['winningLines'] ?? null) ? $winningData['winningLines'] : [],
             'win_lines' => is_array($winningData['winningLines'] ?? null) ? $winningData['winningLines'] : [],
+            'stateBefore' => json_encode([
+                'freeSpinsRemaining' => $freeSpinsBefore,
+                'lockedBetId' => $stateBefore['lockedBetId'] ?? null,
+                'jackpotPool' => $jackpotStartingPool,
+            ], JSON_UNESCAPED_SLASHES) ?: '',
+            'stateAfter' => json_encode([
+                'freeSpinsRemaining' => $freeSpinsAfter,
+                'lockedBetId' => $freeSpinsAfter > 0 ? $betId : null,
+                'jackpotPool' => $jackpotAfter,
+            ], JSON_UNESCAPED_SLASHES) ?: '',
         ];
 
         $stateAfter = [
             'freeSpinsRemaining' => $freeSpinsAfter,
             'lockedBetId' => $freeSpinsAfter > 0 ? $betId : null,
+        ];
+
+        $progressiveStateAfter = [
             'jackpotPool' => $jackpotAfter,
+            'totalRounds' => max(0, (int) ($progressiveStateBefore['totalRounds'] ?? 0)) + 1,
+            'paidRounds' => max(0, (int) ($progressiveStateBefore['paidRounds'] ?? 0)) + ($isFreeSpinRound ? 0 : 1),
+            'freeSpinRounds' => max(0, (int) ($progressiveStateBefore['freeSpinRounds'] ?? 0)) + ($isFreeSpinRound ? 1 : 0),
+            'totalWagered' => round($this->num($progressiveStateBefore['totalWagered'] ?? 0) + ($isFreeSpinRound ? 0 : $bet)),
+            'totalPaidOut' => round($this->num($progressiveStateBefore['totalPaidOut'] ?? 0) + $totalReturn),
+            'totalFreeSpinsAwarded' => max(0, (int) ($progressiveStateBefore['totalFreeSpinsAwarded'] ?? 0)) + $freeSpinsWon,
+            'totalJackpotsHit' => max(0, (int) ($progressiveStateBefore['totalJackpotsHit'] ?? 0)) + ($jackpotWon ? 1 : 0),
         ];
 
         return [
@@ -3841,6 +4125,7 @@ final class CasinoController
             'resultType' => $resultType,
             'roundData' => $roundData,
             'stateAfter' => $stateAfter,
+            'progressiveStateAfter' => $progressiveStateAfter,
         ];
     }
 
@@ -3964,7 +4249,7 @@ final class CasinoController
             }
 
             if ($firstSymbol === 'FreeSpin') {
-                $freeSpinAward = (int) (self::JURASSIC_RUN_PAYOUT_MULTIPLIERS['FreeSpin'][$count] ?? 0);
+                $freeSpinAward = (int) (self::JURASSIC_RUN_FREE_SPIN_AWARDS[$count] ?? 0);
                 $freeSpinsWon += $freeSpinAward;
                 $winningLines[] = [
                     'line' => $lineIndex,
@@ -3981,7 +4266,7 @@ final class CasinoController
                 continue;
             }
 
-            $win = round(($symbolMultipliers[$count] ?? 0) * $bet);
+            $win = round(($this->jurassicRunScaledPayoutMultiplier($firstSymbol, $count) ?? 0) * $bet);
             if ($win <= 0) {
                 continue;
             }
@@ -4001,6 +4286,38 @@ final class CasinoController
             'winningLines' => $winningLines,
             'freeSpinsWon' => $freeSpinsWon,
             'jackpotWon' => $jackpotWon,
+        ];
+    }
+
+    private function jurassicRunScaledPayoutMultiplier(string $symbol, int $count): float
+    {
+        $baseMultipliers = self::JURASSIC_RUN_PAYOUT_MULTIPLIERS[$symbol] ?? null;
+        if (!is_array($baseMultipliers)) {
+            return 0.0;
+        }
+
+        return $this->num($baseMultipliers[$count] ?? 0) * self::JURASSIC_RUN_PAYOUT_SCALE;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private static function jurassicRunPublicMetadata(): array
+    {
+        return [
+            'paylines' => self::JURASSIC_RUN_FIXED_PAYLINES,
+            'reels' => 5,
+            'rows' => 3,
+            'rtp' => self::JURASSIC_RUN_DISCLOSED_RTP,
+            'volatility' => self::JURASSIC_RUN_VOLATILITY,
+            'jackpotType' => 'progressive',
+            'jackpotContributionPercent' => self::JURASSIC_RUN_JACKPOT_FEE_PERCENT,
+            'freeSpinAwards' => self::JURASSIC_RUN_FREE_SPIN_AWARDS,
+            'outcomeSource' => 'server_rng',
+            'rngVersion' => self::JURASSIC_RUN_RNG_VERSION,
+            'payoutScale' => self::JURASSIC_RUN_PAYOUT_SCALE,
+            'spinIndependence' => true,
+            'features' => ['wild', 'free_spins', 'progressive_jackpot'],
         ];
     }
 
@@ -8879,6 +9196,7 @@ final class CasinoController
                 'maxBet' => is_numeric($game['maxBet'] ?? null) ? (float) $game['maxBet'] : 100.0,
                 'rtp' => isset($game['rtp']) && is_numeric($game['rtp']) ? (float) $game['rtp'] : null,
                 'volatility' => $game['volatility'] ?? null,
+                'metadata' => is_array($game['metadata'] ?? null) ? $game['metadata'] : new stdClass(),
                 'tags' => is_array($game['tags'] ?? null) ? $game['tags'] : [str_replace('_', ' ', (string) ($game['category'] ?? 'lobby')), 'live casino'],
                 'isFeatured' => (bool) ($game['isFeatured'] ?? false),
                 'status' => 'active',
@@ -8907,6 +9225,7 @@ final class CasinoController
             'maxBet' => $game['maxBet'] ?? null,
             'rtp' => $game['rtp'] ?? null,
             'volatility' => $game['volatility'] ?? null,
+            'metadata' => is_array($game['metadata'] ?? null) ? $game['metadata'] : new stdClass(),
             'tags' => is_array($game['tags'] ?? null) ? $game['tags'] : [],
             'isFeatured' => (bool) ($game['isFeatured'] ?? false),
             'status' => $game['status'] ?? null,

@@ -355,6 +355,116 @@
     padding-bottom: 4px;
 }
 
+.casino-feature-poster {
+    position: relative;
+    width: calc(100% - 32px);
+    margin: 16px 16px 0;
+    min-height: 240px;
+    border: 1px solid rgba(22, 101, 52, 0.2);
+    border-radius: 18px;
+    overflow: hidden;
+    background-position: center;
+    background-size: cover;
+    background-repeat: no-repeat;
+    display: block;
+    text-align: left;
+    cursor: pointer;
+    box-shadow: 0 18px 36px rgba(9, 37, 19, 0.12);
+}
+
+.casino-feature-poster-overlay {
+    position: absolute;
+    inset: 0;
+    background:
+        linear-gradient(90deg, rgba(6, 24, 11, 0.9) 0%, rgba(6, 24, 11, 0.78) 44%, rgba(6, 24, 11, 0.42) 100%),
+        linear-gradient(180deg, rgba(116, 156, 58, 0.16) 0%, rgba(0, 0, 0, 0) 100%);
+}
+
+.casino-feature-poster-content {
+    position: relative;
+    z-index: 1;
+    min-height: 240px;
+    padding: 26px 28px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: flex-end;
+    gap: 10px;
+    max-width: 520px;
+}
+
+.casino-feature-kicker {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 10px;
+    border-radius: 999px;
+    background: rgba(163, 230, 53, 0.16);
+    border: 1px solid rgba(163, 230, 53, 0.28);
+    color: #d9f99d;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+}
+
+.casino-feature-title {
+    color: #ffffff;
+    font-size: 34px;
+    font-weight: 900;
+    line-height: 1;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    text-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
+}
+
+.casino-feature-copy {
+    color: rgba(240, 253, 244, 0.88);
+    font-size: 15px;
+    font-weight: 600;
+    line-height: 1.45;
+}
+
+.casino-feature-meta {
+    color: rgba(217, 249, 157, 0.9);
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.casino-feature-cta {
+    margin-top: 4px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 11px 16px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, #bef264 0%, #84cc16 100%);
+    color: #20320a;
+    font-size: 13px;
+    font-weight: 900;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    box-shadow: 0 12px 24px rgba(132, 204, 22, 0.2);
+}
+
+.casino-feature-poster:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 24px 42px rgba(9, 37, 19, 0.18);
+}
+
+.casino-feature-poster.is-disabled {
+    cursor: not-allowed;
+    filter: saturate(0.8);
+    opacity: 0.8;
+}
+
+.casino-feature-poster.is-disabled .casino-feature-cta {
+    background: rgba(255, 255, 255, 0.14);
+    color: rgba(255, 255, 255, 0.72);
+    box-shadow: none;
+}
+
 .casino-local-header {
     display: flex;
     align-items: center;
@@ -425,6 +535,27 @@
     background: #fff8e1;
     border-color: #e2c978;
     color: #8b6b15;
+}
+
+@media (max-width: 768px) {
+    .casino-feature-poster {
+        width: calc(100% - 20px);
+        margin: 10px 10px 0;
+        min-height: 210px;
+    }
+
+    .casino-feature-poster-content {
+        min-height: 210px;
+        padding: 18px 18px 20px;
+    }
+
+    .casino-feature-title {
+        font-size: 24px;
+    }
+
+    .casino-feature-copy {
+        font-size: 13px;
+    }
 }
 
 .casino-play-btn.local {
@@ -705,6 +836,14 @@
     box-shadow: 0 0 24px rgba(34, 197, 94, 0.25);
 }
 
+.game-launch-logo {
+    width: 280px;
+    height: auto;
+    max-height: 112px;
+    object-fit: contain;
+    filter: drop-shadow(0 0 18px rgba(34, 197, 94, 0.5));
+}
+
 .game-launch-title {
     font-size: 28px;
     font-weight: 900;
@@ -715,11 +854,127 @@
     text-transform: uppercase;
 }
 
+/* ── Game loading indicator ───────────────────────────────── */
+.game-loading-indicator {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 16px;
+    background: rgba(0, 0, 0, 0.45);
+    border-radius: 999px;
+    border: 1px solid rgba(34, 197, 94, 0.25);
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+}
+
+.game-loading-spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(34, 197, 94, 0.3);
+    border-top-color: #22c55e;
+    border-radius: 50%;
+    animation: spinnerRotate 0.7s linear infinite;
+    flex-shrink: 0;
+}
+
+@keyframes spinnerRotate {
+    to { transform: rotate(360deg); }
+}
+
+.game-load-error {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 16px;
+    background: rgba(220, 38, 38, 0.2);
+    border-radius: 999px;
+    border: 1px solid rgba(220, 38, 38, 0.4);
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.game-load-retry-btn {
+    padding: 4px 12px;
+    background: rgba(220, 38, 38, 0.5);
+    border: 1px solid rgba(220, 38, 38, 0.6);
+    border-radius: 999px;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.game-load-retry-btn:hover {
+    background: rgba(220, 38, 38, 0.75);
+}
+
+/* ── Full-screen game loading overlay ─────────────────────── */
+.game-fullscreen-loading {
+    position: absolute;
+    inset: 0;
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    background: rgba(5, 15, 5, 0.92);
+    backdrop-filter: blur(4px);
+}
+
+.game-fullscreen-loading--error {
+    background: rgba(20, 5, 5, 0.92);
+}
+
+.game-fullscreen-loading-logo {
+    width: 260px;
+    max-width: 70vw;
+    filter: drop-shadow(0 0 18px rgba(34, 197, 94, 0.5));
+}
+
+.game-loading-spinner--lg {
+    width: 44px;
+    height: 44px;
+    border-width: 4px;
+}
+
+.game-fullscreen-loading-text {
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    margin: 0;
+}
+
 .game-launch-provider {
     font-size: 12px;
     font-weight: 600;
     color: rgba(255, 255, 255, 0.45);
     letter-spacing: 0.12em;
+    text-transform: uppercase;
+}
+
+.game-launch-facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: center;
+    max-width: 420px;
+}
+
+.game-launch-fact {
+    padding: 8px 12px;
+    border-radius: 999px;
+    border: 1px solid rgba(163, 230, 53, 0.24);
+    background: rgba(8, 28, 12, 0.58);
+    color: rgba(236, 253, 245, 0.82);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
     text-transform: uppercase;
 }
 
@@ -799,7 +1054,10 @@
 @media (max-width: 768px) {
     .game-launch-title { font-size: 22px; }
     .game-launch-poster { width: 110px; height: 70px; }
+    .game-launch-logo { width: 200px; }
     .game-launch-content { gap: 20px; padding: 24px 16px; }
+    .game-launch-facts { gap: 8px; }
+    .game-launch-fact { font-size: 11px; padding: 7px 10px; }
     .game-launch-btn { font-size: 14px; padding: 14px 20px; }
     .game-bet-chip--lg { padding: 8px 14px; font-size: 13px; min-width: 50px; }
 }

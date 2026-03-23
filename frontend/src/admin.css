@@ -4677,6 +4677,17 @@
   color: #fa5252;
 }
 
+.node-pct-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  background: #eff6ff;
+  color: #2563eb;
+  border: 1px solid #bfdbfe;
+  border-radius: 4px;
+  padding: 1px 5px;
+  letter-spacing: 0.02em;
+}
+
 .dead-tag {
   font-size: 0.65rem;
   background: #ffe3e3;
@@ -5630,3 +5641,219 @@
     grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
   }
 }
+
+/* ─── Commission Tree Section ───────────────────────────────────────────────── */
+
+.commission-section {
+  padding: 0 0 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.commission-edit-card,
+.commission-tree-card {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 18px 20px;
+}
+
+.commission-card-title {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #64748b;
+  margin: 0 0 14px;
+}
+
+.commission-edit-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.commission-edit-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.commission-field-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.commission-input {
+  padding: 8px 12px;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  width: 130px;
+  color: #1e293b;
+  background: #f8fafc;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.commission-input:focus {
+  border-color: #3b82f6;
+  background: #fff;
+}
+
+/* Validity banner */
+.commission-validity-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+}
+.commission-validity-banner.valid {
+  background: #dcfce7;
+  color: #15803d;
+  border: 1px solid #bbf7d0;
+}
+.commission-validity-banner.invalid {
+  background: #fef2f2;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+}
+.commission-validity-icon {
+  font-weight: 800;
+  font-size: 15px;
+}
+.btn-text-sm {
+  background: none;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  font-weight: 600;
+  opacity: 0.8;
+}
+.btn-text-sm:hover { opacity: 1; }
+
+/* Chain tree */
+.commission-tree {
+  font-family: 'Courier New', monospace;
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.commission-tree-node {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 0;
+  border-bottom: 1px dashed #f1f5f9;
+}
+.commission-tree-node:last-child { border-bottom: none; }
+
+.commission-tree-connector { color: #94a3b8; }
+
+.commission-tree-username {
+  font-weight: 700;
+  color: #1e293b;
+  letter-spacing: 0.02em;
+  min-width: 100px;
+}
+
+.commission-tree-role {
+  font-size: 11px;
+  color: #64748b;
+  min-width: 90px;
+}
+
+.commission-tree-pct {
+  font-weight: 700;
+  color: #2563eb;
+  font-size: 14px;
+  margin-left: auto;
+}
+.commission-tree-pct.unset {
+  color: #ef4444;
+  font-weight: 500;
+  font-style: italic;
+}
+
+/* Tables */
+.commission-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.commission-table th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #64748b;
+  padding: 6px 10px;
+  border-bottom: 2px solid #e2e8f0;
+}
+.commission-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid #f1f5f9;
+  color: #1e293b;
+}
+.commission-table tr:last-child td { border-bottom: none; }
+
+.commission-username { font-weight: 700; letter-spacing: 0.02em; }
+.commission-amount { font-weight: 700; color: #15803d; }
+.commission-unset { color: #ef4444; font-style: italic; }
+
+.commission-total-row td {
+  background: #f8fafc;
+  border-top: 2px solid #e2e8f0;
+}
+
+/* Calculator */
+.commission-calc-hint {
+  font-size: 12px;
+  color: #64748b;
+  margin: 0 0 12px;
+}
+.commission-calc-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.calc-result { margin-top: 14px; }
+
+.commission-loading {
+  text-align: center;
+  color: #64748b;
+  padding: 24px;
+  font-size: 13px;
+}
+
+.status-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 20px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.status-badge.active { background: #dcfce7; color: #15803d; }
+.status-badge.inactive { background: #f1f5f9; color: #64748b; }
+
+@media (max-width: 540px) {
+  .commission-edit-row { flex-direction: column; align-items: flex-start; }
+  .commission-input { width: 100%; }
+  .commission-calc-row { flex-direction: column; align-items: flex-start; }
+}
+/* ─── End Commission Tree Section ────────────────────────────────────────────── */

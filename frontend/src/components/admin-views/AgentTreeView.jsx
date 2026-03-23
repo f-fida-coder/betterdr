@@ -197,6 +197,9 @@ function AgentTreeView({
                         )}
                         <span className="node-name">{node.username.toUpperCase()}</span>
                         <span className={`node-role-badge role-${roleClassName}`}>{roleLabel}</span>
+                        {node.agentPercent != null && (
+                          <span className="node-pct-badge">{node.agentPercent}%</span>
+                        )}
                         {isDead && <span className="dead-tag">DEAD</span>}
                     </div>
                     <button className="node-go-btn" onClick={() => onGo(nodeId, node.role)}>

@@ -594,10 +594,27 @@ final class AgentController
                 return;
             }
 
-            $agents = $this->db->findMany('agents', [
+            $rawAgents = $this->db->findMany('agents', [
                 'createdBy' => MongoRepository::id((string) $actor['_id']),
                 'createdByModel' => 'Agent',
             ], ['sort' => ['createdAt' => -1]]);
+
+            $agents = [];
+            foreach ($rawAgents as $a) {
+                $agents[] = [
+                    'id'            => (string) ($a['_id'] ?? ''),
+                    'username'      => $a['username'] ?? null,
+                    'phoneNumber'   => $a['phoneNumber'] ?? null,
+                    'fullName'      => $a['fullName'] ?? null,
+                    'role'          => $a['role'] ?? null,
+                    'status'        => $a['status'] ?? null,
+                    'balance'       => $this->num($a['balance'] ?? 0),
+                    'agentPercent'  => isset($a['agentPercent']) ? (float) $a['agentPercent'] : null,
+                    'playerRate'    => isset($a['playerRate']) ? (float) $a['playerRate'] : null,
+                    'parentAgentId' => isset($a['createdBy']) ? (string) $a['createdBy'] : null,
+                    'createdAt'     => $a['createdAt'] ?? null,
+                ];
+            }
 
             Response::json($agents);
         } catch (Throwable $e) {
@@ -694,6 +711,27 @@ final class AgentController
 
             $role = ((string) ($body['role'] ?? '') === 'master_agent') ? 'master_agent' : 'agent';
             $fullName = strtoupper(trim((string) ($body['fullName'] ?? $username)));
+
+            // Commission fields (optional, validated 0-100)
+            $agentPercent = null;
+            if (isset($body['agentPercent']) && is_numeric($body['agentPercent'])) {
+                $pct = (float) $body['agentPercent'];
+                if ($pct < 0 || $pct > 100) {
+                    Response::json(['message' => 'agentPercent must be between 0 and 100'], 400);
+                    return;
+                }
+                $agentPercent = round($pct, 4);
+            }
+            $playerRate = null;
+            if (isset($body['playerRate']) && is_numeric($body['playerRate'])) {
+                $rate = (float) $body['playerRate'];
+                if ($rate < 0 || $rate > 100) {
+                    Response::json(['message' => 'playerRate must be between 0 and 100'], 400);
+                    return;
+                }
+                $playerRate = round($rate, 4);
+            }
+
             $referrerObjectId = null;
             if ($referredByUserId !== '') {
                 if (preg_match('/^[a-f0-9]{24}$/i', $referredByUserId) !== 1) {
@@ -728,6 +766,8 @@ final class AgentController
                 'createdBy' => MongoRepository::id($resolvedParentAgentId),
                 'createdByModel' => 'Agent',
                 'referredByUserId' => $referrerObjectId,
+                'agentPercent' => $agentPercent,
+                'playerRate' => $playerRate,
                 'createdAt' => MongoRepository::nowUtc(),
                 'updatedAt' => MongoRepository::nowUtc(),
             ];

@@ -703,6 +703,8 @@ function CasinoBetsView() {
                       <>
                         <div className="casino-detail-row"><span>Bet Level</span><strong>{Number(selectedDetail?.roundData?.betId ?? selectedDetail?.bets?.betId ?? 0) + 1}</strong></div>
                         <div className="casino-detail-row"><span>Spin Bet</span><strong>{formatMoney(selectedDetail?.roundData?.bet ?? selectedDetail?.bets?.bet ?? selectedDetail?.totalWager ?? 0)}</strong></div>
+                        <div className="casino-detail-row"><span>Paylines</span><strong>{selectedDetail?.roundData?.activePaylines ?? selectedDetail?.bets?.paylines ?? '10'}</strong></div>
+                        <div className="casino-detail-row"><span>Line Bet</span><strong>{formatMoney(selectedDetail?.roundData?.lineBet ?? selectedDetail?.bets?.lineBet ?? 0)}</strong></div>
                         <div className="casino-detail-row"><span>Line Win</span><strong>{formatMoney(selectedDetail?.roundData?.lineWin ?? 0)}</strong></div>
                         <div className="casino-detail-row"><span>Jackpot Payout</span><strong>{formatMoney(selectedDetail?.roundData?.jackpotPayout ?? 0)}</strong></div>
                         <div className="casino-detail-row"><span>Jackpot Before</span><strong>{formatMoney(selectedDetail?.roundData?.jackpotBefore ?? 0)}</strong></div>

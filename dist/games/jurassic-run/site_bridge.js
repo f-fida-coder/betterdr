@@ -39,23 +39,27 @@
     };
 
     var GAME_CONFIG = {
-        gamefile: 'jurassic-giants',
-        game_name: 'Jurassic Giants',
+        gamefile: 'jurassic-run',
+        game_name: 'Jurassic Run',
         game_active: true,
         decimals: 0,
+        rtp: 95.0,
+        volatility: 'medium',
+        paylines: 10,
+        jackpot_contribution_percent: 5,
         allowed_bets: [10, 50, 100, 200, 400, 500, 1000, 2000, 5000],
         bet_starts: 0,
         symbols: ['1', '2', '3', '4', '5', '6', '7', '8', 'FreeSpin', 'Wild', 'JP'],
         payout_multipliers: {
-            sym_1: { c_3: 1, c_4: 2, c_5: 4 },
-            sym_2: { c_3: 2, c_4: 4, c_5: 8 },
-            sym_3: { c_3: 3, c_4: 6, c_5: 10 },
-            sym_4: { c_3: 4, c_4: 9, c_5: 15 },
-            sym_5: { c_3: 5, c_4: 15, c_5: 30 },
-            sym_6: { c_3: 10, c_4: 30, c_5: 50 },
-            sym_7: { c_3: 15, c_4: 45, c_5: 75 },
-            sym_8: { c_3: 20, c_4: 60, c_5: 100 },
-            sym_FreeSpin: { c_3: 10, c_4: 15, c_5: 25 }
+            sym_1: { c_3: 0.47, c_4: 0.94, c_5: 1.88 },
+            sym_2: { c_3: 0.94, c_4: 1.88, c_5: 3.76 },
+            sym_3: { c_3: 1.41, c_4: 2.82, c_5: 4.70 },
+            sym_4: { c_3: 1.88, c_4: 4.23, c_5: 7.05 },
+            sym_5: { c_3: 2.35, c_4: 7.05, c_5: 14.10 },
+            sym_6: { c_3: 4.70, c_4: 14.10, c_5: 23.50 },
+            sym_7: { c_3: 7.05, c_4: 21.15, c_5: 35.25 },
+            sym_8: { c_3: 9.40, c_4: 28.20, c_5: 47.00 },
+            sym_FreeSpin: { c_3: 2, c_4: 3, c_5: 4 }
         },
         winlines: [
             [0, 0, 0, 0, 0],
@@ -317,6 +321,31 @@
 
         if (String(data.type || '') === 'balanceUpdate') {
             syncBalancePayload(data);
+        }
+
+        if (String(data.type || '') === 'parentSetBet') {
+            var newBetId = parseInt(data.betId, 10);
+            if (isFinite(newBetId)) {
+                state.betId = normalizeBetId(newBetId);
+            }
+            if (typeof betUpdate === 'function') {
+                betUpdate(buildLoadPayload());
+            }
+            try {
+                window.parent.postMessage({
+                    type: 'betConfirmed',
+                    betId: state.betId,
+                    bet: getCurrentBet()
+                }, parentOrigin);
+            } catch (e) {}
+            return;
+        }
+
+        if (String(data.type || '') === 'parentTriggerSpin') {
+            if (!state.spinPending && typeof PressPlay === 'function') {
+                PressPlay();
+            }
+            return;
         }
 
         var requestId = String(data.requestId || '').trim();

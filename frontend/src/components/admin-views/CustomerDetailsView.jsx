@@ -10,7 +10,11 @@ import {
   updateUserByAdmin,
   updateUserByAgent,
   updateUserCredit,
-  impersonateUser
+  impersonateUser,
+  updateAgent,
+  getAgentCommissionChain,
+  calculateCommission,
+  validateCommissionChain,
 } from '../../api';
 import { formatTransactionType, isDebitTransaction } from '../../utils/transactionPresentation';
 import { resolveDepositFreeplayBonusPreview } from '../../utils/freeplayBonus';
@@ -447,6 +451,21 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
   const [impersonating, setImpersonating] = useState(false);
   const [impersonateError, setImpersonateError] = useState('');
 
+  // Commission / hierarchy state (agents only)
+  const [commissionChain, setCommissionChain] = useState(null);      // { upline, downlines, chainTotal, isValid }
+  const [commissionLoading, setCommissionLoading] = useState(false);
+  const [commissionError, setCommissionError] = useState('');
+  const [commissionSaving, setCommissionSaving] = useState(false);
+  const [commissionSaveError, setCommissionSaveError] = useState('');
+  const [commissionSaveSuccess, setCommissionSaveSuccess] = useState('');
+  const [agentPercentDraft, setAgentPercentDraft] = useState('');    // editable draft value
+  const [playerRateDraft, setPlayerRateDraft] = useState('');        // editable draft value
+  const [calcAmount, setCalcAmount] = useState('');                   // calculator input
+  const [calcResult, setCalcResult] = useState(null);                 // calculateCommission result
+  const [calcLoading, setCalcLoading] = useState(false);
+  const [calcError, setCalcError] = useState('');
+  const [validateResult, setValidateResult] = useState(null);         // validateCommissionChain result
+
   const quickMenuItems = [
     { id: 'basics', label: 'The Basics', icon: '🪪' },
     { id: 'transactions', label: 'Transactions', icon: '💳' },
@@ -454,6 +473,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
     { id: 'performance', label: 'Performance', icon: '📄' },
     { id: 'analysis', label: 'Analysis', icon: '📈' },
     { id: 'freeplays', label: 'Free Plays', icon: '🤲' },
+    { id: 'commission', label: 'Commission', icon: '🌿' },
     { id: 'dynamic-live', label: 'Dynamic Live', icon: '🖥️' },
     { id: 'live-casino', label: 'Live Casino', icon: '🎴' },
     { id: 'crash', label: 'Crash', icon: '🚀' },
@@ -510,6 +530,14 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
         setCustomer(normalizedUser);
         setStats(detailData?.stats || {});
         setAgents(Array.isArray(agentsData) ? agentsData : []);
+
+        // Pre-populate commission drafts for agent accounts
+        const userRole = String(user?.role || '').toLowerCase();
+        const userIsAgent = userRole === 'agent' || userRole === 'master_agent' || userRole === 'super_agent';
+        if (userIsAgent) {
+          setAgentPercentDraft(user?.agentPercent != null ? String(user.agentPercent) : '');
+          setPlayerRateDraft(user?.playerRate != null ? String(user.playerRate) : '');
+        }
         setForm({
           password: '',
           firstName: normalizedUser.firstName || '',
@@ -591,6 +619,96 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
 
     if (userId) fetchDetails();
   }, [role, userId]);
+
+  // Load commission chain when the 'commission' section is opened for an agent
+  const loadCommissionChain = async () => {
+    if (!userId) return;
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    try {
+      setCommissionLoading(true);
+      setCommissionError('');
+      const data = await getAgentCommissionChain(userId, token);
+      setCommissionChain(data);
+    } catch (err) {
+      setCommissionError(err.message || 'Failed to load commission chain');
+    } finally {
+      setCommissionLoading(false);
+    }
+  };
+
+  const handleSaveCommission = async () => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    const pct = parseFloat(agentPercentDraft);
+    const rate = parseFloat(playerRateDraft);
+    if (agentPercentDraft !== '' && (isNaN(pct) || pct < 0 || pct > 100)) {
+      setCommissionSaveError('Agent % must be a number between 0 and 100');
+      return;
+    }
+    if (playerRateDraft !== '' && (isNaN(rate) || rate < 0 || rate > 100)) {
+      setCommissionSaveError('Player Rate must be a number between 0 and 100');
+      return;
+    }
+    try {
+      setCommissionSaving(true);
+      setCommissionSaveError('');
+      setCommissionSaveSuccess('');
+      const payload = {};
+      if (agentPercentDraft !== '') payload.agentPercent = pct;
+      if (playerRateDraft !== '') payload.playerRate = rate;
+      await updateAgent(userId, payload, token);
+      setCustomer((prev) => ({
+        ...prev,
+        agentPercent: agentPercentDraft !== '' ? pct : prev.agentPercent,
+        playerRate: playerRateDraft !== '' ? rate : prev.playerRate,
+      }));
+      setCommissionSaveSuccess('Saved successfully');
+      // Reload chain to reflect new values
+      await loadCommissionChain();
+    } catch (err) {
+      setCommissionSaveError(err.message || 'Failed to save commission');
+    } finally {
+      setCommissionSaving(false);
+    }
+  };
+
+  const handleCalculateCommission = async () => {
+    const token = localStorage.getItem('token');
+    const amount = parseFloat(calcAmount);
+    if (!token || isNaN(amount) || amount <= 0) {
+      setCalcError('Enter a valid positive amount');
+      return;
+    }
+    try {
+      setCalcLoading(true);
+      setCalcError('');
+      setCalcResult(null);
+      const data = await calculateCommission(userId, amount, token);
+      setCalcResult(data);
+    } catch (err) {
+      setCalcError(err.message || 'Calculation failed');
+    } finally {
+      setCalcLoading(false);
+    }
+  };
+
+  const handleValidateChain = async () => {
+    if (!commissionChain?.upline) return;
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    try {
+      const nodes = commissionChain.upline.map((n) => ({
+        id: n.id,
+        username: n.username,
+        agentPercent: n.agentPercent,
+      }));
+      const result = await validateCommissionChain(nodes, token);
+      setValidateResult(result);
+    } catch (err) {
+      setValidateResult({ isValid: false, errors: [err.message] });
+    }
+  };
 
   const loadCustomerTransactions = async (tokenValue) => {
     if (!customer?.username) return [];
@@ -892,6 +1010,11 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
     return roleKey.replace(/_/g, ' ').toUpperCase();
   }, [customer?.role]);
 
+  const isAgent = useMemo(() => {
+    const roleKey = String(customer?.role || 'player').toLowerCase();
+    return roleKey === 'agent' || roleKey === 'master_agent' || roleKey === 'master agent' || roleKey === 'super_agent' || roleKey === 'super agent';
+  }, [customer?.role]);
+
   const customerBalance = toMoneyNumber(customer?.balance, 0);
   const pendingBalance = toMoneyNumber(customer?.pendingBalance, 0);
   const freeplayBalanceValue = toMoneyNumber(customer?.freeplayBalance, 0);
@@ -1184,6 +1307,10 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
       setActiveSection('dynamic-live');
     } else if (sectionId === 'live-casino') {
       setActiveSection('live-casino');
+    } else if (sectionId === 'commission') {
+      setActiveSection('commission');
+      // Lazy-load chain data the first time (or reload if stale)
+      if (!commissionChain) loadCommissionChain();
     } else {
       setActiveSection('basics');
     }
@@ -1750,52 +1877,85 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
               <span className="detail-label">Login</span>
               <strong className="detail-value">{customer.username || ''}</strong>
             </div>
-            <button type="button" className={`detail-item detail-metric${activeSection === 'transactions' ? ' detail-metric-active' : ''}`} onClick={openTransactionSlip}>
-              <span className="detail-label">Balance</span>
-              <strong className={`detail-value ${getMoneyToneClass(customerBalance)}`}>{formatCurrency(customerBalance)}</strong>
-            </button>
+            {isAgent ? (
+              <button type="button" className={`detail-item detail-metric${activeSection === 'commission' ? ' detail-metric-active' : ''}`} onClick={() => openSection('commission')}>
+                <span className="detail-label">Agent %</span>
+                <strong className="detail-value">{customer?.agentPercent != null ? `${customer.agentPercent}%` : '—'}</strong>
+              </button>
+            ) : (
+              <button type="button" className={`detail-item detail-metric${activeSection === 'transactions' ? ' detail-metric-active' : ''}`} onClick={openTransactionSlip}>
+                <span className="detail-label">Balance</span>
+                <strong className={`detail-value ${getMoneyToneClass(customerBalance)}`}>{formatCurrency(customerBalance)}</strong>
+              </button>
+            )}
 
             <div className="detail-item">
               <span className="detail-label">Password</span>
               <strong className="detail-value detail-secret">{displayPassword}</strong>
             </div>
-            <button type="button" className={`detail-item detail-metric${activeSection === 'transactions' && txStatusFilter === 'pending' ? ' detail-metric-active' : ''}`} onClick={() => openSection('pending')}>
-              <span className="detail-label">Pending</span>
-              <strong className="detail-value neutral">{formatCurrency(pendingBalance)}</strong>
-            </button>
+            {isAgent ? (
+              <button type="button" className={`detail-item detail-metric${activeSection === 'commission' ? ' detail-metric-active' : ''}`} onClick={() => openSection('commission')}>
+                <span className="detail-label">Player Rate</span>
+                <strong className="detail-value">{customer?.playerRate != null ? `${customer.playerRate}%` : '—'}</strong>
+              </button>
+            ) : (
+              <button type="button" className={`detail-item detail-metric${activeSection === 'transactions' && txStatusFilter === 'pending' ? ' detail-metric-active' : ''}`} onClick={() => openSection('pending')}>
+                <span className="detail-label">Pending</span>
+                <strong className="detail-value neutral">{formatCurrency(pendingBalance)}</strong>
+              </button>
+            )}
 
             <div className="detail-item">
               <span className="detail-label">Min Bet</span>
               <strong className="detail-value">{formatDetailMoney(minBetValue)}</strong>
             </div>
-            <div className="detail-item detail-metric">
-              <span className="detail-label">Available</span>
-              <strong className="detail-value neutral">{formatCurrency(available)}</strong>
-            </div>
+            {isAgent ? (
+              <div className="detail-item detail-empty" aria-hidden="true"></div>
+            ) : (
+              <div className="detail-item detail-metric">
+                <span className="detail-label">Available</span>
+                <strong className="detail-value neutral">{formatCurrency(available)}</strong>
+              </div>
+            )}
 
             <div className="detail-item">
               <span className="detail-label">Max Bet</span>
               <strong className="detail-value">{formatDetailMoney(maxBetValue)}</strong>
             </div>
-            <button type="button" className={`detail-item detail-metric${activeSection === 'freeplays' ? ' detail-metric-active' : ''}`} onClick={() => openSection('freeplays')}>
-              <span className="detail-label">Freeplay</span>
-              <strong className="detail-value neutral">{formatCurrency(freeplayBalanceValue)}</strong>
-            </button>
+            {isAgent ? (
+              <div className="detail-item detail-empty" aria-hidden="true"></div>
+            ) : (
+              <button type="button" className={`detail-item detail-metric${activeSection === 'freeplays' ? ' detail-metric-active' : ''}`} onClick={() => openSection('freeplays')}>
+                <span className="detail-label">Freeplay</span>
+                <strong className="detail-value neutral">{formatCurrency(freeplayBalanceValue)}</strong>
+              </button>
+            )}
 
             <div className="detail-item">
               <span className="detail-label">Credit</span>
               <strong className="detail-value">{formatDetailMoney(creditLimitValue)}</strong>
             </div>
-            <button type="button" className={`detail-item detail-metric${activeSection === 'performance' ? ' detail-metric-active' : ''}`} onClick={() => openSection('performance')}>
-              <span className="detail-label">Lifetime +/-</span>
-              <strong className={`detail-value ${getMoneyToneClass(lifetimePlusMinusValue)}`}>{formatCurrency(lifetimePlusMinusValue)}</strong>
-            </button>
+            {isAgent ? (
+              <div className="detail-item detail-empty" aria-hidden="true"></div>
+            ) : (
+              <button type="button" className={`detail-item detail-metric${activeSection === 'performance' ? ' detail-metric-active' : ''}`} onClick={() => openSection('performance')}>
+                <span className="detail-label">Lifetime +/-</span>
+                <strong className={`detail-value ${getMoneyToneClass(lifetimePlusMinusValue)}`}>{formatCurrency(lifetimePlusMinusValue)}</strong>
+              </button>
+            )}
 
             <div className="detail-item">
               <span className="detail-label">Settle</span>
               <strong className="detail-value">+/- {formatDetailMoney(settleLimitValue)}</strong>
             </div>
-            <div className="detail-item detail-empty" aria-hidden="true"></div>
+            {isAgent ? (
+              <button type="button" className={`detail-item detail-metric${activeSection === 'transactions' ? ' detail-metric-active' : ''}`} onClick={openTransactionSlip}>
+                <span className="detail-label">Balance</span>
+                <strong className={`detail-value ${getMoneyToneClass(customerBalance)}`}>{formatCurrency(customerBalance)}</strong>
+              </button>
+            ) : (
+              <div className="detail-item detail-empty" aria-hidden="true"></div>
+            )}
           </div>
 
           <div className="player-card-foot">
@@ -1833,7 +1993,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
               <span></span><span></span><span></span>
             </div>
           </button>
-          <h3>{activeSection === 'transactions' ? 'Transactions' : activeSection === 'performance' ? 'Performance' : activeSection === 'freeplays' ? 'Free Play' : activeSection === 'dynamic-live' ? 'Dynamic Live' : activeSection === 'live-casino' ? 'Live Casino' : 'The Basics'}</h3>
+          <h3>{activeSection === 'transactions' ? 'Transactions' : activeSection === 'performance' ? 'Performance' : activeSection === 'freeplays' ? 'Free Play' : activeSection === 'dynamic-live' ? 'Dynamic Live' : activeSection === 'live-casino' ? 'Live Casino' : activeSection === 'commission' ? 'Commission Tree' : 'The Basics'}</h3>
         </div>
         {activeSection === 'transactions' ? (
           <button className="btn btn-back" onClick={openTransactionSlip}>New transaction</button>
@@ -1846,6 +2006,8 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
           <button className="btn btn-save" onClick={handleSaveDynamicLive} disabled={dynamicLiveSaving}>{dynamicLiveSaving ? 'Saving...' : 'Save'}</button>
         ) : activeSection === 'live-casino' ? (
           <button className="btn btn-save" onClick={handleSaveCasinoLimits} disabled={casinoSaving}>{casinoSaving ? 'Saving...' : 'Save'}</button>
+        ) : activeSection === 'commission' ? (
+          <button className="btn btn-back" onClick={loadCommissionChain} disabled={commissionLoading}>{commissionLoading ? 'Loading...' : 'Refresh'}</button>
         ) : activeSection === 'performance' ? (
           <span></span>
         ) : (
@@ -1886,6 +2048,177 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
                 </div>
               ))}
             </div>
+          )}
+        </div>
+      )}
+
+      {activeSection === 'commission' && (
+        <div className="commission-section">
+
+          {/* ── Save Agent % / Player Rate ─────────────────────────── */}
+          <div className="commission-edit-card">
+            <h4 className="commission-card-title">Edit Commission Fields</h4>
+            <div className="commission-edit-row">
+              <div className="commission-edit-field">
+                <label className="commission-field-label">Agent %</label>
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.01"
+                  className="commission-input"
+                  placeholder="e.g. 50"
+                  value={agentPercentDraft}
+                  onChange={(e) => setAgentPercentDraft(e.target.value)}
+                />
+              </div>
+              <div className="commission-edit-field">
+                <label className="commission-field-label">Player Rate %</label>
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.01"
+                  className="commission-input"
+                  placeholder="e.g. 25"
+                  value={playerRateDraft}
+                  onChange={(e) => setPlayerRateDraft(e.target.value)}
+                />
+              </div>
+              <button
+                className="btn btn-save"
+                onClick={handleSaveCommission}
+                disabled={commissionSaving}
+              >
+                {commissionSaving ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+            {commissionSaveError && <div className="alert error" style={{ marginTop: 8 }}>{commissionSaveError}</div>}
+            {commissionSaveSuccess && <div className="alert success" style={{ marginTop: 8 }}>{commissionSaveSuccess}</div>}
+          </div>
+
+          {/* ── Chain Display ──────────────────────────────────────── */}
+          {commissionLoading && <div className="commission-loading">Loading chain...</div>}
+          {commissionError && <div className="alert error">{commissionError}</div>}
+          {commissionChain && !commissionLoading && (
+            <>
+              {/* Validity banner */}
+              <div className={`commission-validity-banner ${commissionChain.isValid ? 'valid' : 'invalid'}`}>
+                <span className="commission-validity-icon">{commissionChain.isValid ? '✓' : '!'}</span>
+                <span>
+                  Chain total: <strong>{commissionChain.chainTotal}%</strong>
+                  {commissionChain.isValid ? ' — Valid' : ' — Must equal 100%'}
+                </span>
+                <button className="btn-text-sm" onClick={handleValidateChain} style={{ marginLeft: 12 }}>Re-validate</button>
+              </div>
+              {validateResult && (
+                <div className={`commission-validity-banner ${validateResult.isValid ? 'valid' : 'invalid'}`} style={{ marginTop: 4 }}>
+                  {validateResult.isValid ? 'Validation passed' : validateResult.errors?.join('; ')}
+                </div>
+              )}
+
+              {/* Upline tree (leaf → root) */}
+              <div className="commission-tree-card">
+                <h4 className="commission-card-title">Commission Chain (leaf → root)</h4>
+                <div className="commission-tree">
+                  {commissionChain.upline.map((node, idx) => (
+                    <div key={node.id || idx} className="commission-tree-node" style={{ paddingLeft: idx * 20 }}>
+                      <span className="commission-tree-connector">{idx === 0 ? '' : '└── '}</span>
+                      <span className="commission-tree-username">{node.username || '—'}</span>
+                      <span className="commission-tree-role">{node.role ? `(${node.role.replace(/_/g, ' ')})` : ''}</span>
+                      <span className={`commission-tree-pct ${node.agentPercent == null ? 'unset' : ''}`}>
+                        {node.agentPercent != null ? `${node.agentPercent}%` : 'not set'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Downlines */}
+              {commissionChain.downlines.length > 0 && (
+                <div className="commission-tree-card">
+                  <h4 className="commission-card-title">Direct Sub-Agents</h4>
+                  <table className="commission-table">
+                    <thead>
+                      <tr>
+                        <th>Username</th>
+                        <th>Role</th>
+                        <th>Agent %</th>
+                        <th>Player Rate</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {commissionChain.downlines.map((d, idx) => (
+                        <tr key={d.id || idx}>
+                          <td className="commission-username">{d.username || '—'}</td>
+                          <td>{d.role ? d.role.replace(/_/g, ' ') : '—'}</td>
+                          <td className={d.agentPercent == null ? 'commission-unset' : ''}>{d.agentPercent != null ? `${d.agentPercent}%` : '—'}</td>
+                          <td className={d.playerRate == null ? 'commission-unset' : ''}>{d.playerRate != null ? `${d.playerRate}%` : '—'}</td>
+                          <td><span className={`status-badge ${d.status === 'active' ? 'active' : 'inactive'}`}>{d.status || '—'}</span></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* Commission Calculator */}
+              <div className="commission-tree-card">
+                <h4 className="commission-card-title">Commission Calculator</h4>
+                <p className="commission-calc-hint">Enter an amount to see how it distributes across the chain.</p>
+                <div className="commission-calc-row">
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    className="commission-input"
+                    placeholder="Amount (e.g. 1000)"
+                    value={calcAmount}
+                    onChange={(e) => { setCalcAmount(e.target.value); setCalcResult(null); setCalcError(''); }}
+                  />
+                  <button className="btn btn-back" onClick={handleCalculateCommission} disabled={calcLoading}>
+                    {calcLoading ? 'Calculating...' : 'Calculate'}
+                  </button>
+                </div>
+                {calcError && <div className="alert error" style={{ marginTop: 8 }}>{calcError}</div>}
+                {calcResult && (
+                  <div className="calc-result">
+                    {!calcResult.isValid && (
+                      <div className="alert error" style={{ marginBottom: 8 }}>
+                        Chain total is {calcResult.chainTotal}% — percentages must sum to 100% for accurate results.
+                      </div>
+                    )}
+                    <table className="commission-table">
+                      <thead>
+                        <tr>
+                          <th>Account</th>
+                          <th>Role</th>
+                          <th>%</th>
+                          <th>Amount</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {calcResult.distributions.map((d, idx) => (
+                          <tr key={d.id || idx}>
+                            <td className="commission-username">{d.username || '—'}</td>
+                            <td>{d.role ? d.role.replace(/_/g, ' ') : '—'}</td>
+                            <td>{d.agentPercent != null ? `${d.agentPercent}%` : '—'}</td>
+                            <td className="commission-amount">${Number(d.amount || 0).toFixed(2)}</td>
+                          </tr>
+                        ))}
+                        <tr className="commission-total-row">
+                          <td colSpan={3}><strong>Total</strong></td>
+                          <td className="commission-amount">
+                            <strong>${calcResult.distributions.reduce((s, d) => s + Number(d.amount || 0), 0).toFixed(2)}</strong>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </>
           )}
         </div>
       )}

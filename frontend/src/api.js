@@ -2004,3 +2004,58 @@ export const coolingOff = async (hours, token) => {
     }
     return response.json();
 };
+
+// ─── Commission Chain APIs ────────────────────────────────────────────────────
+
+/**
+ * Fetch the full upline chain + direct downlines for an agent.
+ * Returns { upline, downlines, chainTotal, isValid, message }
+ */
+export const getAgentCommissionChain = async (agentId, token) => {
+    const response = await fetch(buildApiUrl(`/admin/agent/${agentId}/commission-chain`), {
+        headers: getHeaders(token)
+    });
+    if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.message || 'Failed to fetch commission chain');
+    }
+    return response.json();
+};
+
+/**
+ * Calculate how a given amount distributes across the agent's full commission chain.
+ * Body: { agentId, amount }
+ * Returns { distributions: [{username, agentPercent, amount}], chainTotal, isValid }
+ */
+export const calculateCommission = async (agentId, amount, token) => {
+    const response = await fetch(buildApiUrl('/admin/commission/calculate'), {
+        method: 'POST',
+        headers: getHeaders(token),
+        body: JSON.stringify({ agentId, amount })
+    });
+    if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.message || 'Failed to calculate commission');
+    }
+    return response.json();
+};
+
+/**
+ * Validate a set of chain nodes to ensure their agentPercent values sum to 100%.
+ * Body: { nodes: [{id, username, agentPercent}] }
+ * Returns { isValid, chainTotal, errors }
+ */
+export const validateCommissionChain = async (nodes, token) => {
+    const response = await fetch(buildApiUrl('/admin/commission/validate'), {
+        method: 'POST',
+        headers: getHeaders(token),
+        body: JSON.stringify({ nodes })
+    });
+    if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.message || 'Failed to validate commission chain');
+    }
+    return response.json();
+};
+
+// ─── End Commission Chain APIs ────────────────────────────────────────────────

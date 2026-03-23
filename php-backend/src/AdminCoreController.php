@@ -288,6 +288,21 @@ final class AdminCoreController
             $this->updateAgent($m[1]);
             return true;
         }
+        // Commission chain: full upline + downlines for a given agent
+        if ($method === 'GET' && preg_match('#^/api/admin/agent/([a-fA-F0-9]{24})/commission-chain$#', $path, $m) === 1) {
+            $this->getAgentCommissionChain($m[1]);
+            return true;
+        }
+        // Calculate commission distribution for a given amount
+        if ($method === 'POST' && $path === '/api/admin/commission/calculate') {
+            $this->calculateCommissionDistribution();
+            return true;
+        }
+        // Bulk-validate a chain's percentages before saving
+        if ($method === 'POST' && $path === '/api/admin/commission/validate') {
+            $this->validateCommissionChain();
+            return true;
+        }
         if ($method === 'POST' && $path === '/api/admin/create-user') {
             $this->createUserByAdmin();
             return true;
@@ -717,6 +732,11 @@ final class AdminCoreController
                     'totalUsersInHierarchy' => $totalUsersInHierarchy,
                     'activeCustomerCount' => $activeCustomerCount,
                     'weeklyCharge' => $billingRate * $activeCustomerCount,
+                    // Commission fields
+                    'agentPercent' => isset($agent['agentPercent']) ? (float) $agent['agentPercent'] : null,
+                    'playerRate' => isset($agent['playerRate']) ? (float) $agent['playerRate'] : null,
+                    'parentAgentId' => isset($agent['createdBy']) ? (string) $agent['createdBy'] : null,
+                    'parentAgentModel' => $agent['createdByModel'] ?? null,
                 ];
             }
 
@@ -5182,6 +5202,24 @@ final class AdminCoreController
             if (array_key_exists('agentBillingRate', $body) && is_numeric($body['agentBillingRate'])) {
                 $updates['agentBillingRate'] = (float) $body['agentBillingRate'];
             }
+            // Commission percentage this agent receives in the hierarchy chain
+            if (array_key_exists('agentPercent', $body) && is_numeric($body['agentPercent'])) {
+                $pct = (float) $body['agentPercent'];
+                if ($pct < 0 || $pct > 100) {
+                    Response::json(['message' => 'agentPercent must be between 0 and 100'], 400);
+                    return;
+                }
+                $updates['agentPercent'] = round($pct, 4);
+            }
+            // Rate applied to players under this agent
+            if (array_key_exists('playerRate', $body) && is_numeric($body['playerRate'])) {
+                $rate = (float) $body['playerRate'];
+                if ($rate < 0 || $rate > 100) {
+                    Response::json(['message' => 'playerRate must be between 0 and 100'], 400);
+                    return;
+                }
+                $updates['playerRate'] = round($rate, 4);
+            }
 
             $balanceBefore = null;
             if (array_key_exists('balance', $body) && is_numeric($body['balance'])) {
@@ -7618,6 +7656,11 @@ final class AdminCoreController
                     'settings' => is_array($foundUser['settings'] ?? null) ? $foundUser['settings'] : new stdClass(),
                     'apps' => is_array($foundUser['apps'] ?? null) ? $foundUser['apps'] : new stdClass(),
                     'createdAt' => $foundUser['createdAt'] ?? null,
+                    // Commission fields
+                    'agentPercent' => isset($foundUser['agentPercent']) ? (float) $foundUser['agentPercent'] : null,
+                    'playerRate' => isset($foundUser['playerRate']) ? (float) $foundUser['playerRate'] : null,
+                    'parentAgentId' => $createdBy !== '' ? $createdBy : null,
+                    'parentAgentModel' => $createdByModel !== '' ? $createdByModel : null,
                 ],
                 'creator' => $creator,
                 'agent' => $agent,
@@ -9452,9 +9495,278 @@ final class AdminCoreController
             'role' => $agent['role'] ?? null,
             'nodeType' => 'agent',
             'isDead' => strtoupper($username) === 'DEAD',
+            'agentPercent' => isset($agent['agentPercent']) ? (float) $agent['agentPercent'] : null,
+            'playerRate' => isset($agent['playerRate']) ? (float) $agent['playerRate'] : null,
             'children' => $this->buildAgentTree($agentId, 'Agent'),
         ];
     }
+
+    // ─── Commission Chain ─────────────────────────────────────────────────────
+
+    /**
+     * Walk up the parent chain from a given agent, returning an ordered array
+     * [leaf → … → root] each entry: {id, username, role, agentPercent, parentAgentId}.
+     * Stops after $maxDepth steps to prevent infinite loops from bad data.
+     */
+    private function buildUplineChain(string $agentId, int $maxDepth = 15): array
+    {
+        $chain = [];
+        $visited = [];
+        $currentId = $agentId;
+        $collection = 'agents';
+
+        for ($depth = 0; $depth < $maxDepth; $depth++) {
+            if ($currentId === '' || isset($visited[$currentId])) {
+                break; // circular reference guard
+            }
+            $visited[$currentId] = true;
+
+            $doc = $this->db->findOne($collection, ['_id' => MongoRepository::id($currentId)]);
+            if ($doc === null) {
+                break;
+            }
+
+            $chain[] = [
+                'id'            => (string) ($doc['_id'] ?? $currentId),
+                'username'      => $doc['username'] ?? null,
+                'role'          => $doc['role'] ?? null,
+                'agentPercent'  => isset($doc['agentPercent']) ? (float) $doc['agentPercent'] : null,
+                'playerRate'    => isset($doc['playerRate']) ? (float) $doc['playerRate'] : null,
+                'parentAgentId' => isset($doc['createdBy']) ? (string) $doc['createdBy'] : null,
+                'parentModel'   => $doc['createdByModel'] ?? null,
+            ];
+
+            $parentId    = (string) ($doc['createdBy'] ?? '');
+            $parentModel = (string) ($doc['createdByModel'] ?? '');
+
+            if ($parentId === '' || preg_match('/^[a-f0-9]{24}$/i', $parentId) !== 1) {
+                break; // no further parent
+            }
+
+            // If created by Admin, look up admin record for its agentPercent if any
+            if ($parentModel === 'Admin') {
+                $adminDoc = $this->db->findOne('admins', ['_id' => MongoRepository::id($parentId)]);
+                if ($adminDoc !== null) {
+                    $chain[] = [
+                        'id'            => (string) ($adminDoc['_id'] ?? $parentId),
+                        'username'      => $adminDoc['username'] ?? null,
+                        'role'          => 'admin',
+                        'agentPercent'  => isset($adminDoc['agentPercent']) ? (float) $adminDoc['agentPercent'] : null,
+                        'playerRate'    => null,
+                        'parentAgentId' => null,
+                        'parentModel'   => null,
+                    ];
+                }
+                break; // admin is always the root
+            }
+
+            $currentId  = $parentId;
+            $collection = 'agents';
+        }
+
+        return $chain; // index 0 = the requested agent, last = root
+    }
+
+    /**
+     * GET /api/admin/agent/{id}/commission-chain
+     * Returns the full upline (leaf → root) and direct downlines for an agent.
+     * Also computes the chain total and validation status.
+     */
+    private function getAgentCommissionChain(string $agentId): void
+    {
+        try {
+            $actor = $this->protect(['admin', 'master_agent', 'super_agent']);
+            if ($actor === null) {
+                return;
+            }
+            if (preg_match('/^[a-f0-9]{24}$/i', $agentId) !== 1) {
+                Response::json(['message' => 'Invalid agent ID'], 400);
+                return;
+            }
+
+            // Build upline (current agent is index 0)
+            $upline = $this->buildUplineChain($agentId);
+            if (count($upline) === 0) {
+                Response::json(['message' => 'Agent not found'], 404);
+                return;
+            }
+
+            // Direct child agents (downlines)
+            $childAgents = $this->db->findMany('agents', [
+                'createdBy'      => MongoRepository::id($agentId),
+                'createdByModel' => 'Agent',
+            ], ['sort' => ['username' => 1]]);
+
+            $downlines = [];
+            foreach ($childAgents as $child) {
+                $downlines[] = [
+                    'id'           => (string) ($child['_id'] ?? ''),
+                    'username'     => $child['username'] ?? null,
+                    'role'         => $child['role'] ?? null,
+                    'agentPercent' => isset($child['agentPercent']) ? (float) $child['agentPercent'] : null,
+                    'playerRate'   => isset($child['playerRate']) ? (float) $child['playerRate'] : null,
+                    'status'       => $child['status'] ?? 'active',
+                ];
+            }
+
+            // Chain total = sum of agentPercent for every node in the upline
+            $chainTotal = 0.0;
+            foreach ($upline as $node) {
+                if ($node['agentPercent'] !== null) {
+                    $chainTotal += $node['agentPercent'];
+                }
+            }
+            $chainTotal = round($chainTotal, 4);
+
+            $isValid = abs($chainTotal - 100.0) < 0.01;
+
+            Response::json([
+                'upline'     => $upline,          // [current, parent, grandparent, …, root]
+                'downlines'  => $downlines,        // direct children
+                'chainTotal' => $chainTotal,
+                'isValid'    => $isValid,
+                'message'    => $isValid ? 'Chain totals 100%' : "Chain totals {$chainTotal}% (must equal 100%)",
+            ]);
+        } catch (Throwable $e) {
+            Response::json(['message' => 'Server error fetching commission chain'], 500);
+        }
+    }
+
+    /**
+     * POST /api/admin/commission/calculate
+     * Body: { agentId: string, amount: number }
+     * Returns a distribution breakdown of `amount` across the full upline chain.
+     *
+     * Example (amount=1000, chain=[ZGN36=50%, CCG365=10%, NJG365=35%, ADMIN365=5%]):
+     *   ZGN36 → 500, CCG365 → 100, NJG365 → 350, ADMIN365 → 50
+     */
+    private function calculateCommissionDistribution(): void
+    {
+        try {
+            $actor = $this->protect(['admin', 'master_agent', 'super_agent']);
+            if ($actor === null) {
+                return;
+            }
+
+            $body    = Http::jsonBody();
+            $agentId = trim((string) ($body['agentId'] ?? ''));
+            $amount  = isset($body['amount']) && is_numeric($body['amount']) ? (float) $body['amount'] : null;
+
+            if ($agentId === '' || preg_match('/^[a-f0-9]{24}$/i', $agentId) !== 1) {
+                Response::json(['message' => 'agentId is required'], 400);
+                return;
+            }
+            if ($amount === null || $amount <= 0) {
+                Response::json(['message' => 'amount must be a positive number'], 400);
+                return;
+            }
+
+            $upline = $this->buildUplineChain($agentId);
+            if (count($upline) === 0) {
+                Response::json(['message' => 'Agent not found'], 404);
+                return;
+            }
+
+            // Validate chain first
+            $chainTotal = 0.0;
+            foreach ($upline as $node) {
+                if ($node['agentPercent'] !== null) {
+                    $chainTotal += $node['agentPercent'];
+                }
+            }
+            $chainTotal = round($chainTotal, 4);
+            $isValid = abs($chainTotal - 100.0) < 0.01;
+
+            // Build distribution
+            $distributions = [];
+            $allocatedTotal = 0.0;
+            $lastIdx = count($upline) - 1;
+            foreach ($upline as $idx => $node) {
+                $pct   = $node['agentPercent'] ?? 0.0;
+                $share = ($idx === $lastIdx)
+                    // Give the last node the remainder to avoid floating-point drift
+                    ? round($amount - $allocatedTotal, 2)
+                    : round($amount * $pct / 100, 2);
+
+                $allocatedTotal += $share;
+                $distributions[] = [
+                    'id'           => $node['id'],
+                    'username'     => $node['username'],
+                    'role'         => $node['role'],
+                    'agentPercent' => $pct,
+                    'amount'       => $share,
+                ];
+            }
+
+            Response::json([
+                'agentId'       => $agentId,
+                'amount'        => $amount,
+                'chainTotal'    => $chainTotal,
+                'isValid'       => $isValid,
+                'distributions' => $distributions,
+            ]);
+        } catch (Throwable $e) {
+            Response::json(['message' => 'Server error calculating commission'], 500);
+        }
+    }
+
+    /**
+     * POST /api/admin/commission/validate
+     * Body: { nodes: [{id, agentPercent}] }
+     * Validates that the submitted percentages sum to exactly 100%
+     * and that none are negative or individually > 100.
+     */
+    private function validateCommissionChain(): void
+    {
+        try {
+            $actor = $this->protect(['admin', 'master_agent', 'super_agent']);
+            if ($actor === null) {
+                return;
+            }
+
+            $body  = Http::jsonBody();
+            $nodes = is_array($body['nodes'] ?? null) ? $body['nodes'] : [];
+
+            $errors = [];
+            $total  = 0.0;
+
+            foreach ($nodes as $i => $node) {
+                $pct = isset($node['agentPercent']) && is_numeric($node['agentPercent'])
+                    ? (float) $node['agentPercent']
+                    : null;
+                $username = $node['username'] ?? "node #{$i}";
+
+                if ($pct === null) {
+                    $errors[] = "{$username}: agentPercent is missing";
+                    continue;
+                }
+                if ($pct < 0) {
+                    $errors[] = "{$username}: agentPercent cannot be negative";
+                }
+                if ($pct > 100) {
+                    $errors[] = "{$username}: agentPercent cannot exceed 100%";
+                }
+                $total += $pct;
+            }
+
+            $total = round($total, 4);
+            $isValid = count($errors) === 0 && abs($total - 100.0) < 0.01;
+
+            if (!$isValid && abs($total - 100.0) >= 0.01) {
+                $errors[] = "Chain total is {$total}% — must equal exactly 100%";
+            }
+
+            Response::json([
+                'isValid'    => $isValid,
+                'chainTotal' => $total,
+                'errors'     => $errors,
+            ]);
+        } catch (Throwable $e) {
+            Response::json(['message' => 'Server error validating chain'], 500);
+        }
+    }
+
+    // ─── End Commission Chain ─────────────────────────────────────────────────
 
     private function buildAgentTree(string $parentId, string $parentModel): array
     {

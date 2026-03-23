@@ -42,7 +42,7 @@ const LOCAL_GAME_META = {
     'jurassic-run': {
         id: 'local-jurassic-run',
         provider: 'In-House',
-        url: '/games/jurassic-run/index.html?v=20260323a',
+        url: '/games/jurassic-run/index.html?v=20260323b',
         poster: '/games/jurassic-run/assets/images/background_middle.webp',
         themeColor: '#166534',
     },
@@ -204,11 +204,14 @@ const CasinoView = () => {
     const [lastRoundResult, setLastRoundResult] = useState(null);
     const [gameDisplayBalance, setGameDisplayBalance] = useState(null);
     const [activeBetId, setActiveBetId] = useState(null);
-    const [gameLaunched, setGameLaunched] = useState(false);
+    const [gameIsReady, setGameIsReady] = useState(false);
+    const [gameLoadError, setGameLoadError] = useState(false);
+    const [spinInProgress, setSpinInProgress] = useState(false);
     const iframeRef = useRef(null);
     const pendingGameRequests = useRef(new Set());
     const activeLocalGameRef = useRef(null);
     const roundResultTimerRef = useRef(null);
+    const gameReadyTimerRef = useRef(null);
 
     useEffect(() => {
         activeLocalGameRef.current = activeLocalGame;
@@ -300,6 +303,13 @@ const CasinoView = () => {
         const msg = event.data;
         if (!msg || typeof msg !== 'object' || !msg.type) return;
 
+        if (msg.type === 'gameReady') {
+            setGameIsReady(true);
+            setGameLoadError(false);
+            if (gameReadyTimerRef.current) clearTimeout(gameReadyTimerRef.current);
+            return;
+        }
+
         if (msg.type === 'betConfirmed') {
             const confirmedId = Number(msg.betId);
             if (Number.isFinite(confirmedId)) setActiveBetId(confirmedId);
@@ -328,6 +338,7 @@ const CasinoView = () => {
             }
             pendingGameRequests.current.add(requestId);
             setLastRoundResult(null);
+            setSpinInProgress(true);
             try {
                 const result = await placeCasinoBet(requestedGame, msg.bets, token, { requestId, payload: msg.payload });
                 let settledPlayableBalance = null;
@@ -380,6 +391,7 @@ const CasinoView = () => {
                 }
             } finally {
                 pendingGameRequests.current.delete(requestId);
+                setSpinInProgress(false);
             }
             return;
         }
@@ -715,11 +727,15 @@ const CasinoView = () => {
 
         if (game === 'jurassic-run') {
             const bet = Number(row?.bets?.bet ?? row?.roundData?.bet ?? row?.totalWager ?? 0);
+            const lineBet = Number(row?.bets?.lineBet ?? row?.roundData?.lineBet ?? 0);
             const betId = Number(row?.bets?.betId ?? row?.roundData?.betId ?? 0);
+            const paylines = Number(row?.bets?.paylines ?? row?.roundData?.activePaylines ?? 0);
             const isFreeSpinRound = !!row?.roundData?.isFreeSpinRound;
             const freeSpinsAfter = Number(row?.roundData?.freeSpinsAfter ?? 0);
             const parts = [];
             if (Number.isFinite(bet) && bet > 0) parts.push(`Bet ${formatMoney(bet)}`);
+            if (Number.isFinite(lineBet) && lineBet > 0) parts.push(`Line ${formatMoney(lineBet)}`);
+            if (Number.isFinite(paylines) && paylines > 0) parts.push(`Lines ${paylines}`);
             if (Number.isFinite(betId) && betId >= 0) parts.push(`Level ${betId + 1}`);
             if (isFreeSpinRound) parts.push('Free Spin');
             if (Number.isFinite(freeSpinsAfter) && freeSpinsAfter > 0) parts.push(`FS Left ${freeSpinsAfter}`);
@@ -738,6 +754,14 @@ const CasinoView = () => {
             return;
         }
         setActiveLocalGame(game);
+        if (normalizeEmbeddedGameSlug(game?.slug || game?.name || game?.id) === 'jurassic-run') {
+            setGameIsReady(false);
+            setGameLoadError(false);
+            if (gameReadyTimerRef.current) clearTimeout(gameReadyTimerRef.current);
+            gameReadyTimerRef.current = setTimeout(() => {
+                setGameLoadError(true);
+            }, 15000);
+        }
     };
 
     const handleLocalGameClose = () => {
@@ -745,8 +769,11 @@ const CasinoView = () => {
         setLastRoundResult(null);
         setGameDisplayBalance(null);
         setActiveBetId(null);
-        setGameLaunched(false);
+        setGameIsReady(false);
+        setGameLoadError(false);
+        setSpinInProgress(false);
         if (roundResultTimerRef.current) clearTimeout(roundResultTimerRef.current);
+        if (gameReadyTimerRef.current) clearTimeout(gameReadyTimerRef.current);
     };
 
     const handleSelectBet = useCallback((betId) => {
@@ -757,13 +784,6 @@ const CasinoView = () => {
     const handleSpin = useCallback(() => {
         if (activeBetId === null) return;
         sendToGame({ type: 'parentTriggerSpin' });
-    }, [activeBetId, sendToGame]);
-
-    const handleLaunch = useCallback(() => {
-        if (activeBetId === null) return;
-        setGameLaunched(true);
-        sendToGame({ type: 'parentSetBet', betId: activeBetId });
-        setTimeout(() => sendToGame({ type: 'parentTriggerSpin' }), 200);
     }, [activeBetId, sendToGame]);
 
     const localGames = useMemo(() => {
@@ -784,9 +804,17 @@ const CasinoView = () => {
                 status: game.status || 'active',
                 minBet: game.minBet,
                 maxBet: game.maxBet,
+                rtp: game.rtp,
+                volatility: game.volatility,
+                metadata: game.metadata,
                 isFeatured: !!game.isFeatured,
             }));
     }, [activeCategory, games]);
+
+    const jurassicPosterGame = useMemo(
+        () => localGames.find((game) => game.slug === 'jurassic-run') || null,
+        [localGames]
+    );
 
     const catalogGames = useMemo(
         () => games.filter((game) => !(game?.slug && LOCAL_GAME_META[game.slug])),
@@ -831,55 +859,38 @@ const CasinoView = () => {
                         </div>
                     )}
 
-                    {activeLocalGame?.slug === 'jurassic-run' && !gameLaunched && (
-                        <div
-                            className="game-launch-screen"
-                            style={{ backgroundImage: `url(${activeLocalGame.poster})` }}
-                        >
-                            <div className="game-launch-overlay" />
-                            <div className="game-launch-content">
-                                <div className="game-launch-header">
-                                    <img
-                                        src={activeLocalGame.poster}
-                                        alt={activeLocalGame.name}
-                                        className="game-launch-poster"
-                                    />
-                                    <h1 className="game-launch-title">{activeLocalGame.name || 'Jurassic Giants'}</h1>
-                                    <p className="game-launch-provider">In-House Slots</p>
-                                </div>
-                                <div className="game-launch-bet-section">
-                                    <p className="game-launch-bet-label">Select Bet Amount</p>
-                                    <div className="game-launch-chips">
-                                        {JURASSIC_BETS.map((bet, idx) => (
-                                            <button
-                                                key={idx}
-                                                className={`game-bet-chip game-bet-chip--lg${activeBetId === idx ? ' active' : ''}`}
-                                                onClick={() => handleSelectBet(idx)}
-                                            >
-                                                ${bet >= 1000 ? `${bet / 1000}K` : bet}
-                                            </button>
-                                        ))}
-                                    </div>
-                                    {gameDisplayBalance !== null && (
-                                        <p className="game-launch-balance">
-                                            Balance: <strong>${Math.round(gameDisplayBalance).toLocaleString()}</strong>
-                                        </p>
-                                    )}
-                                </div>
-                                <button
-                                    className={`game-launch-btn${activeBetId === null ? ' disabled' : ''}`}
-                                    onClick={handleLaunch}
-                                    disabled={activeBetId === null}
-                                >
-                                    {activeBetId === null
-                                        ? 'Select a bet to play'
-                                        : `Launch Game — Bet $${JURASSIC_BETS[activeBetId] >= 1000 ? `${JURASSIC_BETS[activeBetId] / 1000}K` : JURASSIC_BETS[activeBetId]}`}
-                                </button>
-                            </div>
+                    {activeLocalGame?.slug === 'jurassic-run' && !gameIsReady && (
+                        <div className={`game-fullscreen-loading${gameLoadError ? ' game-fullscreen-loading--error' : ''}`}>
+                            <img
+                                src="/games/jurassic-run/assets/images/logo.svg"
+                                alt="Jurassic Run"
+                                className="game-fullscreen-loading-logo"
+                            />
+                            {!gameLoadError && (
+                                <>
+                                    <div className="game-loading-spinner game-loading-spinner--lg" />
+                                    <p className="game-fullscreen-loading-text">Loading game…</p>
+                                </>
+                            )}
+                            {gameLoadError && (
+                                <>
+                                    <p className="game-fullscreen-loading-text">Game failed to load.</p>
+                                    <button
+                                        className="game-load-retry-btn"
+                                        onClick={() => {
+                                            setGameLoadError(false);
+                                            setGameIsReady(false);
+                                            if (iframeRef.current) iframeRef.current.src = iframeRef.current.src;
+                                            if (gameReadyTimerRef.current) clearTimeout(gameReadyTimerRef.current);
+                                            gameReadyTimerRef.current = setTimeout(() => setGameLoadError(true), 15000);
+                                        }}
+                                    >Retry</button>
+                                </>
+                            )}
                         </div>
                     )}
 
-                    {activeLocalGame?.slug === 'jurassic-run' && gameLaunched && (
+                    {activeLocalGame?.slug === 'jurassic-run' && gameIsReady && (
                         <div className="game-bet-controls">
                             <div className="game-bet-chips">
                                 {JURASSIC_BETS.map((bet, idx) => (
@@ -893,12 +904,14 @@ const CasinoView = () => {
                                 ))}
                             </div>
                             <button
-                                className={`game-spin-btn${activeBetId === null ? ' disabled' : ''}`}
+                                className={`game-spin-btn${activeBetId === null || spinInProgress ? ' disabled' : ''}`}
                                 onClick={handleSpin}
-                                disabled={activeBetId === null}
+                                disabled={activeBetId === null || spinInProgress}
                             >
-                                <i className="fa-solid fa-play"></i>
-                                <span>SPIN</span>
+                                {spinInProgress
+                                    ? <><div className="game-loading-spinner" style={{width:'14px',height:'14px',borderWidth:'2px'}} /><span>SPINNING…</span></>
+                                    : <><i className="fa-solid fa-play"></i><span>SPIN</span></>
+                                }
                             </button>
                         </div>
                     )}
@@ -958,6 +971,31 @@ const CasinoView = () => {
             {/* ── Local (in-house) games section ──────────────── */}
             {localGames.length > 0 && (
                 <div className="casino-local-section">
+                    {jurassicPosterGame && (
+                        <button
+                            type="button"
+                            className={`casino-feature-poster ${String(jurassicPosterGame.status || '').toLowerCase() !== 'active' ? 'is-disabled' : ''}`}
+                            onClick={() => handleLocalGameOpen(jurassicPosterGame)}
+                            disabled={String(jurassicPosterGame.status || '').toLowerCase() !== 'active'}
+                            style={{ backgroundImage: `url(${jurassicPosterGame.poster})` }}
+                        >
+                            <span className="casino-feature-poster-overlay" />
+                            <span className="casino-feature-poster-content">
+                                <span className="casino-feature-kicker">Featured Slot</span>
+                                <span className="casino-feature-title">{jurassicPosterGame.name}</span>
+                                <span className="casino-feature-copy">
+                                    Server-settled reels, progressive jackpot, and fixed 10 paylines.
+                                </span>
+                                <span className="casino-feature-meta">
+                                    RTP {Number(jurassicPosterGame.rtp || 95).toFixed(1)}% · {String(jurassicPosterGame.volatility || 'medium').replace(/(^|[-_ ])\w/g, (m) => m.toUpperCase())} Volatility
+                                </span>
+                                <span className="casino-feature-cta">
+                                    {String(jurassicPosterGame.status || '').toLowerCase() === 'active' ? 'Play Jurassic Run' : 'Currently Unavailable'}
+                                </span>
+                            </span>
+                        </button>
+                    )}
+
                     <div className="casino-local-header">
                         <i className="fa-solid fa-gem"></i>
                         <span>In-House Games</span>

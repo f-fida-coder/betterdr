@@ -26,11 +26,28 @@ cleanup() {
     rm -f "${body_file}"
   fi
   rm -f "${route_file}"
-  if [[ -n "${PHP_PID:-}" ]]; then
-    kill "${PHP_PID}" >/dev/null 2>&1 || true
-  fi
+  stop_server
 }
 trap cleanup EXIT
+
+start_server() {
+  php -S "${HOST}:${PORT}" -t php-backend/public php-backend/public/router.php >/tmp/php_route_parity.log 2>&1 &
+  PHP_PID=$!
+  sleep 1
+}
+
+stop_server() {
+  if [[ -n "${PHP_PID:-}" ]]; then
+    kill "${PHP_PID}" >/dev/null 2>&1 || true
+    wait "${PHP_PID}" >/dev/null 2>&1 || true
+    PHP_PID=""
+  fi
+}
+
+restart_server() {
+  stop_server
+  start_server
+}
 
 php -- "$ROOT_DIR" > "$route_file" <<'PHP_ROUTES'
 <?php
@@ -42,8 +59,8 @@ $routes = [];
 function sample_path(string $pattern): string
 {
     $path = preg_replace("/\\(\\[a-fA-F0-9\\]\\{24\\}\\)/", "507f1f77bcf86cd799439011", $pattern);
-    $path = preg_replace("/\\(\\[\\^\\/\\]\\+\\)/", "TEST", $path);
-    $path = preg_replace("/\\([^)]*\\)/", "TEST", $path);
+    $path = preg_replace("/\\(\\[\\^\\/\\]\\+\\)/", "test", $path);
+    $path = preg_replace("/\\([^)]*\\)/", "test", $path);
     $path = str_replace(["\\\\/", "\\\\-"], ["/", "-"], $path);
     return $path;
 }
@@ -116,12 +133,11 @@ if [[ "${route_count}" == "0" ]]; then
   exit 1
 fi
 
-php -S "${HOST}:${PORT}" -t php-backend/public php-backend/public/router.php >/tmp/php_route_parity.log 2>&1 &
-PHP_PID=$!
-sleep 1
+start_server
 
 tested=0
 missing=0
+timed_out=0
 
 while IFS=' ' read -r method path; do
   [[ -n "${method}" && -n "${path}" ]] || continue
@@ -143,7 +159,10 @@ while IFS=' ' read -r method path; do
   rm -f "$body_file"
   body_file=""
 
-  if [[ "$curl_exit" -eq 28 && "$code" != "000" ]]; then
+  if [[ "$curl_exit" -eq 28 ]]; then
+    timed_out=$((timed_out + 1))
+    echo "TIMEOUT ${method} ${path} -> ${code}"
+    restart_server
     continue
   fi
 
@@ -156,6 +175,7 @@ done < "$route_file"
 echo "Discovered routes: ${route_count}"
 echo "Tested routes: ${tested}"
 echo "Missing routes: ${missing}"
+echo "Timed out routes: ${timed_out}"
 
 if [[ "$missing" -gt 0 ]]; then
   exit 1

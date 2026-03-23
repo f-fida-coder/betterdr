@@ -198,7 +198,10 @@ class MainGame extends Phaser.Scene {
 	    initFields();
 		initPaytable();
 		app.scale.on('leavefullscreen', checkFullScreen, app);
-		fetchJSON(app.gamecfg.remote_file, {action: 'load', lang: langcode}, betUpdate, 'json');
+		fetchJSON(app.gamecfg.remote_file, {action: 'load', lang: langcode}, function(json) {
+			betUpdate(json);
+			try { window.parent.postMessage({ type: 'gameReady' }, '*'); } catch(e) {}
+		}, 'json');
     }
 }
 
@@ -927,6 +930,12 @@ const PressPlay = () => {
         }
         else {
         	app.fields.message.text = json.error;
+        	app.settings.isplay = false;
+        	app.buttons.play.show('regular');
+        	if (app.settings.autoplay === 1) {
+        		app.settings.autoplay = 0;
+        		app.buttons.autoplay.show('regular');
+        	}
         }
     }, 'json');
 }
@@ -1080,7 +1089,6 @@ const showWinlines = (repeat) => {
 		        yoyo: true
 		    });
 		}
-		app.reel3.list[reverseSymbol(app.winlines[app.gamedata.winningLines[app.settings.wlrounds].line][2])].play('sym_' + app.reel3.list[reverseSymbol(app.winlines[app.gamedata.winningLines[app.settings.wlrounds].line][2])].symid + '_anim');	
 	}
 	if (app.gamedata.winningLines[app.settings.wlrounds].count > 3) {
 		app.reel4.list[reverseSymbol(app.winlines[app.gamedata.winningLines[app.settings.wlrounds].line][3])].alpha = 1;
@@ -1098,7 +1106,6 @@ const showWinlines = (repeat) => {
 		        yoyo: true
 		    });
 		}
-		app.reel4.list[reverseSymbol(app.winlines[app.gamedata.winningLines[app.settings.wlrounds].line][3])].play('sym_' + app.reel4.list[reverseSymbol(app.winlines[app.gamedata.winningLines[app.settings.wlrounds].line][3])].symid + '_anim');		
 	}
 	if (app.gamedata.winningLines[app.settings.wlrounds].count > 4) {
 		app.reel5.list[reverseSymbol(app.winlines[app.gamedata.winningLines[app.settings.wlrounds].line][4])].alpha = 1;
@@ -1116,7 +1123,6 @@ const showWinlines = (repeat) => {
 		        yoyo: true
 		    });
 		}
-		app.reel5.list[reverseSymbol(app.winlines[app.gamedata.winningLines[app.settings.wlrounds].line][4])].play('sym_' + app.reel5.list[reverseSymbol(app.winlines[app.gamedata.winningLines[app.settings.wlrounds].line][4])].symid + '_anim');		
 	}
 
     if (app.gamedata.winningLines[app.settings.wlrounds].symbol == 'JP') {
@@ -1214,8 +1220,8 @@ const scaleResolution = (value) => {
 
 const fetchJSON = (path, postdata = null, callfunc, sendvar = null) => {
     fetch(path, {
-    	method: 'POST', 
-    	body: new URLSearchParams(xhrPreparData(postdata)), 
+    	method: 'POST',
+    	body: new URLSearchParams(xhrPreparData(postdata)),
     	headers: {
     		'Content-Type': 'application/x-www-form-urlencoded'
     	}
@@ -1228,7 +1234,12 @@ const fetchJSON = (path, postdata = null, callfunc, sendvar = null) => {
         else {
             callfunc(response, sendvar);
         }
-    }).catch(console.error);
+    }).catch(err => {
+    	console.error(err);
+    	if (typeof callfunc === 'function') {
+    		callfunc({ error: (err && err.message) ? err.message : 'Network error, please try again.' });
+    	}
+    });
 };
 
 const xhrPreparData = (element,key,list) => {
