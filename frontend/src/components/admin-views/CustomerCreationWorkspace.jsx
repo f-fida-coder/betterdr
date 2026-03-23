@@ -1113,20 +1113,7 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
     setAgentSearchQuery('');
   }, [assignmentTreeRoot, creationType, newCustomer.agentId]);
 
-  useEffect(() => {
-    if (!requiresPlayerAgentSelection) {
-      return;
-    }
-    if (String(newCustomer.agentId || '').trim() !== '') {
-      return;
-    }
-    const fallbackNode = selectableAssignmentNodes[0] || null;
-    const fallbackId = normalizeHierarchyId(fallbackNode?.id || fallbackNode?._id);
-    if (!fallbackId) {
-      return;
-    }
-    handleAgentChange(fallbackId, fallbackNode);
-  }, [requiresPlayerAgentSelection, selectableAssignmentNodes, newCustomer.agentId]);
+  // No auto-select: user must explicitly choose an agent from the tree/search.
 
   const referralOptions = (() => {
     const playersOnly = customers.filter((c) => c.role === 'user');
