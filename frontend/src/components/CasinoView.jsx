@@ -3,6 +3,7 @@ import '../casino.css';
 import {
     getCasinoCategories,
     getCasinoGames,
+    getCasinoGameState,
     launchCasinoGame,
     getBalance,
     placeCasinoBet,
@@ -38,6 +39,13 @@ const LOCAL_GAME_META = {
         poster: '/games/arabian/sprites/200x200.jpg',
         themeColor: '#7e22ce',
     },
+    'jurassic-run': {
+        id: 'local-jurassic-run',
+        provider: 'In-House',
+        url: '/games/jurassic-run/index.html?v=20260323a',
+        poster: '/games/jurassic-run/assets/images/background_middle.webp',
+        themeColor: '#166534',
+    },
     'arabian-treasure': {
         id: 'local-arabian-treasure',
         provider: 'In-House',
@@ -71,6 +79,7 @@ const normalizeEmbeddedGameSlug = (value) => {
     if (normalized.includes('baccarat')) return 'baccarat';
     if (normalized.includes('craps')) return 'craps';
     if (normalized.includes('arabian')) return 'arabian';
+    if (normalized.includes('jurassic') || normalized.includes('jurrasic')) return 'jurassic-run';
     if (normalized.includes('3card') || normalized.includes('3-card') || normalized === 'poker') return '3card-poker';
     return '';
 };
@@ -143,6 +152,37 @@ const resolveLocalGameOrigin = (gameLike) => {
     }
 };
 
+const buildRoundResultSummary = (r) => {
+    if (!r) return null;
+    const fmt = (v) => `$${Math.round(Math.abs(Number(v) || 0)).toLocaleString()}`;
+    if (r.jackpotWon) {
+        return { label: 'JACKPOT!', detail: `+${fmt(r.jackpotPayout)}`, type: 'jackpot' };
+    }
+    if (r.isFreeSpinRound) {
+        if (r.ret > 0) return { label: 'Free Spin Win', detail: `+${fmt(r.ret)}`, type: 'win' };
+        if (r.freeSpinsAwarded > 0) return { label: 'Free Spins Won', detail: `+${r.freeSpinsAwarded} spins`, type: 'freespin' };
+        return { label: 'Free Spin', detail: 'No win this spin', type: 'neutral' };
+    }
+    if (r.freeSpinsAwarded > 0 && r.net > 0) {
+        return { label: 'Win + Free Spins', detail: `Bet ${fmt(r.wager)} → +${fmt(r.net)} · +${r.freeSpinsAwarded} FS`, type: 'win' };
+    }
+    if (r.freeSpinsAwarded > 0) {
+        return { label: 'Free Spins Won', detail: `Bet ${fmt(r.wager)} → +${r.freeSpinsAwarded} spins`, type: 'freespin' };
+    }
+    if (r.net > 0) {
+        return { label: 'Win', detail: `Bet ${fmt(r.wager)} → Win ${fmt(r.ret)}`, type: 'win' };
+    }
+    if (r.net < 0) {
+        return { label: 'No Win', detail: `Bet ${fmt(r.wager)}`, type: 'lose' };
+    }
+    if (r.wager > 0) {
+        return { label: 'Push', detail: `Bet ${fmt(r.wager)} → Returned ${fmt(r.ret)}`, type: 'push' };
+    }
+    return null;
+};
+
+const JURASSIC_BETS = [10, 50, 100, 200, 400, 500, 1000, 2000, 5000];
+
 const CasinoView = () => {
     const token = localStorage.getItem('token');
     const [categories, setCategories] = useState([]);
@@ -161,9 +201,14 @@ const CasinoView = () => {
     const [historyPage, setHistoryPage] = useState(1);
     const [historyPagination, setHistoryPagination] = useState({ page: 1, pages: 1, total: 0, limit: 8 });
     const [historyFilters, setHistoryFilters] = useState({ game: '', result: '', minWager: '', maxWager: '' });
+    const [lastRoundResult, setLastRoundResult] = useState(null);
+    const [gameDisplayBalance, setGameDisplayBalance] = useState(null);
+    const [activeBetId, setActiveBetId] = useState(null);
+    const [gameLaunched, setGameLaunched] = useState(false);
     const iframeRef = useRef(null);
     const pendingGameRequests = useRef(new Set());
     const activeLocalGameRef = useRef(null);
+    const roundResultTimerRef = useRef(null);
 
     useEffect(() => {
         activeLocalGameRef.current = activeLocalGame;
@@ -213,6 +258,20 @@ const CasinoView = () => {
             const data = await getBalance(token);
             const availableBalance = resolveWalletBalance(data, 0) ?? 0;
             const betLimits = buildLocalGameBetLimits(activeLocalGameRef.current, data, availableBalance);
+            let gameState = null;
+            const activeSlug = normalizeEmbeddedGameSlug(
+                activeLocalGameRef.current?.slug
+                || activeLocalGameRef.current?.name
+                || activeLocalGameRef.current?.id
+            );
+            if (activeSlug === 'jurassic-run') {
+                try {
+                    const statePayload = await getCasinoGameState(activeSlug, token);
+                    gameState = statePayload?.state || null;
+                } catch (stateErr) {
+                    console.error('Failed to fetch Jurassic Run state:', stateErr);
+                }
+            }
             sendToGame({
                 type: 'balanceUpdate',
                 requestId: safeRequestId,
@@ -223,7 +282,9 @@ const CasinoView = () => {
                 gameMinBet: betLimits.gameMinBet,
                 gameMaxBet: betLimits.gameMaxBet,
                 betLimits,
+                gameState,
             });
+            setGameDisplayBalance(availableBalance);
         } catch (err) {
             console.error('Failed to get balance for game:', err);
             sendToGame({ type: 'balanceUpdate', requestId: safeRequestId, balance: 0, error: err.message });
@@ -238,6 +299,12 @@ const CasinoView = () => {
         if (allowedOrigin && allowedOrigin !== '*' && event.origin !== allowedOrigin) return;
         const msg = event.data;
         if (!msg || typeof msg !== 'object' || !msg.type) return;
+
+        if (msg.type === 'betConfirmed') {
+            const confirmedId = Number(msg.betId);
+            if (Number.isFinite(confirmedId)) setActiveBetId(confirmedId);
+            return;
+        }
 
         if (msg.type === 'getBalance') {
             const requestId = String(msg.requestId || '');
@@ -260,6 +327,7 @@ const CasinoView = () => {
                 return;
             }
             pendingGameRequests.current.add(requestId);
+            setLastRoundResult(null);
             try {
                 const result = await placeCasinoBet(requestedGame, msg.bets, token, { requestId, payload: msg.payload });
                 let settledPlayableBalance = null;
@@ -283,6 +351,21 @@ const CasinoView = () => {
                         balanceSource: 'availableBalance',
                     };
                 sendToGame({ type: 'betResult', requestId, ...gameResult });
+                setLastRoundResult({
+                    game: requestedGame,
+                    wager: Number(result?.totalWager ?? 0),
+                    ret: Number(result?.totalReturn ?? 0),
+                    net: Number(result?.netResult ?? 0),
+                    isFreeSpinRound: !!(result?.bets?.isFreeSpinRound || result?.roundData?.isFreeSpinRound),
+                    freeSpinsAwarded: Number(result?.roundData?.freeSpinsAwarded ?? result?.roundData?.freeSpinsWon ?? 0),
+                    jackpotWon: !!(result?.roundData?.jackpotWon),
+                    jackpotPayout: Number(result?.roundData?.jackpotPayout ?? 0),
+                    balanceAfter: settledPlayableBalance ?? Number(result?.availableBalanceAfter ?? result?.availableBalance ?? 0),
+                    playerOutcome: String(result?.playerOutcome || result?.result || ''),
+                });
+                if (Number.isFinite(settledPlayableBalance)) {
+                    setGameDisplayBalance(settledPlayableBalance);
+                }
                 // Refresh header balance
                 window.dispatchEvent(new Event('user:refresh'));
                 await loadCasinoHistory();
@@ -311,6 +394,15 @@ const CasinoView = () => {
     useEffect(() => {
         pendingGameRequests.current.clear();
     }, [activeLocalGame?.id]);
+
+    useEffect(() => {
+        if (!lastRoundResult) return;
+        if (roundResultTimerRef.current) clearTimeout(roundResultTimerRef.current);
+        roundResultTimerRef.current = setTimeout(() => setLastRoundResult(null), 5000);
+        return () => { if (roundResultTimerRef.current) clearTimeout(roundResultTimerRef.current); };
+    }, [lastRoundResult]);
+
+    const roundResultSummary = useMemo(() => buildRoundResultSummary(lastRoundResult), [lastRoundResult]);
 
     const handleGameIframeLoad = useCallback(() => {
         syncGameBalance();
@@ -427,6 +519,8 @@ const CasinoView = () => {
                 return 'Craps';
             case 'arabian':
                 return 'Arabian Game';
+            case 'jurassic-run':
+                return 'Jurassic Run';
             case 'arabian-treasure':
                 return 'Arabian Game';
             case '3card-poker':
@@ -516,6 +610,28 @@ const CasinoView = () => {
             }
         }
 
+        if (String(row.game || '').toLowerCase() === 'jurassic-run') {
+            const totalWin = Number(row?.roundData?.totalWin ?? row?.totalReturn ?? 0);
+            const jackpotPayout = Number(row?.roundData?.jackpotPayout ?? 0);
+            const freeSpinsAwarded = Number(row?.roundData?.freeSpinsAwarded ?? 0);
+            const isFreeSpinRound = !!row?.roundData?.isFreeSpinRound;
+            const parts = [];
+            if (jackpotPayout > 0) {
+                parts.push(`Jackpot ${formatMoney(jackpotPayout)}`);
+            } else if (totalWin > 0) {
+                parts.push(`Win ${formatMoney(totalWin)}`);
+            }
+            if (freeSpinsAwarded > 0) {
+                parts.push(`+${freeSpinsAwarded} FS`);
+            }
+            if (parts.length > 0) {
+                return parts.join(' | ');
+            }
+            if (isFreeSpinRound) {
+                return 'Free Spin';
+            }
+        }
+
         if (String(row.game || '').toLowerCase() === '3card-poker') {
             const mainLabel = String(row?.roundData?.mainResultLabel || row?.result || '').trim();
             const playerHand = String(row?.playerHand || row?.roundData?.playerHand || '').trim();
@@ -597,6 +713,19 @@ const CasinoView = () => {
             return parts.length > 0 ? parts.join(' | ') : '—';
         }
 
+        if (game === 'jurassic-run') {
+            const bet = Number(row?.bets?.bet ?? row?.roundData?.bet ?? row?.totalWager ?? 0);
+            const betId = Number(row?.bets?.betId ?? row?.roundData?.betId ?? 0);
+            const isFreeSpinRound = !!row?.roundData?.isFreeSpinRound;
+            const freeSpinsAfter = Number(row?.roundData?.freeSpinsAfter ?? 0);
+            const parts = [];
+            if (Number.isFinite(bet) && bet > 0) parts.push(`Bet ${formatMoney(bet)}`);
+            if (Number.isFinite(betId) && betId >= 0) parts.push(`Level ${betId + 1}`);
+            if (isFreeSpinRound) parts.push('Free Spin');
+            if (Number.isFinite(freeSpinsAfter) && freeSpinsAfter > 0) parts.push(`FS Left ${freeSpinsAfter}`);
+            return parts.length > 0 ? parts.join(' | ') : '—';
+        }
+
         return '—';
     };
     const handleLocalGameOpen = (game) => {
@@ -613,7 +742,29 @@ const CasinoView = () => {
 
     const handleLocalGameClose = () => {
         setActiveLocalGame(null);
+        setLastRoundResult(null);
+        setGameDisplayBalance(null);
+        setActiveBetId(null);
+        setGameLaunched(false);
+        if (roundResultTimerRef.current) clearTimeout(roundResultTimerRef.current);
     };
+
+    const handleSelectBet = useCallback((betId) => {
+        setActiveBetId(betId);
+        sendToGame({ type: 'parentSetBet', betId });
+    }, [sendToGame]);
+
+    const handleSpin = useCallback(() => {
+        if (activeBetId === null) return;
+        sendToGame({ type: 'parentTriggerSpin' });
+    }, [activeBetId, sendToGame]);
+
+    const handleLaunch = useCallback(() => {
+        if (activeBetId === null) return;
+        setGameLaunched(true);
+        sendToGame({ type: 'parentSetBet', betId: activeBetId });
+        setTimeout(() => sendToGame({ type: 'parentTriggerSpin' }), 200);
+    }, [activeBetId, sendToGame]);
 
     const localGames = useMemo(() => {
         return games
@@ -626,6 +777,7 @@ const CasinoView = () => {
                 ...LOCAL_GAME_META[game.slug],
                 id: `local-${game.slug}`,
                 backendId: game.id,
+                slug: game.slug,
                 name: game.name || 'In-House Game',
                 provider: game.provider || LOCAL_GAME_META[game.slug].provider,
                 themeColor: game.themeColor || LOCAL_GAME_META[game.slug].themeColor,
@@ -655,6 +807,102 @@ const CasinoView = () => {
                         <i className="fa-solid fa-xmark"></i>
                         <span>Exit</span>
                     </button>
+
+                    {gameDisplayBalance !== null && (
+                        <div className="game-overlay-balance">
+                            <span className="game-overlay-balance-label">Balance</span>
+                            <span className="game-overlay-balance-value">
+                                ${Math.round(gameDisplayBalance).toLocaleString()}
+                            </span>
+                        </div>
+                    )}
+
+                    {roundResultSummary && (
+                        <div className={`game-round-result game-round-result--${roundResultSummary.type}`}>
+                            <div className="game-round-result-inner">
+                                <span className="game-round-result-label">{roundResultSummary.label}</span>
+                                <span className="game-round-result-detail">{roundResultSummary.detail}</span>
+                            </div>
+                            <button
+                                className="game-round-result-close"
+                                onClick={() => setLastRoundResult(null)}
+                                aria-label="Dismiss result"
+                            >×</button>
+                        </div>
+                    )}
+
+                    {activeLocalGame?.slug === 'jurassic-run' && !gameLaunched && (
+                        <div
+                            className="game-launch-screen"
+                            style={{ backgroundImage: `url(${activeLocalGame.poster})` }}
+                        >
+                            <div className="game-launch-overlay" />
+                            <div className="game-launch-content">
+                                <div className="game-launch-header">
+                                    <img
+                                        src={activeLocalGame.poster}
+                                        alt={activeLocalGame.name}
+                                        className="game-launch-poster"
+                                    />
+                                    <h1 className="game-launch-title">{activeLocalGame.name || 'Jurassic Giants'}</h1>
+                                    <p className="game-launch-provider">In-House Slots</p>
+                                </div>
+                                <div className="game-launch-bet-section">
+                                    <p className="game-launch-bet-label">Select Bet Amount</p>
+                                    <div className="game-launch-chips">
+                                        {JURASSIC_BETS.map((bet, idx) => (
+                                            <button
+                                                key={idx}
+                                                className={`game-bet-chip game-bet-chip--lg${activeBetId === idx ? ' active' : ''}`}
+                                                onClick={() => handleSelectBet(idx)}
+                                            >
+                                                ${bet >= 1000 ? `${bet / 1000}K` : bet}
+                                            </button>
+                                        ))}
+                                    </div>
+                                    {gameDisplayBalance !== null && (
+                                        <p className="game-launch-balance">
+                                            Balance: <strong>${Math.round(gameDisplayBalance).toLocaleString()}</strong>
+                                        </p>
+                                    )}
+                                </div>
+                                <button
+                                    className={`game-launch-btn${activeBetId === null ? ' disabled' : ''}`}
+                                    onClick={handleLaunch}
+                                    disabled={activeBetId === null}
+                                >
+                                    {activeBetId === null
+                                        ? 'Select a bet to play'
+                                        : `Launch Game — Bet $${JURASSIC_BETS[activeBetId] >= 1000 ? `${JURASSIC_BETS[activeBetId] / 1000}K` : JURASSIC_BETS[activeBetId]}`}
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {activeLocalGame?.slug === 'jurassic-run' && gameLaunched && (
+                        <div className="game-bet-controls">
+                            <div className="game-bet-chips">
+                                {JURASSIC_BETS.map((bet, idx) => (
+                                    <button
+                                        key={idx}
+                                        className={`game-bet-chip${activeBetId === idx ? ' active' : ''}`}
+                                        onClick={() => handleSelectBet(idx)}
+                                    >
+                                        ${bet >= 1000 ? `${bet / 1000}K` : bet}
+                                    </button>
+                                ))}
+                            </div>
+                            <button
+                                className={`game-spin-btn${activeBetId === null ? ' disabled' : ''}`}
+                                onClick={handleSpin}
+                                disabled={activeBetId === null}
+                            >
+                                <i className="fa-solid fa-play"></i>
+                                <span>SPIN</span>
+                            </button>
+                        </div>
+                    )}
+
                     <iframe
                         ref={iframeRef}
                         src={activeLocalGame.url}
@@ -793,6 +1041,7 @@ const CasinoView = () => {
                             <option value="blackjack">Blackjack</option>
                             <option value="craps">Craps</option>
                             <option value="arabian">Arabian Game</option>
+                            <option value="jurassic-run">Jurassic Run</option>
                             <option value="3card-poker">3-Card Poker</option>
                         </select>
                     </label>

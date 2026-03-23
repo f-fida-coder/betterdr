@@ -121,6 +121,8 @@ function CasinoBetsView() {
         return 'Craps';
       case 'arabian':
         return 'Arabian Game';
+      case 'jurassic-run':
+        return 'Jurassic Run';
       case 'arabian-treasure':
         return 'Arabian Game';
       case '3card-poker':
@@ -180,6 +182,19 @@ function CasinoBetsView() {
       if (bonusWin > 0) parts.push(`Bonus ${formatMoney(bonusWin)}`);
       if (freeSpinsAwarded > 0) parts.push(`+${freeSpinsAwarded} FS`);
       if (parts.length > 0) return parts.join(' | ');
+    }
+
+    if (String(row.game || '').toLowerCase() === 'jurassic-run') {
+      const totalWin = Number(row?.roundData?.totalWin ?? row?.totalReturn ?? 0);
+      const jackpotPayout = Number(row?.roundData?.jackpotPayout ?? 0);
+      const freeSpinsAwarded = Number(row?.roundData?.freeSpinsAwarded ?? 0);
+      const isFreeSpinRound = !!row?.roundData?.isFreeSpinRound;
+      const parts = [];
+      if (jackpotPayout > 0) parts.push(`Jackpot ${formatMoney(jackpotPayout)}`);
+      else if (totalWin > 0) parts.push(`Win ${formatMoney(totalWin)}`);
+      if (freeSpinsAwarded > 0) parts.push(`+${freeSpinsAwarded} FS`);
+      if (parts.length > 0) return parts.join(' | ');
+      if (isFreeSpinRound) return 'Free Spin';
     }
 
     if (String(row.game || '').toLowerCase() === '3card-poker') {
@@ -435,6 +450,7 @@ function CasinoBetsView() {
                   <option value="blackjack">Blackjack</option>
                   <option value="craps">Craps</option>
                   <option value="arabian">Arabian Game</option>
+                  <option value="jurassic-run">Jurassic Run</option>
                   <option value="3card-poker">3-Card Poker</option>
                 </select>
               </div>
@@ -646,6 +662,8 @@ function CasinoBetsView() {
                           ? 'Dice'
                           : selectedDetail.game === 'arabian'
                             ? 'Spin'
+                            : selectedDetail.game === 'jurassic-run'
+                              ? 'Spin'
                             : selectedDetail.game === '3card-poker'
                               ? 'Bet Breakdown'
                               : 'Cards'}
@@ -680,6 +698,19 @@ function CasinoBetsView() {
                         <div className="casino-detail-row"><span>Free Spins Awarded</span><span>{selectedDetail?.roundData?.freeSpinsAwarded ?? '0'}</span></div>
                         <div className="casino-detail-row"><span>Free Spins After</span><span>{selectedDetail?.roundData?.freeSpinsAfter ?? '0'}</span></div>
                         <div className="casino-detail-row"><span>Bonus Triggered</span><span>{selectedDetail?.roundData?.bonusTriggered ? 'Yes' : 'No'}</span></div>
+                      </>
+                    ) : selectedDetail.game === 'jurassic-run' ? (
+                      <>
+                        <div className="casino-detail-row"><span>Bet Level</span><strong>{Number(selectedDetail?.roundData?.betId ?? selectedDetail?.bets?.betId ?? 0) + 1}</strong></div>
+                        <div className="casino-detail-row"><span>Spin Bet</span><strong>{formatMoney(selectedDetail?.roundData?.bet ?? selectedDetail?.bets?.bet ?? selectedDetail?.totalWager ?? 0)}</strong></div>
+                        <div className="casino-detail-row"><span>Line Win</span><strong>{formatMoney(selectedDetail?.roundData?.lineWin ?? 0)}</strong></div>
+                        <div className="casino-detail-row"><span>Jackpot Payout</span><strong>{formatMoney(selectedDetail?.roundData?.jackpotPayout ?? 0)}</strong></div>
+                        <div className="casino-detail-row"><span>Jackpot Before</span><strong>{formatMoney(selectedDetail?.roundData?.jackpotBefore ?? 0)}</strong></div>
+                        <div className="casino-detail-row"><span>Jackpot After</span><strong>{formatMoney(selectedDetail?.roundData?.jackpotAfter ?? 0)}</strong></div>
+                        <div className="casino-detail-row"><span>Free Spins Before</span><span>{selectedDetail?.roundData?.freeSpinsBefore ?? '0'}</span></div>
+                        <div className="casino-detail-row"><span>Free Spins Awarded</span><span>{selectedDetail?.roundData?.freeSpinsAwarded ?? '0'}</span></div>
+                        <div className="casino-detail-row"><span>Free Spins After</span><span>{selectedDetail?.roundData?.freeSpinsAfter ?? '0'}</span></div>
+                        <div className="casino-detail-row"><span>Free Spin Round</span><span>{selectedDetail?.roundData?.isFreeSpinRound ? 'Yes' : 'No'}</span></div>
                       </>
                     ) : selectedDetail.game === '3card-poker' ? (
                       <>
@@ -846,6 +877,36 @@ function CasinoBetsView() {
                             ? selectedDetail.roundData.pattern.map((row, idx) => (
                               <span className="casino-card-chip" key={`arabian-pattern-${idx}`}>
                                 R{idx + 1}: {Array.isArray(row) ? row.join('-') : '—'}
+                              </span>
+                            ))
+                            : <span>—</span>}
+                        </div>
+                      </div>
+                    </section>
+                  )}
+
+                  {selectedDetail.game === 'jurassic-run' && (
+                    <section className="casino-detail-card">
+                      <h4>Jurassic Run Spin Data</h4>
+                      <div className="casino-detail-stack">
+                        <span>Winning Lines</span>
+                        <div className="casino-card-list">
+                          {Array.isArray(selectedDetail?.roundData?.winningLines) && selectedDetail.roundData.winningLines.length > 0
+                            ? selectedDetail.roundData.winningLines.map((line, idx) => (
+                              <span className="casino-card-chip" key={`jurassic-line-${idx}`}>
+                                L{Number(line?.line ?? 0) + 1} x{line?.count ?? '?'} {line?.symbol || '—'} {line?.win ? formatMoney(line.win) : ''}
+                              </span>
+                            ))
+                            : <span>No winning lines</span>}
+                        </div>
+                      </div>
+                      <div className="casino-detail-stack">
+                        <span>Reel Symbols</span>
+                        <div className="casino-card-list">
+                          {Array.isArray(selectedDetail?.roundData?.symbols) && selectedDetail.roundData.symbols.length > 0
+                            ? selectedDetail.roundData.symbols.map((column, idx) => (
+                              <span className="casino-card-chip" key={`jurassic-col-${idx}`}>
+                                C{idx + 1}: {Array.isArray(column) ? column.join('-') : '—'}
                               </span>
                             ))
                             : <span>—</span>}

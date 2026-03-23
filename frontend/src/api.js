@@ -448,6 +448,18 @@ export const getCasinoGames = async ({ token, category = 'lobby', search = '', f
     return response.json();
 };
 
+export const getCasinoGameState = async (game, token) => {
+    const safeGame = String(game || '').trim().toLowerCase();
+    const response = await fetch(buildApiUrl(`/casino/games/${encodeURIComponent(safeGame)}/state`), {
+        headers: getHeaders(token)
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || 'Failed to fetch casino game state');
+    }
+    return response.json();
+};
+
 export const launchCasinoGame = async (gameId, token) => {
     const response = await fetch(buildApiUrl(`/casino/games/${gameId}/launch`), {
         method: 'POST',

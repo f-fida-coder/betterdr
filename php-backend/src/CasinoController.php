@@ -13,6 +13,7 @@ final class CasinoController
     private const BLACKJACK_GAME_SLUG = 'blackjack';
     private const CRAPS_GAME_SLUG = 'craps';
     private const ARABIAN_GAME_SLUG = 'arabian';
+    private const JURASSIC_RUN_GAME_SLUG = 'jurassic-run';
     private const THREE_CARD_POKER_GAME_SLUG = '3card-poker';
     private const LEGACY_ARABIAN_TREASURE_GAME_SLUG = 'arabian-treasure';
     private const ROULETTE_GAME_SLUG = 'roulette';
@@ -26,6 +27,7 @@ final class CasinoController
     private const BLACKJACK_SOURCE_TYPE = 'casino_blackjack';
     private const CRAPS_SOURCE_TYPE = 'casino_craps';
     private const ARABIAN_SOURCE_TYPE = 'casino_arabian';
+    private const JURASSIC_RUN_SOURCE_TYPE = 'casino_jurassic_run';
     private const THREE_CARD_POKER_SOURCE_TYPE = 'casino_3card_poker';
     private const ROULETTE_SOURCE_TYPE = 'casino_roulette';
     private const STUD_POKER_SOURCE_TYPE = 'casino_stud_poker';
@@ -36,6 +38,7 @@ final class CasinoController
     private const BLACKJACK_MAX_DECK_COUNT = 8;
     private const CRAPS_RNG_VERSION = 'server-rules-v1';
     private const ARABIAN_RNG_VERSION = 'server-slot-v1';
+    private const JURASSIC_RUN_RNG_VERSION = 'jurassic-slot-v1';
     private const THREE_CARD_POKER_RNG_VERSION = 'client-cards-server-rules-v2';
     private const ROULETTE_RNG_VERSION = 'csprng-wheel-v2';
     private const STUD_POKER_RNG_VERSION = 'stud-house-v1';
@@ -44,6 +47,7 @@ final class CasinoController
         self::BLACKJACK_GAME_SLUG => 'Blackjack is available only from the in-house casino table.',
         self::CRAPS_GAME_SLUG => 'Craps is available only from the in-house casino table.',
         self::ARABIAN_GAME_SLUG => 'Arabian Game is available only from the in-house casino table.',
+        self::JURASSIC_RUN_GAME_SLUG => 'Jurassic Run is available only from the in-house casino table.',
         self::THREE_CARD_POKER_GAME_SLUG => '3-Card Poker is available only from the in-house casino table.',
     ];
     private const REQUEST_ID_PATTERN = '/^[A-Za-z0-9_-]{8,128}$/';
@@ -117,6 +121,36 @@ final class CasinoController
         4 => 6,
         5 => 8,
     ];
+    private const JURASSIC_RUN_ALLOWED_BETS = [10, 50, 100, 200, 400, 500, 1000, 2000, 5000];
+    private const JURASSIC_RUN_DEFAULT_BET_ID = 0;
+    private const JURASSIC_RUN_DEFAULT_JACKPOT = 10000;
+    private const JURASSIC_RUN_MAX_FREE_SPINS = 500;
+    private const JURASSIC_RUN_JACKPOT_FEE_PERCENT = 5;
+    private const JURASSIC_RUN_SYMBOLS = ['1', '2', '3', '4', '5', '6', '7', '8', 'FreeSpin', 'Wild', 'JP'];
+    private const JURASSIC_RUN_SYMBOL_WEIGHTS = [16, 16, 15, 14, 14, 14, 13, 12, 15, 5, 1];
+    private const JURASSIC_RUN_PAYOUT_MULTIPLIERS = [
+        '1' => [3 => 1, 4 => 2, 5 => 4],
+        '2' => [3 => 2, 4 => 4, 5 => 8],
+        '3' => [3 => 3, 4 => 6, 5 => 10],
+        '4' => [3 => 4, 4 => 9, 5 => 15],
+        '5' => [3 => 5, 4 => 15, 5 => 30],
+        '6' => [3 => 10, 4 => 30, 5 => 50],
+        '7' => [3 => 15, 4 => 45, 5 => 75],
+        '8' => [3 => 20, 4 => 60, 5 => 100],
+        'FreeSpin' => [3 => 10, 4 => 15, 5 => 25],
+    ];
+    private const JURASSIC_RUN_LINE_PATTERNS = [
+        [0, 0, 0, 0, 0],
+        [1, 1, 1, 1, 1],
+        [2, 2, 2, 2, 2],
+        [0, 1, 2, 1, 0],
+        [2, 1, 0, 1, 2],
+        [0, 0, 1, 2, 2],
+        [2, 2, 1, 0, 0],
+        [1, 0, 0, 0, 1],
+        [1, 2, 2, 2, 1],
+        [0, 2, 0, 2, 0],
+    ];
 
     private const DEFAULT_CASINO_GAMES = [
         ['provider' => 'internal', 'name' => 'Single Hand ($1-$100)', 'slug' => 'single-hand-1-100', 'category' => 'table_games', 'minBet' => 1, 'maxBet' => 100, 'themeColor' => '#115e59', 'icon' => 'fa-solid fa-diamond', 'isFeatured' => true],
@@ -124,6 +158,7 @@ final class CasinoController
         ['provider' => 'internal', 'name' => 'Blackjack', 'slug' => 'blackjack', 'category' => 'table_games', 'minBet' => 1, 'maxBet' => 10000, 'themeColor' => '#0b5563', 'icon' => 'fa-solid fa-club', 'imageUrl' => '/games/blackjack/src/images/misc/table.png', 'tags' => ['table games', 'blackjack', 'in-house', 'live casino'], 'isFeatured' => true],
         ['provider' => 'internal', 'name' => 'Craps', 'slug' => 'craps', 'category' => 'table_games', 'minBet' => 1, 'maxBet' => 10000, 'themeColor' => '#0a4f3a', 'icon' => 'fa-solid fa-dice-six', 'imageUrl' => '/games/craps/sprites/board_table.jpg', 'tags' => ['table games', 'craps', 'in-house', 'live casino'], 'isFeatured' => true],
         ['provider' => 'internal', 'name' => 'Arabian Game', 'slug' => 'arabian', 'category' => 'slots', 'minBet' => 0.3, 'maxBet' => 30, 'themeColor' => '#7e22ce', 'icon' => 'fa-solid fa-scroll', 'imageUrl' => '/games/arabian/sprites/200x200.jpg', 'tags' => ['slots', 'arabian', 'in-house', 'server settled'], 'isFeatured' => true],
+        ['provider' => 'internal', 'name' => 'Jurassic Run', 'slug' => 'jurassic-run', 'category' => 'slots', 'minBet' => 10, 'maxBet' => 5000, 'themeColor' => '#166534', 'icon' => 'fa-solid fa-dragon', 'imageUrl' => '/games/jurassic-run/assets/images/background_middle.webp', 'tags' => ['slots', 'jurassic', 'in-house', 'server settled'], 'isFeatured' => true],
         ['provider' => 'internal', 'name' => '3-Card Poker', 'slug' => '3card-poker', 'category' => 'table_games', 'minBet' => 1, 'maxBet' => 300, 'themeColor' => '#1a3a5c', 'icon' => 'fa-solid fa-cards', 'imageUrl' => '/games/3-card-poker/sprites/200x200.jpg', 'tags' => ['table games', 'poker', '3-card poker', 'in-house'], 'isFeatured' => true],
         ['provider' => 'internal', 'name' => 'Jacks or Better', 'slug' => 'jacks-or-better', 'category' => 'video_poker', 'minBet' => 1, 'maxBet' => 100, 'themeColor' => '#be123c', 'icon' => 'fa-solid fa-cards'],
         ['provider' => 'internal', 'name' => 'Video Keno', 'slug' => 'video-keno', 'category' => 'specialty_games', 'minBet' => 1, 'maxBet' => 100, 'themeColor' => '#0ea5e9', 'icon' => 'fa-solid fa-table-cells-large'],
@@ -276,6 +311,10 @@ final class CasinoController
         }
         if ($method === 'GET' && $path === '/api/casino/categories') {
             $this->getCasinoCategories();
+            return true;
+        }
+        if ($method === 'GET' && preg_match('#^/api/casino/games/([a-z0-9-]+)/state$#', $path, $m) === 1) {
+            $this->getCasinoGameState(strtolower($m[1]));
             return true;
         }
         if ($method === 'POST' && preg_match('#^/api/casino/games/([a-fA-F0-9]{24})/launch$#', $path, $m) === 1) {
@@ -436,6 +475,44 @@ final class CasinoController
             ]);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error fetching casino categories'], 500);
+        }
+    }
+
+    private function getCasinoGameState(string $slug): void
+    {
+        try {
+            $actor = $this->protect();
+            if ($actor === null) {
+                return;
+            }
+
+            $accessError = $this->casinoAccessError($actor, true);
+            if ($accessError !== null) {
+                Response::json(['message' => $accessError], 403);
+                return;
+            }
+
+            $this->ensureCasinoSeeded();
+            $this->requireActiveCasinoGame($slug);
+
+            if ($slug === self::JURASSIC_RUN_GAME_SLUG) {
+                $state = $this->getUserJurassicRunState($actor);
+                Response::json([
+                    'game' => $slug,
+                    'state' => [
+                        'freeSpinsRemaining' => (int) ($state['freeSpinsRemaining'] ?? 0),
+                        'lockedBetId' => $state['lockedBetId'] ?? null,
+                        'jackpotPool' => round($this->num($state['jackpotPool'] ?? self::JURASSIC_RUN_DEFAULT_JACKPOT)),
+                    ],
+                ]);
+                return;
+            }
+
+            Response::json(['message' => 'Unsupported game state request: ' . $slug], 400);
+        } catch (InvalidArgumentException $e) {
+            Response::json(['message' => $e->getMessage()], 400);
+        } catch (Throwable $e) {
+            Response::json(['message' => 'Server error fetching casino game state'], 500);
         }
     }
 
@@ -878,6 +955,10 @@ final class CasinoController
             }
             if ($game === self::ARABIAN_GAME_SLUG) {
                 $this->placeArabianBet($actor, $body, $requestId, $startedAt);
+                return;
+            }
+            if ($game === self::JURASSIC_RUN_GAME_SLUG) {
+                $this->placeJurassicRunBet($actor, $body, $requestId, $startedAt);
                 return;
             }
             if ($game === self::THREE_CARD_POKER_GAME_SLUG) {
@@ -3272,6 +3353,723 @@ final class CasinoController
         }
 
         return [-1, 0.0];
+    }
+
+    private function placeJurassicRunBet(array $actor, array $body, string $requestId, float $startedAt): void
+    {
+        $userId = (string) ($actor['_id'] ?? '');
+
+        try {
+            $this->requireActiveCasinoGame(self::JURASSIC_RUN_GAME_SLUG);
+
+            $bets = is_array($body['bets'] ?? null) ? $body['bets'] : [];
+            $requestedBetId = $this->parseJurassicRunBetId(
+                $bets['betId'] ?? ($body['betId'] ?? self::JURASSIC_RUN_DEFAULT_BET_ID)
+            );
+            $declaredBet = array_key_exists('bet', $bets)
+                ? $this->parseMoneyValue($bets['bet'], 'bets.bet')
+                : null;
+
+            [$gameMinBet, $gameMaxBet] = $this->resolveGameBetLimits(self::JURASSIC_RUN_GAME_SLUG, 10.0, 5000.0);
+
+            $this->db->beginTransaction();
+            try {
+                $lockedUser = $this->loadLockedCasinoUser($userId);
+                $betLimits = $this->buildJurassicRunBetLimits($lockedUser, $gameMinBet, $gameMaxBet);
+
+                $existingRound = $this->db->findOne('casino_bets', [
+                    'userId' => $userId,
+                    'requestId' => $requestId,
+                    'game' => self::JURASSIC_RUN_GAME_SLUG,
+                ]);
+                if ($existingRound !== null) {
+                    $roundId = (string) ($existingRound['roundId'] ?? $existingRound['_id'] ?? '');
+                    $ledgerEntries = $this->findRoundLedgerEntries($roundId);
+                    if (!is_array($existingRound['betLimits'] ?? null)) {
+                        $existingRound['betLimits'] = $betLimits;
+                    }
+                    $this->writeCasinoAuditLog('jurassic_run_round_idempotent', [
+                        'requestId' => $requestId,
+                        'roundId' => $roundId,
+                        'userId' => $userId,
+                        'username' => (string) ($lockedUser['username'] ?? ''),
+                        'idempotent' => true,
+                    ]);
+                    $this->db->commit();
+                    Response::json($this->formatCasinoBetResponse($existingRound, $ledgerEntries, true));
+                    return;
+                }
+
+                $stateBefore = $this->getUserJurassicRunState($lockedUser);
+                $isFreeSpinRound = ($stateBefore['freeSpinsRemaining'] ?? 0) > 0;
+                $betId = $isFreeSpinRound && is_int($stateBefore['lockedBetId'] ?? null)
+                    ? (int) $stateBefore['lockedBetId']
+                    : $this->resolveJurassicRunBetId($requestedBetId, $betLimits);
+                $bet = $this->jurassicRunBetAmountForId($betId);
+                $totalWager = $isFreeSpinRound ? 0.0 : $bet;
+
+                if (!$isFreeSpinRound) {
+                    if ($bet < $gameMinBet) {
+                        $this->db->rollback();
+                        Response::json(['message' => 'Minimum Jurassic Run wager is $' . round($gameMinBet)], 400);
+                        return;
+                    }
+                    if ($bet > $gameMaxBet) {
+                        $this->db->rollback();
+                        Response::json(['message' => 'Maximum Jurassic Run wager is $' . round($gameMaxBet)], 400);
+                        return;
+                    }
+
+                    $this->assertUserWagerWithinLimits($lockedUser, $totalWager);
+                    $this->assertCasinoLossLimits($lockedUser, $totalWager);
+                }
+
+                $balanceSnapshot = $this->getUserBalanceSnapshot($lockedUser);
+                if ($totalWager > $balanceSnapshot['availableBalance']) {
+                    $this->db->rollback();
+                    Response::json(['message' => 'Insufficient balance. Available: $' . round($balanceSnapshot['availableBalance'])], 400);
+                    return;
+                }
+
+                $roundId = $this->deterministicRoundId(self::JURASSIC_RUN_GAME_SLUG, $userId, $requestId);
+                $settlement = $this->settleJurassicRunSpin($bet, $betId, $stateBefore);
+                $totalReturn = round($this->num($settlement['totalReturn'] ?? 0));
+                $netResult = round($totalReturn - $totalWager);
+                $profit = round(max(0, $netResult));
+                $result = (string) ($settlement['result'] ?? ($totalReturn > 0 ? 'Win' : 'Lose'));
+                $resultType = (string) ($settlement['resultType'] ?? '');
+                $roundData = is_array($settlement['roundData'] ?? null) ? $settlement['roundData'] : [];
+                $stateAfter = is_array($settlement['stateAfter'] ?? null) ? $settlement['stateAfter'] : [];
+
+                $now = MongoRepository::nowUtc();
+                $ipAddress = IpUtils::clientIp();
+                $userAgent = Http::header('user-agent') !== '' ? Http::header('user-agent') : null;
+                $balanceAfterDebit = round($balanceSnapshot['balanceBefore'] - $totalWager);
+                $balanceAfter = round($balanceAfterDebit + $totalReturn);
+                $availableBalanceAfter = round(max(0, $balanceAfter - $balanceSnapshot['pendingBalance']));
+
+                $debitEntry = null;
+                $debitEntryId = null;
+                if ($totalWager > 0) {
+                    $debitEntry = $this->buildCasinoTransactionEntry(
+                        $userId,
+                        $totalWager,
+                        $roundId,
+                        self::JURASSIC_RUN_SOURCE_TYPE,
+                        'DEBIT',
+                        'casino_bet_debit',
+                        $balanceSnapshot['balanceBefore'],
+                        $balanceAfterDebit,
+                        'CASINO_JURASSIC_RUN_WAGER',
+                        'Jurassic Run spin wager charged',
+                        $now,
+                        $ipAddress,
+                        $userAgent
+                    );
+                    $debitEntryId = $this->db->insertOne('transactions', $debitEntry);
+                }
+
+                $creditEntry = null;
+                $creditEntryId = null;
+                if ($totalReturn > 0) {
+                    $creditEntry = $this->buildCasinoTransactionEntry(
+                        $userId,
+                        $totalReturn,
+                        $roundId,
+                        self::JURASSIC_RUN_SOURCE_TYPE,
+                        'CREDIT',
+                        'casino_bet_credit',
+                        $balanceAfterDebit,
+                        $balanceAfter,
+                        'CASINO_JURASSIC_RUN_PAYOUT',
+                        'Jurassic Run spin payout credited',
+                        $now,
+                        $ipAddress,
+                        $userAgent
+                    );
+                    $creditEntryId = $this->db->insertOne('transactions', $creditEntry);
+                }
+
+                $stateAfter['updatedAt'] = $now;
+                $stateAfter['lastRoundId'] = $roundId;
+                $stateAfter['lastSpinAt'] = $now;
+
+                $this->db->updateOne('users', ['_id' => MongoRepository::id($userId)], [
+                    'balance' => $balanceAfter,
+                    'casinoJurassicRunState' => $stateAfter,
+                    'updatedAt' => $now,
+                ]);
+
+                $serverDecisionAt = MongoRepository::nowUtc();
+                $latencyMs = max(0, (int) round((microtime(true) - $startedAt) * 1000));
+                $integrityHash = $this->buildIntegrityHash([
+                    'roundId' => $roundId,
+                    'requestId' => $requestId,
+                    'userId' => $userId,
+                    'game' => self::JURASSIC_RUN_GAME_SLUG,
+                    'betId' => $betId,
+                    'bet' => $bet,
+                    'clientRequestedBetId' => $requestedBetId,
+                    'clientDeclaredBet' => $declaredBet,
+                    'isFreeSpinRound' => $isFreeSpinRound,
+                    'totalWager' => $totalWager,
+                    'totalReturn' => $totalReturn,
+                    'netResult' => $netResult,
+                    'symbols' => $roundData['symbols'] ?? [],
+                    'winningLines' => $roundData['winningLines'] ?? [],
+                    'freeSpinsBefore' => $roundData['freeSpinsBefore'] ?? 0,
+                    'freeSpinsAfter' => $roundData['freeSpinsAfter'] ?? 0,
+                    'jackpotBefore' => $roundData['jackpotBefore'] ?? 0,
+                    'jackpotAfter' => $roundData['jackpotAfter'] ?? 0,
+                    'jackpotPayout' => $roundData['jackpotPayout'] ?? 0,
+                    'balanceBefore' => $balanceSnapshot['balanceBefore'],
+                    'balanceAfter' => $balanceAfter,
+                    'serverDecisionAt' => $serverDecisionAt,
+                ]);
+
+                $ledgerRefs = [];
+                if ($debitEntryId !== null) {
+                    $ledgerRefs['debit'] = $debitEntryId;
+                }
+                if ($creditEntryId !== null) {
+                    $ledgerRefs['credit'] = $creditEntryId;
+                }
+
+                $betDetails = [
+                    'winningLines' => is_array($roundData['winningLines'] ?? null) ? $roundData['winningLines'] : [],
+                    'slotWin' => round($this->num($roundData['slotWin'] ?? 0)),
+                    'lineWin' => round($this->num($roundData['lineWin'] ?? 0)),
+                    'jackpotWon' => (bool) ($roundData['jackpotWon'] ?? false),
+                    'jackpotPayout' => round($this->num($roundData['jackpotPayout'] ?? 0)),
+                    'freeSpinsBefore' => (int) ($roundData['freeSpinsBefore'] ?? 0),
+                    'freeSpinsAwarded' => (int) ($roundData['freeSpinsAwarded'] ?? 0),
+                    'freeSpinsAfter' => (int) ($roundData['freeSpinsAfter'] ?? 0),
+                    'isFreeSpinRound' => (bool) ($roundData['isFreeSpinRound'] ?? false),
+                    'symbols' => is_array($roundData['symbols'] ?? null) ? $roundData['symbols'] : [],
+                ];
+
+                $betRecord = [
+                    '_id' => $roundId,
+                    'roundId' => $roundId,
+                    'requestId' => $requestId,
+                    'userId' => $userId,
+                    'username' => (string) ($lockedUser['username'] ?? $actor['username'] ?? ''),
+                    'game' => self::JURASSIC_RUN_GAME_SLUG,
+                    'bets' => [
+                        'betId' => $betId,
+                        'bet' => $bet,
+                        'clientRequestedBetId' => $requestedBetId,
+                        'clientDeclaredBet' => $declaredBet,
+                        'isFreeSpinRound' => $isFreeSpinRound,
+                    ],
+                    'result' => $result,
+                    'resultType' => $resultType,
+                    'totalWager' => $totalWager,
+                    'totalReturn' => $totalReturn,
+                    'profit' => $profit,
+                    'netResult' => $netResult,
+                    'balanceBefore' => $balanceSnapshot['balanceBefore'],
+                    'balanceAfter' => $balanceAfter,
+                    'availableBalanceBefore' => $balanceSnapshot['availableBalance'],
+                    'availableBalanceAfter' => $availableBalanceAfter,
+                    'pendingBalanceSnapshot' => $balanceSnapshot['pendingBalance'],
+                    'ledgerEntries' => $ledgerRefs,
+                    'rngVersion' => self::JURASSIC_RUN_RNG_VERSION,
+                    'outcomeSource' => 'server_rng',
+                    'betLimits' => $betLimits,
+                    'betDetails' => $betDetails,
+                    'roundData' => $roundData,
+                    'integrityHash' => $integrityHash,
+                    'serverDecisionAt' => $serverDecisionAt,
+                    'latencyMs' => $latencyMs,
+                    'roundStatus' => 'settled',
+                    'createdAt' => $now,
+                    'updatedAt' => $now,
+                ];
+                $this->db->insertOne('casino_bets', $betRecord);
+
+                $this->db->insertOne('casino_round_audit', [
+                    '_id' => $roundId,
+                    'roundId' => $roundId,
+                    'requestId' => $requestId,
+                    'userId' => $userId,
+                    'game' => self::JURASSIC_RUN_GAME_SLUG,
+                    'rngVersion' => self::JURASSIC_RUN_RNG_VERSION,
+                    'outcomeSource' => 'server_rng',
+                    'bets' => $betRecord['bets'],
+                    'result' => $result,
+                    'resultType' => $resultType,
+                    'betDetails' => $betDetails,
+                    'roundData' => $roundData,
+                    'integrityHash' => $integrityHash,
+                    'createdAt' => $now,
+                    'updatedAt' => $now,
+                ]);
+
+                $this->db->commit();
+
+                $ledgerEntries = [];
+                if (is_array($debitEntry) && $debitEntryId !== null) {
+                    $ledgerEntries[] = array_merge($debitEntry, ['_id' => $debitEntryId]);
+                }
+                if (is_array($creditEntry) && $creditEntryId !== null) {
+                    $ledgerEntries[] = array_merge($creditEntry, ['_id' => $creditEntryId]);
+                }
+
+                $this->writeCasinoAuditLog('jurassic_run_round_settled', [
+                    'requestId' => $requestId,
+                    'roundId' => $roundId,
+                    'userId' => $userId,
+                    'username' => (string) ($lockedUser['username'] ?? ''),
+                    'betId' => $betId,
+                    'bet' => $bet,
+                    'isFreeSpinRound' => $isFreeSpinRound,
+                    'wager' => $totalWager,
+                    'totalReturn' => $totalReturn,
+                    'netResult' => $netResult,
+                    'balanceBefore' => $balanceSnapshot['balanceBefore'],
+                    'balanceAfter' => $balanceAfter,
+                    'freeSpinsBefore' => (int) ($roundData['freeSpinsBefore'] ?? 0),
+                    'freeSpinsAfter' => (int) ($roundData['freeSpinsAfter'] ?? 0),
+                    'jackpotWon' => (bool) ($roundData['jackpotWon'] ?? false),
+                    'jackpotPayout' => round($this->num($roundData['jackpotPayout'] ?? 0)),
+                ]);
+                Response::json($this->formatCasinoBetResponse($betRecord, $ledgerEntries, false));
+            } catch (Throwable $txErr) {
+                $this->db->rollback();
+                throw $txErr;
+            }
+        } catch (InvalidArgumentException $e) {
+            $this->writeCasinoAuditLog('jurassic_run_round_validation_error', [
+                'requestId' => $requestId,
+                'userId' => $userId,
+                'error' => $e->getMessage(),
+            ]);
+            Response::json(['message' => $e->getMessage()], 400);
+        } catch (Throwable $e) {
+            $this->writeCasinoAuditLog('jurassic_run_round_server_error', [
+                'requestId' => $requestId,
+                'userId' => $userId,
+                'error' => $e->getMessage(),
+            ]);
+            Response::json(['message' => 'Server error placing Jurassic Run bet'], 500);
+        }
+    }
+
+    /**
+     * @return array{
+     *   freeSpinsRemaining:int,
+     *   lockedBetId:?int,
+     *   jackpotPool:float
+     * }
+     */
+    private function getUserJurassicRunState(array $user): array
+    {
+        $raw = is_array($user['casinoJurassicRunState'] ?? null) ? $user['casinoJurassicRunState'] : [];
+        $freeSpinsRaw = $this->safeNumber($raw['freeSpinsRemaining'] ?? null, 0);
+        $freeSpinsRemaining = max(0, min(self::JURASSIC_RUN_MAX_FREE_SPINS, (int) round($freeSpinsRaw ?? 0)));
+
+        $lockedBetId = null;
+        $lockedBetIdRaw = $this->safeNumber($raw['lockedBetId'] ?? null, null);
+        if ($lockedBetIdRaw !== null) {
+            $candidateBetId = (int) round($lockedBetIdRaw);
+            if (
+                abs($lockedBetIdRaw - $candidateBetId) <= 0.00001
+                && $candidateBetId >= 0
+                && $candidateBetId < count(self::JURASSIC_RUN_ALLOWED_BETS)
+            ) {
+                $lockedBetId = $candidateBetId;
+            }
+        }
+        if ($freeSpinsRemaining <= 0) {
+            $lockedBetId = null;
+        }
+
+        $jackpotRaw = $this->safeNumber($raw['jackpotPool'] ?? null, null);
+        $jackpotPool = $jackpotRaw === null
+            ? self::JURASSIC_RUN_DEFAULT_JACKPOT
+            : round(max(0, $jackpotRaw));
+
+        return [
+            'freeSpinsRemaining' => $freeSpinsRemaining,
+            'lockedBetId' => $lockedBetId,
+            'jackpotPool' => $jackpotPool,
+        ];
+    }
+
+    private function parseJurassicRunBetId(mixed $value): int
+    {
+        if ($value === null || $value === '') {
+            return self::JURASSIC_RUN_DEFAULT_BET_ID;
+        }
+        if (!is_numeric($value)) {
+            throw new InvalidArgumentException('bets.betId must be numeric');
+        }
+
+        $raw = (float) $value;
+        $betId = (int) round($raw);
+        if (abs($raw - $betId) > 0.00001) {
+            throw new InvalidArgumentException('bets.betId must be an integer');
+        }
+        if ($betId < 0 || $betId >= count(self::JURASSIC_RUN_ALLOWED_BETS)) {
+            throw new InvalidArgumentException('bets.betId is out of range');
+        }
+
+        return $betId;
+    }
+
+    /**
+     * @return array{
+     *   accountMinBet:?float,
+     *   accountMaxBet:?float,
+     *   gameMinBet:float,
+     *   gameMaxBet:float,
+     *   effectiveMinBet:float,
+     *   effectiveMaxBet:float,
+     *   allowedBetIds: array<int, int>,
+     *   allowedBets: array<int, float>
+     * }
+     */
+    private function buildJurassicRunBetLimits(array $lockedUser, float $gameMinBet, float $gameMaxBet): array
+    {
+        $accountMinRaw = $this->safeNumber($lockedUser['minBet'] ?? null, null);
+        $accountMaxRaw = $this->safeNumber($lockedUser['maxBet'] ?? null, null);
+        $accountMinBet = ($accountMinRaw !== null && $accountMinRaw > 0) ? round($accountMinRaw) : null;
+        $accountMaxBet = ($accountMaxRaw !== null && $accountMaxRaw > 0) ? round($accountMaxRaw) : null;
+
+        $effectiveMinBet = $accountMinBet !== null ? max($gameMinBet, $accountMinBet) : $gameMinBet;
+        $effectiveMaxBet = $accountMaxBet !== null ? min($gameMaxBet, $accountMaxBet) : $gameMaxBet;
+        if ($effectiveMaxBet < $effectiveMinBet) {
+            $effectiveMaxBet = $effectiveMinBet;
+        }
+
+        $allowedBetIds = $this->jurassicRunAllowedBetIdsForRange($effectiveMinBet, $effectiveMaxBet);
+        $allowedBets = [];
+        foreach ($allowedBetIds as $allowedBetId) {
+            $allowedBets[] = $this->jurassicRunBetAmountForId($allowedBetId);
+        }
+
+        return [
+            'accountMinBet' => $accountMinBet,
+            'accountMaxBet' => $accountMaxBet,
+            'gameMinBet' => round($gameMinBet),
+            'gameMaxBet' => round($gameMaxBet),
+            'effectiveMinBet' => round($effectiveMinBet),
+            'effectiveMaxBet' => round($effectiveMaxBet),
+            'allowedBetIds' => $allowedBetIds,
+            'allowedBets' => $allowedBets,
+        ];
+    }
+
+    /**
+     * @param array{
+     *   freeSpinsRemaining:int,
+     *   lockedBetId:?int,
+     *   jackpotPool:float
+     * } $stateBefore
+     * @return array{
+     *   totalReturn: float,
+     *   result: string,
+     *   resultType: string,
+     *   roundData: array<string, mixed>,
+     *   stateAfter: array<string, mixed>
+     * }
+     */
+    private function settleJurassicRunSpin(float $bet, int $betId, array $stateBefore): array
+    {
+        $freeSpinsBefore = max(0, (int) ($stateBefore['freeSpinsRemaining'] ?? 0));
+        $isFreeSpinRound = $freeSpinsBefore > 0;
+        $freeSpinsAfter = $isFreeSpinRound ? ($freeSpinsBefore - 1) : $freeSpinsBefore;
+
+        $jackpotStored = $this->safeNumber($stateBefore['jackpotPool'] ?? null, self::JURASSIC_RUN_DEFAULT_JACKPOT);
+        $jackpotStartingPool = round(max(0, $jackpotStored ?? self::JURASSIC_RUN_DEFAULT_JACKPOT));
+        $jackpotContribution = $isFreeSpinRound ? 0.0 : round(($bet * self::JURASSIC_RUN_JACKPOT_FEE_PERCENT) / 100);
+        $jackpotBefore = round($jackpotStartingPool + $jackpotContribution);
+
+        $symbols = $this->generateJurassicRunSymbols();
+        $winningData = $this->calculateJurassicRunWinningData($symbols, $bet);
+        $slotWin = round($this->num($winningData['winnings'] ?? 0));
+        $freeSpinsWon = max(0, (int) ($winningData['freeSpinsWon'] ?? 0));
+        $jackpotWon = !empty($winningData['jackpotWon']);
+        $jackpotPayout = $jackpotWon ? $jackpotBefore : 0.0;
+        $jackpotAfter = $jackpotWon ? 0.0 : $jackpotBefore;
+        $freeSpinsAfter = max(0, min(self::JURASSIC_RUN_MAX_FREE_SPINS, $freeSpinsAfter + $freeSpinsWon));
+        $totalReturn = round($slotWin + $jackpotPayout);
+
+        $result = $jackpotWon
+            ? 'Jackpot'
+            : ($totalReturn > 0 ? 'Win' : ($isFreeSpinRound ? 'Free Spin' : 'Lose'));
+        $resultType = $jackpotWon
+            ? 'jackpot'
+            : ($slotWin > 0
+                ? 'spin_win'
+                : ($freeSpinsWon > 0
+                    ? 'freespin_award'
+                    : ($isFreeSpinRound ? 'freespin_no_win' : 'spin_loss')));
+
+        $roundData = [
+            'betId' => $betId,
+            'bet' => $bet,
+            'totalBet' => $bet,
+            'isFreeSpinRound' => $isFreeSpinRound,
+            'freeSpinsBefore' => $freeSpinsBefore,
+            'freeSpinsWon' => $freeSpinsWon,
+            'freeSpinsAwarded' => $freeSpinsWon,
+            'freeSpinsAfter' => $freeSpinsAfter,
+            'jackpotContribution' => $jackpotContribution,
+            'jackpotBefore' => $jackpotBefore,
+            'jackpotAfter' => $jackpotAfter,
+            'jackpotWon' => $jackpotWon ? 1 : 0,
+            'jackpotPayout' => $jackpotPayout,
+            'slotWin' => $slotWin,
+            'lineWin' => $slotWin,
+            'totalWin' => $totalReturn,
+            'symbols' => $symbols,
+            'winningLines' => is_array($winningData['winningLines'] ?? null) ? $winningData['winningLines'] : [],
+            'win_lines' => is_array($winningData['winningLines'] ?? null) ? $winningData['winningLines'] : [],
+        ];
+
+        $stateAfter = [
+            'freeSpinsRemaining' => $freeSpinsAfter,
+            'lockedBetId' => $freeSpinsAfter > 0 ? $betId : null,
+            'jackpotPool' => $jackpotAfter,
+        ];
+
+        return [
+            'totalReturn' => $totalReturn,
+            'result' => $result,
+            'resultType' => $resultType,
+            'roundData' => $roundData,
+            'stateAfter' => $stateAfter,
+        ];
+    }
+
+    /**
+     * @return array<int, array<int, string>>
+     */
+    private function generateJurassicRunSymbols(): array
+    {
+        $result = [];
+        for ($col = 0; $col < 5; $col++) {
+            $column = [];
+            for ($row = 0; $row < 3; $row++) {
+                do {
+                    $randomSymbol = $this->pickJurassicRunWeightedSymbol();
+                } while (
+                    $row === 2
+                    && count(array_filter($column, static fn(string $symbol): bool => $symbol === 'Wild' || $symbol === 'FreeSpin')) === 2
+                    && ($randomSymbol === 'Wild' || $randomSymbol === 'FreeSpin')
+                );
+                $column[] = $randomSymbol;
+            }
+            $result[] = $column;
+        }
+        return $result;
+    }
+
+    private function pickJurassicRunWeightedSymbol(): string
+    {
+        $totalWeight = array_sum(self::JURASSIC_RUN_SYMBOL_WEIGHTS);
+        if ($totalWeight <= 0) {
+            return self::JURASSIC_RUN_SYMBOLS[0];
+        }
+
+        $roll = random_int(1, $totalWeight);
+        $cursor = 0;
+        foreach (self::JURASSIC_RUN_SYMBOL_WEIGHTS as $idx => $weight) {
+            $cursor += max(0, (int) $weight);
+            if ($roll <= $cursor) {
+                return (string) (self::JURASSIC_RUN_SYMBOLS[$idx] ?? self::JURASSIC_RUN_SYMBOLS[0]);
+            }
+        }
+
+        return self::JURASSIC_RUN_SYMBOLS[0];
+    }
+
+    /**
+     * @param array<int, array<int, string>> $result
+     * @return array{winnings:float,winningLines:array<int, array<string, mixed>>,freeSpinsWon:int,jackpotWon:int}
+     */
+    private function calculateJurassicRunWinningData(array $result, float $bet): array
+    {
+        $winnings = 0.0;
+        $winningLines = [];
+        $freeSpinsWon = 0;
+        $jackpotWon = 0;
+
+        foreach (self::JURASSIC_RUN_LINE_PATTERNS as $lineIndex => $winline) {
+            $symbols = [];
+            for ($col = 0; $col < 5; $col++) {
+                $row = (int) ($winline[$col] ?? 0);
+                $symbols[] = (string) ($result[$col][$row] ?? '');
+            }
+
+            $allWilds = true;
+            foreach ($symbols as $symbol) {
+                if ($symbol !== 'Wild') {
+                    $allWilds = false;
+                    break;
+                }
+            }
+            if ($allWilds) {
+                continue;
+            }
+
+            $baseSymbol = null;
+            foreach ($symbols as $symbol) {
+                if (!in_array($symbol, ['Wild', 'FreeSpin', 'JP'], true)) {
+                    $baseSymbol = $symbol;
+                    break;
+                }
+            }
+
+            $wildUsed = false;
+            $evaluated = [];
+            foreach ($symbols as $symbol) {
+                $evaluated[] = ($symbol === 'Wild') ? $baseSymbol : $symbol;
+                if ($symbol === 'Wild') {
+                    $wildUsed = true;
+                }
+            }
+
+            $firstSymbol = $evaluated[0] ?? null;
+            if (!is_string($firstSymbol) || $firstSymbol === '') {
+                continue;
+            }
+
+            $count = 1;
+            for ($idx = 1; $idx < 5; $idx++) {
+                if (($evaluated[$idx] ?? null) === $firstSymbol) {
+                    $count++;
+                } else {
+                    break;
+                }
+            }
+
+            if ($count < 3) {
+                continue;
+            }
+
+            if ($firstSymbol === 'JP') {
+                if ($count === 5) {
+                    $jackpotWon = 1;
+                    $winningLines[] = [
+                        'line' => $lineIndex,
+                        'symbol' => $firstSymbol,
+                        'count' => $count,
+                        'wild_used' => 0,
+                    ];
+                }
+                continue;
+            }
+
+            if ($firstSymbol === 'FreeSpin') {
+                $freeSpinAward = (int) (self::JURASSIC_RUN_PAYOUT_MULTIPLIERS['FreeSpin'][$count] ?? 0);
+                $freeSpinsWon += $freeSpinAward;
+                $winningLines[] = [
+                    'line' => $lineIndex,
+                    'symbol' => $firstSymbol,
+                    'count' => $count,
+                    'win' => $freeSpinAward,
+                    'wild_used' => 0,
+                ];
+                continue;
+            }
+
+            $symbolMultipliers = self::JURASSIC_RUN_PAYOUT_MULTIPLIERS[$firstSymbol] ?? null;
+            if (!is_array($symbolMultipliers)) {
+                continue;
+            }
+
+            $win = round(($symbolMultipliers[$count] ?? 0) * $bet);
+            if ($win <= 0) {
+                continue;
+            }
+
+            $winnings += $win;
+            $winningLines[] = [
+                'line' => $lineIndex,
+                'symbol' => $firstSymbol,
+                'count' => $count,
+                'win' => $win,
+                'wild_used' => $wildUsed ? 1 : 0,
+            ];
+        }
+
+        return [
+            'winnings' => round($winnings),
+            'winningLines' => $winningLines,
+            'freeSpinsWon' => $freeSpinsWon,
+            'jackpotWon' => $jackpotWon,
+        ];
+    }
+
+    private function jurassicRunBetAmountForId(int $betId): float
+    {
+        if (!array_key_exists($betId, self::JURASSIC_RUN_ALLOWED_BETS)) {
+            throw new InvalidArgumentException('Invalid Jurassic Run bet id');
+        }
+        return round($this->num(self::JURASSIC_RUN_ALLOWED_BETS[$betId]));
+    }
+
+    /**
+     * @return array<int, int>
+     */
+    private function jurassicRunAllowedBetIdsForRange(float $effectiveMinBet, float $effectiveMaxBet): array
+    {
+        $allowedBetIds = [];
+        foreach (self::JURASSIC_RUN_ALLOWED_BETS as $betId => $bet) {
+            $normalizedBet = round($this->num($bet));
+            if ($normalizedBet < $effectiveMinBet || $normalizedBet > $effectiveMaxBet) {
+                continue;
+            }
+            $allowedBetIds[] = $betId;
+        }
+
+        if ($allowedBetIds !== []) {
+            return array_values(array_map('intval', $allowedBetIds));
+        }
+
+        $nearestBetId = self::JURASSIC_RUN_DEFAULT_BET_ID;
+        $nearestDistance = PHP_FLOAT_MAX;
+        foreach (self::JURASSIC_RUN_ALLOWED_BETS as $betId => $bet) {
+            $normalizedBet = round($this->num($bet));
+            $distance = 0.0;
+            if ($normalizedBet < $effectiveMinBet) {
+                $distance = $effectiveMinBet - $normalizedBet;
+            } elseif ($normalizedBet > $effectiveMaxBet) {
+                $distance = $normalizedBet - $effectiveMaxBet;
+            }
+            if ($distance < $nearestDistance) {
+                $nearestBetId = (int) $betId;
+                $nearestDistance = $distance;
+            }
+        }
+
+        return [$nearestBetId];
+    }
+
+    private function resolveJurassicRunBetId(int $requestedBetId, array $betLimits): int
+    {
+        $allowedBetIds = array_values(array_map('intval', is_array($betLimits['allowedBetIds'] ?? null) ? $betLimits['allowedBetIds'] : []));
+        if ($allowedBetIds === []) {
+            return self::JURASSIC_RUN_DEFAULT_BET_ID;
+        }
+        if (in_array($requestedBetId, $allowedBetIds, true)) {
+            return $requestedBetId;
+        }
+
+        $nearestBetId = $allowedBetIds[0];
+        $nearestDistance = abs($nearestBetId - $requestedBetId);
+        foreach ($allowedBetIds as $candidateBetId) {
+            $distance = abs($candidateBetId - $requestedBetId);
+            if ($distance < $nearestDistance) {
+                $nearestBetId = $candidateBetId;
+                $nearestDistance = $distance;
+            }
+        }
+
+        return $nearestBetId;
     }
 
     private function syncCrapsState(array $actor, array $body, string $requestId, string $mode): void

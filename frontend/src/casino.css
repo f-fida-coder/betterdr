@@ -479,6 +479,448 @@
     border: none;
 }
 
+/* ── Game overlay HUD — balance chip ──────────────────────── */
+.game-overlay-balance {
+    position: absolute;
+    top: 12px;
+    left: 16px;
+    z-index: 10001;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1px;
+    background: rgba(0, 0, 0, 0.70);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 8px;
+    padding: 6px 12px;
+    backdrop-filter: blur(8px);
+    pointer-events: none;
+    user-select: none;
+    min-width: 100px;
+}
+
+.game-overlay-balance-label {
+    font-size: 10px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.45);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    line-height: 1;
+}
+
+.game-overlay-balance-value {
+    font-size: 15px;
+    font-weight: 700;
+    color: #ffffff;
+    letter-spacing: 0.2px;
+    line-height: 1.3;
+}
+
+/* ── Game overlay — round result notification ─────────────── */
+.game-round-result {
+    position: absolute;
+    top: 64px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10001;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 220px;
+    max-width: 400px;
+    padding: 10px 12px 10px 16px;
+    border-radius: 10px;
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.45);
+    animation: gameResultSlideIn 0.22s ease;
+    white-space: nowrap;
+}
+
+@keyframes gameResultSlideIn {
+    from { opacity: 0; transform: translateX(-50%) translateY(-10px); }
+    to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+.game-round-result--win {
+    background: rgba(6, 95, 40, 0.92);
+    border-color: rgba(74, 222, 128, 0.40);
+}
+
+.game-round-result--lose {
+    background: rgba(110, 15, 15, 0.92);
+    border-color: rgba(252, 100, 100, 0.35);
+}
+
+.game-round-result--push {
+    background: rgba(45, 45, 70, 0.92);
+    border-color: rgba(180, 180, 240, 0.25);
+}
+
+.game-round-result--jackpot {
+    background: rgba(92, 52, 0, 0.95);
+    border-color: rgba(251, 191, 36, 0.65);
+    box-shadow: 0 0 28px rgba(251, 191, 36, 0.25), 0 4px 24px rgba(0, 0, 0, 0.45);
+}
+
+.game-round-result--freespin {
+    background: rgba(10, 55, 115, 0.92);
+    border-color: rgba(96, 165, 250, 0.40);
+}
+
+.game-round-result--neutral {
+    background: rgba(25, 25, 45, 0.92);
+    border-color: rgba(255, 255, 255, 0.12);
+}
+
+.game-round-result-inner {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.game-round-result-label {
+    font-size: 13px;
+    font-weight: 700;
+    color: #ffffff;
+    line-height: 1.2;
+}
+
+.game-round-result-detail {
+    font-size: 12px;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.70);
+    line-height: 1.3;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.game-round-result--win .game-round-result-label { color: #bbf7d0; }
+.game-round-result--win .game-round-result-detail { color: rgba(187, 247, 208, 0.80); }
+
+.game-round-result--lose .game-round-result-label { color: #fca5a5; }
+.game-round-result--lose .game-round-result-detail { color: rgba(252, 165, 165, 0.75); }
+
+.game-round-result--jackpot .game-round-result-label {
+    color: #fbbf24;
+    text-shadow: 0 0 10px rgba(251, 191, 36, 0.5);
+}
+.game-round-result--jackpot .game-round-result-detail { color: rgba(253, 224, 71, 0.90); }
+
+.game-round-result--freespin .game-round-result-label { color: #93c5fd; }
+.game-round-result--freespin .game-round-result-detail { color: rgba(147, 197, 253, 0.80); }
+
+.game-round-result-close {
+    flex-shrink: 0;
+    background: none;
+    border: none;
+    color: rgba(255, 255, 255, 0.45);
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0 2px;
+    transition: color 0.15s ease;
+}
+
+.game-round-result-close:hover {
+    color: #ffffff;
+}
+
+@media (max-width: 768px) {
+    .game-overlay-balance {
+        top: calc(env(safe-area-inset-top, 0px) + 8px);
+        left: 10px;
+        padding: 5px 10px;
+        min-width: 80px;
+    }
+    .game-overlay-balance-value {
+        font-size: 13px;
+    }
+    .game-round-result {
+        top: 62px;
+        max-width: calc(100vw - 32px);
+        min-width: 180px;
+        padding: 8px 10px 8px 14px;
+    }
+    .game-round-result-label {
+        font-size: 12px;
+    }
+    .game-round-result-detail {
+        font-size: 11px;
+    }
+}
+
+/* ── Slot game launch screen ─────────────────────────────── */
+.game-launch-screen {
+    position: absolute;
+    inset: 0;
+    z-index: 10010;
+    background-size: cover;
+    background-position: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.game-launch-overlay {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+        160deg,
+        rgba(0, 0, 0, 0.75) 0%,
+        rgba(5, 20, 5, 0.85) 50%,
+        rgba(0, 0, 0, 0.9) 100%
+    );
+    backdrop-filter: blur(3px);
+}
+
+.game-launch-content {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 28px;
+    padding: 32px 24px;
+    max-width: 520px;
+    width: 100%;
+}
+
+.game-launch-header {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+}
+
+.game-launch-poster {
+    width: 140px;
+    height: 90px;
+    object-fit: cover;
+    border-radius: 12px;
+    border: 2px solid rgba(34, 197, 94, 0.4);
+    box-shadow: 0 0 24px rgba(34, 197, 94, 0.25);
+}
+
+.game-launch-title {
+    font-size: 28px;
+    font-weight: 900;
+    color: #ffffff;
+    text-align: center;
+    letter-spacing: 0.04em;
+    text-shadow: 0 2px 12px rgba(0, 0, 0, 0.8);
+    text-transform: uppercase;
+}
+
+.game-launch-provider {
+    font-size: 12px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.45);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+}
+
+.game-launch-bet-section {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    width: 100%;
+}
+
+.game-launch-bet-label {
+    font-size: 13px;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.55);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+}
+
+.game-launch-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: center;
+}
+
+.game-launch-balance {
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.5);
+    margin-top: 4px;
+}
+
+.game-launch-balance strong {
+    color: #22c55e;
+    font-weight: 700;
+}
+
+.game-launch-btn {
+    width: 100%;
+    max-width: 320px;
+    padding: 16px 24px;
+    background: linear-gradient(135deg, #16a34a 0%, #15803d 100%);
+    border: 1px solid #22c55e;
+    color: #ffffff;
+    border-radius: 14px;
+    font-size: 16px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    transition: background 0.15s, transform 0.1s, box-shadow 0.15s, opacity 0.15s;
+    box-shadow: 0 6px 24px rgba(22, 163, 74, 0.45);
+    text-transform: uppercase;
+}
+
+.game-launch-btn:hover:not(.disabled) {
+    background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+    transform: translateY(-2px);
+    box-shadow: 0 10px 30px rgba(34, 197, 94, 0.55);
+}
+
+.game-launch-btn.disabled {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.12);
+    color: rgba(255, 255, 255, 0.35);
+    cursor: not-allowed;
+    box-shadow: none;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.game-bet-chip--lg {
+    padding: 10px 18px;
+    font-size: 15px;
+    min-width: 60px;
+}
+
+@media (max-width: 768px) {
+    .game-launch-title { font-size: 22px; }
+    .game-launch-poster { width: 110px; height: 70px; }
+    .game-launch-content { gap: 20px; padding: 24px 16px; }
+    .game-launch-btn { font-size: 14px; padding: 14px 20px; }
+    .game-bet-chip--lg { padding: 8px 14px; font-size: 13px; min-width: 50px; }
+}
+
+/* ── Slot game bet controls (Jurassic Run) ───────────────── */
+.game-bet-controls {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 10001;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px 14px;
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.92) 0%, rgba(0, 0, 0, 0.6) 60%, transparent 100%);
+    pointer-events: none;
+}
+
+.game-bet-chips {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    flex: 1;
+    pointer-events: all;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+
+.game-bet-chips::-webkit-scrollbar {
+    display: none;
+}
+
+.game-bet-chip {
+    flex-shrink: 0;
+    background: rgba(255, 255, 255, 0.10);
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    color: #e5e7eb;
+    border-radius: 20px;
+    padding: 7px 14px;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, transform 0.1s;
+    white-space: nowrap;
+    min-width: 52px;
+    text-align: center;
+    pointer-events: all;
+}
+
+.game-bet-chip:hover {
+    background: rgba(255, 255, 255, 0.18);
+    border-color: rgba(255, 255, 255, 0.4);
+    transform: translateY(-1px);
+}
+
+.game-bet-chip.active {
+    background: #16a34a;
+    border-color: #22c55e;
+    color: #ffffff;
+    box-shadow: 0 0 10px rgba(34, 197, 94, 0.5);
+}
+
+.game-spin-btn {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    background: linear-gradient(135deg, #16a34a 0%, #15803d 100%);
+    border: 1px solid #22c55e;
+    color: #ffffff;
+    border-radius: 12px;
+    padding: 10px 22px;
+    font-size: 15px;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    cursor: pointer;
+    transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
+    box-shadow: 0 4px 14px rgba(22, 163, 74, 0.4);
+    pointer-events: all;
+    min-width: 90px;
+    justify-content: center;
+}
+
+.game-spin-btn:hover {
+    background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(34, 197, 94, 0.55);
+}
+
+.game-spin-btn:active:not(.disabled) {
+    transform: translateY(0px) scale(0.97);
+    box-shadow: 0 2px 8px rgba(22, 163, 74, 0.4);
+}
+
+.game-spin-btn.disabled {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.12);
+    color: rgba(255, 255, 255, 0.3);
+    box-shadow: none;
+    cursor: not-allowed;
+    transform: none;
+}
+
+@media (max-width: 768px) {
+    .game-bet-controls {
+        padding: 8px 10px 12px;
+        gap: 8px;
+    }
+    .game-bet-chip {
+        padding: 6px 11px;
+        font-size: 12px;
+        min-width: 44px;
+    }
+    .game-spin-btn {
+        padding: 8px 16px;
+        font-size: 13px;
+        min-width: 74px;
+    }
+}
+
 /* ── Baccarat history panel ─────────────────────────────── */
 .casino-history-section {
     margin: 12px 16px 20px;

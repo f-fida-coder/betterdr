@@ -2,6 +2,9 @@ const CASINO_GAME_LABELS = {
   casino_baccarat: 'Baccarat',
   casino_blackjack: 'Blackjack',
   casino_craps: 'Craps',
+  casino_arabian: 'Arabian Game',
+  casino_jurassic_run: 'Jurassic Run',
+  casino_3card_poker: '3-Card Poker',
   casino_roulette: 'Roulette',
   casino_stud_poker: 'Stud Poker',
 };

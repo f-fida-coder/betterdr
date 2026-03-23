@@ -1,0 +1,650 @@
+{
+	"textures": [
+		{
+			"image": "buttons_high.webp",
+			"format": "RGBA8888",
+			"size": {
+				"w": 124,
+				"h": 719
+			},
+			"scale": 1.5,
+			"frames": [
+				{
+					"filename": "button_play_active.webp",
+					"rotated": false,
+					"trimmed": false,
+					"sourceSize": {
+						"w": 122,
+						"h": 122
+					},
+					"spriteSourceSize": {
+						"x": 0,
+						"y": 0,
+						"w": 122,
+						"h": 122
+					},
+					"frame": {
+						"x": 1,
+						"y": 1,
+						"w": 122,
+						"h": 122
+					}
+				},
+				{
+					"filename": "button_play_regular.webp",
+					"rotated": false,
+					"trimmed": false,
+					"sourceSize": {
+						"w": 122,
+						"h": 122
+					},
+					"spriteSourceSize": {
+						"x": 0,
+						"y": 0,
+						"w": 122,
+						"h": 122
+					},
+					"frame": {
+						"x": 1,
+						"y": 1,
+						"w": 122,
+						"h": 122
+					}
+				},
+				{
+					"filename": "button_play_activehover.webp",
+					"rotated": false,
+					"trimmed": false,
+					"sourceSize": {
+						"w": 122,
+						"h": 122
+					},
+					"spriteSourceSize": {
+						"x": 0,
+						"y": 0,
+						"w": 122,
+						"h": 122
+					},
+					"frame": {
+						"x": 1,
+						"y": 125,
+						"w": 122,
+						"h": 122
+					}
+				},
+				{
+					"filename": "button_play_regularhover.webp",
+					"rotated": false,
+					"trimmed": false,
+					"sourceSize": {
+						"w": 122,
+						"h": 122
+					},
+					"spriteSourceSize": {
+						"x": 0,
+						"y": 0,
+						"w": 122,
+						"h": 122
+					},
+					"frame": {
+						"x": 1,
+						"y": 125,
+						"w": 122,
+						"h": 122
+					}
+				},
+				{
+					"filename": "button_fullscreen_active.webp",
+					"rotated": false,
+					"trimmed": false,
+					"sourceSize": {
+						"w": 65,
+						"h": 62
+					},
+					"spriteSourceSize": {
+						"x": 0,
+						"y": 0,
+						"w": 65,
+						"h": 62
+					},
+					"frame": {
+						"x": 1,
+						"y": 249,
+						"w": 65,
+						"h": 62
+					}
+				},
+				{
+					"filename": "button_fullscreen_activehover.webp",
+					"rotated": false,
+					"trimmed": false,
+					"sourceSize": {
+						"w": 65,
+						"h": 62
+					},
+					"spriteSourceSize": {
+						"x": 0,
+						"y": 0,
+						"w": 65,
+						"h": 62
+					},
+					"frame": {
+						"x": 1,
+						"y": 249,
+						"w": 65,
+						"h": 62
+					}
+				},
+				{
+					"filename": "button_fullscreen_regular.webp",
+					"rotated": false,
+					"trimmed": false,
+					"sourceSize": {
+						"w": 65,
+						"h": 62
+					},
+					"spriteSourceSize": {
+						"x": 0,
+						"y": 0,
+						"w": 65,
+						"h": 62
+					},
+					"frame": {
+						"x": 1,
+						"y": 249,
+						"w": 65,
+						"h": 62
+					}
+				},
+				{
+					"filename": "button_fullscreen_regularhover.webp",
+					"rotated": false,
+					"trimmed": false,
+					"sourceSize": {
+						"w": 65,
+						"h": 62
+					},
+					"spriteSourceSize": {
+						"x": 0,
+						"y": 0,
+						"w": 65,
+						"h": 62
+					},
+					"frame": {
+						"x": 1,
+						"y": 249,
+						"w": 65,
+						"h": 62
+					}
+				},
+				{
+					"filename": "button_autoplay_active.webp",
+					"rotated": false,
+					"trimmed": false,
+					"sourceSize": {
+						"w": 51,
+						"h": 51
+					},
+					"spriteSourceSize": {
+						"x": 0,
+						"y": 0,
+						"w": 51,
+						"h": 51
+					},
+					"frame": {
+						"x": 68,
+						"y": 249,
+						"w": 51,
+						"h": 51
+					}
+				},
+				{
+					"filename": "button_autoplay_regular.webp",
+					"rotated": false,
+					"trimmed": false,
+					"sourceSize": {
+						"w": 51,
+						"h": 51
+					},
+					"spriteSourceSize": {
+						"x": 0,
+						"y": 0,
+						"w": 51,
+						"h": 51
+					},
+					"frame": {
+						"x": 68,
+						"y": 249,
+						"w": 51,
+						"h": 51
+					}
+				},
+				{
+					"filename": "button_betmore_regularhover.webp",
+					"rotated": false,
+					"trimmed": false,
+					"sourceSize": {
+						"w": 51,
+						"h": 51
+					},
+					"spriteSourceSize": {
+						"x": 0,
+						"y": 0,
+						"w": 51,
+						"h": 51
+					},
+					"frame": {
+						"x": 68,
+						"y": 302,
+						"w": 51,
+						"h": 51
+					}
+				},
+				{
+					"filename": "button_paytable_active.webp",
+					"rotated": false,
+					"trimmed": false,
+					"sourceSize": {
+						"w": 51,
+						"h": 51
+					},
+					"spriteSourceSize": {
+						"x": 0,
+						"y": 0,
+						"w": 51,
+						"h": 51
+					},
+					"frame": {
+						"x": 1,
+						"y": 313,
+						"w": 51,
+						"h": 51
+					}
+				},
+				{
+					"filename": "button_paytable_regular.webp",
+					"rotated": false,
+					"trimmed": false,
+					"sourceSize": {
+						"w": 51,
+						"h": 51
+					},
+					"spriteSourceSize": {
+						"x": 0,
+						"y": 0,
+						"w": 51,
+						"h": 51
+					},
+					"frame": {
+						"x": 1,
+						"y": 313,
+						"w": 51,
+						"h": 51
+					}
+				},
+				{
+					"filename": "button_paytable_activehover.webp",
+					"rotated": false,
+					"trimmed": false,
+					"sourceSize": {
+						"w": 51,
+						"h": 51
+					},
+					"spriteSourceSize": {
+						"x": 0,
+						"y": 0,
+						"w": 51,
+						"h": 51
+					},
+					"frame": {
+						"x": 54,
+						"y": 355,
+						"w": 51,
+						"h": 51
+					}
+				},
+				{
+					"filename": "button_paytable_regularhover.webp",
+					"rotated": false,
+					"trimmed": false,
+					"sourceSize": {
+						"w": 51,
+						"h": 51
+					},
+					"spriteSourceSize": {
+						"x": 0,
+						"y": 0,
+						"w": 51,
+						"h": 51
+					},
+					"frame": {
+						"x": 54,
+						"y": 355,
+						"w": 51,
+						"h": 51
+					}
+				},
+				{
+					"filename": "button_audio_active.webp",
+					"rotated": false,
+					"trimmed": false,
+					"sourceSize": {
+						"w": 51,
+						"h": 50
+					},
+					"spriteSourceSize": {
+						"x": 0,
+						"y": 0,
+						"w": 51,
+						"h": 50
+					},
+					"frame": {
+						"x": 1,
+						"y": 366,
+						"w": 51,
+						"h": 50
+					}
+				},
+				{
+					"filename": "button_audio_activehover.webp",
+					"rotated": false,
+					"trimmed": false,
+					"sourceSize": {
+						"w": 51,
+						"h": 50
+					},
+					"spriteSourceSize": {
+						"x": 0,
+						"y": 0,
+						"w": 51,
+						"h": 50
+					},
+					"frame": {
+						"x": 54,
+						"y": 408,
+						"w": 51,
+						"h": 50
+					}
+				},
+				{
+					"filename": "button_audio_regular.webp",
+					"rotated": false,
+					"trimmed": false,
+					"sourceSize": {
+						"w": 51,
+						"h": 50
+					},
+					"spriteSourceSize": {
+						"x": 0,
+						"y": 0,
+						"w": 51,
+						"h": 50
+					},
+					"frame": {
+						"x": 1,
+						"y": 418,
+						"w": 51,
+						"h": 50
+					}
+				},
+				{
+					"filename": "button_audio_regularhover.webp",
+					"rotated": false,
+					"trimmed": false,
+					"sourceSize": {
+						"w": 51,
+						"h": 50
+					},
+					"spriteSourceSize": {
+						"x": 0,
+						"y": 0,
+						"w": 51,
+						"h": 50
+					},
+					"frame": {
+						"x": 54,
+						"y": 460,
+						"w": 51,
+						"h": 50
+					}
+				},
+				{
+					"filename": "button_autoplay_activehover.webp",
+					"rotated": false,
+					"trimmed": false,
+					"sourceSize": {
+						"w": 51,
+						"h": 50
+					},
+					"spriteSourceSize": {
+						"x": 0,
+						"y": 0,
+						"w": 51,
+						"h": 50
+					},
+					"frame": {
+						"x": 1,
+						"y": 470,
+						"w": 51,
+						"h": 50
+					}
+				},
+				{
+					"filename": "button_autoplay_regularhover.webp",
+					"rotated": false,
+					"trimmed": false,
+					"sourceSize": {
+						"w": 51,
+						"h": 50
+					},
+					"spriteSourceSize": {
+						"x": 0,
+						"y": 0,
+						"w": 51,
+						"h": 50
+					},
+					"frame": {
+						"x": 1,
+						"y": 470,
+						"w": 51,
+						"h": 50
+					}
+				},
+				{
+					"filename": "button_betless_active.webp",
+					"rotated": false,
+					"trimmed": false,
+					"sourceSize": {
+						"w": 51,
+						"h": 50
+					},
+					"spriteSourceSize": {
+						"x": 0,
+						"y": 0,
+						"w": 51,
+						"h": 50
+					},
+					"frame": {
+						"x": 54,
+						"y": 512,
+						"w": 51,
+						"h": 50
+					}
+				},
+				{
+					"filename": "button_betless_regular.webp",
+					"rotated": false,
+					"trimmed": false,
+					"sourceSize": {
+						"w": 51,
+						"h": 50
+					},
+					"spriteSourceSize": {
+						"x": 0,
+						"y": 0,
+						"w": 51,
+						"h": 50
+					},
+					"frame": {
+						"x": 54,
+						"y": 512,
+						"w": 51,
+						"h": 50
+					}
+				},
+				{
+					"filename": "button_betless_regularhover.webp",
+					"rotated": false,
+					"trimmed": false,
+					"sourceSize": {
+						"w": 51,
+						"h": 50
+					},
+					"spriteSourceSize": {
+						"x": 0,
+						"y": 0,
+						"w": 51,
+						"h": 50
+					},
+					"frame": {
+						"x": 1,
+						"y": 522,
+						"w": 51,
+						"h": 50
+					}
+				},
+				{
+					"filename": "button_betmore_active.webp",
+					"rotated": false,
+					"trimmed": false,
+					"sourceSize": {
+						"w": 51,
+						"h": 50
+					},
+					"spriteSourceSize": {
+						"x": 0,
+						"y": 0,
+						"w": 51,
+						"h": 50
+					},
+					"frame": {
+						"x": 54,
+						"y": 564,
+						"w": 51,
+						"h": 50
+					}
+				},
+				{
+					"filename": "button_betmore_regular.webp",
+					"rotated": false,
+					"trimmed": false,
+					"sourceSize": {
+						"w": 51,
+						"h": 50
+					},
+					"spriteSourceSize": {
+						"x": 0,
+						"y": 0,
+						"w": 51,
+						"h": 50
+					},
+					"frame": {
+						"x": 54,
+						"y": 564,
+						"w": 51,
+						"h": 50
+					}
+				},
+				{
+					"filename": "button_sfx_active.webp",
+					"rotated": false,
+					"trimmed": false,
+					"sourceSize": {
+						"w": 51,
+						"h": 50
+					},
+					"spriteSourceSize": {
+						"x": 0,
+						"y": 0,
+						"w": 51,
+						"h": 50
+					},
+					"frame": {
+						"x": 1,
+						"y": 574,
+						"w": 51,
+						"h": 50
+					}
+				},
+				{
+					"filename": "button_sfx_activehover.webp",
+					"rotated": false,
+					"trimmed": false,
+					"sourceSize": {
+						"w": 51,
+						"h": 50
+					},
+					"spriteSourceSize": {
+						"x": 0,
+						"y": 0,
+						"w": 51,
+						"h": 50
+					},
+					"frame": {
+						"x": 54,
+						"y": 616,
+						"w": 51,
+						"h": 50
+					}
+				},
+				{
+					"filename": "button_sfx_regular.webp",
+					"rotated": false,
+					"trimmed": false,
+					"sourceSize": {
+						"w": 51,
+						"h": 50
+					},
+					"spriteSourceSize": {
+						"x": 0,
+						"y": 0,
+						"w": 51,
+						"h": 50
+					},
+					"frame": {
+						"x": 1,
+						"y": 626,
+						"w": 51,
+						"h": 50
+					}
+				},
+				{
+					"filename": "button_sfx_regularhover.webp",
+					"rotated": false,
+					"trimmed": false,
+					"sourceSize": {
+						"w": 51,
+						"h": 50
+					},
+					"spriteSourceSize": {
+						"x": 0,
+						"y": 0,
+						"w": 51,
+						"h": 50
+					},
+					"frame": {
+						"x": 54,
+						"y": 668,
+						"w": 51,
+						"h": 50
+					}
+				}
+			]
+		}
+	],
+	"meta": {
+		"app": "https://www.codeandweb.com/texturepacker",
+		"version": "3.0",
+		"smartupdate": "$TexturePacker:SmartUpdate:4860162304b06f8aa58552bb79c0288b:70a8d20ee67cc4269a3bec47961ef519:3d584bcd186ab23f9ffca29bdffc5508$"
+	}
+}
