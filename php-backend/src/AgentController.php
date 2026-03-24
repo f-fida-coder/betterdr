@@ -227,7 +227,7 @@ final class AgentController
                             ? MongoRepository::id((string) $actor['_id'])
                             : null,
                         'amount' => $startingFreeplayAmount,
-                        'type' => 'adjustment',
+                        'type' => 'fp_deposit',
                         'status' => 'completed',
                         'isFreeplay' => true,
                         'balanceBefore' => 0.0,

@@ -209,6 +209,7 @@ function AdminPanel({ onExit, role = 'admin' }) {
           <CustomerDetailsView
             userId={selectedUserId}
             onBack={() => setAdminView('customer-admin')}
+            onNavigateToUser={(nextUserId) => handleViewChange('user-details', nextUserId)}
             role={effectiveRole}
           />
         );

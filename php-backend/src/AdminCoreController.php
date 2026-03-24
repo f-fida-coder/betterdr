@@ -3748,6 +3748,7 @@ final class AdminCoreController
                     ['reason' => 'FREEPLAY_ADJUSTMENT'],
                     ['reason' => 'DEPOSIT_FREEPLAY_BONUS'],
                     ['reason' => 'REFERRAL_FREEPLAY_BONUS'],
+                    ['reason' => 'NEW_PLAYER_FREEPLAY_BONUS'],
                     ['type' => 'fp_deposit'],
                     ['description' => ['$regex' => 'free\\s*play', '$options' => 'i']],
                 ];
@@ -3984,6 +3985,7 @@ final class AdminCoreController
                 $isFreePlay = strtoupper($reason) === 'FREEPLAY_ADJUSTMENT'
                     || strtoupper($reason) === 'DEPOSIT_FREEPLAY_BONUS'
                     || strtoupper($reason) === 'REFERRAL_FREEPLAY_BONUS'
+                    || strtoupper($reason) === 'NEW_PLAYER_FREEPLAY_BONUS'
                     || strtolower((string) ($tx['type'] ?? '')) === 'fp_deposit'
                     || str_contains(strtolower($description), 'freeplay')
                     || str_contains(strtolower($description), 'free play');
@@ -4478,7 +4480,7 @@ final class AdminCoreController
     private function isFreePlayBalanceTransaction(array $transaction): bool
     {
         $reason = strtoupper(trim((string) ($transaction['reason'] ?? '')));
-        if (in_array($reason, ['FREEPLAY_ADJUSTMENT', 'DEPOSIT_FREEPLAY_BONUS', 'REFERRAL_FREEPLAY_BONUS'], true)) {
+        if (in_array($reason, ['FREEPLAY_ADJUSTMENT', 'DEPOSIT_FREEPLAY_BONUS', 'REFERRAL_FREEPLAY_BONUS', 'NEW_PLAYER_FREEPLAY_BONUS'], true)) {
             return true;
         }
 
@@ -5585,7 +5587,7 @@ final class AdminCoreController
                             : null,
                         'adminId' => isset($actor['_id']) ? MongoRepository::id((string) $actor['_id']) : null,
                         'amount' => $startingFreeplayAmount,
-                        'type' => 'adjustment',
+                        'type' => 'fp_deposit',
                         'status' => 'completed',
                         'isFreeplay' => true,
                         'balanceBefore' => 0.0,

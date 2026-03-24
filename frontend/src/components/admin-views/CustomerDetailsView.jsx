@@ -167,7 +167,7 @@ const WAGER_RELATED_TYPES = new Set([
 const DELETED_CHANGED_TYPES = new Set(['bet_void', 'bet_void_admin', 'deleted_wager']);
 const CREDIT_DEBIT_ADJUSTMENT_REASONS = new Set(['ADMIN_CREDIT_ADJUSTMENT', 'ADMIN_DEBIT_ADJUSTMENT']);
 const PROMOTIONAL_ADJUSTMENT_REASONS = new Set(['ADMIN_PROMOTIONAL_CREDIT', 'ADMIN_PROMOTIONAL_DEBIT']);
-const FREEPLAY_TRANSACTION_REASONS = new Set(['FREEPLAY_ADJUSTMENT', 'DEPOSIT_FREEPLAY_BONUS', 'REFERRAL_FREEPLAY_BONUS']);
+const FREEPLAY_TRANSACTION_REASONS = new Set(['FREEPLAY_ADJUSTMENT', 'DEPOSIT_FREEPLAY_BONUS', 'REFERRAL_FREEPLAY_BONUS', 'NEW_PLAYER_FREEPLAY_BONUS']);
 
 const isFreePlayTransaction = (txn) => {
   const txnType = normalizeTxnValue(txn?.type);
@@ -398,7 +398,7 @@ const isTransactionForCustomer = (txn, userId, username) => {
   return true;
 };
 
-function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
+function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -1109,6 +1109,21 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
       setCopyNotice('Copy failed');
       window.setTimeout(() => setCopyNotice(''), 1400);
     }
+  };
+
+  const referredById = String(referredBy?.id || '').trim();
+  const referredByDisplayName = useMemo(() => {
+    if (!referredBy) return '—';
+    const firstName = referredBy.firstName || '';
+    const lastName = referredBy.lastName || '';
+    const fullName = [firstName, lastName].filter(Boolean).join(' ').trim();
+    return fullName || referredBy.username || referredBy.id || '—';
+  }, [referredBy]);
+  const canOpenReferredByProfile = referredById !== '' && referredById !== String(userId || '').trim() && typeof onNavigateToUser === 'function';
+
+  const openReferredByProfile = () => {
+    if (!canOpenReferredByProfile) return;
+    onNavigateToUser(referredById);
   };
 
   const copyAllDetails = async () => {
@@ -1987,19 +2002,17 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
                 <strong className={`detail-value ${getMoneyToneClass(customerBalance)}`}>{formatCurrency(customerBalance)}</strong>
               </button>
             ) : (
-              <div className="detail-item">
+              <button
+                type="button"
+                className={`detail-item ${canOpenReferredByProfile ? 'detail-link-item' : ''}`}
+                onClick={openReferredByProfile}
+                disabled={!canOpenReferredByProfile}
+              >
                 <span className="detail-label">Referred By</span>
-                <strong className="detail-value" style={{ fontSize: '0.8em', wordBreak: 'break-all' }}>
-                  {referredBy ? (
-                    (() => {
-                      const firstName = referredBy.firstName || '';
-                      const lastName = referredBy.lastName || '';
-                      const fullName = [firstName, lastName].filter(Boolean).join(' ').trim();
-                      return fullName || referredBy.username || referredBy.id || '—';
-                    })()
-                  ) : '—'}
+                <strong className={`detail-value ${canOpenReferredByProfile ? 'detail-link-value' : ''}`} style={{ fontSize: '0.8em', wordBreak: 'break-all' }}>
+                  {referredByDisplayName}
                 </strong>
-              </div>
+              </button>
             )}
           </div>
 
@@ -3067,13 +3080,29 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
           text-align: right;
           border: 1px solid #dde7f2;
         }
+        button.detail-item:disabled {
+          cursor: default;
+        }
         button.detail-item:hover {
           background: #eef5ff;
           border-color: #a8c9e8;
         }
+        button.detail-item:disabled:hover {
+          background: #f8fbff;
+          border-color: #dde7f2;
+        }
         .detail-metric-active {
           background: #deeeff !important;
           border-color: #4f9bce !important;
+        }
+        .detail-link-item {
+          align-items: flex-start;
+          text-align: left;
+        }
+        .detail-link-value {
+          color: #1d4ed8;
+          text-decoration: underline;
+          text-underline-offset: 2px;
         }
         .detail-empty {
           background: transparent !important;

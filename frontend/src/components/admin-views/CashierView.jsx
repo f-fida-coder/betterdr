@@ -224,7 +224,7 @@ function CashierView() {
     const reason = String(txn?.reason || '').toUpperCase();
     const type = String(txn?.type || '').toLowerCase();
 
-    if (reason === 'FREEPLAY_ADJUSTMENT' || reason === 'DEPOSIT_FREEPLAY_BONUS' || reason === 'REFERRAL_FREEPLAY_BONUS') return 'FP Deposit';
+    if (reason === 'FREEPLAY_ADJUSTMENT' || reason === 'DEPOSIT_FREEPLAY_BONUS' || reason === 'REFERRAL_FREEPLAY_BONUS' || reason === 'NEW_PLAYER_FREEPLAY_BONUS') return 'FP Deposit';
     if (reason === 'CASHIER_DEPOSIT' || type === 'deposit') return 'Deposit';
     if (reason === 'CASHIER_WITHDRAWAL' || type === 'withdrawal') return 'Withdraw';
     if (reason === 'CASHIER_CREDIT_ADJUSTMENT') return 'Credit Adj';

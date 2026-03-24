@@ -27,6 +27,7 @@ const WAGER_TYPES = new Set(['bet_placed', 'bet_placed_admin', 'bet_lost', 'casi
 const PAYOUT_TYPES = new Set(['bet_won', 'bet_refund', 'bet_void', 'bet_void_admin', 'casino_bet_credit']);
 const ADJUSTMENT_TYPES = new Set(['adjustment', 'credit_adj', 'debit_adj']);
 const DEBIT_TYPES = new Set(['withdrawal', 'bet_placed', 'bet_placed_admin', 'bet_lost', 'fee', 'debit', 'casino_bet_debit']);
+const FREEPLAY_REASONS = new Set(['freeplay_adjustment', 'deposit_freeplay_bonus', 'referral_freeplay_bonus', 'new_player_freeplay_bonus']);
 
 const matchesTransactionType = (row, selectedType) => {
   const filterType = normalizeTypeValue(selectedType);
@@ -49,7 +50,7 @@ const matchesTransactionType = (row, selectedType) => {
     return rowType.startsWith('casino_');
   }
   if (filterType === 'fp_deposit') {
-    return rowType === 'fp_deposit' || reason === 'freeplay_adjustment';
+    return rowType === 'fp_deposit' || FREEPLAY_REASONS.has(reason);
   }
 
   return false;

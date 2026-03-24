@@ -34,6 +34,7 @@ const FREEPLAY_BALANCE_REASONS = new Set([
   'FREEPLAY_ADJUSTMENT',
   'DEPOSIT_FREEPLAY_BONUS',
   'REFERRAL_FREEPLAY_BONUS',
+  'NEW_PLAYER_FREEPLAY_BONUS',
 ]);
 
 const casinoGamePrefix = (txn) => {
@@ -67,6 +68,9 @@ export const formatTransactionType = (txn) => {
   const reason = normalizeReason(txn?.reason);
 
   if (isFreeplayBalanceTransaction(txn)) {
+    if (reason === 'NEW_PLAYER_FREEPLAY_BONUS') return '$200 new player freeplay bonus';
+    if (reason === 'DEPOSIT_FREEPLAY_BONUS') return 'Deposit Freeplay Bonus';
+    if (reason === 'REFERRAL_FREEPLAY_BONUS') return 'Referral Freeplay Bonus';
     return isDebitByDirection(txn) ? 'Freeplay Withdrawal' : 'Freeplay Deposit';
   }
 
