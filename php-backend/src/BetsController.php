@@ -772,6 +772,12 @@ final class BetsController
             ]);
         }
 
+        if ($officialOdds > 10000.0) {
+            throw new ApiException('Odds exceed maximum allowed value for selection ' . $selection, 409, [
+                'code' => 'ODDS_EXCEEDS_MAX',
+            ]);
+        }
+
         if ($clientOdds > 0 && abs($officialOdds - $clientOdds) > 0.0001) {
             throw new ApiException('Odds changed. Please review the updated price before placing the bet.', 409, [
                 'code' => 'ODDS_CHANGED',

@@ -13,7 +13,7 @@ export default class LocalScene extends Phaser.Scene {
       const parentOrigin = window.parent?.location?.origin;
       if (parentOrigin && parentOrigin !== 'null') return parentOrigin;
     } catch (e) { /* ignore cross-origin parent access */ }
-    return '*';
+    return window.location.origin;
   }
   _sendToParent(msg) {
     try {
@@ -70,7 +70,7 @@ export default class LocalScene extends Phaser.Scene {
     this._parentOrigin = this._resolveParentOrigin();
     window.addEventListener('message', (event) => {
       if (event.source !== window.parent) return;
-      if (this._parentOrigin && this._parentOrigin !== '*' && event.origin !== this._parentOrigin) return;
+      if (this._parentOrigin && event.origin !== this._parentOrigin) return;
       const msg = event.data;
       if (!msg || typeof msg !== 'object' || !msg.type) return;
       const incomingRequestId = String(msg.requestId || '');

@@ -20,7 +20,7 @@
             }
         } catch (err2) {}
 
-        return '*';
+        return window.location.origin;
     }
 
     function nextRequestId(prefix) {
@@ -78,7 +78,7 @@
 
     function handleMessage(event) {
         if (event.source !== window.parent) return;
-        if (parentOrigin !== '*' && event.origin !== parentOrigin) return;
+        if (event.origin !== parentOrigin) return;
 
         var data = event.data;
         if (!data || typeof data !== 'object') {

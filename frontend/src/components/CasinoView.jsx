@@ -42,9 +42,11 @@ const LOCAL_GAME_META = {
     'jurassic-run': {
         id: 'local-jurassic-run',
         provider: 'In-House',
-        url: '/games/jurassic-run/index.html?v=20260323b',
+        url: '/games/jurassic-run/index.html?v=20260324a',
         poster: '/games/jurassic-run/assets/images/background_middle.webp',
         themeColor: '#166534',
+        minBet: 1,
+        maxBet: 5000,
     },
     'arabian-treasure': {
         id: 'local-arabian-treasure',
@@ -112,25 +114,14 @@ const normalizePositiveNumber = (value) => {
 const buildLocalGameBetLimits = (activeGame, walletPayload, availableBalance) => {
     const gameMinBet = normalizePositiveNumber(activeGame?.minBet);
     const gameMaxBet = normalizePositiveNumber(activeGame?.maxBet);
-    const accountMinBet = normalizePositiveNumber(walletPayload?.minBet);
-    const accountMaxBet = normalizePositiveNumber(walletPayload?.maxBet);
-
-    let effectiveMinBet = gameMinBet ?? 0;
-    if (accountMinBet !== null) {
-        effectiveMinBet = Math.max(effectiveMinBet, accountMinBet);
-    }
-
-    let effectiveMaxBet = gameMaxBet ?? accountMaxBet ?? null;
-    if (accountMaxBet !== null) {
-        effectiveMaxBet = effectiveMaxBet === null ? accountMaxBet : Math.min(effectiveMaxBet, accountMaxBet);
-    }
-    if (effectiveMaxBet !== null && effectiveMaxBet < effectiveMinBet) {
-        effectiveMaxBet = effectiveMinBet;
-    }
+    // Account-level min/max bet is for sportsbook — casino games have their own limits
+    // enforced by the backend, so we only use game-level limits here.
+    const effectiveMinBet = gameMinBet ?? 0;
+    const effectiveMaxBet = gameMaxBet ?? null;
 
     return {
-        accountMinBet,
-        accountMaxBet,
+        accountMinBet: null,
+        accountMaxBet: null,
         gameMinBet,
         gameMaxBet,
         effectiveMinBet: Number.isFinite(effectiveMinBet) ? Math.round(effectiveMinBet) : 0,
@@ -181,7 +172,7 @@ const buildRoundResultSummary = (r) => {
     return null;
 };
 
-const JURASSIC_BETS = [10, 50, 100, 200, 400, 500, 1000, 2000, 5000];
+const JURASSIC_BETS = [1, 5, 10, 50, 100, 200, 400, 500, 1000, 2000, 5000];
 
 const CasinoView = () => {
     const token = localStorage.getItem('token');
@@ -250,7 +241,7 @@ const CasinoView = () => {
     const sendToGame = useCallback((payload) => {
         const frameWindow = iframeRef.current?.contentWindow;
         if (!frameWindow) return;
-        const targetOrigin = resolveLocalGameOrigin(activeLocalGameRef.current) || '*';
+        const targetOrigin = resolveLocalGameOrigin(activeLocalGameRef.current) || window.location.origin;
         frameWindow.postMessage(payload, targetOrigin);
     }, []);
 
@@ -303,7 +294,7 @@ const CasinoView = () => {
         const currentIframeWindow = iframeRef.current?.contentWindow;
         if (!currentIframeWindow || event.source !== currentIframeWindow) return;
         const allowedOrigin = resolveLocalGameOrigin(activeLocalGameRef.current);
-        if (allowedOrigin && allowedOrigin !== '*' && event.origin !== allowedOrigin) return;
+        if (allowedOrigin && event.origin !== allowedOrigin) return;
         const msg = event.data;
         if (!msg || typeof msg !== 'object' || !msg.type) return;
 
@@ -389,7 +380,8 @@ const CasinoView = () => {
                     balanceAfter: settledPlayableBalance ?? Number(result?.availableBalanceAfter ?? result?.availableBalance ?? 0),
                     playerOutcome: String(result?.playerOutcome || result?.result || ''),
                 };
-                // For Jurassic Run, defer result banner until animation completes (max 6s fallback)
+                // For Jurassic Run, defer result banner until spinComplete message arrives.
+                // The 15s timeout is a safety net — normally spinComplete fires within 4-5s.
                 if (requestedGame === 'jurassic-run') {
                     pendingRoundResultRef.current = roundResult;
                     spinCompleteTimerRef.current = setTimeout(() => {
@@ -397,7 +389,7 @@ const CasinoView = () => {
                             setLastRoundResult(pendingRoundResultRef.current);
                             pendingRoundResultRef.current = null;
                         }
-                    }, 6000);
+                    }, 15000);
                 } else {
                     setLastRoundResult(roundResult);
                 }
@@ -433,6 +425,23 @@ const CasinoView = () => {
     useEffect(() => {
         pendingGameRequests.current.clear();
     }, [activeLocalGame?.id]);
+
+    // Poll jackpot pool every 15s while Jurassic Run is active
+    useEffect(() => {
+        const slug = normalizeEmbeddedGameSlug(activeLocalGame?.slug || activeLocalGame?.name || activeLocalGame?.id);
+        if (slug !== 'jurassic-run' || !token || !gameIsReady) return;
+        const intervalId = setInterval(() => {
+            getCasinoGameState(slug, token)
+                .then((statePayload) => {
+                    const jackpotPool = statePayload?.state?.jackpotPool;
+                    if (jackpotPool != null) {
+                        sendToGame({ type: 'balanceUpdate', requestId: '', gameState: { jackpotPool } });
+                    }
+                })
+                .catch(() => {});
+        }, 15000);
+        return () => clearInterval(intervalId);
+    }, [activeLocalGame?.id, token, gameIsReady, sendToGame]);
 
     useEffect(() => {
         if (!lastRoundResult) return;

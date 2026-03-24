@@ -155,7 +155,7 @@ final class AuthController
     private function loginUser(): void
     {
         try {
-            if (RateLimiter::enforce($this->db, 'login', 5, 60)) {
+            if (RateLimiter::enforce($this->db, 'login', 3, 60)) {
                 return;
             }
 
@@ -174,14 +174,47 @@ final class AuthController
                 $userCollection = 'admins';
             }
 
+            // Account lockout: block login if too many recent failures
+            if ($user !== null) {
+                $lockoutWindow = 1800; // 30 minutes
+                $maxFailures = 10;
+                $userId = (string) ($user['_id'] ?? '');
+                $failedAttempts = $this->db->findMany('login_failures', [
+                    'userId' => $userId,
+                ], ['limit' => $maxFailures + 1]);
+                $recentFailures = 0;
+                $cutoff = time() - $lockoutWindow;
+                foreach ($failedAttempts as $attempt) {
+                    if (($attempt['timestamp'] ?? 0) >= $cutoff) {
+                        $recentFailures++;
+                    }
+                }
+                if ($recentFailures >= $maxFailures) {
+                    Logger::info('Account locked out due to failed login attempts', ['userId' => $userId, 'username' => $username]);
+                    Response::json(['message' => 'Account temporarily locked due to too many failed login attempts. Please try again in 30 minutes.'], 429);
+                    return;
+                }
+            }
+
             $passwordValid = $user !== null
                 ? $this->verifyPasswordInsensitive($password, $user, $userCollection)
                 : false;
 
             if ($user === null || !$passwordValid) {
+                // Record failed attempt for lockout tracking
+                if ($user !== null) {
+                    $this->db->insertOne('login_failures', [
+                        'userId' => (string) ($user['_id'] ?? ''),
+                        'ip' => IpUtils::clientIp(),
+                        'timestamp' => time(),
+                    ]);
+                }
                 Response::json(['message' => 'Invalid credentials'], 401);
                 return;
             }
+
+            // Clear failed attempts on successful login
+            $this->db->deleteMany('login_failures', ['userId' => (string) ($user['_id'] ?? '')]);
 
             if ($this->isSuspended($user)) {
                 Response::json(['message' => 'Account suspended or disabled.'], 403);
@@ -206,7 +239,7 @@ final class AuthController
     private function loginAdmin(): void
     {
         try {
-            if (RateLimiter::enforce($this->db, 'admin_login', 5, 60)) {
+            if (RateLimiter::enforce($this->db, 'admin_login', 3, 60)) {
                 return;
             }
 
@@ -215,10 +248,39 @@ final class AuthController
             $password = (string) ($body['password'] ?? '');
 
             $user = $this->findByUsername('admins', $usernameRaw, true);
+
+            if ($user !== null) {
+                $lockoutWindow = 1800;
+                $maxFailures = 10;
+                $userId = (string) ($user['_id'] ?? '');
+                $failedAttempts = $this->db->findMany('login_failures', ['userId' => $userId], ['limit' => $maxFailures + 1]);
+                $recentFailures = 0;
+                $cutoff = time() - $lockoutWindow;
+                foreach ($failedAttempts as $attempt) {
+                    if (($attempt['timestamp'] ?? 0) >= $cutoff) {
+                        $recentFailures++;
+                    }
+                }
+                if ($recentFailures >= $maxFailures) {
+                    Logger::info('Admin account locked out', ['userId' => $userId, 'username' => $usernameRaw]);
+                    Response::json(['message' => 'Account temporarily locked due to too many failed login attempts. Please try again in 30 minutes.'], 429);
+                    return;
+                }
+            }
+
             if ($user === null || !$this->verifyPasswordInsensitive($password, $user, 'admins')) {
+                if ($user !== null) {
+                    $this->db->insertOne('login_failures', [
+                        'userId' => (string) ($user['_id'] ?? ''),
+                        'ip' => IpUtils::clientIp(),
+                        'timestamp' => time(),
+                    ]);
+                }
                 Response::json(['message' => 'Invalid admin credentials'], 401);
                 return;
             }
+
+            $this->db->deleteMany('login_failures', ['userId' => (string) ($user['_id'] ?? '')]);
 
             if (($user['status'] ?? '') === 'suspended') {
                 Response::json(['message' => 'Account suspended.'], 403);
@@ -243,7 +305,7 @@ final class AuthController
     private function loginAgent(): void
     {
         try {
-            if (RateLimiter::enforce($this->db, 'agent_login', 5, 60)) {
+            if (RateLimiter::enforce($this->db, 'agent_login', 3, 60)) {
                 return;
             }
 
@@ -252,10 +314,39 @@ final class AuthController
             $password = (string) ($body['password'] ?? '');
 
             $user = $this->findByUsername('agents', $username, true);
+
+            if ($user !== null) {
+                $lockoutWindow = 1800;
+                $maxFailures = 10;
+                $userId = (string) ($user['_id'] ?? '');
+                $failedAttempts = $this->db->findMany('login_failures', ['userId' => $userId], ['limit' => $maxFailures + 1]);
+                $recentFailures = 0;
+                $cutoff = time() - $lockoutWindow;
+                foreach ($failedAttempts as $attempt) {
+                    if (($attempt['timestamp'] ?? 0) >= $cutoff) {
+                        $recentFailures++;
+                    }
+                }
+                if ($recentFailures >= $maxFailures) {
+                    Logger::info('Agent account locked out', ['userId' => $userId, 'username' => $username]);
+                    Response::json(['message' => 'Account temporarily locked due to too many failed login attempts. Please try again in 30 minutes.'], 429);
+                    return;
+                }
+            }
+
             if ($user === null || !$this->verifyPasswordInsensitive($password, $user, 'agents')) {
+                if ($user !== null) {
+                    $this->db->insertOne('login_failures', [
+                        'userId' => (string) ($user['_id'] ?? ''),
+                        'ip' => IpUtils::clientIp(),
+                        'timestamp' => time(),
+                    ]);
+                }
                 Response::json(['message' => 'Invalid agent credentials'], 401);
                 return;
             }
+
+            $this->db->deleteMany('login_failures', ['userId' => (string) ($user['_id'] ?? '')]);
 
             if (($user['status'] ?? '') === 'suspended') {
                 Response::json(['message' => 'Account suspended.'], 403);
@@ -577,7 +668,7 @@ final class AuthController
         return $user;
     }
 
-    private function buildAuthPayload(array $user): array
+    private function buildAuthPayload(array $user, ?int $ttlOverride = null): array
     {
         $balance = $this->num($user['balance'] ?? 0);
         $pendingBalance = $this->num($user['pendingBalance'] ?? 0);
@@ -585,7 +676,7 @@ final class AuthController
         $balanceOwed = $this->num($user['balanceOwed'] ?? 0);
         $creditLimit = $this->num($user['creditLimit'] ?? 0);
 
-        $ttl = 8 * 3600;
+        $ttl = $ttlOverride ?? 8 * 3600;
         $token = Jwt::encode([
             'id'      => (string) $user['_id'],
             'role'    => (string) ($user['role'] ?? 'user'),

@@ -121,8 +121,8 @@ final class CasinoController
         4 => 6,
         5 => 8,
     ];
-    private const JURASSIC_RUN_ALLOWED_BETS = [10, 50, 100, 200, 400, 500, 1000, 2000, 5000];
-    private const JURASSIC_RUN_DEFAULT_BET_ID = 0;
+    private const JURASSIC_RUN_ALLOWED_BETS = [1, 5, 10, 50, 100, 200, 400, 500, 1000, 2000, 5000];
+    private const JURASSIC_RUN_DEFAULT_BET_ID = 2;
     private const JURASSIC_RUN_DEFAULT_JACKPOT = 10000;
     private const JURASSIC_RUN_DISCLOSED_RTP = 95.0;
     private const JURASSIC_RUN_FIXED_PAYLINES = 10;
@@ -3433,7 +3433,7 @@ final class CasinoController
                 ? $this->parseMoneyValue($bets['bet'], 'bets.bet')
                 : null;
 
-            [$gameMinBet, $gameMaxBet] = $this->resolveGameBetLimits(self::JURASSIC_RUN_GAME_SLUG, 10.0, 5000.0);
+            [$gameMinBet, $gameMaxBet] = $this->resolveGameBetLimits(self::JURASSIC_RUN_GAME_SLUG, 1.0, 5000.0);
 
             $this->db->beginTransaction();
             try {

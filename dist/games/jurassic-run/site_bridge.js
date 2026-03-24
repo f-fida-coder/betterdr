@@ -47,8 +47,8 @@
         volatility: 'medium',
         paylines: 10,
         jackpot_contribution_percent: 5,
-        allowed_bets: [10, 50, 100, 200, 400, 500, 1000, 2000, 5000],
-        bet_starts: 0,
+        allowed_bets: [1, 5, 10, 50, 100, 200, 400, 500, 1000, 2000, 5000],
+        bet_starts: 2,
         symbols: ['1', '2', '3', '4', '5', '6', '7', '8', 'FreeSpin', 'Wild', 'JP'],
         payout_multipliers: {
             sym_1: { c_3: 0.47, c_4: 0.94, c_5: 1.88 },
@@ -75,6 +75,8 @@
         ]
     };
 
+    var MAX_AUTOPLAY_SPINS = 100;
+
     var state = {
         balance: 0,
         betLimits: null,
@@ -83,7 +85,8 @@
         lockedBetId: null,
         jackpot: DEFAULT_JACKPOT,
         lastRequestId: '',
-        spinPending: false
+        spinPending: false,
+        autoplayCount: 0
     };
 
     function resolveParentOrigin() {
@@ -102,7 +105,7 @@
             }
         } catch (err2) {}
 
-        return '*';
+        return window.location.origin;
     }
 
     function nextRequestId(prefix) {
@@ -312,7 +315,8 @@
 
     function handleMessage(event) {
         if (event.source !== window.parent) return;
-        if (parentOrigin !== '*' && event.origin !== parentOrigin) return;
+        // For cross-origin iframes, verify origin matches; same-origin is safe via source check
+        if (parentOrigin !== window.location.origin && event.origin !== parentOrigin) return;
 
         var data = event.data;
         if (!data || typeof data !== 'object') {
@@ -418,6 +422,7 @@
     }
 
     function handleLoad() {
+        state.autoplayCount = 0;
         return requestBalance().then(function (payload) {
             syncBalancePayload(payload);
             return buildLoadPayload();
@@ -496,6 +501,10 @@
         };
     }
 
+    function shouldStopAutoplay() {
+        return state.autoplayCount >= MAX_AUTOPLAY_SPINS;
+    }
+
     function handleGame(params) {
         if (state.spinPending) {
             return Promise.reject(new Error('Spin already in progress'));
@@ -514,9 +523,19 @@
         }
 
         state.spinPending = true;
+        state.autoplayCount += 1;
         return settleRound(payload, requestId)
             .then(function (resp) {
-                return convertRoundToVendorPayload(resp, requestId);
+                var result = convertRoundToVendorPayload(resp, requestId);
+                // Stop autoplay on bonus trigger (free spins or jackpot)
+                if (result.freeSpinsWon > 0 || result.jackpotWon) {
+                    if (typeof stopAutoplay === 'function') stopAutoplay();
+                }
+                // Stop autoplay after max spins
+                if (shouldStopAutoplay()) {
+                    if (typeof stopAutoplay === 'function') stopAutoplay();
+                }
+                return result;
             })
             .finally(function () {
                 state.spinPending = false;

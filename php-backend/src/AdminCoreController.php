@@ -1259,16 +1259,34 @@ final class AdminCoreController
 
             $target = $this->resolveImpersonationTarget($userId);
             if ($target === null) {
+                Logger::info('Impersonation failed: target not found', [
+                    'actorId' => (string) ($actor['_id'] ?? ''),
+                    'actorUsername' => (string) ($actor['username'] ?? ''),
+                    'actorRole' => (string) ($actor['role'] ?? ''),
+                    'targetId' => $userId,
+                    'ip' => IpUtils::clientIp(),
+                ]);
                 Response::json(['message' => 'User not found'], 404);
                 return;
             }
 
             if (!$this->canImpersonateTarget($actor, $target)) {
+                Logger::info('Impersonation denied: unauthorized', [
+                    'actorId' => (string) ($actor['_id'] ?? ''),
+                    'actorUsername' => (string) ($actor['username'] ?? ''),
+                    'actorRole' => (string) ($actor['role'] ?? ''),
+                    'targetId' => $userId,
+                    'targetUsername' => (string) ($target['doc']['username'] ?? ''),
+                    'targetRole' => (string) ($target['doc']['role'] ?? ''),
+                    'ip' => IpUtils::clientIp(),
+                ]);
                 Response::json(['message' => 'Unauthorized to impersonate this user'], 403);
                 return;
             }
 
-            $payload = $this->buildAuthPayload($target['doc']);
+            // Impersonation sessions limited to 1 hour (vs 8 hours for normal login)
+            $ttl = 3600;
+            $payload = $this->buildAuthPayload($target['doc'], $ttl);
 
             // For regular users the frontend redirects to '/' which restores the session
             // exclusively from the httpOnly cookie (via getSession()). Without setting the
@@ -1277,7 +1295,6 @@ final class AdminCoreController
             // the impersonated user's data after the redirect.
             $targetRole = (string) ($target['doc']['role'] ?? 'user');
             if ($targetRole === 'user') {
-                $ttl = 8 * 3600;
                 $isHttps = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
                 $cookieOptions = ['expires' => time() + $ttl, 'path' => '/', 'httponly' => true, 'samesite' => 'Lax'];
                 if ($isHttps) {
@@ -1293,6 +1310,34 @@ final class AdminCoreController
                 }
                 setcookie('csrf_token', $csrfToken, $csrfOpts);
             }
+
+            // Audit log: record every impersonation event
+            Logger::info('Impersonation granted', [
+                'actorId' => (string) ($actor['_id'] ?? ''),
+                'actorUsername' => (string) ($actor['username'] ?? ''),
+                'actorRole' => (string) ($actor['role'] ?? ''),
+                'targetId' => $userId,
+                'targetUsername' => (string) ($target['doc']['username'] ?? ''),
+                'targetRole' => $targetRole,
+                'targetCollection' => (string) ($target['collection'] ?? ''),
+                'sessionTtlSeconds' => $ttl,
+                'ip' => IpUtils::clientIp(),
+            ]);
+
+            // Persist audit record in database for compliance
+            $this->db->insertOne('admin_audit_log', [
+                'action' => 'impersonate_user',
+                'actorId' => (string) ($actor['_id'] ?? ''),
+                'actorUsername' => (string) ($actor['username'] ?? ''),
+                'actorRole' => (string) ($actor['role'] ?? ''),
+                'targetId' => $userId,
+                'targetUsername' => (string) ($target['doc']['username'] ?? ''),
+                'targetRole' => $targetRole,
+                'ip' => IpUtils::clientIp(),
+                'userAgent' => (string) ($_SERVER['HTTP_USER_AGENT'] ?? ''),
+                'timestamp' => time(),
+                'createdAt' => MongoRepository::nowUtc(),
+            ]);
 
             Response::json(array_merge($payload, ['message' => 'Logged in as ' . (string) ($target['doc']['username'] ?? 'user')]));
         } catch (Throwable $e) {
@@ -1634,6 +1679,31 @@ final class AdminCoreController
                 // It stores the last set password in plain text.
                 'displayPassword' => $newPassword,
                 'updatedAt' => MongoRepository::nowUtc(),
+            ]);
+
+            // Invalidate user's existing sessions by clearing their login_failures
+            // (future: implement token blacklist for immediate revocation)
+            $this->db->deleteMany('login_failures', ['userId' => $userId]);
+
+            Logger::info('Password reset by admin', [
+                'actorId' => (string) ($actor['_id'] ?? ''),
+                'actorUsername' => (string) ($actor['username'] ?? ''),
+                'actorRole' => (string) ($actor['role'] ?? ''),
+                'targetId' => $userId,
+                'targetUsername' => (string) ($user['username'] ?? ''),
+                'ip' => IpUtils::clientIp(),
+            ]);
+
+            $this->db->insertOne('admin_audit_log', [
+                'action' => 'reset_user_password',
+                'actorId' => (string) ($actor['_id'] ?? ''),
+                'actorUsername' => (string) ($actor['username'] ?? ''),
+                'actorRole' => (string) ($actor['role'] ?? ''),
+                'targetId' => $userId,
+                'targetUsername' => (string) ($user['username'] ?? ''),
+                'ip' => IpUtils::clientIp(),
+                'timestamp' => time(),
+                'createdAt' => MongoRepository::nowUtc(),
             ]);
 
             Response::json(['message' => 'Password for user ' . (string) ($user['username'] ?? '') . ' has been reset successfully']);

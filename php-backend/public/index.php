@@ -110,6 +110,16 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') {
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ─── Request body size limit (1 MB) ──────────────────────────────────────────
+$contentLength = (int) ($_SERVER['CONTENT_LENGTH'] ?? 0);
+if ($contentLength > 1_048_576) {
+    http_response_code(413);
+    header('Content-Type: application/json');
+    echo json_encode(['message' => 'Request body too large']);
+    exit;
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 // ─── Startup env validation ───────────────────────────────────────────────────
 // In production: hard-fail with HTTP 500 listing every misconfigured var.
 // In development: emit X-Config-Warning headers so issues show in devtools.

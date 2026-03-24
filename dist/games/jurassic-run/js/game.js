@@ -200,7 +200,7 @@ class MainGame extends Phaser.Scene {
 		app.scale.on('leavefullscreen', checkFullScreen, app);
 		fetchJSON(app.gamecfg.remote_file, {action: 'load', lang: langcode}, function(json) {
 			betUpdate(json);
-			try { window.parent.postMessage({ type: 'gameReady' }, '*'); } catch(e) {}
+			try { window.parent.postMessage({ type: 'gameReady' }, window.location.origin); } catch(e) {}
 		}, 'json');
     }
 }
@@ -908,9 +908,18 @@ const SwitchAutoplay = () => {
 		case 1:
 			app.settings.autoplay = 0;
 			app.buttons.autoplay.show('regular');
-			break;			
+			break;
 	}
 }
+
+// Exposed globally so site_bridge.js can stop autoplay on bonus/limit
+const stopAutoplay = () => {
+	if (app.settings.autoplay === 1) {
+		app.settings.autoplay = 0;
+		app.buttons.autoplay.show('regular');
+	}
+}
+window.stopAutoplay = stopAutoplay;
 
 const PressPlay = () => {
 	app.settings.isplay = true;
@@ -1192,7 +1201,7 @@ const EndGame = (repeat) => {
 	app.settings.isplay = false;
 	// Notify parent that spin animation is fully complete (first pass only)
 	if (repeat === false) {
-		try { window.parent.postMessage({ type: 'spinComplete' }, '*'); } catch(e) {}
+		try { window.parent.postMessage({ type: 'spinComplete' }, window.location.origin); } catch(e) {}
 	}
 	if (1 === app.settings.autoplay) {
 		setTimeout(PressPlay, 500);

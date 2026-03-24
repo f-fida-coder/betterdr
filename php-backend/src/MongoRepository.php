@@ -373,6 +373,19 @@ final class MongoRepository
         return (int) $stmt->rowCount();
     }
 
+    public function deleteMany(string $collection, array $filter): int
+    {
+        $deleted = 0;
+        while (true) {
+            $count = $this->deleteOne($collection, $filter);
+            if ($count === 0) {
+                break;
+            }
+            $deleted += $count;
+        }
+        return $deleted;
+    }
+
     public static function id(mixed $id): string
     {
         $value = trim((string) $id);
