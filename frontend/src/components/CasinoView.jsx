@@ -207,11 +207,14 @@ const CasinoView = () => {
     const [gameIsReady, setGameIsReady] = useState(false);
     const [gameLoadError, setGameLoadError] = useState(false);
     const [spinInProgress, setSpinInProgress] = useState(false);
+    const [gameBetLimits, setGameBetLimits] = useState(null);
     const iframeRef = useRef(null);
     const pendingGameRequests = useRef(new Set());
     const activeLocalGameRef = useRef(null);
     const roundResultTimerRef = useRef(null);
     const gameReadyTimerRef = useRef(null);
+    const pendingRoundResultRef = useRef(null);
+    const spinCompleteTimerRef = useRef(null);
 
     useEffect(() => {
         activeLocalGameRef.current = activeLocalGame;
@@ -288,6 +291,7 @@ const CasinoView = () => {
                 gameState,
             });
             setGameDisplayBalance(availableBalance);
+            setGameBetLimits(betLimits);
         } catch (err) {
             console.error('Failed to get balance for game:', err);
             sendToGame({ type: 'balanceUpdate', requestId: safeRequestId, balance: 0, error: err.message });
@@ -316,6 +320,15 @@ const CasinoView = () => {
             return;
         }
 
+        if (msg.type === 'spinComplete') {
+            if (spinCompleteTimerRef.current) clearTimeout(spinCompleteTimerRef.current);
+            if (pendingRoundResultRef.current) {
+                setLastRoundResult(pendingRoundResultRef.current);
+                pendingRoundResultRef.current = null;
+            }
+            return;
+        }
+
         if (msg.type === 'getBalance') {
             const requestId = String(msg.requestId || '');
             await syncGameBalance(requestId);
@@ -338,6 +351,8 @@ const CasinoView = () => {
             }
             pendingGameRequests.current.add(requestId);
             setLastRoundResult(null);
+            pendingRoundResultRef.current = null;
+            if (spinCompleteTimerRef.current) clearTimeout(spinCompleteTimerRef.current);
             setSpinInProgress(true);
             try {
                 const result = await placeCasinoBet(requestedGame, msg.bets, token, { requestId, payload: msg.payload });
@@ -362,7 +377,7 @@ const CasinoView = () => {
                         balanceSource: 'availableBalance',
                     };
                 sendToGame({ type: 'betResult', requestId, ...gameResult });
-                setLastRoundResult({
+                const roundResult = {
                     game: requestedGame,
                     wager: Number(result?.totalWager ?? 0),
                     ret: Number(result?.totalReturn ?? 0),
@@ -373,7 +388,19 @@ const CasinoView = () => {
                     jackpotPayout: Number(result?.roundData?.jackpotPayout ?? 0),
                     balanceAfter: settledPlayableBalance ?? Number(result?.availableBalanceAfter ?? result?.availableBalance ?? 0),
                     playerOutcome: String(result?.playerOutcome || result?.result || ''),
-                });
+                };
+                // For Jurassic Run, defer result banner until animation completes (max 6s fallback)
+                if (requestedGame === 'jurassic-run') {
+                    pendingRoundResultRef.current = roundResult;
+                    spinCompleteTimerRef.current = setTimeout(() => {
+                        if (pendingRoundResultRef.current) {
+                            setLastRoundResult(pendingRoundResultRef.current);
+                            pendingRoundResultRef.current = null;
+                        }
+                    }, 6000);
+                } else {
+                    setLastRoundResult(roundResult);
+                }
                 if (Number.isFinite(settledPlayableBalance)) {
                     setGameDisplayBalance(settledPlayableBalance);
                 }
@@ -772,8 +799,11 @@ const CasinoView = () => {
         setGameIsReady(false);
         setGameLoadError(false);
         setSpinInProgress(false);
+        setGameBetLimits(null);
+        pendingRoundResultRef.current = null;
         if (roundResultTimerRef.current) clearTimeout(roundResultTimerRef.current);
         if (gameReadyTimerRef.current) clearTimeout(gameReadyTimerRef.current);
+        if (spinCompleteTimerRef.current) clearTimeout(spinCompleteTimerRef.current);
     };
 
     const handleSelectBet = useCallback((betId) => {
@@ -787,9 +817,12 @@ const CasinoView = () => {
     }, [activeBetId, sendToGame]);
 
     const localGames = useMemo(() => {
+        const seenSlugs = new Set();
         return games
             .filter((game) => {
                 if (!game?.slug || !LOCAL_GAME_META[game.slug]) return false;
+                if (seenSlugs.has(game.slug)) return false;
+                seenSlugs.add(game.slug);
                 if (activeCategory === 'lobby') return true;
                 return String(game.category || '').toLowerCase() === String(activeCategory || '').toLowerCase();
             })
@@ -893,15 +926,22 @@ const CasinoView = () => {
                     {activeLocalGame?.slug === 'jurassic-run' && gameIsReady && (
                         <div className="game-bet-controls">
                             <div className="game-bet-chips">
-                                {JURASSIC_BETS.map((bet, idx) => (
-                                    <button
-                                        key={idx}
-                                        className={`game-bet-chip${activeBetId === idx ? ' active' : ''}`}
-                                        onClick={() => handleSelectBet(idx)}
-                                    >
-                                        ${bet >= 1000 ? `${bet / 1000}K` : bet}
-                                    </button>
-                                ))}
+                                {JURASSIC_BETS.map((bet, idx) => {
+                                    const belowMin = gameBetLimits?.effectiveMinBet != null && bet < gameBetLimits.effectiveMinBet;
+                                    const aboveMax = gameBetLimits?.effectiveMaxBet != null && bet > gameBetLimits.effectiveMaxBet;
+                                    const isChipDisabled = belowMin || aboveMax;
+                                    return (
+                                        <button
+                                            key={idx}
+                                            className={`game-bet-chip${activeBetId === idx ? ' active' : ''}${isChipDisabled ? ' unavailable' : ''}`}
+                                            onClick={() => !isChipDisabled && handleSelectBet(idx)}
+                                            disabled={isChipDisabled}
+                                            title={isChipDisabled ? `Min bet: $${gameBetLimits?.effectiveMinBet ?? '?'}` : undefined}
+                                        >
+                                            ${bet >= 1000 ? `${bet / 1000}K` : bet}
+                                        </button>
+                                    );
+                                })}
                             </div>
                             <button
                                 className={`game-spin-btn${activeBetId === null || spinInProgress ? ' disabled' : ''}`}

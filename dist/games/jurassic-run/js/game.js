@@ -1190,6 +1190,10 @@ const EndGame = (repeat) => {
     }
 	app.settings.wlrounds = 0;
 	app.settings.isplay = false;
+	// Notify parent that spin animation is fully complete (first pass only)
+	if (repeat === false) {
+		try { window.parent.postMessage({ type: 'spinComplete' }, '*'); } catch(e) {}
+	}
 	if (1 === app.settings.autoplay) {
 		setTimeout(PressPlay, 500);
 	}
