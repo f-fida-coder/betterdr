@@ -1841,6 +1841,7 @@ export const getNextUsername = async (prefix, token, queryParams = {}) => {
 export const impersonateUser = async (userId, token) => {
     const response = await fetch(buildApiUrl(`/admin/impersonate-user/${userId}`), {
         method: 'POST',
+        credentials: 'include', // receive auth_token cookie set by backend for regular users
         headers: getHeaders(token)
     });
     if (!response.ok) {

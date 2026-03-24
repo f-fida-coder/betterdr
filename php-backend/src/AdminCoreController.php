@@ -1269,6 +1269,31 @@ final class AdminCoreController
             }
 
             $payload = $this->buildAuthPayload($target['doc']);
+
+            // For regular users the frontend redirects to '/' which restores the session
+            // exclusively from the httpOnly cookie (via getSession()). Without setting the
+            // cookie here the old admin cookie is still active, causing an infinite redirect
+            // loop between '/' and '/admin/dashboard'. Set the cookie so getSession() returns
+            // the impersonated user's data after the redirect.
+            $targetRole = (string) ($target['doc']['role'] ?? 'user');
+            if ($targetRole === 'user') {
+                $ttl = 8 * 3600;
+                $isHttps = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
+                $cookieOptions = ['expires' => time() + $ttl, 'path' => '/', 'httponly' => true, 'samesite' => 'Lax'];
+                if ($isHttps) {
+                    $cookieOptions['secure'] = true;
+                }
+                setcookie('auth_token', $payload['token'], $cookieOptions);
+                // Issue CSRF cookie so the impersonated user's subsequent state-changing
+                // requests (bets, profile updates, etc.) pass the double-submit CSRF check.
+                $csrfToken = bin2hex(random_bytes(32));
+                $csrfOpts = ['expires' => time() + $ttl, 'path' => '/', 'httponly' => false, 'samesite' => 'Lax'];
+                if ($isHttps) {
+                    $csrfOpts['secure'] = true;
+                }
+                setcookie('csrf_token', $csrfToken, $csrfOpts);
+            }
+
             Response::json(array_merge($payload, ['message' => 'Logged in as ' . (string) ($target['doc']['username'] ?? 'user')]));
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error'], 500);
