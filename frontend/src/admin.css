@@ -666,44 +666,6 @@
   margin-top: 10px;
 }
 
-.player-referral-status {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 12px 14px;
-  border-radius: 14px;
-  border: 1px solid #d7e3ee;
-  background: linear-gradient(180deg, #ffffff 0%, #f7fbff 100%);
-}
-
-.player-referral-status.has-selection {
-  border-color: #b9d6ea;
-  background: linear-gradient(180deg, #f7fcff 0%, #edf7ff 100%);
-}
-
-.player-referral-status.is-empty {
-  border-style: dashed;
-}
-
-.player-referral-status-label {
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: #6b8096;
-}
-
-.player-referral-status-value {
-  color: #16324a;
-  font-size: 14px;
-  font-weight: 800;
-  line-height: 1.35;
-}
-
-.player-referral-status.is-empty .player-referral-status-value {
-  color: #64748b;
-}
-
 .player-freeplay-toggle {
   display: flex;
   flex-direction: column;
@@ -764,15 +726,6 @@
   line-height: 1.3;
 }
 
-.player-freeplay-toggle-note {
-  display: block;
-  color: #5b7086;
-  font-size: 13px;
-  line-height: 1.5;
-  margin: 0;
-  padding-left: 32px;
-}
-
 /* Mobile Optimizations */
 @media (max-width: 768px) {
   .admin-header-search .search-icon {
@@ -818,15 +771,6 @@
     gap: 10px;
   }
 
-  .player-referral-status {
-    padding: 12px;
-    border-radius: 16px;
-  }
-
-  .player-referral-status-value {
-    font-size: 15px;
-  }
-
   .player-freeplay-toggle {
     padding: 14px 12px;
     border-radius: 18px;
@@ -838,12 +782,6 @@
 
   .player-freeplay-toggle-title {
     font-size: 16px;
-  }
-
-  .player-freeplay-toggle-note {
-    font-size: 14px;
-    line-height: 1.45;
-    padding-left: 30px;
   }
 
   .admin-header-right {

@@ -1802,12 +1802,6 @@ function CustomerAdminView({ onViewChange }) {
                       </datalist>
                     </div>
                     <div className="player-referral-settings">
-                      <div className={`player-referral-status ${selectedReferralOption ? 'has-selection' : 'is-empty'}`}>
-                        <span className="player-referral-status-label">Referral Status</span>
-                        <strong className="player-referral-status-value">
-                          {selectedReferralOption ? selectedReferralOption.label : 'No referral selected'}
-                        </strong>
-                      </div>
                       <div className={`player-freeplay-toggle ${newCustomer.grantStartingFreeplay ? 'is-selected' : 'is-unselected'}`}>
                         <label className="player-freeplay-toggle-row">
                           <input
@@ -1819,9 +1813,6 @@ function CustomerAdminView({ onViewChange }) {
                             <span className="player-freeplay-toggle-title">$200 new player freeplay bonus</span>
                           </span>
                         </label>
-                        <small className="player-freeplay-toggle-note">
-                          New players always start with $0 cash balance. Uncheck this if you do not want to apply the bonus.
-                        </small>
                       </div>
                     </div>
                   </div>
