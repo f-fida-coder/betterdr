@@ -252,6 +252,7 @@ final class AgentController
                     'firstName' => $user['firstName'] ?? null,
                     'lastName' => $user['lastName'] ?? null,
                     'fullName' => $user['fullName'] ?? null,
+                    'role' => $user['role'] ?? 'user',
                     'minBet' => $this->safeNumber($user['minBet'] ?? null, 0),
                     'maxBet' => $this->safeNumber($user['maxBet'] ?? null, 0),
                     'creditLimit' => $this->num($user['creditLimit'] ?? 0),
@@ -270,6 +271,7 @@ final class AgentController
                     'referralBonusGranted' => (bool) ($user['referralBonusGranted'] ?? false),
                     'referralBonusAmount' => $this->safeNumber($user['referralBonusAmount'] ?? null, 0),
                     'settings' => $user['settings'] ?? null,
+                    'agentId' => $user['agentId'] ?? null,
                 ];
             }
 
