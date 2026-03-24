@@ -379,6 +379,28 @@ final class AdminCoreController
         return false;
     }
 
+    private function playerOnlyQuery(): array
+    {
+        return [
+            '$and' => [
+                ['role' => ['$ne' => 'admin']],
+                ['role' => ['$ne' => 'agent']],
+                ['role' => ['$ne' => 'master_agent']],
+                ['role' => ['$ne' => 'super_agent']],
+            ],
+        ];
+    }
+
+    private function isPlayerLikeUserDocument(?array $doc): bool
+    {
+        if ($doc === null) {
+            return false;
+        }
+
+        $role = strtolower(trim((string) ($doc['role'] ?? '')));
+        return !in_array($role, ['admin', 'agent', 'master_agent', 'super_agent'], true);
+    }
+
     private function getUsers(): void
     {
         try {
@@ -387,7 +409,8 @@ final class AdminCoreController
                 return;
             }
 
-            $query = ['role' => 'user'];
+            // Keep player scope resilient across legacy imports where role may be missing or use an older value.
+            $query = $this->playerOnlyQuery();
             if (($actor['role'] ?? '') === 'agent') {
                 $query['agentId'] = MongoRepository::id((string) $actor['_id']);
             } elseif (in_array((string) ($actor['role'] ?? ''), ['master_agent', 'super_agent'], true)) {
@@ -5217,8 +5240,8 @@ final class AdminCoreController
                     Response::json(['message' => 'Invalid referredByUserId'], 400);
                     return;
                 }
-                $ref = $this->db->findOne('users', ['_id' => MongoRepository::id($referredByUserId), 'role' => 'user']);
-                if ($ref === null) {
+                $ref = $this->db->findOne('users', ['_id' => MongoRepository::id($referredByUserId)]);
+                if (!$this->isPlayerLikeUserDocument($ref)) {
                     Response::json(['message' => 'Invalid referredByUserId'], 400);
                     return;
                 }
@@ -5402,6 +5425,22 @@ final class AdminCoreController
             if ($generatedPassword !== '') {
                 $password = $generatedPassword;
             }
+            $grantStartingFreeplay = false;
+            if (array_key_exists('grantStartingFreeplay', $body)) {
+                $rawGrantStartingFreeplay = $body['grantStartingFreeplay'];
+                if (is_bool($rawGrantStartingFreeplay)) {
+                    $grantStartingFreeplay = $rawGrantStartingFreeplay;
+                } else {
+                    $parsedGrantStartingFreeplay = filter_var(
+                        (string) $rawGrantStartingFreeplay,
+                        FILTER_VALIDATE_BOOLEAN,
+                        FILTER_NULL_ON_FAILURE
+                    );
+                    if ($parsedGrantStartingFreeplay !== null) {
+                        $grantStartingFreeplay = $parsedGrantStartingFreeplay;
+                    }
+                }
+            }
 
             if ($username === '' || $phoneNumber === '' || $password === '') {
                 Response::json(['message' => 'Username, phone number, and password are required'], 400);
@@ -5483,8 +5522,12 @@ final class AdminCoreController
 
             $referredByUserId = (string) ($body['referredByUserId'] ?? '');
             if ($referredByUserId !== '' && preg_match('/^[a-f0-9]{24}$/i', $referredByUserId) === 1) {
-                $ref = $this->db->findOne('users', ['_id' => MongoRepository::id($referredByUserId), 'role' => 'user']);
-                if ($ref === null) {
+                $refQuery = ['_id' => MongoRepository::id($referredByUserId)];
+                if ($assignedAgentId !== null && preg_match('/^[a-f0-9]{24}$/i', $assignedAgentId) === 1) {
+                    $refQuery['agentId'] = MongoRepository::id($assignedAgentId);
+                }
+                $ref = $this->db->findOne('users', $refQuery);
+                if (!$this->isPlayerLikeUserDocument($ref)) {
                     Response::json(['message' => 'Invalid referredByUserId'], 400);
                     return;
                 }
@@ -5498,6 +5541,9 @@ final class AdminCoreController
             }
 
             $passwordFields = $this->passwordFields($password);
+            $startingFreeplayAmount = $grantStartingFreeplay ? 200.0 : 0.0;
+            $startingFreeplayExpiresAt = $startingFreeplayAmount > 0 ? time() + (30 * 24 * 3600) : null;
+            $now = MongoRepository::nowUtc();
             $doc = [
                 'username' => strtoupper($username),
                 'phoneNumber' => $phoneNumber,
@@ -5509,13 +5555,13 @@ final class AdminCoreController
                 'fullName' => $fullName,
                 'role' => 'user',
                 'status' => 'active',
-                'balance' => $this->numOr($body['balance'] ?? null, 1000),
+                'balance' => 0.0,
                 'minBet' => $this->numOr($body['minBet'] ?? null, 1),
                 'maxBet' => $this->numOr($body['maxBet'] ?? null, 5000),
                 'creditLimit' => $this->numOr($body['creditLimit'] ?? null, 1000),
                 'balanceOwed' => $this->numOr($body['balanceOwed'] ?? null, 0),
-                'freeplayBalance' => $this->numOr($body['freeplayBalance'] ?? null, 200),
-                'freeplayExpiresAt' => time() + (30 * 24 * 3600), // 30 days from creation
+                'freeplayBalance' => $startingFreeplayAmount,
+                'freeplayExpiresAt' => $startingFreeplayExpiresAt,
                 'maxFpCredit' => $this->numOr($body['maxFpCredit'] ?? null, 0), // 0 = uncapped
                 'pendingBalance' => 0,
                 'agentId' => ($assignedAgentId !== null && preg_match('/^[a-f0-9]{24}$/i', $assignedAgentId) === 1) ? MongoRepository::id($assignedAgentId) : null,
@@ -5525,10 +5571,37 @@ final class AdminCoreController
                 'referralBonusGranted' => false,
                 'referralBonusAmount' => 0,
                 'apps' => is_array($body['apps'] ?? null) ? $body['apps'] : new stdClass(),
-                'createdAt' => MongoRepository::nowUtc(),
-                'updatedAt' => MongoRepository::nowUtc(),
+                'createdAt' => $now,
+                'updatedAt' => $now,
             ];
-            $id = $this->db->insertOne('users', $doc);
+            $this->db->beginTransaction();
+            try {
+                $id = $this->db->insertOne('users', $doc);
+                if ($startingFreeplayAmount > 0) {
+                    $this->db->insertOne('transactions', [
+                        'userId' => MongoRepository::id($id),
+                        'agentId' => ($assignedAgentId !== null && preg_match('/^[a-f0-9]{24}$/i', $assignedAgentId) === 1)
+                            ? MongoRepository::id($assignedAgentId)
+                            : null,
+                        'adminId' => isset($actor['_id']) ? MongoRepository::id((string) $actor['_id']) : null,
+                        'amount' => $startingFreeplayAmount,
+                        'type' => 'adjustment',
+                        'status' => 'completed',
+                        'isFreeplay' => true,
+                        'balanceBefore' => 0.0,
+                        'balanceAfter' => $startingFreeplayAmount,
+                        'referenceType' => 'FreePlayBonus',
+                        'reason' => 'NEW_PLAYER_FREEPLAY_BONUS',
+                        'description' => 'Starting freeplay granted on player creation',
+                        'createdAt' => $now,
+                        'updatedAt' => $now,
+                    ]);
+                }
+                $this->db->commit();
+            } catch (Throwable $txErr) {
+                $this->db->rollback();
+                throw $txErr;
+            }
 
             Response::json([
                 'message' => 'User created successfully',

@@ -4,6 +4,7 @@ import { annotateDuplicatePlayers } from '../../utils/duplicatePlayers';
 import { getMoneyToneClass, toMoneyNumber } from '../../utils/money';
 
 const alphaNumericCompare = (a, b) => String(a || '').localeCompare(String(b || ''), undefined, { sensitivity: 'base', numeric: true });
+const MANAGER_ROLES = new Set(['admin', 'agent', 'master_agent', 'super_agent']);
 const derivePlayerPrefix = (value) => {
   const normalized = String(value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
   if (!normalized) return '';
@@ -14,6 +15,14 @@ const derivePlayerPrefix = (value) => {
   const withoutTrailingDigits = normalized.replace(/\d+$/, '');
   return withoutTrailingDigits || normalized;
 };
+const buildPlayerFreeplayCopy = (grantStartingFreeplay) => (
+  grantStartingFreeplay
+    ? `FREEPLAY
+This account starts with $200 in freeplay. In order to collect your winnings you have to place $500 of bets with your own money. When you place a bet you have to click "Use your freeplay balance $". Freeplay is limited to straight bets only and no parlays.`
+    : `FREEPLAY
+This account starts with $0 in freeplay. If freeplay is added later, you must click "Use your freeplay balance $" when placing a bet. Freeplay is limited to straight bets only and no parlays.`
+);
+const isPlayerLikeCustomer = (customer) => !MANAGER_ROLES.has(String(customer?.role || '').trim().toLowerCase());
 
 function CustomerAdminView({ onViewChange }) {
   const withTimeout = (promise, timeoutMs, message) => {
@@ -47,6 +56,7 @@ function CustomerAdminView({ onViewChange }) {
     fullName: '',
     agentId: '',
     referredByUserId: '',
+    grantStartingFreeplay: false,
     balance: '',
     minBet: '25',
     maxBet: '200',
@@ -214,6 +224,7 @@ function CustomerAdminView({ onViewChange }) {
       if (payload.balance === '') delete payload.balance;
       if (creationType !== 'player') {
         delete payload.referredByUserId;
+        delete payload.grantStartingFreeplay;
         delete payload.minBet;
         delete payload.maxBet;
         delete payload.creditLimit;
@@ -269,6 +280,7 @@ function CustomerAdminView({ onViewChange }) {
         fullName: '',
         agentId: '',
         referredByUserId: '',
+        grantStartingFreeplay: false,
         balance: '',
         minBet: '',
         maxBet: '',
@@ -925,7 +937,7 @@ function CustomerAdminView({ onViewChange }) {
     return (a.username || '').toLowerCase().includes(headerAgentQuery.trim().toLowerCase());
   }), [assignableAgents, headerAgentQuery]);
 
-  const allPlayers = useMemo(() => customers.filter((c) => c.role === 'user'), [customers]);
+  const allPlayers = useMemo(() => customers.filter(isPlayerLikeCustomer), [customers]);
   const allPlayersWithDuplicateFlags = useMemo(() => annotateDuplicatePlayers(allPlayers), [allPlayers]);
 
   const selectedHeaderAgent = assignableAgents.find((a) => resolveId(a.id || a._id) === resolveId(selectedHeaderAgentId));
@@ -1154,7 +1166,7 @@ function CustomerAdminView({ onViewChange }) {
   };
 
   const referralOptions = (() => {
-    const playersOnly = customers.filter((c) => c.role === 'user');
+    const playersOnly = customers.filter(isPlayerLikeCustomer);
     if (creationType !== 'player' && creationType !== 'agent' && creationType !== 'super_agent') return [];
 
     if (currentRole === 'agent') {
@@ -1163,10 +1175,6 @@ function CustomerAdminView({ onViewChange }) {
 
     if (newCustomer.agentId) {
       return playersOnly.filter((p) => String(p.agentId?._id || p.agentId || '') === String(newCustomer.agentId));
-    }
-
-    if (currentRole === 'master_agent' || currentRole === 'super_agent') {
-      return playersOnly.filter((p) => String(p.agentId?._id || p.agentId || '') === String(currentUserId));
     }
 
     return playersOnly;
@@ -1796,6 +1804,17 @@ function CustomerAdminView({ onViewChange }) {
                     <small style={{ display: 'block', marginTop: '6px', color: '#64748b' }}>
                       {selectedReferralOption ? `Selected: ${selectedReferralOption.label}` : 'No referral selected'}
                     </small>
+                    <label style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', marginTop: '10px', fontSize: '12px', color: '#cbd5e1' }}>
+                      <input
+                        type="checkbox"
+                        checked={!!newCustomer.grantStartingFreeplay}
+                        onChange={(e) => setNewCustomer((prev) => ({ ...prev, grantStartingFreeplay: e.target.checked }))}
+                      />
+                      Grant $200 starting freeplay
+                    </label>
+                    <small style={{ display: 'block', marginTop: '6px', color: '#94a3b8' }}>
+                      New players always start with $0 cash balance. This checkbox only adds a $200 freeplay bonus.
+                    </small>
                   </div>
                 </>
               )}
@@ -1876,7 +1895,7 @@ RULES
 NO BOTS OR SHARP PLAY. We have IT monitoring to make sure there is no cheating. If we find out you are using a VPN and there are multiple people using your IP address or someone is logging into the same account, or you are using a system to place bets for you, you will be automatically kicked off and we reserve the right to not pay. No excuses. We’ve heard them all so don’t waste your time. 
 
 FREEPLAY
-I start all NEW players off with $200 in freeplay. In order to collect your winnings you have to place $500 of bets with your own money. (This is to prevent everyone who abuses the free play to win free money and leave). When you place a bet you have to click “Use your freeplay balance $” (If you don’t you’re using your own money). Since we are very generous with freeplay unfortunately it is limited to straight bets only and no parlays. I offer 20% free play to anyone above settle to roll your balance to limit transactions. If you chose to roll for free play you must be actively betting with your own money or your free play will not count. 
+${buildPlayerFreeplayCopy(Boolean(newCustomer.grantStartingFreeplay))}
 
 I need active players so if you could do me a solid and place a bet today even if it’s with freeplay. Good luck! Lmk that you’ve read all the rules and or if you have any questions and need me to adjust anything!
 `;
