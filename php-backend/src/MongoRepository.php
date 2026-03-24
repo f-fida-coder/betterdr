@@ -12,7 +12,8 @@ final class MongoRepository
     /** @var array<string, bool> */
     private array $indexExistsCache = [];
 
-    public function __construct(string $_uri, string $dbName)
+    /** @param string $_dsn Unused legacy parameter (kept for call-site compatibility) */
+    public function __construct(string $_dsn, string $dbName)
     {
         $this->dbName = $dbName;
         $this->tablePrefix = (string) Env::get('MYSQL_TABLE_PREFIX', '');

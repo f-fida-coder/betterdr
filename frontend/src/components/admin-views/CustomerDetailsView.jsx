@@ -1990,7 +1990,14 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
               <div className="detail-item">
                 <span className="detail-label">Referred By</span>
                 <strong className="detail-value" style={{ fontSize: '0.8em', wordBreak: 'break-all' }}>
-                  {referredBy ? (referredBy.username || referredBy.fullName || referredBy.id || '—') : '—'}
+                  {referredBy ? (
+                    (() => {
+                      const firstName = referredBy.firstName || '';
+                      const lastName = referredBy.lastName || '';
+                      const fullName = [firstName, lastName].filter(Boolean).join(' ').trim();
+                      return fullName || referredBy.username || referredBy.id || '—';
+                    })()
+                  ) : '—'}
                 </strong>
               </div>
             )}

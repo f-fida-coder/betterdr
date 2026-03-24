@@ -57,7 +57,7 @@ function deleteManyByFilter(MongoRepository $repo, string $collection, array $fi
 
 try {
     $repo = new MongoRepository(
-        (string) Env::get('MONGO_URI', ''),
+        'mysql-native',
         (string) Env::get('MYSQL_DB', Env::get('DB_NAME', 'sports_betting'))
     );
 

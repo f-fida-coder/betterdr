@@ -240,11 +240,32 @@ final class AgentController
                 $counts[$uid] = ($counts[$uid] ?? 0) + 1;
             }
 
+            // Build referrer map for referredBy display
+            $referrerMap = [];
+            $referrerIdSet = [];
+            foreach ($users as $u) {
+                $rid = (string) ($u['referredByUserId'] ?? '');
+                if ($rid !== '' && preg_match('/^[a-f0-9]{24}$/i', $rid) === 1) {
+                    $referrerIdSet[$rid] = true;
+                }
+            }
+            if (count($referrerIdSet) > 0) {
+                $referrerObjectIds = array_map(static fn (string $id): string => MongoRepository::id($id), array_keys($referrerIdSet));
+                $referrers = $this->db->findMany('users', ['_id' => ['$in' => $referrerObjectIds]], ['projection' => ['username' => 1, 'fullName' => 1, 'firstName' => 1, 'lastName' => 1]]);
+                foreach ($referrers as $doc) {
+                    $id = (string) ($doc['_id'] ?? '');
+                    if ($id !== '') {
+                        $referrerMap[$id] = $doc;
+                    }
+                }
+            }
+
             $formatted = [];
             foreach ($users as $user) {
                 $balance = $this->num($user['balance'] ?? 0);
                 $pendingBalance = $this->num($user['pendingBalance'] ?? 0);
                 $uid = (string) ($user['_id'] ?? '');
+                $rid = isset($user['referredByUserId']) ? (string) $user['referredByUserId'] : '';
                 $formatted[] = [
                     'id' => $uid,
                     'username' => $user['username'] ?? null,
@@ -267,7 +288,9 @@ final class AgentController
                     'isActive' => ($counts[$uid] ?? 0) >= 2,
                     'displayPassword' => (($user['displayPassword'] ?? '') !== '' ? $user['displayPassword'] : ($user['rawPassword'] ?? null)),
                     'referredByUserId' => isset($user['referredByUserId']) ? (string) $user['referredByUserId'] : null,
-                    'referredByUsername' => null,
+                    'referredByUsername' => $rid !== '' ? ($referrerMap[$rid]['username'] ?? null) : null,
+                    'referredByFirstName' => $rid !== '' ? ($referrerMap[$rid]['firstName'] ?? null) : null,
+                    'referredByLastName' => $rid !== '' ? ($referrerMap[$rid]['lastName'] ?? null) : null,
                     'referralBonusGranted' => (bool) ($user['referralBonusGranted'] ?? false),
                     'referralBonusAmount' => $this->safeNumber($user['referralBonusAmount'] ?? null, 0),
                     'settings' => $user['settings'] ?? null,

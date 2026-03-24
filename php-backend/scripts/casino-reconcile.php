@@ -37,7 +37,7 @@ if ($toRaw !== '') {
     $to = $parsed->format(DATE_ATOM);
 }
 
-$repo = new MongoRepository((string) Env::get('MONGO_URI', ''), (string) Env::get('MYSQL_DB', Env::get('DB_NAME', 'sports_betting')));
+$repo = new MongoRepository('mysql-native', (string) Env::get('MYSQL_DB', Env::get('DB_NAME', 'sports_betting')));
 
 $query = ['game' => 'baccarat'];
 if ($userIdFilter !== '') {

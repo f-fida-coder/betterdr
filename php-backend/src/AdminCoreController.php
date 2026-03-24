@@ -503,7 +503,7 @@ final class AdminCoreController
             $referrerMap = [];
             $referrerObjectIds = array_map(static fn (string $id): string => MongoRepository::id($id), array_keys($referrerIdSet));
             if (count($referrerObjectIds) > 0) {
-                $referrers = $this->db->findMany('users', ['_id' => ['$in' => $referrerObjectIds]], ['projection' => ['username' => 1, 'fullName' => 1]]);
+                $referrers = $this->db->findMany('users', ['_id' => ['$in' => $referrerObjectIds]], ['projection' => ['username' => 1, 'fullName' => 1, 'firstName' => 1, 'lastName' => 1]]);
                 foreach ($referrers as $doc) {
                     $id = (string) ($doc['_id'] ?? '');
                     if ($id !== '') {
@@ -549,6 +549,8 @@ final class AdminCoreController
                     'createdByModel' => $user['createdByModel'] ?? null,
                     'referredByUserId' => $rid !== '' ? $rid : null,
                     'referredByUsername' => $rid !== '' ? ($referrerMap[$rid]['username'] ?? null) : null,
+                    'referredByFirstName' => $rid !== '' ? ($referrerMap[$rid]['firstName'] ?? null) : null,
+                    'referredByLastName' => $rid !== '' ? ($referrerMap[$rid]['lastName'] ?? null) : null,
                     'referralBonusGranted' => (bool) ($user['referralBonusGranted'] ?? false),
                     'referralBonusAmount' => (float) ($user['referralBonusAmount'] ?? 0),
                     'settings' => $user['settings'] ?? null,
@@ -692,7 +694,7 @@ final class AdminCoreController
             }
             if (count($referrerIds) > 0) {
                 $referrerObjectIds = array_map(static fn (string $id): string => MongoRepository::id($id), array_keys($referrerIds));
-                $referrers = $this->db->findMany('users', ['_id' => ['$in' => $referrerObjectIds]], ['projection' => ['username' => 1]]);
+                $referrers = $this->db->findMany('users', ['_id' => ['$in' => $referrerObjectIds]], ['projection' => ['username' => 1, 'fullName' => 1, 'firstName' => 1, 'lastName' => 1]]);
                 foreach ($referrers as $r) {
                     $rid = (string) ($r['_id'] ?? '');
                     if ($rid !== '') {
@@ -723,6 +725,8 @@ final class AdminCoreController
                     'createdByModel' => $agent['createdByModel'] ?? null,
                     'referredByUserId' => $agent['referredByUserId'] ?? null,
                     'referredByUsername' => isset($agent['referredByUserId']) ? ($referrerMap[(string) $agent['referredByUserId']]['username'] ?? null) : null,
+                    'referredByFirstName' => isset($agent['referredByUserId']) ? ($referrerMap[(string) $agent['referredByUserId']]['firstName'] ?? null) : null,
+                    'referredByLastName' => isset($agent['referredByUserId']) ? ($referrerMap[(string) $agent['referredByUserId']]['lastName'] ?? null) : null,
                     'agentBillingRate' => $billingRate,
                     'agentBillingStatus' => $agent['agentBillingStatus'] ?? null,
                     'viewOnly' => (bool) ($agent['viewOnly'] ?? false) || (($agent['agentBillingStatus'] ?? '') === 'unpaid'),
@@ -7627,12 +7631,14 @@ final class AdminCoreController
             $referredBy = null;
             $referredByUserId = (string) ($foundUser['referredByUserId'] ?? '');
             if ($referredByUserId !== '' && preg_match('/^[a-f0-9]{24}$/i', $referredByUserId) === 1) {
-                $ref = $this->db->findOne('users', ['_id' => MongoRepository::id($referredByUserId)], ['projection' => ['username' => 1, 'fullName' => 1]]);
+                $ref = $this->db->findOne('users', ['_id' => MongoRepository::id($referredByUserId)], ['projection' => ['username' => 1, 'fullName' => 1, 'firstName' => 1, 'lastName' => 1]]);
                 if ($ref !== null) {
                     $referredBy = [
                         'id' => (string) ($ref['_id'] ?? ''),
                         'username' => $ref['username'] ?? null,
                         'fullName' => $ref['fullName'] ?? null,
+                        'firstName' => $ref['firstName'] ?? null,
+                        'lastName' => $ref['lastName'] ?? null,
                     ];
                 }
             }

@@ -11,7 +11,7 @@ Env::load($projectRoot, $phpBackendDir);
 
 try {
     $repo = new MongoRepository(
-        (string) Env::get('MONGO_URI', ''),
+        'mysql-native',
         (string) Env::get('MYSQL_DB', Env::get('DB_NAME', 'sports_betting'))
     );
 

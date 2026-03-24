@@ -232,7 +232,7 @@ if (str_starts_with($uriPath, '/api/index.php/')) {
     $uriPath = '/api';
 }
 
-$mongoUri = 'mysql-native';
+$dbUri = 'mysql-native';
 $dbName = (string) Env::get('MYSQL_DB', Env::get('DB_NAME', 'sports_betting'));
 if ($dbName === '') {
     $dbName = 'sports_betting';
@@ -244,7 +244,7 @@ if ($uriPath === '/api/_php/health') {
     $sportsbookHealth = null;
     if ($authNativeEnabled) {
         try {
-            $repo = new MongoRepository($mongoUri, $dbName);
+            $repo = new MongoRepository($dbUri, $dbName);
             $sportsbookHealth = SportsbookHealth::sportsbookSnapshot($repo);
         } catch (Throwable $e) {
             $sportsbookHealth = ['error' => $e->getMessage()];
@@ -287,7 +287,7 @@ if (
 ) {
     if ($authNativeEnabled) {
         try {
-            $repo = new MongoRepository($mongoUri, $dbName);
+            $repo = new MongoRepository($dbUri, $dbName);
             $jwtSecret = (string) Env::get('JWT_SECRET', '');
 
             // Fail-fast: refuse to start with a missing or weak JWT_SECRET.

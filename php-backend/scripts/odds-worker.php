@@ -44,7 +44,7 @@ if (!MongoRepository::isAvailable()) {
     exit(1);
 }
 
-$mongoUri = 'mysql-native';
+$dbUri = 'mysql-native';
 $dbName = (string) Env::get('MYSQL_DB', Env::get('DB_NAME', 'sports_betting'));
 if ($dbName === '') {
     $dbName = 'sports_betting';
@@ -59,7 +59,7 @@ while (true) {
     $started = microtime(true);
     $ts = gmdate(DATE_ATOM);
     try {
-        $repo = new MongoRepository($mongoUri, $dbName);
+        $repo = new MongoRepository($dbUri, $dbName);
         $result = OddsSyncService::updateMatches($repo, 'worker');
         $logWorker('info', sprintf(
             "[%s] update ok created=%d updated=%d scoreOnly=%d settled=%d calls=%d failed=%d blocked=%s",
