@@ -378,7 +378,7 @@ function AdminHeader({
         : 'ADMIN';
   const mobileUserLabel = displayName;
   const activeAccountsCount = Number(summary.activeAccounts);
-  const headerBalance = Number.isFinite(activeAccountsCount) ? activeAccountsCount * 4 : null;
+  const headerBalance = summary.totalBalance;
 
   // For Admin, show Total Outstanding from all users. For Agent/User, show their own.
   // const isSuperAdmin = profile?.role === 'admin' || profile?.role === 'super_agent' || profile?.role === 'agent';

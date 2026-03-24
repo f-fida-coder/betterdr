@@ -431,6 +431,8 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
   const [importSummary, setImportSummary] = useState('');
   const [importedUsernames, setImportedUsernames] = useState([]);
   const [importForceAgentAssignment, setImportForceAgentAssignment] = useState(true);
+  const [importAgentId, setImportAgentId] = useState('');
+  const [importErrors, setImportErrors] = useState([]);
   const [newCustomer, setNewCustomer] = useState({
     username: '',
     phoneNumber: '',
@@ -691,6 +693,8 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
       setReferralSearchOpen(false);
       setImportFile(null);
       setSelectedImportFileName('');
+      setImportAgentId('');
+      setImportErrors([]);
       setImportForceAgentAssignment(true);
       const createdLabel = createdType === 'player' ? 'Player' : createdType === 'agent' ? 'Agent' : 'Master Agent';
       setImportSummary(result?.assigned ? `${createdLabel} assigned successfully.` : `${createdLabel} created successfully.`);
@@ -736,6 +740,7 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
       setError('');
       setImportSummary('');
       setImportedUsernames([]);
+      setImportErrors([]);
 
       const token = localStorage.getItem('token') || sessionStorage.getItem('token');
       if (!token) {
@@ -746,14 +751,14 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
         setError('Please choose an Excel/CSV file first.');
         return;
       }
-      if (importForceAgentAssignment && currentRole === 'admin' && !newCustomer.agentId) {
-        setError('Select an agent first, or uncheck "Assign all to selected agent".');
+      if (importForceAgentAssignment && (currentRole === 'admin' || currentRole === 'master_agent' || currentRole === 'super_agent') && !importAgentId) {
+        setError('Select an agent to assign imported players to, or uncheck the assignment option.');
         return;
       }
 
       const result = await withTimeout(
         importUsersSpreadsheet(importFile, token, {
-          defaultAgentId: newCustomer.agentId || '',
+          defaultAgentId: importAgentId || '',
           timeoutMs: 45000,
           forceAgentAssignment: importForceAgentAssignment
         }),
@@ -780,8 +785,10 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
           .filter(Boolean)
         : [];
       setImportedUsernames(createdUsernames);
+      setImportErrors(Array.isArray(result?.errors) ? result.errors : []);
       setImportFile(null);
       setSelectedImportFileName('');
+      setImportAgentId('');
 
       try {
         if (currentRole === 'agent') {
@@ -1273,6 +1280,18 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
               Imported usernames: {importedUsernames.slice(0, 20).join(', ')}{importedUsernames.length > 20 ? ` (+${importedUsernames.length - 20} more)` : ''}
             </div>
           )}
+          {importErrors.length > 0 && (
+            <div style={{ marginTop: '8px', background: '#fff5f5', border: '1px solid #feb2b2', borderRadius: '6px', padding: '10px 14px' }}>
+              <strong style={{ color: '#c53030', fontSize: '13px' }}>Failed rows ({importErrors.length}) — re-importing will retry these safely:</strong>
+              <ul style={{ margin: '6px 0 0 0', padding: '0 0 0 16px', fontSize: '12px', color: '#742a2a', maxHeight: '160px', overflowY: 'auto' }}>
+                {importErrors.map((e, i) => (
+                  <li key={i}>
+                    Row {e.row}{e.username ? ` (${String(e.username).toUpperCase()})` : ''}: {e.error || e.reason || 'Unknown error'}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           <div className="customer-create-shell">
             <div className="customer-create-main">
@@ -1572,10 +1591,30 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
                         : 'Assign all imported players to selected agent'}
                     </span>
                   </label>
-                  {importForceAgentAssignment && currentRole === 'admin' && !newCustomer.agentId && (
-                    <small className="customer-import-warning">
-                      Pick an agent in "Assign to Agent" before importing.
-                    </small>
+                  {importForceAgentAssignment && currentRole !== 'agent' && (
+                    <select
+                      value={importAgentId}
+                      onChange={(e) => setImportAgentId(e.target.value)}
+                      style={{ width: '100%', padding: '6px 8px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '13px', marginTop: '4px' }}
+                    >
+                      <option value="">— Select agent —</option>
+                      {agents
+                        .filter((a) => {
+                          const r = String(a.role || '').toLowerCase();
+                          return r === 'agent' || r === 'master_agent' || r === 'super_agent';
+                        })
+                        .sort((a, b) => String(a.username || '').localeCompare(String(b.username || '')))
+                        .map((a) => {
+                          const id = String(a.id || a._id || '');
+                          const roleLabel = String(a.role || '').toLowerCase() === 'agent' ? 'Agent' : 'Master Agent';
+                          return (
+                            <option key={id} value={id}>
+                              {String(a.username || id).toUpperCase()} ({roleLabel})
+                            </option>
+                          );
+                        })
+                      }
+                    </select>
                   )}
                   <button
                     type="button"

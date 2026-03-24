@@ -405,6 +405,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
   const [success, setSuccess] = useState('');
   const [customer, setCustomer] = useState(null);
   const [stats, setStats] = useState({});
+  const [referredBy, setReferredBy] = useState(null);
   const [agents, setAgents] = useState([]);
   const [form, setForm] = useState(DEFAULT_FORM);
   const [showBasicsMenu, setShowBasicsMenu] = useState(false);
@@ -529,6 +530,7 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
 
         setCustomer(normalizedUser);
         setStats(detailData?.stats || {});
+        setReferredBy(detailData?.referredBy || null);
         setAgents(Array.isArray(agentsData) ? agentsData : []);
 
         // Pre-populate commission drafts for agent accounts
@@ -1117,8 +1119,9 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
     const copiedPassword = String(displayPassword ?? '');
     const roleKey = String(customer?.role || '').toLowerCase();
     const isPlayerAccount = roleKey === 'user' || roleKey === 'player' || roleKey === '';
+    const siteUrl = 'https://bettorplays247.com';
 
-    const details = isPlayerAccount
+    const plainLines = isPlayerAccount
       ? [
         "Here's your account info. PLEASE READ ALL RULES THOROUGHLY.",
         '',
@@ -1129,10 +1132,10 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
         `Credit: ${formatDetailMoney(credit)}`,
         `Settle: +/- ${formatDetailMoney(settle)}`,
         '',
-        'Site: bettorplays247.com',
+        `Site: ${siteUrl}`,
         '',
         PLAYER_COPY_DETAILS_FOOTER
-      ].join('\n')
+      ]
       : [
         `Login: ${customer?.username || ''}`,
         `Password: ${copiedPassword}`,
@@ -1141,9 +1144,36 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
         `Credit: ${formatDetailMoney(credit)}`,
         `Settle: +/- ${formatDetailMoney(settle)}`,
         '',
-        'Site: bettorplays247.com'
-      ].join('\n');
-    await copyText(details, 'All details');
+        `Site: ${siteUrl}`
+      ];
+
+    const plainText = plainLines.join('\n');
+
+    const htmlLines = plainLines.map((line) => {
+      if (line === `Site: ${siteUrl}`) {
+        return `Site: <a href="${siteUrl}">${siteUrl}</a>`;
+      }
+      return line === '' ? '<br>' : line;
+    });
+    const htmlText = `<div style="font-family:sans-serif;white-space:pre-wrap;">${htmlLines.join('<br>')}</div>`;
+
+    try {
+      if (typeof ClipboardItem !== 'undefined' && navigator.clipboard.write) {
+        await navigator.clipboard.write([
+          new ClipboardItem({
+            'text/plain': new Blob([plainText], { type: 'text/plain' }),
+            'text/html': new Blob([htmlText], { type: 'text/html' }),
+          }),
+        ]);
+      } else {
+        await navigator.clipboard.writeText(plainText);
+      }
+      setCopyNotice('All details copied');
+      window.setTimeout(() => setCopyNotice(''), 1400);
+    } catch {
+      setCopyNotice('Copy failed');
+      window.setTimeout(() => setCopyNotice(''), 1400);
+    }
   };
 
   const handleSave = async () => {
@@ -1726,6 +1756,9 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
       if (detailData?.stats && typeof detailData.stats === 'object') {
         setStats(detailData.stats);
       }
+      if (detailData?.referredBy !== undefined) {
+        setReferredBy(detailData.referredBy || null);
+      }
     } catch (err) {
       console.warn('Failed to refresh customer financials after transaction update:', err);
     }
@@ -1954,14 +1987,19 @@ function CustomerDetailsView({ userId, onBack, role = 'admin' }) {
                 <strong className={`detail-value ${getMoneyToneClass(customerBalance)}`}>{formatCurrency(customerBalance)}</strong>
               </button>
             ) : (
-              <div className="detail-item detail-empty" aria-hidden="true"></div>
+              <div className="detail-item">
+                <span className="detail-label">Referred By</span>
+                <strong className="detail-value" style={{ fontSize: '0.8em', wordBreak: 'break-all' }}>
+                  {referredBy ? (referredBy.username || referredBy.fullName || referredBy.id || '—') : '—'}
+                </strong>
+              </div>
             )}
           </div>
 
           <div className="player-card-foot">
             <div className="details-domain">
               <span className="domain-label">Site</span>
-              <strong>bettorplays247.com</strong>
+              <a href="https://bettorplays247.com" target="_blank" rel="noopener noreferrer" style={{ fontWeight: 700, color: 'inherit', textDecoration: 'underline' }}>bettorplays247.com</a>
             </div>
             <div className="top-actions">
               <button className="btn btn-copy-all" onClick={copyAllDetails}>Copy Details</button>

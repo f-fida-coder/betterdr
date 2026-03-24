@@ -5530,6 +5530,16 @@ final class AdminCoreController
                     Response::json(['message' => 'Not authorized to assign imports to this agent'], 403);
                     return;
                 }
+                // If selected agent is a master/super agent, resolve to their first direct sub-agent
+                $targetDoc = $this->db->findOne('agents', ['_id' => MongoRepository::id($defaultAgentId)], ['projection' => ['role' => 1]]);
+                if ($targetDoc !== null && in_array((string) ($targetDoc['role'] ?? ''), ['master_agent', 'super_agent'], true)) {
+                    $resolvedSubAgentId = $this->pickDefaultDirectAssignableAgentId($defaultAgentId);
+                    if ($resolvedSubAgentId === null) {
+                        Response::json(['message' => 'Selected master agent has no sub-agents. Create an agent under them first before importing players.'], 400);
+                        return;
+                    }
+                    $defaultAgentId = $resolvedSubAgentId;
+                }
             }
 
             $mappedRows = $this->mapSpreadsheetRowsToUsers($rawRows, $defaultAgentId);
@@ -5569,6 +5579,7 @@ final class AdminCoreController
             [$status, $payload] = $this->executeBulkUserCreate($mappedRows['rows'], $actor, [
                 'strict' => false,
                 'skipExisting' => true,
+                'autoCreateAgents' => false,
             ]);
             if ($mappedRows['errors'] !== []) {
                 $existingErrors = is_array($payload['errors'] ?? null) ? $payload['errors'] : [];
@@ -5594,8 +5605,8 @@ final class AdminCoreController
         $actorId = (string) ($actor['_id'] ?? '');
         $target = $this->db->findOne(
             'agents',
-            ['_id' => MongoRepository::id($agentId), 'role' => 'agent'],
-            ['projection' => ['createdBy' => 1, 'createdByModel' => 1]]
+            ['_id' => MongoRepository::id($agentId)],
+            ['projection' => ['createdBy' => 1, 'createdByModel' => 1, 'role' => 1]]
         );
         if ($target === null) {
             return false;
@@ -5623,6 +5634,7 @@ final class AdminCoreController
         $this->refreshExecutionDeadline(300);
         $strict = array_key_exists('strict', $options) ? (bool) $options['strict'] : true;
         $skipExisting = array_key_exists('skipExisting', $options) ? (bool) $options['skipExisting'] : false;
+        $autoCreateAgents = array_key_exists('autoCreateAgents', $options) ? (bool) $options['autoCreateAgents'] : true;
 
         if (count($rows) === 0) {
             return [400, ['message' => 'No users provided']];
@@ -5728,7 +5740,8 @@ final class AdminCoreController
                 }
             }
 
-            // Auto-create agents that don't exist yet
+            // Auto-create agents that don't exist yet (only when autoCreateAgents is enabled)
+            if ($autoCreateAgents) {
             $now = MongoRepository::nowUtc();
             foreach ($agentLabels as $label) {
                 if (isset($agentIdByUsername[$label])) {
@@ -5764,6 +5777,7 @@ final class AdminCoreController
                 $newAgentId = $this->db->insertOne('agents', $agentDoc);
                 $agentIdByUsername[$agentUsername] = $newAgentId;
             }
+            } // end autoCreateAgents
         }
         $agentUsernameById = [];
         foreach ($agentIdByUsername as $agentUsername => $agentId) {
@@ -5955,8 +5969,23 @@ final class AdminCoreController
                 }
                 if ($reqAgent !== '' && preg_match('/^[a-f0-9]{24}$/i', $reqAgent) === 1) {
                     $agentDoc = $this->db->findOne('agents', ['_id' => MongoRepository::id($reqAgent)], ['projection' => ['role' => 1]]);
-                    if ((string) ($agentDoc['role'] ?? '') === 'agent') {
+                    $agentRole = (string) ($agentDoc['role'] ?? '');
+                    if ($agentRole === 'agent') {
                         $assignedAgentId = $reqAgent;
+                    } elseif ($agentRole === 'master_agent' || $agentRole === 'super_agent') {
+                        // Resolve master/super agent to their first direct sub-agent
+                        $resolvedId = $this->pickDefaultDirectAssignableAgentId($reqAgent);
+                        if ($resolvedId !== null) {
+                            $assignedAgentId = $resolvedId;
+                        } else {
+                            $usernameForError = strtoupper(trim((string) ($row['username'] ?? '')));
+                            if ($strict) {
+                                $errors[] = ['row' => $rowNum, 'username' => $usernameForError, 'error' => 'Selected master agent has no sub-agents to assign this player to'];
+                            } else {
+                                $skipped[] = ['row' => $rowNum, 'username' => $usernameForError, 'reason' => 'master-agent-no-sub-agents'];
+                            }
+                            continue;
+                        }
                     } else {
                         $usernameForError = strtoupper(trim((string) ($row['username'] ?? '')));
                         if ($strict) {
@@ -6049,8 +6078,8 @@ final class AdminCoreController
                     'role' => 'user',
                     'status' => 'active',
                     'balance' => $this->numOr($row['balance'] ?? null, 1000),
-                    'minBet' => $this->numOr($row['minBet'] ?? null, 1),
-                    'maxBet' => $this->numOr($row['maxBet'] ?? null, 5000),
+                    'minBet' => $this->numOr($row['minBet'] ?? null, 25),
+                    'maxBet' => $this->numOr($row['maxBet'] ?? null, 200),
                     'creditLimit' => $this->numOr($row['creditLimit'] ?? null, 1000),
                     'balanceOwed' => $this->numOr($row['balanceOwed'] ?? null, 0),
                     'freeplayBalance' => $this->numOr($row['freeplayBalance'] ?? null, 200),
@@ -7074,6 +7103,9 @@ final class AdminCoreController
                     ]);
                 }
                 $this->db->commit();
+                if ($balanceBefore !== null) {
+                    $this->invalidateHeaderSummaryCache();
+                }
             } catch (Throwable $txErr) {
                 $this->db->rollback();
                 throw $txErr;
