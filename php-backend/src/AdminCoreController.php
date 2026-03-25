@@ -2945,6 +2945,14 @@ final class AdminCoreController
                 }
 
                 if (($transaction['type'] ?? '') === 'deposit' && $freePlayBonusAmount > 0) {
+                    $fpBonusDesc2 = 'Auto free play bonus ' . rtrim(rtrim(number_format($freePlayBonusPercent, 2, '.', ''), '0'), '.') . '% on deposit $' . number_format(abs($amount), 2, '.', '');
+                    $referrerIdForDesc2 = trim((string) ($user['referredByUserId'] ?? ''));
+                    if ($referrerIdForDesc2 !== '' && preg_match('/^[a-f0-9]{24}$/i', $referrerIdForDesc2) === 1) {
+                        $referrerDoc2 = $this->db->findOne('users', ['_id' => MongoRepository::id($referrerIdForDesc2)], ['projection' => ['username' => 1]]);
+                        if ($referrerDoc2 !== null && isset($referrerDoc2['username'])) {
+                            $fpBonusDesc2 = 'Auto Freeplay bonus for referral ' . (string) $referrerDoc2['username'];
+                        }
+                    }
                     $this->db->insertOne('transactions', [
                         'userId' => MongoRepository::id($userId),
                         'agentId' => isset($user['agentId']) && preg_match('/^[a-f0-9]{24}$/i', (string) $user['agentId']) === 1
@@ -2959,7 +2967,7 @@ final class AdminCoreController
                         'referenceType' => 'FreePlayBonus',
                         'referenceId' => MongoRepository::id($transactionId),
                         'reason' => 'DEPOSIT_FREEPLAY_BONUS',
-                        'description' => 'Auto free play bonus ' . rtrim(rtrim(number_format($freePlayBonusPercent, 2, '.', ''), '0'), '.') . '% on deposit $' . number_format(abs($amount), 2, '.', ''),
+                        'description' => $fpBonusDesc2,
                         'metadata' => [
                             'depositAmount' => round(abs($amount), 2),
                             'freePlayPercent' => $freePlayBonusPercent,
@@ -7505,6 +7513,14 @@ final class AdminCoreController
                     if ($freePlayBonusAmount > 0) {
                         $freePlayBalanceAfter = $freePlayBalanceBefore + $freePlayBonusAmount;
                         $userUpdates['freeplayBalance'] = $freePlayBalanceAfter;
+                        $fpBonusDesc3 = 'Auto free play bonus ' . rtrim(rtrim(number_format($freePlayBonusPercent, 2, '.', ''), '0'), '.') . '% on deposit $' . number_format(abs($diff), 2, '.', '');
+                        $referrerIdForDesc3 = trim((string) ($lockedUser['referredByUserId'] ?? ''));
+                        if ($referrerIdForDesc3 !== '' && preg_match('/^[a-f0-9]{24}$/i', $referrerIdForDesc3) === 1) {
+                            $referrerDoc3 = $this->db->findOne('users', ['_id' => MongoRepository::id($referrerIdForDesc3)], ['projection' => ['username' => 1]]);
+                            if ($referrerDoc3 !== null && isset($referrerDoc3['username'])) {
+                                $fpBonusDesc3 = 'Auto Freeplay bonus for referral ' . (string) $referrerDoc3['username'];
+                            }
+                        }
                         $freePlayTransactionDoc = [
                             'userId' => MongoRepository::id($id),
                             'agentId' => isset($lockedUser['agentId']) && preg_match('/^[a-f0-9]{24}$/i', (string) $lockedUser['agentId']) === 1
@@ -7518,7 +7534,7 @@ final class AdminCoreController
                             'balanceAfter' => $freePlayBalanceAfter,
                             'referenceType' => 'FreePlayBonus',
                             'reason' => 'DEPOSIT_FREEPLAY_BONUS',
-                            'description' => 'Auto free play bonus ' . rtrim(rtrim(number_format($freePlayBonusPercent, 2, '.', ''), '0'), '.') . '% on deposit $' . number_format(abs($diff), 2, '.', ''),
+                            'description' => $fpBonusDesc3,
                             'metadata' => [
                                 'depositAmount' => round(abs($diff), 2),
                                 'freePlayPercent' => $freePlayBonusPercent,
