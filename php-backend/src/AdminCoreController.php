@@ -754,6 +754,9 @@ final class AdminCoreController
                     // Commission fields
                     'agentPercent' => isset($agent['agentPercent']) ? (float) $agent['agentPercent'] : null,
                     'playerRate' => isset($agent['playerRate']) ? (float) $agent['playerRate'] : null,
+                    'hiringAgentPercent' => isset($agent['hiringAgentPercent']) ? (float) $agent['hiringAgentPercent'] : null,
+                    'subAgentPercent' => isset($agent['subAgentPercent']) ? (float) $agent['subAgentPercent'] : null,
+                    'extraSubAgents' => isset($agent['extraSubAgents']) && is_array($agent['extraSubAgents']) ? $agent['extraSubAgents'] : [],
                     'parentAgentId' => isset($agent['createdBy']) ? (string) $agent['createdBy'] : null,
                     'parentAgentModel' => $agent['createdByModel'] ?? null,
                 ];
@@ -7991,6 +7994,10 @@ final class AdminCoreController
                     // Commission fields
                     'agentPercent' => isset($foundUser['agentPercent']) ? (float) $foundUser['agentPercent'] : null,
                     'playerRate' => isset($foundUser['playerRate']) ? (float) $foundUser['playerRate'] : null,
+                    'hiringAgentPercent' => isset($foundUser['hiringAgentPercent']) ? (float) $foundUser['hiringAgentPercent'] : null,
+                    'subAgentPercent' => isset($foundUser['subAgentPercent']) ? (float) $foundUser['subAgentPercent'] : null,
+                    'extraSubAgents' => isset($foundUser['extraSubAgents']) && is_array($foundUser['extraSubAgents']) ? $foundUser['extraSubAgents'] : [],
+                    'createdByUsername' => $creator['username'] ?? null,
                     'parentAgentId' => $createdBy !== '' ? $createdBy : null,
                     'parentAgentModel' => $createdByModel !== '' ? $createdByModel : null,
                 ],

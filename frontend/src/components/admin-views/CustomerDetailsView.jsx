@@ -2130,131 +2130,164 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
 
           {/* ── Edit Commission Split ─────────────────────────── */}
           <div className="commission-edit-card">
-            <h4 className="commission-card-title">Commission Split</h4>
-            <div className="commission-edit-row" style={{ flexWrap: 'wrap', gap: 12 }}>
-              <div className="commission-edit-field">
-                <label className="commission-field-label">Agent %<br /><span style={{ fontWeight: 400, fontSize: 11, color: '#64748b' }}>{String(customer?.username || '').toUpperCase()}</span></label>
-                <input
-                  type="number"
-                  min="0"
-                  max="100"
-                  step="0.01"
-                  className="commission-input"
-                  placeholder="e.g. 90"
-                  value={agentPercentDraft}
-                  onChange={(e) => setAgentPercentDraft(e.target.value)}
-                />
-              </div>
-              <div className="commission-edit-field">
-                <label className="commission-field-label">Hiring Agent %<br /><span style={{ fontWeight: 400, fontSize: 11, color: '#64748b' }}>{String(customer?.createdByUsername || customer?.createdBy?.username || '').toUpperCase() || 'PARENT'}</span></label>
-                <input
-                  type="number"
-                  min="0"
-                  max="100"
-                  step="0.01"
-                  className="commission-input"
-                  placeholder="e.g. 5"
-                  value={hiringAgentPercentDraft}
-                  onChange={(e) => setHiringAgentPercentDraft(e.target.value)}
-                />
-              </div>
-              <div className="commission-edit-field">
-                <label className="commission-field-label">Sub Agent %<br /><span style={{ fontWeight: 400, fontSize: 11, color: '#64748b' }}>ADMIN</span></label>
-                <input
-                  type="number"
-                  min="0"
-                  max="100"
-                  step="0.01"
-                  className="commission-input"
-                  placeholder="e.g. 5"
-                  value={subAgentPercentDraft}
-                  onChange={(e) => setSubAgentPercentDraft(e.target.value)}
-                />
-              </div>
-              <div className="commission-edit-field">
-                <label className="commission-field-label">Player Rate ($)</label>
-                <div className="commission-input-prefix-wrap">
-                  <span className="commission-input-prefix">$</span>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    className="commission-input commission-input-with-prefix"
-                    placeholder="e.g. 25"
-                    value={playerRateDraft}
-                    onChange={(e) => setPlayerRateDraft(e.target.value)}
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Extra sub agents */}
-            {extraSubAgentsDraft.map((sa, idx) => (
-              <div key={sa.id} style={{ display: 'flex', gap: 12, alignItems: 'flex-end', marginTop: 10 }}>
-                <div className="commission-edit-field" style={{ flex: '1 1 200px' }}>
-                  <label className="commission-field-label">Sub Agent {idx + 1} Name</label>
-                  <input
-                    type="text"
-                    className="commission-input"
-                    placeholder="Username"
-                    value={sa.name}
-                    onChange={(e) => {
-                      const updated = [...extraSubAgentsDraft];
-                      updated[idx] = { ...updated[idx], name: e.target.value };
-                      setExtraSubAgentsDraft(updated);
-                    }}
-                  />
-                </div>
-                <div className="commission-edit-field" style={{ flex: '0 0 100px' }}>
-                  <label className="commission-field-label">%</label>
-                  <input
-                    type="number"
-                    min="0"
-                    max="100"
-                    step="0.01"
-                    className="commission-input"
-                    placeholder="%"
-                    value={sa.percent}
-                    onChange={(e) => {
-                      const updated = [...extraSubAgentsDraft];
-                      updated[idx] = { ...updated[idx], percent: e.target.value };
-                      setExtraSubAgentsDraft(updated);
-                    }}
-                  />
-                </div>
-                <button
-                  type="button"
-                  style={{ padding: '6px 12px', fontSize: 12, background: '#ef4444', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', marginBottom: 4 }}
-                  onClick={() => setExtraSubAgentsDraft((prev) => prev.filter((_, i) => i !== idx))}
-                >
-                  Remove
-                </button>
-              </div>
-            ))}
-
-            {/* Total & add sub agent */}
             {(() => {
               const agentPct = parseFloat(agentPercentDraft) || 0;
               const hiringPct = parseFloat(hiringAgentPercentDraft) || 0;
+              const firstTwoPct = agentPct + hiringPct;
+              const showSubAgent = firstTwoPct !== 100;
+              const subPct = showSubAgent ? (parseFloat(subAgentPercentDraft) || 0) : 0;
+              const extraPcts = extraSubAgentsDraft.reduce((sum, sa) => sum + (parseFloat(sa.percent) || 0), 0);
+              const totalPct = agentPct + hiringPct + subPct + extraPcts;
+              const totalColor = totalPct === 100 ? '#16a34a' : totalPct > 100 ? '#ef4444' : '#f59e0b';
+
+              return (
+                <>
+                  <div className="commission-split-head">
+                    <h4 className="commission-card-title">Commission Split</h4>
+                    <span className="commission-total-badge" style={{ color: totalColor }}>{totalPct.toFixed(2)}% {totalPct === 100 ? '✓' : `/ 100%`}</span>
+                  </div>
+
+                  <div className="commission-grid">
+                    <div className="commission-grid-field">
+                      <label className="commission-field-label">Agent % <span className="commission-name-chip">{String(customer?.username || '').toUpperCase()}</span></label>
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.01"
+                        className="commission-input"
+                        placeholder="e.g. 90"
+                        value={agentPercentDraft}
+                        onChange={(e) => setAgentPercentDraft(e.target.value)}
+                      />
+                    </div>
+                    <div className="commission-grid-field">
+                      <label className="commission-field-label">Hiring Agent % <span className="commission-name-chip">{String(customer?.createdByUsername || customer?.createdBy?.username || '').toUpperCase() || 'PARENT'}</span></label>
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.01"
+                        className="commission-input"
+                        placeholder="e.g. 5"
+                        value={hiringAgentPercentDraft}
+                        onChange={(e) => setHiringAgentPercentDraft(e.target.value)}
+                      />
+                    </div>
+                    {showSubAgent && (
+                      <div className="commission-grid-field">
+                        <label className="commission-field-label">Sub Agent % <span className="commission-name-chip">ADMIN</span></label>
+                        <input
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="0.01"
+                          className="commission-input"
+                          placeholder="e.g. 5"
+                          value={subAgentPercentDraft}
+                          onChange={(e) => setSubAgentPercentDraft(e.target.value)}
+                        />
+                      </div>
+                    )}
+                    <div className="commission-grid-field">
+                      <label className="commission-field-label">Player Rate ($)</label>
+                      <div className="commission-input-prefix-wrap">
+                        <span className="commission-input-prefix">$</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          className="commission-input commission-input-with-prefix"
+                          placeholder="e.g. 25"
+                          value={playerRateDraft}
+                          onChange={(e) => setPlayerRateDraft(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </>
+              );
+            })()}
+
+            {/* Extra sub agents — auto-grow: always show one empty row when total < 100% */}
+            {(() => {
+              const agentPct = parseFloat(agentPercentDraft) || 0;
+              const hiringPct = parseFloat(hiringAgentPercentDraft) || 0;
+              const firstTwoPct = agentPct + hiringPct;
+              if (firstTwoPct === 100) return null;
               const subPct = parseFloat(subAgentPercentDraft) || 0;
               const extraPcts = extraSubAgentsDraft.reduce((sum, sa) => sum + (parseFloat(sa.percent) || 0), 0);
               const totalPct = agentPct + hiringPct + subPct + extraPcts;
               const remaining = 100 - totalPct;
+              const totalColor = totalPct === 100 ? '#16a34a' : totalPct > 100 ? '#ef4444' : '#f59e0b';
+
+              const needsNewRow = totalPct < 100 && extraSubAgentsDraft.every((sa) => sa.percent !== '');
+              const displayList = needsNewRow
+                ? [...extraSubAgentsDraft, { id: `new-${Date.now()}`, name: '', percent: '', isNew: true }]
+                : extraSubAgentsDraft;
+
               return (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 12, flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: 13, fontWeight: 600, color: totalPct === 100 ? '#16a34a' : totalPct > 100 ? '#ef4444' : '#f59e0b' }}>
-                    Total: {totalPct.toFixed(2)}% {totalPct === 100 ? '✓' : totalPct > 100 ? '(over 100%)' : `(${remaining.toFixed(2)}% remaining)`}
-                  </span>
+                <>
+                  {displayList.map((sa, idx) => (
+                    <div key={sa.id} className="commission-extra-agent-row">
+                      <div className="commission-grid-field commission-extra-name">
+                        <label className="commission-field-label">Sub Agent {idx + 1} Name</label>
+                        <input
+                          type="text"
+                          className="commission-input"
+                          placeholder="Username"
+                          value={sa.name}
+                          onChange={(e) => {
+                            if (sa.isNew) {
+                              setExtraSubAgentsDraft((prev) => [...prev, { id: Date.now(), name: e.target.value, percent: '' }]);
+                            } else {
+                              const updated = [...extraSubAgentsDraft];
+                              updated[idx] = { ...updated[idx], name: e.target.value };
+                              setExtraSubAgentsDraft(updated);
+                            }
+                          }}
+                        />
+                      </div>
+                      <div className="commission-grid-field commission-extra-pct">
+                        <label className="commission-field-label">%</label>
+                        <input
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="0.01"
+                          className="commission-input"
+                          placeholder="%"
+                          value={sa.percent}
+                          onChange={(e) => {
+                            if (sa.isNew) {
+                              setExtraSubAgentsDraft((prev) => [...prev, { id: Date.now(), name: '', percent: e.target.value }]);
+                            } else {
+                              const updated = [...extraSubAgentsDraft];
+                              updated[idx] = { ...updated[idx], percent: e.target.value };
+                              setExtraSubAgentsDraft(updated);
+                            }
+                          }}
+                        />
+                      </div>
+                      {!sa.isNew && (
+                        <button
+                          type="button"
+                          className="commission-remove-btn"
+                          onClick={() => setExtraSubAgentsDraft((prev) => prev.filter((_, i) => i !== idx))}
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                  ))}
                   {totalPct < 100 && (
-                    <button
-                      type="button"
-                      style={{ padding: '5px 14px', fontSize: 12, background: '#0ea5e9', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}
-                      onClick={() => setExtraSubAgentsDraft((prev) => [...prev, { id: Date.now(), name: '', percent: '' }])}
-                    >
-                      + Add Sub Agent {extraSubAgentsDraft.length + 1}
-                    </button>
+                    <div className="commission-add-row">
+                      <span className="commission-remaining-label" style={{ color: totalColor }}>
+                        {remaining.toFixed(2)}% remaining
+                      </span>
+                    </div>
                   )}
-                </div>
+                </>
               );
             })()}
 

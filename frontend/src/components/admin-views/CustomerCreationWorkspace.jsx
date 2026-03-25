@@ -1593,10 +1593,13 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
               {(creationType === 'agent' || creationType === 'super_agent') && (() => {
                 const agentPct = parseFloat(newCustomer.agentPercent) || 0;
                 const hiringPct = parseFloat(hiringAgentPercent) || 0;
-                const subPct = parseFloat(subAgentPercent) || 0;
+                const firstTwoPct = agentPct + hiringPct;
+                const showSubAgent = firstTwoPct !== 100;
+                const subPct = showSubAgent ? (parseFloat(subAgentPercent) || 0) : 0;
                 const extraPcts = extraSubAgents.reduce((sum, sa) => sum + (parseFloat(sa.percent) || 0), 0);
                 const totalPct = agentPct + hiringPct + subPct + extraPcts;
                 const remaining = 100 - totalPct;
+                const totalColor = totalPct === 100 ? '#16a34a' : totalPct > 100 ? '#ef4444' : '#f59e0b';
 
                 const hiringAgentName = (() => {
                   const selId = String(newCustomer.agentId || '').trim();
@@ -1610,12 +1613,18 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
                 })();
 
                 return (
-                  <div className="customer-create-row" style={{ flexDirection: 'column', gap: 12 }}>
-                    <h4 style={{ margin: '8px 0 4px', fontSize: 13, fontWeight: 700, color: '#334155' }}>Commission Split</h4>
+                  <>
+                    <div className="commission-split-header">
+                      <span className="commission-split-title">Commission Split</span>
+                      <span className="commission-split-total" style={{ color: totalColor }}>
+                        {totalPct.toFixed(2)}%
+                        {totalPct === 100 ? ' ✓' : totalPct > 100 ? ' over' : ` / 100%`}
+                      </span>
+                    </div>
 
-                    <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                      <div className="filter-group" style={{ flex: '1 1 140px' }}>
-                        <label>Agent %<br /><span style={{ fontWeight: 400, fontSize: 11, color: '#64748b' }}>{String(newCustomer.username || '').toUpperCase() || 'NEW AGENT'}</span></label>
+                    <div className="customer-create-row">
+                      <div className="filter-group customer-field-span-3">
+                        <label>Agent % <span className="commission-name-tag">{String(newCustomer.username || '').toUpperCase() || 'NEW AGENT'}</span></label>
                         <input
                           type="number"
                           min="0"
@@ -1626,8 +1635,8 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
                           onChange={(e) => setNewCustomer((prev) => ({ ...prev, agentPercent: e.target.value }))}
                         />
                       </div>
-                      <div className="filter-group" style={{ flex: '1 1 140px' }}>
-                        <label>Hiring Agent %<br /><span style={{ fontWeight: 400, fontSize: 11, color: '#64748b' }}>{hiringAgentName}</span></label>
+                      <div className="filter-group customer-field-span-3">
+                        <label>Hiring Agent % <span className="commission-name-tag">{hiringAgentName}</span></label>
                         <input
                           type="number"
                           min="0"
@@ -1638,19 +1647,21 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
                           onChange={(e) => setHiringAgentPercent(e.target.value)}
                         />
                       </div>
-                      <div className="filter-group" style={{ flex: '1 1 140px' }}>
-                        <label>Sub Agent %<br /><span style={{ fontWeight: 400, fontSize: 11, color: '#64748b' }}>{adminName}</span></label>
-                        <input
-                          type="number"
-                          min="0"
-                          max="100"
-                          step="0.01"
-                          placeholder="e.g. 5"
-                          value={subAgentPercent}
-                          onChange={(e) => setSubAgentPercent(e.target.value)}
-                        />
-                      </div>
-                      <div className="filter-group" style={{ flex: '1 1 140px' }}>
+                      {showSubAgent && (
+                        <div className="filter-group customer-field-span-3">
+                          <label>Sub Agent % <span className="commission-name-tag">{adminName}</span></label>
+                          <input
+                            type="number"
+                            min="0"
+                            max="100"
+                            step="0.01"
+                            placeholder="e.g. 5"
+                            value={subAgentPercent}
+                            onChange={(e) => setSubAgentPercent(e.target.value)}
+                          />
+                        </div>
+                      )}
+                      <div className="filter-group customer-field-span-3">
                         <label>Player Rate ($)</label>
                         <input
                           type="number"
@@ -1663,62 +1674,75 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
                       </div>
                     </div>
 
-                    {extraSubAgents.map((sa, idx) => (
-                      <div key={sa.id} style={{ display: 'flex', gap: 12, alignItems: 'flex-end' }}>
-                        <div className="filter-group" style={{ flex: '1 1 200px' }}>
-                          <label>Sub Agent {idx + 1} Name</label>
-                          <input
-                            type="text"
-                            placeholder="Username"
-                            value={sa.name}
-                            onChange={(e) => {
-                              const updated = [...extraSubAgents];
-                              updated[idx] = { ...updated[idx], name: e.target.value };
-                              setExtraSubAgents(updated);
-                            }}
-                          />
-                        </div>
-                        <div className="filter-group" style={{ flex: '1 1 120px' }}>
-                          <label>Sub Agent {idx + 1} %</label>
-                          <input
-                            type="number"
-                            min="0"
-                            max="100"
-                            step="0.01"
-                            placeholder="%"
-                            value={sa.percent}
-                            onChange={(e) => {
-                              const updated = [...extraSubAgents];
-                              updated[idx] = { ...updated[idx], percent: e.target.value };
-                              setExtraSubAgents(updated);
-                            }}
-                          />
-                        </div>
-                        <button
-                          type="button"
-                          style={{ padding: '6px 12px', fontSize: 12, background: '#ef4444', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', marginBottom: 4 }}
-                          onClick={() => setExtraSubAgents((prev) => prev.filter((_, i) => i !== idx))}
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    ))}
+                    {showSubAgent && (() => {
+                      // Build display list: all existing + one empty row if total < 100%
+                      const needsNewRow = totalPct < 100 && extraSubAgents.every((sa) => sa.percent !== '');
+                      const displayList = needsNewRow
+                        ? [...extraSubAgents, { id: `new-${Date.now()}`, name: '', percent: '', isNew: true }]
+                        : extraSubAgents;
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: 13, fontWeight: 600, color: totalPct === 100 ? '#16a34a' : totalPct > 100 ? '#ef4444' : '#f59e0b' }}>
-                        Total: {totalPct.toFixed(2)}% {totalPct === 100 ? '✓' : totalPct > 100 ? '(over 100%)' : `(${remaining.toFixed(2)}% remaining)`}
-                      </span>
-                      {totalPct < 100 && (
-                        <button
-                          type="button"
-                          style={{ padding: '5px 14px', fontSize: 12, background: '#0ea5e9', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}
-                          onClick={() => setExtraSubAgents((prev) => [...prev, { id: Date.now(), name: '', percent: '' }])}
-                        >
-                          + Add Sub Agent {extraSubAgents.length + 1}
-                        </button>
-                      )}
-                    </div>
-                  </div>
+                      return displayList.map((sa, idx) => (
+                        <div className="customer-create-row commission-extra-row" key={sa.id}>
+                          <div className="filter-group customer-field-span-4">
+                            <label>Sub Agent {idx + 1} Name</label>
+                            <input
+                              type="text"
+                              placeholder="Username"
+                              value={sa.name}
+                              onChange={(e) => {
+                                if (sa.isNew) {
+                                  setExtraSubAgents((prev) => [...prev, { id: Date.now(), name: e.target.value, percent: '' }]);
+                                } else {
+                                  const updated = [...extraSubAgents];
+                                  updated[idx] = { ...updated[idx], name: e.target.value };
+                                  setExtraSubAgents(updated);
+                                }
+                              }}
+                            />
+                          </div>
+                          <div className="filter-group customer-field-span-3">
+                            <label>Sub Agent {idx + 1} %</label>
+                            <input
+                              type="number"
+                              min="0"
+                              max="100"
+                              step="0.01"
+                              placeholder="%"
+                              value={sa.percent}
+                              onChange={(e) => {
+                                if (sa.isNew) {
+                                  setExtraSubAgents((prev) => [...prev, { id: Date.now(), name: '', percent: e.target.value }]);
+                                } else {
+                                  const updated = [...extraSubAgents];
+                                  updated[idx] = { ...updated[idx], percent: e.target.value };
+                                  setExtraSubAgents(updated);
+                                }
+                              }}
+                            />
+                          </div>
+                          <div className="filter-group customer-field-span-2 commission-remove-cell">
+                            {!sa.isNew && (
+                              <button
+                                type="button"
+                                className="commission-remove-btn"
+                                onClick={() => setExtraSubAgents((prev) => prev.filter((_, i) => i !== idx))}
+                              >
+                                Remove
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ));
+                    })()}
+
+                    {showSubAgent && totalPct < 100 && (
+                      <div className="commission-add-row">
+                        <span className="commission-remaining" style={{ color: totalColor }}>
+                          {remaining.toFixed(2)}% remaining
+                        </span>
+                      </div>
+                    )}
+                  </>
                 );
               })()}
 
@@ -1871,6 +1895,83 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
             .customer-field-span-12 {
               grid-column: 1 / -1;
             }
+
+            /* ── Commission Split ─────────────────── */
+            .commission-split-header {
+              display: flex;
+              align-items: center;
+              justify-content: space-between;
+              padding: 10px 0 4px;
+              border-top: 1px solid #e2e8f0;
+              margin-top: 6px;
+            }
+            .commission-split-title {
+              font-size: 13px;
+              font-weight: 700;
+              color: #334155;
+            }
+            .commission-split-total {
+              font-size: 13px;
+              font-weight: 700;
+            }
+            .commission-name-tag {
+              display: inline-block;
+              font-weight: 500;
+              font-size: 10px;
+              color: #64748b;
+              background: #f1f5f9;
+              border-radius: 4px;
+              padding: 1px 5px;
+              margin-left: 4px;
+              vertical-align: middle;
+            }
+            .commission-extra-row {
+              margin-top: -8px;
+            }
+            .commission-remove-cell {
+              display: flex;
+              align-items: flex-end;
+              padding-bottom: 2px;
+            }
+            .commission-remove-btn {
+              padding: 7px 16px;
+              font-size: 12px;
+              font-weight: 600;
+              background: #fee2e2;
+              color: #dc2626;
+              border: 1px solid #fca5a5;
+              border-radius: 8px;
+              cursor: pointer;
+              transition: background 0.15s;
+            }
+            .commission-remove-btn:hover {
+              background: #fecaca;
+            }
+            .commission-add-row {
+              display: flex;
+              align-items: center;
+              gap: 14px;
+              padding: 2px 0 4px;
+            }
+            .commission-add-btn {
+              padding: 7px 18px;
+              font-size: 12px;
+              font-weight: 600;
+              background: #eff6ff;
+              color: #2563eb;
+              border: 1px solid #bfdbfe;
+              border-radius: 8px;
+              cursor: pointer;
+              transition: background 0.15s;
+            }
+            .commission-add-btn:hover {
+              background: #dbeafe;
+            }
+            .commission-remaining {
+              font-size: 12px;
+              font-weight: 600;
+            }
+
             .assignment-tree-filter-group {
               min-width: 0;
             }
@@ -2179,6 +2280,12 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
               }
               .customer-create-side-card {
                 padding: 16px;
+              }
+              .commission-remove-cell {
+                grid-column: 1 / -1;
+              }
+              .commission-extra-row {
+                margin-top: 0;
               }
             }
           `}</style>
