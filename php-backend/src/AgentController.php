@@ -748,26 +748,17 @@ final class AgentController
 
             $requestedRole = ((string) ($body['role'] ?? '') === 'master_agent') ? 'master_agent' : 'agent';
 
-            $existing = $this->findExistingAgentByIdentity($username, $phoneNumber);
+            // Check for existing agent with same identity AND same role — reassign if found.
+            // If a different role is requested, allow both to coexist as separate entries.
+            $existing = $this->findExistingAgentByIdentity($username, $phoneNumber, $requestedRole);
             if ($existing !== null) {
-                $existingRole = (string) ($existing['role'] ?? '');
-                if (!in_array($existingRole, ['agent', 'master_agent'], true)) {
-                    Response::json(['message' => 'Username or Phone number already exists in the system'], 409);
-                    return;
-                }
-                // Reassign the existing agent under this master agent and update role if changed
                 $existingId = (string) $existing['_id'];
-                $updateFields = [
+                $this->db->updateOne('agents', ['_id' => MongoRepository::id($existingId)], [
                     'createdBy'      => MongoRepository::id($resolvedParentAgentId),
                     'createdByModel' => 'Agent',
                     'updatedAt'      => MongoRepository::nowUtc(),
-                ];
-                if ($existingRole !== $requestedRole) {
-                    $updateFields['role'] = $requestedRole;
-                }
-                $this->db->updateOne('agents', ['_id' => MongoRepository::id($existingId)], $updateFields);
-                $finalRole = $updateFields['role'] ?? $existingRole;
-                if ($finalRole === 'master_agent') {
+                ]);
+                if ($requestedRole === 'master_agent') {
                     $updated = $this->db->findOne('agents', ['_id' => MongoRepository::id($existingId)]);
                     if ($updated !== null) {
                         $this->syncMasterAgentCollection($updated);
@@ -781,7 +772,7 @@ final class AgentController
                         'username'    => (string) ($existing['username'] ?? ''),
                         'phoneNumber' => (string) ($existing['phoneNumber'] ?? ''),
                         'fullName'    => (string) ($existing['fullName'] ?? ''),
-                        'role'        => $finalRole,
+                        'role'        => $requestedRole,
                         'status'      => (string) ($existing['status'] ?? 'active'),
                         'createdAt'   => gmdate(DATE_ATOM),
                     ],
@@ -1310,7 +1301,7 @@ final class AgentController
             || $this->db->findOne('agents', $query) !== null;
     }
 
-    private function findExistingAgentByIdentity(string $username, string $phoneNumber): ?array
+    private function findExistingAgentByIdentity(string $username, string $phoneNumber, string $role = ''): ?array
     {
         $normalizedUsername = trim($username);
         $or = [];
@@ -1327,7 +1318,12 @@ final class AgentController
             return null;
         }
 
-        return $this->db->findOne('agents', ['$or' => $or]);
+        $query = ['$or' => $or];
+        if ($role !== '') {
+            $query['role'] = $role;
+        }
+
+        return $this->db->findOne('agents', $query);
     }
 
     private function collectionByRole(string $role): string
