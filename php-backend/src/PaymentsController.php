@@ -326,6 +326,14 @@ final class PaymentsController
                 ]);
             }
 
+            $this->grantReferralBonusForFirstCompletedDeposit(
+                $user,
+                $depositTransactionId,
+                $amount,
+                $stripePaymentId,
+                $now
+            );
+
             $this->db->commit();
         } catch (Throwable $e) {
             $this->db->rollback();
@@ -382,6 +390,123 @@ final class PaymentsController
             'cap' => $cap,
             'depositAmount' => $normalizedDeposit,
         ];
+    }
+
+    private function isPlayerLikeUserDocument(?array $doc): bool
+    {
+        if ($doc === null) {
+            return false;
+        }
+
+        $role = strtolower(trim((string) ($doc['role'] ?? '')));
+        return !in_array($role, ['admin', 'agent', 'master_agent', 'super_agent'], true);
+    }
+
+    private function countCompletedDepositTransactionsForUser(string $userId, ?string $excludeTransactionId = null): int
+    {
+        if ($userId === '' || preg_match('/^[a-f0-9]{24}$/i', $userId) !== 1) {
+            return 0;
+        }
+
+        $filter = [
+            'userId' => MongoRepository::id($userId),
+            'type' => 'deposit',
+            '$or' => [
+                ['status' => 'completed'],
+                ['status' => ''],
+                ['status' => ['$exists' => false]],
+            ],
+        ];
+        if ($excludeTransactionId !== null && preg_match('/^[a-f0-9]{24}$/i', $excludeTransactionId) === 1) {
+            $filter['_id'] = ['$ne' => MongoRepository::id($excludeTransactionId)];
+        }
+
+        return $this->db->countDocuments('transactions', $filter);
+    }
+
+    /**
+     * @param array<string, mixed> $referredUser
+     */
+    private function grantReferralBonusForFirstCompletedDeposit(
+        array $referredUser,
+        string $depositTransactionId,
+        float $depositAmount,
+        string $stripePaymentId = '',
+        mixed $now = null
+    ): void {
+        $referredUserId = trim((string) ($referredUser['_id'] ?? ''));
+        $referrerUserId = trim((string) ($referredUser['referredByUserId'] ?? ''));
+        $normalizedDepositAmount = round(max(0.0, $depositAmount), 2);
+        if (
+            $referredUserId === ''
+            || preg_match('/^[a-f0-9]{24}$/i', $referredUserId) !== 1
+            || $referrerUserId === ''
+            || preg_match('/^[a-f0-9]{24}$/i', $referrerUserId) !== 1
+            || preg_match('/^[a-f0-9]{24}$/i', $depositTransactionId) !== 1
+            || $normalizedDepositAmount <= 0
+        ) {
+            return;
+        }
+
+        if ($this->countCompletedDepositTransactionsForUser($referredUserId, $depositTransactionId) > 0) {
+            return;
+        }
+
+        $referrer = $this->db->findOneForUpdate('users', ['_id' => MongoRepository::id($referrerUserId)]);
+        if (!$this->isPlayerLikeUserDocument($referrer) || (string) ($referrer['status'] ?? 'active') !== 'active') {
+            return;
+        }
+
+        $awardTimestamp = $now ?? MongoRepository::nowUtc();
+        $referralBonusAmount = 200.0;
+        $freeplayBefore = $this->num($referrer['freeplayBalance'] ?? 0);
+        $freeplayAfter = round($freeplayBefore + $referralBonusAmount, 2);
+
+        $this->db->updateOne('users', ['_id' => MongoRepository::id($referrerUserId)], [
+            'freeplayBalance' => $freeplayAfter,
+            'updatedAt' => $awardTimestamp,
+        ]);
+
+        $transactionDoc = [
+            'userId' => MongoRepository::id($referrerUserId),
+            'agentId' => isset($referrer['agentId']) && preg_match('/^[a-f0-9]{24}$/i', (string) $referrer['agentId']) === 1
+                ? MongoRepository::id((string) $referrer['agentId'])
+                : null,
+            'amount' => $referralBonusAmount,
+            'type' => 'fp_deposit',
+            'status' => 'completed',
+            'isFreeplay' => true,
+            'balanceBefore' => $freeplayBefore,
+            'balanceAfter' => $freeplayAfter,
+            'referenceType' => 'ReferralBonus',
+            'referenceId' => MongoRepository::id($depositTransactionId),
+            'reason' => 'REFERRAL_FREEPLAY_BONUS',
+            'description' => 'Referral bonus from ' . (string) ($referredUser['username'] ?? 'user') . ' first deposit',
+            'metadata' => [
+                'depositAmount' => $normalizedDepositAmount,
+                'sourceTransactionId' => $depositTransactionId,
+                'sourceDepositTransactionId' => $depositTransactionId,
+                'referredUserId' => $referredUserId,
+                'referredUsername' => (string) ($referredUser['username'] ?? ''),
+                'trigger' => 'first_completed_deposit',
+            ],
+            'createdAt' => $awardTimestamp,
+            'updatedAt' => $awardTimestamp,
+        ];
+        if ($stripePaymentId !== '') {
+            $transactionDoc['stripePaymentId'] = $stripePaymentId;
+            $transactionDoc['metadata']['stripePaymentId'] = $stripePaymentId;
+        }
+        $this->db->insertOne('transactions', $transactionDoc);
+
+        $this->db->updateOne('users', ['_id' => MongoRepository::id($referredUserId)], [
+            'referralBonusGranted' => true,
+            'referralBonusGrantedAt' => $awardTimestamp,
+            'referralQualifiedDepositAt' => $awardTimestamp,
+            'referralBonusAmount' => $referralBonusAmount,
+            'referralBonusSourceDepositId' => $depositTransactionId,
+            'updatedAt' => $awardTimestamp,
+        ]);
     }
 
     private function num(mixed $value): float

@@ -413,16 +413,8 @@ final class AdminCoreController
             $query = $this->playerOnlyQuery();
             if (($actor['role'] ?? '') === 'agent') {
                 $query['agentId'] = MongoRepository::id((string) $actor['_id']);
-            } elseif (in_array((string) ($actor['role'] ?? ''), ['master_agent', 'super_agent'], true)) {
-                $subAgents = $this->db->findMany('agents', ['createdBy' => MongoRepository::id((string) $actor['_id']), 'createdByModel' => 'Agent'], ['projection' => ['_id' => 1]]);
-                $ids = [MongoRepository::id((string) $actor['_id'])];
-                foreach ($subAgents as $sa) {
-                    if (isset($sa['_id']) && is_string($sa['_id']) && preg_match('/^[a-f0-9]{24}$/i', $sa['_id']) === 1) {
-                        $ids[] = MongoRepository::id($sa['_id']);
-                    }
-                }
-                $query['agentId'] = ['$in' => $ids];
             }
+            // admin, master_agent, super_agent — no agentId filter, see all players
 
             $searchQ = trim((string) ($_GET['q'] ?? ''));
             if ($searchQ !== '') {
@@ -2901,6 +2893,7 @@ final class AdminCoreController
                 $freePlayBonusCap = 0.0;
                 $freePlayBalanceBefore = $this->num($user['freeplayBalance'] ?? 0);
                 $freePlayBalanceAfter = $freePlayBalanceBefore;
+                $referralBonusAward = null;
 
                 if (($transaction['type'] ?? '') === 'deposit') {
                     $balanceBefore = $this->num($user['balance'] ?? 0);
@@ -2916,54 +2909,6 @@ final class AdminCoreController
                         $userUpdates['freeplayBalance'] = $freePlayBalanceAfter;
                     }
 
-                    $minQualifyingPayin = 200;
-                    $referralBonus = 200;
-                    if (
-                        $amount >= $minQualifyingPayin
-                        && isset($user['referredByUserId'])
-                        && (string) $user['referredByUserId'] !== ''
-                        && !((bool) ($user['referralBonusGranted'] ?? false))
-                    ) {
-                        $referrerId = (string) $user['referredByUserId'];
-                        if (preg_match('/^[a-f0-9]{24}$/i', $referrerId) === 1) {
-                            $referrer = $this->db->findOneForUpdate('users', ['_id' => MongoRepository::id($referrerId)]);
-                            if (
-                                $referrer !== null
-                                && (string) ($referrer['role'] ?? '') === 'user'
-                                && (string) ($referrer['status'] ?? 'active') === 'active'
-                            ) {
-                                $before = $this->num($referrer['freeplayBalance'] ?? 0);
-                                $after = $before + $referralBonus;
-                                $this->db->updateOne('users', ['_id' => MongoRepository::id($referrerId)], [
-                                    'freeplayBalance' => $after,
-                                    'updatedAt' => $now,
-                                ]);
-
-                                $this->db->insertOne('transactions', [
-                                    'userId' => MongoRepository::id($referrerId),
-                                    'agentId' => isset($referrer['agentId']) && preg_match('/^[a-f0-9]{24}$/i', (string) $referrer['agentId']) === 1
-                                        ? MongoRepository::id((string) $referrer['agentId'])
-                                        : null,
-                                    'adminId' => isset($actor['_id']) ? MongoRepository::id((string) $actor['_id']) : null,
-                                    'amount' => $referralBonus,
-                                    'type' => 'adjustment',
-                                    'status' => 'completed',
-                                    'balanceBefore' => $before,
-                                    'balanceAfter' => $after,
-                                    'reason' => 'REFERRAL_FREEPLAY_BONUS',
-                                    'referenceType' => 'Adjustment',
-                                    'description' => 'Referral bonus from ' . (string) ($user['username'] ?? 'user') . ' qualifying pay-in',
-                                    'createdAt' => $now,
-                                    'updatedAt' => $now,
-                                ]);
-
-                                $userUpdates['referralBonusGranted'] = true;
-                                $userUpdates['referralBonusGrantedAt'] = $now;
-                                $userUpdates['referralQualifiedDepositAt'] = $now;
-                                $userUpdates['referralBonusAmount'] = $referralBonus;
-                            }
-                        }
-                    }
                 } elseif (($transaction['type'] ?? '') === 'withdrawal') {
                     $balanceBefore = $this->num($user['balance'] ?? 0);
                     $balanceAfter = $balanceBefore - $amount;
@@ -2989,6 +2934,15 @@ final class AdminCoreController
                     $txUpdates['balanceAfter'] = $balanceAfter;
                 }
                 $this->db->updateOne('transactions', ['_id' => MongoRepository::id($transactionId)], $txUpdates);
+                if (($transaction['type'] ?? '') === 'deposit') {
+                    $referralBonusAward = $this->grantReferralBonusForFirstCompletedDeposit(
+                        $user,
+                        $transactionId,
+                        $amount,
+                        $actor,
+                        $now
+                    );
+                }
 
                 if (($transaction['type'] ?? '') === 'deposit' && $freePlayBonusAmount > 0) {
                     $this->db->insertOne('transactions', [
@@ -3022,7 +2976,11 @@ final class AdminCoreController
                 throw $txErr;
             }
 
-            Response::json(['message' => 'Transaction approved', 'transactionId' => $transactionId]);
+            $response = ['message' => 'Transaction approved', 'transactionId' => $transactionId];
+            if (is_array($referralBonusAward) && !empty($referralBonusAward['granted'])) {
+                $response['referralBonus'] = $referralBonusAward;
+            }
+            Response::json($response);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error approving transaction'], 500);
         }
@@ -4354,44 +4312,84 @@ final class AdminCoreController
                         }
                     }
 
-                    $mainBalanceDelta = 0.0;
-                    $freeplayBalanceDelta = 0.0;
-                    $lifetimeDelta = 0.0;
+                    $lockedUsersById = [$userId => $user];
+                    foreach ($txDocsById as $txDoc) {
+                        $txUserId = trim((string) ($txDoc['userId'] ?? ''));
+                        if ($txUserId === '' || preg_match('/^[a-f0-9]{24}$/i', $txUserId) !== 1) {
+                            throw new RuntimeException('Linked transaction has invalid user context');
+                        }
+                        if (isset($lockedUsersById[$txUserId])) {
+                            continue;
+                        }
+
+                        $linkedUser = $this->db->findOneForUpdate('users', ['_id' => MongoRepository::id($txUserId)]);
+                        if (!is_array($linkedUser)) {
+                            throw new RuntimeException('Associated user record was not found for reversal.');
+                        }
+                        if (!$this->canActorDeleteUserTransaction($actorRole, $actorId, $managedAgentSet, $linkedUser)) {
+                            throw new RuntimeException('Not authorized to delete linked transaction');
+                        }
+
+                        $lockedUsersById[$txUserId] = $linkedUser;
+                    }
+
+                    $mainBalanceDeltaByUserId = [];
+                    $freeplayBalanceDeltaByUserId = [];
+                    $lifetimeDeltaByUserId = [];
+                    $resetReferralBonusByUserId = [];
                     foreach ($txDocsById as $txDoc) {
                         $status = strtolower(trim((string) ($txDoc['status'] ?? '')));
                         if ($status !== 'completed') {
                             continue;
                         }
 
+                        $txUserId = trim((string) ($txDoc['userId'] ?? ''));
+                        if ($txUserId === '' || preg_match('/^[a-f0-9]{24}$/i', $txUserId) !== 1) {
+                            throw new RuntimeException('Linked transaction has invalid user context');
+                        }
+
                         $signed = $this->getComprehensiveSignedTransactionAmount($txDoc);
                         if ($this->isFreePlayBalanceTransaction($txDoc)) {
-                            $freeplayBalanceDelta += $signed;
+                            $freeplayBalanceDeltaByUserId[$txUserId] = ($freeplayBalanceDeltaByUserId[$txUserId] ?? 0.0) + $signed;
                         } else {
-                            $mainBalanceDelta += $signed;
-                            $lifetimeDelta += $this->getLifetimeAdjustmentDelta($txDoc);
+                            $mainBalanceDeltaByUserId[$txUserId] = ($mainBalanceDeltaByUserId[$txUserId] ?? 0.0) + $signed;
+                            $lifetimeDeltaByUserId[$txUserId] = ($lifetimeDeltaByUserId[$txUserId] ?? 0.0) + $this->getLifetimeAdjustmentDelta($txDoc);
+                        }
+
+                        $reason = strtoupper(trim((string) ($txDoc['reason'] ?? '')));
+                        if ($reason === 'REFERRAL_FREEPLAY_BONUS') {
+                            $metadata = is_array($txDoc['metadata'] ?? null) ? $txDoc['metadata'] : [];
+                            $referredUserId = trim((string) ($metadata['referredUserId'] ?? ''));
+                            if ($referredUserId !== '' && preg_match('/^[a-f0-9]{24}$/i', $referredUserId) === 1) {
+                                $resetReferralBonusByUserId[$referredUserId] = true;
+                            }
                         }
                     }
 
-                    $balanceNeedsUpdate = abs($mainBalanceDelta) > 0.00001;
-                    $freeplayNeedsUpdate = abs($freeplayBalanceDelta) > 0.00001;
-                    $lifetimeNeedsUpdate = abs($lifetimeDelta) > 0.00001;
-
-                    if (($balanceNeedsUpdate || $freeplayNeedsUpdate || $lifetimeNeedsUpdate) && !is_array($user)) {
-                        throw new RuntimeException('Associated user record was not found for reversal.');
-                    }
-
                     $now = MongoRepository::nowUtc();
-                    if (is_array($user) && ($balanceNeedsUpdate || $freeplayNeedsUpdate || $lifetimeNeedsUpdate)) {
+                    foreach ($lockedUsersById as $lockedUserId => $lockedUser) {
+                        $mainBalanceDelta = $mainBalanceDeltaByUserId[$lockedUserId] ?? 0.0;
+                        $freeplayBalanceDelta = $freeplayBalanceDeltaByUserId[$lockedUserId] ?? 0.0;
+                        $lifetimeDelta = $lifetimeDeltaByUserId[$lockedUserId] ?? 0.0;
+                        $shouldResetReferralBonus = !empty($resetReferralBonusByUserId[$lockedUserId]);
+
+                        $balanceNeedsUpdate = abs($mainBalanceDelta) > 0.00001;
+                        $freeplayNeedsUpdate = abs($freeplayBalanceDelta) > 0.00001;
+                        $lifetimeNeedsUpdate = abs($lifetimeDelta) > 0.00001;
+                        if (!$balanceNeedsUpdate && !$freeplayNeedsUpdate && !$lifetimeNeedsUpdate && !$shouldResetReferralBonus) {
+                            continue;
+                        }
+
                         $userUpdates = ['updatedAt' => $now];
 
                         if ($balanceNeedsUpdate) {
-                            $currentBalance = $this->num($user['balance'] ?? 0);
+                            $currentBalance = $this->num($lockedUser['balance'] ?? 0);
                             $nextBalanceRaw = $currentBalance - $mainBalanceDelta;
                             $userUpdates['balance'] = round($nextBalanceRaw, 2);
                         }
 
                         if ($freeplayNeedsUpdate) {
-                            $currentFreeplay = $this->num($user['freeplayBalance'] ?? 0);
+                            $currentFreeplay = $this->num($lockedUser['freeplayBalance'] ?? 0);
                             $nextFreeplayRaw = $currentFreeplay - $freeplayBalanceDelta;
                             if ($nextFreeplayRaw < -0.00001) {
                                 throw new RuntimeException('Cannot delete transaction because linked free play bonus has already been used.');
@@ -4400,11 +4398,19 @@ final class AdminCoreController
                         }
 
                         if ($lifetimeNeedsUpdate) {
-                            $currentLifetime = $this->num($user['lifetime'] ?? 0);
+                            $currentLifetime = $this->num($lockedUser['lifetime'] ?? 0);
                             $userUpdates['lifetime'] = round($currentLifetime - $lifetimeDelta, 2);
                         }
 
-                        $this->db->updateOne('users', ['_id' => MongoRepository::id($userId)], $userUpdates);
+                        if ($shouldResetReferralBonus) {
+                            $userUpdates['referralBonusGranted'] = false;
+                            $userUpdates['referralBonusGrantedAt'] = null;
+                            $userUpdates['referralQualifiedDepositAt'] = null;
+                            $userUpdates['referralBonusAmount'] = 0.0;
+                            $userUpdates['referralBonusSourceDepositId'] = null;
+                        }
+
+                        $this->db->updateOne('users', ['_id' => MongoRepository::id($lockedUserId)], $userUpdates);
                     }
 
                     $deletedThisRoot = 0;
@@ -4567,9 +4573,38 @@ final class AdminCoreController
      */
     private function findLinkedFreePlayBonusTransactionsForDeposit(string $depositTransactionId, array $depositTransaction): array
     {
+        $matches = [];
+        if (preg_match('/^[a-f0-9]{24}$/i', $depositTransactionId) === 1) {
+            $linkedCandidates = $this->db->findMany('transactions', [
+                'status' => 'completed',
+                '$or' => [
+                    ['referenceId' => MongoRepository::id($depositTransactionId)],
+                    ['metadata.sourceTransactionId' => $depositTransactionId],
+                    ['metadata.sourceDepositTransactionId' => $depositTransactionId],
+                    ['metadata.approvedDepositTransactionId' => $depositTransactionId],
+                    ['metadata.depositTransactionId' => $depositTransactionId],
+                ],
+            ], [
+                'sort' => ['createdAt' => -1],
+                'limit' => 120,
+            ]);
+
+            foreach ($linkedCandidates as $candidate) {
+                $candidateId = (string) ($candidate['_id'] ?? '');
+                if (
+                    $candidateId === ''
+                    || $candidateId === $depositTransactionId
+                    || !$this->isFreePlayBalanceTransaction($candidate)
+                ) {
+                    continue;
+                }
+                $matches[$candidateId] = $candidate;
+            }
+        }
+
         $userId = (string) ($depositTransaction['userId'] ?? '');
         if ($userId === '' || preg_match('/^[a-f0-9]{24}$/i', $userId) !== 1) {
-            return [];
+            return array_values($matches);
         }
 
         $depositAmount = abs($this->num($depositTransaction['amount'] ?? 0));
@@ -4584,7 +4619,6 @@ final class AdminCoreController
             'limit' => 120,
         ]);
 
-        $matches = [];
         foreach ($candidates as $candidate) {
             $candidateId = (string) ($candidate['_id'] ?? '');
             if ($candidateId === '' || $candidateId === $depositTransactionId) {
@@ -4616,11 +4650,11 @@ final class AdminCoreController
             }
             $candidateCreatedTs = $this->toTimestampSeconds($candidate['createdAt'] ?? null);
             if ($depositCreatedTs !== null && $candidateCreatedTs !== null && abs($candidateCreatedTs - $depositCreatedTs) <= 5) {
-                $matches[] = $candidate;
+                $matches[$candidateId] = $candidate;
             }
         }
 
-        return $matches;
+        return array_values($matches);
     }
 
     private function getDeletedWagers(): void
@@ -7400,12 +7434,13 @@ final class AdminCoreController
             $updatedFreeplayBalance = $this->num($user['freeplayBalance'] ?? 0);
             $freePlayBonusAmount = 0.0;
             $freePlayBonusPercent = 0.0;
-            $freePlayBonusCap = 0.0;
-            $freePlayBalanceAfter = $updatedFreeplayBalance;
-            $freePlayTransactionDoc = null;
-            $transactionId = '';
-            $freePlayTransactionId = '';
-            $agentBalanceOut = null;
+                $freePlayBonusCap = 0.0;
+                $freePlayBalanceAfter = $updatedFreeplayBalance;
+                $freePlayTransactionDoc = null;
+                $referralBonusAward = null;
+                $transactionId = '';
+                $freePlayTransactionId = '';
+                $agentBalanceOut = null;
 
             $this->db->beginTransaction();
             try {
@@ -7549,6 +7584,14 @@ final class AdminCoreController
                     $freePlayTransactionDoc['metadata'] = $freePlayMetadata;
                     $freePlayTransactionId = $this->db->insertOne('transactions', $freePlayTransactionDoc);
                 }
+                if ($txType === 'deposit' && $diff > 0 && $transactionId !== '') {
+                    $referralBonusAward = $this->grantReferralBonusForFirstCompletedDeposit(
+                        $lockedUser,
+                        $transactionId,
+                        $diff,
+                        $actor
+                    );
+                }
                 $this->db->commit();
                 $pendingBalance = $this->num($lockedUser['pendingBalance'] ?? 0);
             } catch (Throwable $txErr) {
@@ -7589,6 +7632,9 @@ final class AdminCoreController
                     'maxFpCredit' => $freePlayBonusCap,
                     'transactionId' => $freePlayTransactionId !== '' ? $freePlayTransactionId : null,
                 ];
+            }
+            if (is_array($referralBonusAward) && !empty($referralBonusAward['granted'])) {
+                $resp['referralBonus'] = $referralBonusAward;
             }
             Response::json($resp);
         } catch (Throwable $e) {
@@ -9132,6 +9178,120 @@ final class AdminCoreController
             'percent' => $percent,
             'cap' => $cap,
             'depositAmount' => $normalizedDeposit,
+        ];
+    }
+
+    private function countCompletedDepositTransactionsForUser(string $userId, ?string $excludeTransactionId = null): int
+    {
+        if ($userId === '' || preg_match('/^[a-f0-9]{24}$/i', $userId) !== 1) {
+            return 0;
+        }
+
+        $filter = [
+            'userId' => MongoRepository::id($userId),
+            'type' => 'deposit',
+            '$or' => [
+                ['status' => 'completed'],
+                ['status' => ''],
+                ['status' => ['$exists' => false]],
+            ],
+        ];
+        if ($excludeTransactionId !== null && preg_match('/^[a-f0-9]{24}$/i', $excludeTransactionId) === 1) {
+            $filter['_id'] = ['$ne' => MongoRepository::id($excludeTransactionId)];
+        }
+
+        return $this->db->countDocuments('transactions', $filter);
+    }
+
+    /**
+     * @param array<string, mixed> $referredUser
+     * @param array<string, mixed>|null $actor
+     * @return array{granted: bool, amount: float, referrerUserId: ?string, transactionId: ?string}
+     */
+    private function grantReferralBonusForFirstCompletedDeposit(
+        array $referredUser,
+        string $depositTransactionId,
+        float $depositAmount,
+        ?array $actor = null,
+        mixed $now = null
+    ): array {
+        $referredUserId = trim((string) ($referredUser['_id'] ?? ''));
+        $referrerUserId = trim((string) ($referredUser['referredByUserId'] ?? ''));
+        $normalizedDepositAmount = round(max(0.0, $depositAmount), 2);
+        if (
+            $referredUserId === ''
+            || preg_match('/^[a-f0-9]{24}$/i', $referredUserId) !== 1
+            || $referrerUserId === ''
+            || preg_match('/^[a-f0-9]{24}$/i', $referrerUserId) !== 1
+            || preg_match('/^[a-f0-9]{24}$/i', $depositTransactionId) !== 1
+            || $normalizedDepositAmount <= 0
+        ) {
+            return ['granted' => false, 'amount' => 0.0, 'referrerUserId' => null, 'transactionId' => null];
+        }
+
+        if ($this->countCompletedDepositTransactionsForUser($referredUserId, $depositTransactionId) > 0) {
+            return ['granted' => false, 'amount' => 0.0, 'referrerUserId' => $referrerUserId, 'transactionId' => null];
+        }
+
+        $referrer = $this->db->findOneForUpdate('users', ['_id' => MongoRepository::id($referrerUserId)]);
+        if (!$this->isPlayerLikeUserDocument($referrer) || (string) ($referrer['status'] ?? 'active') !== 'active') {
+            return ['granted' => false, 'amount' => 0.0, 'referrerUserId' => $referrerUserId, 'transactionId' => null];
+        }
+
+        $awardTimestamp = $now ?? MongoRepository::nowUtc();
+        $referralBonusAmount = 200.0;
+        $freeplayBefore = $this->num($referrer['freeplayBalance'] ?? 0);
+        $freeplayAfter = round($freeplayBefore + $referralBonusAmount, 2);
+
+        $this->db->updateOne('users', ['_id' => MongoRepository::id($referrerUserId)], [
+            'freeplayBalance' => $freeplayAfter,
+            'updatedAt' => $awardTimestamp,
+        ]);
+
+        $referralTransactionId = $this->db->insertOne('transactions', [
+            'userId' => MongoRepository::id($referrerUserId),
+            'agentId' => isset($referrer['agentId']) && preg_match('/^[a-f0-9]{24}$/i', (string) $referrer['agentId']) === 1
+                ? MongoRepository::id((string) $referrer['agentId'])
+                : null,
+            'adminId' => isset($actor['_id']) && preg_match('/^[a-f0-9]{24}$/i', (string) $actor['_id']) === 1
+                ? MongoRepository::id((string) $actor['_id'])
+                : null,
+            'amount' => $referralBonusAmount,
+            'type' => 'fp_deposit',
+            'status' => 'completed',
+            'isFreeplay' => true,
+            'balanceBefore' => $freeplayBefore,
+            'balanceAfter' => $freeplayAfter,
+            'referenceType' => 'ReferralBonus',
+            'referenceId' => MongoRepository::id($depositTransactionId),
+            'reason' => 'REFERRAL_FREEPLAY_BONUS',
+            'description' => 'Referral bonus from ' . (string) ($referredUser['username'] ?? 'user') . ' first deposit',
+            'metadata' => [
+                'depositAmount' => $normalizedDepositAmount,
+                'sourceTransactionId' => $depositTransactionId,
+                'sourceDepositTransactionId' => $depositTransactionId,
+                'referredUserId' => $referredUserId,
+                'referredUsername' => (string) ($referredUser['username'] ?? ''),
+                'trigger' => 'first_completed_deposit',
+            ],
+            'createdAt' => $awardTimestamp,
+            'updatedAt' => $awardTimestamp,
+        ]);
+
+        $this->db->updateOne('users', ['_id' => MongoRepository::id($referredUserId)], [
+            'referralBonusGranted' => true,
+            'referralBonusGrantedAt' => $awardTimestamp,
+            'referralQualifiedDepositAt' => $awardTimestamp,
+            'referralBonusAmount' => $referralBonusAmount,
+            'referralBonusSourceDepositId' => $depositTransactionId,
+            'updatedAt' => $awardTimestamp,
+        ]);
+
+        return [
+            'granted' => true,
+            'amount' => $referralBonusAmount,
+            'referrerUserId' => $referrerUserId,
+            'transactionId' => $referralTransactionId,
         ];
     }
 

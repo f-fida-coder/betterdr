@@ -204,7 +204,7 @@ All we ask for is communication when it comes to payouts so  we can get everyone
 We kick back 20% freeplay of all losses if you pay ON TIME and in FULL and 30% if you pay in CASH. If you are a hassle to collect from and don't respond or don't pay on time or in full then you will be shown the same reciprocation when it comes to payouts.
 
 REFFERALS
-$200 freeplay bonuses for any ACTIVE  and TRUSTWORTHY referrals. YOU are responsible for your referrals debt if they DO NOT PAY and vise versa. In order for you to get your free play bonus your refferal must go through one settle up of $200.
+$200 freeplay bonuses for any ACTIVE and TRUSTWORTHY referrals. YOU are responsible for your referrals debt if they DO NOT PAY and vice versa. Once your referral makes their first deposit, your $200 freeplay bonus is added automatically.
 
 RULES
 NO BOTS OR SHARP PLAY. We have IT monitoring to make sure there is no cheating. If we find out you are using a VPN and there are multiple people using your IP address or someone is logging into the same account, or you are using a system to place bets for you, you will be automatically kicked off and we reserve the right to not pay. No excuses. We've heard them all so don't waste your time.
@@ -1806,6 +1806,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
         applyDepositFreeplayBonus: selectedTxType.value === 'deposit' ? newTxApplyFreeplayBonus : undefined
       }, token);
       const freePlayBonusAmount = toMoneyNumber(result?.freeplayBonus?.amount, 0);
+      const referralBonusAmount = toMoneyNumber(result?.referralBonus?.amount, 0);
       setCustomer((prev) => {
         if (!prev) return prev;
         const serverBalance = toMoneyNumber(result?.user?.balance, NaN);
@@ -1830,11 +1831,14 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
           lifetimePlusMinus: nextLifetime
         };
       });
+      const successParts = ['Transaction saved and balance updated.'];
       if (freePlayBonusAmount > 0) {
-        setTxSuccess(`Transaction saved and balance updated. Auto free play bonus added: ${formatCurrency(freePlayBonusAmount)}.`);
-      } else {
-        setTxSuccess('Transaction saved and balance updated.');
+        successParts.push(`Auto free play bonus added: ${formatCurrency(freePlayBonusAmount)}.`);
       }
+      if (referralBonusAmount > 0) {
+        successParts.push(`Referral bonus granted: ${formatCurrency(referralBonusAmount)}.`);
+      }
+      setTxSuccess(successParts.join(' '));
       setTxError('');
       setShowNewTxModal(false);
       setShowTxConfirm(false);

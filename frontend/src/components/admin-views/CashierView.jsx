@@ -289,6 +289,7 @@ function CashierView() {
       let reason = 'CASHIER_CREDIT_ADJUSTMENT';
       let txType = 'adjustment';
       let freePlayBonusAmount = 0;
+      let referralBonusAmount = 0;
 
       if (entry.type === 'fp_deposit') {
         const freeplayResult = await updateUserFreeplay(selectedUserId, {
@@ -339,6 +340,7 @@ function CashierView() {
           nextFreeplay = serverFreeplay;
         }
         freePlayBonusAmount = Number(creditResult?.freeplayBonus?.amount || 0);
+        referralBonusAmount = Number(creditResult?.referralBonus?.amount || 0);
       }
 
       setUsers((prev) => prev.map((item) => {
@@ -391,11 +393,14 @@ function CashierView() {
         error: ''
       }), isAgentMode);
 
+      const successParts = [`Transaction applied for ${user.username}.`];
       if (freePlayBonusAmount > 0) {
-        setSuccess(`Transaction applied for ${user.username}. Auto free play bonus added: ${formatAmount(freePlayBonusAmount)}.`);
-      } else {
-        setSuccess(`Transaction applied for ${user.username}.`);
+        successParts.push(`Auto free play bonus added: ${formatAmount(freePlayBonusAmount)}.`);
       }
+      if (referralBonusAmount > 0) {
+        successParts.push(`Referral bonus granted: ${formatAmount(referralBonusAmount)}.`);
+      }
+      setSuccess(successParts.join(' '));
     } catch (err) {
       updateEntryById(entry.id, (e) => ({ ...e, busy: false, error: err.message || 'Failed to apply transaction.' }), isAgentMode);
     } finally {
