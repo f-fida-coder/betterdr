@@ -5250,16 +5250,22 @@ final class AdminCoreController
                     Response::json(['message' => 'Username or Phone number already exists in the system'], 409);
                     return;
                 }
-                // Reassign the existing agent under the resolved parent
+                // Reassign the existing agent under the resolved parent and update role if changed
                 $existingId = (string) $existing['_id'];
+                $updateFields = [
+                    'createdBy'      => $createdById,
+                    'createdByModel' => $createdByModel,
+                    'updatedAt'      => MongoRepository::nowUtc(),
+                ];
+                // Update role if the requested role differs (e.g. agent → master_agent)
+                if ($existingRole !== $agentRole) {
+                    $updateFields['role'] = $agentRole;
+                }
                 $this->db->updateOne('agents', ['_id' => MongoRepository::id($existingId)], [
-                    '$set' => [
-                        'createdBy'      => $createdById,
-                        'createdByModel' => $createdByModel,
-                        'updatedAt'      => MongoRepository::nowUtc(),
-                    ],
+                    '$set' => $updateFields,
                 ]);
-                if ($existingRole === 'master_agent') {
+                $finalRole = $updateFields['role'] ?? $existingRole;
+                if ($finalRole === 'master_agent') {
                     $updated = $this->db->findOne('agents', ['_id' => MongoRepository::id($existingId)]);
                     if ($updated !== null) {
                         $this->syncMasterAgentCollection($updated);
@@ -5273,7 +5279,7 @@ final class AdminCoreController
                         'username'    => (string) ($existing['username'] ?? ''),
                         'phoneNumber' => (string) ($existing['phoneNumber'] ?? ''),
                         'fullName'    => (string) ($existing['fullName'] ?? ''),
-                        'role'        => $existingRole,
+                        'role'        => $finalRole,
                         'status'      => (string) ($existing['status'] ?? 'active'),
                         'createdAt'   => gmdate(DATE_ATOM),
                     ],

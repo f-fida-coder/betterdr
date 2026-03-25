@@ -746,6 +746,8 @@ final class AgentController
                 $resolvedParentAgentId = $parentAgentId;
             }
 
+            $requestedRole = ((string) ($body['role'] ?? '') === 'master_agent') ? 'master_agent' : 'agent';
+
             $existing = $this->findExistingAgentByIdentity($username, $phoneNumber);
             if ($existing !== null) {
                 $existingRole = (string) ($existing['role'] ?? '');
@@ -753,16 +755,21 @@ final class AgentController
                     Response::json(['message' => 'Username or Phone number already exists in the system'], 409);
                     return;
                 }
-                // Reassign the existing agent under this master agent
+                // Reassign the existing agent under this master agent and update role if changed
                 $existingId = (string) $existing['_id'];
+                $updateFields = [
+                    'createdBy'      => MongoRepository::id($resolvedParentAgentId),
+                    'createdByModel' => 'Agent',
+                    'updatedAt'      => MongoRepository::nowUtc(),
+                ];
+                if ($existingRole !== $requestedRole) {
+                    $updateFields['role'] = $requestedRole;
+                }
                 $this->db->updateOne('agents', ['_id' => MongoRepository::id($existingId)], [
-                    '$set' => [
-                        'createdBy'      => MongoRepository::id($resolvedParentAgentId),
-                        'createdByModel' => 'Agent',
-                        'updatedAt'      => MongoRepository::nowUtc(),
-                    ],
+                    '$set' => $updateFields,
                 ]);
-                if ($existingRole === 'master_agent') {
+                $finalRole = $updateFields['role'] ?? $existingRole;
+                if ($finalRole === 'master_agent') {
                     $updated = $this->db->findOne('agents', ['_id' => MongoRepository::id($existingId)]);
                     if ($updated !== null) {
                         $this->syncMasterAgentCollection($updated);
@@ -776,7 +783,7 @@ final class AgentController
                         'username'    => (string) ($existing['username'] ?? ''),
                         'phoneNumber' => (string) ($existing['phoneNumber'] ?? ''),
                         'fullName'    => (string) ($existing['fullName'] ?? ''),
-                        'role'        => $existingRole,
+                        'role'        => $finalRole,
                         'status'      => (string) ($existing['status'] ?? 'active'),
                         'createdAt'   => gmdate(DATE_ATOM),
                     ],
@@ -784,7 +791,7 @@ final class AgentController
                 return;
             }
 
-            $role = ((string) ($body['role'] ?? '') === 'master_agent') ? 'master_agent' : 'agent';
+            $role = $requestedRole;
             $fullName = strtoupper(trim((string) ($body['fullName'] ?? $username)));
 
             // Commission fields (optional, validated 0-100)
