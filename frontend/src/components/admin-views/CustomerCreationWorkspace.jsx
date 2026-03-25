@@ -1512,7 +1512,7 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
                             onChange={(e) => setNewCustomer((prev) => ({ ...prev, grantStartingFreeplay: e.target.checked }))}
                           />
                           <span className="player-freeplay-toggle-copy">
-                            <span className="player-freeplay-toggle-title">$200 new player freeplay bonus</span>
+                            <span className="player-freeplay-toggle-title">$200 new player freeplay bons</span>
                           </span>
                         </label>
                       </div>
