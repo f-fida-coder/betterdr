@@ -461,6 +461,9 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
   const [commissionSaveSuccess, setCommissionSaveSuccess] = useState('');
   const [agentPercentDraft, setAgentPercentDraft] = useState('');    // editable draft value
   const [playerRateDraft, setPlayerRateDraft] = useState('');        // editable draft value
+  const [hiringAgentPercentDraft, setHiringAgentPercentDraft] = useState('');
+  const [subAgentPercentDraft, setSubAgentPercentDraft] = useState('');
+  const [extraSubAgentsDraft, setExtraSubAgentsDraft] = useState([]);
   const [calcAmount, setCalcAmount] = useState('');                   // calculator input
   const [calcResult, setCalcResult] = useState(null);                 // calculateCommission result
   const [calcLoading, setCalcLoading] = useState(false);
@@ -539,6 +542,9 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
         if (userIsAgent) {
           setAgentPercentDraft(user?.agentPercent != null ? String(user.agentPercent) : '');
           setPlayerRateDraft(user?.playerRate != null ? String(user.playerRate) : '');
+          setHiringAgentPercentDraft(user?.hiringAgentPercent != null ? String(user.hiringAgentPercent) : '');
+          setSubAgentPercentDraft(user?.subAgentPercent != null ? String(user.subAgentPercent) : '');
+          setExtraSubAgentsDraft(Array.isArray(user?.extraSubAgents) ? user.extraSubAgents.map((sa, i) => ({ id: i, name: sa.name || '', percent: sa.percent != null ? String(sa.percent) : '' })) : []);
         }
         setForm({
           password: '',
@@ -659,11 +665,19 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
       const payload = {};
       if (agentPercentDraft !== '') payload.agentPercent = pct;
       if (playerRateDraft !== '') payload.playerRate = rate;
+      if (hiringAgentPercentDraft !== '') payload.hiringAgentPercent = parseFloat(hiringAgentPercentDraft);
+      if (subAgentPercentDraft !== '') payload.subAgentPercent = parseFloat(subAgentPercentDraft);
+      payload.extraSubAgents = extraSubAgentsDraft
+        .filter((sa) => sa.name.trim() !== '' || sa.percent !== '')
+        .map((sa) => ({ name: sa.name.trim(), percent: parseFloat(sa.percent) || 0 }));
       await updateAgent(userId, payload, token);
       setCustomer((prev) => ({
         ...prev,
         agentPercent: agentPercentDraft !== '' ? pct : prev.agentPercent,
         playerRate: playerRateDraft !== '' ? rate : prev.playerRate,
+        hiringAgentPercent: hiringAgentPercentDraft !== '' ? parseFloat(hiringAgentPercentDraft) : prev.hiringAgentPercent,
+        subAgentPercent: subAgentPercentDraft !== '' ? parseFloat(subAgentPercentDraft) : prev.subAgentPercent,
+        extraSubAgents: payload.extraSubAgents,
       }));
       setCommissionSaveSuccess('Saved successfully');
       // Reload chain to reflect new values
@@ -2114,21 +2128,47 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
       {activeSection === 'commission' && (
         <div className="commission-section">
 
-          {/* ── Edit Agent % / Player Rate ─────────────────────────── */}
+          {/* ── Edit Commission Split ─────────────────────────── */}
           <div className="commission-edit-card">
-            <h4 className="commission-card-title">Edit Commission Fields</h4>
-            <div className="commission-edit-row">
+            <h4 className="commission-card-title">Commission Split</h4>
+            <div className="commission-edit-row" style={{ flexWrap: 'wrap', gap: 12 }}>
               <div className="commission-edit-field">
-                <label className="commission-field-label">Agent %</label>
+                <label className="commission-field-label">Agent %<br /><span style={{ fontWeight: 400, fontSize: 11, color: '#64748b' }}>{String(customer?.username || '').toUpperCase()}</span></label>
                 <input
                   type="number"
                   min="0"
                   max="100"
                   step="0.01"
                   className="commission-input"
-                  placeholder="e.g. 50"
+                  placeholder="e.g. 90"
                   value={agentPercentDraft}
                   onChange={(e) => setAgentPercentDraft(e.target.value)}
+                />
+              </div>
+              <div className="commission-edit-field">
+                <label className="commission-field-label">Hiring Agent %<br /><span style={{ fontWeight: 400, fontSize: 11, color: '#64748b' }}>{String(customer?.createdByUsername || customer?.createdBy?.username || '').toUpperCase() || 'PARENT'}</span></label>
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.01"
+                  className="commission-input"
+                  placeholder="e.g. 5"
+                  value={hiringAgentPercentDraft}
+                  onChange={(e) => setHiringAgentPercentDraft(e.target.value)}
+                />
+              </div>
+              <div className="commission-edit-field">
+                <label className="commission-field-label">Sub Agent %<br /><span style={{ fontWeight: 400, fontSize: 11, color: '#64748b' }}>ADMIN</span></label>
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.01"
+                  className="commission-input"
+                  placeholder="e.g. 5"
+                  value={subAgentPercentDraft}
+                  onChange={(e) => setSubAgentPercentDraft(e.target.value)}
                 />
               </div>
               <div className="commission-edit-field">
@@ -2146,6 +2186,79 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
                   />
                 </div>
               </div>
+            </div>
+
+            {/* Extra sub agents */}
+            {extraSubAgentsDraft.map((sa, idx) => (
+              <div key={sa.id} style={{ display: 'flex', gap: 12, alignItems: 'flex-end', marginTop: 10 }}>
+                <div className="commission-edit-field" style={{ flex: '1 1 200px' }}>
+                  <label className="commission-field-label">Sub Agent {idx + 1} Name</label>
+                  <input
+                    type="text"
+                    className="commission-input"
+                    placeholder="Username"
+                    value={sa.name}
+                    onChange={(e) => {
+                      const updated = [...extraSubAgentsDraft];
+                      updated[idx] = { ...updated[idx], name: e.target.value };
+                      setExtraSubAgentsDraft(updated);
+                    }}
+                  />
+                </div>
+                <div className="commission-edit-field" style={{ flex: '0 0 100px' }}>
+                  <label className="commission-field-label">%</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.01"
+                    className="commission-input"
+                    placeholder="%"
+                    value={sa.percent}
+                    onChange={(e) => {
+                      const updated = [...extraSubAgentsDraft];
+                      updated[idx] = { ...updated[idx], percent: e.target.value };
+                      setExtraSubAgentsDraft(updated);
+                    }}
+                  />
+                </div>
+                <button
+                  type="button"
+                  style={{ padding: '6px 12px', fontSize: 12, background: '#ef4444', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', marginBottom: 4 }}
+                  onClick={() => setExtraSubAgentsDraft((prev) => prev.filter((_, i) => i !== idx))}
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+
+            {/* Total & add sub agent */}
+            {(() => {
+              const agentPct = parseFloat(agentPercentDraft) || 0;
+              const hiringPct = parseFloat(hiringAgentPercentDraft) || 0;
+              const subPct = parseFloat(subAgentPercentDraft) || 0;
+              const extraPcts = extraSubAgentsDraft.reduce((sum, sa) => sum + (parseFloat(sa.percent) || 0), 0);
+              const totalPct = agentPct + hiringPct + subPct + extraPcts;
+              const remaining = 100 - totalPct;
+              return (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 12, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: totalPct === 100 ? '#16a34a' : totalPct > 100 ? '#ef4444' : '#f59e0b' }}>
+                    Total: {totalPct.toFixed(2)}% {totalPct === 100 ? '✓' : totalPct > 100 ? '(over 100%)' : `(${remaining.toFixed(2)}% remaining)`}
+                  </span>
+                  {totalPct < 100 && (
+                    <button
+                      type="button"
+                      style={{ padding: '5px 14px', fontSize: 12, background: '#0ea5e9', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}
+                      onClick={() => setExtraSubAgentsDraft((prev) => [...prev, { id: Date.now(), name: '', percent: '' }])}
+                    >
+                      + Add Sub Agent {extraSubAgentsDraft.length + 1}
+                    </button>
+                  )}
+                </div>
+              );
+            })()}
+
+            <div style={{ marginTop: 12 }}>
               <button
                 className="btn btn-save"
                 onClick={handleSaveCommission}

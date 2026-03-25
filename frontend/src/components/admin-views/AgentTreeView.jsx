@@ -230,7 +230,8 @@ function AgentTreeView({
                             type="text"
                             placeholder="Search admin, master, or agent..."
                             value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
+                            style={{ textTransform: 'uppercase' }}
+                            onChange={(e) => setSearchQuery(e.target.value.toUpperCase())}
                         />
                     </div>
                 </div>

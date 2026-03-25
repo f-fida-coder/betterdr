@@ -461,9 +461,14 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
     defaultCreditLimit: '1000',
     defaultSettleLimit: '200',
     agentPrefix: '',
-    parentAgentId: ''
+    parentAgentId: '',
+    agentPercent: '',
+    playerRate: ''
   });
   const [newApps, setNewApps] = useState({ venmo: '', cashapp: '', applePay: '', zelle: '', paypal: '', btc: '', other: '' });
+  const [hiringAgentPercent, setHiringAgentPercent] = useState('');
+  const [subAgentPercent, setSubAgentPercent] = useState('');
+  const [extraSubAgents, setExtraSubAgents] = useState([]);
   const [creationType, setCreationType] = useState(initialType || 'player');
   const [currentRole, setCurrentRole] = useState('admin');
   const [viewOnly, setViewOnly] = useState(false);
@@ -647,6 +652,24 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
         payload.parentAgentId = payload.agentId;
       }
 
+      // Include commission split fields for agent/super_agent creation
+      if (creationType === 'agent' || creationType === 'super_agent') {
+        if (payload.agentPercent !== '') payload.agentPercent = parseFloat(payload.agentPercent);
+        else delete payload.agentPercent;
+        if (payload.playerRate !== '') payload.playerRate = parseFloat(payload.playerRate);
+        else delete payload.playerRate;
+        if (hiringAgentPercent !== '') payload.hiringAgentPercent = parseFloat(hiringAgentPercent);
+        if (subAgentPercent !== '') payload.subAgentPercent = parseFloat(subAgentPercent);
+        if (extraSubAgents.length > 0) {
+          payload.extraSubAgents = extraSubAgents
+            .filter((sa) => sa.name.trim() !== '' || sa.percent !== '')
+            .map((sa) => ({ name: sa.name.trim(), percent: parseFloat(sa.percent) || 0 }));
+        }
+      } else {
+        delete payload.agentPercent;
+        delete payload.playerRate;
+      }
+
       let result = null;
       if (creationType === 'player') {
         if (currentRole === 'agent' || currentRole === 'super_agent' || currentRole === 'master_agent') {
@@ -695,12 +718,17 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
         defaultCreditLimit: '',
         defaultSettleLimit: '',
         agentPrefix: '',
-        parentAgentId: ''
+        parentAgentId: '',
+        agentPercent: '',
+        playerRate: ''
       };
 
       setNewCustomer(cleanState);
       setCreationType(createdType);
       setAgentSearchQuery('');
+      setHiringAgentPercent('');
+      setSubAgentPercent('');
+      setExtraSubAgents([]);
       setReferralSearchOpen(false);
       setImportFile(null);
       setSelectedImportFileName('');
@@ -923,6 +951,10 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
   const handleCreationTypeChange = async (type) => {
     setCreationType(type);
     setAgentSearchQuery('');
+    setHiringAgentPercent('');
+    setSubAgentPercent('');
+    setExtraSubAgents([]);
+    setNewCustomer((prev) => ({ ...prev, agentPercent: '', playerRate: '' }));
     const token = localStorage.getItem('token') || sessionStorage.getItem('token');
     if (!token) return;
 
@@ -1512,7 +1544,7 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
                             onChange={(e) => setNewCustomer((prev) => ({ ...prev, grantStartingFreeplay: e.target.checked }))}
                           />
                           <span className="player-freeplay-toggle-copy">
-                            <span className="player-freeplay-toggle-title">$200 new player freeplay bons</span>
+                            <span className="player-freeplay-toggle-title">$200 new player freeplay bonus</span>
                           </span>
                         </label>
                       </div>
@@ -1557,6 +1589,138 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
                   </div>
                 </div>
               )}
+
+              {(creationType === 'agent' || creationType === 'super_agent') && (() => {
+                const agentPct = parseFloat(newCustomer.agentPercent) || 0;
+                const hiringPct = parseFloat(hiringAgentPercent) || 0;
+                const subPct = parseFloat(subAgentPercent) || 0;
+                const extraPcts = extraSubAgents.reduce((sum, sa) => sum + (parseFloat(sa.percent) || 0), 0);
+                const totalPct = agentPct + hiringPct + subPct + extraPcts;
+                const remaining = 100 - totalPct;
+
+                const hiringAgentName = (() => {
+                  const selId = String(newCustomer.agentId || '').trim();
+                  if (selId && selectedAssignmentNode) return String(selectedAssignmentNode.username || '').toUpperCase();
+                  return String(adminUsername || '').toUpperCase() || 'HIRING AGENT';
+                })();
+
+                const adminName = (() => {
+                  if (!assignmentTreeRoot) return 'ADMIN';
+                  return String(assignmentTreeRoot.username || '').toUpperCase() || 'ADMIN';
+                })();
+
+                return (
+                  <div className="customer-create-row" style={{ flexDirection: 'column', gap: 12 }}>
+                    <h4 style={{ margin: '8px 0 4px', fontSize: 13, fontWeight: 700, color: '#334155' }}>Commission Split</h4>
+
+                    <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                      <div className="filter-group" style={{ flex: '1 1 140px' }}>
+                        <label>Agent %<br /><span style={{ fontWeight: 400, fontSize: 11, color: '#64748b' }}>{String(newCustomer.username || '').toUpperCase() || 'NEW AGENT'}</span></label>
+                        <input
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="0.01"
+                          placeholder="e.g. 90"
+                          value={newCustomer.agentPercent}
+                          onChange={(e) => setNewCustomer((prev) => ({ ...prev, agentPercent: e.target.value }))}
+                        />
+                      </div>
+                      <div className="filter-group" style={{ flex: '1 1 140px' }}>
+                        <label>Hiring Agent %<br /><span style={{ fontWeight: 400, fontSize: 11, color: '#64748b' }}>{hiringAgentName}</span></label>
+                        <input
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="0.01"
+                          placeholder="e.g. 5"
+                          value={hiringAgentPercent}
+                          onChange={(e) => setHiringAgentPercent(e.target.value)}
+                        />
+                      </div>
+                      <div className="filter-group" style={{ flex: '1 1 140px' }}>
+                        <label>Sub Agent %<br /><span style={{ fontWeight: 400, fontSize: 11, color: '#64748b' }}>{adminName}</span></label>
+                        <input
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="0.01"
+                          placeholder="e.g. 5"
+                          value={subAgentPercent}
+                          onChange={(e) => setSubAgentPercent(e.target.value)}
+                        />
+                      </div>
+                      <div className="filter-group" style={{ flex: '1 1 140px' }}>
+                        <label>Player Rate ($)</label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          placeholder="e.g. 25"
+                          value={newCustomer.playerRate}
+                          onChange={(e) => setNewCustomer((prev) => ({ ...prev, playerRate: e.target.value }))}
+                        />
+                      </div>
+                    </div>
+
+                    {extraSubAgents.map((sa, idx) => (
+                      <div key={sa.id} style={{ display: 'flex', gap: 12, alignItems: 'flex-end' }}>
+                        <div className="filter-group" style={{ flex: '1 1 200px' }}>
+                          <label>Sub Agent {idx + 1} Name</label>
+                          <input
+                            type="text"
+                            placeholder="Username"
+                            value={sa.name}
+                            onChange={(e) => {
+                              const updated = [...extraSubAgents];
+                              updated[idx] = { ...updated[idx], name: e.target.value };
+                              setExtraSubAgents(updated);
+                            }}
+                          />
+                        </div>
+                        <div className="filter-group" style={{ flex: '1 1 120px' }}>
+                          <label>Sub Agent {idx + 1} %</label>
+                          <input
+                            type="number"
+                            min="0"
+                            max="100"
+                            step="0.01"
+                            placeholder="%"
+                            value={sa.percent}
+                            onChange={(e) => {
+                              const updated = [...extraSubAgents];
+                              updated[idx] = { ...updated[idx], percent: e.target.value };
+                              setExtraSubAgents(updated);
+                            }}
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          style={{ padding: '6px 12px', fontSize: 12, background: '#ef4444', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', marginBottom: 4 }}
+                          onClick={() => setExtraSubAgents((prev) => prev.filter((_, i) => i !== idx))}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ))}
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: totalPct === 100 ? '#16a34a' : totalPct > 100 ? '#ef4444' : '#f59e0b' }}>
+                        Total: {totalPct.toFixed(2)}% {totalPct === 100 ? '✓' : totalPct > 100 ? '(over 100%)' : `(${remaining.toFixed(2)}% remaining)`}
+                      </span>
+                      {totalPct < 100 && (
+                        <button
+                          type="button"
+                          style={{ padding: '5px 14px', fontSize: 12, background: '#0ea5e9', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}
+                          onClick={() => setExtraSubAgents((prev) => [...prev, { id: Date.now(), name: '', percent: '' }])}
+                        >
+                          + Add Sub Agent {extraSubAgents.length + 1}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
 
             </div>
 

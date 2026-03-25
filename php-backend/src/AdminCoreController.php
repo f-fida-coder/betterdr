@@ -5316,6 +5316,45 @@ final class AdminCoreController
                 'createdAt' => MongoRepository::nowUtc(),
                 'updatedAt' => MongoRepository::nowUtc(),
             ];
+
+            // Commission split fields
+            if (isset($body['agentPercent']) && is_numeric($body['agentPercent'])) {
+                $pct = (float) $body['agentPercent'];
+                if ($pct >= 0 && $pct <= 100) {
+                    $doc['agentPercent'] = round($pct, 4);
+                }
+            }
+            if (isset($body['playerRate']) && is_numeric($body['playerRate'])) {
+                $rate = (float) $body['playerRate'];
+                if ($rate >= 0) {
+                    $doc['playerRate'] = round($rate, 2);
+                }
+            }
+            if (isset($body['hiringAgentPercent']) && is_numeric($body['hiringAgentPercent'])) {
+                $hPct = (float) $body['hiringAgentPercent'];
+                if ($hPct >= 0 && $hPct <= 100) {
+                    $doc['hiringAgentPercent'] = round($hPct, 4);
+                }
+            }
+            if (isset($body['subAgentPercent']) && is_numeric($body['subAgentPercent'])) {
+                $sPct = (float) $body['subAgentPercent'];
+                if ($sPct >= 0 && $sPct <= 100) {
+                    $doc['subAgentPercent'] = round($sPct, 4);
+                }
+            }
+            if (isset($body['extraSubAgents']) && is_array($body['extraSubAgents'])) {
+                $extras = [];
+                foreach ($body['extraSubAgents'] as $sub) {
+                    $subName = trim((string) ($sub['name'] ?? ''));
+                    $subPct = is_numeric($sub['percent'] ?? null) ? round((float) $sub['percent'], 4) : 0;
+                    if ($subName !== '' || $subPct > 0) {
+                        $extras[] = ['name' => strtoupper($subName), 'percent' => $subPct];
+                    }
+                }
+                if (count($extras) > 0) {
+                    $doc['extraSubAgents'] = $extras;
+                }
+            }
             $id = $this->db->insertOne('agents', $doc);
             if ($agentRole === 'master_agent') {
                 $this->syncMasterAgentCollection(array_merge($doc, ['_id' => $id]));
@@ -5385,6 +5424,29 @@ final class AdminCoreController
                     return;
                 }
                 $updates['playerRate'] = round($rate, 2);
+            }
+            if (array_key_exists('hiringAgentPercent', $body) && is_numeric($body['hiringAgentPercent'])) {
+                $hPct = (float) $body['hiringAgentPercent'];
+                if ($hPct >= 0 && $hPct <= 100) {
+                    $updates['hiringAgentPercent'] = round($hPct, 4);
+                }
+            }
+            if (array_key_exists('subAgentPercent', $body) && is_numeric($body['subAgentPercent'])) {
+                $sPct = (float) $body['subAgentPercent'];
+                if ($sPct >= 0 && $sPct <= 100) {
+                    $updates['subAgentPercent'] = round($sPct, 4);
+                }
+            }
+            if (array_key_exists('extraSubAgents', $body) && is_array($body['extraSubAgents'])) {
+                $extras = [];
+                foreach ($body['extraSubAgents'] as $sub) {
+                    $subName = trim((string) ($sub['name'] ?? ''));
+                    $subPct = is_numeric($sub['percent'] ?? null) ? round((float) $sub['percent'], 4) : 0;
+                    if ($subName !== '' || $subPct > 0) {
+                        $extras[] = ['name' => strtoupper($subName), 'percent' => $subPct];
+                    }
+                }
+                $updates['extraSubAgents'] = $extras;
             }
 
             $balanceBefore = null;

@@ -425,8 +425,9 @@ function AdminHeader({
                 type="text"
                 placeholder="Search players & agents..."
                 value={headerSearchQuery}
+                style={{ textTransform: 'uppercase' }}
                 onChange={(e) => {
-                  const nextValue = e.target.value;
+                  const nextValue = e.target.value.toUpperCase();
                   setHeaderSearchQuery(nextValue);
                   setHeaderPlayerOpen(true);
                   if (nextValue.trim() === '') {
@@ -578,8 +579,9 @@ function AdminHeader({
               autoFocus
               placeholder="Search players & agents..."
               value={headerSearchQuery}
+              style={{ textTransform: 'uppercase' }}
               onChange={(e) => {
-                const nextValue = e.target.value;
+                const nextValue = e.target.value.toUpperCase();
                 setHeaderSearchQuery(nextValue);
                 if (nextValue.trim() === '') {
                   setSelectedSearchPlayer(null);
