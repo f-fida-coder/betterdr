@@ -513,7 +513,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
 
         const [detailData, agentsData] = await Promise.all([
           getUserStatistics(userId, token),
-          ['admin', 'super_agent', 'master_agent'].includes(role) ? getAgents(token) : Promise.resolve([])
+          ['admin', 'super_agent', 'master_agent', 'agent'].includes(role) ? getAgents(token) : Promise.resolve([])
         ]);
 
         const user = detailData?.user;

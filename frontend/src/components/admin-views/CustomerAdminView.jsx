@@ -152,12 +152,18 @@ function CustomerAdminView({ onViewChange }) {
         setViewOnly(Boolean(me?.viewOnly));
 
         if (resolvedRole === 'agent') {
-          const data = await getMyPlayers(token);
-          setCustomers(data || []);
+          const [playersData, agentsData] = await Promise.all([
+            getMyPlayers(token),
+            getAgents(token).catch(() => []),
+          ]);
+          setCustomers(playersData || []);
+          setAgents(agentsData || []);
         } else {
-          const data = await getUsersAdmin(token);
+          const [data, agentsData] = await Promise.all([
+            getUsersAdmin(token),
+            getAgents(token),
+          ]);
           setCustomers(data || []);
-          const agentsData = await getAgents(token);
           setAgents(agentsData || []);
         }
         setError('');

@@ -586,15 +586,13 @@ final class AdminCoreController
     private function getAgents(): void
     {
         try {
-            $actor = $this->protect(['admin', 'master_agent', 'super_agent']);
+            $actor = $this->protect(['admin', 'agent', 'master_agent', 'super_agent']);
             if ($actor === null) {
                 return;
             }
 
+            // All roles can see all agents globally for search purposes
             $query = [];
-            if (in_array((string) ($actor['role'] ?? ''), ['master_agent', 'super_agent'], true)) {
-                $query = ['createdBy' => MongoRepository::id((string) $actor['_id']), 'createdByModel' => 'Agent'];
-            }
 
             $agents = $this->db->findMany('agents', $query, ['sort' => ['createdAt' => -1]]);
 
