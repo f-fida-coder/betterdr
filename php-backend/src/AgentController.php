@@ -717,6 +717,8 @@ final class AgentController
             $username = trim((string) ($body['username'] ?? ''));
             $phoneNumber = trim((string) ($body['phoneNumber'] ?? ''));
             $password = strtoupper(trim((string) ($body['password'] ?? '')));
+            $firstName = trim((string) ($body['firstName'] ?? ''));
+            $lastName = trim((string) ($body['lastName'] ?? ''));
             $parentAgentId = trim((string) ($body['parentAgentId'] ?? $body['agentId'] ?? ''));
             $referredByUserId = trim((string) ($body['referredByUserId'] ?? ''));
             if ($username === '' || $phoneNumber === '' || $password === '') {
@@ -788,7 +790,11 @@ final class AgentController
             }
 
             $role = $requestedRole;
-            $fullName = strtoupper(trim((string) ($body['fullName'] ?? $username)));
+            $fullName = trim((string) ($body['fullName'] ?? ''));
+            if ($fullName === '' && ($firstName !== '' || $lastName !== '')) {
+                $fullName = trim($firstName . ' ' . $lastName);
+            }
+            $fullName = strtoupper($fullName !== '' ? $fullName : $username);
 
             // Commission fields (optional, validated 0-100)
             $agentPercent = null;
@@ -835,6 +841,8 @@ final class AgentController
                 'password' => $passwordFields['password'],
                 'passwordCaseInsensitiveHash' => $passwordFields['passwordCaseInsensitiveHash'],
                 'displayPassword' => $password,
+                'firstName' => strtoupper($firstName),
+                'lastName' => strtoupper($lastName),
                 'fullName' => $fullName,
                 'role' => $role,
                 'status' => 'active',

@@ -5311,7 +5311,12 @@ final class AdminCoreController
             $username = trim((string) ($body['username'] ?? ''));
             $phoneNumber = trim((string) ($body['phoneNumber'] ?? ''));
             $password = strtoupper(trim((string) ($body['password'] ?? '')));
+            $firstName = trim((string) ($body['firstName'] ?? ''));
+            $lastName = trim((string) ($body['lastName'] ?? ''));
             $fullName = trim((string) ($body['fullName'] ?? ''));
+            if ($fullName === '' && ($firstName !== '' || $lastName !== '')) {
+                $fullName = trim($firstName . ' ' . $lastName);
+            }
             $role = (string) ($body['role'] ?? '');
             $parentAgentId = trim((string) ($body['parentAgentId'] ?? $body['agentId'] ?? ''));
             $referredByUserId = trim((string) ($body['referredByUserId'] ?? ''));
@@ -5393,6 +5398,8 @@ final class AdminCoreController
                 'password' => $passwordFields['password'],
                 'passwordCaseInsensitiveHash' => $passwordFields['passwordCaseInsensitiveHash'],
                 'displayPassword' => $password,
+                'firstName' => strtoupper($firstName),
+                'lastName' => strtoupper($lastName),
                 'fullName' => strtoupper($fullName !== '' ? $fullName : $username),
                 'role' => $agentRole,
                 'status' => 'active',
