@@ -938,14 +938,20 @@ const CasinoView = () => {
                                 {JURASSIC_BETS.map((bet, idx) => {
                                     const belowMin = gameBetLimits?.effectiveMinBet != null && bet < gameBetLimits.effectiveMinBet;
                                     const aboveMax = gameBetLimits?.effectiveMaxBet != null && bet > gameBetLimits.effectiveMaxBet;
-                                    const isChipDisabled = belowMin || aboveMax;
+                                    const aboveBalance = gameDisplayBalance != null && bet > gameDisplayBalance;
+                                    const isChipDisabled = belowMin || aboveMax || aboveBalance;
+                                    const chipTitle = aboveBalance
+                                        ? `Insufficient balance ($${gameDisplayBalance})`
+                                        : belowMin
+                                            ? `Min bet: $${gameBetLimits?.effectiveMinBet ?? '?'}`
+                                            : undefined;
                                     return (
                                         <button
                                             key={idx}
                                             className={`game-bet-chip${activeBetId === idx ? ' active' : ''}${isChipDisabled ? ' unavailable' : ''}`}
                                             onClick={() => !isChipDisabled && handleSelectBet(idx)}
                                             disabled={isChipDisabled}
-                                            title={isChipDisabled ? `Min bet: $${gameBetLimits?.effectiveMinBet ?? '?'}` : undefined}
+                                            title={chipTitle}
                                         >
                                             ${bet >= 1000 ? `${bet / 1000}K` : bet}
                                         </button>

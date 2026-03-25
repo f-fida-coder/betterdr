@@ -122,7 +122,7 @@ final class CasinoController
         5 => 8,
     ];
     private const JURASSIC_RUN_ALLOWED_BETS = [1, 5, 10, 50, 100, 200, 400, 500, 1000, 2000, 5000];
-    private const JURASSIC_RUN_DEFAULT_BET_ID = 2;
+    private const JURASSIC_RUN_DEFAULT_BET_ID = 0;
     private const JURASSIC_RUN_DEFAULT_JACKPOT = 10000;
     private const JURASSIC_RUN_DISCLOSED_RTP = 95.0;
     private const JURASSIC_RUN_FIXED_PAYLINES = 10;
@@ -166,7 +166,7 @@ final class CasinoController
         ['provider' => 'internal', 'name' => 'Blackjack', 'slug' => 'blackjack', 'category' => 'table_games', 'minBet' => 1, 'maxBet' => 10000, 'themeColor' => '#0b5563', 'icon' => 'fa-solid fa-club', 'imageUrl' => '/games/blackjack/src/images/misc/table.png', 'tags' => ['table games', 'blackjack', 'in-house', 'live casino'], 'isFeatured' => true],
         ['provider' => 'internal', 'name' => 'Craps', 'slug' => 'craps', 'category' => 'table_games', 'minBet' => 1, 'maxBet' => 10000, 'themeColor' => '#0a4f3a', 'icon' => 'fa-solid fa-dice-six', 'imageUrl' => '/games/craps/sprites/board_table.jpg', 'tags' => ['table games', 'craps', 'in-house', 'live casino'], 'isFeatured' => true],
         ['provider' => 'internal', 'name' => 'Arabian Game', 'slug' => 'arabian', 'category' => 'slots', 'minBet' => 0.3, 'maxBet' => 30, 'themeColor' => '#7e22ce', 'icon' => 'fa-solid fa-scroll', 'imageUrl' => '/games/arabian/sprites/200x200.jpg', 'tags' => ['slots', 'arabian', 'in-house', 'server settled'], 'isFeatured' => true],
-        ['provider' => 'internal', 'name' => 'Jurassic Run', 'slug' => 'jurassic-run', 'category' => 'slots', 'minBet' => 10, 'maxBet' => 5000, 'rtp' => 95.0, 'volatility' => 'medium', 'themeColor' => '#166534', 'icon' => 'fa-solid fa-dragon', 'imageUrl' => '/games/jurassic-run/assets/images/background_middle.webp', 'tags' => ['slots', 'jurassic', 'in-house', 'server settled', 'progressive jackpot'], 'isFeatured' => true, 'metadata' => ['paylines' => 10, 'reels' => 5, 'rows' => 3, 'jackpotType' => 'progressive', 'jackpotContributionPercent' => 5, 'freeSpinAwards' => [3 => 2, 4 => 3, 5 => 4], 'rngVersion' => 'jurassic-slot-v1', 'fairness' => ['outcomeSource' => 'server_rng', 'spinIndependence' => true], 'features' => ['wild', 'free_spins', 'progressive_jackpot']]],
+        ['provider' => 'internal', 'name' => 'Jurassic Run', 'slug' => 'jurassic-run', 'category' => 'slots', 'minBet' => 1, 'maxBet' => 5000, 'rtp' => 95.0, 'volatility' => 'medium', 'themeColor' => '#166534', 'icon' => 'fa-solid fa-dragon', 'imageUrl' => '/games/jurassic-run/assets/images/background_middle.webp', 'tags' => ['slots', 'jurassic', 'in-house', 'server settled', 'progressive jackpot'], 'isFeatured' => true, 'metadata' => ['paylines' => 10, 'reels' => 5, 'rows' => 3, 'jackpotType' => 'progressive', 'jackpotContributionPercent' => 5, 'freeSpinAwards' => [3 => 2, 4 => 3, 5 => 4], 'rngVersion' => 'jurassic-slot-v1', 'fairness' => ['outcomeSource' => 'server_rng', 'spinIndependence' => true], 'features' => ['wild', 'free_spins', 'progressive_jackpot']]],
         ['provider' => 'internal', 'name' => '3-Card Poker', 'slug' => '3card-poker', 'category' => 'table_games', 'minBet' => 1, 'maxBet' => 300, 'themeColor' => '#1a3a5c', 'icon' => 'fa-solid fa-cards', 'imageUrl' => '/games/3-card-poker/sprites/200x200.jpg', 'tags' => ['table games', 'poker', '3-card poker', 'in-house'], 'isFeatured' => true],
         ['provider' => 'internal', 'name' => 'Jacks or Better', 'slug' => 'jacks-or-better', 'category' => 'video_poker', 'minBet' => 1, 'maxBet' => 100, 'themeColor' => '#be123c', 'icon' => 'fa-solid fa-cards'],
         ['provider' => 'internal', 'name' => 'Video Keno', 'slug' => 'video-keno', 'category' => 'specialty_games', 'minBet' => 1, 'maxBet' => 100, 'themeColor' => '#0ea5e9', 'icon' => 'fa-solid fa-table-cells-large'],
@@ -900,6 +900,18 @@ final class CasinoController
             $slug = (string) ($game['slug'] ?? ('game-' . ($idx + 1)));
             $existing = $this->db->findOne('casinogames', ['slug' => $slug]);
             if ($existing !== null) {
+                // Sync minBet/maxBet from defaults if they changed
+                $defaultMin = $this->safeNumber($game['minBet'] ?? null, 1);
+                $defaultMax = $this->safeNumber($game['maxBet'] ?? null, 100);
+                $existingMin = $this->safeNumber($existing['minBet'] ?? null, 1);
+                $existingMax = $this->safeNumber($existing['maxBet'] ?? null, 100);
+                if ($defaultMin !== $existingMin || $defaultMax !== $existingMax) {
+                    $this->db->updateOne('casinogames', ['slug' => $slug], [
+                        'minBet' => $defaultMin,
+                        'maxBet' => $defaultMax,
+                        'updatedAt' => $now,
+                    ]);
+                }
                 continue;
             }
 
@@ -3468,7 +3480,7 @@ final class CasinoController
                 $isFreeSpinRound = ($stateBefore['freeSpinsRemaining'] ?? 0) > 0;
                 $betId = $isFreeSpinRound && is_int($stateBefore['lockedBetId'] ?? null)
                     ? (int) $stateBefore['lockedBetId']
-                    : $this->resolveJurassicRunBetId($requestedBetId, $betLimits);
+                    : $requestedBetId;
                 $bet = $this->jurassicRunBetAmountForId($betId);
                 $lineBet = round($bet / self::JURASSIC_RUN_FIXED_PAYLINES);
                 $totalWager = $isFreeSpinRound ? 0.0 : $bet;
@@ -3485,7 +3497,8 @@ final class CasinoController
                         return;
                     }
 
-                    $this->assertUserWagerWithinLimits($lockedUser, $totalWager);
+                    // Jurassic Run uses its own fixed in-game chip ladder. Do not
+                    // apply sportsbook account min/max wager limits here.
                     $this->assertCasinoLossLimits($lockedUser, $totalWager);
                 }
 
@@ -3983,13 +3996,13 @@ final class CasinoController
      */
     private function buildJurassicRunBetLimits(array $lockedUser, float $gameMinBet, float $gameMaxBet): array
     {
-        $accountMinRaw = $this->safeNumber($lockedUser['minBet'] ?? null, null);
-        $accountMaxRaw = $this->safeNumber($lockedUser['maxBet'] ?? null, null);
-        $accountMinBet = ($accountMinRaw !== null && $accountMinRaw > 0) ? round($accountMinRaw) : null;
-        $accountMaxBet = ($accountMaxRaw !== null && $accountMaxRaw > 0) ? round($accountMaxRaw) : null;
+        // Account-level minBet/maxBet is for sportsbook — casino games use only
+        // the game-level limits configured in the casinogames collection.
+        $accountMinBet = null;
+        $accountMaxBet = null;
 
-        $effectiveMinBet = $accountMinBet !== null ? max($gameMinBet, $accountMinBet) : $gameMinBet;
-        $effectiveMaxBet = $accountMaxBet !== null ? min($gameMaxBet, $accountMaxBet) : $gameMaxBet;
+        $effectiveMinBet = $gameMinBet;
+        $effectiveMaxBet = $gameMaxBet;
         if ($effectiveMaxBet < $effectiveMinBet) {
             $effectiveMaxBet = $effectiveMinBet;
         }
@@ -8955,6 +8968,10 @@ final class CasinoController
 
     private function resolveGameBetLimits(string $slug, float $fallbackMin, float $fallbackMax): array
     {
+        if ($slug === self::JURASSIC_RUN_GAME_SLUG) {
+            return [1.0, 5000.0];
+        }
+        
         $game = $this->db->findOne('casinogames', ['slug' => $slug]);
         $min = $this->safeNumber($game['minBet'] ?? null, $fallbackMin);
         $max = $this->safeNumber($game['maxBet'] ?? null, $fallbackMax);

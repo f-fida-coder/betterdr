@@ -1165,9 +1165,6 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
     const plainText = plainLines.join('\n');
 
     const htmlLines = plainLines.map((line) => {
-      if (line === `Site: ${siteUrl}`) {
-        return `Site: <a href="${siteUrl}">${siteUrl}</a>`;
-      }
       return line === '' ? '<br>' : line;
     });
     const htmlText = `<div style="font-family:sans-serif;white-space:pre-wrap;">${htmlLines.join('<br>')}</div>`;
@@ -2023,7 +2020,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
           <div className="player-card-foot">
             <div className="details-domain">
               <span className="domain-label">Site</span>
-              <a href="https://bettorplays247.com" target="_blank" rel="noopener noreferrer" style={{ fontWeight: 700, color: 'inherit', textDecoration: 'underline' }}>bettorplays247.com</a>
+              <span style={{ fontWeight: 700 }}>bettorplays247.com</span>
             </div>
             <div className="top-actions">
               <button className="btn btn-copy-all" onClick={copyAllDetails}>Copy Details</button>

@@ -48,7 +48,7 @@
         paylines: 10,
         jackpot_contribution_percent: 5,
         allowed_bets: [1, 5, 10, 50, 100, 200, 400, 500, 1000, 2000, 5000],
-        bet_starts: 2,
+        bet_starts: 0,
         symbols: ['1', '2', '3', '4', '5', '6', '7', '8', 'FreeSpin', 'Wild', 'JP'],
         payout_multipliers: {
             sym_1: { c_3: 0.47, c_4: 0.94, c_5: 1.88 },
@@ -209,28 +209,20 @@
             requested = state.freeSpins > 0 && state.lockedBetId !== null ? state.lockedBetId : GAME_CONFIG.bet_starts;
         }
 
+        // During free spins the bet is locked — always honour that.
         if (state.freeSpins > 0 && state.lockedBetId !== null) {
             return state.lockedBetId;
         }
 
-        var allowedBetIds = getRuleAllowedBetIds();
-        if (allowedBetIds.length === 0) {
+        // Only enforce array-bounds. The parent UI already enforces
+        // min/max/balance limits on chip display, and the backend does
+        // final validation. The bridge must not silently re-map the
+        // player's chip selection to a different amount.
+        if (requested < 0 || requested >= GAME_CONFIG.allowed_bets.length) {
             return GAME_CONFIG.bet_starts;
         }
-        if (allowedBetIds.indexOf(requested) !== -1) {
-            return requested;
-        }
 
-        var nearest = allowedBetIds[0];
-        var bestDistance = Math.abs(nearest - requested);
-        for (var i = 1; i < allowedBetIds.length; i += 1) {
-            var distance = Math.abs(allowedBetIds[i] - requested);
-            if (distance < bestDistance) {
-                nearest = allowedBetIds[i];
-                bestDistance = distance;
-            }
-        }
-        return nearest;
+        return requested;
     }
 
     function getRuleAllowedBetIds() {
@@ -252,7 +244,11 @@
     }
 
     function getCurrentBet() {
-        return GAME_CONFIG.allowed_bets[normalizeBetId(state.betId)] || GAME_CONFIG.allowed_bets[0];
+        var id = state.betId;
+        if (id < 0 || id >= GAME_CONFIG.allowed_bets.length) {
+            id = GAME_CONFIG.bet_starts;
+        }
+        return GAME_CONFIG.allowed_bets[id] || GAME_CONFIG.allowed_bets[0];
     }
 
     function buildLoadPayload() {
@@ -329,8 +325,10 @@
 
         if (String(data.type || '') === 'parentSetBet') {
             var newBetId = parseInt(data.betId, 10);
-            if (isFinite(newBetId)) {
-                state.betId = normalizeBetId(newBetId);
+            if (isFinite(newBetId) && newBetId >= 0 && newBetId < GAME_CONFIG.allowed_bets.length) {
+                // Trust the parent's chip selection directly — the parent UI
+                // already enforces min/max/balance limits on chip display.
+                state.betId = newBetId;
             }
             if (typeof betUpdate === 'function') {
                 betUpdate(buildLoadPayload());

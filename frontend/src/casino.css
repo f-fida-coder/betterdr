@@ -1083,12 +1083,18 @@
     overflow-x: auto;
     flex: 1;
     pointer-events: all;
-    scrollbar-width: none;
-    -ms-overflow-style: none;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255,255,255,0.3) transparent;
+    -webkit-overflow-scrolling: touch;
+    flex-wrap: wrap;
 }
 
 .game-bet-chips::-webkit-scrollbar {
-    display: none;
+    height: 4px;
+}
+.game-bet-chips::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 2px;
 }
 
 .game-bet-chip {
