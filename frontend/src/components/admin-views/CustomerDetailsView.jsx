@@ -553,9 +553,11 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
           phoneNumber: normalizedUser.phoneNumber || '',
           minBet: normalizedUser.minBet,
           agentId: (
-            role === 'admin'
-              ? (normalizedUser.masterAgentId || normalizedUser.agentId?._id || normalizedUser.agentId || '')
-              : (normalizedUser.agentId?._id || normalizedUser.agentId || '')
+            userIsAgent
+              ? (normalizedUser.parentAgentId || normalizedUser.masterAgentId || '')
+              : role === 'admin'
+                ? (normalizedUser.masterAgentId || normalizedUser.agentId?._id || normalizedUser.agentId || '')
+                : (normalizedUser.agentId?._id || normalizedUser.agentId || '')
           ),
           status: (normalizedUser.status || 'active').toLowerCase(),
           creditLimit: normalizedUser.creditLimit,
@@ -1217,13 +1219,13 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
       const normalizedFirstName = normalizeIdentityName(form.firstName).trim();
       const normalizedLastName = normalizeIdentityName(form.lastName).trim();
       const normalizedPhoneNumber = formatUsPhone(form.phoneNumber).trim();
-      const policyPassword = generateIdentityPassword(
+      const policyPassword = isAgent ? '' : generateIdentityPassword(
         normalizedFirstName,
         normalizedLastName,
         normalizedPhoneNumber,
         customer?.username || ''
       );
-      if (!normalizedFirstName || !normalizedLastName || !normalizedPhoneNumber || !policyPassword) {
+      if (!isAgent && (!normalizedFirstName || !normalizedLastName || !normalizedPhoneNumber || !policyPassword)) {
         setError('First name, last name, and phone number are required to generate password.');
         return;
       }
@@ -1275,7 +1277,20 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
       }
 
       let result = null;
-      if (role === 'agent') {
+      if (isAgent) {
+        // For agents: update the agents collection with name + parent agent changes
+        const agentPayload = {
+          firstName: normalizedFirstName,
+          lastName: normalizedLastName,
+          fullName: `${normalizedFirstName} ${normalizedLastName}`.trim(),
+          phoneNumber: normalizedPhoneNumber,
+        };
+        if (form.agentId !== undefined) {
+          agentPayload.parentAgentId = form.agentId || '';
+        }
+        await updateAgent(userId, agentPayload, token);
+        result = {};
+      } else if (role === 'agent') {
         result = await updateUserByAgent(userId, payload, token);
       } else {
         result = await updateUserByAdmin(userId, payload, token);
@@ -1285,7 +1300,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
       setCustomer((prev) => ({
         ...prev,
         ...persistedPayload,
-        displayPassword: policyPassword || prev?.displayPassword || '',
+        displayPassword: isAgent ? (prev?.displayPassword || '') : (policyPassword || prev?.displayPassword || ''),
         settings: {
           ...(prev?.settings || {}),
           ...persistedPayload.settings
@@ -2789,10 +2804,15 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
           {['admin', 'super_agent', 'master_agent'].includes(role) ? (
             <select value={form.agentId} onChange={(e) => setField('agentId', e.target.value)}>
               <option value="">None</option>
-              {agents.map((a) => {
-                const id = a.id || a._id;
-                return <option key={id} value={id}>{a.username}</option>;
-              })}
+              {agents
+                .filter((a) => {
+                  const r = String(a.role || '').toLowerCase();
+                  return r === 'master_agent' || r === 'super_agent';
+                })
+                .map((a) => {
+                  const id = a.id || a._id;
+                  return <option key={id} value={id}>{a.username}</option>;
+                })}
             </select>
           ) : (
             <input value={customer.masterAgentUsername || customer.agentUsername || '—'} readOnly />

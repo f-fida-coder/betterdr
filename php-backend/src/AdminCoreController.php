@@ -5495,6 +5495,39 @@ final class AdminCoreController
             $body = Http::jsonBody();
             $updates = ['updatedAt' => MongoRepository::nowUtc()];
 
+            if (isset($body['firstName']) && trim((string) $body['firstName']) !== '') {
+                $updates['firstName'] = strtoupper(trim((string) $body['firstName']));
+            }
+            if (isset($body['lastName']) && trim((string) $body['lastName']) !== '') {
+                $updates['lastName'] = strtoupper(trim((string) $body['lastName']));
+            }
+            if (isset($body['fullName']) && trim((string) $body['fullName']) !== '') {
+                $updates['fullName'] = strtoupper(trim((string) $body['fullName']));
+            } elseif (isset($body['firstName']) || isset($body['lastName'])) {
+                $f = strtoupper(trim((string) ($body['firstName'] ?? ($agent['firstName'] ?? ''))));
+                $l = strtoupper(trim((string) ($body['lastName'] ?? ($agent['lastName'] ?? ''))));
+                $updates['fullName'] = trim($f . ' ' . $l);
+            }
+            // Allow reassigning agent to a different master agent
+            if (array_key_exists('parentAgentId', $body)) {
+                $parentId = trim((string) $body['parentAgentId']);
+                if ($parentId === '') {
+                    // Remove parent assignment
+                    $updates['createdBy'] = null;
+                    $updates['createdByModel'] = null;
+                } elseif (preg_match('/^[a-f0-9]{24}$/i', $parentId) === 1) {
+                    $parentAgent = $this->db->findOne('agents', [
+                        '_id' => MongoRepository::id($parentId),
+                        'role' => ['$in' => ['master_agent', 'super_agent']],
+                    ]);
+                    if ($parentAgent === null) {
+                        Response::json(['message' => 'Parent must be a Master Agent or Super Agent'], 400);
+                        return;
+                    }
+                    $updates['createdBy'] = MongoRepository::id($parentId);
+                    $updates['createdByModel'] = 'Agent';
+                }
+            }
             if (isset($body['phoneNumber']) && trim((string) $body['phoneNumber']) !== '') {
                 $updates['phoneNumber'] = trim((string) $body['phoneNumber']);
             }
@@ -7451,6 +7484,18 @@ final class AdminCoreController
             }
             if (isset($body['dashboardLayout']) && $body['dashboardLayout'] !== '') {
                 $updates['dashboardLayout'] = $body['dashboardLayout'];
+            }
+            // Allow admin to reassign player to a different agent
+            if (array_key_exists('agentId', $body)) {
+                $requestedAgentId = trim((string) $body['agentId']);
+                if ($requestedAgentId === '') {
+                    $updates['agentId'] = null;
+                } elseif (preg_match('/^[a-f0-9]{24}$/i', $requestedAgentId) === 1) {
+                    $targetAgent = $this->db->findOne('agents', ['_id' => MongoRepository::id($requestedAgentId)]);
+                    if ($targetAgent !== null) {
+                        $updates['agentId'] = MongoRepository::id($requestedAgentId);
+                    }
+                }
             }
 
             $balanceBefore = null;
