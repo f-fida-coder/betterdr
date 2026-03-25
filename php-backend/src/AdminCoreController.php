@@ -276,6 +276,10 @@ final class AdminCoreController
             $this->createAgent();
             return true;
         }
+        if ($method === 'POST' && $path === '/api/admin/fix-dth365-migration') {
+            $this->fixDth365Migration();
+            return true;
+        }
         if ($method === 'POST' && $path === '/api/admin/seed-workflow-hierarchy') {
             $this->seedWorkflowHierarchy();
             return true;
@@ -5209,6 +5213,92 @@ final class AdminCoreController
         }
     }
 
+    /**
+     * One-time migration: Fix DTH365 agent/master agent naming.
+     * - DTH365 (master_agent) → DTH365MA
+     * - DTH366 (agent) → DTH365
+     * - Reassign all players from old DTH365 to new DTH365 agent
+     */
+    private function fixDth365Migration(): void
+    {
+        try {
+            $actor = $this->protect(['admin']);
+            if ($actor === null) {
+                return;
+            }
+
+            $allAgents = $this->db->findMany('agents', []);
+            $dth365Master = null;
+            $dth366Agent = null;
+
+            foreach ($allAgents as $agent) {
+                $uname = strtoupper(trim((string) ($agent['username'] ?? '')));
+                $role = (string) ($agent['role'] ?? '');
+                if ($uname === 'DTH365' && $role === 'master_agent') {
+                    $dth365Master = $agent;
+                }
+                if ($uname === 'DTH366' && $role === 'agent') {
+                    $dth366Agent = $agent;
+                }
+            }
+
+            if ($dth365Master === null) {
+                Response::json(['message' => 'DTH365 master_agent not found, nothing to fix'], 200);
+                return;
+            }
+
+            $now = MongoRepository::nowUtc();
+            $masterId = (string) $dth365Master['_id'];
+            $log = [];
+
+            // Rename DTH365 master_agent → DTH365MA
+            $this->db->updateOne('agents', ['_id' => $masterId], [
+                'username' => 'DTH365MA',
+                'fullName' => 'DTH365MA',
+                'updatedAt' => $now,
+            ]);
+            $log[] = 'Renamed DTH365 (master_agent) → DTH365MA';
+
+            // Sync master_agents collection
+            $updated = $this->db->findOne('agents', ['_id' => $masterId]);
+            if ($updated !== null) {
+                $this->syncMasterAgentCollection($updated);
+                $log[] = 'Synced master_agents collection';
+            }
+
+            if ($dth366Agent !== null) {
+                $agentId = (string) $dth366Agent['_id'];
+
+                // Rename DTH366 → DTH365
+                $this->db->updateOne('agents', ['_id' => $agentId], [
+                    'username' => 'DTH365',
+                    'fullName' => 'DTH365',
+                    'updatedAt' => $now,
+                ]);
+                $log[] = 'Renamed DTH366 (agent) → DTH365';
+
+                // Reassign players from old DTH365 (now DTH365MA) to DTH365 agent
+                $players = $this->db->findMany('users', ['agentId' => $masterId]);
+                $movedCount = 0;
+                foreach ($players as $player) {
+                    $playerId = (string) $player['_id'];
+                    $this->db->updateOne('users', ['_id' => $playerId], [
+                        'agentId' => $agentId,
+                        'updatedAt' => $now,
+                    ]);
+                    $movedCount++;
+                }
+                $log[] = "Reassigned {$movedCount} players from DTH365MA to DTH365 agent";
+            } else {
+                $log[] = 'DTH366 agent not found — skipped rename and player reassignment';
+            }
+
+            Response::json(['message' => 'Migration complete', 'log' => $log], 200);
+        } catch (Throwable $e) {
+            Response::json(['message' => 'Migration error: ' . $e->getMessage()], 500);
+        }
+    }
+
     private function createAgent(): void
     {
         try {
@@ -5273,6 +5363,17 @@ final class AdminCoreController
                     ],
                 ], 200);
                 return;
+            }
+
+            // If creating a master_agent and a regular agent with same identity exists, append MA to username
+            if ($agentRole === 'master_agent') {
+                $existingAgent = $this->findExistingAgentByIdentity($username, $phoneNumber, 'agent');
+                if ($existingAgent !== null) {
+                    $upperUsername = strtoupper($username);
+                    if (!str_ends_with($upperUsername, 'MA')) {
+                        $username = $upperUsername . 'MA';
+                    }
+                }
             }
 
             $referrerObjectId = null;

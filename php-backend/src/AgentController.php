@@ -780,6 +780,17 @@ final class AgentController
                 return;
             }
 
+            // If creating a master_agent and a regular agent with same identity exists, append MA to username
+            if ($requestedRole === 'master_agent') {
+                $existingAgent = $this->findExistingAgentByIdentity($username, $phoneNumber, 'agent');
+                if ($existingAgent !== null) {
+                    $upperUsername = strtoupper($username);
+                    if (!str_ends_with($upperUsername, 'MA')) {
+                        $username = $upperUsername . 'MA';
+                    }
+                }
+            }
+
             $role = $requestedRole;
             $fullName = strtoupper(trim((string) ($body['fullName'] ?? $username)));
 
