@@ -765,9 +765,7 @@ final class AgentController
                 if ($existingRole !== $requestedRole) {
                     $updateFields['role'] = $requestedRole;
                 }
-                $this->db->updateOne('agents', ['_id' => MongoRepository::id($existingId)], [
-                    '$set' => $updateFields,
-                ]);
+                $this->db->updateOne('agents', ['_id' => MongoRepository::id($existingId)], $updateFields);
                 $finalRole = $updateFields['role'] ?? $existingRole;
                 if ($finalRole === 'master_agent') {
                     $updated = $this->db->findOne('agents', ['_id' => MongoRepository::id($existingId)]);
