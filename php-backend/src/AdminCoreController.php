@@ -5333,8 +5333,15 @@ final class AdminCoreController
                 $createdByModel = 'Agent';
             }
 
+            // All master agents get MA suffix on their username
+            if ($agentRole === 'master_agent') {
+                $upperUsername = strtoupper($username);
+                if (!str_ends_with($upperUsername, 'MA')) {
+                    $username = $upperUsername . 'MA';
+                }
+            }
+
             // Check for existing agent with same identity AND same role — reassign if found.
-            // If a different role is requested (e.g. agent exists, creating master_agent), allow both to coexist.
             $existing = $this->findExistingAgentByIdentity($username, $phoneNumber, $agentRole);
             if ($existing !== null) {
                 $existingId = (string) $existing['_id'];
@@ -5363,17 +5370,6 @@ final class AdminCoreController
                     ],
                 ], 200);
                 return;
-            }
-
-            // If creating a master_agent and a regular agent with same identity exists, append MA to username
-            if ($agentRole === 'master_agent') {
-                $existingAgent = $this->findExistingAgentByIdentity($username, $phoneNumber, 'agent');
-                if ($existingAgent !== null) {
-                    $upperUsername = strtoupper($username);
-                    if (!str_ends_with($upperUsername, 'MA')) {
-                        $username = $upperUsername . 'MA';
-                    }
-                }
             }
 
             $referrerObjectId = null;
