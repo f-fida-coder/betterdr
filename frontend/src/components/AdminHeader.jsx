@@ -684,7 +684,6 @@ function AdminHeader({
       {showStats && (
         <div className="admin-header-bottom">
           <div className="admin-stats-grid">
-            {/* Row 1 */}
             <div className="stat-box">
               <span className="stat-label">Week</span>
               <span className={`stat-value ${getSignedValueClass(summary.weekNet)}`}>{formatCurrency(summary.weekNet)}</span>
@@ -693,12 +692,34 @@ function AdminHeader({
               <span className="stat-label">Today</span>
               <span className={`stat-value ${getSignedValueClass(summary.todayNet)}`}>{formatCurrency(summary.todayNet)}</span>
             </div>
-
-            {/* Row 2 */}
             <div className="stat-box">
-              <span className="stat-label">Active Accts</span>
+              <span className="stat-label">{roleKey === 'agent' ? 'Active Players' : 'Active Accts'}</span>
               <span className="stat-value highlight">{formatCount(summary.activeAccounts)}</span>
             </div>
+            {roleKey === 'agent' && (
+              <div className="stat-box">
+                <span className="stat-label">Player Fees</span>
+                <span className="stat-value">{formatCurrency(summary.totalOutstanding)}</span>
+              </div>
+            )}
+            {roleKey === 'agent' && (
+              <div className="stat-box">
+                <span className="stat-label">Agent Collections</span>
+                <span className={`stat-value ${getSignedValueClass(summary.weekNet)}`}>{formatCurrency(summary.weekNet > 0 ? summary.weekNet : 0)}</span>
+              </div>
+            )}
+            {roleKey === 'agent' && (
+              <div className="stat-box">
+                <span className="stat-label">House Collections</span>
+                <span className={`stat-value ${getSignedValueClass(summary.weekNet)}`}>{formatCurrency(summary.weekNet < 0 ? Math.abs(summary.weekNet) : 0)}</span>
+              </div>
+            )}
+            {roleKey === 'agent' && (
+              <div className="stat-box">
+                <span className="stat-label">Makeup</span>
+                <span className="stat-value">{formatCurrency(summary.totalOutstanding)}</span>
+              </div>
+            )}
             <div className="stat-box">
               <span className="stat-label">Balance</span>
               <span className={`stat-value ${getSignedValueClass(headerBalance)}`}>

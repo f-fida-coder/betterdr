@@ -1,11 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { hasViewPermission } from '../utils/adminPermissions';
 import { ADMIN_NAV_ITEMS } from '../config/adminNavigation';
-import { getAdminHeaderSummary } from '../api';
 
 function AdminDashboard({ onMenuClick, onOpenScoreboard, role = 'admin', layoutPref = 'tiles', isMobile = false, permissions = null }) {
   const effectiveRole = role || 'admin';
-  const isAgent = effectiveRole === 'agent';
   const filteredItems = ADMIN_NAV_ITEMS.filter(
     (item) =>
       item.showInDashboard &&
@@ -14,47 +12,6 @@ function AdminDashboard({ onMenuClick, onOpenScoreboard, role = 'admin', layoutP
       hasViewPermission(effectiveRole, permissions, item.id)
   );
   const groupedCardColors = ['teal', 'light-blue', 'orange'];
-
-  const [summary, setSummary] = useState(null);
-
-  useEffect(() => {
-    if (!isAgent) return undefined;
-    let cancelled = false;
-    const token = localStorage.getItem('token');
-    if (!token) return undefined;
-
-    const load = async () => {
-      try {
-        const data = await getAdminHeaderSummary(token);
-        if (!cancelled) setSummary(data);
-      } catch (err) {
-        console.error('Failed to load dashboard summary:', err);
-      }
-    };
-    load();
-    const intervalId = window.setInterval(load, 15000);
-    return () => { cancelled = true; window.clearInterval(intervalId); };
-  }, [isAgent]);
-
-  const fmt = (val) => {
-    if (val === null || val === undefined) return '—';
-    const num = Number(val);
-    if (Number.isNaN(num)) return '—';
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(Math.round(num));
-  };
-
-  const fmtCount = (val) => {
-    if (val === null || val === undefined) return '—';
-    const num = Number(val);
-    if (Number.isNaN(num)) return '—';
-    return num.toLocaleString('en-US');
-  };
-
-  const signClass = (val) => {
-    const num = Number(val);
-    if (!val || Number.isNaN(num) || num === 0) return '';
-    return num > 0 ? 'positive' : 'negative';
-  };
 
   if (isMobile && layoutPref === 'sidebar') {
     return (
@@ -69,42 +26,6 @@ function AdminDashboard({ onMenuClick, onOpenScoreboard, role = 'admin', layoutP
 
   return (
     <div className="admin-dashboard">
-      {isAgent && summary && (
-        <div className="agent-dashboard-stats">
-          <div className="stat-box">
-            <span className="stat-label">Week</span>
-            <span className={`stat-value ${signClass(summary.weekNet)}`}>{fmt(summary.weekNet)}</span>
-          </div>
-          <div className="stat-box">
-            <span className="stat-label">Today</span>
-            <span className={`stat-value ${signClass(summary.todayNet)}`}>{fmt(summary.todayNet)}</span>
-          </div>
-          <div className="stat-box">
-            <span className="stat-label">Active Players</span>
-            <span className="stat-value highlight">{fmtCount(summary.activeAccounts)}</span>
-          </div>
-          <div className="stat-box">
-            <span className="stat-label">Player Fees</span>
-            <span className="stat-value">{fmt(summary.totalOutstanding)}</span>
-          </div>
-          <div className="stat-box">
-            <span className="stat-label">Agent Collections</span>
-            <span className={`stat-value ${signClass(summary.weekNet)}`}>{fmt(summary.weekNet > 0 ? summary.weekNet : 0)}</span>
-          </div>
-          <div className="stat-box">
-            <span className="stat-label">House Collections</span>
-            <span className={`stat-value ${signClass(summary.weekNet)}`}>{fmt(summary.weekNet < 0 ? Math.abs(summary.weekNet) : 0)}</span>
-          </div>
-          <div className="stat-box">
-            <span className="stat-label">Makeup</span>
-            <span className={`stat-value ${signClass(-(summary.totalOutstanding || 0))}`}>{fmt(summary.totalOutstanding)}</span>
-          </div>
-          <div className="stat-box">
-            <span className="stat-label">Balance</span>
-            <span className={`stat-value ${signClass(summary.totalBalance)}`}>{fmt(summary.totalBalance)}</span>
-          </div>
-        </div>
-      )}
       <div className="dashboard-grid">
         {filteredItems.map((item, index) => {
           const colorClass = groupedCardColors[Math.min(Math.floor(index / 8), groupedCardColors.length - 1)];
