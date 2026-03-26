@@ -156,6 +156,13 @@ function AssignmentHierarchyPicker({
       return null;
     }
 
+    // In player mode, skip master agent / admin nodes but render their agent children flat
+    if (selectionMode === 'player' && !isRegularAgentTreeNode(node)) {
+      const allChildren = (Array.isArray(node.children) ? node.children : []).filter(isManagerTreeNode);
+      const childRendered = allChildren.map((child) => renderNode(child, depth, false));
+      return childRendered.some(Boolean) ? <>{childRendered}</> : null;
+    }
+
     const nodeId = normalizeHierarchyId(node.id || node._id);
     const managerChildren = (Array.isArray(node.children) ? node.children : [])
       .filter((c) => isManagerTreeNode(c) && (selectionMode !== 'master' || isMasterTreeNode(c)));
