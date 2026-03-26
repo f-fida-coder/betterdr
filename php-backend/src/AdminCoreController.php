@@ -1599,7 +1599,7 @@ final class AdminCoreController
                     if ($adminLinkedNode !== null) {
                         array_unshift($adminChildren, $adminLinkedNode);
                     }
-                    $tree[] = [
+                    array_unshift($tree, [
                         'id' => $adminId,
                         'username' => $admin['username'] ?? null,
                         'role' => 'admin',
@@ -1608,7 +1608,7 @@ final class AdminCoreController
                         'agentPercent' => null,
                         'playerRate' => null,
                         'children' => $adminChildren,
-                    ];
+                    ]);
                 }
             } else {
                 $tree = $this->buildAgentTree((string) $actor['_id'], 'Agent');
