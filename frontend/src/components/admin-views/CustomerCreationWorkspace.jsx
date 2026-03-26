@@ -862,7 +862,11 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
     setPrefixError('');
 
     if (formatted.length >= 2) {
+      const isMasterCreation = creationType === 'super_agent';
       const taken = agents.some((a) => {
+        const r = String(a.role || '').toLowerCase();
+        const isMasterAgent = r === 'master_agent' || r === 'super_agent';
+        if (isMasterCreation !== isMasterAgent) return false;
         const uname = String(a.username || '').toUpperCase().replace(/MA$/, '').replace(/\d+$/, '');
         return uname === formatted;
       });
