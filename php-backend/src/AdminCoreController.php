@@ -972,7 +972,7 @@ final class AdminCoreController
                     ];
                 }
 
-                $usersForBalance = $this->db->findMany('users', $matchUser, ['projection' => ['_id' => 1, 'balance' => 1, 'balanceOwed' => 1]]);
+                $usersForBalance = $this->db->findMany('users', $matchUser, ['projection' => ['_id' => 1, 'balance' => 1, 'balanceOwed' => 1, 'status' => 1]]);
                 $totalBalance = 0.0;
                 $userOutstanding = 0.0;
                 $scopedUserIds = [];
@@ -1052,36 +1052,26 @@ final class AdminCoreController
                     }
                 }
 
-                // Active accounts for header display (excludes deposits/withdrawals/promo)
                 $activeUserIds = [];
-                // Active accounts for Player Fees (any completed transaction counts)
-                $feeActiveUserIds = [];
                 foreach ($weekTx as $tx) {
                     $txUserId = (string) ($tx['userId'] ?? '');
-                    if ($txUserId === '') {
-                        continue;
-                    }
-                    $feeActiveUserIds[$txUserId] = true;
-                    if ($this->isWeeklyActiveTransaction($tx)) {
+                    if ($txUserId !== '' && $this->isWeeklyActiveTransaction($tx)) {
                         $activeUserIds[$txUserId] = true;
                     }
                 }
-                $activeAccounts = count($feeActiveUserIds);
 
-                // Player Fees: $4 per active player
-                // Split by balance: positive-balance players pay fees, others don't
+                // Active players for fees: all non-suspended players under this agent
                 $feePerPlayer = 4.0;
-                $userBalanceMap = [];
-                foreach ($usersForBalance as $u) {
-                    $uid = (string) ($u['_id'] ?? '');
-                    if ($uid !== '') {
-                        $userBalanceMap[$uid] = $this->num($u['balance'] ?? 0);
-                    }
-                }
+                $activeAccounts = 0;
                 $activePositive = 0;
                 $activeNonPositive = 0;
-                foreach ($feeActiveUserIds as $uid => $flag) {
-                    $bal = $userBalanceMap[$uid] ?? 0.0;
+                foreach ($usersForBalance as $u) {
+                    $status = strtolower(trim((string) ($u['status'] ?? '')));
+                    if ($status === 'suspended') {
+                        continue;
+                    }
+                    $activeAccounts++;
+                    $bal = $this->num($u['balance'] ?? 0);
                     if ($bal > 0) {
                         $activePositive++;
                     } else {
