@@ -1577,12 +1577,33 @@ final class AdminCoreController
                 return;
             }
 
-            $tree = $this->buildAgentTree((string) $actor['_id'], (($actor['role'] ?? '') === 'admin') ? 'Admin' : 'Agent');
             if (($actor['role'] ?? '') === 'admin') {
-                $usernameLinkedNode = $this->buildUsernameLinkedAgentTreeNode((string) ($actor['username'] ?? ''), $tree);
-                if ($usernameLinkedNode !== null) {
-                    array_unshift($tree, $usernameLinkedNode);
+                // Build tree with all admins as top-level nodes, each containing their own agents/players
+                $tree = [];
+                $allAdmins = $this->db->findMany('admins', [], ['sort' => ['username' => 1]]);
+                foreach ($allAdmins as $admin) {
+                    $adminId = (string) ($admin['_id'] ?? '');
+                    if ($adminId === '') {
+                        continue;
+                    }
+                    $adminChildren = $this->buildAgentTree($adminId, 'Admin');
+                    $adminLinkedNode = $this->buildUsernameLinkedAgentTreeNode((string) ($admin['username'] ?? ''), $adminChildren);
+                    if ($adminLinkedNode !== null) {
+                        array_unshift($adminChildren, $adminLinkedNode);
+                    }
+                    $tree[] = [
+                        'id' => $adminId,
+                        'username' => $admin['username'] ?? null,
+                        'role' => 'admin',
+                        'nodeType' => 'agent',
+                        'isDead' => false,
+                        'agentPercent' => null,
+                        'playerRate' => null,
+                        'children' => $adminChildren,
+                    ];
                 }
+            } else {
+                $tree = $this->buildAgentTree((string) $actor['_id'], 'Agent');
             }
             Response::json([
                 'root' => [
