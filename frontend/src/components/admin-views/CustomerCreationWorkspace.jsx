@@ -471,6 +471,7 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
   const [hiringAgentPercent, setHiringAgentPercent] = useState('');
   const [subAgentPercent, setSubAgentPercent] = useState('');
   const [extraSubAgents, setExtraSubAgents] = useState([]);
+  const [prefixError, setPrefixError] = useState('');
   const [creationType, setCreationType] = useState(initialType || 'player');
   const [currentRole, setCurrentRole] = useState('admin');
   const [viewOnly, setViewOnly] = useState(false);
@@ -858,8 +859,17 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
   const handlePrefixChange = async (prefix) => {
     const formatted = prefix.toUpperCase().replace(/[^A-Z0-9]/g, '');
     setNewCustomer((prev) => ({ ...prev, agentPrefix: formatted }));
+    setPrefixError('');
 
     if (formatted.length >= 2) {
+      const taken = agents.some((a) => {
+        const uname = String(a.username || '').toUpperCase().replace(/MA$/, '').replace(/\d+$/, '');
+        return uname === formatted;
+      });
+      if (taken) {
+        setPrefixError(`Prefix "${formatted}" is already taken`);
+        return;
+      }
       const token = localStorage.getItem('token') || sessionStorage.getItem('token');
       const suffix = creationType === 'super_agent' ? 'MA' : '';
       const usernameScopeAgentId = (
@@ -952,6 +962,7 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
 
   const handleCreationTypeChange = async (type) => {
     setCreationType(type);
+    setPrefixError('');
     setAgentSearchQuery('');
     setHiringAgentPercent('');
     setSubAgentPercent('');
@@ -1047,7 +1058,8 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
       && String(newCustomer.maxBet ?? '').trim() !== ''
       && String(newCustomer.creditLimit ?? '').trim() !== ''
       && String(newCustomer.balanceOwed ?? '').trim() !== ''
-    ));
+    ))
+    && !prefixError;
 
   const isMasterContext = currentRole === 'master_agent' || currentRole === 'super_agent';
   const isMasterAssignmentMode = creationType === 'agent' || creationType === 'super_agent';
@@ -1364,7 +1376,9 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
                       onChange={(e) => handlePrefixChange(e.target.value)}
                       placeholder="Enter prefix"
                       maxLength={5}
+                      style={prefixError ? { borderColor: '#ef4444', boxShadow: '0 0 0 2px rgba(239,68,68,0.15)' } : undefined}
                     />
+                    {prefixError && <span style={{ color: '#ef4444', fontSize: 12, fontWeight: 600, marginTop: 4 }}>{prefixError}</span>}
                   </div>
                 )}
 
