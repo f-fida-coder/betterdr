@@ -1578,10 +1578,18 @@ final class AdminCoreController
             }
 
             if (($actor['role'] ?? '') === 'admin') {
-                // Build tree with all admins as top-level nodes, each containing their own agents/players
-                $tree = [];
-                $allAdmins = $this->db->findMany('admins', [], ['sort' => ['username' => 1]]);
-                foreach ($allAdmins as $admin) {
+                // Root admin's own agents/players shown directly
+                $tree = $this->buildAgentTree((string) $actor['_id'], 'Admin');
+                $usernameLinkedNode = $this->buildUsernameLinkedAgentTreeNode((string) ($actor['username'] ?? ''), $tree);
+                if ($usernameLinkedNode !== null) {
+                    array_unshift($tree, $usernameLinkedNode);
+                }
+
+                // Other admins shown as child nodes, each with their own sub-tree
+                $otherAdmins = $this->db->findMany('admins', [
+                    '_id' => ['$ne' => $actor['_id']],
+                ], ['sort' => ['username' => 1]]);
+                foreach ($otherAdmins as $admin) {
                     $adminId = (string) ($admin['_id'] ?? '');
                     if ($adminId === '') {
                         continue;
