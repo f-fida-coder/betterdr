@@ -1052,14 +1052,21 @@ final class AdminCoreController
                     }
                 }
 
+                // Active accounts for header display (excludes deposits/withdrawals/promo)
                 $activeUserIds = [];
+                // Active accounts for Player Fees (any completed transaction counts)
+                $feeActiveUserIds = [];
                 foreach ($weekTx as $tx) {
                     $txUserId = (string) ($tx['userId'] ?? '');
-                    if ($txUserId !== '' && $this->isWeeklyActiveTransaction($tx)) {
+                    if ($txUserId === '') {
+                        continue;
+                    }
+                    $feeActiveUserIds[$txUserId] = true;
+                    if ($this->isWeeklyActiveTransaction($tx)) {
                         $activeUserIds[$txUserId] = true;
                     }
                 }
-                $activeAccounts = count($activeUserIds);
+                $activeAccounts = count($feeActiveUserIds);
 
                 // Player Fees: $4 per active player
                 // Split by balance: positive-balance players pay fees, others don't
@@ -1073,7 +1080,7 @@ final class AdminCoreController
                 }
                 $activePositive = 0;
                 $activeNonPositive = 0;
-                foreach ($activeUserIds as $uid => $flag) {
+                foreach ($feeActiveUserIds as $uid => $flag) {
                     $bal = $userBalanceMap[$uid] ?? 0.0;
                     if ($bal > 0) {
                         $activePositive++;
