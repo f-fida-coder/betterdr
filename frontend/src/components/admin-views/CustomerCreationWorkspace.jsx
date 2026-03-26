@@ -1621,7 +1621,19 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
                 const agentPct = parseFloat(newCustomer.agentPercent) || 0;
                 const hiringPct = parseFloat(hiringAgentPercent) || 0;
                 const firstTwoPct = agentPct + hiringPct;
-                const showSubAgent = firstTwoPct !== 100;
+                const selectedMaHasParentMa = (() => {
+                  const selId = String(newCustomer.agentId || '').trim();
+                  if (!selId || !assignmentTreeRoot) return false;
+                  const path = findAssignmentTreePath(assignmentTreeRoot, selId);
+                  // path: [root, ..., selectedNode] — check if any node between root and selected is a master agent
+                  if (path.length <= 2) return false; // direct child of root — no MA above
+                  for (let i = 1; i < path.length - 1; i++) {
+                    const mid = findAssignmentTreeNode(assignmentTreeRoot, path[i]);
+                    if (mid && isMasterTreeNode(mid)) return true;
+                  }
+                  return false;
+                })();
+                const showSubAgent = firstTwoPct !== 100 && selectedMaHasParentMa;
                 const subPct = showSubAgent ? (parseFloat(subAgentPercent) || 0) : 0;
                 const extraPcts = extraSubAgents.reduce((sum, sa) => sum + (parseFloat(sa.percent) || 0), 0);
                 const totalPct = agentPct + hiringPct + subPct + extraPcts;
