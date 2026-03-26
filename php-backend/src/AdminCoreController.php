@@ -1052,6 +1052,7 @@ final class AdminCoreController
                     }
                 }
 
+                // Active players: those with real betting/gaming activity this week
                 $activeUserIds = [];
                 foreach ($weekTx as $tx) {
                     $txUserId = (string) ($tx['userId'] ?? '');
@@ -1059,19 +1060,21 @@ final class AdminCoreController
                         $activeUserIds[$txUserId] = true;
                     }
                 }
+                $activeAccounts = count($activeUserIds);
 
-                // Active players for fees: all non-suspended players under this agent
+                // Player Fees: $4 per active player, split by balance
                 $feePerPlayer = 4.0;
-                $activeAccounts = 0;
+                $userBalanceMap = [];
+                foreach ($usersForBalance as $u) {
+                    $uid = (string) ($u['_id'] ?? '');
+                    if ($uid !== '') {
+                        $userBalanceMap[$uid] = $this->num($u['balance'] ?? 0);
+                    }
+                }
                 $activePositive = 0;
                 $activeNonPositive = 0;
-                foreach ($usersForBalance as $u) {
-                    $status = strtolower(trim((string) ($u['status'] ?? '')));
-                    if ($status === 'suspended') {
-                        continue;
-                    }
-                    $activeAccounts++;
-                    $bal = $this->num($u['balance'] ?? 0);
+                foreach ($activeUserIds as $uid => $flag) {
+                    $bal = $userBalanceMap[$uid] ?? 0.0;
                     if ($bal > 0) {
                         $activePositive++;
                     } else {

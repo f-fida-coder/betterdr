@@ -703,6 +703,7 @@ function AdminHeader({
               <div className="stat-box">
                 <span className="stat-label">Player Fees</span>
                 <span className="stat-value">{formatCurrency(summary.totalPlayerFees ?? (Number(summary.activeAccounts ?? 0) * 4))}</span>
+
               </div>
             ) : (
               <div className="stat-box">
