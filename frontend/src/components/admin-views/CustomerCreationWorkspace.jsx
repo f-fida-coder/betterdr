@@ -151,12 +151,14 @@ function AssignmentHierarchyPicker({
 
   const renderNode = (node, depth = 0, isRoot = false) => {
     if (!node || !isManagerTreeNode(node)) return null;
+    if (selectionMode === 'master' && !isRoot && !isMasterTreeNode(node)) return null;
     if (normalizedQuery && !assignmentBranchMatchesQuery(node, normalizedQuery)) {
       return null;
     }
 
     const nodeId = normalizeHierarchyId(node.id || node._id);
-    const managerChildren = (Array.isArray(node.children) ? node.children : []).filter(isManagerTreeNode);
+    const managerChildren = (Array.isArray(node.children) ? node.children : [])
+      .filter((c) => isManagerTreeNode(c) && (selectionMode !== 'master' || isMasterTreeNode(c)));
     const canExpand = managerChildren.length > 0 && (isRoot || isMasterTreeNode(node));
     const isExpanded = normalizedQuery ? true : expandedNodes.has(nodeId);
     const isSelectable = selectionMode === 'player'

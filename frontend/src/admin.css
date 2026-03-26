@@ -5973,6 +5973,19 @@
   width: 100%;
   box-sizing: border-box;
 }
+.commission-hiring-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.commission-hiring-row .commission-input:first-child {
+  width: 80px;
+  flex-shrink: 0;
+}
+.commission-hiring-row select.commission-input {
+  flex: 1;
+  min-width: 0;
+}
 .commission-extra-agent-row {
   display: grid;
   grid-template-columns: 1fr 100px auto;
@@ -6117,6 +6130,24 @@
 }
 .ch-row-status.active   { background: #dcfce7; color: #15803d; }
 .ch-row-status.inactive { background: #f1f5f9; color: #64748b; }
+
+.ch-row-ma-select {
+  margin-left: auto;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  color: #334155;
+  cursor: pointer;
+  min-width: 160px;
+}
+.ch-row-ma-select:focus {
+  outline: none;
+  border-color: #6d28d9;
+  box-shadow: 0 0 0 2px rgba(109, 40, 217, 0.15);
+}
 
 .ch-divider {
   height: 1px;

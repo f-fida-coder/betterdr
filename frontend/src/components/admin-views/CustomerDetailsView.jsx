@@ -462,6 +462,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
   const [agentPercentDraft, setAgentPercentDraft] = useState('');    // editable draft value
   const [playerRateDraft, setPlayerRateDraft] = useState('');        // editable draft value
   const [hiringAgentPercentDraft, setHiringAgentPercentDraft] = useState('');
+  const [hiringAgentIdDraft, setHiringAgentIdDraft] = useState('');
   const [subAgentPercentDraft, setSubAgentPercentDraft] = useState('');
   const [extraSubAgentsDraft, setExtraSubAgentsDraft] = useState([]);
   const [calcAmount, setCalcAmount] = useState('');                   // calculator input
@@ -543,6 +544,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
           setAgentPercentDraft(user?.agentPercent != null ? String(user.agentPercent) : '');
           setPlayerRateDraft(user?.playerRate != null ? String(user.playerRate) : '');
           setHiringAgentPercentDraft(user?.hiringAgentPercent != null ? String(user.hiringAgentPercent) : '');
+          setHiringAgentIdDraft(normalizedUser.parentAgentId || normalizedUser.masterAgentId || normalizedUser.createdBy?._id || normalizedUser.createdBy || '');
           setSubAgentPercentDraft(user?.subAgentPercent != null ? String(user.subAgentPercent) : '');
           setExtraSubAgentsDraft(Array.isArray(user?.extraSubAgents) ? user.extraSubAgents.map((sa, i) => ({ id: i, name: sa.name || '', percent: sa.percent != null ? String(sa.percent) : '' })) : []);
         }
@@ -672,6 +674,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
       payload.extraSubAgents = extraSubAgentsDraft
         .filter((sa) => sa.name.trim() !== '' || sa.percent !== '')
         .map((sa) => ({ name: sa.name.trim(), percent: parseFloat(sa.percent) || 0 }));
+      if (hiringAgentIdDraft) payload.parentAgentId = hiringAgentIdDraft;
       await updateAgent(userId, payload, token);
       setCustomer((prev) => ({
         ...prev,
@@ -686,6 +689,25 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
       await loadCommissionChain();
     } catch (err) {
       setCommissionSaveError(err.message || 'Failed to save commission');
+    } finally {
+      setCommissionSaving(false);
+    }
+  };
+
+  const handleChangeHiringAgent = async (newParentId) => {
+    setHiringAgentIdDraft(newParentId);
+    if (!newParentId) return;
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    try {
+      setCommissionSaving(true);
+      setCommissionSaveError('');
+      setCommissionSaveSuccess('');
+      await updateAgent(userId, { parentAgentId: newParentId }, token);
+      setCommissionSaveSuccess('Master agent updated');
+      await loadCommissionChain();
+    } catch (err) {
+      setCommissionSaveError(err.message || 'Failed to update master agent');
     } finally {
       setCommissionSaving(false);
     }
@@ -1003,7 +1025,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
 
   const displayPassword = useMemo(() => {
     if (!customer) return '';
-    return customer.displayPassword || generatedPassword || 'Not set';
+    return generatedPassword || customer.displayPassword || 'Not set';
   }, [customer, generatedPassword]);
 
   const duplicateMatchReasons = useMemo(() => {
@@ -1032,6 +1054,12 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
     const roleKey = String(customer?.role || 'player').toLowerCase();
     return roleKey === 'agent' || roleKey === 'master_agent' || roleKey === 'master agent' || roleKey === 'super_agent' || roleKey === 'super agent';
   }, [customer?.role]);
+
+  const hiringAgentUsername = useMemo(() => {
+    if (!hiringAgentIdDraft) return '';
+    const match = agents.find((a) => (a.id || a._id) === hiringAgentIdDraft);
+    return match ? String(match.username || '').toUpperCase() : String(customer?.createdByUsername || customer?.createdBy?.username || '').toUpperCase();
+  }, [hiringAgentIdDraft, agents, customer]);
 
   const customerBalance = toMoneyNumber(customer?.balance, 0);
   const pendingBalance = toMoneyNumber(customer?.pendingBalance, 0);
@@ -2177,17 +2205,35 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
                       />
                     </div>
                     <div className="commission-grid-field">
-                      <label className="commission-field-label">Hiring Agent % <span className="commission-name-chip">{String(customer?.createdByUsername || customer?.createdBy?.username || '').toUpperCase() || 'PARENT'}</span></label>
-                      <input
-                        type="number"
-                        min="0"
-                        max="100"
-                        step="0.01"
-                        className="commission-input"
-                        placeholder="e.g. 5"
-                        value={hiringAgentPercentDraft}
-                        onChange={(e) => setHiringAgentPercentDraft(e.target.value)}
-                      />
+                      <label className="commission-field-label">Hiring Agent % <span className="commission-name-chip">{hiringAgentUsername || 'PARENT'}</span></label>
+                      <div className="commission-hiring-row">
+                        <input
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="0.01"
+                          className="commission-input"
+                          placeholder="e.g. 5"
+                          value={hiringAgentPercentDraft}
+                          onChange={(e) => setHiringAgentPercentDraft(e.target.value)}
+                        />
+                        <select
+                          className="commission-input"
+                          value={hiringAgentIdDraft}
+                          onChange={(e) => setHiringAgentIdDraft(e.target.value)}
+                        >
+                          <option value="">Select Master Agent</option>
+                          {agents
+                            .filter((a) => {
+                              const r = String(a.role || '').toLowerCase();
+                              return r === 'master_agent' || r === 'super_agent';
+                            })
+                            .map((a) => {
+                              const id = a.id || a._id;
+                              return <option key={id} value={id}>{String(a.username || '').toUpperCase()}</option>;
+                            })}
+                        </select>
+                      </div>
                     </div>
                     {showSubAgent && (
                       <div className="commission-grid-field">
@@ -2345,34 +2391,55 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
                 {commissionChain.upline[0] && (
                   <div className="ch-row ch-row-agent">
                     <span className="ch-row-label">Agent</span>
-                    <span className="ch-row-username">({commissionChain.upline[0].username || '—'})</span>
+                    <span className="ch-row-username">
+                      ({commissionChain.upline[0].username || '—'}/{commissionChain.upline[1]?.username || hiringAgentUsername || '—'})
+                    </span>
                     <span className={`ch-row-pct ${commissionChain.upline[0].agentPercent == null ? 'unset' : ''}`}>
                       {commissionChain.upline[0].agentPercent != null ? `(${commissionChain.upline[0].agentPercent}%)` : '(not set)'}
                     </span>
                   </div>
                 )}
 
-                {/* Hiring agent — index 1 (direct parent) */}
+                {/* Hiring agent — index 1 (direct parent / master agent) */}
                 {commissionChain.upline[1] && (
                   <div className="ch-row ch-row-hiring">
                     <span className="ch-row-label">Hiring agent</span>
-                    <span className="ch-row-username">({commissionChain.upline[1].username || '—'})</span>
+                    <span className="ch-row-username">
+                      ({commissionChain.upline[1].username || '—'}/{commissionChain.upline.find((n) => n.role === 'admin')?.username || 'ADMIN'})
+                    </span>
                     <span className={`ch-row-pct ${commissionChain.upline[1].agentPercent == null ? 'unset' : ''}`}>
                       {commissionChain.upline[1].agentPercent != null ? `(${commissionChain.upline[1].agentPercent}%)` : '(not set)'}
                     </span>
+                    <select
+                      className="ch-row-ma-select"
+                      value={hiringAgentIdDraft}
+                      onChange={(e) => handleChangeHiringAgent(e.target.value)}
+                      disabled={commissionSaving}
+                    >
+                      <option value="">Change Master Agent</option>
+                      {agents
+                        .filter((a) => {
+                          const r = String(a.role || '').toLowerCase();
+                          return r === 'master_agent' || r === 'super_agent';
+                        })
+                        .map((a) => {
+                          const id = a.id || a._id;
+                          return <option key={id} value={id}>{String(a.username || '').toUpperCase()}</option>;
+                        })}
+                    </select>
                   </div>
                 )}
 
-                {/* Any higher upline nodes (grandparent, etc.) */}
-                {commissionChain.upline.slice(2).map((node, idx) => (
-                  <div key={node.id || idx} className="ch-row ch-row-upline">
-                    <span className="ch-row-label">{node.role === 'admin' ? 'Admin' : `Upline ${idx + 2}`}</span>
-                    <span className="ch-row-username">({node.username || '—'})</span>
-                    <span className={`ch-row-pct ${node.agentPercent == null ? 'unset' : ''}`}>
-                      {node.agentPercent != null ? `(${node.agentPercent}%)` : '(not set)'}
+                {/* Admin row */}
+                {commissionChain.upline.find((n) => n.role === 'admin') && (
+                  <div className="ch-row ch-row-upline">
+                    <span className="ch-row-label">Admin</span>
+                    <span className="ch-row-username">({commissionChain.upline.find((n) => n.role === 'admin').username || '—'})</span>
+                    <span className={`ch-row-pct ${commissionChain.upline.find((n) => n.role === 'admin').agentPercent == null ? 'unset' : ''}`}>
+                      {commissionChain.upline.find((n) => n.role === 'admin').agentPercent != null ? `(${commissionChain.upline.find((n) => n.role === 'admin').agentPercent}%)` : '(not set)'}
                     </span>
                   </div>
-                ))}
+                )}
 
                 {/* Divider before sub-agents */}
                 {commissionChain.downlines.length > 0 && (
