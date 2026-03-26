@@ -684,6 +684,7 @@ function AdminHeader({
       {showStats && (
         <div className="admin-header-bottom">
           <div className="admin-stats-grid">
+            {/* Row 1: Week / Today */}
             <div className="stat-box">
               <span className="stat-label">Week</span>
               <span className={`stat-value ${getSignedValueClass(summary.weekNet)}`}>{formatCurrency(summary.weekNet)}</span>
@@ -692,40 +693,108 @@ function AdminHeader({
               <span className="stat-label">Today</span>
               <span className={`stat-value ${getSignedValueClass(summary.todayNet)}`}>{formatCurrency(summary.todayNet)}</span>
             </div>
+
+            {/* Row 2: Active Players / Player Fees (agent) or Active Accts / Balance (other) */}
             <div className="stat-box">
               <span className="stat-label">{roleKey === 'agent' ? 'Active Players' : 'Active Accts'}</span>
               <span className="stat-value highlight">{formatCount(summary.activeAccounts)}</span>
             </div>
-            {roleKey === 'agent' && (
+            {roleKey === 'agent' ? (
               <div className="stat-box">
                 <span className="stat-label">Player Fees</span>
-                <span className="stat-value">{formatCurrency(summary.totalOutstanding)}</span>
+                <span className="stat-value">{formatCurrency(summary.totalPlayerFees ?? 0)}</span>
               </div>
-            )}
-            {roleKey === 'agent' && (
+            ) : (
               <div className="stat-box">
-                <span className="stat-label">Agent Collections</span>
-                <span className={`stat-value ${getSignedValueClass(summary.weekNet)}`}>{formatCurrency(summary.weekNet > 0 ? summary.weekNet : 0)}</span>
+                <span className="stat-label">Balance</span>
+                <span className={`stat-value ${getSignedValueClass(headerBalance)}`}>{formatCurrency(headerBalance)}</span>
               </div>
             )}
-            {roleKey === 'agent' && (
-              <div className="stat-box">
-                <span className="stat-label">House Collections</span>
-                <span className={`stat-value ${getSignedValueClass(summary.weekNet)}`}>{formatCurrency(summary.weekNet < 0 ? Math.abs(summary.weekNet) : 0)}</span>
-              </div>
-            )}
-            {roleKey === 'agent' && (
-              <div className="stat-box">
-                <span className="stat-label">Makeup</span>
-                <span className="stat-value">{formatCurrency(summary.totalOutstanding)}</span>
-              </div>
-            )}
-            <div className="stat-box">
-              <span className="stat-label">Balance</span>
-              <span className={`stat-value ${getSignedValueClass(headerBalance)}`}>
-                {formatCurrency(headerBalance)}
-              </span>
-            </div>
+
+            {/* Row 3: Agent Collections / House Collections (agent only) */}
+            {roleKey === 'agent' && (() => {
+              const agentNet = Number(summary.agentDeposits ?? 0) - Number(summary.agentWithdrawals ?? 0);
+              const houseNet = Number(summary.houseDeposits ?? 0) - Number(summary.houseWithdrawals ?? 0);
+              return (
+                <>
+                  <div className="stat-box">
+                    <span className="stat-label">Agent Collections</span>
+                    <span className={`stat-value ${getSignedValueClass(agentNet)}`}>{formatCurrency(agentNet)}</span>
+                  </div>
+                  <div className="stat-box">
+                    <span className="stat-label">House Collections</span>
+                    <span className={`stat-value ${getSignedValueClass(houseNet)}`}>{formatCurrency(houseNet)}</span>
+                  </div>
+                </>
+              );
+            })()}
+
+            {/* Row 4: Net Collections / Makeup (agent only) */}
+            {roleKey === 'agent' && (() => {
+              const agentCollections = Number(summary.agentDeposits ?? 0) - Number(summary.agentWithdrawals ?? 0);
+              const houseCollections = Number(summary.houseDeposits ?? 0) - Number(summary.houseWithdrawals ?? 0);
+              const netCollections = agentCollections - houseCollections;
+              return (
+                <div className="stat-box">
+                  <span className="stat-label">Net Collections</span>
+                  <span className={`stat-value ${getSignedValueClass(netCollections)}`}>{formatCurrency(netCollections)}</span>
+                </div>
+              );
+            })()}
+            {roleKey === 'agent' && (() => {
+              const agentCol = Number(summary.agentDeposits ?? 0) - Number(summary.agentWithdrawals ?? 0);
+              const houseCol = Number(summary.houseDeposits ?? 0) - Number(summary.houseWithdrawals ?? 0);
+              const netCol = agentCol - houseCol;
+              const negativeWeekAmount = netCol < 0 ? Math.abs(netCol) : 0;
+              const unpaidFees = Number(summary.unpaidPlayerFees ?? 0);
+              const makeup = negativeWeekAmount + unpaidFees;
+              return (
+                <div className="stat-box">
+                  <span className="stat-label">Makeup</span>
+                  <span className={`stat-value ${makeup > 0 ? 'negative' : 'neutral'}`}>{formatCurrency(makeup)}</span>
+                </div>
+              );
+            })()}
+
+            {/* Row 5: Agent Profit / Balance (agent only) */}
+            {roleKey === 'agent' && (() => {
+              const agentPct = Number(summary.agentPercent ?? 0);
+              const weekNet = Number(summary.weekNet ?? 0);
+              const housePct = 100 - agentPct;
+              const housePercentage = agentPct > 0 ? weekNet * (housePct / 100) : weekNet;
+              return (
+                <div className="stat-box">
+                  <span className="stat-label">Agent Profit</span>
+                  <span className={`stat-value ${getSignedValueClass(housePercentage)}`}>{formatCurrency(housePercentage)}</span>
+                </div>
+              );
+            })()}
+            {roleKey === 'agent' && (() => {
+              const agentPct = Number(summary.agentPercent ?? 0);
+              const weekNet = Number(summary.weekNet ?? 0);
+              const housePct = 100 - agentPct;
+              const housePercentage = agentPct > 0 ? weekNet * (housePct / 100) : weekNet;
+              const paidFees = Number(summary.paidPlayerFees ?? 0);
+
+              const agentCol = Number(summary.agentDeposits ?? 0) - Number(summary.agentWithdrawals ?? 0);
+              const houseCol = Number(summary.houseDeposits ?? 0) - Number(summary.houseWithdrawals ?? 0);
+              const netCol = agentCol - houseCol;
+
+              let balance;
+              if (netCol >= 0) {
+                // Positive week: House Percentage + paid Player Fees
+                balance = housePercentage + paidFees;
+              } else {
+                // Negative week: positive money collected toward Makeup
+                balance = agentCol > 0 ? agentCol : 0;
+              }
+              return (
+                <div className="stat-box">
+                  <span className="stat-label">Balance</span>
+                  <span className={`stat-value ${getSignedValueClass(balance)}`}>{formatCurrency(balance)}</span>
+                </div>
+              );
+            })()}
           </div>
         </div>
       )}

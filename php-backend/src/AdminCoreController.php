@@ -951,9 +951,17 @@ final class AdminCoreController
                         return [
                             'totalBalance' => 0.0,
                             'totalOutstanding' => 0.0,
+                            'totalPlayerFees' => 0.0,
+                            'paidPlayerFees' => 0.0,
+                            'unpaidPlayerFees' => 0.0,
                             'todayNet' => 0.0,
                             'weekNet' => 0.0,
                             'activeAccounts' => 0,
+                            'agentDeposits' => 0.0,
+                            'agentWithdrawals' => 0.0,
+                            'houseDeposits' => 0.0,
+                            'houseWithdrawals' => 0.0,
+                            'agentPercent' => null,
                             'sportsbookHealth' => SportsbookHealth::sportsbookSnapshot($this->db),
                         ];
                     }
@@ -994,24 +1002,56 @@ final class AdminCoreController
                     'createdAt' => ['$gte' => MongoRepository::utcFromMillis($startOfWeek->getTimestamp() * 1000)],
                 ];
 
+                $txProjection = ['projection' => ['userId' => 1, 'amount' => 1, 'type' => 1, 'entrySide' => 1, 'reason' => 1, 'description' => 1, 'balanceBefore' => 1, 'balanceAfter' => 1, 'approvedByRole' => 1]];
                 $todayTx = [];
                 $weekTx = [];
                 if (($actor['role'] ?? '') !== 'admin') {
                     if (count($scopedUserIds) > 0) {
                         $txQueryToday['userId'] = ['$in' => $scopedUserIds];
                         $txQueryWeek['userId'] = ['$in' => $scopedUserIds];
-                        $todayTx = $this->db->findMany('transactions', $txQueryToday, ['projection' => ['userId' => 1, 'amount' => 1, 'type' => 1, 'entrySide' => 1, 'reason' => 1, 'description' => 1, 'balanceBefore' => 1, 'balanceAfter' => 1]]);
-                        $weekTx = $this->db->findMany('transactions', $txQueryWeek, ['projection' => ['userId' => 1, 'amount' => 1, 'type' => 1, 'entrySide' => 1, 'reason' => 1, 'description' => 1, 'balanceBefore' => 1, 'balanceAfter' => 1]]);
+                        $todayTx = $this->db->findMany('transactions', $txQueryToday, $txProjection);
+                        $weekTx = $this->db->findMany('transactions', $txQueryWeek, $txProjection);
                     }
                 } else {
-                    $todayTx = $this->db->findMany('transactions', $txQueryToday, ['projection' => ['userId' => 1, 'amount' => 1, 'type' => 1, 'entrySide' => 1, 'reason' => 1, 'description' => 1, 'balanceBefore' => 1, 'balanceAfter' => 1]]);
-                    $weekTx = $this->db->findMany('transactions', $txQueryWeek, ['projection' => ['userId' => 1, 'amount' => 1, 'type' => 1, 'entrySide' => 1, 'reason' => 1, 'description' => 1, 'balanceBefore' => 1, 'balanceAfter' => 1]]);
+                    $todayTx = $this->db->findMany('transactions', $txQueryToday, $txProjection);
+                    $weekTx = $this->db->findMany('transactions', $txQueryWeek, $txProjection);
                 }
 
                 $todayNetRows = array_values(array_filter($todayTx, fn (array $tx): bool => !$this->shouldExcludeFromNetSummaries($tx)));
                 $weekNetRows = array_values(array_filter($weekTx, fn (array $tx): bool => !$this->shouldExcludeFromNetSummaries($tx)));
                 $todayNetUser = $this->sumComprehensiveSignedTransactions($todayNetRows);
                 $weekNetUser = $this->sumComprehensiveSignedTransactions($weekNetRows);
+
+                // Agent Collections vs House Collections:
+                // Only deposits & withdrawals (no promo, no adjustments).
+                // Split by who approved: agent/master_agent → agent collections, admin → house collections.
+                $agentDeposits = 0.0;
+                $agentWithdrawals = 0.0;
+                $houseDeposits = 0.0;
+                $houseWithdrawals = 0.0;
+                foreach ($weekTx as $tx) {
+                    $txType = strtolower(trim((string) ($tx['type'] ?? '')));
+                    if ($txType !== 'deposit' && $txType !== 'withdrawal') {
+                        continue;
+                    }
+                    $approverRole = strtolower(trim((string) ($tx['approvedByRole'] ?? '')));
+                    $isHouse = ($approverRole === 'admin');
+                    $amt = $this->num($tx['amount'] ?? 0);
+                    if ($txType === 'deposit') {
+                        if ($isHouse) {
+                            $houseDeposits += $amt;
+                        } else {
+                            $agentDeposits += $amt;
+                        }
+                    } else {
+                        if ($isHouse) {
+                            $houseWithdrawals += $amt;
+                        } else {
+                            $agentWithdrawals += $amt;
+                        }
+                    }
+                }
+
                 $activeUserIds = [];
                 foreach ($weekTx as $tx) {
                     $txUserId = (string) ($tx['userId'] ?? '');
@@ -1021,12 +1061,46 @@ final class AdminCoreController
                 }
                 $activeAccounts = count($activeUserIds);
 
+                // Player Fees: $4 per active player
+                // Split by balance: positive-balance players pay fees, others don't
+                $feePerPlayer = 4.0;
+                $userBalanceMap = [];
+                foreach ($usersForBalance as $u) {
+                    $uid = (string) ($u['_id'] ?? '');
+                    if ($uid !== '') {
+                        $userBalanceMap[$uid] = $this->num($u['balance'] ?? 0);
+                    }
+                }
+                $activePositive = 0;
+                $activeNonPositive = 0;
+                foreach ($activeUserIds as $uid => $flag) {
+                    $bal = $userBalanceMap[$uid] ?? 0.0;
+                    if ($bal > 0) {
+                        $activePositive++;
+                    } else {
+                        $activeNonPositive++;
+                    }
+                }
+                $totalPlayerFees = $activeAccounts * $feePerPlayer;
+                $paidPlayerFees = $activePositive * $feePerPlayer;
+                $unpaidPlayerFees = $activeNonPositive * $feePerPlayer;
+
+                $actorAgentPercent = isset($actor['agentPercent']) ? (float) $actor['agentPercent'] : null;
+
                 return [
                     'totalBalance' => $totalBalance,
                     'totalOutstanding' => $userOutstanding + $agentOutstanding,
+                    'totalPlayerFees' => $totalPlayerFees,
+                    'paidPlayerFees' => $paidPlayerFees,
+                    'unpaidPlayerFees' => $unpaidPlayerFees,
                     'todayNet' => $todayNetUser,
                     'weekNet' => $weekNetUser,
                     'activeAccounts' => $activeAccounts,
+                    'agentDeposits' => $agentDeposits,
+                    'agentWithdrawals' => $agentWithdrawals,
+                    'houseDeposits' => $houseDeposits,
+                    'houseWithdrawals' => $houseWithdrawals,
+                    'agentPercent' => $actorAgentPercent,
                     'sportsbookHealth' => SportsbookHealth::sportsbookSnapshot($this->db),
                 ];
             });
