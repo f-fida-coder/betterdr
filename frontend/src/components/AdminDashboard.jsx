@@ -70,46 +70,38 @@ function AdminDashboard({ onMenuClick, onOpenScoreboard, role = 'admin', layoutP
   return (
     <div className="admin-dashboard">
       {isAgent && summary && (
-        <div className="agent-summary-boxes">
-          <div className="agent-summary-box">
-            <div className="agent-summary-row">
-              <span className="agent-summary-label">Week</span>
-              <span className={`agent-summary-value ${signClass(summary.weekNet)}`}>{fmt(summary.weekNet)}</span>
-            </div>
-            <div className="agent-summary-row">
-              <span className="agent-summary-label">Today</span>
-              <span className={`agent-summary-value ${signClass(summary.todayNet)}`}>{fmt(summary.todayNet)}</span>
-            </div>
+        <div className="agent-dashboard-stats">
+          <div className="stat-box">
+            <span className="stat-label">Week</span>
+            <span className={`stat-value ${signClass(summary.weekNet)}`}>{fmt(summary.weekNet)}</span>
           </div>
-          <div className="agent-summary-box">
-            <div className="agent-summary-row">
-              <span className="agent-summary-label">Active Players</span>
-              <span className="agent-summary-value highlight">{fmtCount(summary.activeAccounts)}</span>
-            </div>
-            <div className="agent-summary-row">
-              <span className="agent-summary-label">Player Fees</span>
-              <span className="agent-summary-value">{fmt(summary.totalOutstanding)}</span>
-            </div>
+          <div className="stat-box">
+            <span className="stat-label">Today</span>
+            <span className={`stat-value ${signClass(summary.todayNet)}`}>{fmt(summary.todayNet)}</span>
           </div>
-          <div className="agent-summary-box">
-            <div className="agent-summary-row">
-              <span className="agent-summary-label">Agent Collections</span>
-              <span className={`agent-summary-value ${signClass(summary.weekNet)}`}>{fmt(summary.weekNet > 0 ? summary.weekNet : 0)}</span>
-            </div>
-            <div className="agent-summary-row">
-              <span className="agent-summary-label">House Collections</span>
-              <span className={`agent-summary-value ${signClass(summary.weekNet)}`}>{fmt(summary.weekNet < 0 ? Math.abs(summary.weekNet) : 0)}</span>
-            </div>
+          <div className="stat-box">
+            <span className="stat-label">Active Players</span>
+            <span className="stat-value highlight">{fmtCount(summary.activeAccounts)}</span>
           </div>
-          <div className="agent-summary-box">
-            <div className="agent-summary-row">
-              <span className="agent-summary-label">Makeup</span>
-              <span className={`agent-summary-value ${signClass(-(summary.totalOutstanding || 0))}`}>{fmt(summary.totalOutstanding)}</span>
-            </div>
-            <div className="agent-summary-row">
-              <span className="agent-summary-label">Balance</span>
-              <span className={`agent-summary-value ${signClass(summary.totalBalance)}`}>{fmt(summary.totalBalance)}</span>
-            </div>
+          <div className="stat-box">
+            <span className="stat-label">Player Fees</span>
+            <span className="stat-value">{fmt(summary.totalOutstanding)}</span>
+          </div>
+          <div className="stat-box">
+            <span className="stat-label">Agent Collections</span>
+            <span className={`stat-value ${signClass(summary.weekNet)}`}>{fmt(summary.weekNet > 0 ? summary.weekNet : 0)}</span>
+          </div>
+          <div className="stat-box">
+            <span className="stat-label">House Collections</span>
+            <span className={`stat-value ${signClass(summary.weekNet)}`}>{fmt(summary.weekNet < 0 ? Math.abs(summary.weekNet) : 0)}</span>
+          </div>
+          <div className="stat-box">
+            <span className="stat-label">Makeup</span>
+            <span className={`stat-value ${signClass(-(summary.totalOutstanding || 0))}`}>{fmt(summary.totalOutstanding)}</span>
+          </div>
+          <div className="stat-box">
+            <span className="stat-label">Balance</span>
+            <span className={`stat-value ${signClass(summary.totalBalance)}`}>{fmt(summary.totalBalance)}</span>
           </div>
         </div>
       )}
