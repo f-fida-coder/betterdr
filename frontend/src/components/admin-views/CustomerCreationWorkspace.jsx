@@ -1623,10 +1623,18 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
                 const firstTwoPct = agentPct + hiringPct;
                 const selectedMaHasParentMa = (() => {
                   const selId = String(newCustomer.agentId || '').trim();
-                  if (!selId || !assignmentTreeRoot) return false;
+                  if (!assignmentTreeRoot) return false;
+                  if (!selId) {
+                    // Assigned directly to root (ME) — check if root itself is under a MA
+                    // Root is the logged-in user; if they're a MA, they are the top — no parent MA
+                    return false;
+                  }
                   const path = findAssignmentTreePath(assignmentTreeRoot, selId);
-                  // path: [root, ..., selectedNode] — check if any node between root and selected is a master agent
-                  if (path.length <= 2) return false; // direct child of root — no MA above
+                  if (path.length < 2) return false;
+                  // Check every node between root and selected (exclusive) for master agents
+                  // Also: if root itself is a master agent, then the selected node is under a MA
+                  const rootRole = normalizeAgentRole(assignmentTreeRoot?.role);
+                  if (rootRole === 'master_agent' || rootRole === 'super_agent') return true;
                   for (let i = 1; i < path.length - 1; i++) {
                     const mid = findAssignmentTreeNode(assignmentTreeRoot, path[i]);
                     if (mid && isMasterTreeNode(mid)) return true;
