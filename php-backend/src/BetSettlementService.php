@@ -8,7 +8,7 @@ final class BetSettlementService
     {
         self::assertValidMatchId($matchId);
 
-        $match = $db->findOne('matches', ['_id' => MongoRepository::id($matchId)]);
+        $match = $db->findOne('matches', ['id' => MongoRepository::id($matchId)]);
         if ($match === null) {
             throw new RuntimeException('Match not found');
         }
@@ -60,7 +60,7 @@ final class BetSettlementService
         try {
             self::assertValidMatchId($matchId);
 
-            $match = $db->findOne('matches', ['_id' => MongoRepository::id($matchId)]);
+            $match = $db->findOne('matches', ['id' => MongoRepository::id($matchId)]);
             if ($match === null) {
                 throw new RuntimeException('Match not found');
             }
@@ -111,7 +111,7 @@ final class BetSettlementService
                 try {
                     $db->beginTransaction();
 
-                    $bet = $db->findOneForUpdate('bets', ['_id' => MongoRepository::id($betId)]);
+                    $bet = $db->findOneForUpdate('bets', ['id' => MongoRepository::id($betId)]);
                     if ($bet === null || (string) ($bet['status'] ?? '') !== 'pending') {
                         $db->rollback();
                         continue;
@@ -123,7 +123,7 @@ final class BetSettlementService
                         continue;
                     }
 
-                    $user = $db->findOneForUpdate('users', ['_id' => MongoRepository::id($userId)]);
+                    $user = $db->findOneForUpdate('users', ['id' => MongoRepository::id($userId)]);
                     if ($user === null) {
                         $db->rollback();
                         continue;
@@ -154,7 +154,7 @@ final class BetSettlementService
                                 if ($resolvedStatus !== 'pending') {
                                     $row['settledAt'] = $now;
                                 }
-                                $db->updateOne('betselections', ['_id' => MongoRepository::id((string) ($row['_id'] ?? ''))], [
+                                $db->updateOne('betselections', ['id' => MongoRepository::id((string) ($row['id'] ?? ''))], [
                                     'status' => $resolvedStatus,
                                     'updatedAt' => $row['updatedAt'],
                                     'settledAt' => $row['settledAt'] ?? null,
@@ -182,7 +182,7 @@ final class BetSettlementService
                     $ticketPayout = round(self::num($evaluation['payout'] ?? 0));
 
                     if ($ticketStatus === 'pending') {
-                        $db->updateOne('bets', ['_id' => MongoRepository::id($betId)], [
+                        $db->updateOne('bets', ['id' => MongoRepository::id($betId)], [
                             'selections' => $normalizedSelections,
                             'updatedAt' => $now,
                         ]);
@@ -202,7 +202,7 @@ final class BetSettlementService
                         ? $pendingBalance
                         : max(0.0, $pendingBalance - $riskAmount);
 
-                    $db->updateOne('bets', ['_id' => MongoRepository::id($betId)], [
+                    $db->updateOne('bets', ['id' => MongoRepository::id($betId)], [
                         'selections'    => $normalizedSelections,
                         'status'        => $ticketStatus,
                         'result'        => $ticketStatus,
@@ -261,7 +261,7 @@ final class BetSettlementService
                         $results['lost']++;
                     }
 
-                    $db->updateOne('users', ['_id' => MongoRepository::id($userId)], $userUpdate);
+                    $db->updateOne('users', ['id' => MongoRepository::id($userId)], $userUpdate);
                     $db->insertOne('transactions', [
                         'userId'        => MongoRepository::id($userId),
                         'amount'        => $transactionAmount,
@@ -328,7 +328,7 @@ final class BetSettlementService
 
         foreach (array_keys($matchIds) as $matchId) {
             try {
-                $match = $db->findOne('matches', ['_id' => MongoRepository::id($matchId)]);
+                $match = $db->findOne('matches', ['id' => MongoRepository::id($matchId)]);
                 if ($match === null) {
                     continue;
                 }
@@ -373,7 +373,7 @@ final class BetSettlementService
             ],
         ], [
             'projection' => [
-                '_id' => 1,
+                'id' => 1,
                 'userId' => 1,
                 'ticketId' => 1,
                 'type' => 1,

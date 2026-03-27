@@ -176,7 +176,7 @@ const SystemMonitorView = () => {
                                 </tr>
                             ) : (
                                 liveMatches.map(m => (
-                                    <tr key={m.id || m._id}>
+                                    <tr key={m.id}>
                                         <td>{m.sport?.replace('_', ' ').toUpperCase()}</td>
                                         <td>{m.homeTeam} <span className="vs">vs</span> {m.awayTeam}</td>
                                         <td className="score-cell">

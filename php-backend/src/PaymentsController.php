@@ -60,7 +60,7 @@ final class PaymentsController
             $payload = [
                 'amount' => (string) ((int) round($amount * 100)),
                 'currency' => 'usd',
-                'metadata[userId]' => (string) $actor['_id'],
+                'metadata[userId]' => (string) $actor['id'],
                 'metadata[type]' => 'deposit',
                 'automatic_payment_methods[enabled]' => 'true',
             ];
@@ -128,7 +128,7 @@ final class PaymentsController
         }
 
         $collection = $this->collectionByRole($role);
-        $actor = $this->db->findOne($collection, ['_id' => MongoRepository::id($id)]);
+        $actor = $this->db->findOne($collection, ['id' => MongoRepository::id($id)]);
         if ($actor === null) {
             Response::json(['message' => 'Not authorized, user not found'], 403);
             return null;
@@ -262,7 +262,7 @@ final class PaymentsController
 
         $this->db->beginTransaction();
         try {
-            $user = $this->db->findOneForUpdate('users', ['_id' => MongoRepository::id($userId)]);
+            $user = $this->db->findOneForUpdate('users', ['id' => MongoRepository::id($userId)]);
             if ($user === null) {
                 $this->db->rollback();
                 return;
@@ -286,7 +286,7 @@ final class PaymentsController
             if ($freePlayBonusAmount > 0) {
                 $userUpdates['freeplayBalance'] = $freePlayBalanceAfter;
             }
-            $this->db->updateOne('users', ['_id' => MongoRepository::id($userId)], $userUpdates);
+            $this->db->updateOne('users', ['id' => MongoRepository::id($userId)], $userUpdates);
 
             $depositTransactionId = $this->db->insertOne('transactions', [
                 'userId' => MongoRepository::id($userId),
@@ -305,7 +305,7 @@ final class PaymentsController
                 $fpBonusDesc = 'Auto free play bonus ' . rtrim(rtrim(number_format($freePlayBonusPercent, 2, '.', ''), '0'), '.') . '% on deposit $' . number_format(abs($amount), 2, '.', '') . ' (Stripe)';
                 $referrerIdForDesc = trim((string) ($user['referredByUserId'] ?? ''));
                 if ($referrerIdForDesc !== '' && preg_match('/^[a-f0-9]{24}$/i', $referrerIdForDesc) === 1) {
-                    $referrerDoc = $this->db->findOne('users', ['_id' => MongoRepository::id($referrerIdForDesc)], ['projection' => ['username' => 1]]);
+                    $referrerDoc = $this->db->findOne('users', ['id' => MongoRepository::id($referrerIdForDesc)], ['projection' => ['username' => 1]]);
                     if ($referrerDoc !== null && isset($referrerDoc['username'])) {
                         $fpBonusDesc = 'Auto Freeplay bonus for referral ' . (string) $referrerDoc['username'];
                     }
@@ -426,7 +426,7 @@ final class PaymentsController
             ],
         ];
         if ($excludeTransactionId !== null && preg_match('/^[a-f0-9]{24}$/i', $excludeTransactionId) === 1) {
-            $filter['_id'] = ['$ne' => MongoRepository::id($excludeTransactionId)];
+            $filter['id'] = ['$ne' => MongoRepository::id($excludeTransactionId)];
         }
 
         return $this->db->countDocuments('transactions', $filter);
@@ -442,7 +442,7 @@ final class PaymentsController
         string $stripePaymentId = '',
         mixed $now = null
     ): void {
-        $referredUserId = trim((string) ($referredUser['_id'] ?? ''));
+        $referredUserId = trim((string) ($referredUser['id'] ?? ''));
         $referrerUserId = trim((string) ($referredUser['referredByUserId'] ?? ''));
         $normalizedDepositAmount = round(max(0.0, $depositAmount), 2);
         if (
@@ -460,7 +460,7 @@ final class PaymentsController
             return;
         }
 
-        $referrer = $this->db->findOneForUpdate('users', ['_id' => MongoRepository::id($referrerUserId)]);
+        $referrer = $this->db->findOneForUpdate('users', ['id' => MongoRepository::id($referrerUserId)]);
         if (!$this->isPlayerLikeUserDocument($referrer) || (string) ($referrer['status'] ?? 'active') !== 'active') {
             return;
         }
@@ -470,7 +470,7 @@ final class PaymentsController
         $freeplayBefore = $this->num($referrer['freeplayBalance'] ?? 0);
         $freeplayAfter = round($freeplayBefore + $referralBonusAmount, 2);
 
-        $this->db->updateOne('users', ['_id' => MongoRepository::id($referrerUserId)], [
+        $this->db->updateOne('users', ['id' => MongoRepository::id($referrerUserId)], [
             'freeplayBalance' => $freeplayAfter,
             'updatedAt' => $awardTimestamp,
         ]);
@@ -507,7 +507,7 @@ final class PaymentsController
         }
         $this->db->insertOne('transactions', $transactionDoc);
 
-        $this->db->updateOne('users', ['_id' => MongoRepository::id($referredUserId)], [
+        $this->db->updateOne('users', ['id' => MongoRepository::id($referredUserId)], [
             'referralBonusGranted' => true,
             'referralBonusGrantedAt' => $awardTimestamp,
             'referralQualifiedDepositAt' => $awardTimestamp,

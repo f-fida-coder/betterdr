@@ -155,7 +155,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                 let displayScore2 = match.score?.score_away ?? 0;
 
                 return {
-                    id: match.id || match._id || match.externalId,
+                    id: match.id || match.externalId,
                     time: match.startTime ? new Date(match.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
                     date: match.startTime ? new Date(match.startTime).toLocaleDateString() : '',
                     team1: { name: homeName, abbr: homeName.substring(0, 3).toUpperCase(), logo: '🔵' },

@@ -38,7 +38,7 @@ const SupportView = () => {
             setMessages(sortedMessages);
             setFaqs(Array.isArray(faqPayload?.faqs) ? faqPayload.faqs : []);
             if (sortedMessages.length > 0) {
-                setActiveThreadId((prev) => prev || (sortedMessages[0]._id || sortedMessages[0].id));
+                setActiveThreadId((prev) => prev || sortedMessages[0].id);
             }
         } catch (err) {
             setError(err.message || 'Failed to load support data');
@@ -52,7 +52,7 @@ const SupportView = () => {
     }, []);
 
     const activeThread = useMemo(
-        () => messages.find((message) => (message._id || message.id) === activeThreadId) || messages[0] || null,
+        () => messages.find((message) => message.id === activeThreadId) || messages[0] || null,
         [messages, activeThreadId]
     );
 
@@ -82,7 +82,7 @@ const SupportView = () => {
             const trimmedSubject = subject.trim() || body.trim().split(' ').slice(0, 6).join(' ');
             const message = await createMessage(trimmedSubject, body.trim(), token);
             setMessages((prev) => [message, ...prev]);
-            setActiveThreadId(message._id || message.id);
+            setActiveThreadId(message.id);
             setSubject('');
             setBody('');
             setError('');
@@ -146,12 +146,12 @@ const SupportView = () => {
                         {!loading && messages.length > 0 && (
                             <div className="thread-list">
                                 {messages.map((message) => {
-                                    const id = message._id || message.id;
+                                    const id = message.id;
                                     return (
                                         <button
                                             key={id}
                                             type="button"
-                                            className={`thread-item ${id === (activeThread?._id || activeThread?.id) ? 'active' : ''}`}
+                                            className={`thread-item ${id === activeThread?.id ? 'active' : ''}`}
                                             onClick={() => setActiveThreadId(id)}
                                         >
                                             <div>
@@ -184,7 +184,7 @@ const SupportView = () => {
                                 <div className="thread-replies">
                                     {(activeThread.replies || []).length === 0 && <div className="support-empty">No replies yet.</div>}
                                     {(activeThread.replies || []).map((reply, idx) => (
-                                        <div className="reply-item" key={`${activeThread._id || activeThread.id}-reply-${idx}`}>
+                                        <div className="reply-item" key={`${activeThread.id}-reply-${idx}`}>
                                             <div className="thread-meta">
                                                 <span>{new Date(reply.createdAt).toLocaleString()}</span>
                                                 <span>Support</span>
@@ -211,7 +211,7 @@ const SupportView = () => {
                         {filteredFaqs.length === 0 && <div className="support-empty">No FAQs found.</div>}
                         <div className="faq-list">
                             {filteredFaqs.map((faq) => (
-                                <details key={faq._id || faq.id} className="faq-item">
+                                <details key={faq.id} className="faq-item">
                                     <summary>{faq.question}</summary>
                                     <p>{faq.answer}</p>
                                 </details>

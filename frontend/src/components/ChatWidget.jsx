@@ -30,14 +30,14 @@ const ChatWidget = () => {
             const flattened = [];
             data.forEach(msg => {
                 flattened.push({
-                    id: `${msg._id}-user`,
+                    id: `${msg.id}-user`,
                     text: msg.body,
                     sender: 'user',
                     createdAt: msg.createdAt
                 });
                 (msg.replies || []).forEach((reply, idx) => {
                     flattened.push({
-                        id: `${msg._id}-reply-${idx}`,
+                        id: `${msg.id}-reply-${idx}`,
                         text: reply.message,
                         sender: 'agent',
                         createdAt: reply.createdAt
@@ -73,7 +73,7 @@ const ChatWidget = () => {
             const newMessage = await createMessage(subject, body, token);
             setMessages(prev => ([
                 ...prev,
-                { id: `${newMessage._id}-user`, text: newMessage.body, sender: 'user', createdAt: newMessage.createdAt }
+                { id: `${newMessage.id}-user`, text: newMessage.body, sender: 'user', createdAt: newMessage.createdAt }
             ]));
             setInputValue('');
             setError('');

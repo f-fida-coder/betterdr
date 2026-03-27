@@ -45,7 +45,7 @@ function MessagingView() {
       setActionLoadingId(messageId);
       await replyToMessage(messageId, reply, token);
       setMessages(prev => prev.map(msg => (
-        msg._id === messageId ? { ...msg, read: true, replies: [...(msg.replies || []), { message: reply, createdAt: new Date() }] } : msg
+        msg.id === messageId ? { ...msg, read: true, replies: [...(msg.replies || []), { message: reply, createdAt: new Date() }] } : msg
       )));
     } catch (err) {
       setError(err.message || 'Failed to send reply');
@@ -63,7 +63,7 @@ function MessagingView() {
     try {
       setActionLoadingId(messageId);
       await deleteMessage(messageId, token);
-      setMessages(prev => prev.filter(msg => msg._id !== messageId));
+      setMessages(prev => prev.filter(msg => msg.id !== messageId));
     } catch (err) {
       setError(err.message || 'Failed to delete message');
     } finally {
@@ -77,7 +77,7 @@ function MessagingView() {
     try {
       await markMessageRead(messageId, token);
       setMessages(prev => prev.map(msg => (
-        msg._id === messageId ? { ...msg, read: true } : msg
+        msg.id === messageId ? { ...msg, read: true } : msg
       )));
     } catch (err) {
       console.error('Failed to mark read:', err);
@@ -98,9 +98,9 @@ function MessagingView() {
           <div className="message-list">
             {messages.map(msg => (
               <div
-                key={msg._id}
+                key={msg.id}
                 className={`message-item ${!msg.read ? 'unread' : ''}`}
-                onClick={() => handleMarkRead(msg._id)}
+                onClick={() => handleMarkRead(msg.id)}
               >
                 <div className="message-header">
                   <h4>{msg.fromName}</h4>
@@ -113,21 +113,21 @@ function MessagingView() {
                     className="btn-small"
                     onClick={(e) => {
                       e.stopPropagation();
-                      handleReply(msg._id);
+                      handleReply(msg.id);
                     }}
-                    disabled={actionLoadingId === msg._id}
+                    disabled={actionLoadingId === msg.id}
                   >
-                    {actionLoadingId === msg._id ? 'Working...' : 'Reply'}
+                    {actionLoadingId === msg.id ? 'Working...' : 'Reply'}
                   </button>
                   <button
                     className="btn-small"
                     onClick={(e) => {
                       e.stopPropagation();
-                      handleDelete(msg._id);
+                      handleDelete(msg.id);
                     }}
-                    disabled={actionLoadingId === msg._id}
+                    disabled={actionLoadingId === msg.id}
                   >
-                    {actionLoadingId === msg._id ? 'Working...' : 'Delete'}
+                    {actionLoadingId === msg.id ? 'Working...' : 'Delete'}
                   </button>
                 </div>
               </div>

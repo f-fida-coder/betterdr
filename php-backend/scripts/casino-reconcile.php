@@ -69,7 +69,7 @@ $byUserBetNet = [];
 $byUserLedgerNet = [];
 
 foreach ($rows as $row) {
-    $roundId = (string) ($row['roundId'] ?? $row['_id'] ?? '');
+    $roundId = (string) ($row['roundId'] ?? $row['id'] ?? '');
     $requestId = (string) ($row['requestId'] ?? '');
     if (!$includeLegacy && $requestId === '') {
         $summary['legacySkipped']++;

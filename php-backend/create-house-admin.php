@@ -27,7 +27,7 @@ foreach ($admins as $admin) {
 }
 
 if ($existing !== null) {
-    echo "HOUSE admin already exists (ID: " . ($existing['_id'] ?? 'unknown') . ")\n";
+    echo "HOUSE admin already exists (ID: " . ($existing['id'] ?? 'unknown') . ")\n";
     exit(0);
 }
 

@@ -54,7 +54,7 @@ const TutorialsView = () => {
 
     const tutorialCards = useMemo(() => {
         return tutorials.map((tutorial) => ({
-            id: tutorial._id || tutorial.id,
+            id: tutorial.id,
             title: tutorial.title,
             desc: tutorial.content,
             content: tutorial.content,

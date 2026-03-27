@@ -172,7 +172,7 @@ function AdminHeader({
   }, [showMobilePlayerSearch]);
 
   const normalizeSearchValue = (value) => String(value || '').trim().toLowerCase();
-  const getPlayerId = (player) => String(player?.id || player?._id || player?.mongo_id || '');
+  const getPlayerId = (player) => String(player?.id || '');
   const getPlayerFullName = (player) => (
     player?.fullName || `${player?.firstName || ''} ${player?.lastName || ''}`.trim()
   );

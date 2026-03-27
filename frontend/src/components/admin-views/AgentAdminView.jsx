@@ -97,9 +97,9 @@ function AgentAdminView() {
       const token = localStorage.getItem('token');
 
       if (isSuspended) {
-        await unsuspendUser(agent.id || agent._id, token);
+        await unsuspendUser(agent.id, token);
       } else {
-        await suspendUser(agent.id || agent._id, token);
+        await suspendUser(agent.id, token);
       }
       fetchAgents();
     } catch (error) {
@@ -109,7 +109,7 @@ function AgentAdminView() {
 
   const openEditModal = (agent) => {
     setEditForm({
-      id: agent.id || agent._id,
+      id: agent.id,
       phoneNumber: agent.phoneNumber || '',
       password: '', // Don't show existing hash
       agentBillingRate: agent.agentBillingRate ?? '',
@@ -146,7 +146,7 @@ function AgentAdminView() {
   };
 
   const handleAdjustBalance = async (agent) => {
-    const agentId = agent.id || agent._id;
+    const agentId = agent.id;
     const currentBalance = agent.balance ?? 0;
     const input = window.prompt('Enter new agent balance:', `${currentBalance}`);
     if (input === null) return;
@@ -168,7 +168,7 @@ function AgentAdminView() {
   };
 
   const handleResetPassword = async (agent) => {
-    const agentId = agent.id || agent._id;
+    const agentId = agent.id;
     const newPassword = window.prompt(`Enter new password for agent ${agent.username}:`, '');
 
     if (newPassword === null) return;
@@ -385,7 +385,7 @@ function AgentAdminView() {
               ) : filteredAgents.length === 0 ? (
                 <tr><td colSpan="14">No agents found matching filter.</td></tr>
               ) : filteredAgents.map(agent => (
-                <tr key={agent.id || agent._id}>
+                <tr key={agent.id}>
                   <td>{agent.username}</td>
                   <td>
                     <span className={`badge ${agent.role === 'master_agent' ? 'btn-primary' : 'btn-secondary'}`} style={{ fontSize: '0.75rem', textTransform: 'capitalize' }}>

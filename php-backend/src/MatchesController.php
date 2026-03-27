@@ -104,7 +104,7 @@ final class MatchesController
     private function getMatchById(string $id): void
     {
         try {
-            $match = $this->db->findOne('matches', ['_id' => MongoRepository::id($id)]);
+            $match = $this->db->findOne('matches', ['id' => MongoRepository::id($id)]);
             if ($match === null) {
                 Response::json(['message' => 'Match not found'], 404);
                 return;
@@ -171,7 +171,7 @@ final class MatchesController
             return null;
         }
 
-        $admin = $this->db->findOne('admins', ['_id' => MongoRepository::id($id)]);
+        $admin = $this->db->findOne('admins', ['id' => MongoRepository::id($id)]);
         if ($admin === null) {
             Response::json(['message' => 'Not authorized, user not found'], 403);
             return null;
@@ -333,14 +333,14 @@ final class MatchesController
      */
     private function publicRefreshState(): array
     {
-        $existing = $this->db->findOne('sportsbookcache', ['_id' => self::PUBLIC_CACHE_DOC_ID]);
+        $existing = $this->db->findOne('sportsbookcache', ['id' => self::PUBLIC_CACHE_DOC_ID]);
         if (is_array($existing)) {
             return $existing;
         }
 
         $createdAt = MongoRepository::nowUtc();
         $this->db->insertOneIfAbsent('sportsbookcache', [
-            '_id' => self::PUBLIC_CACHE_DOC_ID,
+            'id' => self::PUBLIC_CACHE_DOC_ID,
             'lastRefreshAttemptAt' => null,
             'lastRefreshFinishedAt' => null,
             'lastRefreshSuccessAt' => null,
@@ -353,7 +353,7 @@ final class MatchesController
             'updatedAt' => $createdAt,
         ]);
 
-        return $this->db->findOne('sportsbookcache', ['_id' => self::PUBLIC_CACHE_DOC_ID]) ?? [];
+        return $this->db->findOne('sportsbookcache', ['id' => self::PUBLIC_CACHE_DOC_ID]) ?? [];
     }
 
     /**
@@ -364,7 +364,7 @@ final class MatchesController
     {
         $createdAt = (string) ($state['createdAt'] ?? '');
         $doc = array_merge($state, $changes, [
-            '_id' => self::PUBLIC_CACHE_DOC_ID,
+            'id' => self::PUBLIC_CACHE_DOC_ID,
             'createdAt' => $createdAt !== '' ? $createdAt : MongoRepository::nowUtc(),
         ]);
         $this->db->insertOne('sportsbookcache', $doc);

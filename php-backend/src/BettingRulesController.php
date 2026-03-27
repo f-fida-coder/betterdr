@@ -133,7 +133,7 @@ final class BettingRulesController
                 return;
             }
 
-            $this->db->updateOne('betmoderules', ['_id' => MongoRepository::id((string) $rule['_id'])], [
+            $this->db->updateOne('betmoderules', ['id' => MongoRepository::id((string) $rule['id'])], [
                 'minLegs' => $minLegs,
                 'maxLegs' => $maxLegs,
                 'teaserPointOptions' => $teaserPointOptions,
@@ -142,7 +142,7 @@ final class BettingRulesController
                 'updatedAt' => MongoRepository::nowUtc(),
             ]);
 
-            $updated = $this->db->findOne('betmoderules', ['_id' => MongoRepository::id((string) $rule['_id'])]);
+            $updated = $this->db->findOne('betmoderules', ['id' => MongoRepository::id((string) $rule['id'])]);
             Response::json([
                 'message' => 'Bet mode rule updated',
                 'rule' => $updated,
@@ -195,7 +195,7 @@ final class BettingRulesController
         }
 
         $collection = $this->collectionByRole($role);
-        $actor = $this->db->findOne($collection, ['_id' => MongoRepository::id($id)]);
+        $actor = $this->db->findOne($collection, ['id' => MongoRepository::id($id)]);
         if ($actor === null) {
             Response::json(['message' => 'Not authorized, user not found'], 403);
             return null;

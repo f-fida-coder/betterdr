@@ -112,7 +112,7 @@ const MobileContentView = ({ selectedSports = [] }) => {
             const isLive = match.status === 'live' || eventStatus.includes('IN_PROGRESS') || eventStatus.includes('LIVE') || eventStatus.includes('STATUS_IN_PROGRESS');
 
             return {
-                id: match.id || match._id || match.externalId,
+                id: match.id || match.externalId,
                 sport: match.sport || match.sportTitle || '',
                 team1: homeName,
                 team2: awayName,

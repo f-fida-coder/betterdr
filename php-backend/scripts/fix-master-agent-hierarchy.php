@@ -37,11 +37,11 @@ TXT;
 }
 
 /**
- * @return array{mongo_id: string, doc: array<string, mixed>}|null
+ * @return array{id: string, doc: array<string, mixed>}|null
  */
 function fetchDocByUsername(PDO $pdo, string $table, string $username): ?array
 {
-    $sql = "SELECT mongo_id, doc
+    $sql = "SELECT id, doc
             FROM {$table}
             WHERE UPPER(JSON_UNQUOTE(JSON_EXTRACT(doc, '$.username'))) = UPPER(:username)
             LIMIT 1";
@@ -54,21 +54,21 @@ function fetchDocByUsername(PDO $pdo, string $table, string $username): ?array
 
     $doc = json_decode((string) ($row['doc'] ?? '{}'), true);
     if (!is_array($doc)) {
-        throw new RuntimeException("Failed to decode {$table}.doc for mongo_id={$row['mongo_id']}");
+        throw new RuntimeException("Failed to decode {$table}.doc for id={$row['id']}");
     }
 
     return [
-        'mongo_id' => (string) ($row['mongo_id'] ?? ''),
+        'id' => (string) ($row['id'] ?? ''),
         'doc' => $doc,
     ];
 }
 
 /**
- * @return array{mongo_id: string, doc: array<string, mixed>}|null
+ * @return array{id: string, doc: array<string, mixed>}|null
  */
 function fetchDocById(PDO $pdo, string $table, string $mongoId): ?array
 {
-    $sql = "SELECT mongo_id, doc FROM {$table} WHERE mongo_id = :id LIMIT 1";
+    $sql = "SELECT id, doc FROM {$table} WHERE id = :id LIMIT 1";
     $stmt = $pdo->prepare($sql);
     $stmt->execute([':id' => $mongoId]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -78,11 +78,11 @@ function fetchDocById(PDO $pdo, string $table, string $mongoId): ?array
 
     $doc = json_decode((string) ($row['doc'] ?? '{}'), true);
     if (!is_array($doc)) {
-        throw new RuntimeException("Failed to decode {$table}.doc for mongo_id={$row['mongo_id']}");
+        throw new RuntimeException("Failed to decode {$table}.doc for id={$row['id']}");
     }
 
     return [
-        'mongo_id' => (string) ($row['mongo_id'] ?? ''),
+        'id' => (string) ($row['id'] ?? ''),
         'doc' => $doc,
     ];
 }
@@ -192,7 +192,7 @@ try {
         throw new RuntimeException("Base agent '{$baseAgentUsername}' not found in agents table.");
     }
 
-    $baseId = $base['mongo_id'];
+    $baseId = $base['id'];
     $baseDoc = $base['doc'];
     $baseRole = normalizedRole($baseDoc);
 
@@ -200,7 +200,7 @@ try {
     if ($existingMaster !== null) {
         $existingMasterRole = normalizedRole($existingMaster['doc']);
         $alreadyLinked = $baseRole === 'agent'
-            && (string) ($baseDoc['createdBy'] ?? '') === $existingMaster['mongo_id']
+            && (string) ($baseDoc['createdBy'] ?? '') === $existingMaster['id']
             && strtolower((string) ($baseDoc['createdByModel'] ?? '')) === 'agent'
             && in_array($existingMasterRole, ['master_agent', 'super_agent'], true);
 
@@ -295,11 +295,11 @@ try {
     $pdo->beginTransaction();
 
     $insertAgent = $pdo->prepare('
-        INSERT INTO agents (mongo_id, doc, created_at, updated_at)
-        VALUES (:mongo_id, :doc, :created_at, :updated_at)
+        INSERT INTO agents (id, doc, created_at, updated_at)
+        VALUES (:id, :doc, :created_at, :updated_at)
     ');
     $insertAgent->execute([
-        ':mongo_id' => $newMasterId,
+        ':id' => $newMasterId,
         ':doc' => json_encode($newMasterDoc, JSON_UNESCAPED_SLASHES),
         ':created_at' => toMysqlDate((string) ($newMasterDoc['createdAt'] ?? null)),
         ':updated_at' => toMysqlDate((string) ($newMasterDoc['updatedAt'] ?? null)),
@@ -308,12 +308,12 @@ try {
     $updateBase = $pdo->prepare('
         UPDATE agents
         SET doc = :doc, updated_at = :updated_at
-        WHERE mongo_id = :mongo_id
+        WHERE id = :id
     ');
     $updateBase->execute([
         ':doc' => json_encode($updatedBaseDoc, JSON_UNESCAPED_SLASHES),
         ':updated_at' => toMysqlDate((string) ($updatedBaseDoc['updatedAt'] ?? null)),
-        ':mongo_id' => $baseId,
+        ':id' => $baseId,
     ]);
 
     $deleteOldMasterLinks = $pdo->prepare("
@@ -327,7 +327,7 @@ try {
     ]);
 
     $existingMasterLinkStmt = $pdo->prepare("
-        SELECT mongo_id
+        SELECT id
         FROM master_agents
         WHERE JSON_UNQUOTE(JSON_EXTRACT(doc, '$.agentId')) = :agent_id
            OR UPPER(JSON_UNQUOTE(JSON_EXTRACT(doc, '$.username'))) = UPPER(:username)
@@ -343,12 +343,12 @@ try {
         $updateMasterLink = $pdo->prepare('
             UPDATE master_agents
             SET doc = :doc, updated_at = :updated_at
-            WHERE mongo_id = :mongo_id
+            WHERE id = :id
         ');
         $updateMasterLink->execute([
             ':doc' => json_encode($newMasterLinkDoc, JSON_UNESCAPED_SLASHES),
             ':updated_at' => toMysqlDate((string) ($newMasterLinkDoc['updatedAt'] ?? null)),
-            ':mongo_id' => $existingMasterLinkId,
+            ':id' => $existingMasterLinkId,
         ]);
     } else {
         $newMasterLinkId = objectId();
@@ -357,11 +357,11 @@ try {
         }
 
         $insertMasterLink = $pdo->prepare('
-            INSERT INTO master_agents (mongo_id, doc, created_at, updated_at)
-            VALUES (:mongo_id, :doc, :created_at, :updated_at)
+            INSERT INTO master_agents (id, doc, created_at, updated_at)
+            VALUES (:id, :doc, :created_at, :updated_at)
         ');
         $insertMasterLink->execute([
-            ':mongo_id' => $newMasterLinkId,
+            ':id' => $newMasterLinkId,
             ':doc' => json_encode($newMasterLinkDoc, JSON_UNESCAPED_SLASHES),
             ':created_at' => toMysqlDate((string) ($newMasterLinkDoc['createdAt'] ?? null)),
             ':updated_at' => toMysqlDate((string) ($newMasterLinkDoc['updatedAt'] ?? null)),
@@ -374,7 +374,7 @@ try {
 
     $postCheck = $pdo->query("
         SELECT
-            mongo_id,
+            id,
             JSON_UNQUOTE(JSON_EXTRACT(doc, '$.username')) AS username,
             JSON_UNQUOTE(JSON_EXTRACT(doc, '$.role')) AS role,
             JSON_UNQUOTE(JSON_EXTRACT(doc, '$.createdBy')) AS createdBy,

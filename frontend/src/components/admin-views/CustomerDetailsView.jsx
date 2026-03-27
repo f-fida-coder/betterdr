@@ -364,7 +364,7 @@ const getTransactionUserId = (txn) => {
   return String(
     txn.userId
     ?? txn.playerId
-    ?? txn.user?._id
+    ?? txn.user?.id
     ?? txn.user?.id
     ?? ''
   ).trim();
@@ -544,7 +544,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
           setAgentPercentDraft(user?.agentPercent != null ? String(user.agentPercent) : '');
           setPlayerRateDraft(user?.playerRate != null ? String(user.playerRate) : '');
           setHiringAgentPercentDraft(user?.hiringAgentPercent != null ? String(user.hiringAgentPercent) : '');
-          setHiringAgentIdDraft(normalizedUser.parentAgentId || normalizedUser.masterAgentId || normalizedUser.createdBy?._id || normalizedUser.createdBy || '');
+          setHiringAgentIdDraft(normalizedUser.parentAgentId || normalizedUser.masterAgentId || normalizedUser.createdBy?.id || normalizedUser.createdBy || '');
           setSubAgentPercentDraft(user?.subAgentPercent != null ? String(user.subAgentPercent) : '');
           setExtraSubAgentsDraft(Array.isArray(user?.extraSubAgents) ? user.extraSubAgents.map((sa, i) => ({ id: i, name: sa.name || '', percent: sa.percent != null ? String(sa.percent) : '' })) : []);
         }
@@ -558,8 +558,8 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
             userIsAgent
               ? (normalizedUser.parentAgentId || normalizedUser.masterAgentId || '')
               : role === 'admin'
-                ? (normalizedUser.masterAgentId || normalizedUser.agentId?._id || normalizedUser.agentId || '')
-                : (normalizedUser.agentId?._id || normalizedUser.agentId || '')
+                ? (normalizedUser.masterAgentId || normalizedUser.agentId?.id || normalizedUser.agentId || '')
+                : (normalizedUser.agentId?.id || normalizedUser.agentId || '')
           ),
           status: (normalizedUser.status || 'active').toLowerCase(),
           creditLimit: normalizedUser.creditLimit,
@@ -1057,7 +1057,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
 
   const hiringAgentUsername = useMemo(() => {
     if (!hiringAgentIdDraft) return '';
-    const match = agents.find((a) => (a.id || a._id) === hiringAgentIdDraft);
+    const match = agents.find((a) => a.id === hiringAgentIdDraft);
     return match ? String(match.username || '').toUpperCase() : String(customer?.createdByUsername || customer?.createdBy?.username || '').toUpperCase();
   }, [hiringAgentIdDraft, agents, customer]);
 
@@ -2229,7 +2229,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
                               return r === 'master_agent' || r === 'super_agent';
                             })
                             .map((a) => {
-                              const id = a.id || a._id;
+                              const id = a.id;
                               return <option key={id} value={id}>{String(a.username || '').toUpperCase()}</option>;
                             })}
                         </select>
@@ -2423,7 +2423,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
                           return r === 'master_agent' || r === 'super_agent';
                         })
                         .map((a) => {
-                          const id = a.id || a._id;
+                          const id = a.id;
                           return <option key={id} value={id}>{String(a.username || '').toUpperCase()}</option>;
                         })}
                     </select>
@@ -2877,7 +2877,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
                   return r === 'master_agent' || r === 'super_agent';
                 })
                 .map((a) => {
-                  const id = a.id || a._id;
+                  const id = a.id;
                   return <option key={id} value={id}>{a.username}</option>;
                 })}
             </select>

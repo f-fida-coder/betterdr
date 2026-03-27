@@ -109,7 +109,7 @@ function AgentPermissionModal({ agent, onClose, onUpdate }) {
         try {
             const token = localStorage.getItem('token');
             // Call the separate API function for permissions
-            await updateAgentPermissions(agent.id || agent._id, permissions, token);
+            await updateAgentPermissions(agent.id, permissions, token);
 
             alert('Permissions updated successfully');
             if (onUpdate) onUpdate();

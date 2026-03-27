@@ -262,7 +262,7 @@ final class CasinoController
             $games = self::fallbackGames();
             $game = null;
             foreach ($games as $candidate) {
-                if (strtolower((string) ($candidate['_id'] ?? '')) === $id) {
+                if (strtolower((string) ($candidate['id'] ?? '')) === $id) {
                     $game = $candidate;
                     break;
                 }
@@ -291,7 +291,7 @@ final class CasinoController
             $launchUrl = $baseLaunchUrl
                 . (str_contains($baseLaunchUrl, '?') ? '&' : '?')
                 . 'user=' . rawurlencode((string) ($actor['username'] ?? 'user'))
-                . '&gameId=' . rawurlencode((string) ($game['_id'] ?? ''))
+                . '&gameId=' . rawurlencode((string) ($game['id'] ?? ''))
                 . '&ts=' . time();
 
             Response::json([
@@ -561,7 +561,7 @@ final class CasinoController
                 return;
             }
 
-            $game = $this->db->findOne('casinogames', ['_id' => MongoRepository::id($id)]);
+            $game = $this->db->findOne('casinogames', ['id' => MongoRepository::id($id)]);
             if ($game === null) {
                 Response::json(['message' => 'Casino game not found'], 404);
                 return;
@@ -589,7 +589,7 @@ final class CasinoController
             $launchUrl = $baseLaunchUrl
                 . (str_contains($baseLaunchUrl, '?') ? '&' : '?')
                 . 'user=' . rawurlencode((string) ($actor['username'] ?? 'user'))
-                . '&gameId=' . rawurlencode((string) ($game['_id'] ?? ''))
+                . '&gameId=' . rawurlencode((string) ($game['id'] ?? ''))
                 . '&ts=' . time();
 
             Response::json([
@@ -652,8 +652,8 @@ final class CasinoController
             ];
 
             $id = $this->db->insertOne('casinogames', $doc);
-            $created = $this->db->findOne('casinogames', ['_id' => MongoRepository::id($id)]);
-            Response::json($this->toPublicGame($created ?? array_merge($doc, ['_id' => $id])), 201);
+            $created = $this->db->findOne('casinogames', ['id' => MongoRepository::id($id)]);
+            Response::json($this->toPublicGame($created ?? array_merge($doc, ['id' => $id])), 201);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error creating casino game'], 500);
         }
@@ -671,7 +671,7 @@ final class CasinoController
                 return;
             }
 
-            $existing = $this->db->findOne('casinogames', ['_id' => MongoRepository::id($id)]);
+            $existing = $this->db->findOne('casinogames', ['id' => MongoRepository::id($id)]);
             if ($existing === null) {
                 Response::json(['message' => 'Casino game not found'], 404);
                 return;
@@ -705,14 +705,14 @@ final class CasinoController
 
             if (isset($updates['slug']) && $updates['slug'] !== ($existing['slug'] ?? null)) {
                 $slugConflict = $this->db->findOne('casinogames', ['slug' => $updates['slug']]);
-                if ($slugConflict !== null && (string) $slugConflict['_id'] !== (string) $existing['_id']) {
+                if ($slugConflict !== null && (string) $slugConflict['id'] !== (string) $existing['id']) {
                     Response::json(['message' => 'Game slug already exists'], 409);
                     return;
                 }
             }
 
-            $this->db->updateOne('casinogames', ['_id' => MongoRepository::id($id)], $updates);
-            $updated = $this->db->findOne('casinogames', ['_id' => MongoRepository::id($id)]);
+            $this->db->updateOne('casinogames', ['id' => MongoRepository::id($id)], $updates);
+            $updated = $this->db->findOne('casinogames', ['id' => MongoRepository::id($id)]);
             Response::json($this->toPublicGame($updated ?? array_merge($existing, $updates)));
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error updating casino game'], 500);
@@ -838,7 +838,7 @@ final class CasinoController
                     $this->db->insertOne('casinogames', $mapped);
                     $inserted++;
                 } else {
-                    $this->db->updateOne('casinogames', ['_id' => MongoRepository::id((string) $existing['_id'])], $mapped);
+                    $this->db->updateOne('casinogames', ['id' => MongoRepository::id((string) $existing['id'])], $mapped);
                     $matched++;
                     $modified++;
                 }
@@ -866,7 +866,7 @@ final class CasinoController
         if ($stale3cp !== null) {
             $this->db->updateOne(
                 'casinogames',
-                ['_id' => MongoRepository::id((string) $stale3cp['_id'])],
+                ['id' => MongoRepository::id((string) $stale3cp['id'])],
                 ['imageUrl' => '/games/3-card-poker/sprites/200x200.jpg', 'updatedAt' => $now]
             );
         }
@@ -890,7 +890,7 @@ final class CasinoController
             if (count($jurassicUpdates) > 1) {
                 $this->db->updateOne(
                     'casinogames',
-                    ['_id' => MongoRepository::id((string) $jurassicGame['_id'])],
+                    ['id' => MongoRepository::id((string) $jurassicGame['id'])],
                     $jurassicUpdates
                 );
             }
@@ -947,7 +947,7 @@ final class CasinoController
             }
             $this->db->updateOne(
                 'casinogames',
-                ['_id' => MongoRepository::id((string) $existingRemoved['_id'])],
+                ['id' => MongoRepository::id((string) $existingRemoved['id'])],
                 [
                     'status' => 'disabled',
                     'isFeatured' => false,
@@ -960,7 +960,7 @@ final class CasinoController
     private function toPublicGame(array $game): array
     {
         return [
-            'id' => $game['_id'] ?? null,
+            'id' => $game['id'] ?? null,
             'externalGameId' => $game['externalGameId'] ?? null,
             'provider' => $game['provider'] ?? null,
             'name' => $game['name'] ?? null,
@@ -1079,10 +1079,10 @@ final class CasinoController
                 return;
             }
 
-            $userId = (string) ($actor['_id'] ?? '');
+            $userId = (string) ($actor['id'] ?? '');
             $this->db->beginTransaction();
             try {
-                $lockedUser = $this->db->findOneForUpdate('users', ['_id' => MongoRepository::id($userId)]);
+                $lockedUser = $this->db->findOneForUpdate('users', ['id' => MongoRepository::id($userId)]);
                 if ($lockedUser === null) {
                     $this->db->rollback();
                     Response::json(['message' => 'User not found'], 404);
@@ -1102,7 +1102,7 @@ final class CasinoController
                     'game' => self::BACCARAT_GAME_SLUG,
                 ]);
                 if ($existingRound !== null) {
-                    $roundId = (string) ($existingRound['roundId'] ?? $existingRound['_id'] ?? '');
+                    $roundId = (string) ($existingRound['roundId'] ?? $existingRound['id'] ?? '');
                     $ledgerEntries = $this->findRoundLedgerEntries($roundId);
                     $this->writeCasinoAuditLog('baccarat_round_idempotent', [
                         'requestId' => $requestId,
@@ -1200,7 +1200,7 @@ final class CasinoController
                 ];
                 $creditEntryId = $this->db->insertOne('transactions', $creditEntry);
 
-                $this->db->updateOne('users', ['_id' => MongoRepository::id($userId)], [
+                $this->db->updateOne('users', ['id' => MongoRepository::id($userId)], [
                     'balance' => $balanceAfter,
                     'updatedAt' => $now,
                 ]);
@@ -1229,7 +1229,7 @@ final class CasinoController
                 ]);
 
                 $betRecord = [
-                    '_id' => $roundId,
+                    'id' => $roundId,
                     'roundId' => $roundId,
                     'requestId' => $requestId,
                     'userId' => $userId,
@@ -1263,7 +1263,7 @@ final class CasinoController
                 $this->db->insertOne('casino_bets', $betRecord);
 
                 $this->db->insertOne('casino_round_audit', [
-                    '_id' => $roundId,
+                    'id' => $roundId,
                     'roundId' => $roundId,
                     'requestId' => $requestId,
                     'userId' => $userId,
@@ -1282,8 +1282,8 @@ final class CasinoController
                 $this->db->commit();
 
                 $ledgerEntries = [
-                    array_merge($debitEntry, ['_id' => $debitEntryId]),
-                    array_merge($creditEntry, ['_id' => $creditEntryId]),
+                    array_merge($debitEntry, ['id' => $debitEntryId]),
+                    array_merge($creditEntry, ['id' => $creditEntryId]),
                 ];
                 $this->writeCasinoAuditLog('baccarat_round_settled', [
                     'requestId' => $requestId,
@@ -1321,7 +1321,7 @@ final class CasinoController
 
     private function placeRouletteBet(array $actor, array $body, string $requestId, float $startedAt): void
     {
-        $userId = (string) ($actor['_id'] ?? '');
+        $userId = (string) ($actor['id'] ?? '');
 
         try {
             $this->requireActiveCasinoGame(self::ROULETTE_GAME_SLUG);
@@ -1353,7 +1353,7 @@ final class CasinoController
                     'game' => self::ROULETTE_GAME_SLUG,
                 ]);
                 if ($existingRound !== null) {
-                    $roundId = (string) ($existingRound['roundId'] ?? $existingRound['_id'] ?? '');
+                    $roundId = (string) ($existingRound['roundId'] ?? $existingRound['id'] ?? '');
                     $ledgerEntries = $this->findRoundLedgerEntries($roundId);
                     $this->writeCasinoAuditLog('roulette_round_idempotent', [
                         'requestId' => $requestId,
@@ -1425,7 +1425,7 @@ final class CasinoController
                 );
                 $creditEntryId = $this->db->insertOne('transactions', $creditEntry);
 
-                $this->db->updateOne('users', ['_id' => MongoRepository::id($userId)], [
+                $this->db->updateOne('users', ['id' => MongoRepository::id($userId)], [
                     'balance' => $balanceAfter,
                     'updatedAt' => $now,
                 ]);
@@ -1447,7 +1447,7 @@ final class CasinoController
                 ]);
 
                 $betRecord = [
-                    '_id' => $roundId,
+                    'id' => $roundId,
                     'roundId' => $roundId,
                     'requestId' => $requestId,
                     'userId' => $userId,
@@ -1476,7 +1476,7 @@ final class CasinoController
                 $this->db->insertOne('casino_bets', $betRecord);
 
                 $this->db->insertOne('casino_round_audit', [
-                    '_id' => $roundId,
+                    'id' => $roundId,
                     'roundId' => $roundId,
                     'requestId' => $requestId,
                     'userId' => $userId,
@@ -1494,8 +1494,8 @@ final class CasinoController
                 $this->db->commit();
 
                 $ledgerEntries = [
-                    array_merge($debitEntry, ['_id' => $debitEntryId]),
-                    array_merge($creditEntry, ['_id' => $creditEntryId]),
+                    array_merge($debitEntry, ['id' => $debitEntryId]),
+                    array_merge($creditEntry, ['id' => $creditEntryId]),
                 ];
                 $this->writeCasinoAuditLog('roulette_round_settled', [
                     'requestId' => $requestId,
@@ -1536,7 +1536,7 @@ final class CasinoController
 
     private function place3CardPokerBet(array $actor, array $body, string $requestId, float $startedAt): void
     {
-        $userId = (string) ($actor['_id'] ?? '');
+        $userId = (string) ($actor['id'] ?? '');
 
         try {
             $this->requireActiveCasinoGame(self::THREE_CARD_POKER_GAME_SLUG);
@@ -1641,7 +1641,7 @@ final class CasinoController
                     'game' => self::THREE_CARD_POKER_GAME_SLUG,
                 ]);
                 if ($existingRound !== null) {
-                    $roundId = (string) ($existingRound['roundId'] ?? $existingRound['_id'] ?? '');
+                    $roundId = (string) ($existingRound['roundId'] ?? $existingRound['id'] ?? '');
                     $ledgerEntries = $this->findRoundLedgerEntries($roundId);
                     $this->writeCasinoAuditLog('3card_poker_round_idempotent', [
                         'requestId' => $requestId,
@@ -1707,7 +1707,7 @@ final class CasinoController
                 );
                 $creditEntryId = $this->db->insertOne('transactions', $creditEntry);
 
-                $this->db->updateOne('users', ['_id' => MongoRepository::id($userId)], [
+                $this->db->updateOne('users', ['id' => MongoRepository::id($userId)], [
                     'balance' => $balanceAfter,
                     'updatedAt' => $now,
                 ]);
@@ -1777,7 +1777,7 @@ final class CasinoController
                 ]);
 
                 $betRecord = [
-                    '_id' => $roundId,
+                    'id' => $roundId,
                     'roundId' => $roundId,
                     'requestId' => $requestId,
                     'userId' => $userId,
@@ -1822,7 +1822,7 @@ final class CasinoController
                 $this->db->insertOne('casino_bets', $betRecord);
 
                 $this->db->insertOne('casino_round_audit', [
-                    '_id' => $roundId,
+                    'id' => $roundId,
                     'roundId' => $roundId,
                     'requestId' => $requestId,
                     'userId' => $userId,
@@ -2170,7 +2170,7 @@ final class CasinoController
 
     private function placeBlackjackBet(array $actor, array $body, string $requestId, float $startedAt): void
     {
-        $userId = (string) ($actor['_id'] ?? '');
+        $userId = (string) ($actor['id'] ?? '');
 
         try {
             $this->requireActiveCasinoGame(self::BLACKJACK_GAME_SLUG);
@@ -2216,7 +2216,7 @@ final class CasinoController
                     'game' => self::BLACKJACK_GAME_SLUG,
                 ]);
                 if ($existingRound !== null) {
-                    $roundId = (string) ($existingRound['roundId'] ?? $existingRound['_id'] ?? '');
+                    $roundId = (string) ($existingRound['roundId'] ?? $existingRound['id'] ?? '');
                     $ledgerEntries = $this->findRoundLedgerEntries($roundId);
                     $this->writeCasinoAuditLog('blackjack_round_idempotent', [
                         'requestId' => $requestId,
@@ -2282,7 +2282,7 @@ final class CasinoController
                 );
                 $creditEntryId = $this->db->insertOne('transactions', $creditEntry);
 
-                $this->db->updateOne('users', ['_id' => MongoRepository::id($userId)], [
+                $this->db->updateOne('users', ['id' => MongoRepository::id($userId)], [
                     'balance' => $balanceAfter,
                     'updatedAt' => $now,
                 ]);
@@ -2308,7 +2308,7 @@ final class CasinoController
                 ]);
 
                 $betRecord = [
-                    '_id' => $roundId,
+                    'id' => $roundId,
                     'roundId' => $roundId,
                     'requestId' => $requestId,
                     'userId' => $userId,
@@ -2348,7 +2348,7 @@ final class CasinoController
                 $this->db->insertOne('casino_bets', $betRecord);
 
                 $this->db->insertOne('casino_round_audit', [
-                    '_id' => $roundId,
+                    'id' => $roundId,
                     'roundId' => $roundId,
                     'requestId' => $requestId,
                     'userId' => $userId,
@@ -2370,8 +2370,8 @@ final class CasinoController
                 $this->db->commit();
 
                 $ledgerEntries = [
-                    array_merge($debitEntry, ['_id' => $debitEntryId]),
-                    array_merge($creditEntry, ['_id' => $creditEntryId]),
+                    array_merge($debitEntry, ['id' => $debitEntryId]),
+                    array_merge($creditEntry, ['id' => $creditEntryId]),
                 ];
                 $this->writeCasinoAuditLog('blackjack_round_settled', [
                     'requestId' => $requestId,
@@ -2410,7 +2410,7 @@ final class CasinoController
 
     private function placeCrapsBet(array $actor, array $body, string $requestId, float $startedAt): void
     {
-        $userId = (string) ($actor['_id'] ?? '');
+        $userId = (string) ($actor['id'] ?? '');
 
         try {
             $this->requireActiveCasinoGame(self::CRAPS_GAME_SLUG);
@@ -2452,7 +2452,7 @@ final class CasinoController
                     'game' => self::CRAPS_GAME_SLUG,
                 ]);
                 if ($existingRound !== null) {
-                    $roundId = (string) ($existingRound['roundId'] ?? $existingRound['_id'] ?? '');
+                    $roundId = (string) ($existingRound['roundId'] ?? $existingRound['id'] ?? '');
                     $ledgerEntries = $this->findRoundLedgerEntries($roundId);
                     $this->writeCasinoAuditLog('craps_round_idempotent', [
                         'requestId' => $requestId,
@@ -2575,7 +2575,7 @@ final class CasinoController
                     'activeBets' => $activeBetsAfter,
                     'updatedAt' => $now,
                 ];
-                $this->db->updateOne('users', ['_id' => MongoRepository::id($userId)], [
+                $this->db->updateOne('users', ['id' => MongoRepository::id($userId)], [
                     'balance' => $balanceAfter,
                     'casinoCrapsState' => $nextUserState,
                     'updatedAt' => $now,
@@ -2623,7 +2623,7 @@ final class CasinoController
                 }
 
                 $betRecord = [
-                    '_id' => $roundId,
+                    'id' => $roundId,
                     'roundId' => $roundId,
                     'requestId' => $requestId,
                     'userId' => $userId,
@@ -2656,7 +2656,7 @@ final class CasinoController
                 $this->db->insertOne('casino_bets', $betRecord);
 
                 $this->db->insertOne('casino_round_audit', [
-                    '_id' => $roundId,
+                    'id' => $roundId,
                     'roundId' => $roundId,
                     'requestId' => $requestId,
                     'userId' => $userId,
@@ -2676,10 +2676,10 @@ final class CasinoController
 
                 $ledgerEntries = [];
                 if (is_array($debitEntry) && $debitEntryId !== null) {
-                    $ledgerEntries[] = array_merge($debitEntry, ['_id' => $debitEntryId]);
+                    $ledgerEntries[] = array_merge($debitEntry, ['id' => $debitEntryId]);
                 }
                 if (is_array($creditEntry) && $creditEntryId !== null) {
-                    $ledgerEntries[] = array_merge($creditEntry, ['_id' => $creditEntryId]);
+                    $ledgerEntries[] = array_merge($creditEntry, ['id' => $creditEntryId]);
                 }
                 $this->writeCasinoAuditLog('craps_round_settled', [
                     'requestId' => $requestId,
@@ -2721,7 +2721,7 @@ final class CasinoController
 
     private function placeArabianBet(array $actor, array $body, string $requestId, float $startedAt): void
     {
-        $userId = (string) ($actor['_id'] ?? '');
+        $userId = (string) ($actor['id'] ?? '');
 
         try {
             $this->requireActiveCasinoGame(self::ARABIAN_GAME_SLUG);
@@ -2769,7 +2769,7 @@ final class CasinoController
                     'game' => self::ARABIAN_GAME_SLUG,
                 ]);
                 if ($existingRound !== null) {
-                    $roundId = (string) ($existingRound['roundId'] ?? $existingRound['_id'] ?? '');
+                    $roundId = (string) ($existingRound['roundId'] ?? $existingRound['id'] ?? '');
                     $ledgerEntries = $this->findRoundLedgerEntries($roundId);
                     if (!is_array($existingRound['betLimits'] ?? null)) {
                         $existingRound['betLimits'] = $betLimits;
@@ -2910,7 +2910,7 @@ final class CasinoController
                 $stateAfter['lastRoundId'] = $roundId;
                 $stateAfter['lastSpinAt'] = $now;
 
-                $this->db->updateOne('users', ['_id' => MongoRepository::id($userId)], [
+                $this->db->updateOne('users', ['id' => MongoRepository::id($userId)], [
                     'balance' => $balanceAfter,
                     'casinoArabianState' => $stateAfter,
                     'updatedAt' => $now,
@@ -2965,7 +2965,7 @@ final class CasinoController
                 ];
 
                 $betRecord = [
-                    '_id' => $roundId,
+                    'id' => $roundId,
                     'roundId' => $roundId,
                     'requestId' => $requestId,
                     'userId' => $userId,
@@ -3007,7 +3007,7 @@ final class CasinoController
                 $this->db->insertOne('casino_bets', $betRecord);
 
                 $this->db->insertOne('casino_round_audit', [
-                    '_id' => $roundId,
+                    'id' => $roundId,
                     'roundId' => $roundId,
                     'requestId' => $requestId,
                     'userId' => $userId,
@@ -3028,10 +3028,10 @@ final class CasinoController
 
                 $ledgerEntries = [];
                 if (is_array($debitEntry) && $debitEntryId !== null) {
-                    $ledgerEntries[] = array_merge($debitEntry, ['_id' => $debitEntryId]);
+                    $ledgerEntries[] = array_merge($debitEntry, ['id' => $debitEntryId]);
                 }
                 if (is_array($creditEntry) && $creditEntryId !== null) {
-                    $ledgerEntries[] = array_merge($creditEntry, ['_id' => $creditEntryId]);
+                    $ledgerEntries[] = array_merge($creditEntry, ['id' => $creditEntryId]);
                 }
 
                 $this->writeCasinoAuditLog('arabian_round_settled', [
@@ -3432,7 +3432,7 @@ final class CasinoController
 
     private function placeJurassicRunBet(array $actor, array $body, string $requestId, float $startedAt): void
     {
-        $userId = (string) ($actor['_id'] ?? '');
+        $userId = (string) ($actor['id'] ?? '');
 
         try {
             $this->requireActiveCasinoGame(self::JURASSIC_RUN_GAME_SLUG);
@@ -3458,7 +3458,7 @@ final class CasinoController
                     'game' => self::JURASSIC_RUN_GAME_SLUG,
                 ]);
                 if ($existingRound !== null) {
-                    $roundId = (string) ($existingRound['roundId'] ?? $existingRound['_id'] ?? '');
+                    $roundId = (string) ($existingRound['roundId'] ?? $existingRound['id'] ?? '');
                     $ledgerEntries = $this->findRoundLedgerEntries($roundId);
                     if (!is_array($existingRound['betLimits'] ?? null)) {
                         $existingRound['betLimits'] = $betLimits;
@@ -3585,12 +3585,12 @@ final class CasinoController
                 );
                 $progressiveStateAfter['updatedAt'] = $now;
 
-                $this->db->updateOne('users', ['_id' => MongoRepository::id($userId)], [
+                $this->db->updateOne('users', ['id' => MongoRepository::id($userId)], [
                     'balance' => $balanceAfter,
                     'casinoJurassicRunState' => $stateAfter,
                     'updatedAt' => $now,
                 ]);
-                $this->db->updateOne('casino_game_state', ['_id' => self::JURASSIC_RUN_GAME_SLUG], $progressiveStateAfter);
+                $this->db->updateOne('casino_game_state', ['id' => self::JURASSIC_RUN_GAME_SLUG], $progressiveStateAfter);
 
                 $serverDecisionAt = MongoRepository::nowUtc();
                 $latencyMs = max(0, (int) round((microtime(true) - $startedAt) * 1000));
@@ -3645,7 +3645,7 @@ final class CasinoController
                 ];
 
                 $betRecord = [
-                    '_id' => $roundId,
+                    'id' => $roundId,
                     'roundId' => $roundId,
                     'requestId' => $requestId,
                     'userId' => $userId,
@@ -3687,7 +3687,7 @@ final class CasinoController
                 $this->db->insertOne('casino_bets', $betRecord);
 
                 $this->db->insertOne('casino_round_audit', [
-                    '_id' => $roundId,
+                    'id' => $roundId,
                     'roundId' => $roundId,
                     'requestId' => $requestId,
                     'userId' => $userId,
@@ -3708,10 +3708,10 @@ final class CasinoController
 
                 $ledgerEntries = [];
                 if (is_array($debitEntry) && $debitEntryId !== null) {
-                    $ledgerEntries[] = array_merge($debitEntry, ['_id' => $debitEntryId]);
+                    $ledgerEntries[] = array_merge($debitEntry, ['id' => $debitEntryId]);
                 }
                 if (is_array($creditEntry) && $creditEntryId !== null) {
-                    $ledgerEntries[] = array_merge($creditEntry, ['_id' => $creditEntryId]);
+                    $ledgerEntries[] = array_merge($creditEntry, ['id' => $creditEntryId]);
                 }
 
                 $this->writeCasinoAuditLog('jurassic_run_round_settled', [
@@ -3852,7 +3852,7 @@ final class CasinoController
      */
     private function getJurassicRunProgressiveState(): array
     {
-        $doc = $this->db->findOne('casino_game_state', ['_id' => self::JURASSIC_RUN_GAME_SLUG]);
+        $doc = $this->db->findOne('casino_game_state', ['id' => self::JURASSIC_RUN_GAME_SLUG]);
         return $this->normalizeJurassicRunProgressiveState($doc);
     }
 
@@ -3870,11 +3870,11 @@ final class CasinoController
      */
     private function loadJurassicRunProgressiveStateForUpdate(): array
     {
-        $doc = $this->db->findOneForUpdate('casino_game_state', ['_id' => self::JURASSIC_RUN_GAME_SLUG]);
+        $doc = $this->db->findOneForUpdate('casino_game_state', ['id' => self::JURASSIC_RUN_GAME_SLUG]);
         if ($doc === null) {
             $now = MongoRepository::nowUtc();
             $this->db->insertOne('casino_game_state', [
-                '_id' => self::JURASSIC_RUN_GAME_SLUG,
+                'id' => self::JURASSIC_RUN_GAME_SLUG,
                 'game' => self::JURASSIC_RUN_GAME_SLUG,
                 'jackpotPool' => self::JURASSIC_RUN_DEFAULT_JACKPOT,
                 'totalRounds' => 0,
@@ -3887,7 +3887,7 @@ final class CasinoController
                 'createdAt' => $now,
                 'updatedAt' => $now,
             ]);
-            $doc = $this->db->findOneForUpdate('casino_game_state', ['_id' => self::JURASSIC_RUN_GAME_SLUG]);
+            $doc = $this->db->findOneForUpdate('casino_game_state', ['id' => self::JURASSIC_RUN_GAME_SLUG]);
         }
 
         return $this->normalizeJurassicRunProgressiveState($doc);
@@ -4404,7 +4404,7 @@ final class CasinoController
 
     private function syncCrapsState(array $actor, array $body, string $requestId, string $mode): void
     {
-        $userId = (string) ($actor['_id'] ?? '');
+        $userId = (string) ($actor['id'] ?? '');
 
         try {
             $this->db->beginTransaction();
@@ -4553,7 +4553,7 @@ final class CasinoController
                     $creditEntryId = $this->db->insertOne('transactions', $creditEntry);
                 }
 
-                $this->db->updateOne('users', ['_id' => MongoRepository::id($userId)], [
+                $this->db->updateOne('users', ['id' => MongoRepository::id($userId)], [
                     'balance' => $balanceAfter,
                     'casinoCrapsState' => [
                         'phase' => $nextPhase,
@@ -5366,7 +5366,7 @@ final class CasinoController
                 return;
             }
 
-            $userId = (string) ($actor['_id'] ?? '');
+            $userId = (string) ($actor['id'] ?? '');
             $this->db->beginTransaction();
             try {
                 $lockedUser = $this->loadLockedCasinoUser($userId);
@@ -5377,7 +5377,7 @@ final class CasinoController
                     'game' => self::STUD_POKER_GAME_SLUG,
                 ]);
                 if ($existingRound !== null) {
-                    $roundId = (string) ($existingRound['roundId'] ?? $existingRound['_id'] ?? '');
+                    $roundId = (string) ($existingRound['roundId'] ?? $existingRound['id'] ?? '');
                     $ledgerEntries = $this->findRoundLedgerEntries($roundId);
                     $this->db->commit();
                     Response::json($this->formatStudPokerStartResponse($existingRound, $ledgerEntries, true));
@@ -5419,7 +5419,7 @@ final class CasinoController
                 );
                 $debitEntryId = $this->db->insertOne('transactions', $debitEntry);
 
-                $this->db->updateOne('users', ['_id' => MongoRepository::id($userId)], [
+                $this->db->updateOne('users', ['id' => MongoRepository::id($userId)], [
                     'balance' => $balanceAfterAnte,
                     'updatedAt' => $now,
                 ]);
@@ -5436,7 +5436,7 @@ final class CasinoController
                 ]);
 
                 $betRecord = [
-                    '_id' => $roundId,
+                    'id' => $roundId,
                     'roundId' => $roundId,
                     'requestId' => $requestId,
                     'userId' => $userId,
@@ -5472,7 +5472,7 @@ final class CasinoController
                 $this->db->insertOne('casino_bets', $betRecord);
 
                 $this->db->insertOne('casino_round_audit', [
-                    '_id' => $roundId,
+                    'id' => $roundId,
                     'roundId' => $roundId,
                     'requestId' => $requestId,
                     'userId' => $userId,
@@ -5490,7 +5490,7 @@ final class CasinoController
                 $this->db->commit();
 
                 $ledgerEntries = [
-                    array_merge($debitEntry, ['_id' => $debitEntryId]),
+                    array_merge($debitEntry, ['id' => $debitEntryId]),
                 ];
                 Response::json($this->formatStudPokerStartResponse($betRecord, $ledgerEntries, false));
             } catch (Throwable $txErr) {
@@ -5551,7 +5551,7 @@ final class CasinoController
                 return;
             }
 
-            $userId = (string) ($actor['_id'] ?? '');
+            $userId = (string) ($actor['id'] ?? '');
             $this->db->beginTransaction();
             try {
                 $lockedUser = $this->loadLockedCasinoUser($userId);
@@ -5621,7 +5621,7 @@ final class CasinoController
                         $userAgent
                     );
                     $raiseDebitEntryId = $this->db->insertOne('transactions', $raiseDebitEntry);
-                    $additionalLedgerEntries[] = array_merge($raiseDebitEntry, ['_id' => $raiseDebitEntryId]);
+                    $additionalLedgerEntries[] = array_merge($raiseDebitEntry, ['id' => $raiseDebitEntryId]);
                     $balanceAfterWagers = round($balanceSnapshot['balanceBefore'] - $raiseBet);
                 }
 
@@ -5657,10 +5657,10 @@ final class CasinoController
                         $userAgent
                     );
                     $creditEntryId = $this->db->insertOne('transactions', $creditEntry);
-                    $additionalLedgerEntries[] = array_merge($creditEntry, ['_id' => $creditEntryId]);
+                    $additionalLedgerEntries[] = array_merge($creditEntry, ['id' => $creditEntryId]);
                 }
 
-                $this->db->updateOne('users', ['_id' => MongoRepository::id($userId)], [
+                $this->db->updateOne('users', ['id' => MongoRepository::id($userId)], [
                     'balance' => $balanceAfter,
                     'updatedAt' => $now,
                 ]);
@@ -5706,7 +5706,7 @@ final class CasinoController
                     'serverDecisionAt' => $serverDecisionAt,
                     'updatedAt' => $now,
                 ];
-                $this->db->updateOne('casino_bets', ['_id' => MongoRepository::id($roundId)], $updates);
+                $this->db->updateOne('casino_bets', ['id' => MongoRepository::id($roundId)], $updates);
                 $this->updateStudPokerAuditRecord($roundId, [
                     'stage' => 'settled',
                     'playerAction' => $action,
@@ -5765,7 +5765,7 @@ final class CasinoController
             $minWagerRaw = $_GET['minWager'] ?? null;
             $maxWagerRaw = $_GET['maxWager'] ?? null;
 
-            $query = ['userId' => (string) ($actor['_id'] ?? '')];
+            $query = ['userId' => (string) ($actor['id'] ?? '')];
             if ($game !== '') {
                 $query['game'] = $game;
             }
@@ -5834,12 +5834,12 @@ final class CasinoController
 
             $bet = $this->db->findOne('casino_bets', [
                 'roundId' => $roundId,
-                'userId' => (string) ($actor['_id'] ?? ''),
+                'userId' => (string) ($actor['id'] ?? ''),
             ]);
             if ($bet === null) {
                 $bet = $this->db->findOne('casino_bets', [
-                    '_id' => $roundId,
-                    'userId' => (string) ($actor['_id'] ?? ''),
+                    'id' => $roundId,
+                    'userId' => (string) ($actor['id'] ?? ''),
                 ]);
             }
             if ($bet === null) {
@@ -5847,7 +5847,7 @@ final class CasinoController
                 return;
             }
 
-            $resolvedRoundId = (string) ($bet['roundId'] ?? $bet['_id'] ?? $roundId);
+            $resolvedRoundId = (string) ($bet['roundId'] ?? $bet['id'] ?? $roundId);
             $audit = $this->db->findOne('casino_round_audit', ['roundId' => $resolvedRoundId]);
             $ledgerEntries = $this->findRoundLedgerEntries($resolvedRoundId);
 
@@ -5969,14 +5969,14 @@ final class CasinoController
 
             $bet = $this->db->findOne('casino_bets', ['roundId' => $roundId]);
             if ($bet === null) {
-                $bet = $this->db->findOne('casino_bets', ['_id' => $roundId]);
+                $bet = $this->db->findOne('casino_bets', ['id' => $roundId]);
             }
             if ($bet === null) {
                 Response::json(['message' => 'Casino round not found'], 404);
                 return;
             }
 
-            $resolvedRoundId = (string) ($bet['roundId'] ?? $bet['_id'] ?? $roundId);
+            $resolvedRoundId = (string) ($bet['roundId'] ?? $bet['id'] ?? $roundId);
             $audit = $this->db->findOne('casino_round_audit', ['roundId' => $resolvedRoundId]);
             $ledgerEntries = $this->findRoundLedgerEntries($resolvedRoundId);
 
@@ -6062,7 +6062,7 @@ final class CasinoController
                 $balanceBefore = $this->num($row['balanceBefore'] ?? 0);
                 $balanceAfter = $this->num($row['balanceAfter'] ?? 0);
                 $roundStatus = (string) ($row['roundStatus'] ?? 'settled');
-                $roundId = (string) ($row['roundId'] ?? $row['_id'] ?? '');
+                $roundId = (string) ($row['roundId'] ?? $row['id'] ?? '');
                 $rowGame = (string) ($row['game'] ?? 'unknown');
                 $rowUsername = (string) ($row['username'] ?? 'unknown');
 
@@ -6324,7 +6324,7 @@ final class CasinoController
             $rouletteOutcome = is_array($row['rouletteOutcome'] ?? null) ? $row['rouletteOutcome'] : null;
             $winningBetKeys = is_array($row['winningBetKeys'] ?? null) ? $row['winningBetKeys'] : [];
             fputcsv($stream, [
-                (string) ($row['roundId'] ?? $row['_id'] ?? ''),
+                (string) ($row['roundId'] ?? $row['id'] ?? ''),
                 (string) ($row['requestId'] ?? ''),
                 (string) ($row['userId'] ?? ''),
                 (string) ($row['username'] ?? ''),
@@ -6509,7 +6509,7 @@ final class CasinoController
 
     private function loadLockedCasinoUser(string $userId): array
     {
-        $lockedUser = $this->db->findOneForUpdate('users', ['_id' => MongoRepository::id($userId)]);
+        $lockedUser = $this->db->findOneForUpdate('users', ['id' => MongoRepository::id($userId)]);
         if ($lockedUser === null) {
             throw new InvalidArgumentException('User not found');
         }
@@ -6561,7 +6561,7 @@ final class CasinoController
             ['lossMonthly', 'monthly', '-30 days'],
         ];
 
-        $userId = MongoRepository::id((string) ($user['_id'] ?? ''));
+        $userId = MongoRepository::id((string) ($user['id'] ?? ''));
         if ($userId === '') {
             return null;
         }
@@ -8240,7 +8240,7 @@ final class CasinoController
     private function formatStudPokerStartResponse(array $betRecord, array $ledgerEntries, bool $idempotent): array
     {
         return [
-            'roundId' => (string) ($betRecord['roundId'] ?? $betRecord['_id'] ?? ''),
+            'roundId' => (string) ($betRecord['roundId'] ?? $betRecord['id'] ?? ''),
             'requestId' => (string) ($betRecord['requestId'] ?? ''),
             'game' => self::STUD_POKER_GAME_SLUG,
             'roundStatus' => (string) ($betRecord['roundStatus'] ?? 'awaiting_action'),
@@ -8590,7 +8590,7 @@ final class CasinoController
         $existing = $this->db->findOne('casino_round_audit', ['roundId' => $roundId]);
         if ($existing === null) {
             $payload = array_merge([
-                '_id' => $roundId,
+                'id' => $roundId,
                 'roundId' => $roundId,
                 'game' => self::STUD_POKER_GAME_SLUG,
                 'rngVersion' => self::STUD_POKER_RNG_VERSION,
@@ -8600,7 +8600,7 @@ final class CasinoController
             return;
         }
 
-        $this->db->updateOne('casino_round_audit', ['_id' => MongoRepository::id($roundId)], $updates);
+        $this->db->updateOne('casino_round_audit', ['id' => MongoRepository::id($roundId)], $updates);
     }
 
     private function findRoundLedgerEntries(string $roundId): array
@@ -8632,7 +8632,7 @@ final class CasinoController
                 return $tsCmp;
             }
 
-            return strcmp((string) ($a['_id'] ?? ''), (string) ($b['_id'] ?? ''));
+            return strcmp((string) ($a['id'] ?? ''), (string) ($b['id'] ?? ''));
         });
 
         return $entries;
@@ -8641,7 +8641,7 @@ final class CasinoController
     private function mapLedgerEntry(array $entry): array
     {
         return [
-            'id' => (string) ($entry['_id'] ?? ''),
+            'id' => (string) ($entry['id'] ?? ''),
             'entrySide' => (string) ($entry['entrySide'] ?? ''),
             'type' => (string) ($entry['type'] ?? ''),
             'status' => (string) ($entry['status'] ?? ''),
@@ -8727,8 +8727,8 @@ final class CasinoController
         }
 
         return [
-            'id' => (string) ($bet['_id'] ?? ''),
-            'roundId' => (string) ($bet['roundId'] ?? $bet['_id'] ?? ''),
+            'id' => (string) ($bet['id'] ?? ''),
+            'roundId' => (string) ($bet['roundId'] ?? $bet['id'] ?? ''),
             'requestId' => (string) ($bet['requestId'] ?? ''),
             'userId' => (string) ($bet['userId'] ?? ''),
             'username' => (string) ($bet['username'] ?? ''),
@@ -8798,7 +8798,7 @@ final class CasinoController
     private function formatCasinoBetResponse(array $betRecord, array $ledgerEntries, bool $idempotent): array
     {
         $mappedLedger = array_map(fn (array $entry): array => $this->mapLedgerEntry($entry), $ledgerEntries);
-        $roundId = (string) ($betRecord['roundId'] ?? $betRecord['_id'] ?? '');
+        $roundId = (string) ($betRecord['roundId'] ?? $betRecord['id'] ?? '');
         $balanceBefore = $this->num($betRecord['balanceBefore'] ?? 0);
         $balanceAfter = $this->num($betRecord['balanceAfter'] ?? 0);
         $pendingBalanceSnapshot = $this->safeNumber($betRecord['pendingBalanceSnapshot'] ?? null, null);
@@ -9112,7 +9112,7 @@ final class CasinoController
         }
 
         $collection = $this->collectionByRole($role);
-        $actor = $this->db->findOne($collection, ['_id' => MongoRepository::id($id)]);
+        $actor = $this->db->findOne($collection, ['id' => MongoRepository::id($id)]);
         if ($actor === null) {
             Response::json(['message' => 'Not authorized, user not found'], 403);
             return null;
@@ -9199,7 +9199,7 @@ final class CasinoController
             $slug = (string) ($game['slug'] ?? ('game-' . ($idx + 1)));
             $id = substr(sha1('casino-fallback-' . $slug), 0, 24);
             $games[] = [
-                '_id' => $id,
+                'id' => $id,
                 'externalGameId' => null,
                 'provider' => (string) ($game['provider'] ?? 'internal'),
                 'name' => (string) ($game['name'] ?? ('Game ' . ($idx + 1))),
@@ -9229,7 +9229,7 @@ final class CasinoController
     private static function toPublicGameStatic(array $game): array
     {
         return [
-            'id' => $game['_id'] ?? null,
+            'id' => $game['id'] ?? null,
             'externalGameId' => $game['externalGameId'] ?? null,
             'provider' => $game['provider'] ?? null,
             'name' => $game['name'] ?? null,

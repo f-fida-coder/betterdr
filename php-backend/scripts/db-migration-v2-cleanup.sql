@@ -7,7 +7,7 @@
 -- PROBLEMS FOUND:
 -- ---------------
 -- 1. ALL 34 core tables use a MongoDB document-store pattern:
---    (mongo_id VARCHAR(64), doc JSON, created_at, updated_at, migrated_at)
+--    (id VARCHAR(64), doc JSON, created_at, updated_at, migrated_at)
 --    Every field is buried inside a JSON blob — impossible to query naturally.
 --
 -- 2. 39 AUTO-GENERATED CLUTTER TABLES exist:
@@ -540,7 +540,7 @@ ALTER TABLE `feedbacks`
 -- ── Users View ──────────────────────────────────────────
 CREATE OR REPLACE VIEW `vw_users` AS
 SELECT
-  `mongo_id`                                AS `id`,
+  `id`,
   `j_username`                              AS `username`,
   `j_full_name`                             AS `full_name`,
   `j_phone`                                 AS `phone`,
@@ -565,7 +565,7 @@ ORDER BY `created_at` DESC;
 -- ── Admins View ──────────────────────────────────────────
 CREATE OR REPLACE VIEW `vw_admins` AS
 SELECT
-  `mongo_id`                                AS `id`,
+  `id`,
   `j_username`                              AS `username`,
   `j_full_name`                             AS `full_name`,
   `j_email`                                 AS `email`,
@@ -580,7 +580,7 @@ FROM `admins`;
 -- ── Agents View ──────────────────────────────────────────
 CREATE OR REPLACE VIEW `vw_agents` AS
 SELECT
-  `mongo_id`                                AS `id`,
+  `id`,
   `j_username`                              AS `username`,
   `j_full_name`                             AS `full_name`,
   `j_phone`                                 AS `phone`,
@@ -601,7 +601,7 @@ FROM `agents`;
 -- ── Master Agents View ───────────────────────────────────
 CREATE OR REPLACE VIEW `vw_master_agents` AS
 SELECT
-  `mongo_id`                                AS `id`,
+  `id`,
   `j_agent_id`                              AS `agent_id`,
   `j_username`                              AS `username`,
   `j_full_name`                             AS `full_name`,
@@ -620,7 +620,7 @@ FROM `master_agents`;
 -- ── Bets View ────────────────────────────────────────────
 CREATE OR REPLACE VIEW `vw_bets` AS
 SELECT
-  b.`mongo_id`                              AS `id`,
+  b.`id`,
   b.`j_ticket_id`                           AS `ticket_id`,
   b.`j_user_id`                             AS `user_id`,
   u.`j_username`                            AS `username`,
@@ -634,13 +634,13 @@ SELECT
   b.`created_at`,
   b.`updated_at`
 FROM `bets` b
-LEFT JOIN `users` u ON u.`mongo_id` = b.`j_user_id`
+LEFT JOIN `users` u ON u.`id` = b.`j_user_id`
 ORDER BY b.`created_at` DESC;
 
 -- ── Bet Selections View ──────────────────────────────────
 CREATE OR REPLACE VIEW `vw_bet_selections` AS
 SELECT
-  bs.`mongo_id`                             AS `id`,
+  bs.`id`,
   bs.`j_bet_id`                             AS `bet_id`,
   bs.`j_ticket_id`                          AS `ticket_id`,
   bs.`j_user_id`                            AS `user_id`,
@@ -659,7 +659,7 @@ ORDER BY bs.`j_ticket_id`, bs.`j_selection_order`;
 -- ── Transactions View ────────────────────────────────────
 CREATE OR REPLACE VIEW `vw_transactions` AS
 SELECT
-  t.`mongo_id`                              AS `id`,
+  t.`id`,
   t.`j_user_id`                             AS `user_id`,
   u.`j_username`                            AS `username`,
   t.`j_amount`                              AS `amount`,
@@ -676,13 +676,13 @@ SELECT
   t.`created_at`,
   t.`updated_at`
 FROM `transactions` t
-LEFT JOIN `users` u ON u.`mongo_id` = t.`j_user_id`
+LEFT JOIN `users` u ON u.`id` = t.`j_user_id`
 ORDER BY t.`created_at` DESC;
 
 -- ── Matches View ─────────────────────────────────────────
 CREATE OR REPLACE VIEW `vw_matches` AS
 SELECT
-  `mongo_id`                                AS `id`,
+  `id`,
   `j_external_id`                           AS `external_id`,
   `j_home_team`                             AS `home_team`,
   `j_away_team`                             AS `away_team`,
@@ -700,7 +700,7 @@ ORDER BY `j_start_time_dt` DESC;
 -- ── Casino Bets View ─────────────────────────────────────
 CREATE OR REPLACE VIEW `vw_casino_bets` AS
 SELECT
-  cb.`mongo_id`                             AS `id`,
+  cb.`id`,
   cb.`j_user_id`                            AS `user_id`,
   cb.`j_username`                           AS `username`,
   cb.`j_round_id`                           AS `round_id`,
@@ -719,7 +719,7 @@ ORDER BY cb.`created_at` DESC;
 -- ── Casino Games View ────────────────────────────────────
 CREATE OR REPLACE VIEW `vw_casino_games` AS
 SELECT
-  `mongo_id`                                AS `id`,
+  `id`,
   `j_slug`                                  AS `slug`,
   `j_name`                                  AS `name`,
   `j_provider`                              AS `provider`,
@@ -736,7 +736,7 @@ ORDER BY `j_sort_order`;
 -- ── IP Logs View ─────────────────────────────────────────
 CREATE OR REPLACE VIEW `vw_ip_logs` AS
 SELECT
-  il.`mongo_id`                             AS `id`,
+  il.`id`,
   il.`j_ip`                                 AS `ip`,
   il.`j_user_id`                            AS `user_id`,
   il.`j_status`                             AS `status`,
@@ -751,7 +751,7 @@ ORDER BY il.`created_at` DESC;
 -- ── Admin Audit Log View ─────────────────────────────────
 CREATE OR REPLACE VIEW `vw_admin_audit` AS
 SELECT
-  `mongo_id`                                AS `id`,
+  `id`,
   `j_action`                                AS `action`,
   `j_actor_id`                              AS `actor_id`,
   `j_actor_username`                        AS `actor_username`,
@@ -766,7 +766,7 @@ ORDER BY `created_at` DESC;
 -- ── Sportsbook Audit Logs View ───────────────────────────
 CREATE OR REPLACE VIEW `vw_sportsbook_audit` AS
 SELECT
-  `mongo_id`                                AS `id`,
+  `id`,
   `j_event`                                 AS `event`,
   `j_severity`                              AS `severity`,
   `created_at`
@@ -776,7 +776,7 @@ ORDER BY `created_at` DESC;
 -- ── Bet Mode Rules View ──────────────────────────────────
 CREATE OR REPLACE VIEW `vw_bet_mode_rules` AS
 SELECT
-  `mongo_id`                                AS `id`,
+  `id`,
   `j_mode`                                  AS `mode`,
   `j_is_active`                             AS `is_active`,
   `j_min_legs`                              AS `min_legs`,
@@ -788,7 +788,7 @@ FROM `betmoderules`;
 -- ── Messages View ────────────────────────────────────────
 CREATE OR REPLACE VIEW `vw_messages` AS
 SELECT
-  m.`mongo_id`                              AS `id`,
+  m.`id`,
   m.`j_from_user_id`                        AS `from_user_id`,
   m.`j_from_name`                           AS `from_name`,
   m.`j_subject`                             AS `subject`,

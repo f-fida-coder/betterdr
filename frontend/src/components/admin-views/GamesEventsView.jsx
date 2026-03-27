@@ -190,8 +190,8 @@ function GamesEventsView() {
     }
 
     try {
-      setActionLoading(`settle-${match.id || match._id}`);
-      const matchId = match.id || match._id;
+      setActionLoading(`settle-${match.id}`);
+      const matchId = match.id;
       const modeChoice = window.prompt(
         `Settlement mode for ${match.homeTeam} vs ${match.awayTeam}:\n` +
         `- Type "auto" to grade from score (recommended)\n` +
@@ -304,7 +304,7 @@ function GamesEventsView() {
               </thead>
               <tbody>
                 {filteredMatches.map(match => (
-                  <tr key={match.id || match._id}>
+                  <tr key={match.id}>
                     <td>{match.status || 'scheduled'}</td>
                     <td>{match.homeTeam} vs {match.awayTeam}</td>
                     <td>{match.startTime ? new Date(match.startTime).toLocaleString() : '—'}</td>
@@ -319,9 +319,9 @@ function GamesEventsView() {
                       <button
                         className="btn-small"
                         onClick={() => handleSettleMatch(match)}
-                        disabled={actionLoading === `settle-${match.id || match._id}`}
+                        disabled={actionLoading === `settle-${match.id}`}
                       >
-                        {actionLoading === `settle-${match.id || match._id}` ? 'Settling...' : 'Settle'}
+                        {actionLoading === `settle-${match.id}` ? 'Settling...' : 'Settle'}
                       </button>
                     </td>
                   </tr>

@@ -160,8 +160,8 @@ final class MongoRepository
         $this->ensureTable($table);
 
         $candidateIds = [];
-        if (array_key_exists('_id', $filter)) {
-            $idFilter = $filter['_id'];
+        if (array_key_exists('id', $filter)) {
+            $idFilter = $filter['id'];
             if (is_string($idFilter) || is_int($idFilter) || is_float($idFilter)) {
                 $id = trim((string) $idFilter);
                 if ($id !== '') {
@@ -180,8 +180,8 @@ final class MongoRepository
         }
 
         if ($candidateIds === []) {
-            $candidate = $this->findOne($collection, $filter, ['projection' => ['_id' => 1]]);
-            $candidateId = trim((string) ($candidate['_id'] ?? ''));
+            $candidate = $this->findOne($collection, $filter, ['projection' => ['id' => 1]]);
+            $candidateId = trim((string) ($candidate['id'] ?? ''));
             if ($candidateId === '') {
                 return null;
             }
@@ -194,11 +194,11 @@ final class MongoRepository
         }
 
         if (count($candidateIds) === 1) {
-            $stmt = $this->pdo->prepare("SELECT `mongo_id`, `doc` FROM `{$table}` WHERE `mongo_id` = :id LIMIT 1 FOR UPDATE");
+            $stmt = $this->pdo->prepare("SELECT `id`, `doc` FROM `{$table}` WHERE `id` = :id LIMIT 1 FOR UPDATE");
             $stmt->execute([':id' => $candidateIds[0]]);
         } else {
             $placeholders = implode(',', array_fill(0, count($candidateIds), '?'));
-            $stmt = $this->pdo->prepare("SELECT `mongo_id`, `doc` FROM `{$table}` WHERE `mongo_id` IN ({$placeholders}) FOR UPDATE");
+            $stmt = $this->pdo->prepare("SELECT `id`, `doc` FROM `{$table}` WHERE `id` IN ({$placeholders}) FOR UPDATE");
             $stmt->execute($candidateIds);
         }
 
@@ -279,9 +279,9 @@ final class MongoRepository
 
         $normalized = $this->normalizeForStorage($doc);
         $id = $this->extractId($normalized);
-        unset($normalized['_id']);
+        unset($normalized['id']);
 
-        $stmt = $this->pdo->prepare("INSERT INTO `{$table}` (`mongo_id`, `doc`, `created_at`, `updated_at`) VALUES (:id, :doc, :created_at, :updated_at) ON DUPLICATE KEY UPDATE `doc`=VALUES(`doc`), `created_at`=VALUES(`created_at`), `updated_at`=VALUES(`updated_at`), `migrated_at`=CURRENT_TIMESTAMP");
+        $stmt = $this->pdo->prepare("INSERT INTO `{$table}` (`id`, `doc`, `created_at`, `updated_at`) VALUES (:id, :doc, :created_at, :updated_at) ON DUPLICATE KEY UPDATE `doc`=VALUES(`doc`), `created_at`=VALUES(`created_at`), `updated_at`=VALUES(`updated_at`), `migrated_at`=CURRENT_TIMESTAMP");
         $stmt->execute([
             ':id' => $id,
             ':doc' => $this->encodeDoc($normalized),
@@ -299,9 +299,9 @@ final class MongoRepository
 
         $normalized = $this->normalizeForStorage($doc);
         $id = $this->extractId($normalized);
-        unset($normalized['_id']);
+        unset($normalized['id']);
 
-        $stmt = $this->pdo->prepare("INSERT IGNORE INTO `{$table}` (`mongo_id`, `doc`, `created_at`, `updated_at`) VALUES (:id, :doc, :created_at, :updated_at)");
+        $stmt = $this->pdo->prepare("INSERT IGNORE INTO `{$table}` (`id`, `doc`, `created_at`, `updated_at`) VALUES (:id, :doc, :created_at, :updated_at)");
         $stmt->execute([
             ':id' => $id,
             ':doc' => $this->encodeDoc($normalized),
@@ -327,14 +327,14 @@ final class MongoRepository
             $merged[(string) $k] = $v;
         }
 
-        $id = (string) ($existing['_id'] ?? '');
+        $id = (string) ($existing['id'] ?? '');
         if ($id === '') {
             $id = $this->newDocumentId();
-            $merged['_id'] = $id;
+            $merged['id'] = $id;
         }
-        unset($merged['_id']);
+        unset($merged['id']);
 
-        $stmt = $this->pdo->prepare("UPDATE `{$table}` SET `doc`=:doc, `created_at`=:created_at, `updated_at`=:updated_at, `migrated_at`=CURRENT_TIMESTAMP WHERE `mongo_id`=:id LIMIT 1");
+        $stmt = $this->pdo->prepare("UPDATE `{$table}` SET `doc`=:doc, `created_at`=:created_at, `updated_at`=:updated_at, `migrated_at`=CURRENT_TIMESTAMP WHERE `id`=:id LIMIT 1");
         $stmt->execute([
             ':id' => $id,
             ':doc' => $this->encodeDoc($merged),
@@ -347,7 +347,7 @@ final class MongoRepository
     {
         $existing = $this->findOne($collection, $filter);
         if ($existing !== null) {
-            $this->updateOne($collection, ['_id' => (string) ($existing['_id'] ?? '')], $set);
+            $this->updateOne($collection, ['id' => (string) ($existing['id'] ?? '')], $set);
             return;
         }
 
@@ -363,13 +363,13 @@ final class MongoRepository
         $table = $this->tableName($collection);
         $this->ensureTable($table);
 
-        $existing = $this->findOne($collection, $filter, ['projection' => ['_id' => 1]]);
-        $id = (string) ($existing['_id'] ?? '');
+        $existing = $this->findOne($collection, $filter, ['projection' => ['id' => 1]]);
+        $id = (string) ($existing['id'] ?? '');
         if ($id === '') {
             return 0;
         }
 
-        $stmt = $this->pdo->prepare("DELETE FROM `{$table}` WHERE `mongo_id`=:id LIMIT 1");
+        $stmt = $this->pdo->prepare("DELETE FROM `{$table}` WHERE `id`=:id LIMIT 1");
         $stmt->execute([':id' => $id]);
         return (int) $stmt->rowCount();
     }
@@ -433,12 +433,12 @@ final class MongoRepository
     private function ensureTable(string $table): void
     {
         $sql = "CREATE TABLE IF NOT EXISTS `{$table}` (
-`mongo_id` VARCHAR(64) NOT NULL,
+`id` VARCHAR(64) NOT NULL,
 `doc` JSON NOT NULL,
 `created_at` DATETIME NULL,
 `updated_at` DATETIME NULL,
 `migrated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-PRIMARY KEY (`mongo_id`),
+PRIMARY KEY (`id`),
 KEY `idx_created_at` (`created_at`),
 KEY `idx_updated_at` (`updated_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
@@ -451,7 +451,7 @@ KEY `idx_updated_at` (`updated_at`)
         $table = $this->tableName($collection);
         $this->ensureTable($table);
 
-        $rows = $this->pdo->query("SELECT `mongo_id`, `doc` FROM `{$table}`")->fetchAll();
+        $rows = $this->pdo->query("SELECT `id`, `doc` FROM `{$table}`")->fetchAll();
         $docs = [];
         foreach ($rows as $row) {
             $decoded = $this->decodeRow($row);
@@ -482,7 +482,7 @@ KEY `idx_updated_at` (`updated_at`)
         }
 
         $limitSql = $this->compileSqlLimit($options);
-        $sql = "SELECT `mongo_id`, `doc` FROM `{$table}`{$compiledWhere['sql']}{$orderSql}{$limitSql}";
+        $sql = "SELECT `id`, `doc` FROM `{$table}`{$compiledWhere['sql']}{$orderSql}{$limitSql}";
 
         $stmt = $this->pdo->prepare($sql);
         foreach ($compiledWhere['params'] as $param) {
@@ -832,8 +832,8 @@ KEY `idx_updated_at` (`updated_at`)
      */
     private function sqlFieldSpec(string $collection, string $table, string $field): ?array
     {
-        if ($field === '_id') {
-            return ['expr' => '`mongo_id`', 'type' => 'string'];
+        if ($field === 'id') {
+            return ['expr' => '`id`', 'type' => 'string'];
         }
         if ($field === 'createdAt') {
             return ['expr' => '`created_at`', 'type' => 'date'];
@@ -1271,8 +1271,8 @@ KEY `idx_updated_at` (`updated_at`)
         if (!is_array($decoded)) {
             return null;
         }
-        if (!isset($decoded['_id']) || (string) $decoded['_id'] === '') {
-            $decoded['_id'] = (string) ($row['mongo_id'] ?? '');
+        if (!isset($decoded['id']) || (string) $decoded['id'] === '') {
+            $decoded['id'] = (string) ($row['id'] ?? '');
         }
         return $decoded;
     }
@@ -1288,7 +1288,7 @@ KEY `idx_updated_at` (`updated_at`)
 
     private function extractId(array $doc): string
     {
-        $id = $doc['_id'] ?? null;
+        $id = $doc['id'] ?? null;
         if (is_string($id) && trim($id) !== '') {
             return trim($id);
         }
@@ -1628,13 +1628,13 @@ KEY `idx_updated_at` (`updated_at`)
 
         if ($include !== []) {
             $out = [];
-            if (!in_array('_id', $exclude, true) && isset($doc['_id'])) {
-                $out['_id'] = $doc['_id'];
+            if (!in_array('id', $exclude, true) && isset($doc['id'])) {
+                $out['id'] = $doc['id'];
             }
             foreach ($include as $field) {
-                if ($field === '_id') {
-                    if (isset($doc['_id'])) {
-                        $out['_id'] = $doc['_id'];
+                if ($field === 'id') {
+                    if (isset($doc['id'])) {
+                        $out['id'] = $doc['id'];
                     }
                     continue;
                 }

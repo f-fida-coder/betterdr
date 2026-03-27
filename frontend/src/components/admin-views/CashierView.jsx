@@ -73,7 +73,7 @@ function CashierView() {
   const usersById = useMemo(() => {
     const map = new Map();
     for (const user of users) {
-      const id = String(user.id || user._id || '');
+      const id = String(user.id || '');
       if (id) map.set(id, user);
     }
     return map;
@@ -153,7 +153,7 @@ function CashierView() {
           setExpandedAgents((prev) => {
             const next = { ...prev };
             for (const agent of normalizedAgents) {
-              const id = String(agent.id || agent._id || '');
+              const id = String(agent.id || '');
               if (id && typeof next[id] !== 'boolean') next[id] = false;
             }
             return next;
@@ -161,7 +161,7 @@ function CashierView() {
           setAgentEntries((prev) => {
             const next = { ...prev };
             for (const agent of normalizedAgents) {
-              const id = String(agent.id || agent._id || '');
+              const id = String(agent.id || '');
               if (id && !next[id]) next[id] = createEntry(id, id);
             }
             return next;
@@ -205,7 +205,7 @@ function CashierView() {
     const query = String(entry.searchQuery || '').trim().toLowerCase();
     const scopedUsers = users.filter((user) => {
       if (!entry.agentId) return true;
-      const userAgentId = String(user?.agentId?._id || user?.agentId || '');
+      const userAgentId = String(user?.agentId?.id || user?.agentId || '');
       return userAgentId === String(entry.agentId);
     });
 
@@ -344,7 +344,7 @@ function CashierView() {
       }
 
       setUsers((prev) => prev.map((item) => {
-        const id = String(item.id || item._id || '');
+        const id = String(item.id || '');
         if (id !== selectedUserId) return item;
         return {
           ...item,
@@ -429,7 +429,7 @@ function CashierView() {
                 <div className="cashier-search-empty">No matching users</div>
               ) : (
                 options.map((user) => {
-                  const userId = String(user.id || user._id || '');
+                  const userId = String(user.id || '');
                   return (
                     <button
                       key={userId}
@@ -464,7 +464,7 @@ function CashierView() {
       <tr key={entry.id}>
         <td>
           {renderCustomerCell(entry, updateEntry, (user) => {
-            const userId = String(user.id || user._id || '');
+            const userId = String(user.id || '');
             updateEntry({
               ...entry,
               selectedUserId: userId,
@@ -624,7 +624,7 @@ function CashierView() {
                   <div className="cashier-empty">No agents found.</div>
                 ) : (
                   filteredAgents.map((agent) => {
-                    const agentId = String(agent.id || agent._id || '');
+                    const agentId = String(agent.id || '');
                     const entry = agentEntries[agentId] || createEntry(agentId, agentId);
                     const isOpen = !!expandedAgents[agentId];
 

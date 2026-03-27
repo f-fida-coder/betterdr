@@ -130,7 +130,7 @@ function AdminPanel({ onExit, role = 'admin' }) {
         sessionStorage.setItem('impersonationBaseToken', token);
         sessionStorage.setItem('impersonationBaseRole', baseRole);
         sessionStorage.setItem('impersonationBaseUsername', String(me?.username || roleLabel));
-        sessionStorage.setItem('impersonationBaseId', String(me?.id || me?._id || ''));
+        sessionStorage.setItem('impersonationBaseId', String(me?.id || ''));
       }
 
       const data = await impersonateUser(targetId, actorToken);

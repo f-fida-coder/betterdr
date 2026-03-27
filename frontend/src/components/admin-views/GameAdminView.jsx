@@ -97,7 +97,7 @@ function GameAdminView() {
       };
       const created = await createAdminMatch(payload, token);
       setGames(prev => [...prev, {
-        id: created._id || created.id,
+        id: created.id,
         homeTeam: created.homeTeam,
         awayTeam: created.awayTeam,
         sport: created.sport,
@@ -125,10 +125,10 @@ function GameAdminView() {
         ...formData,
         startTime: new Date(formData.startTime).toISOString()
       };
-      const updated = await updateAdminMatch(selectedGame.id || selectedGame._id, payload, token);
+      const updated = await updateAdminMatch(selectedGame.id, payload, token);
       setGames(prev => prev.map(game => {
-        const gameId = game.id || game._id;
-        if (gameId === (selectedGame.id || selectedGame._id)) {
+        const gameId = game.id;
+        if (gameId === selectedGame.id) {
           return {
             ...game,
             homeTeam: updated.homeTeam,
@@ -171,7 +171,7 @@ function GameAdminView() {
             </thead>
             <tbody>
               {games.map(game => (
-                <tr key={game.id || game._id}>
+                <tr key={game.id}>
                   <td>{game.homeTeam} vs {game.awayTeam}</td>
                   <td>{game.sport}</td>
                   <td>{new Date(game.startTime).toLocaleString()}</td>

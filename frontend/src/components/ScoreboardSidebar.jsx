@@ -202,7 +202,7 @@ const ScoreboardSidebar = ({ onClose }) => {
                         {pair.map((game, colIndex) => {
                             const network = game?.broadcast || game?.tv || game?.score?.broadcast || '';
                             return (
-                                <div key={(game._id || game.id || `${rowIndex}-${colIndex}`)} className="scoreboard-game-cell">
+                                <div key={(game.id || `${rowIndex}-${colIndex}`)} className="scoreboard-game-cell">
                                     <div className="game-row">
                                         <span className="game-time">{formatTime(game)}</span>
                                         <span className="game-network">{network}</span>

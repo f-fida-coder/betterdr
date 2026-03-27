@@ -170,12 +170,12 @@ function toTableName(string $collection, string $prefix = ''): string
 function createCollectionTable(PDO $pdo, string $table): void
 {
     $sql = "CREATE TABLE IF NOT EXISTS `{$table}` (
-`mongo_id` VARCHAR(64) NOT NULL,
+`id` VARCHAR(64) NOT NULL,
 `doc` JSON NOT NULL,
 `created_at` DATETIME NULL,
 `updated_at` DATETIME NULL,
 `migrated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-PRIMARY KEY (`mongo_id`),
+PRIMARY KEY (`id`),
 KEY `idx_created_at` (`created_at`),
 KEY `idx_updated_at` (`updated_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
@@ -193,8 +193,8 @@ function migrateCollection(
     $query = new Query([]);
     $cursor = $mongo->executeQuery("{$dbName}.{$collection}", $query);
 
-    $insertSql = "INSERT INTO `{$table}` (`mongo_id`, `doc`, `created_at`, `updated_at`)
-VALUES (:mongo_id, :doc, :created_at, :updated_at)
+    $insertSql = "INSERT INTO `{$table}` (`id`, `doc`, `created_at`, `updated_at`)
+VALUES (:id, :doc, :created_at, :updated_at)
 ON DUPLICATE KEY UPDATE
 `doc` = VALUES(`doc`),
 `created_at` = VALUES(`created_at`),
@@ -220,7 +220,7 @@ ON DUPLICATE KEY UPDATE
         }
 
         $stmt->execute([
-            ':mongo_id' => $mongoId,
+            ':id' => $mongoId,
             ':doc' => $json,
             ':created_at' => $createdAt,
             ':updated_at' => $updatedAt,
@@ -240,7 +240,7 @@ ON DUPLICATE KEY UPDATE
 
 function extractMongoId(array $doc, int $fallbackCount): string
 {
-    $id = $doc['_id'] ?? null;
+    $id = $doc['_id'] ?? $doc['id'] ?? null;
     if (is_string($id) && $id !== '') {
         return $id;
     }

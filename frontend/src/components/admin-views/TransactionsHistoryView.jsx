@@ -133,7 +133,7 @@ const flattenAgentTreeOptions = (data) => {
 
   const visitNode = (node) => {
     if (!node || typeof node !== 'object') return;
-    const id = String(node.id || node._id || '').trim();
+    const id = String(node.id || '').trim();
     const username = String(node.username || '').trim();
     const role = String(node.role || '').trim().toLowerCase();
     if (id && username && AGENT_ROLES.has(role) && !seen.has(id)) {
@@ -158,7 +158,7 @@ const mapUsersToSuggestions = (users) => {
   const seen = new Set();
   const out = [];
   users.forEach((user) => {
-    const id = String(user?.id || user?._id || '').trim();
+    const id = String(user?.id || '').trim();
     const username = String(user?.username || '').trim();
     if (!id || !username || seen.has(id)) return;
     seen.add(id);

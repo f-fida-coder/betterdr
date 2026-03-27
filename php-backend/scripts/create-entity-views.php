@@ -114,7 +114,7 @@ ORDER BY t.table_name";
 function buildColumnsForTable(PDO $pdo, string $table): array
 {
     $columns = [
-        '_id' => '`mongo_id`',
+        'id' => '`id`',
         'created_at' => '`created_at`',
         'updated_at' => '`updated_at`',
     ];

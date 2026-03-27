@@ -115,14 +115,14 @@ final class AgentController
             }
 
             $actorRole = (string) ($actor['role'] ?? '');
-            $assignedAgentId = (string) $actor['_id'];
+            $assignedAgentId = (string) $actor['id'];
             if ($actorRole === 'admin') {
                 $requested = trim((string) ($body['agentId'] ?? ''));
                 if ($requested === '' || preg_match('/^[a-f0-9]{24}$/i', $requested) !== 1) {
                     Response::json(['message' => 'agentId is required for admin-created players.'], 400);
                     return;
                 }
-                $target = $this->db->findOne('agents', ['_id' => MongoRepository::id($requested), 'role' => 'agent'], ['projection' => ['_id' => 1]]);
+                $target = $this->db->findOne('agents', ['id' => MongoRepository::id($requested), 'role' => 'agent'], ['projection' => ['id' => 1]]);
                 if ($target === null) {
                     Response::json(['message' => 'Players can only be assigned to regular Agents.'], 400);
                     return;
@@ -130,7 +130,7 @@ final class AgentController
                 $assignedAgentId = $requested;
             } elseif (in_array($actorRole, ['master_agent', 'super_agent'], true)) {
                 $requested = trim((string) ($body['agentId'] ?? ''));
-                $assignableAgents = $this->listManagedPlayerAssignableAgentIds((string) ($actor['_id'] ?? ''));
+                $assignableAgents = $this->listManagedPlayerAssignableAgentIds((string) ($actor['id'] ?? ''));
                 if ($requested === '') {
                     $assignedAgentId = $assignableAgents[0] ?? '';
                     if ($assignedAgentId === '') {
@@ -164,9 +164,9 @@ final class AgentController
 
             if (isset($body['referredByUserId']) && is_string($body['referredByUserId']) && preg_match('/^[a-f0-9]{24}$/i', $body['referredByUserId']) === 1) {
                 $ref = $this->db->findOne('users', [
-                    '_id' => MongoRepository::id($body['referredByUserId']),
+                    'id' => MongoRepository::id($body['referredByUserId']),
                     'agentId' => MongoRepository::id($assignedAgentId),
-                ], ['projection' => ['_id' => 1, 'role' => 1]]);
+                ], ['projection' => ['id' => 1, 'role' => 1]]);
                 $refRole = strtolower(trim((string) ($ref['role'] ?? '')));
                 if (
                     $ref === null
@@ -204,7 +204,7 @@ final class AgentController
                 'maxFpCredit' => $this->safeNumber($body['maxFpCredit'] ?? null, 0), // 0 = uncapped
                 'pendingBalance' => 0,
                 'agentId' => MongoRepository::id($assignedAgentId),
-                'createdBy' => MongoRepository::id((string) $actor['_id']),
+                'createdBy' => MongoRepository::id((string) $actor['id']),
                 'createdByModel' => 'Agent',
                 'referredByUserId' => (isset($body['referredByUserId']) && is_string($body['referredByUserId']) && preg_match('/^[a-f0-9]{24}$/i', $body['referredByUserId']) === 1)
                     ? MongoRepository::id($body['referredByUserId'])
@@ -223,8 +223,8 @@ final class AgentController
                     $this->db->insertOne('transactions', [
                         'userId' => MongoRepository::id($id),
                         'agentId' => MongoRepository::id($assignedAgentId),
-                        'adminId' => (($actor['role'] ?? '') === 'admin' && isset($actor['_id']))
-                            ? MongoRepository::id((string) $actor['_id'])
+                        'adminId' => (($actor['role'] ?? '') === 'admin' && isset($actor['id']))
+                            ? MongoRepository::id((string) $actor['id'])
                             : null,
                         'amount' => $startingFreeplayAmount,
                         'type' => 'fp_deposit',
@@ -268,11 +268,11 @@ final class AgentController
                 return;
             }
 
-            $users = $this->db->findMany('users', ['agentId' => MongoRepository::id((string) $actor['_id'])]);
+            $users = $this->db->findMany('users', ['agentId' => MongoRepository::id((string) $actor['id'])]);
             $userIds = [];
             foreach ($users as $u) {
-                if (isset($u['_id']) && is_string($u['_id']) && preg_match('/^[a-f0-9]{24}$/i', $u['_id']) === 1) {
-                    $userIds[] = MongoRepository::id($u['_id']);
+                if (isset($u['id']) && is_string($u['id']) && preg_match('/^[a-f0-9]{24}$/i', $u['id']) === 1) {
+                    $userIds[] = MongoRepository::id($u['id']);
                 }
             }
 
@@ -301,9 +301,9 @@ final class AgentController
             }
             if (count($referrerIdSet) > 0) {
                 $referrerObjectIds = array_map(static fn (string $id): string => MongoRepository::id($id), array_keys($referrerIdSet));
-                $referrers = $this->db->findMany('users', ['_id' => ['$in' => $referrerObjectIds]], ['projection' => ['username' => 1, 'fullName' => 1, 'firstName' => 1, 'lastName' => 1]]);
+                $referrers = $this->db->findMany('users', ['id' => ['$in' => $referrerObjectIds]], ['projection' => ['username' => 1, 'fullName' => 1, 'firstName' => 1, 'lastName' => 1]]);
                 foreach ($referrers as $doc) {
-                    $id = (string) ($doc['_id'] ?? '');
+                    $id = (string) ($doc['id'] ?? '');
                     if ($id !== '') {
                         $referrerMap[$id] = $doc;
                     }
@@ -314,7 +314,7 @@ final class AgentController
             foreach ($users as $user) {
                 $balance = $this->num($user['balance'] ?? 0);
                 $pendingBalance = $this->num($user['pendingBalance'] ?? 0);
-                $uid = (string) ($user['_id'] ?? '');
+                $uid = (string) ($user['id'] ?? '');
                 $rid = isset($user['referredByUserId']) ? (string) $user['referredByUserId'] : '';
                 $formatted[] = [
                     'id' => $uid,
@@ -362,14 +362,14 @@ final class AgentController
                 return;
             }
 
-            $agentId = MongoRepository::id((string) $actor['_id']);
+            $agentId = MongoRepository::id((string) $actor['id']);
             $totalUsers = $this->db->countDocuments('users', ['agentId' => $agentId]);
-            $myUsers = $this->db->findMany('users', ['agentId' => $agentId], ['projection' => ['_id' => 1]]);
+            $myUsers = $this->db->findMany('users', ['agentId' => $agentId], ['projection' => ['id' => 1]]);
 
             $userIds = [];
             foreach ($myUsers as $u) {
-                if (isset($u['_id']) && is_string($u['_id']) && preg_match('/^[a-f0-9]{24}$/i', $u['_id']) === 1) {
-                    $userIds[] = MongoRepository::id($u['_id']);
+                if (isset($u['id']) && is_string($u['id']) && preg_match('/^[a-f0-9]{24}$/i', $u['id']) === 1) {
+                    $userIds[] = MongoRepository::id($u['id']);
                 }
             }
 
@@ -430,14 +430,14 @@ final class AgentController
             $pendingBalance = 0.0;
             $this->db->beginTransaction();
             try {
-                $user = $this->db->findOneForUpdate('users', ['_id' => MongoRepository::id($userId)]);
+                $user = $this->db->findOneForUpdate('users', ['id' => MongoRepository::id($userId)]);
                 if ($user === null || (($user['role'] ?? 'user') !== 'user')) {
                     $this->db->rollback();
                     Response::json(['message' => 'Customer not found'], 404);
                     return;
                 }
 
-                if (($actor['role'] ?? '') === 'agent' && (string) ($user['agentId'] ?? '') !== (string) ($actor['_id'] ?? '')) {
+                if (($actor['role'] ?? '') === 'agent' && (string) ($user['agentId'] ?? '') !== (string) ($actor['id'] ?? '')) {
                     $this->db->rollback();
                     Response::json(['message' => 'Not authorized to update this customer'], 403);
                     return;
@@ -447,14 +447,14 @@ final class AgentController
                 $balanceBefore = $this->num($user['balance'] ?? 0);
                 $pendingBalance = $this->num($user['pendingBalance'] ?? 0);
 
-                $this->db->updateOne('users', ['_id' => MongoRepository::id($userId)], [
+                $this->db->updateOne('users', ['id' => MongoRepository::id($userId)], [
                     'balance' => $nextBalance,
                     'updatedAt' => $now,
                 ]);
 
                 $this->db->insertOne('transactions', [
                     'userId' => MongoRepository::id($userId),
-                    'agentId' => MongoRepository::id((string) $actor['_id']),
+                    'agentId' => MongoRepository::id((string) $actor['id']),
                     'amount' => abs($nextBalance - $balanceBefore),
                     'type' => 'adjustment',
                     'status' => 'completed',
@@ -498,13 +498,13 @@ final class AgentController
                 return;
             }
 
-            $user = $this->db->findOne('users', ['_id' => MongoRepository::id($id)]);
+            $user = $this->db->findOne('users', ['id' => MongoRepository::id($id)]);
             if ($user === null || (($user['role'] ?? 'user') !== 'user')) {
                 Response::json(['message' => 'Customer not found'], 404);
                 return;
             }
 
-            if ((string) ($user['agentId'] ?? '') !== (string) ($actor['_id'] ?? '')) {
+            if ((string) ($user['agentId'] ?? '') !== (string) ($actor['id'] ?? '')) {
                 Response::json(['message' => 'Not authorized to update this customer'], 403);
                 return;
             }
@@ -583,7 +583,7 @@ final class AgentController
 
             if (isset($body['phoneNumber']) && is_string($body['phoneNumber']) && $body['phoneNumber'] !== ($user['phoneNumber'] ?? null)) {
                 $existingPhone = $this->db->findOne('users', ['phoneNumber' => $body['phoneNumber']]);
-                if ($existingPhone !== null && (string) ($existingPhone['_id'] ?? '') !== $id) {
+                if ($existingPhone !== null && (string) ($existingPhone['id'] ?? '') !== $id) {
                     if (!$allowDuplicateSave) {
                         Response::json(['message' => 'Phone number already exists'], 409);
                         return;
@@ -647,8 +647,8 @@ final class AgentController
                 $updates['apps'] = array_merge($existingApps, $body['apps']);
             }
 
-            $this->db->updateOne('users', ['_id' => MongoRepository::id($id)], $updates);
-            $updated = $this->db->findOne('users', ['_id' => MongoRepository::id($id)]);
+            $this->db->updateOne('users', ['id' => MongoRepository::id($id)], $updates);
+            $updated = $this->db->findOne('users', ['id' => MongoRepository::id($id)]);
 
             $response = ['message' => 'Customer updated successfully', 'user' => $updated];
             if (is_array($duplicateWarningPayload)) {
@@ -670,14 +670,14 @@ final class AgentController
             }
 
             $rawAgents = $this->db->findMany('agents', [
-                'createdBy' => MongoRepository::id((string) $actor['_id']),
+                'createdBy' => MongoRepository::id((string) $actor['id']),
                 'createdByModel' => 'Agent',
             ], ['sort' => ['createdAt' => -1]]);
 
             $agents = [];
             foreach ($rawAgents as $a) {
                 $agents[] = [
-                    'id'            => (string) ($a['_id'] ?? ''),
+                    'id'            => (string) ($a['id'] ?? ''),
                     'username'      => $a['username'] ?? null,
                     'phoneNumber'   => $a['phoneNumber'] ?? null,
                     'fullName'      => $a['fullName'] ?? null,
@@ -726,20 +726,20 @@ final class AgentController
                 return;
             }
 
-            $resolvedParentAgentId = (string) ($actor['_id'] ?? '');
+            $resolvedParentAgentId = (string) ($actor['id'] ?? '');
             if ($parentAgentId !== '') {
                 if (preg_match('/^[a-f0-9]{24}$/i', $parentAgentId) !== 1) {
                     Response::json(['message' => 'Invalid parentAgentId'], 400);
                     return;
                 }
 
-                $managedAgentIds = $this->listManagedAgentIds((string) ($actor['_id'] ?? ''));
+                $managedAgentIds = $this->listManagedAgentIds((string) ($actor['id'] ?? ''));
                 if (!in_array($parentAgentId, $managedAgentIds, true)) {
                     Response::json(['message' => 'You can only create sub-agents under master agents in your hierarchy'], 403);
                     return;
                 }
 
-                $parentAgent = $this->db->findOne('agents', ['_id' => MongoRepository::id($parentAgentId)], ['projection' => ['role' => 1]]);
+                $parentAgent = $this->db->findOne('agents', ['id' => MongoRepository::id($parentAgentId)], ['projection' => ['role' => 1]]);
                 if ($parentAgent === null || !in_array((string) ($parentAgent['role'] ?? ''), ['master_agent', 'super_agent'], true)) {
                     Response::json(['message' => 'parentAgentId must reference a valid Master Agent'], 400);
                     return;
@@ -761,14 +761,14 @@ final class AgentController
             // Check for existing agent with same identity AND same role — reassign if found.
             $existing = $this->findExistingAgentByIdentity($username, $phoneNumber, $requestedRole);
             if ($existing !== null) {
-                $existingId = (string) $existing['_id'];
-                $this->db->updateOne('agents', ['_id' => MongoRepository::id($existingId)], [
+                $existingId = (string) $existing['id'];
+                $this->db->updateOne('agents', ['id' => MongoRepository::id($existingId)], [
                     'createdBy'      => MongoRepository::id($resolvedParentAgentId),
                     'createdByModel' => 'Agent',
                     'updatedAt'      => MongoRepository::nowUtc(),
                 ]);
                 if ($requestedRole === 'master_agent') {
-                    $updated = $this->db->findOne('agents', ['_id' => MongoRepository::id($existingId)]);
+                    $updated = $this->db->findOne('agents', ['id' => MongoRepository::id($existingId)]);
                     if ($updated !== null) {
                         $this->syncMasterAgentCollection($updated);
                     }
@@ -822,7 +822,7 @@ final class AgentController
                     Response::json(['message' => 'Invalid referredByUserId'], 400);
                     return;
                 }
-                $ref = $this->db->findOne('users', ['_id' => MongoRepository::id($referredByUserId)]);
+                $ref = $this->db->findOne('users', ['id' => MongoRepository::id($referredByUserId)]);
                 $refRole = strtolower(trim((string) ($ref['role'] ?? '')));
                 if (
                     $ref === null
@@ -864,7 +864,7 @@ final class AgentController
 
             $id = $this->db->insertOne('agents', $doc);
             if ($role === 'master_agent') {
-                $this->syncMasterAgentCollection(array_merge($doc, ['_id' => $id]));
+                $this->syncMasterAgentCollection(array_merge($doc, ['id' => $id]));
             }
 
             Response::json([
@@ -892,7 +892,7 @@ final class AgentController
                 return;
             }
 
-            $agent = $this->db->findOne('agents', ['_id' => MongoRepository::id($id)]);
+            $agent = $this->db->findOne('agents', ['id' => MongoRepository::id($id)]);
             if ($agent === null) {
                 Response::json(['message' => 'Agent not found'], 404);
                 return;
@@ -911,8 +911,8 @@ final class AgentController
                 $updates['permissions'] = $this->mergeDeep($existingPermissions, $incomingPermissions);
             }
 
-            $this->db->updateOne('agents', ['_id' => MongoRepository::id($id)], $updates);
-            $updated = $this->db->findOne('agents', ['_id' => MongoRepository::id($id)]);
+            $this->db->updateOne('agents', ['id' => MongoRepository::id($id)], $updates);
+            $updated = $this->db->findOne('agents', ['id' => MongoRepository::id($id)]);
 
             Response::json([
                 'message' => 'Agent permissions updated successfully',
@@ -925,7 +925,7 @@ final class AgentController
 
     private function syncMasterAgentCollection(array $agent): void
     {
-        $id = (string) ($agent['_id'] ?? '');
+        $id = (string) ($agent['id'] ?? '');
         if ($id === '' || preg_match('/^[a-f0-9]{24}$/i', $id) !== 1) {
             return;
         }
@@ -988,7 +988,7 @@ final class AgentController
         }
 
         $collection = $this->collectionByRole($role);
-        $actor = $this->db->findOne($collection, ['_id' => MongoRepository::id($id)]);
+        $actor = $this->db->findOne($collection, ['id' => MongoRepository::id($id)]);
         if ($actor === null) {
             Response::json(['message' => 'Not authorized, user not found'], 403);
             return null;
@@ -1036,10 +1036,10 @@ final class AgentController
             $children = $this->db->findMany('agents', [
                 'createdBy' => MongoRepository::id($currentId),
                 'createdByModel' => 'Agent',
-            ], ['projection' => ['_id' => 1]]);
+            ], ['projection' => ['id' => 1]]);
 
             foreach ($children as $child) {
-                $childId = (string) ($child['_id'] ?? '');
+                $childId = (string) ($child['id'] ?? '');
                 if ($childId !== '' && !isset($seen[$childId])) {
                     $queue[] = $childId;
                 }
@@ -1065,13 +1065,13 @@ final class AgentController
 
         $managedObjectIds = array_map(static fn (string $id): string => MongoRepository::id($id), $managedAgentIds);
         $agents = $this->db->findMany('agents', [
-            '_id' => ['$in' => $managedObjectIds],
+            'id' => ['$in' => $managedObjectIds],
             'role' => 'agent',
-        ], ['projection' => ['_id' => 1], 'sort' => ['username' => 1]]);
+        ], ['projection' => ['id' => 1], 'sort' => ['username' => 1]]);
 
         $ids = [];
         foreach ($agents as $agent) {
-            $id = (string) ($agent['_id'] ?? '');
+            $id = (string) ($agent['id'] ?? '');
             if ($id !== '' && preg_match('/^[a-f0-9]{24}$/i', $id) === 1) {
                 $ids[] = $id;
             }
@@ -1166,7 +1166,7 @@ final class AgentController
 
         $candidates = $this->db->findMany('users', $candidateQuery, [
             'projection' => [
-                '_id' => 1,
+                'id' => 1,
                 'username' => 1,
                 'firstName' => 1,
                 'lastName' => 1,
@@ -1194,10 +1194,10 @@ final class AgentController
         $agentMap = [];
         if (count($agentIds) > 0) {
             $agentDocs = $this->db->findMany('agents', [
-                '_id' => ['$in' => array_map(static fn (string $id): string => MongoRepository::id($id), array_keys($agentIds))],
-            ], ['projection' => ['_id' => 1, 'username' => 1]]);
+                'id' => ['$in' => array_map(static fn (string $id): string => MongoRepository::id($id), array_keys($agentIds))],
+            ], ['projection' => ['id' => 1, 'username' => 1]]);
             foreach ($agentDocs as $agentDoc) {
-                $agentDocId = (string) ($agentDoc['_id'] ?? '');
+                $agentDocId = (string) ($agentDoc['id'] ?? '');
                 if ($agentDocId !== '') {
                     $agentMap[$agentDocId] = strtoupper(trim((string) ($agentDoc['username'] ?? '')));
                 }
@@ -1244,7 +1244,7 @@ final class AgentController
                 ? 'phone:' . $existingPhone
                 : ($matchedByEmail ? 'email:' . $existingEmail : ($matchedByPassword ? 'password' : 'name:' . $existingName));
 
-            $candidateId = (string) ($candidate['_id'] ?? '');
+            $candidateId = (string) ($candidate['id'] ?? '');
             $displayFullName = trim((string) ($candidate['fullName'] ?? ''));
             if ($displayFullName === '') {
                 $displayFullName = trim((string) ($candidate['firstName'] ?? '') . ' ' . (string) ($candidate['lastName'] ?? ''));

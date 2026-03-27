@@ -106,7 +106,7 @@ final class AuthController
 
             $validAgentId = null;
             if ($agentId !== '' && preg_match('/^[a-f0-9]{24}$/i', $agentId) === 1) {
-                $agent = $this->db->findOne('agents', ['_id' => MongoRepository::id($agentId)]);
+                $agent = $this->db->findOne('agents', ['id' => MongoRepository::id($agentId)]);
                 if ($agent !== null) {
                     $validAgentId = MongoRepository::id($agentId);
                 }
@@ -138,7 +138,7 @@ final class AuthController
             ];
 
             $userId = $this->db->insertOne('users', $insert);
-            $user = $this->db->findOne('users', ['_id' => MongoRepository::id($userId)]);
+            $user = $this->db->findOne('users', ['id' => MongoRepository::id($userId)]);
             if ($user === null) {
                 Response::json(['message' => 'Server error'], 500);
                 return;
@@ -178,7 +178,7 @@ final class AuthController
             if ($user !== null) {
                 $lockoutWindow = 1800; // 30 minutes
                 $maxFailures = 10;
-                $userId = (string) ($user['_id'] ?? '');
+                $userId = (string) ($user['id'] ?? '');
                 $failedAttempts = $this->db->findMany('login_failures', [
                     'userId' => $userId,
                 ], ['limit' => $maxFailures + 1]);
@@ -204,7 +204,7 @@ final class AuthController
                 // Record failed attempt for lockout tracking
                 if ($user !== null) {
                     $this->db->insertOne('login_failures', [
-                        'userId' => (string) ($user['_id'] ?? ''),
+                        'userId' => (string) ($user['id'] ?? ''),
                         'ip' => IpUtils::clientIp(),
                         'timestamp' => time(),
                     ]);
@@ -214,7 +214,7 @@ final class AuthController
             }
 
             // Clear failed attempts on successful login
-            $this->db->deleteMany('login_failures', ['userId' => (string) ($user['_id'] ?? '')]);
+            $this->db->deleteMany('login_failures', ['userId' => (string) ($user['id'] ?? '')]);
 
             if ($this->isSuspended($user)) {
                 Response::json(['message' => 'Account suspended or disabled.'], 403);
@@ -228,7 +228,7 @@ final class AuthController
             }
 
             $this->trackLoginIpSafely($user);
-            Logger::info('User login success', ['userId' => (string) ($user['_id'] ?? ''), 'username' => (string) ($user['username'] ?? '')]);
+            Logger::info('User login success', ['userId' => (string) ($user['id'] ?? ''), 'username' => (string) ($user['username'] ?? '')]);
             Response::json($this->buildAuthPayload($user));
         } catch (Throwable $e) {
             Logger::exception($e, 'User login error');
@@ -252,7 +252,7 @@ final class AuthController
             if ($user !== null) {
                 $lockoutWindow = 1800;
                 $maxFailures = 10;
-                $userId = (string) ($user['_id'] ?? '');
+                $userId = (string) ($user['id'] ?? '');
                 $failedAttempts = $this->db->findMany('login_failures', ['userId' => $userId], ['limit' => $maxFailures + 1]);
                 $recentFailures = 0;
                 $cutoff = time() - $lockoutWindow;
@@ -271,7 +271,7 @@ final class AuthController
             if ($user === null || !$this->verifyPasswordInsensitive($password, $user, 'admins')) {
                 if ($user !== null) {
                     $this->db->insertOne('login_failures', [
-                        'userId' => (string) ($user['_id'] ?? ''),
+                        'userId' => (string) ($user['id'] ?? ''),
                         'ip' => IpUtils::clientIp(),
                         'timestamp' => time(),
                     ]);
@@ -280,7 +280,7 @@ final class AuthController
                 return;
             }
 
-            $this->db->deleteMany('login_failures', ['userId' => (string) ($user['_id'] ?? '')]);
+            $this->db->deleteMany('login_failures', ['userId' => (string) ($user['id'] ?? '')]);
 
             if (($user['status'] ?? '') === 'suspended') {
                 Response::json(['message' => 'Account suspended.'], 403);
@@ -294,7 +294,7 @@ final class AuthController
             }
 
             $this->trackLoginIpSafely($user);
-            Logger::info('Admin login success', ['userId' => (string) ($user['_id'] ?? ''), 'username' => (string) ($user['username'] ?? '')]);
+            Logger::info('Admin login success', ['userId' => (string) ($user['id'] ?? ''), 'username' => (string) ($user['username'] ?? '')]);
             Response::json($this->buildAuthPayload($user));
         } catch (Throwable $e) {
             Logger::exception($e, 'Admin login error');
@@ -318,7 +318,7 @@ final class AuthController
             if ($user !== null) {
                 $lockoutWindow = 1800;
                 $maxFailures = 10;
-                $userId = (string) ($user['_id'] ?? '');
+                $userId = (string) ($user['id'] ?? '');
                 $failedAttempts = $this->db->findMany('login_failures', ['userId' => $userId], ['limit' => $maxFailures + 1]);
                 $recentFailures = 0;
                 $cutoff = time() - $lockoutWindow;
@@ -337,7 +337,7 @@ final class AuthController
             if ($user === null || !$this->verifyPasswordInsensitive($password, $user, 'agents')) {
                 if ($user !== null) {
                     $this->db->insertOne('login_failures', [
-                        'userId' => (string) ($user['_id'] ?? ''),
+                        'userId' => (string) ($user['id'] ?? ''),
                         'ip' => IpUtils::clientIp(),
                         'timestamp' => time(),
                     ]);
@@ -346,7 +346,7 @@ final class AuthController
                 return;
             }
 
-            $this->db->deleteMany('login_failures', ['userId' => (string) ($user['_id'] ?? '')]);
+            $this->db->deleteMany('login_failures', ['userId' => (string) ($user['id'] ?? '')]);
 
             if (($user['status'] ?? '') === 'suspended') {
                 Response::json(['message' => 'Account suspended.'], 403);
@@ -360,7 +360,7 @@ final class AuthController
             }
 
             $this->trackLoginIpSafely($user);
-            Logger::info('Agent login success', ['userId' => (string) ($user['_id'] ?? ''), 'username' => (string) ($user['username'] ?? '')]);
+            Logger::info('Agent login success', ['userId' => (string) ($user['id'] ?? ''), 'username' => (string) ($user['username'] ?? '')]);
             Response::json($this->buildAuthPayload($user));
         } catch (Throwable $e) {
             Logger::exception($e, 'Agent login error');
@@ -380,7 +380,7 @@ final class AuthController
 
             $ttl = 8 * 3600;
             $newToken = Jwt::encode([
-                'id'      => (string) $user['_id'],
+                'id'      => (string) $user['id'],
                 'role'    => (string) ($user['role'] ?? 'user'),
                 'agentId' => $user['agentId'] ?? null,
             ], $this->jwtSecret, $ttl);
@@ -427,7 +427,7 @@ final class AuthController
             }
 
             $collection = $this->collectionByRole($role);
-            $user = $this->db->findOne($collection, ['_id' => MongoRepository::id($id)]);
+            $user = $this->db->findOne($collection, ['id' => MongoRepository::id($id)]);
             if ($user === null) {
                 Response::json(['message' => 'User not found'], 401);
                 return;
@@ -504,7 +504,7 @@ final class AuthController
         }
 
         $collection = $this->collectionByRole($role);
-        $user = $this->db->findOne($collection, ['_id' => MongoRepository::id($id)]);
+        $user = $this->db->findOne($collection, ['id' => MongoRepository::id($id)]);
         if ($user === null) {
             Response::json(['message' => 'Not authorized, user not found'], 403);
             return null;
@@ -565,13 +565,13 @@ final class AuthController
 
             if (count($updates) > 1) {
                 $collection = $this->collectionByRole((string) ($user['role'] ?? 'user'));
-                $this->db->updateOne($collection, ['_id' => MongoRepository::id((string) $user['_id'])], $updates);
+                $this->db->updateOne($collection, ['id' => MongoRepository::id((string) $user['id'])], $updates);
             }
 
             Response::json([
                 'message' => 'Profile updated successfully',
                 'user' => [
-                    'id' => (string) $user['_id'],
+                    'id' => (string) $user['id'],
                     'username' => $user['username'] ?? null,
                     'role' => $user['role'] ?? null,
                     'dashboardLayout' => $user['dashboardLayout'] ?? null,
@@ -607,7 +607,7 @@ final class AuthController
         }
 
         $collection = $this->collectionByRole($role);
-        $user = $this->db->findOne($collection, ['_id' => MongoRepository::id($id)]);
+        $user = $this->db->findOne($collection, ['id' => MongoRepository::id($id)]);
         if ($user === null) {
             Response::json(['message' => 'Not authorized, user not found'], 403);
             return null;
@@ -678,7 +678,7 @@ final class AuthController
 
         $ttl = $ttlOverride ?? 8 * 3600;
         $token = Jwt::encode([
-            'id'      => (string) $user['_id'],
+            'id'      => (string) $user['id'],
             'role'    => (string) ($user['role'] ?? 'user'),
             'agentId' => $user['agentId'] ?? null,
         ], $this->jwtSecret, $ttl);
@@ -715,7 +715,7 @@ final class AuthController
         }
 
         return [
-            'id' => (string) $user['_id'],
+            'id' => (string) $user['id'],
             'username' => $user['username'] ?? null,
             'phoneNumber' => $user['phoneNumber'] ?? null,
             'balance' => $balance,
@@ -760,7 +760,7 @@ final class AuthController
         }
 
         return [
-            'id' => (string) $user['_id'],
+            'id' => (string) $user['id'],
             'username' => $user['username'] ?? null,
             'phoneNumber' => $user['phoneNumber'] ?? null,
             'balance' => $balance,
@@ -803,12 +803,12 @@ final class AuthController
             return ['allowed' => true];
         }
 
-        $globallyWhitelisted = $this->db->findOne('iplogs', ['ip' => $ip, 'status' => 'whitelisted'], ['projection' => ['_id' => 1]]);
+        $globallyWhitelisted = $this->db->findOne('iplogs', ['ip' => $ip, 'status' => 'whitelisted'], ['projection' => ['id' => 1]]);
         if ($globallyWhitelisted !== null) {
             return ['allowed' => true];
         }
 
-        $blocked = $this->db->findOne('iplogs', array_merge($this->ownerFilter($user, $ip), ['status' => 'blocked']), ['projection' => ['_id' => 1]]);
+        $blocked = $this->db->findOne('iplogs', array_merge($this->ownerFilter($user, $ip), ['status' => 'blocked']), ['projection' => ['id' => 1]]);
         if ($blocked !== null) {
             return ['allowed' => false, 'message' => 'Access blocked for this IP address'];
         }
@@ -820,7 +820,7 @@ final class AuthController
                 'ip' => $ip,
                 'status' => ['$in' => ['active', 'whitelisted']],
                 '$nor' => [[
-                    'userId' => MongoRepository::id((string) $user['_id']),
+                    'userId' => MongoRepository::id((string) $user['id']),
                     '$or' => [['userModel' => $ownerModel], ['userModel' => ['$exists' => false]]],
                 ]],
             ]);
@@ -878,7 +878,7 @@ final class AuthController
             if (!is_dir($logDir)) {
                 @mkdir($logDir, 0775, true);
             }
-            Logger::exception($e, 'IP allowlist check failed', ['userId' => (string) ($user['_id'] ?? '')], 'error');
+            Logger::exception($e, 'IP allowlist check failed', ['userId' => (string) ($user['id'] ?? '')], 'error');
             return ['allowed' => false, 'message' => 'Security check failed. Please contact support.'];
         }
     }
@@ -897,7 +897,7 @@ final class AuthController
         $ownerModel = IpUtils::ownerModelForRole((string) ($user['role'] ?? 'user'));
 
         return [
-            'userId' => MongoRepository::id((string) $user['_id']),
+            'userId' => MongoRepository::id((string) $user['id']),
             'ip' => $ip,
             '$or' => [['userModel' => $ownerModel], ['userModel' => ['$exists' => false]]],
         ];
@@ -953,7 +953,7 @@ final class AuthController
             }
 
             $collection = $this->collectionByRole((string) ($user['role'] ?? 'user'));
-            $this->db->updateOne($collection, ['_id' => MongoRepository::id((string) $user['_id'])], [
+            $this->db->updateOne($collection, ['id' => MongoRepository::id((string) $user['id'])], [
                 'gamblingLimits' => $newLimits,
                 'realityCheckIntervalMinutes' => isset($body['realityCheckIntervalMinutes']) && is_numeric($body['realityCheckIntervalMinutes']) ? (int) $body['realityCheckIntervalMinutes'] : ($user['realityCheckIntervalMinutes'] ?? 60),
                 'updatedAt' => MongoRepository::nowUtc(),
@@ -990,7 +990,7 @@ final class AuthController
 
             $until = gmdate(DATE_ATOM, strtotime($durations[$duration]));
             $collection = $this->collectionByRole((string) ($user['role'] ?? 'user'));
-            $this->db->updateOne($collection, ['_id' => MongoRepository::id((string) $user['_id'])], [
+            $this->db->updateOne($collection, ['id' => MongoRepository::id((string) $user['id'])], [
                 'selfExcludedUntil' => $until,
                 'updatedAt' => MongoRepository::nowUtc(),
             ]);
@@ -1026,7 +1026,7 @@ final class AuthController
 
             $until = gmdate(DATE_ATOM, strtotime($durations[$duration]));
             $collection = $this->collectionByRole((string) ($user['role'] ?? 'user'));
-            $this->db->updateOne($collection, ['_id' => MongoRepository::id((string) $user['_id'])], [
+            $this->db->updateOne($collection, ['id' => MongoRepository::id((string) $user['id'])], [
                 'coolingOffUntil' => $until,
                 'updatedAt' => MongoRepository::nowUtc(),
             ]);
@@ -1124,7 +1124,7 @@ final class AuthController
     private function promoteCaseInsensitiveHash(array $user, string $collection, string $normalizedPassword): void
     {
         try {
-            $id = (string) ($user['_id'] ?? '');
+            $id = (string) ($user['id'] ?? '');
             if ($id === '' || preg_match('/^[a-f0-9]{24}$/i', $id) !== 1) {
                 return;
             }
@@ -1134,7 +1134,7 @@ final class AuthController
                 return;
             }
 
-            $this->db->updateOne($collection, ['_id' => MongoRepository::id($id)], [
+            $this->db->updateOne($collection, ['id' => MongoRepository::id($id)], [
                 'passwordCaseInsensitiveHash' => $hash,
                 'updatedAt' => MongoRepository::nowUtc(),
             ]);
@@ -1146,7 +1146,7 @@ final class AuthController
     private function promoteLegacyPasswordHash(array $user, string $collection, string $plainPassword): void
     {
         try {
-            $id = (string) ($user['_id'] ?? '');
+            $id = (string) ($user['id'] ?? '');
             if ($id === '' || preg_match('/^[a-f0-9]{24}$/i', $id) !== 1) {
                 return;
             }
@@ -1156,7 +1156,7 @@ final class AuthController
                 return;
             }
 
-            $this->db->updateOne($collection, ['_id' => MongoRepository::id($id)], [
+            $this->db->updateOne($collection, ['id' => MongoRepository::id($id)], [
                 'password' => $hash,
                 'updatedAt' => MongoRepository::nowUtc(),
             ]);

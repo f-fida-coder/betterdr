@@ -29,7 +29,7 @@ function deleteManyByFilter(MongoRepository $repo, string $collection, array $fi
     while (true) {
         $rows = $repo->findMany($collection, $filter, [
             'limit' => $batchSize,
-            'projection' => ['_id' => 1],
+            'projection' => ['id' => 1],
         ]);
 
         if (!is_array($rows) || count($rows) === 0) {
@@ -40,11 +40,11 @@ function deleteManyByFilter(MongoRepository $repo, string $collection, array $fi
             if (!is_array($row)) {
                 continue;
             }
-            $id = (string) ($row['_id'] ?? '');
+            $id = (string) ($row['id'] ?? '');
             if ($id === '') {
                 continue;
             }
-            $deleted += $repo->deleteOne($collection, ['_id' => MongoRepository::id($id)]);
+            $deleted += $repo->deleteOne($collection, ['id' => MongoRepository::id($id)]);
         }
 
         if (count($rows) < $batchSize) {

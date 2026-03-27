@@ -107,7 +107,7 @@ function TicketWriterView() {
                 <select name="userId" value={formData.userId} onChange={handleChange} required>
                   <option value="">Select customer</option>
                   {customers.map(customer => (
-                    <option key={customer.id || customer._id} value={customer.id || customer._id}>
+                    <option key={customer.id} value={customer.id}>
                       {customer.username}
                     </option>
                   ))}
@@ -137,7 +137,7 @@ function TicketWriterView() {
                 >
                   <option value="">Select match</option>
                   {matches.map(match => (
-                    <option key={match.id || match._id} value={match.id || match._id}>
+                    <option key={match.id} value={match.id}>
                       {match.homeTeam} vs {match.awayTeam}
                     </option>
                   ))}

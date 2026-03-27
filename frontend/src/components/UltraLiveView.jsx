@@ -47,7 +47,7 @@ const isFinishedMatch = (match) => {
         || eventStatus.includes('CLOSED');
 };
 
-const getMatchId = (match) => match?.id || match?._id || match?.externalId;
+const getMatchId = (match) => match?.id || match?.externalId;
 
 const getMoneyline = (match, teamName) => {
     const market = getMatchMarket(match, 'h2h');
@@ -401,7 +401,7 @@ const UltraLiveView = () => {
                             {!myBetsLoading && !myBetsError && myBets.length > 0 && (
                                 <div className="ultra-my-bets-list">
                                     {myBets.slice(0, 12).map((bet) => (
-                                        <div key={bet.id || bet._id} className="ultra-my-bet-item">
+                                        <div key={bet.id} className="ultra-my-bet-item">
                                             <div className="ultra-my-bet-top">
                                                 <span>{(bet.type || 'bet').toUpperCase()}</span>
                                                 <span className={`ultra-bet-status ${bet.status || 'pending'}`}>{bet.status || 'pending'}</span>

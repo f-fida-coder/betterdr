@@ -61,7 +61,7 @@ function FAQView() {
         order: Number(form.order) || 0
       };
       if (editingFaq) {
-        await updateFaq(editingFaq.id || editingFaq._id, payload, token);
+        await updateFaq(editingFaq.id, payload, token);
       } else {
         await createFaq(payload, token);
       }
@@ -83,7 +83,7 @@ function FAQView() {
     try {
       setActionLoadingId(faqId);
       await deleteFaq(faqId, token);
-      setFaqs(prev => prev.filter(faq => (faq.id || faq._id) !== faqId));
+      setFaqs(prev => prev.filter(faq => faq.id !== faqId));
     } catch (err) {
       setError(err.message || 'Failed to delete FAQ');
     } finally {
@@ -103,16 +103,16 @@ function FAQView() {
         {!loading && !error && (
         <div className="faq-container">
           {faqs.map(faq => (
-            <div key={faq.id || faq._id} className="faq-item">
+            <div key={faq.id} className="faq-item">
               <div className="faq-question">
                 <h4>Q: {faq.question}</h4>
                 <button className="btn-small" onClick={() => openEditModal(faq)}>Edit</button>
                 <button
                   className="btn-small btn-danger"
-                  onClick={() => handleDelete(faq.id || faq._id)}
-                  disabled={actionLoadingId === (faq.id || faq._id)}
+                  onClick={() => handleDelete(faq.id)}
+                  disabled={actionLoadingId === faq.id}
                 >
-                  {actionLoadingId === (faq.id || faq._id) ? 'Working...' : 'Delete'}
+                  {actionLoadingId === faq.id ? 'Working...' : 'Delete'}
                 </button>
               </div>
               <div className="faq-answer">

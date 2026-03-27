@@ -14,7 +14,7 @@ function BetTickerView() {
 
       if (data && Array.isArray(data.bets)) {
         const mappedBets = data.bets.map(b => ({
-          id: b._id || b.id,
+          id: b.id,
           user: b.userId?.username || 'Unknown',
           type: b.matchSnapshot?.status === 'live' ? 'LIVE' : 'UPCOMING', // Infer from snapshot or Match
           match: b.description || (b.matchSnapshot ? `${b.matchSnapshot.homeTeam} vs ${b.matchSnapshot.awayTeam}` : 'Unknown Match'),

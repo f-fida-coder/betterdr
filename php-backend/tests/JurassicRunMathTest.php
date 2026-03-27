@@ -182,12 +182,12 @@ final class JurassicMockMongoRepository extends MongoRepository
 
     public function insertOne(string $collection, array $document): string
     {
-        if (!isset($document['_id']) || trim((string) $document['_id']) === '') {
-            $document['_id'] = 'mock_' . $this->nextId++;
+        if (!isset($document['id']) || trim((string) $document['id']) === '') {
+            $document['id'] = 'mock_' . $this->nextId++;
         }
         $this->collections[$collection] ??= [];
         $this->collections[$collection][] = $document;
-        return (string) $document['_id'];
+        return (string) $document['id'];
     }
 
     public function updateOne(string $collection, array $query, array $updates): void
@@ -232,7 +232,7 @@ function jurassicBuildSpinHarness(float $accountMinBet = 25.0, float $balance = 
     $userId = 'jurassic_test_user';
     $db = new JurassicMockMongoRepository([
         'casinogames' => [[
-            '_id' => 'jurassic_game',
+            'id' => 'jurassic_game',
             'slug' => 'jurassic-run',
             'name' => 'Jurassic Run',
             'status' => 'active',
@@ -240,7 +240,7 @@ function jurassicBuildSpinHarness(float $accountMinBet = 25.0, float $balance = 
             'maxBet' => 5000,
         ]],
         'users' => [[
-            '_id' => $userId,
+            'id' => $userId,
             'username' => 'mock_jurassic_player',
             'role' => 'user',
             'status' => 'active',
@@ -257,7 +257,7 @@ function jurassicBuildSpinHarness(float $accountMinBet = 25.0, float $balance = 
 
     $controller = new CasinoController($db, 'jurassic-test-secret');
     $actor = [
-        '_id' => $userId,
+        'id' => $userId,
         'username' => 'mock_jurassic_player',
         'role' => 'user',
         'status' => 'active',

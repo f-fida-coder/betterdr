@@ -60,7 +60,7 @@ function RulesAdminView() {
         status: form.status
       };
       if (editingRule) {
-        await updateRule(editingRule.id || editingRule._id, payload, token);
+        await updateRule(editingRule.id, payload, token);
       } else {
         await createRule(payload, token);
       }
@@ -82,7 +82,7 @@ function RulesAdminView() {
     try {
       setActionLoadingId(ruleId);
       await deleteRule(ruleId, token);
-      setRules(prev => prev.filter(rule => (rule.id || rule._id) !== ruleId));
+      setRules(prev => prev.filter(rule => rule.id !== ruleId));
     } catch (err) {
       setError(err.message || 'Failed to delete rule');
     } finally {
@@ -102,7 +102,7 @@ function RulesAdminView() {
         {!loading && !error && (
         <div className="rules-container">
           {rules.map(rule => (
-            <div key={rule.id || rule._id} className="rule-card">
+            <div key={rule.id} className="rule-card">
               <h3>{rule.title}</h3>
               <ul>
                 {(rule.items || []).map((item, idx) => (
@@ -113,10 +113,10 @@ function RulesAdminView() {
                 <button className="btn-small" onClick={() => openEditModal(rule)}>Edit</button>
                 <button
                   className="btn-small btn-danger"
-                  onClick={() => handleDelete(rule.id || rule._id)}
-                  disabled={actionLoadingId === (rule.id || rule._id)}
+                  onClick={() => handleDelete(rule.id)}
+                  disabled={actionLoadingId === rule.id}
                 >
-                  {actionLoadingId === (rule.id || rule._id) ? 'Working...' : 'Delete'}
+                  {actionLoadingId === rule.id ? 'Working...' : 'Delete'}
                 </button>
               </div>
             </div>

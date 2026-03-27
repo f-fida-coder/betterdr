@@ -83,7 +83,7 @@ function MasterAgentManagerView() {
 
     const openEditModal = (agent) => {
         setEditForm({
-            id: agent.id || agent._id,
+            id: agent.id,
             phoneNumber: agent.phoneNumber || '',
             password: ''
         });
@@ -115,9 +115,9 @@ function MasterAgentManagerView() {
         try {
             const token = localStorage.getItem('token');
             if (isSuspended) {
-                await unsuspendUser(agent.id || agent._id, token);
+                await unsuspendUser(agent.id, token);
             } else {
-                await suspendUser(agent.id || agent._id, token);
+                await suspendUser(agent.id, token);
             }
             fetchSubAgents();
         } catch (error) {
@@ -130,7 +130,7 @@ function MasterAgentManagerView() {
         if (!password) return;
         try {
             const token = localStorage.getItem('token');
-            await resetAgentPasswordByAdmin(agent.id || agent._id, password, token);
+            await resetAgentPasswordByAdmin(agent.id, password, token);
             alert('Password reset successful');
         } catch (error) {
             alert('Reset failed: ' + error.message);
@@ -257,7 +257,7 @@ function MasterAgentManagerView() {
                             ) : agents.length === 0 ? (
                                 <tr><td colSpan="7">No agents found.</td></tr>
                             ) : agents.map(agent => (
-                                <tr key={agent.id || agent._id}>
+                                <tr key={agent.id}>
                                     <td>{agent.username}</td>
                                     <td>{agent.phoneNumber}</td>
                                     <td><span className="badge">{agent.role === 'master_agent' ? 'Master Agent' : 'Agent'}</span></td>

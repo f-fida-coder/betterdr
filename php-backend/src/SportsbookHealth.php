@@ -18,8 +18,8 @@ final class SportsbookHealth
         $existing = self::healthDoc($db, self::SYNC_DOC_ID);
         $runId = self::newRunId('sync');
 
-        $db->updateOneUpsert(self::HEALTH_COLLECTION, ['_id' => self::SYNC_DOC_ID], [
-            '_id' => self::SYNC_DOC_ID,
+        $db->updateOneUpsert(self::HEALTH_COLLECTION, ['id' => self::SYNC_DOC_ID], [
+            'id' => self::SYNC_DOC_ID,
             'component' => 'odds_sync',
             'lastRunId' => $runId,
             'lastRunStatus' => 'running',
@@ -34,7 +34,7 @@ final class SportsbookHealth
             'runCount' => (int) ($existing['runCount'] ?? 0),
             'updatedAt' => $now,
         ], [
-            '_id' => self::SYNC_DOC_ID,
+            'id' => self::SYNC_DOC_ID,
             'component' => 'odds_sync',
             'createdAt' => $now,
             'runCount' => 0,
@@ -72,8 +72,8 @@ final class SportsbookHealth
             $lastScoresSuccessAt = $now;
         }
 
-        $db->updateOneUpsert(self::HEALTH_COLLECTION, ['_id' => self::SYNC_DOC_ID], [
-            '_id' => self::SYNC_DOC_ID,
+        $db->updateOneUpsert(self::HEALTH_COLLECTION, ['id' => self::SYNC_DOC_ID], [
+            'id' => self::SYNC_DOC_ID,
             'component' => 'odds_sync',
             'lastRunId' => $runId,
             'lastRunStatus' => $status,
@@ -91,7 +91,7 @@ final class SportsbookHealth
             'runCount' => $runCount,
             'updatedAt' => $now,
         ], [
-            '_id' => self::SYNC_DOC_ID,
+            'id' => self::SYNC_DOC_ID,
             'component' => 'odds_sync',
             'createdAt' => $now,
             'runCount' => $runCount,
@@ -115,8 +115,8 @@ final class SportsbookHealth
         $existing = self::healthDoc($db, self::SYNC_DOC_ID);
         $runCount = ((int) ($existing['runCount'] ?? 0)) + 1;
 
-        $db->updateOneUpsert(self::HEALTH_COLLECTION, ['_id' => self::SYNC_DOC_ID], [
-            '_id' => self::SYNC_DOC_ID,
+        $db->updateOneUpsert(self::HEALTH_COLLECTION, ['id' => self::SYNC_DOC_ID], [
+            'id' => self::SYNC_DOC_ID,
             'component' => 'odds_sync',
             'lastRunId' => $runId,
             'lastRunStatus' => 'failed',
@@ -131,7 +131,7 @@ final class SportsbookHealth
             'runCount' => $runCount,
             'updatedAt' => $now,
         ], [
-            '_id' => self::SYNC_DOC_ID,
+            'id' => self::SYNC_DOC_ID,
             'component' => 'odds_sync',
             'createdAt' => $now,
             'runCount' => $runCount,
@@ -156,8 +156,8 @@ final class SportsbookHealth
         $existing = self::healthDoc($db, self::SETTLEMENT_DOC_ID);
         $runCount = ((int) ($existing['runCount'] ?? 0)) + 1;
 
-        $db->updateOneUpsert(self::HEALTH_COLLECTION, ['_id' => self::SETTLEMENT_DOC_ID], [
-            '_id' => self::SETTLEMENT_DOC_ID,
+        $db->updateOneUpsert(self::HEALTH_COLLECTION, ['id' => self::SETTLEMENT_DOC_ID], [
+            'id' => self::SETTLEMENT_DOC_ID,
             'component' => 'settlement',
             'lastRunStatus' => 'success',
             'lastSuccessAt' => $now,
@@ -170,7 +170,7 @@ final class SportsbookHealth
             'runCount' => $runCount,
             'updatedAt' => $now,
         ], [
-            '_id' => self::SETTLEMENT_DOC_ID,
+            'id' => self::SETTLEMENT_DOC_ID,
             'component' => 'settlement',
             'createdAt' => $now,
             'runCount' => $runCount,
@@ -190,8 +190,8 @@ final class SportsbookHealth
         $existing = self::healthDoc($db, self::SETTLEMENT_DOC_ID);
         $runCount = ((int) ($existing['runCount'] ?? 0)) + 1;
 
-        $db->updateOneUpsert(self::HEALTH_COLLECTION, ['_id' => self::SETTLEMENT_DOC_ID], [
-            '_id' => self::SETTLEMENT_DOC_ID,
+        $db->updateOneUpsert(self::HEALTH_COLLECTION, ['id' => self::SETTLEMENT_DOC_ID], [
+            'id' => self::SETTLEMENT_DOC_ID,
             'component' => 'settlement',
             'lastRunStatus' => 'failed',
             'lastFinishedAt' => $now,
@@ -203,7 +203,7 @@ final class SportsbookHealth
             'runCount' => $runCount,
             'updatedAt' => $now,
         ], [
-            '_id' => self::SETTLEMENT_DOC_ID,
+            'id' => self::SETTLEMENT_DOC_ID,
             'component' => 'settlement',
             'createdAt' => $now,
             'runCount' => $runCount,
@@ -371,7 +371,7 @@ final class SportsbookHealth
      */
     private static function healthDoc(MongoRepository $db, string $id): array
     {
-        $doc = $db->findOne(self::HEALTH_COLLECTION, ['_id' => MongoRepository::id($id)]);
+        $doc = $db->findOne(self::HEALTH_COLLECTION, ['id' => MongoRepository::id($id)]);
         return is_array($doc) ? $doc : [];
     }
 

@@ -243,7 +243,7 @@ const PropsView = () => {
                             {!myBetsLoading && myBetsError && <p>{myBetsError}</p>}
                             {!myBetsLoading && !myBetsError && myBets.length === 0 && <p>No bets found.</p>}
                             {!myBetsLoading && !myBetsError && myBets.slice(0, 10).map((bet) => (
-                                <div key={bet.id || bet._id} className="props-bet-row">
+                                <div key={bet.id} className="props-bet-row">
                                     <span>{String(bet.type || 'bet').toUpperCase()}</span>
                                     <span>${Math.round(Number(bet.amount || 0))}</span>
                                     <span className={`status ${String(bet.status || 'pending').toLowerCase()}`}>{bet.status || 'pending'}</span>
@@ -328,7 +328,7 @@ const formatSportLabel = (sportKey = 'unknown') => {
         .join(' ');
 };
 
-const getMatchId = (match) => match?.id || match?._id || match?.externalId || `${match?.homeTeam || match?.home_team}-${match?.awayTeam || match?.away_team}`;
+const getMatchId = (match) => match?.id || match?.externalId || `${match?.homeTeam || match?.home_team}-${match?.awayTeam || match?.away_team}`;
 
 const formatStartTime = (startTime) => {
     if (!startTime) return 'Live';

@@ -154,7 +154,6 @@ final class OddsSyncService
                 }
 
                 $snapshot[] = [
-                    '_id' => $externalId,
                     'id' => $externalId,
                     'externalId' => $externalId,
                     'homeTeam' => $homeTeam,
@@ -321,7 +320,7 @@ final class OddsSyncService
                     $statusAndScore = self::extractScoreAndStatus($mergedEvent, $homeTeam, $awayTeam);
                     $doc = self::buildOddsDocument($event, $sportKey, $externalId, $homeTeam, $awayTeam, $statusAndScore);
 
-                    $existing = $db->findOne('matches', ['externalId' => $externalId], ['projection' => ['_id' => 1, 'status' => 1]]);
+                    $existing = $db->findOne('matches', ['externalId' => $externalId], ['projection' => ['id' => 1, 'status' => 1]]);
                     if ($existing === null) {
                         $doc['createdAt'] = MongoRepository::nowUtc();
                         $createdId = $db->insertOne('matches', $doc);
@@ -329,10 +328,10 @@ final class OddsSyncService
                         $result['settled'] += self::maybeSettleMatch($db, $createdId, $doc['status'] ?? '');
                     } else {
                         $oldStatus = (string) ($existing['status'] ?? '');
-                        $db->updateOne('matches', ['_id' => MongoRepository::id((string) $existing['_id'])], $doc);
+                        $db->updateOne('matches', ['id' => MongoRepository::id((string) $existing['id'])], $doc);
                         $result['updated']++;
                         if (($doc['status'] ?? '') === 'finished' || $oldStatus === 'finished') {
-                            $result['settled'] += self::maybeSettleMatch($db, (string) $existing['_id'], (string) ($doc['status'] ?? ''));
+                            $result['settled'] += self::maybeSettleMatch($db, (string) $existing['id'], (string) ($doc['status'] ?? ''));
                         }
                     }
                 }
@@ -415,7 +414,7 @@ final class OddsSyncService
     private static function updateExistingMatchFromScoreEvent(MongoRepository $db, string $externalId, array $scoreEvent): array
     {
         $existing = $db->findOne('matches', ['externalId' => $externalId], ['projection' => [
-            '_id' => 1,
+            'id' => 1,
             'status' => 1,
             'homeTeam' => 1,
             'awayTeam' => 1,
@@ -431,7 +430,7 @@ final class OddsSyncService
         $statusAndScore = self::extractScoreAndStatus($scoreEvent, $homeTeam, $awayTeam);
         $now = MongoRepository::nowUtc();
 
-        $db->updateOne('matches', ['_id' => MongoRepository::id((string) $existing['_id'])], [
+        $db->updateOne('matches', ['id' => MongoRepository::id((string) $existing['id'])], [
             'homeTeam' => $homeTeam,
             'awayTeam' => $awayTeam,
             'startTime' => $scoreEvent['commence_time'] ?? ($existing['startTime'] ?? null),
@@ -445,7 +444,7 @@ final class OddsSyncService
 
         $settled = 0;
         if (($statusAndScore['status'] ?? '') === 'finished' || (string) ($existing['status'] ?? '') === 'finished') {
-            $settled = self::maybeSettleMatch($db, (string) $existing['_id'], (string) ($statusAndScore['status'] ?? ''));
+            $settled = self::maybeSettleMatch($db, (string) $existing['id'], (string) ($statusAndScore['status'] ?? ''));
         }
 
         return ['updated' => true, 'settled' => $settled];

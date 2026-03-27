@@ -148,7 +148,7 @@ function CustomerAdminView({ onViewChange }) {
         const resolvedRole = String(me?.role || storedRole || 'admin').toLowerCase();
         setCurrentRole(resolvedRole);
         setAdminUsername(me?.username || '');
-        setCurrentUserId(me?.id || me?._id || '');
+        setCurrentUserId(me?.id || '');
         setViewOnly(Boolean(me?.viewOnly));
 
         if (resolvedRole === 'agent') {
@@ -396,7 +396,7 @@ function CustomerAdminView({ onViewChange }) {
           const appended = result.createdRows
             .filter((row) => !existing.has(String(row?.username || '').toUpperCase()))
             .map((row) => ({
-              id: row?.id || row?._id || '',
+              id: row?.id || '',
               username: String(row?.username || '').toUpperCase(),
               role: row?.role || 'user',
               status: row?.status || 'active',
@@ -415,7 +415,7 @@ function CustomerAdminView({ onViewChange }) {
               balance: toMoneyNumber(row?.balance, 0),
               pendingBalance: 0,
               availableBalance: Math.max(0, toMoneyNumber(row?.balance, 0)),
-              agentId: row?.agentId || (newCustomer.agentId ? { _id: newCustomer.agentId } : null)
+              agentId: row?.agentId || (newCustomer.agentId ? { id: newCustomer.agentId } : null)
             }));
           return [...appended, ...prev];
         });
@@ -465,7 +465,7 @@ function CustomerAdminView({ onViewChange }) {
       }
 
       setCustomers(prev => prev.map(c => (
-        (c.id || c._id) === customerId ? { ...c, status: nextStatus } : c
+        c.id === customerId ? { ...c, status: nextStatus } : c
       )));
       setError('');
     } catch (err) {
@@ -512,7 +512,7 @@ function CustomerAdminView({ onViewChange }) {
     const suffix = (creationType === 'super_agent') ? 'MA' : '';
 
     if (agentId) {
-      const selectedAgent = agents.find(a => (a.id || a._id) === agentId);
+      const selectedAgent = agents.find(a => a.id === agentId);
       if (selectedAgent) {
         setAgentSearchQuery(selectedAgent.username || '');
         try {
@@ -687,7 +687,7 @@ function CustomerAdminView({ onViewChange }) {
   const handleAdjustBalance = (customer) => {
     const currentBalance = toMoneyNumber(customer.balance, 0);
     setBalanceForm({
-      customerId: customer.id || customer._id,
+      customerId: customer.id,
       username: customer.username,
       currentBalance,
       nextBalance: `${currentBalance}`
@@ -721,7 +721,7 @@ function CustomerAdminView({ onViewChange }) {
       }
 
       setCustomers(prev => prev.map(c => (
-        (c.id || c._id) === customerId
+        c.id === customerId
           ? { ...c, balance: nextBalance, availableBalance: Math.max(0, nextBalance - toMoneyNumber(c.pendingBalance, 0)) }
           : c
       )));
@@ -736,7 +736,7 @@ function CustomerAdminView({ onViewChange }) {
   };
 
   const getPlayerAddonState = (customer) => {
-    const customerId = customer.id || customer._id;
+    const customerId = customer.id;
     const fallback = {
       sports: customer.settings?.sports ?? true,
       casino: customer.settings?.casino ?? true,
@@ -746,7 +746,7 @@ function CustomerAdminView({ onViewChange }) {
   };
 
   const handleToggleAddonDraft = (customer, addonKey) => {
-    const customerId = customer.id || customer._id;
+    const customerId = customer.id;
     const current = getPlayerAddonState(customer);
     setRowAddonDrafts((prev) => ({
       ...prev,
@@ -758,7 +758,7 @@ function CustomerAdminView({ onViewChange }) {
   };
 
   const saveAddonDraft = async (customer) => {
-    const customerId = customer.id || customer._id;
+    const customerId = customer.id;
     const draft = rowAddonDrafts[customerId];
     if (!draft) return;
 
@@ -783,7 +783,7 @@ function CustomerAdminView({ onViewChange }) {
       }
 
       setCustomers(prev => prev.map(c => (
-        (c.id || c._id) === customerId ? { ...c, settings: payload.settings } : c
+        (c.id) === customerId ? { ...c, settings: payload.settings } : c
       )));
       setRowAddonDrafts((prev) => {
         const next = { ...prev };
@@ -800,7 +800,7 @@ function CustomerAdminView({ onViewChange }) {
   };
 
   const handleResetPassword = async (customer) => {
-    const customerId = customer.id || customer._id;
+    const customerId = customer.id;
     const enteredPassword = window.prompt(`Enter new password for ${customer.username}:`, '');
 
     if (enteredPassword === null) return;
@@ -821,7 +821,7 @@ function CustomerAdminView({ onViewChange }) {
       setActionLoadingId(customerId);
       await resetUserPasswordByAdmin(customerId, newPassword, token);
       setCustomers(prev => prev.map(c => (
-        (c.id || c._id) === customerId ? { ...c, displayPassword: newPassword } : c
+        (c.id) === customerId ? { ...c, displayPassword: newPassword } : c
       )));
       alert(`Password for ${customer.username} has been reset successfully.`);
       setError('');
@@ -860,7 +860,7 @@ function CustomerAdminView({ onViewChange }) {
 
   const handleUpdateCustomer = async (e) => {
     e.preventDefault();
-    const customerId = selectedCustomer.id || selectedCustomer._id;
+    const customerId = selectedCustomer.id;
     try {
       const token = localStorage.getItem('token') || sessionStorage.getItem('token');
       const payload = {};
@@ -891,7 +891,7 @@ function CustomerAdminView({ onViewChange }) {
       }
 
       setCustomers(prev => prev.map(c => (
-        (c.id || c._id) === customerId ? { ...c, ...payload } : c
+        (c.id) === customerId ? { ...c, ...payload } : c
       )));
       setShowEditModal(false);
       setError('');
@@ -915,7 +915,7 @@ function CustomerAdminView({ onViewChange }) {
     const exact = assignableAgents.find((a) => String(a.username || '').trim().toLowerCase() === typed);
     if (!exact) return;
 
-    const exactId = String(exact.id || exact._id || '');
+    const exactId = String(exact.id || '');
     if (!exactId) return;
     if (String(newCustomer.agentId || '') === exactId) return;
 
@@ -926,7 +926,6 @@ function CustomerAdminView({ onViewChange }) {
     if (!value) return '';
     if (typeof value === 'string') return value;
     if (typeof value === 'object') {
-      if (typeof value._id === 'string') return value._id;
       if (typeof value.id === 'string') return value.id;
       if (typeof value.$oid === 'string') return value.$oid;
     }
@@ -946,7 +945,7 @@ function CustomerAdminView({ onViewChange }) {
   const allPlayers = useMemo(() => customers.filter(isPlayerLikeCustomer), [customers]);
   const allPlayersWithDuplicateFlags = useMemo(() => annotateDuplicatePlayers(allPlayers), [allPlayers]);
 
-  const selectedHeaderAgent = assignableAgents.find((a) => resolveId(a.id || a._id) === resolveId(selectedHeaderAgentId));
+  const selectedHeaderAgent = assignableAgents.find((a) => resolveId(a.id) === resolveId(selectedHeaderAgentId));
   const isMasterSelection = !!selectedHeaderAgent && (selectedHeaderAgent.role === 'master_agent' || selectedHeaderAgent.role === 'super_agent');
   const selectedHeaderAgentNormalizedId = resolveId(selectedHeaderAgentId);
 
@@ -967,7 +966,7 @@ function CustomerAdminView({ onViewChange }) {
       if (!isMasterSelection) {
         scopedPlayers = allPlayersWithDuplicateFlags.filter((c) => resolveId(c.agentId) === selectedHeaderAgentNormalizedId);
       } else {
-        const childAgentIds = new Set(selectedMasterChildAgents.map((a) => resolveId(a.id || a._id)).filter(Boolean));
+        const childAgentIds = new Set(selectedMasterChildAgents.map((a) => resolveId(a.id)).filter(Boolean));
         scopedPlayers = allPlayersWithDuplicateFlags.filter((c) => childAgentIds.has(resolveId(c.agentId)));
       }
     }
@@ -993,7 +992,7 @@ function CustomerAdminView({ onViewChange }) {
   const displayRows = useMemo(() => {
     const agentMap = new Map();
     assignableAgents.forEach((agent) => {
-      const id = resolveId(agent.id || agent._id);
+      const id = resolveId(agent.id);
       if (!id) return;
       agentMap.set(id, agent);
     });
@@ -1105,7 +1104,7 @@ function CustomerAdminView({ onViewChange }) {
     }
 
     let payload = null;
-    const targetPlayerIds = new Set(visiblePlayers.map((p) => p.id || p._id));
+    const targetPlayerIds = new Set(visiblePlayers.map((p) => p.id));
     if (bulkEditType === 'status') {
       const nextStatus = bulkEditValue || 'active';
       payload = { status: nextStatus };
@@ -1118,14 +1117,14 @@ function CustomerAdminView({ onViewChange }) {
 
       setActionLoadingId('bulk-update');
       await Promise.all(visiblePlayers.map((player) => {
-        const playerId = player.id || player._id;
+        const playerId = player.id;
         const nextBalance = toMoneyNumber(player.balance, 0) + delta;
         if (currentRole === 'agent') return updateUserBalanceOwedByAgent(playerId, nextBalance, token);
         return updateUserCredit(playerId, { balance: nextBalance }, token);
       }));
 
       setCustomers((prev) => prev.map((customer) => {
-        const customerId = customer.id || customer._id;
+        const customerId = customer.id;
         if (!targetPlayerIds.has(customerId)) return customer;
         return {
           ...customer,
@@ -1151,13 +1150,13 @@ function CustomerAdminView({ onViewChange }) {
     try {
       setActionLoadingId('bulk-update');
       await Promise.all(visiblePlayers.map((player) => {
-        const playerId = player.id || player._id;
+        const playerId = player.id;
         if (currentRole === 'agent') return updateUserByAgent(playerId, payload, token);
         return updateUserByAdmin(playerId, payload, token);
       }));
 
       setCustomers((prev) => prev.map((customer) => {
-        const customerId = customer.id || customer._id;
+        const customerId = customer.id;
         if (!targetPlayerIds.has(customerId)) return customer;
         return { ...customer, ...payload };
       }));
@@ -1180,7 +1179,7 @@ function CustomerAdminView({ onViewChange }) {
     }
 
     if (newCustomer.agentId) {
-      return playersOnly.filter((p) => String(p.agentId?._id || p.agentId || '') === String(newCustomer.agentId));
+      return playersOnly.filter((p) => String(p.agentId?.id || p.agentId || '') === String(newCustomer.agentId));
     }
 
     return playersOnly;
@@ -1189,7 +1188,7 @@ function CustomerAdminView({ onViewChange }) {
   const referralSearchOptions = useMemo(() => (
     referralOptions
       .map((player) => {
-        const id = String(player.id || player._id || '').trim();
+        const id = String(player.id || '').trim();
         const username = String(player.username || '').trim();
         const fullName = String(player.fullName || '').trim();
         if (!id || !username) return null;
@@ -1268,7 +1267,7 @@ function CustomerAdminView({ onViewChange }) {
 
   const handleViewDetails = (customer) => {
     if (onViewChange) {
-      onViewChange('user-details', customer.id || customer._id);
+      onViewChange('user-details', customer.id);
     }
   };
 
@@ -1287,20 +1286,20 @@ function CustomerAdminView({ onViewChange }) {
         return;
       }
 
-      setActionLoadingId(customer.id || customer._id);
+      setActionLoadingId(customer.id);
 
       if (isAgent) {
-        await deleteAgent(customer.id || customer._id, token);
+        await deleteAgent(customer.id, token);
       } else {
-        await deleteUser(customer.id || customer._id, token);
+        await deleteUser(customer.id, token);
       }
 
       // Remove from state
-      setCustomers(prev => prev.filter(c => (c.id || c._id) !== (customer.id || customer._id)));
+      setCustomers(prev => prev.filter(c => (c.id) !== (customer.id)));
 
       // Also remove from agents list if it was an agent
       if (isAgent) {
-        setAgents(prev => prev.filter(a => (a.id || a._id) !== (customer.id || customer._id)));
+        setAgents(prev => prev.filter(a => (a.id) !== (customer.id)));
       }
 
       alert(`${typeLabel} "${customer.username}" deleted successfully.`);
@@ -1315,7 +1314,7 @@ function CustomerAdminView({ onViewChange }) {
   };
 
   const getRowDetailDraft = (customer) => {
-    const customerId = customer.id || customer._id;
+    const customerId = customer.id;
     return rowDetailDrafts[customerId] || {
       firstName: customer.firstName || '',
       lastName: customer.lastName || '',
@@ -1332,13 +1331,13 @@ function CustomerAdminView({ onViewChange }) {
   };
 
   const toggleRowExpanded = (customer) => {
-    const customerId = customer.id || customer._id;
+    const customerId = customer.id;
     setExpandedRowId((prev) => (prev === customerId ? null : customerId));
     setExpandedEditRowId((prev) => (prev === customerId ? null : prev));
   };
 
   const startInlineEdit = (customer) => {
-    const customerId = customer.id || customer._id;
+    const customerId = customer.id;
     setExpandedRowId(customerId);
     setExpandedEditRowId(customerId);
     setRowDetailDrafts((prev) => ({
@@ -1348,7 +1347,7 @@ function CustomerAdminView({ onViewChange }) {
   };
 
   const updateRowDetailDraft = (customer, key, value) => {
-    const customerId = customer.id || customer._id;
+    const customerId = customer.id;
     const base = getRowDetailDraft(customer);
     setRowDetailDrafts((prev) => ({
       ...prev,
@@ -1361,7 +1360,7 @@ function CustomerAdminView({ onViewChange }) {
   };
 
   const saveInlineRow = async (customer) => {
-    const customerId = customer.id || customer._id;
+    const customerId = customer.id;
     const draft = getRowDetailDraft(customer);
     const token = localStorage.getItem('token') || sessionStorage.getItem('token');
     if (!token) return;
@@ -1402,7 +1401,7 @@ function CustomerAdminView({ onViewChange }) {
       }
 
       setCustomers((prev) => prev.map((c) => (
-        (c.id || c._id) === customerId
+        (c.id) === customerId
           ? {
             ...c,
             ...payload,
@@ -1426,7 +1425,7 @@ function CustomerAdminView({ onViewChange }) {
   };
 
   const openQuickEditModal = (customer, type) => {
-    const customerId = customer.id || customer._id;
+    const customerId = customer.id;
     let value = '';
     if (type === 'name') value = `${customer.firstName || ''} ${customer.lastName || ''}`.trim();
     if (type === 'password') value = customer.displayPassword || '';
@@ -1454,7 +1453,7 @@ function CustomerAdminView({ onViewChange }) {
         const payload = { firstName, lastName, fullName: quickEditModal.value.trim() };
         if (currentRole === 'agent') await updateUserByAgent(quickEditModal.customerId, payload, token);
         else await updateUserByAdmin(quickEditModal.customerId, payload, token);
-        setCustomers((prev) => prev.map((c) => ((c.id || c._id) === quickEditModal.customerId ? { ...c, ...payload } : c)));
+        setCustomers((prev) => prev.map((c) => ((c.id) === quickEditModal.customerId ? { ...c, ...payload } : c)));
       }
 
       if (quickEditModal.type === 'password') {
@@ -1468,7 +1467,7 @@ function CustomerAdminView({ onViewChange }) {
         } else {
           await updateUserByAgent(quickEditModal.customerId, { password: nextPass }, token);
         }
-        setCustomers((prev) => prev.map((c) => ((c.id || c._id) === quickEditModal.customerId ? { ...c, displayPassword: nextPass } : c)));
+        setCustomers((prev) => prev.map((c) => ((c.id) === quickEditModal.customerId ? { ...c, displayPassword: nextPass } : c)));
       }
 
       if (quickEditModal.type === 'balance') {
@@ -1479,7 +1478,7 @@ function CustomerAdminView({ onViewChange }) {
         }
         if (currentRole === 'agent') await updateUserBalanceOwedByAgent(quickEditModal.customerId, nextBalance, token);
         else await updateUserCredit(quickEditModal.customerId, { balance: nextBalance }, token);
-        setCustomers((prev) => prev.map((c) => ((c.id || c._id) === quickEditModal.customerId ? { ...c, balance: nextBalance } : c)));
+        setCustomers((prev) => prev.map((c) => ((c.id) === quickEditModal.customerId ? { ...c, balance: nextBalance } : c)));
       }
 
       setQuickEditModal({ open: false, type: '', customerId: null, username: '', value: '' });
@@ -1532,7 +1531,7 @@ function CustomerAdminView({ onViewChange }) {
                   <span>All Agents</span>
                 </button>
                 {headerFilteredAgents.map((a) => {
-                  const id = a.id || a._id;
+                  const id = a.id;
                   const isMaster = a.role === 'master_agent' || a.role === 'super_agent';
                   return (
                     <button
@@ -1645,7 +1644,7 @@ function CustomerAdminView({ onViewChange }) {
                       onBlur={() => {
                         const typed = String(agentSearchQuery || '').trim().toLowerCase();
                         const exact = assignableAgents.find((a) => String(a.username || '').trim().toLowerCase() === typed);
-                        const exactId = String(exact?.id || exact?._id || '');
+                        const exactId = String(exact?.id || '');
                         if (exactId && String(newCustomer.agentId || '') !== exactId) {
                           handleAgentChange(exactId);
                         }
@@ -1678,7 +1677,7 @@ function CustomerAdminView({ onViewChange }) {
                             <span>{creationType === 'player' ? 'Direct (Under Me)' : 'Direct (Created By Me)'}</span>
                           </button>
                           {filteredAssignableAgents.map((a) => {
-                            const id = a.id || a._id;
+                            const id = a.id;
                             const isMaster = a.role === 'master_agent' || a.role === 'super_agent';
                             if ((creationType === 'agent' || creationType === 'super_agent') && !isMaster) {
                               return null;
@@ -2067,7 +2066,7 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
                           );
                         }
                         const customer = row.player;
-                        const customerId = customer.id || customer._id;
+                        const customerId = customer.id;
                         const addonState = getPlayerAddonState(customer);
                         const hasPendingAddonChanges = !!rowAddonDrafts[customerId];
                         const isExpanded = expandedRowId === customerId;

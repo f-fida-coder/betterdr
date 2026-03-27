@@ -50,7 +50,7 @@ final class MessagesController
             }
 
             $doc = [
-                'fromUserId' => MongoRepository::id((string) $actor['_id']),
+                'fromUserId' => MongoRepository::id((string) $actor['id']),
                 'fromName' => (string) ($actor['username'] ?? 'User'),
                 'subject' => $subject,
                 'body' => $body,
@@ -62,8 +62,8 @@ final class MessagesController
             ];
 
             $id = $this->db->insertOne('messages', $doc);
-            $message = $this->db->findOne('messages', ['_id' => MongoRepository::id($id)]);
-            Response::json($message ?? ['_id' => $id], 201);
+            $message = $this->db->findOne('messages', ['id' => MongoRepository::id($id)]);
+            Response::json($message ?? ['id' => $id], 201);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error creating message'], 500);
         }
@@ -77,7 +77,7 @@ final class MessagesController
                 return;
             }
 
-            $messages = $this->db->findMany('messages', ['fromUserId' => MongoRepository::id((string) $actor['_id'])], ['sort' => ['createdAt' => -1]]);
+            $messages = $this->db->findMany('messages', ['fromUserId' => MongoRepository::id((string) $actor['id'])], ['sort' => ['createdAt' => -1]]);
             Response::json($messages);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error fetching messages'], 500);
@@ -108,7 +108,7 @@ final class MessagesController
         }
 
         $collection = $this->collectionByRole($role);
-        $actor = $this->db->findOne($collection, ['_id' => MongoRepository::id($id)]);
+        $actor = $this->db->findOne($collection, ['id' => MongoRepository::id($id)]);
         if ($actor === null) {
             Response::json(['message' => 'Not authorized, user not found'], 403);
             return null;

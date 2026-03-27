@@ -30,7 +30,7 @@ export const annotateDuplicatePlayers = (players) => {
   }
 
   const identityRows = players.map((player, index) => {
-    const id = String(player?.id || player?._id || player?.username || `row-${index}`);
+    const id = String(player?.id || player?.username || `row-${index}`);
     const name = buildNormalizedName(player);
     const phone = normalizeDuplicatePhone(player?.phoneNumber);
     const email = normalizeDuplicateEmail(player?.email);

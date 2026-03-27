@@ -283,7 +283,7 @@ const MyBetsView = () => {
                 ) : (
                     <div className="my-bets-list">
                         {filteredBets.map((bet) => {
-                            const betId = bet._id || bet.id || bet.ticketId;
+                            const betId = bet.id || bet.ticketId;
                             const selections = Array.isArray(bet.selections) ? bet.selections : [];
                             const summaryLines = String(bet.description || bet.selection || 'MULTI').split('\n').filter(Boolean);
                             const risk = Number(bet.riskAmount || bet.amount || 0);

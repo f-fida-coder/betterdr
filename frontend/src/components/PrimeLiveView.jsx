@@ -125,7 +125,7 @@ const PrimeLiveView = () => {
         if (parsedOdds === null) return;
         const home = match.homeTeam || match.home_team || 'Home';
         const away = match.awayTeam || match.away_team || 'Away';
-        const matchId = match.id || match._id || match.externalId;
+        const matchId = match.id || match.externalId;
         const key = `${matchId}-${marketType}-${selection}`;
         setSelectedOddsKey(key);
 
@@ -253,7 +253,7 @@ const PrimeLiveView = () => {
                                             const isLive = status === 'live' || String(match.score?.event_status || '').toUpperCase().includes('IN_PROGRESS');
                                             const startTime = match.startTime ? new Date(match.startTime) : null;
                                             const timeLabel = isLive && period ? `${period}` : (startTime ? startTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '');
-                                            const matchId = match.id || match._id || match.externalId;
+                                            const matchId = match.id || match.externalId;
 
                                             const homeSpread = getSpread(match, home);
                                             const awaySpread = getSpread(match, away);

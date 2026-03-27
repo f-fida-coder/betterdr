@@ -61,7 +61,7 @@ function UserManualView() {
         status: form.status
       };
       if (editingSection) {
-        await updateManualSection(editingSection.id || editingSection._id, payload, token);
+        await updateManualSection(editingSection.id, payload, token);
       } else {
         await createManualSection(payload, token);
       }
@@ -83,7 +83,7 @@ function UserManualView() {
     try {
       setActionLoadingId(sectionId);
       await deleteManualSection(sectionId, token);
-      setSections(prev => prev.filter(section => (section.id || section._id) !== sectionId));
+      setSections(prev => prev.filter(section => section.id !== sectionId));
     } catch (err) {
       setError(err.message || 'Failed to delete section');
     } finally {
@@ -102,17 +102,17 @@ function UserManualView() {
           {loading && <div style={{ padding: '20px', textAlign: 'center' }}>Loading manual...</div>}
           {error && <div style={{ padding: '20px', color: 'red', textAlign: 'center' }}>{error}</div>}
           {!loading && !error && sections.map(section => (
-            <section key={section.id || section._id} className="manual-section">
+            <section key={section.id} className="manual-section">
               <h3>{section.title}</h3>
               <p>{section.content}</p>
               <div className="table-actions">
                 <button className="btn-small" onClick={() => openEditModal(section)}>Edit</button>
                 <button
                   className="btn-small btn-danger"
-                  onClick={() => handleDelete(section.id || section._id)}
-                  disabled={actionLoadingId === (section.id || section._id)}
+                  onClick={() => handleDelete(section.id)}
+                  disabled={actionLoadingId === section.id}
                 >
-                  {actionLoadingId === (section.id || section._id) ? 'Working...' : 'Delete'}
+                  {actionLoadingId === section.id ? 'Working...' : 'Delete'}
                 </button>
               </div>
             </section>

@@ -48,7 +48,7 @@ final class WalletController
                 return;
             }
 
-            $user = $this->db->findOne('users', ['_id' => MongoRepository::id((string) $actor['_id'])]);
+            $user = $this->db->findOne('users', ['id' => MongoRepository::id((string) $actor['id'])]);
             if ($user === null) {
                 Response::json(['message' => 'User not found'], 404);
                 return;
@@ -93,7 +93,7 @@ final class WalletController
             $type = isset($_GET['type']) ? strtolower(trim((string) $_GET['type'])) : '';
             $status = isset($_GET['status']) ? strtolower(trim((string) $_GET['status'])) : '';
 
-            $query = ['userId' => MongoRepository::id((string) $actor['_id'])];
+            $query = ['userId' => MongoRepository::id((string) $actor['id'])];
             if ($type !== '') {
                 $query['type'] = $type;
             }
@@ -108,7 +108,7 @@ final class WalletController
 
             $formatted = array_map(function (array $tx): array {
                 return [
-                    'id' => $tx['_id'] ?? null,
+                    'id' => $tx['id'] ?? null,
                     'amount' => $this->num($tx['amount'] ?? 0),
                     'type' => $tx['type'] ?? null,
                     'entrySide' => $tx['entrySide'] ?? null,
@@ -160,7 +160,7 @@ final class WalletController
 
             $now = MongoRepository::nowUtc();
             $doc = [
-                'userId' => MongoRepository::id((string) $actor['_id']),
+                'userId' => MongoRepository::id((string) $actor['id']),
                 'agentId' => $this->toOptionalId($actor['agentId'] ?? null),
                 'amount' => $amount,
                 'type' => 'deposit',
@@ -198,7 +198,7 @@ final class WalletController
             $amount = $this->parseAmount($body['amount'] ?? 0);
             $method = strtolower(trim((string) ($body['method'] ?? 'manual')));
 
-            $user = $this->db->findOne('users', ['_id' => MongoRepository::id((string) $actor['_id'])]);
+            $user = $this->db->findOne('users', ['id' => MongoRepository::id((string) $actor['id'])]);
             if ($user === null) {
                 Response::json(['message' => 'User not found'], 404);
                 return;
@@ -217,7 +217,7 @@ final class WalletController
 
             $now = MongoRepository::nowUtc();
             $doc = [
-                'userId' => MongoRepository::id((string) $actor['_id']),
+                'userId' => MongoRepository::id((string) $actor['id']),
                 'agentId' => $this->toOptionalId($actor['agentId'] ?? null),
                 'amount' => $amount,
                 'type' => 'withdrawal',
@@ -268,7 +268,7 @@ final class WalletController
         }
 
         $collection = $this->collectionByRole($role);
-        $actor = $this->db->findOne($collection, ['_id' => MongoRepository::id($id)]);
+        $actor = $this->db->findOne($collection, ['id' => MongoRepository::id($id)]);
         if ($actor === null) {
             Response::json(['message' => 'Not authorized, user not found'], 403);
             return null;
@@ -317,7 +317,7 @@ final class WalletController
         $ownerModel = IpUtils::ownerModelForRole((string) ($actor['role'] ?? 'user'));
 
         return [
-            'userId' => MongoRepository::id((string) $actor['_id']),
+            'userId' => MongoRepository::id((string) $actor['id']),
             'ip' => $ip,
             '$or' => [['userModel' => $ownerModel], ['userModel' => ['$exists' => false]]],
         ];
@@ -385,7 +385,7 @@ final class WalletController
             ['depositMonthly', 'monthly', '-30 days'],
         ];
 
-        $userId = MongoRepository::id((string) ($user['_id'] ?? ''));
+        $userId = MongoRepository::id((string) ($user['id'] ?? ''));
         foreach ($checks as [$key, $label, $interval]) {
             $limit = isset($limits[$key]) && is_numeric($limits[$key]) ? (float) $limits[$key] : 0.0;
             if ($limit <= 0) {
@@ -404,7 +404,7 @@ final class WalletController
 
     private function computeRemainingLimits(array $user, array $limits): array
     {
-        $userId = MongoRepository::id((string) ($user['_id'] ?? ''));
+        $userId = MongoRepository::id((string) ($user['id'] ?? ''));
         $remaining = [
             'depositDaily' => null,
             'depositWeekly' => null,

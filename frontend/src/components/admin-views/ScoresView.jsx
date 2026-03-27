@@ -59,7 +59,7 @@ function ScoresView() {
     }
     try {
       setActionLoading(true);
-      await updateAdminMatch(selectedMatch.id || selectedMatch._id, {
+      await updateAdminMatch(selectedMatch.id, {
         status: updateForm.status,
         score: {
           scoreHome: Number(updateForm.scoreHome) || 0,
@@ -134,7 +134,7 @@ function ScoresView() {
               </thead>
               <tbody>
                 {filteredMatches.map(match => (
-                  <tr key={match.id || match._id}>
+                  <tr key={match.id}>
                     <td><strong>{match.homeTeam} vs {match.awayTeam}</strong></td>
                     <td>{match.startTime ? new Date(match.startTime).toLocaleString() : '—'}</td>
                     <td><span className={`badge ${getMatchStatus(match)}`}>{getMatchStatus(match)}</span></td>

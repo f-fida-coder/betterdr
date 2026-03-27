@@ -43,7 +43,7 @@ foreach ($collections as $collection) {
         $hashedPassword = password_hash($password, PASSWORD_BCRYPT);
         
         // Update the record
-        $repo->update($collection, $record['_id'], [
+        $repo->update($collection, $record['id'], [
             'password' => $hashedPassword
         ]);
         

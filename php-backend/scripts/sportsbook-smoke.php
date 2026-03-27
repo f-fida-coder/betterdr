@@ -105,7 +105,7 @@ try {
         'status' => 'scheduled',
     ], $adminToken);
     assertOk($matchCreate['status'] === 201, 'Failed to create match');
-    $matchId = (string) ($matchCreate['data']['_id'] ?? $matchCreate['data']['id'] ?? '');
+    $matchId = (string) ($matchCreate['data']['id'] ?? '');
     assertOk($matchId !== '', 'Created match id missing');
 
     $matchCreateTwo = req('POST', $baseUrl . '/admin/matches', [
@@ -116,7 +116,7 @@ try {
         'status' => 'scheduled',
     ], $adminToken);
     assertOk($matchCreateTwo['status'] === 201, 'Failed to create second match');
-    $matchIdTwo = (string) ($matchCreateTwo['data']['_id'] ?? $matchCreateTwo['data']['id'] ?? '');
+    $matchIdTwo = (string) ($matchCreateTwo['data']['id'] ?? '');
     assertOk($matchIdTwo !== '', 'Created second match id missing');
 
     $oddsFixture = [

@@ -159,7 +159,7 @@ final class SportsbookBetSupport
      */
     public static function ensureSelectionRowsForBet(MongoRepository $db, array $bet): array
     {
-        $betId = (string) ($bet['_id'] ?? '');
+        $betId = (string) ($bet['id'] ?? '');
         if ($betId === '') {
             return [];
         }
@@ -216,7 +216,7 @@ final class SportsbookBetSupport
      */
     public static function upsertSelectionRowsForBet(MongoRepository $db, array $bet, array $selectionDocs): void
     {
-        $betId = (string) ($bet['_id'] ?? '');
+        $betId = (string) ($bet['id'] ?? '');
         if ($betId === '') {
             return;
         }
@@ -251,7 +251,7 @@ final class SportsbookBetSupport
     public static function enrichBetForResponse(array $bet, array $selectionRows): array
     {
         $sorted = self::sortSelectionRows($selectionRows);
-        $bet['ticketId'] = (string) ($bet['ticketId'] ?? ($bet['_id'] ?? ''));
+        $bet['ticketId'] = (string) ($bet['ticketId'] ?? ($bet['id'] ?? ''));
         $bet['riskAmount'] = self::riskAmount($bet);
         $bet['unitStake'] = self::unitStake($bet);
         $bet['combinedOdds'] = self::combinedOdds(self::riskAmount($bet), self::num($bet['potentialPayout'] ?? 0));
@@ -627,7 +627,7 @@ final class SportsbookBetSupport
         $point = isset($selection['point']) && is_numeric($selection['point']) ? (float) $selection['point'] : null;
         $basePoint = isset($selection['basePoint']) && is_numeric($selection['basePoint']) ? (float) $selection['basePoint'] : $point;
         return [
-            '_id' => $rowId,
+            'id' => $rowId,
             'betId' => $betId,
             'ticketId' => $ticketId,
             'userId' => $userId,

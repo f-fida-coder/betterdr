@@ -56,7 +56,7 @@ const pruneAssignmentTree = (node) => {
 
   return {
     ...node,
-    id: normalizeHierarchyId(node.id || node._id),
+    id: normalizeHierarchyId(node.id),
     children,
   };
 };
@@ -64,7 +64,7 @@ const findAssignmentTreeNode = (node, targetId) => {
   const normalizedTargetId = normalizeHierarchyId(targetId);
   if (!normalizedTargetId || !node) return null;
 
-  if (normalizeHierarchyId(node.id || node._id) === normalizedTargetId) {
+  if (normalizeHierarchyId(node.id) === normalizedTargetId) {
     return node;
   }
 
@@ -82,7 +82,7 @@ const findAssignmentTreePath = (node, targetId) => {
   const normalizedTargetId = normalizeHierarchyId(targetId);
   if (!normalizedTargetId || !node) return [];
 
-  const nodeId = normalizeHierarchyId(node.id || node._id);
+  const nodeId = normalizeHierarchyId(node.id);
   if (nodeId === normalizedTargetId) {
     return [nodeId];
   }
@@ -163,7 +163,7 @@ function AssignmentHierarchyPicker({
       return childRendered.some(Boolean) ? <>{childRendered}</> : null;
     }
 
-    const nodeId = normalizeHierarchyId(node.id || node._id);
+    const nodeId = normalizeHierarchyId(node.id);
     const managerChildren = (Array.isArray(node.children) ? node.children : [])
       .filter((c) => isManagerTreeNode(c) && (selectionMode !== 'master' || isMasterTreeNode(c)));
     const canExpand = managerChildren.length > 0 && (isRoot || isMasterTreeNode(node));
@@ -554,7 +554,7 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
         const resolvedRole = String(me?.role || storedRole || 'admin').toLowerCase();
         setCurrentRole(resolvedRole);
         setAdminUsername(me?.username || '');
-        setCurrentUserId(me?.id || me?._id || '');
+        setCurrentUserId(me?.id || '');
         setViewOnly(Boolean(me?.viewOnly));
 
         if (resolvedRole === 'agent') {
@@ -915,7 +915,7 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
     const isAgentCreation = creationType === 'agent' || creationType === 'super_agent';
 
     if (agentId) {
-      const selectedAgent = selectedAgentOverride || agents.find((a) => (a.id || a._id) === agentId);
+      const selectedAgent = selectedAgentOverride || agents.find((a) => a.id === agentId);
       if (selectedAgent) {
         try {
           // Use the user's typed prefix for agent creation; derive from selected agent for player creation
@@ -1156,7 +1156,7 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
   };
 
   const handleAssignmentNodeSelect = async (node) => {
-    const selectedId = normalizeHierarchyId(node?.id || node?._id);
+    const selectedId = normalizeHierarchyId(node?.id);
     if (!selectedId) return;
 
     expandAssignmentPath(selectedId);
@@ -1199,7 +1199,7 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
     }
 
     if (newCustomer.agentId) {
-      return playersOnly.filter((p) => String(p.agentId?._id || p.agentId || '') === String(newCustomer.agentId));
+      return playersOnly.filter((p) => String(p.agentId?.id || p.agentId || '') === String(newCustomer.agentId));
     }
 
     return playersOnly;
@@ -1208,7 +1208,7 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
   const referralSearchOptions = useMemo(() => (
     referralOptions
       .map((player) => {
-        const id = String(player.id || player._id || '').trim();
+        const id = String(player.id || '').trim();
         const username = String(player.username || '').trim();
         const fullName = String(player.fullName || '').trim();
         if (!id || !username) return null;
@@ -1858,7 +1858,7 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
                         })
                         .sort((a, b) => String(a.username || '').localeCompare(String(b.username || '')))
                         .map((a) => {
-                          const id = String(a.id || a._id || '');
+                          const id = String(a.id || '');
                           const roleLabel = String(a.role || '').toLowerCase() === 'agent' ? 'Agent' : 'Master Agent';
                           return (
                             <option key={id} value={id}>

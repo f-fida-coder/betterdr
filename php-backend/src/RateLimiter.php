@@ -39,13 +39,13 @@ class RateLimiter
                 if ($currentCount >= $maxAttempts) {
                     return false;
                 }
-                $db->updateOne($collection, ['_id' => $entry['_id']], [
+                $db->updateOne($collection, ['id' => $entry['id']], [
                     'count' => $currentCount + 1,
                 ]);
                 return true;
             }
 
-            $db->updateOne($collection, ['_id' => $entry['_id']], [
+            $db->updateOne($collection, ['id' => $entry['id']], [
                 'count' => 1,
                 'windowStart' => $now,
             ]);
