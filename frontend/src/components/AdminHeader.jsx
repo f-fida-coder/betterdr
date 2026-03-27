@@ -793,7 +793,7 @@ function AdminHeader({
             {/* Row 5: Agent Profit / Balance (agent only) */}
             {roleKey === 'agent' && (
               <div className="stat-box">
-                <span className="stat-label">Agent Profit After Makeup</span>
+                <span className="stat-label">Agent Profit</span>
                 <span className={`stat-value ${getSignedValueClass(agentProfitAfterMakeupValue)}`}>{formatCurrency(agentProfitAfterMakeupValue)}</span>
               </div>
             )}

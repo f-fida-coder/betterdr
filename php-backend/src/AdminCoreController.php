@@ -948,7 +948,7 @@ final class AdminCoreController
                     }
 
                     if (count($managedAgentObjectIds) === 0) {
-                        $emptySettlement = $this->buildAgentSettlementSummary(0.0, 0.0, 0.0, null);
+                        $emptySettlement = $this->buildAgentSettlementSummary(0.0, 0.0, 0.0);
                         return [
                             'totalBalance' => 0.0,
                             'totalOutstanding' => 0.0,
@@ -1155,8 +1155,7 @@ final class AdminCoreController
                 $settlementSummary = $this->buildAgentSettlementSummary(
                     $agentDeposits - $agentWithdrawals,
                     $houseDeposits - $houseWithdrawals,
-                    $totalPlayerFees,
-                    $actorAgentPercent
+                    $totalPlayerFees
                 );
 
                 return [
@@ -10782,27 +10781,17 @@ final class AdminCoreController
     private function buildAgentSettlementSummary(
         float $agentCollections,
         float $houseCollections,
-        float $playerFees,
-        ?float $agentCommissionPercent
+        float $playerFees
     ): array {
-        $agentPct = $this->num($agentCommissionPercent ?? 0.0);
-        if ($agentPct < 0.0) {
-            $agentPct = 0.0;
-        } elseif ($agentPct > 100.0) {
-            $agentPct = 100.0;
-        }
-        $housePct = 100.0 - $agentPct;
-
         $housePayback = $houseCollections < 0.0 ? abs($houseCollections) : 0.0;
         $remainingAfterHousePayback = $agentCollections - $housePayback;
         $commissionableProfit = max(0.0, $remainingAfterHousePayback);
-        $houseShareFromProfit = $commissionableProfit * ($housePct / 100.0);
-        $agentShareFromProfit = $commissionableProfit * ($agentPct / 100.0);
-        $houseFinalAmount = $housePayback + $houseShareFromProfit + $playerFees;
-        $agentNetAfterHouse = $agentCollections - $houseFinalAmount;
-        $makeup = min(0.0, $agentNetAfterHouse);
-        $agentProfitAfterFees = max(0.0, $agentNetAfterHouse);
-        $unpaidAmount = abs(min(0.0, $agentNetAfterHouse));
+        $houseShareFromProfit = 0.0;
+        $agentShareFromProfit = $commissionableProfit;
+        $houseFinalAmount = $housePayback + $playerFees;
+        $makeup = min(0.0, $remainingAfterHousePayback);
+        $agentProfitAfterFees = max(0.0, $agentShareFromProfit - $playerFees);
+        $unpaidAmount = max(0.0, $houseFinalAmount - $agentCollections);
 
         return [
             'agentCollections' => $agentCollections,
