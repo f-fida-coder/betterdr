@@ -1002,7 +1002,7 @@ final class AdminCoreController
                     'createdAt' => ['$gte' => MongoRepository::utcFromMillis($startOfWeek->getTimestamp() * 1000)],
                 ];
 
-                $txProjection = ['projection' => ['userId' => 1, 'amount' => 1, 'type' => 1, 'entrySide' => 1, 'reason' => 1, 'description' => 1, 'balanceBefore' => 1, 'balanceAfter' => 1, 'approvedByRole' => 1]];
+                $txProjection = ['projection' => ['userId' => 1, 'amount' => 1, 'type' => 1, 'entrySide' => 1, 'reason' => 1, 'description' => 1, 'balanceBefore' => 1, 'balanceAfter' => 1, 'approvedByRole' => 1, 'adminId' => 1]];
                 $todayTx = [];
                 $weekTx = [];
                 if (($actor['role'] ?? '') !== 'admin') {
@@ -1027,16 +1027,52 @@ final class AdminCoreController
                 // Agent collections = approved by 'agent' only.
                 // House collections = approved by 'admin' only.
                 // Transactions approved by master_agent/super_agent are excluded from both.
+                //
+                // For older transactions missing approvedByRole, resolve from adminId:
+                // look up adminId in agents collection → 'agent', in admins collection → 'admin'.
                 $agentDeposits = 0.0;
                 $agentWithdrawals = 0.0;
                 $houseDeposits = 0.0;
                 $houseWithdrawals = 0.0;
+
+                // Collect adminIds from transactions missing approvedByRole for bulk lookup
+                $missingRoleAdminIds = [];
+                foreach ($weekTx as $tx) {
+                    $txType = strtolower(trim((string) ($tx['type'] ?? '')));
+                    if ($txType !== 'deposit' && $txType !== 'withdrawal') {
+                        continue;
+                    }
+                    $approverRole = trim((string) ($tx['approvedByRole'] ?? ''));
+                    if ($approverRole === '') {
+                        $aid = (string) ($tx['adminId'] ?? '');
+                        if ($aid !== '' && preg_match('/^[a-f0-9]{24}$/i', $aid) === 1) {
+                            $missingRoleAdminIds[$aid] = true;
+                        }
+                    }
+                }
+                $resolvedRoles = [];
+                if (count($missingRoleAdminIds) > 0) {
+                    $lookupIds = array_map(static fn (string $id): string => MongoRepository::id($id), array_keys($missingRoleAdminIds));
+                    $foundAgents = $this->db->findMany('agents', ['id' => ['$in' => $lookupIds]], ['projection' => ['id' => 1, 'role' => 1]]);
+                    foreach ($foundAgents as $fa) {
+                        $resolvedRoles[(string) $fa['id']] = strtolower(trim((string) ($fa['role'] ?? '')));
+                    }
+                    $foundAdmins = $this->db->findMany('admins', ['id' => ['$in' => $lookupIds]], ['projection' => ['id' => 1]]);
+                    foreach ($foundAdmins as $fadm) {
+                        $resolvedRoles[(string) $fadm['id']] = 'admin';
+                    }
+                }
+
                 foreach ($weekTx as $tx) {
                     $txType = strtolower(trim((string) ($tx['type'] ?? '')));
                     if ($txType !== 'deposit' && $txType !== 'withdrawal') {
                         continue;
                     }
                     $approverRole = strtolower(trim((string) ($tx['approvedByRole'] ?? '')));
+                    if ($approverRole === '') {
+                        $aid = (string) ($tx['adminId'] ?? '');
+                        $approverRole = $resolvedRoles[$aid] ?? '';
+                    }
                     $amt = $this->num($tx['amount'] ?? 0);
                     if ($approverRole === 'agent') {
                         if ($txType === 'deposit') {
@@ -7884,6 +7920,9 @@ final class AdminCoreController
                     'referenceType' => 'Adjustment',
                     'reason' => $txReason,
                     'description' => $txDescription,
+                    'approvedById' => isset($actor['id']) ? MongoRepository::id((string) $actor['id']) : null,
+                    'approvedByRole' => (string) ($actor['role'] ?? ''),
+                    'approvedByUsername' => (string) ($actor['username'] ?? ''),
                     'createdAt' => MongoRepository::nowUtc(),
                     'updatedAt' => MongoRepository::nowUtc(),
                 ];
