@@ -1055,7 +1055,7 @@ final class AdminCoreController
                     $lookupIds = array_map(static fn (string $id): string => MongoRepository::id($id), array_keys($missingRoleAdminIds));
                     $foundAgents = $this->db->findMany('agents', ['id' => ['$in' => $lookupIds]], ['projection' => ['id' => 1, 'role' => 1]]);
                     foreach ($foundAgents as $fa) {
-                        $resolvedRoles[(string) $fa['id']] = strtolower(trim((string) ($fa['role'] ?? '')));
+                        $resolvedRoles[(string) $fa['id']] = strtolower(trim((string) ($fa['role'] ?? 'agent')));
                     }
                     $foundAdmins = $this->db->findMany('admins', ['id' => ['$in' => $lookupIds]], ['projection' => ['id' => 1]]);
                     foreach ($foundAdmins as $fadm) {
@@ -3086,7 +3086,7 @@ final class AdminCoreController
                 $txUpdates = [
                     'status' => 'completed',
                     'approvedById' => isset($actor['id']) ? MongoRepository::id((string) $actor['id']) : null,
-                    'approvedByRole' => (string) ($actor['role'] ?? ''),
+                    'approvedByRole' => (string) ($actor['role'] ?? 'admin'),
                     'approvedByUsername' => (string) ($actor['username'] ?? ''),
                     'updatedAt' => $now,
                 ];
@@ -7937,7 +7937,7 @@ final class AdminCoreController
                     'reason' => $txReason,
                     'description' => $txDescription,
                     'approvedById' => isset($actor['id']) ? MongoRepository::id((string) $actor['id']) : null,
-                    'approvedByRole' => (string) ($actor['role'] ?? ''),
+                    'approvedByRole' => (string) ($actor['role'] ?? (is_array($agent) ? 'agent' : 'admin')),
                     'approvedByUsername' => (string) ($actor['username'] ?? ''),
                     'createdAt' => MongoRepository::nowUtc(),
                     'updatedAt' => MongoRepository::nowUtc(),
