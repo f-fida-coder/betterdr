@@ -1152,11 +1152,41 @@ final class AdminCoreController
                 $unpaidPlayerFees = $activeNonPositive * $feePerPlayer;
 
                 $actorAgentPercent = isset($actor['agentPercent']) ? (float) $actor['agentPercent'] : null;
+                $actorRole = strtolower(trim((string) ($actor['role'] ?? '')));
+
+                // Pass agentPercent so settlement uses real commission split
                 $settlementSummary = $this->buildAgentSettlementSummary(
                     $agentDeposits - $agentWithdrawals,
                     $houseDeposits - $houseWithdrawals,
-                    $totalPlayerFees
+                    $totalPlayerFees,
+                    $actorAgentPercent
                 );
+
+                // Build commission distribution across upline chain for agent actors
+                $commissionDistribution = [];
+                if (in_array($actorRole, ['agent', 'master_agent', 'super_agent'])) {
+                    $actorId = (string) ($actor['id'] ?? '');
+                    $upline = $this->buildUplineChain($actorId);
+                    $distributableAmount = $settlementSummary['commissionableProfit'];
+                    if ($distributableAmount > 0 && count($upline) > 0) {
+                        $allocatedTotal = 0.0;
+                        $lastIdx = count($upline) - 1;
+                        foreach ($upline as $idx => $node) {
+                            $pct = $node['agentPercent'] ?? 0.0;
+                            $share = ($idx === $lastIdx)
+                                ? round($distributableAmount - $allocatedTotal, 2)
+                                : round($distributableAmount * $pct / 100, 2);
+                            $allocatedTotal += $share;
+                            $commissionDistribution[] = [
+                                'id' => $node['id'],
+                                'username' => $node['username'],
+                                'role' => $node['role'],
+                                'agentPercent' => $pct,
+                                'amount' => $share,
+                            ];
+                        }
+                    }
+                }
 
                 return [
                     'totalBalance' => $totalBalance,
@@ -1184,6 +1214,7 @@ final class AdminCoreController
                     'agentProfitAfterFees' => $settlementSummary['agentProfitAfterFees'],
                     'makeup' => $settlementSummary['makeup'],
                     'unpaidAmount' => $settlementSummary['unpaidAmount'],
+                    'commissionDistribution' => $commissionDistribution,
                     'sportsbookHealth' => SportsbookHealth::sportsbookSnapshot($this->db),
                 ];
             });
@@ -10781,14 +10812,24 @@ final class AdminCoreController
     private function buildAgentSettlementSummary(
         float $agentCollections,
         float $houseCollections,
-        float $playerFees
+        float $playerFees,
+        ?float $agentPercent = null
     ): array {
         $housePayback = $houseCollections < 0.0 ? abs($houseCollections) : 0.0;
         $remainingAfterHousePayback = $agentCollections - $housePayback;
         $commissionableProfit = max(0.0, $remainingAfterHousePayback);
-        $houseShareFromProfit = 0.0;
-        $agentShareFromProfit = $commissionableProfit;
-        $houseFinalAmount = $housePayback + $playerFees;
+
+        // Apply agent commission percentage to split profit between agent and house
+        if ($agentPercent !== null && $agentPercent >= 0 && $agentPercent <= 100) {
+            $agentShareFromProfit = round($commissionableProfit * $agentPercent / 100, 2);
+            $houseShareFromProfit = round($commissionableProfit - $agentShareFromProfit, 2);
+        } else {
+            // Admin view or no commission set: agent gets full commissionable profit
+            $agentShareFromProfit = $commissionableProfit;
+            $houseShareFromProfit = 0.0;
+        }
+
+        $houseFinalAmount = $housePayback + $houseShareFromProfit + $playerFees;
         $makeup = min(0.0, $remainingAfterHousePayback);
         $agentProfitAfterFees = max(0.0, $agentShareFromProfit - $playerFees);
         $unpaidAmount = max(0.0, $houseFinalAmount - $agentCollections);

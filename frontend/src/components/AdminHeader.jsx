@@ -51,6 +51,7 @@ function AdminHeader({
     agentProfitAfterFees: 0,
     makeup: 0,
     unpaidAmount: 0,
+    commissionDistribution: [],
     sportsbookHealth: null
   });
   const [profile, setProfile] = useState(null);
@@ -95,6 +96,7 @@ function AdminHeader({
         agentProfitAfterFees: headerData?.agentProfitAfterFees ?? 0,
         makeup: headerData?.makeup ?? 0,
         unpaidAmount: headerData?.unpaidAmount ?? 0,
+        commissionDistribution: headerData?.commissionDistribution ?? [],
         sportsbookHealth: headerData?.sportsbookHealth ?? null
       });
     };
@@ -427,6 +429,10 @@ function AdminHeader({
   const makeupValue = Number(summary.makeup ?? 0);
   const agentProfitAfterMakeupValue = Number(summary.agentProfitAfterFees ?? 0);
   const houseFinalAmountValue = Number(summary.houseFinalAmount ?? 0);
+  const houseShareValue = Number(summary.houseShareFromProfit ?? 0);
+  const commissionableValue = Number(summary.commissionableProfit ?? 0);
+  const agentPercentValue = summary.agentPercent;
+  const commissionDistribution = summary.commissionDistribution ?? [];
 
   // For Admin, show Total Outstanding from all users. For Agent/User, show their own.
   // const isSuperAdmin = profile?.role === 'admin' || profile?.role === 'super_agent' || profile?.role === 'agent';
@@ -790,10 +796,24 @@ function AdminHeader({
               </div>
             )}
 
-            {/* Row 5: Agent Profit / Balance (agent only) */}
+            {/* Row 5: Commissionable Profit / House Share (agent only) */}
             {roleKey === 'agent' && (
               <div className="stat-box">
-                <span className="stat-label">Agent Profit</span>
+                <span className="stat-label">Comm. Profit</span>
+                <span className={`stat-value ${getSignedValueClass(commissionableValue)}`}>{formatCurrency(commissionableValue)}</span>
+              </div>
+            )}
+            {roleKey === 'agent' && (
+              <div className="stat-box">
+                <span className="stat-label">House Share</span>
+                <span className={`stat-value ${getSignedValueClass(houseShareValue)}`}>{formatCurrency(houseShareValue)}</span>
+              </div>
+            )}
+
+            {/* Row 6: Agent Profit (with %) / Balance (agent only) */}
+            {roleKey === 'agent' && (
+              <div className="stat-box">
+                <span className="stat-label">Agent Profit{agentPercentValue != null ? ` (${agentPercentValue}%)` : ''}</span>
                 <span className={`stat-value ${getSignedValueClass(agentProfitAfterMakeupValue)}`}>{formatCurrency(agentProfitAfterMakeupValue)}</span>
               </div>
             )}
@@ -801,6 +821,27 @@ function AdminHeader({
               <div className="stat-box">
                 <span className="stat-label">Balance</span>
                 <span className={`stat-value ${getSignedValueClass(houseFinalAmountValue)}`}>{formatCurrency(houseFinalAmountValue)}</span>
+              </div>
+            )}
+
+            {/* Row 7: Commission Distribution (agent only, when chain exists) */}
+            {roleKey === 'agent' && commissionDistribution.length > 0 && (
+              <div className="stat-box" style={{ gridColumn: '1 / -1' }}>
+                <span className="stat-label">Commission Split</span>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '4px' }}>
+                  {commissionDistribution.map((node, idx) => (
+                    <span key={node.id || idx} style={{
+                      fontSize: '11px',
+                      padding: '2px 6px',
+                      borderRadius: '4px',
+                      background: node.role === 'admin' ? 'rgba(255,107,107,0.15)' : 'rgba(78,205,196,0.15)',
+                      color: node.role === 'admin' ? '#ff6b6b' : '#4ecdc4',
+                      whiteSpace: 'nowrap'
+                    }}>
+                      {node.username}: {node.agentPercent}% ({formatCurrency(node.amount)})
+                    </span>
+                  ))}
+                </div>
               </div>
             )}
           </div>
