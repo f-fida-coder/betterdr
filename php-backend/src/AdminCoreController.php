@@ -1024,7 +1024,9 @@ final class AdminCoreController
 
                 // Agent Collections vs House Collections:
                 // Only deposits & withdrawals (no promo, no adjustments).
-                // Split by who approved: agent/master_agent → agent collections, admin → house collections.
+                // Agent collections = approved by 'agent' only.
+                // House collections = approved by 'admin' only.
+                // Transactions approved by master_agent/super_agent are excluded from both.
                 $agentDeposits = 0.0;
                 $agentWithdrawals = 0.0;
                 $houseDeposits = 0.0;
@@ -1035,19 +1037,18 @@ final class AdminCoreController
                         continue;
                     }
                     $approverRole = strtolower(trim((string) ($tx['approvedByRole'] ?? '')));
-                    $isHouse = ($approverRole === 'admin');
                     $amt = $this->num($tx['amount'] ?? 0);
-                    if ($txType === 'deposit') {
-                        if ($isHouse) {
-                            $houseDeposits += $amt;
-                        } else {
+                    if ($approverRole === 'agent') {
+                        if ($txType === 'deposit') {
                             $agentDeposits += $amt;
-                        }
-                    } else {
-                        if ($isHouse) {
-                            $houseWithdrawals += $amt;
                         } else {
                             $agentWithdrawals += $amt;
+                        }
+                    } elseif ($approverRole === 'admin') {
+                        if ($txType === 'deposit') {
+                            $houseDeposits += $amt;
+                        } else {
+                            $houseWithdrawals += $amt;
                         }
                     }
                 }

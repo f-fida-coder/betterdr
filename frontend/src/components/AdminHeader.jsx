@@ -734,7 +734,7 @@ function AdminHeader({
             {roleKey === 'agent' && (() => {
               const agentCollections = Number(summary.agentDeposits ?? 0) - Number(summary.agentWithdrawals ?? 0);
               const houseCollections = Number(summary.houseDeposits ?? 0) - Number(summary.houseWithdrawals ?? 0);
-              const netCollections = agentCollections - houseCollections;
+              const netCollections = houseCollections - agentCollections;
               return (
                 <div className="stat-box">
                   <span className="stat-label">Net Collections</span>
@@ -745,10 +745,9 @@ function AdminHeader({
             {roleKey === 'agent' && (() => {
               const agentCol = Number(summary.agentDeposits ?? 0) - Number(summary.agentWithdrawals ?? 0);
               const houseCol = Number(summary.houseDeposits ?? 0) - Number(summary.houseWithdrawals ?? 0);
-              const netCol = agentCol - houseCol;
-              const negativeWeekAmount = netCol < 0 ? Math.abs(netCol) : 0;
-              const unpaidFees = Number(summary.unpaidPlayerFees ?? 0);
-              const makeup = negativeWeekAmount + unpaidFees;
+              const netCol = houseCol - agentCol;
+              const playerFees = Number(summary.totalPlayerFees ?? 0);
+              const makeup = netCol - playerFees;
               return (
                 <div className="stat-box">
                   <span className="stat-label">Makeup</span>
@@ -759,14 +758,15 @@ function AdminHeader({
 
             {/* Row 5: Agent Profit / Balance (agent only) */}
             {roleKey === 'agent' && (() => {
-              const agentPct = Number(summary.agentPercent ?? 0);
-              const weekNet = Number(summary.weekNet ?? 0);
-              const housePct = 100 - agentPct;
-              const housePercentage = agentPct > 0 ? weekNet * (housePct / 100) : weekNet;
+              const agentCol = Number(summary.agentDeposits ?? 0) - Number(summary.agentWithdrawals ?? 0);
+              const houseCol = Number(summary.houseDeposits ?? 0) - Number(summary.houseWithdrawals ?? 0);
+              const netCol = houseCol - agentCol;
+              const playerFees = Number(summary.totalPlayerFees ?? 0);
+              const agentProfit = netCol - playerFees;
               return (
                 <div className="stat-box">
                   <span className="stat-label">Agent Profit</span>
-                  <span className={`stat-value ${getSignedValueClass(housePercentage)}`}>{formatCurrency(housePercentage)}</span>
+                  <span className={`stat-value ${getSignedValueClass(agentProfit)}`}>{formatCurrency(agentProfit)}</span>
                 </div>
               );
             })()}
@@ -779,7 +779,7 @@ function AdminHeader({
 
               const agentCol = Number(summary.agentDeposits ?? 0) - Number(summary.agentWithdrawals ?? 0);
               const houseCol = Number(summary.houseDeposits ?? 0) - Number(summary.houseWithdrawals ?? 0);
-              const netCol = agentCol - houseCol;
+              const netCol = houseCol - agentCol;
 
               let balance;
               if (netCol >= 0) {
