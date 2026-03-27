@@ -752,7 +752,7 @@ function AdminHeader({
             {roleKey === 'agent' && (() => {
               const agentCollections = Number(summary.agentDeposits ?? 0) - Number(summary.agentWithdrawals ?? 0);
               const houseCollections = Number(summary.houseDeposits ?? 0) - Number(summary.houseWithdrawals ?? 0);
-              const netCollections = houseCollections - agentCollections;
+              const netCollections = houseCollections + agentCollections;
               return (
                 <div className="stat-box">
                   <span className="stat-label">Net Collections</span>
@@ -763,9 +763,9 @@ function AdminHeader({
             {roleKey === 'agent' && (() => {
               const agentCol = Number(summary.agentDeposits ?? 0) - Number(summary.agentWithdrawals ?? 0);
               const houseCol = Number(summary.houseDeposits ?? 0) - Number(summary.houseWithdrawals ?? 0);
-              const netCol = houseCol - agentCol;
+              const netCol = houseCol + agentCol;
               const playerFees = Number(summary.totalPlayerFees ?? 0);
-              const makeup = netCol - playerFees;
+              const makeup = netCol + playerFees;
               return (
                 <div className="stat-box">
                   <span className="stat-label">Makeup</span>
@@ -778,7 +778,7 @@ function AdminHeader({
             {roleKey === 'agent' && (() => {
               const agentCol = Number(summary.agentDeposits ?? 0) - Number(summary.agentWithdrawals ?? 0);
               const houseCol = Number(summary.houseDeposits ?? 0) - Number(summary.houseWithdrawals ?? 0);
-              const netCol = houseCol - agentCol;
+              const netCol = houseCol + agentCol;
               const playerFees = Number(summary.totalPlayerFees ?? 0);
               const agentProfit = netCol - playerFees;
               return (
@@ -797,7 +797,7 @@ function AdminHeader({
 
               const agentCol = Number(summary.agentDeposits ?? 0) - Number(summary.agentWithdrawals ?? 0);
               const houseCol = Number(summary.houseDeposits ?? 0) - Number(summary.houseWithdrawals ?? 0);
-              const netCol = houseCol - agentCol;
+              const netCol = houseCol + agentCol;
 
               let balance;
               if (netCol >= 0) {
