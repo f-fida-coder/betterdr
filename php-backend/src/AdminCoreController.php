@@ -1089,6 +1089,22 @@ final class AdminCoreController
                     }
                 }
 
+                // DEBUG: log collection calculation details
+                $debugCollections = [];
+                foreach ($weekTx as $dtx) {
+                    $dt = strtolower(trim((string) ($dtx['type'] ?? '')));
+                    if ($dt === 'deposit' || $dt === 'withdrawal') {
+                        $debugCollections[] = [
+                            'type' => $dt,
+                            'amount' => $this->num($dtx['amount'] ?? 0),
+                            'approvedByRole' => $dtx['approvedByRole'] ?? null,
+                            'adminId' => $dtx['adminId'] ?? null,
+                            'resolvedRole' => $resolvedRoles[(string) ($dtx['adminId'] ?? '')] ?? null,
+                        ];
+                    }
+                }
+                error_log('COLLECTION_DEBUG actor=' . ($actor['username'] ?? '?') . ' agentDep=' . $agentDeposits . ' agentWd=' . $agentWithdrawals . ' houseDep=' . $houseDeposits . ' houseWd=' . $houseWithdrawals . ' missingIds=' . json_encode(array_keys($missingRoleAdminIds)) . ' resolved=' . json_encode($resolvedRoles) . ' txDetails=' . json_encode($debugCollections));
+
                 // Active players: those with real betting/gaming activity this week
                 $activeUserIds = [];
                 foreach ($weekTx as $tx) {
