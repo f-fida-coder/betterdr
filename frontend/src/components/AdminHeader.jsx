@@ -780,10 +780,11 @@ function AdminHeader({
               const houseCol = Number(summary.houseDeposits ?? 0) - Number(summary.houseWithdrawals ?? 0);
               const netCol = houseCol + agentCol;
               const playerFees = Number(summary.totalPlayerFees ?? 0);
-              const agentProfit = netCol - playerFees;
+              const makeup = netCol - playerFees;
+              const agentProfit = makeup <= 0 ? 0 : makeup;
               return (
                 <div className="stat-box">
-                  <span className="stat-label">Agent Profit</span>
+                  <span className="stat-label">Agent Profit After Makeup</span>
                   <span className={`stat-value ${getSignedValueClass(agentProfit)}`}>{formatCurrency(agentProfit)}</span>
                 </div>
               );
