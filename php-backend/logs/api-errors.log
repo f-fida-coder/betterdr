@@ -18570,3 +18570,30 @@
 {"time":"2026-03-27T08:59:29Z","level":"WARNING","channel":"error","requestId":"334746219ae9f05d","message":"STRIPE_SECRET_KEY is missing or placeholder — card deposits disabled"}
 {"time":"2026-03-27T08:59:29Z","level":"WARNING","channel":"error","requestId":"334746219ae9f05d","message":"STRIPE_WEBHOOK_SECRET is missing or placeholder — deposit webhooks disabled"}
 2026-03-27 08:59:29 [401] {"message":"No session cookie"}
+{"time":"2026-03-27T13:45:14Z","level":"WARNING","channel":"error","requestId":"e44526474bbaf3ad","message":"STRIPE_SECRET_KEY is missing or placeholder — card deposits disabled"}
+{"time":"2026-03-27T13:45:14Z","level":"WARNING","channel":"error","requestId":"e44526474bbaf3ad","message":"STRIPE_WEBHOOK_SECRET is missing or placeholder — deposit webhooks disabled"}
+2026-03-27 13:45:14 [401] {"message":"No session cookie"}
+{"time":"2026-03-27T13:45:14Z","level":"WARNING","channel":"error","requestId":"e6a0abbfa12ead75","message":"STRIPE_SECRET_KEY is missing or placeholder — card deposits disabled"}
+{"time":"2026-03-27T13:45:14Z","level":"WARNING","channel":"error","requestId":"e6a0abbfa12ead75","message":"STRIPE_WEBHOOK_SECRET is missing or placeholder — deposit webhooks disabled"}
+2026-03-27 13:45:14 [401] {"message":"No session cookie"}
+{"time":"2026-03-27T13:45:23Z","level":"WARNING","channel":"error","requestId":"4ae9d20463edfb0b","message":"STRIPE_SECRET_KEY is missing or placeholder — card deposits disabled"}
+{"time":"2026-03-27T13:45:23Z","level":"WARNING","channel":"error","requestId":"4ae9d20463edfb0b","message":"STRIPE_WEBHOOK_SECRET is missing or placeholder — deposit webhooks disabled"}
+2026-03-27 13:45:23 [401] {"message":"Invalid credentials"}
+{"time":"2026-03-27T13:45:27Z","level":"WARNING","channel":"error","requestId":"3e52e554648bb1d7","message":"STRIPE_SECRET_KEY is missing or placeholder — card deposits disabled"}
+{"time":"2026-03-27T13:45:27Z","level":"WARNING","channel":"error","requestId":"3e52e554648bb1d7","message":"STRIPE_WEBHOOK_SECRET is missing or placeholder — deposit webhooks disabled"}
+2026-03-27 13:45:28 [401] {"message":"Invalid credentials"}
+{"time":"2026-03-27T13:46:08Z","level":"WARNING","channel":"error","requestId":"4c9dfa517b29102a","message":"STRIPE_SECRET_KEY is missing or placeholder — card deposits disabled"}
+{"time":"2026-03-27T13:46:08Z","level":"WARNING","channel":"error","requestId":"4c9dfa517b29102a","message":"STRIPE_WEBHOOK_SECRET is missing or placeholder — deposit webhooks disabled"}
+2026-03-27 13:46:09 [401] {"message":"Invalid credentials"}
+{"time":"2026-03-27T13:46:11Z","level":"WARNING","channel":"error","requestId":"b99d474e0ac3ca26","message":"STRIPE_SECRET_KEY is missing or placeholder — card deposits disabled"}
+{"time":"2026-03-27T13:46:11Z","level":"WARNING","channel":"error","requestId":"b99d474e0ac3ca26","message":"STRIPE_WEBHOOK_SECRET is missing or placeholder — deposit webhooks disabled"}
+2026-03-27 13:46:11 [401] {"message":"No session cookie"}
+{"time":"2026-03-27T13:46:11Z","level":"WARNING","channel":"error","requestId":"6192899ed4784614","message":"STRIPE_SECRET_KEY is missing or placeholder — card deposits disabled"}
+{"time":"2026-03-27T13:46:11Z","level":"WARNING","channel":"error","requestId":"6192899ed4784614","message":"STRIPE_WEBHOOK_SECRET is missing or placeholder — deposit webhooks disabled"}
+2026-03-27 13:46:11 [401] {"message":"No session cookie"}
+{"time":"2026-03-27T13:46:16Z","level":"WARNING","channel":"error","requestId":"9459a5e0e7971bc3","message":"STRIPE_SECRET_KEY is missing or placeholder — card deposits disabled"}
+{"time":"2026-03-27T13:46:16Z","level":"WARNING","channel":"error","requestId":"9459a5e0e7971bc3","message":"STRIPE_WEBHOOK_SECRET is missing or placeholder — deposit webhooks disabled"}
+2026-03-27 13:46:16 [429] {"message":"Too many requests. Please try again later."}
+{"time":"2026-03-27T13:46:18Z","level":"WARNING","channel":"error","requestId":"ea2cbe15079a29e8","message":"STRIPE_SECRET_KEY is missing or placeholder — card deposits disabled"}
+{"time":"2026-03-27T13:46:18Z","level":"WARNING","channel":"error","requestId":"ea2cbe15079a29e8","message":"STRIPE_WEBHOOK_SECRET is missing or placeholder — deposit webhooks disabled"}
+2026-03-27 13:46:18 [429] {"message":"Too many requests. Please try again later."}

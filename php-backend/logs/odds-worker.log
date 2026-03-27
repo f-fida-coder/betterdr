@@ -4634,3 +4634,16 @@
 [2026-03-27T13:14:59+00:00] [ERROR] [2026-03-27T13:14:59+00:00] update failed: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'mongo_id' in 'field list'
 [2026-03-27T13:16:59+00:00] [ERROR] [2026-03-27T13:16:59+00:00] update failed: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'mongo_id' in 'field list'
 [2026-03-27T13:18:59+00:00] [ERROR] [2026-03-27T13:18:59+00:00] update failed: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'mongo_id' in 'field list'
+[2026-03-27T13:45:10+00:00] [INFO] PHP odds worker started. interval=2m db=betterdr_local once=false
+[2026-03-27T13:45:10+00:00] [ERROR] [2026-03-27T13:45:10+00:00] update failed: Class "Logger" not found
+[2026-03-27T13:47:10+00:00] [ERROR] [2026-03-27T13:47:10+00:00] update failed: Class "Logger" not found
+[2026-03-27T13:49:10+00:00] [ERROR] [2026-03-27T13:49:10+00:00] update failed: Class "Logger" not found
+[2026-03-27T13:51:10+00:00] [ERROR] [2026-03-27T13:51:10+00:00] update failed: Class "Logger" not found
+[2026-03-27T13:53:10+00:00] [ERROR] [2026-03-27T13:53:10+00:00] update failed: Class "Logger" not found
+[2026-03-27T13:55:10+00:00] [ERROR] [2026-03-27T13:55:10+00:00] update failed: Class "Logger" not found
+[2026-03-27T13:57:10+00:00] [ERROR] [2026-03-27T13:57:10+00:00] update failed: Class "Logger" not found
+[2026-03-27T13:59:10+00:00] [ERROR] [2026-03-27T13:59:10+00:00] update failed: Class "Logger" not found
+[2026-03-27T14:01:10+00:00] [ERROR] [2026-03-27T14:01:10+00:00] update failed: Class "Logger" not found
+[2026-03-27T14:03:10+00:00] [ERROR] [2026-03-27T14:03:10+00:00] update failed: Class "Logger" not found
+[2026-03-27T14:05:10+00:00] [ERROR] [2026-03-27T14:05:10+00:00] update failed: Class "Logger" not found
+[2026-03-27T14:07:10+00:00] [ERROR] [2026-03-27T14:07:10+00:00] update failed: Class "Logger" not found
