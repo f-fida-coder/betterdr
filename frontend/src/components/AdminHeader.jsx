@@ -765,7 +765,8 @@ function AdminHeader({
               const houseCol = Number(summary.houseDeposits ?? 0) - Number(summary.houseWithdrawals ?? 0);
               const netCol = houseCol + agentCol;
               const playerFees = Number(summary.totalPlayerFees ?? 0);
-              const makeup = netCol - playerFees;
+              const resultAfterFees = netCol - playerFees;
+              const makeup = resultAfterFees < 0 ? resultAfterFees : 0;
               return (
                 <div className="stat-box">
                   <span className="stat-label">Makeup</span>
@@ -780,8 +781,8 @@ function AdminHeader({
               const houseCol = Number(summary.houseDeposits ?? 0) - Number(summary.houseWithdrawals ?? 0);
               const netCol = houseCol + agentCol;
               const playerFees = Number(summary.totalPlayerFees ?? 0);
-              const makeup = netCol - playerFees;
-              const agentProfit = makeup <= 0 ? 0 : makeup;
+              const resultAfterFees = netCol - playerFees;
+              const agentProfit = resultAfterFees > 0 ? resultAfterFees : 0;
               return (
                 <div className="stat-box">
                   <span className="stat-label">Agent Profit After Makeup</span>
