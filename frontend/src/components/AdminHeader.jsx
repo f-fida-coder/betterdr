@@ -26,11 +26,20 @@ function AdminHeader({
   const [allAgents, setAllAgents] = useState([]);
   const [selectedSearchPlayer, setSelectedSearchPlayer] = useState(null);
   const [summary, setSummary] = useState({
-    totalBalance: null,
-    totalOutstanding: null,
-    weekNet: null,
-    todayNet: null,
-    activeAccounts: null
+    totalBalance: 0,
+    totalOutstanding: 0,
+    totalPlayerFees: 0,
+    paidPlayerFees: 0,
+    unpaidPlayerFees: 0,
+    weekNet: 0,
+    todayNet: 0,
+    activeAccounts: 0,
+    agentDeposits: 0,
+    agentWithdrawals: 0,
+    houseDeposits: 0,
+    houseWithdrawals: 0,
+    agentPercent: null,
+    sportsbookHealth: null
   });
   const [profile, setProfile] = useState(null);
 
@@ -51,9 +60,18 @@ function AdminHeader({
       setSummary({
         totalBalance: headerData?.totalBalance ?? 0,
         totalOutstanding: headerData?.totalOutstanding ?? 0,
+        totalPlayerFees: headerData?.totalPlayerFees ?? 0,
+        paidPlayerFees: headerData?.paidPlayerFees ?? 0,
+        unpaidPlayerFees: headerData?.unpaidPlayerFees ?? 0,
         weekNet: headerData?.weekNet ?? 0,
         todayNet: headerData?.todayNet ?? 0,
-        activeAccounts: headerData?.activeAccounts ?? 0
+        activeAccounts: headerData?.activeAccounts ?? 0,
+        agentDeposits: headerData?.agentDeposits ?? 0,
+        agentWithdrawals: headerData?.agentWithdrawals ?? 0,
+        houseDeposits: headerData?.houseDeposits ?? 0,
+        houseWithdrawals: headerData?.houseWithdrawals ?? 0,
+        agentPercent: headerData?.agentPercent ?? null,
+        sportsbookHealth: headerData?.sportsbookHealth ?? null
       });
     };
 
