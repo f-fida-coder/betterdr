@@ -948,6 +948,7 @@ final class AdminCoreController
                     }
 
                     if (count($managedAgentObjectIds) === 0) {
+                        $emptySettlement = $this->buildAgentSettlementSummary(0.0, 0.0, 0.0, null);
                         return [
                             'totalBalance' => 0.0,
                             'totalOutstanding' => 0.0,
@@ -962,6 +963,18 @@ final class AdminCoreController
                             'houseDeposits' => 0.0,
                             'houseWithdrawals' => 0.0,
                             'agentPercent' => null,
+                            'agentCollections' => $emptySettlement['agentCollections'],
+                            'houseCollections' => $emptySettlement['houseCollections'],
+                            'netCollections' => $emptySettlement['netCollections'],
+                            'housePayback' => $emptySettlement['housePayback'],
+                            'remainingAfterHousePayback' => $emptySettlement['remainingAfterHousePayback'],
+                            'commissionableProfit' => $emptySettlement['commissionableProfit'],
+                            'houseShareFromProfit' => $emptySettlement['houseShareFromProfit'],
+                            'agentShareFromProfit' => $emptySettlement['agentShareFromProfit'],
+                            'houseFinalAmount' => $emptySettlement['houseFinalAmount'],
+                            'agentProfitAfterFees' => $emptySettlement['agentProfitAfterFees'],
+                            'makeup' => $emptySettlement['makeup'],
+                            'unpaidAmount' => $emptySettlement['unpaidAmount'],
                             'sportsbookHealth' => SportsbookHealth::sportsbookSnapshot($this->db),
                         ];
                     }
@@ -1139,6 +1152,12 @@ final class AdminCoreController
                 $unpaidPlayerFees = $activeNonPositive * $feePerPlayer;
 
                 $actorAgentPercent = isset($actor['agentPercent']) ? (float) $actor['agentPercent'] : null;
+                $settlementSummary = $this->buildAgentSettlementSummary(
+                    $agentDeposits - $agentWithdrawals,
+                    $houseDeposits - $houseWithdrawals,
+                    $totalPlayerFees,
+                    $actorAgentPercent
+                );
 
                 return [
                     'totalBalance' => $totalBalance,
@@ -1154,6 +1173,18 @@ final class AdminCoreController
                     'houseDeposits' => $houseDeposits,
                     'houseWithdrawals' => $houseWithdrawals,
                     'agentPercent' => $actorAgentPercent,
+                    'agentCollections' => $settlementSummary['agentCollections'],
+                    'houseCollections' => $settlementSummary['houseCollections'],
+                    'netCollections' => $settlementSummary['netCollections'],
+                    'housePayback' => $settlementSummary['housePayback'],
+                    'remainingAfterHousePayback' => $settlementSummary['remainingAfterHousePayback'],
+                    'commissionableProfit' => $settlementSummary['commissionableProfit'],
+                    'houseShareFromProfit' => $settlementSummary['houseShareFromProfit'],
+                    'agentShareFromProfit' => $settlementSummary['agentShareFromProfit'],
+                    'houseFinalAmount' => $settlementSummary['houseFinalAmount'],
+                    'agentProfitAfterFees' => $settlementSummary['agentProfitAfterFees'],
+                    'makeup' => $settlementSummary['makeup'],
+                    'unpaidAmount' => $settlementSummary['unpaidAmount'],
                     'sportsbookHealth' => SportsbookHealth::sportsbookSnapshot($this->db),
                 ];
             });
@@ -10743,6 +10774,50 @@ final class AdminCoreController
             return (float) $value->__toString();
         }
         return 0.0;
+    }
+
+    /**
+     * @return array<string, float>
+     */
+    private function buildAgentSettlementSummary(
+        float $agentCollections,
+        float $houseCollections,
+        float $playerFees,
+        ?float $agentCommissionPercent
+    ): array {
+        $agentPct = $this->num($agentCommissionPercent ?? 0.0);
+        if ($agentPct < 0.0) {
+            $agentPct = 0.0;
+        } elseif ($agentPct > 100.0) {
+            $agentPct = 100.0;
+        }
+        $housePct = 100.0 - $agentPct;
+
+        $housePayback = $houseCollections < 0.0 ? abs($houseCollections) : 0.0;
+        $remainingAfterHousePayback = $agentCollections - $housePayback;
+        $commissionableProfit = max(0.0, $remainingAfterHousePayback);
+        $houseShareFromProfit = $commissionableProfit * ($housePct / 100.0);
+        $agentShareFromProfit = $commissionableProfit * ($agentPct / 100.0);
+        $houseFinalAmount = $housePayback + $houseShareFromProfit + $playerFees;
+        $agentNetAfterHouse = $agentCollections - $houseFinalAmount;
+        $makeup = min(0.0, $agentNetAfterHouse);
+        $agentProfitAfterFees = max(0.0, $agentNetAfterHouse);
+        $unpaidAmount = abs(min(0.0, $agentNetAfterHouse));
+
+        return [
+            'agentCollections' => $agentCollections,
+            'houseCollections' => $houseCollections,
+            'netCollections' => $houseCollections + $agentCollections,
+            'housePayback' => $housePayback,
+            'remainingAfterHousePayback' => $remainingAfterHousePayback,
+            'commissionableProfit' => $commissionableProfit,
+            'houseShareFromProfit' => $houseShareFromProfit,
+            'agentShareFromProfit' => $agentShareFromProfit,
+            'houseFinalAmount' => $houseFinalAmount,
+            'agentProfitAfterFees' => $agentProfitAfterFees,
+            'makeup' => $makeup,
+            'unpaidAmount' => $unpaidAmount,
+        ];
     }
 
     private function buildAuthPayload(array $user): array
