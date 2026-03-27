@@ -446,6 +446,8 @@ final class AgentController
                 $now = MongoRepository::nowUtc();
                 $balanceBefore = $this->num($user['balance'] ?? 0);
                 $pendingBalance = $this->num($user['pendingBalance'] ?? 0);
+                $diff = $nextBalance - $balanceBefore;
+                $txType = $diff >= 0 ? 'deposit' : 'withdrawal';
 
                 $this->db->updateOne('users', ['id' => MongoRepository::id($userId)], [
                     'balance' => $nextBalance,
@@ -455,14 +457,18 @@ final class AgentController
                 $this->db->insertOne('transactions', [
                     'userId' => MongoRepository::id($userId),
                     'agentId' => MongoRepository::id((string) $actor['id']),
-                    'amount' => abs($nextBalance - $balanceBefore),
-                    'type' => 'adjustment',
+                    'adminId' => MongoRepository::id((string) $actor['id']),
+                    'amount' => abs($diff),
+                    'type' => $txType,
                     'status' => 'completed',
                     'balanceBefore' => $balanceBefore,
                     'balanceAfter' => $nextBalance,
                     'referenceType' => 'Adjustment',
                     'reason' => 'AGENT_BALANCE_ADJUSTMENT',
                     'description' => 'Agent updated user balance',
+                    'approvedById' => MongoRepository::id((string) $actor['id']),
+                    'approvedByRole' => (string) ($actor['role'] ?? 'agent'),
+                    'approvedByUsername' => (string) ($actor['username'] ?? ''),
                     'createdAt' => $now,
                     'updatedAt' => $now,
                 ]);
@@ -471,6 +477,21 @@ final class AgentController
             } catch (Throwable $txErr) {
                 $this->db->rollback();
                 throw $txErr;
+            }
+
+            // Invalidate header summary cache so collection totals update immediately
+            $cacheDir = dirname(__DIR__) . '/cache';
+            if (is_dir($cacheDir)) {
+                foreach (['admin', 'agent', 'master_agent', 'super_agent'] as $rolePrefix) {
+                    $matches = glob($cacheDir . '/header-summary-' . $rolePrefix . '__*.json');
+                    if (is_array($matches)) {
+                        foreach ($matches as $path) {
+                            if (is_string($path) && $path !== '') {
+                                @unlink($path);
+                            }
+                        }
+                    }
+                }
             }
 
             Response::json([
