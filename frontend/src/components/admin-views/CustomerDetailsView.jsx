@@ -2015,41 +2015,58 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
               <span className="detail-label">Min Bet</span>
               <strong className="detail-value">{formatDetailMoney(minBetValue)}</strong>
             </div>
-            {isAgent ? (
-              <div className="detail-item detail-metric">
-                <span className="detail-label">Master Agent %</span>
-                <strong className="detail-value">{customer?.hiringAgentPercent != null ? `${customer.hiringAgentPercent}%` : '—'}</strong>
-              </div>
-            ) : (
+            {isAgent ? (() => {
+              const agentPct = customer?.agentPercent != null ? parseFloat(customer.agentPercent) : null;
+              const hiringPct = customer?.hiringAgentPercent != null ? parseFloat(customer.hiringAgentPercent) : null;
+              const housePct = 5;
+              const hiringEffective = (hiringPct != null && agentPct != null) ? (hiringPct - agentPct) : null;
+              const uplinePct = hiringPct != null ? (100 - housePct - hiringPct) : null;
+              return (<>
+                <div className="detail-item detail-metric">
+                  <span className="detail-label">Hiring Agent %</span>
+                  <strong className="detail-value">{hiringEffective != null ? `${hiringEffective}%` : '—'}</strong>
+                </div>
+                <div className="detail-item">
+                  <span className="detail-label">Max Bet</span>
+                  <strong className="detail-value">{formatDetailMoney(maxBetValue)}</strong>
+                </div>
+                <div className="detail-item detail-metric">
+                  <span className="detail-label">Upline Agent %</span>
+                  <strong className="detail-value">{uplinePct != null ? `${uplinePct}%` : '—'}</strong>
+                </div>
+                <div className="detail-item">
+                  <span className="detail-label">Credit</span>
+                  <strong className="detail-value">{formatDetailMoney(creditLimitValue)}</strong>
+                </div>
+                <div className="detail-item detail-metric">
+                  <span className="detail-label">House %</span>
+                  <strong className="detail-value">5%</strong>
+                </div>
+              </>);
+            })() : (
+            <>
               <div className="detail-item detail-metric">
                 <span className="detail-label">Available</span>
                 <strong className="detail-value neutral">{formatCurrency(available)}</strong>
               </div>
-            )}
 
             <div className="detail-item">
               <span className="detail-label">Max Bet</span>
               <strong className="detail-value">{formatDetailMoney(maxBetValue)}</strong>
             </div>
-            {isAgent ? (
-              <div className="detail-item detail-metric">
-                <span className="detail-label">House %</span>
-                <strong className="detail-value">5%</strong>
-              </div>
-            ) : (
               <button type="button" className={`detail-item detail-metric${activeSection === 'freeplays' ? ' detail-metric-active' : ''}`} onClick={() => openSection('freeplays')}>
                 <span className="detail-label">Freeplay</span>
                 <strong className="detail-value neutral">{formatCurrency(freeplayBalanceValue)}</strong>
               </button>
-            )}
 
             <div className="detail-item">
               <span className="detail-label">Credit</span>
               <strong className="detail-value">{formatDetailMoney(creditLimitValue)}</strong>
             </div>
-            {isAgent ? (
               <div className="detail-item detail-empty" aria-hidden="true"></div>
-            ) : (
+            </>
+            )}
+            {!isAgent && (
               <button type="button" className={`detail-item detail-metric${activeSection === 'performance' ? ' detail-metric-active' : ''}`} onClick={() => openSection('performance')}>
                 <span className="detail-label">Lifetime +/-</span>
                 <strong className={`detail-value ${getMoneyToneClass(lifetimePlusMinusValue)}`}>{formatCurrency(lifetimePlusMinusValue)}</strong>
