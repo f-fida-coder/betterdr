@@ -2418,8 +2418,8 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
                     <span className="ch-row-username">
                       ({node.username || '—'})
                     </span>
-                    <span className={`ch-row-pct ${node.agentPercent == null ? 'unset' : ''}`}>
-                      {node.agentPercent != null ? `(${node.agentPercent}%)` : '(not set)'}
+                    <span className={`ch-row-pct ${node.effectivePercent == null && node.agentPercent == null ? 'unset' : ''}`}>
+                      {node.effectivePercent != null ? `(${node.effectivePercent}%)` : (node.agentPercent != null ? `(${node.agentPercent}%)` : '(not set)')}
                     </span>
                     {idx === 0 && (
                       <select
