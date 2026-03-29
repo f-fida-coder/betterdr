@@ -10497,12 +10497,24 @@ final class AdminCoreController
                 ];
             }
 
-            // Chain total = sum of agentPercent for every node in the upline
+            // Chain total using cascading effective percentages:
+            // Each node's effective cut = their agentPercent - previous node's agentPercent
+            // Last node (root/house) gets the remainder (100 - last agent's agentPercent)
             $chainTotal = 0.0;
-            foreach ($upline as $node) {
-                if ($node['agentPercent'] !== null) {
-                    $chainTotal += $node['agentPercent'];
+            $prevPct = 0.0;
+            $lastIdx = count($upline) - 1;
+            foreach ($upline as $idx => $node) {
+                $nodePct = (float) ($node['agentPercent'] ?? 0.0);
+                if ($idx === 0) {
+                    $effectivePct = $nodePct;
+                } elseif ($idx === $lastIdx) {
+                    $effectivePct = max(0.0, 100.0 - $prevPct);
+                } else {
+                    $effectivePct = max(0.0, $nodePct - $prevPct);
                 }
+                $prevPct = ($idx < $lastIdx) ? $nodePct : $prevPct;
+                $chainTotal += $effectivePct;
+                $upline[$idx]['effectivePercent'] = round($effectivePct, 4);
             }
             $chainTotal = round($chainTotal, 4);
 

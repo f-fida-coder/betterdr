@@ -2398,51 +2398,58 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
                   <div className="ch-row ch-row-agent">
                     <span className="ch-row-label">Agent</span>
                     <span className="ch-row-username">
-                      ({commissionChain.upline[0].username || '—'}/{commissionChain.upline[1]?.username || hiringAgentUsername || '—'})
+                      ({commissionChain.upline[0].username || '—'})
                     </span>
                     <span className={`ch-row-pct ${commissionChain.upline[0].agentPercent == null ? 'unset' : ''}`}>
                       {commissionChain.upline[0].agentPercent != null ? `(${commissionChain.upline[0].agentPercent}%)` : '(not set)'}
                     </span>
+                    {commissionChain.upline[1] && (
+                      <span className="ch-row-under">under {commissionChain.upline[1].username || '—'}</span>
+                    )}
                   </div>
                 )}
 
-                {/* Hiring agent — index 1 (direct parent / master agent) */}
-                {commissionChain.upline[1] && (
-                  <div className="ch-row ch-row-hiring">
-                    <span className="ch-row-label">Hiring agent</span>
+                {/* Middle upline nodes — hiring agents / master agents (index 1 to N-1, excluding admin) */}
+                {commissionChain.upline
+                  .filter((n, idx) => idx > 0 && n.role !== 'admin')
+                  .map((node, idx) => (
+                  <div key={node.id || idx} className="ch-row ch-row-hiring">
+                    <span className="ch-row-label">{idx === 0 ? 'Hiring Agent' : 'Upline Agent'}</span>
                     <span className="ch-row-username">
-                      ({commissionChain.upline[1].username || '—'}/{commissionChain.upline.find((n) => n.role === 'admin')?.username || 'ADMIN'})
+                      ({node.username || '—'})
                     </span>
-                    <span className={`ch-row-pct ${commissionChain.upline[1].agentPercent == null ? 'unset' : ''}`}>
-                      {commissionChain.upline[1].agentPercent != null ? `(${commissionChain.upline[1].agentPercent}%)` : '(not set)'}
+                    <span className={`ch-row-pct ${node.agentPercent == null ? 'unset' : ''}`}>
+                      {node.agentPercent != null ? `(${node.agentPercent}%)` : '(not set)'}
                     </span>
-                    <select
-                      className="ch-row-ma-select"
-                      value={hiringAgentIdDraft}
-                      onChange={(e) => handleChangeHiringAgent(e.target.value)}
-                      disabled={commissionSaving}
-                    >
-                      <option value="">Change Master Agent</option>
-                      {agents
-                        .filter((a) => {
-                          const r = String(a.role || '').toLowerCase();
-                          return r === 'master_agent' || r === 'super_agent';
-                        })
-                        .map((a) => {
-                          const id = a.id;
-                          return <option key={id} value={id}>{String(a.username || '').toUpperCase()}</option>;
-                        })}
-                    </select>
+                    {idx === 0 && (
+                      <select
+                        className="ch-row-ma-select"
+                        value={hiringAgentIdDraft}
+                        onChange={(e) => handleChangeHiringAgent(e.target.value)}
+                        disabled={commissionSaving}
+                      >
+                        <option value="">Change Master Agent</option>
+                        {agents
+                          .filter((a) => {
+                            const r = String(a.role || '').toLowerCase();
+                            return r === 'master_agent' || r === 'super_agent';
+                          })
+                          .map((a) => {
+                            const id = a.id;
+                            return <option key={id} value={id}>{String(a.username || '').toUpperCase()}</option>;
+                          })}
+                      </select>
+                    )}
                   </div>
-                )}
+                ))}
 
-                {/* Admin row */}
+                {/* Admin/House row */}
                 {commissionChain.upline.find((n) => n.role === 'admin') && (
                   <div className="ch-row ch-row-upline">
-                    <span className="ch-row-label">Admin</span>
+                    <span className="ch-row-label">House</span>
                     <span className="ch-row-username">({commissionChain.upline.find((n) => n.role === 'admin').username || '—'})</span>
-                    <span className={`ch-row-pct ${commissionChain.upline.find((n) => n.role === 'admin').agentPercent == null ? 'unset' : ''}`}>
-                      {commissionChain.upline.find((n) => n.role === 'admin').agentPercent != null ? `(${commissionChain.upline.find((n) => n.role === 'admin').agentPercent}%)` : '(not set)'}
+                    <span className="ch-row-pct">
+                      (5%)
                     </span>
                   </div>
                 )}
