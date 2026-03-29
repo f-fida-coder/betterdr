@@ -5,13 +5,43 @@ declare(strict_types=1);
 
 final class AdminCoreController
 {
+    /** House always takes this percentage from the commission chain. */
+    public const HOUSE_PERCENT = 5;
+
     private MongoRepository $db;
     private string $jwtSecret;
+    private ?array $cachedHouseAdmin = null;
 
     public function __construct(MongoRepository $db, string $jwtSecret)
     {
         $this->db = $db;
         $this->jwtSecret = $jwtSecret;
+    }
+
+    /**
+     * Return the HOUSE admin record (cached per request).
+     * @return array|null
+     */
+    public function getHouseAdmin(): ?array
+    {
+        if ($this->cachedHouseAdmin !== null) {
+            return $this->cachedHouseAdmin;
+        }
+        $admins = $this->db->findMany('admins', []);
+        foreach ($admins as $admin) {
+            if (($admin['adminType'] ?? '') === 'house') {
+                $this->cachedHouseAdmin = $admin;
+                return $admin;
+            }
+        }
+        // Fallback: look by username
+        foreach ($admins as $admin) {
+            if (strtolower(trim((string) ($admin['username'] ?? ''))) === 'house') {
+                $this->cachedHouseAdmin = $admin;
+                return $admin;
+            }
+        }
+        return null;
     }
 
     public function handle(string $method, string $path): bool
@@ -1202,6 +1232,7 @@ final class AdminCoreController
                     'houseDeposits' => $houseDeposits,
                     'houseWithdrawals' => $houseWithdrawals,
                     'agentPercent' => $actorAgentPercent,
+                    'housePercent' => self::HOUSE_PERCENT,
                     'agentCollections' => $settlementSummary['agentCollections'],
                     'houseCollections' => $settlementSummary['houseCollections'],
                     'netCollections' => $settlementSummary['netCollections'],
@@ -5685,6 +5716,10 @@ final class AdminCoreController
                     'fullName' => strtoupper($fullName !== '' ? $fullName : $username),
                     'role' => $agentRole,
                     'status' => 'active',
+                    'agentPercent' => $doc['agentPercent'] ?? null,
+                    'playerRate' => $doc['playerRate'] ?? null,
+                    'hiringAgentPercent' => $doc['hiringAgentPercent'] ?? null,
+                    'subAgentPercent' => $doc['subAgentPercent'] ?? null,
                     'createdAt' => gmdate(DATE_ATOM),
                 ],
             ], 201);
@@ -8356,6 +8391,7 @@ final class AdminCoreController
                     'agentPercent' => isset($foundUser['agentPercent']) ? (float) $foundUser['agentPercent'] : null,
                     'playerRate' => isset($foundUser['playerRate']) ? (float) $foundUser['playerRate'] : null,
                     'hiringAgentPercent' => isset($foundUser['hiringAgentPercent']) ? (float) $foundUser['hiringAgentPercent'] : null,
+                    'housePercent' => self::HOUSE_PERCENT,
                     'subAgentPercent' => isset($foundUser['subAgentPercent']) ? (float) $foundUser['subAgentPercent'] : null,
                     'extraSubAgents' => isset($foundUser['extraSubAgents']) && is_array($foundUser['extraSubAgents']) ? $foundUser['extraSubAgents'] : [],
                     'createdByUsername' => $creator['username'] ?? null,
@@ -10351,6 +10387,7 @@ final class AdminCoreController
                 'role'          => $doc['role'] ?? null,
                 'agentPercent'  => isset($doc['agentPercent']) ? (float) $doc['agentPercent'] : null,
                 'playerRate'    => isset($doc['playerRate']) ? (float) $doc['playerRate'] : null,
+                'hiringAgentPercent' => isset($doc['hiringAgentPercent']) ? (float) $doc['hiringAgentPercent'] : null,
                 'parentAgentId' => isset($doc['createdBy']) ? (string) $doc['createdBy'] : null,
                 'parentModel'   => $doc['createdByModel'] ?? null,
             ];
@@ -10366,11 +10403,17 @@ final class AdminCoreController
             if ($parentModel === 'Admin') {
                 $adminDoc = $this->db->findOne('admins', ['id' => MongoRepository::id($parentId)]);
                 if ($adminDoc !== null) {
+                    // House admin always uses the platform constant (5%)
+                    $isHouse = ($adminDoc['adminType'] ?? '') === 'house'
+                        || strtolower(trim((string) ($adminDoc['username'] ?? ''))) === 'house';
+                    $adminPct = $isHouse
+                        ? (float) self::HOUSE_PERCENT
+                        : (isset($adminDoc['agentPercent']) ? (float) $adminDoc['agentPercent'] : null);
                     $chain[] = [
                         'id'            => (string) ($adminDoc['id'] ?? $parentId),
                         'username'      => $adminDoc['username'] ?? null,
                         'role'          => 'admin',
-                        'agentPercent'  => isset($adminDoc['agentPercent']) ? (float) $adminDoc['agentPercent'] : null,
+                        'agentPercent'  => $adminPct,
                         'playerRate'    => null,
                         'parentAgentId' => null,
                         'parentModel'   => null,
@@ -10424,6 +10467,7 @@ final class AdminCoreController
                     'role'         => $child['role'] ?? null,
                     'agentPercent' => isset($child['agentPercent']) ? (float) $child['agentPercent'] : null,
                     'playerRate'   => isset($child['playerRate']) ? (float) $child['playerRate'] : null,
+                    'hiringAgentPercent' => isset($child['hiringAgentPercent']) ? (float) $child['hiringAgentPercent'] : null,
                     'status'       => $child['status'] ?? 'active',
                 ];
             }

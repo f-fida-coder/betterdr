@@ -5,6 +5,9 @@ declare(strict_types=1);
 
 final class AgentController
 {
+    /** House always takes this percentage. Mirrors AdminCoreController::HOUSE_PERCENT. */
+    public const HOUSE_PERCENT = 5;
+
     private MongoRepository $db;
     private string $jwtSecret;
 
@@ -707,6 +710,7 @@ final class AgentController
                     'balance'       => $this->num($a['balance'] ?? 0),
                     'agentPercent'  => isset($a['agentPercent']) ? (float) $a['agentPercent'] : null,
                     'playerRate'    => isset($a['playerRate']) ? (float) $a['playerRate'] : null,
+                    'hiringAgentPercent' => isset($a['hiringAgentPercent']) ? (float) $a['hiringAgentPercent'] : null,
                     'parentAgentId' => isset($a['createdBy']) ? (string) $a['createdBy'] : null,
                     'createdAt'     => $a['createdAt'] ?? null,
                 ];
@@ -836,6 +840,30 @@ final class AgentController
                 }
                 $playerRate = round($rate, 2);
             }
+            $hiringAgentPercent = null;
+            if (isset($body['hiringAgentPercent']) && is_numeric($body['hiringAgentPercent'])) {
+                $hPct = (float) $body['hiringAgentPercent'];
+                if ($hPct >= 0 && $hPct <= 100) {
+                    $hiringAgentPercent = round($hPct, 4);
+                }
+            }
+            $subAgentPercent = null;
+            if (isset($body['subAgentPercent']) && is_numeric($body['subAgentPercent'])) {
+                $sPct = (float) $body['subAgentPercent'];
+                if ($sPct >= 0 && $sPct <= 100) {
+                    $subAgentPercent = round($sPct, 4);
+                }
+            }
+            $extraSubAgents = [];
+            if (isset($body['extraSubAgents']) && is_array($body['extraSubAgents'])) {
+                foreach ($body['extraSubAgents'] as $sub) {
+                    $subName = trim((string) ($sub['name'] ?? ''));
+                    $subPct = is_numeric($sub['percent'] ?? null) ? round((float) $sub['percent'], 4) : 0;
+                    if ($subName !== '' || $subPct > 0) {
+                        $extraSubAgents[] = ['name' => strtoupper($subName), 'percent' => $subPct];
+                    }
+                }
+            }
 
             $referrerObjectId = null;
             if ($referredByUserId !== '') {
@@ -879,6 +907,9 @@ final class AgentController
                 'referredByUserId' => $referrerObjectId,
                 'agentPercent' => $agentPercent,
                 'playerRate' => $playerRate,
+                'hiringAgentPercent' => $hiringAgentPercent,
+                'subAgentPercent' => $subAgentPercent,
+                'extraSubAgents' => $extraSubAgents,
                 'createdAt' => MongoRepository::nowUtc(),
                 'updatedAt' => MongoRepository::nowUtc(),
             ];
@@ -897,6 +928,10 @@ final class AgentController
                     'fullName' => $fullName,
                     'role' => $role,
                     'status' => 'active',
+                    'agentPercent' => $agentPercent,
+                    'playerRate' => $playerRate,
+                    'hiringAgentPercent' => $hiringAgentPercent,
+                    'subAgentPercent' => $subAgentPercent,
                     'createdAt' => gmdate(DATE_ATOM),
                 ],
             ], 201);

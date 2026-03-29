@@ -2016,7 +2016,10 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
               <strong className="detail-value">{formatDetailMoney(minBetValue)}</strong>
             </div>
             {isAgent ? (
-              <div className="detail-item detail-empty" aria-hidden="true"></div>
+              <div className="detail-item detail-metric">
+                <span className="detail-label">Master Agent %</span>
+                <strong className="detail-value">{customer?.hiringAgentPercent != null ? `${customer.hiringAgentPercent}%` : '—'}</strong>
+              </div>
             ) : (
               <div className="detail-item detail-metric">
                 <span className="detail-label">Available</span>
@@ -2029,7 +2032,10 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
               <strong className="detail-value">{formatDetailMoney(maxBetValue)}</strong>
             </div>
             {isAgent ? (
-              <div className="detail-item detail-empty" aria-hidden="true"></div>
+              <div className="detail-item detail-metric">
+                <span className="detail-label">House %</span>
+                <strong className="detail-value">5%</strong>
+              </div>
             ) : (
               <button type="button" className={`detail-item detail-metric${activeSection === 'freeplays' ? ' detail-metric-active' : ''}`} onClick={() => openSection('freeplays')}>
                 <span className="detail-label">Freeplay</span>
