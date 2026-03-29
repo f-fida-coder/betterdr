@@ -10451,6 +10451,36 @@ final class AdminCoreController
             $collection = 'agents';
         }
 
+        // Auto-fill missing agentPercent for agents in the chain.
+        // The agent directly under house should be 100 - HOUSE_PERCENT = 95%.
+        // Any intermediate agent with null agentPercent gets auto-calculated
+        // so the chain totals 100%.
+        $count = count($chain);
+        if ($count >= 2) {
+            $lastIdx = $count - 1;
+            // If the last node is admin/house, work backwards to fill gaps
+            if (($chain[$lastIdx]['role'] ?? '') === 'admin') {
+                $housePct = (float) self::HOUSE_PERCENT;
+                // The node just before admin should have agentPercent = 100 - housePct
+                $expectedTopAgent = 100.0 - $housePct; // 95
+                for ($i = $lastIdx - 1; $i >= 0; $i--) {
+                    if ($chain[$i]['agentPercent'] === null || $chain[$i]['agentPercent'] == 0) {
+                        if ($i === $lastIdx - 1) {
+                            // Direct child of house: auto-set to 95%
+                            $chain[$i]['agentPercent'] = $expectedTopAgent;
+                            $chain[$i]['autoCalculated'] = true;
+                        } else {
+                            // Intermediate node: set to the same as the child above it
+                            // (meaning they take 0% effective — pass-through)
+                            $childBelow = $chain[$i + 1]['agentPercent'] ?? 0.0;
+                            $chain[$i]['agentPercent'] = $childBelow;
+                            $chain[$i]['autoCalculated'] = true;
+                        }
+                    }
+                }
+            }
+        }
+
         return $chain; // index 0 = the requested agent, last = root
     }
 
