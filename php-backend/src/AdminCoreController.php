@@ -786,7 +786,8 @@ final class AdminCoreController
                     // Commission fields
                     'agentPercent' => isset($agent['agentPercent']) ? (float) $agent['agentPercent'] : null,
                     'playerRate' => isset($agent['playerRate']) ? (float) $agent['playerRate'] : null,
-                    'hiringAgentPercent' => isset($agent['hiringAgentPercent']) ? (float) $agent['hiringAgentPercent'] : null,
+                    'hiringAgentPercent' => $this->resolveHiringAgentPercent($agent),
+                    'housePercent' => self::HOUSE_PERCENT,
                     'subAgentPercent' => isset($agent['subAgentPercent']) ? (float) $agent['subAgentPercent'] : null,
                     'extraSubAgents' => isset($agent['extraSubAgents']) && is_array($agent['extraSubAgents']) ? $agent['extraSubAgents'] : [],
                     'parentAgentId' => isset($agent['createdBy']) ? (string) $agent['createdBy'] : null,
@@ -8415,7 +8416,7 @@ final class AdminCoreController
                     // Commission fields
                     'agentPercent' => isset($foundUser['agentPercent']) ? (float) $foundUser['agentPercent'] : null,
                     'playerRate' => isset($foundUser['playerRate']) ? (float) $foundUser['playerRate'] : null,
-                    'hiringAgentPercent' => isset($foundUser['hiringAgentPercent']) ? (float) $foundUser['hiringAgentPercent'] : null,
+                    'hiringAgentPercent' => $this->resolveHiringAgentPercent($foundUser),
                     'housePercent' => self::HOUSE_PERCENT,
                     'subAgentPercent' => isset($foundUser['subAgentPercent']) ? (float) $foundUser['subAgentPercent'] : null,
                     'extraSubAgents' => isset($foundUser['extraSubAgents']) && is_array($foundUser['extraSubAgents']) ? $foundUser['extraSubAgents'] : [],
@@ -10735,6 +10736,29 @@ final class AdminCoreController
         }
 
         return $nodes;
+    }
+
+    /**
+     * Resolve hiringAgentPercent: use stored value if set, otherwise look up
+     * the parent agent's agentPercent (the master agent above this agent).
+     */
+    private function resolveHiringAgentPercent(array $agent): ?float
+    {
+        if (isset($agent['hiringAgentPercent']) && $agent['hiringAgentPercent'] !== null) {
+            return (float) $agent['hiringAgentPercent'];
+        }
+        $parentId = (string) ($agent['createdBy'] ?? '');
+        $parentModel = (string) ($agent['createdByModel'] ?? '');
+        if ($parentId === '' || preg_match('/^[a-f0-9]{24}$/i', $parentId) !== 1) {
+            return null;
+        }
+        if ($parentModel === 'Agent') {
+            $parent = $this->db->findOne('agents', ['id' => MongoRepository::id($parentId)], ['projection' => ['agentPercent' => 1]]);
+            if ($parent !== null && isset($parent['agentPercent'])) {
+                return (float) $parent['agentPercent'];
+            }
+        }
+        return null;
     }
 
     /**
