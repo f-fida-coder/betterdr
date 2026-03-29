@@ -918,6 +918,8 @@ final class AgentController
             if ($role === 'master_agent') {
                 $this->syncMasterAgentCollection(array_merge($doc, ['id' => $id]));
             }
+            // Sync commission to linked MA ↔ agent counterpart on creation
+            $this->syncLinkedAgentCommission(array_merge($doc, ['id' => $id]), $doc);
 
             Response::json([
                 'message' => 'Sub-Agent created successfully',
@@ -976,6 +978,64 @@ final class AgentController
             ]);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error updating permissions', 'details' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Sync commission fields between linked MA ↔ agent counterpart (same person).
+     */
+    private function syncLinkedAgentCommission(array $agent, array $changedFields): void
+    {
+        $commissionFields = ['agentPercent', 'playerRate'];
+        $hasCommissionChange = false;
+        foreach ($commissionFields as $field) {
+            if (array_key_exists($field, $changedFields)) {
+                $hasCommissionChange = true;
+                break;
+            }
+        }
+        if (!$hasCommissionChange) {
+            return;
+        }
+
+        $username = strtoupper(trim((string) ($agent['username'] ?? '')));
+        $role = strtolower(trim((string) ($agent['role'] ?? '')));
+        if ($username === '') {
+            return;
+        }
+
+        $linkedUsername = null;
+        if (($role === 'master_agent' || $role === 'super_agent') && str_ends_with($username, 'MA')) {
+            $linkedUsername = substr($username, 0, -2);
+        } elseif ($role === 'agent') {
+            $linkedUsername = $username . 'MA';
+        }
+
+        if ($linkedUsername === null || $linkedUsername === '') {
+            return;
+        }
+
+        $linked = $this->db->findOne('agents', ['username' => $linkedUsername]);
+        if ($linked === null) {
+            return;
+        }
+
+        $syncUpdates = ['updatedAt' => MongoRepository::nowUtc()];
+        foreach ($commissionFields as $field) {
+            if (array_key_exists($field, $changedFields)) {
+                $syncUpdates[$field] = $changedFields[$field];
+            }
+        }
+
+        $linkedId = (string) ($linked['id'] ?? '');
+        if ($linkedId !== '' && preg_match('/^[a-f0-9]{24}$/i', $linkedId) === 1) {
+            $this->db->updateOne('agents', ['id' => MongoRepository::id($linkedId)], $syncUpdates);
+            if (strtolower(trim((string) ($linked['role'] ?? ''))) === 'master_agent') {
+                $updatedLinked = $this->db->findOne('agents', ['id' => MongoRepository::id($linkedId)]);
+                if ($updatedLinked !== null) {
+                    $this->syncMasterAgentCollection($updatedLinked);
+                }
+            }
         }
     }
 

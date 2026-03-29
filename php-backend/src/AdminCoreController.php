@@ -1199,19 +1199,39 @@ final class AdminCoreController
                     $upline = $this->buildUplineChain($actorId);
                     $distributableAmount = $settlementSummary['commissionableProfit'];
                     if ($distributableAmount > 0 && count($upline) > 0) {
+                        // Cascading commission: each node earns the DIFFERENCE between
+                        // their agentPercent and the previous (child) node's agentPercent.
+                        // Chain: [agent(50%), masterAgent(70%), hiringAgent(95%), HOUSE(5%)]
+                        // Agent earns 50%, masterAgent earns 70%-50%=20%, hiringAgent earns 95%-70%=25%, HOUSE earns 5%
                         $allocatedTotal = 0.0;
+                        $prevPct = 0.0;
                         $lastIdx = count($upline) - 1;
                         foreach ($upline as $idx => $node) {
-                            $pct = $node['agentPercent'] ?? 0.0;
+                            $nodePct = (float) ($node['agentPercent'] ?? 0.0);
+                            if ($idx === 0) {
+                                // First node (the viewing agent) gets their full percentage
+                                $effectivePct = $nodePct;
+                            } elseif ($idx === $lastIdx) {
+                                // Last node (root/HOUSE) gets whatever remains
+                                $effectivePct = 0.0; // will use remainder below
+                            } else {
+                                // Middle nodes earn the difference: their % minus child's %
+                                $effectivePct = max(0.0, $nodePct - $prevPct);
+                            }
+                            $prevPct = $nodePct;
+
                             $share = ($idx === $lastIdx)
                                 ? round($distributableAmount - $allocatedTotal, 2)
-                                : round($distributableAmount * $pct / 100, 2);
+                                : round($distributableAmount * $effectivePct / 100, 2);
                             $allocatedTotal += $share;
                             $commissionDistribution[] = [
                                 'id' => $node['id'],
                                 'username' => $node['username'],
                                 'role' => $node['role'],
-                                'agentPercent' => $pct,
+                                'agentPercent' => $nodePct,
+                                'effectivePercent' => ($idx === $lastIdx)
+                                    ? round(100 - $prevPct, 4)
+                                    : round($effectivePct, 4),
                                 'amount' => $share,
                             ];
                         }
@@ -5706,6 +5726,8 @@ final class AdminCoreController
             if ($agentRole === 'master_agent') {
                 $this->syncMasterAgentCollection(array_merge($doc, ['id' => $id]));
             }
+            // Sync commission to linked MA ↔ agent counterpart on creation
+            $this->syncLinkedAgentCommission(array_merge($doc, ['id' => $id]), $doc);
 
             Response::json([
                 'message' => 'Agent created successfully',
@@ -5865,6 +5887,9 @@ final class AdminCoreController
                 } else {
                     $this->db->deleteOne('master_agents', ['agentId' => MongoRepository::id($id)]);
                 }
+
+                // Sync commission fields to linked MA ↔ agent counterpart (same person)
+                $this->syncLinkedAgentCommission($updated, $updates);
 
                 if ($balanceBefore !== null) {
                     $balanceAfter = $this->num($updated['balance'] ?? ($updates['balance'] ?? $balanceBefore));
@@ -10668,6 +10693,72 @@ final class AdminCoreController
         }
 
         return $nodes;
+    }
+
+    /**
+     * Sync commission fields between linked MA ↔ agent counterpart (same person).
+     * E.g., AVL365MA (master_agent) ↔ AVL365 (agent) are the same person.
+     * When agentPercent changes on one, sync it to the other.
+     */
+    private function syncLinkedAgentCommission(array $agent, array $changedFields): void
+    {
+        $commissionFields = ['agentPercent', 'playerRate'];
+        $hasCommissionChange = false;
+        foreach ($commissionFields as $field) {
+            if (array_key_exists($field, $changedFields)) {
+                $hasCommissionChange = true;
+                break;
+            }
+        }
+        if (!$hasCommissionChange) {
+            return;
+        }
+
+        $username = strtoupper(trim((string) ($agent['username'] ?? '')));
+        $role = strtolower(trim((string) ($agent['role'] ?? '')));
+        if ($username === '') {
+            return;
+        }
+
+        // Find the linked counterpart
+        $linkedUsername = null;
+        if (($role === 'master_agent' || $role === 'super_agent') && str_ends_with($username, 'MA')) {
+            // Master agent → look for the regular agent without MA suffix
+            $linkedUsername = substr($username, 0, -2);
+        } elseif ($role === 'agent') {
+            // Regular agent → look for the master agent with MA suffix
+            $linkedUsername = $username . 'MA';
+        }
+
+        if ($linkedUsername === null || $linkedUsername === '') {
+            return;
+        }
+
+        $linked = $this->db->findOne('agents', ['username' => $linkedUsername]);
+        if ($linked === null) {
+            return;
+        }
+
+        // Sync only the commission fields that changed
+        $syncUpdates = ['updatedAt' => MongoRepository::nowUtc()];
+        foreach ($commissionFields as $field) {
+            if (array_key_exists($field, $changedFields)) {
+                $syncUpdates[$field] = $changedFields[$field];
+            }
+        }
+
+        $linkedId = (string) ($linked['id'] ?? '');
+        if ($linkedId !== '' && preg_match('/^[a-f0-9]{24}$/i', $linkedId) === 1) {
+            $this->db->updateOne('agents', ['id' => MongoRepository::id($linkedId)], $syncUpdates);
+            // If the linked agent is a master_agent, sync the master_agents collection too
+            $linkedRole = strtolower(trim((string) ($linked['role'] ?? '')));
+            if ($linkedRole === 'master_agent') {
+                $updatedLinked = $this->db->findOne('agents', ['id' => MongoRepository::id($linkedId)]);
+                if ($updatedLinked !== null) {
+                    $this->syncMasterAgentCollection($updatedLinked);
+                }
+            }
+        }
     }
 
     private function syncMasterAgentCollection(array $agent): void
