@@ -460,6 +460,8 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
   const [commissionSaving, setCommissionSaving] = useState(false);
   const [commissionSaveError, setCommissionSaveError] = useState('');
   const [commissionSaveSuccess, setCommissionSaveSuccess] = useState('');
+  const [commissionEditField, setCommissionEditField] = useState(null);
+  const [commissionEditValue, setCommissionEditValue] = useState('');
   const [agentPercentDraft, setAgentPercentDraft] = useState('');    // editable draft value
   const [playerRateDraft, setPlayerRateDraft] = useState('');        // editable draft value
   const [hiringAgentPercentDraft, setHiringAgentPercentDraft] = useState('');
@@ -2010,44 +2012,45 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
               const uplinePct = (!isDirectUnderHouse && hiringPct != null) ? (100 - housePct - hiringPct) : null;
               const showUpline = uplinePct != null && uplinePct > 0;
               const showHiring = !isDirectUnderHouse && hiringEffective > 0;
-              // Right column order: Agent%(already above) → Hiring Agent% → Upline% → House% → Player Rate → Balance
+              // Build right-column items dynamically (no gaps)
+              const rightItems = [];
+              if (showHiring) rightItems.push({ label: 'Hiring Agent %', value: `${hiringEffective}%` });
+              if (showUpline) rightItems.push({ label: 'Upline Agent %', value: `${uplinePct}%` });
+              rightItems.push({ label: 'House %', value: '5%' });
+              rightItems.push({ label: 'Player Rate', value: customer?.playerRate != null ? `$${customer.playerRate}` : '—', clickable: true });
+              // Left-column items to pair with
+              const leftItems = [
+                { label: 'Min Bet', value: formatDetailMoney(minBetValue) },
+                { label: 'Max Bet', value: formatDetailMoney(maxBetValue) },
+                { label: 'Credit', value: formatDetailMoney(creditLimitValue) },
+                { label: 'Settle', value: `+/- ${formatDetailMoney(settleLimitValue)}` },
+              ];
+              // Interleave: left[0], right[0], left[1], right[1], ...
+              const pairs = [];
+              const maxLen = Math.max(leftItems.length, rightItems.length);
+              for (let i = 0; i < maxLen; i++) {
+                if (i < leftItems.length) pairs.push({ side: 'left', ...leftItems[i] });
+                if (i < rightItems.length) pairs.push({ side: 'right', ...rightItems[i] });
+              }
               return (<>
-                {showHiring ? (
-                  <div className="detail-item detail-metric">
-                    <span className="detail-label">Hiring Agent %</span>
-                    <strong className="detail-value">{hiringEffective}%</strong>
-                  </div>
-                ) : (
-                  <div className="detail-item detail-empty" aria-hidden="true"></div>
-                )}
-                <div className="detail-item">
-                  <span className="detail-label">Min Bet</span>
-                  <strong className="detail-value">{formatDetailMoney(minBetValue)}</strong>
-                </div>
-                {showUpline ? (
-                  <div className="detail-item detail-metric">
-                    <span className="detail-label">Upline Agent %</span>
-                    <strong className="detail-value">{uplinePct}%</strong>
-                  </div>
-                ) : (
-                  <div className="detail-item detail-empty" aria-hidden="true"></div>
-                )}
-                <div className="detail-item">
-                  <span className="detail-label">Max Bet</span>
-                  <strong className="detail-value">{formatDetailMoney(maxBetValue)}</strong>
-                </div>
-                <div className="detail-item detail-metric">
-                  <span className="detail-label">House %</span>
-                  <strong className="detail-value">5%</strong>
-                </div>
-                <div className="detail-item">
-                  <span className="detail-label">Credit</span>
-                  <strong className="detail-value">{formatDetailMoney(creditLimitValue)}</strong>
-                </div>
-                <button type="button" className={`detail-item detail-metric${activeSection === 'commission' ? ' detail-metric-active' : ''}`} onClick={() => openSection('commission')}>
-                  <span className="detail-label">Player Rate</span>
-                  <strong className="detail-value">{customer?.playerRate != null ? `$${customer.playerRate}` : '—'}</strong>
-                </button>
+                {pairs.map((item, idx) => (
+                  item.side === 'left' ? (
+                    <div key={`l-${idx}`} className="detail-item">
+                      <span className="detail-label">{item.label}</span>
+                      <strong className="detail-value">{item.value}</strong>
+                    </div>
+                  ) : item.clickable ? (
+                    <button key={`r-${idx}`} type="button" className={`detail-item detail-metric${activeSection === 'commission' ? ' detail-metric-active' : ''}`} onClick={() => openSection('commission')}>
+                      <span className="detail-label">{item.label}</span>
+                      <strong className="detail-value">{item.value}</strong>
+                    </button>
+                  ) : (
+                    <div key={`r-${idx}`} className="detail-item detail-metric">
+                      <span className="detail-label">{item.label}</span>
+                      <strong className="detail-value">{item.value}</strong>
+                    </div>
+                  )
+                ))}
               </>);
             })() : (
             <>
@@ -2088,10 +2091,12 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
               </button>
             )}
 
-            <div className="detail-item">
-              <span className="detail-label">Settle</span>
-              <strong className="detail-value">+/- {formatDetailMoney(settleLimitValue)}</strong>
-            </div>
+            {!isAgent && (
+              <div className="detail-item">
+                <span className="detail-label">Settle</span>
+                <strong className="detail-value">+/- {formatDetailMoney(settleLimitValue)}</strong>
+              </div>
+            )}
             {isAgent ? (
               <button type="button" className={`detail-item detail-metric${activeSection === 'transactions' ? ' detail-metric-active' : ''}`} onClick={openTransactionSlip}>
                 <span className="detail-label">Balance</span>
@@ -2213,27 +2218,24 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
           <div className="commission-edit-card">
             <h4 className="commission-card-title">Commission Settings</h4>
             {(() => {
-              const [editField, setEditField] = React.useState(null);
-              const [editValue, setEditValue] = React.useState('');
-
               const openEdit = (field, currentValue) => {
-                setEditField(field);
-                setEditValue(currentValue != null ? String(currentValue) : '');
+                setCommissionEditField(field);
+                setCommissionEditValue(currentValue != null ? String(currentValue) : '');
               };
-              const closeEdit = () => { setEditField(null); setEditValue(''); };
+              const closeEdit = () => { setCommissionEditField(null); setCommissionEditValue(''); };
 
               const saveField = async () => {
                 const token = localStorage.getItem('token');
-                if (!token || !editField) return;
+                if (!token || !commissionEditField) return;
                 try {
                   setCommissionSaving(true);
                   const payload = {};
-                  if (editField === 'agentPercent') {
-                    const pct = parseFloat(editValue);
+                  if (commissionEditField === 'agentPercent') {
+                    const pct = parseFloat(commissionEditValue);
                     if (isNaN(pct) || pct < 0 || pct > 100) { setCommissionSaveError('Must be 0-100'); return; }
                     payload.agentPercent = pct;
-                  } else if (editField === 'playerRate') {
-                    const rate = parseFloat(editValue);
+                  } else if (commissionEditField === 'playerRate') {
+                    const rate = parseFloat(commissionEditValue);
                     if (isNaN(rate) || rate < 0) { setCommissionSaveError('Must be a positive number'); return; }
                     payload.playerRate = rate;
                   }
@@ -2241,10 +2243,9 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
                   setCommissionSaveError('');
                   setCommissionSaveSuccess('Saved');
                   closeEdit();
-                  // Refresh data
                   const detailData = await getUserStatistics(userId, token);
                   if (detailData?.user) setCustomer(normalizeCustomerFinancials(detailData.user));
-                  setCommissionChain(null); // force chain reload
+                  setCommissionChain(null);
                   setTimeout(() => setCommissionSaveSuccess(''), 2000);
                 } catch (err) {
                   setCommissionSaveError(err.message || 'Save failed');
@@ -2263,7 +2264,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
                   {fields.map((f) => (
                     <div key={f.key} className="commission-inline-row">
                       <span className="commission-inline-label">{f.label}</span>
-                      {editField === f.key ? (
+                      {commissionEditField === f.key ? (
                         <div className="commission-inline-edit">
                           <input
                             type="number"
@@ -2271,8 +2272,8 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
                             max={f.key === 'agentPercent' ? '100' : undefined}
                             step="0.01"
                             className="commission-inline-input"
-                            value={editValue}
-                            onChange={(e) => setEditValue(e.target.value)}
+                            value={commissionEditValue}
+                            onChange={(e) => setCommissionEditValue(e.target.value)}
                             autoFocus
                             onKeyDown={(e) => { if (e.key === 'Enter') saveField(); if (e.key === 'Escape') closeEdit(); }}
                           />
