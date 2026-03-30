@@ -5861,24 +5861,34 @@ final class AdminCoreController
                     return;
                 }
                 // Enforce commission chain rules
+                // Detect if parent is same-person MA counterpart — if so, treat as directly under house
                 $parentId = (string) ($agent['createdBy'] ?? '');
                 $parentModel = (string) ($agent['createdByModel'] ?? '');
-                if ($parentModel === 'Admin' || $parentModel === '') {
-                    // Agent directly under house: must be exactly 100 - HOUSE_PERCENT
+                $isUnderHouse = ($parentModel === 'Admin' || $parentModel === '');
+                if (!$isUnderHouse && $parentModel === 'Agent' && $parentId !== '' && preg_match('/^[a-f0-9]{24}$/i', $parentId) === 1) {
+                    $parentAgent = $this->db->findOne('agents', ['id' => MongoRepository::id($parentId)], ['projection' => ['username' => 1, 'agentPercent' => 1, 'createdByModel' => 1]]);
+                    // Check if parent is same-person MA counterpart
+                    $agentUsername = strtoupper(trim((string) ($agent['username'] ?? '')));
+                    $parentUsername = strtoupper(trim((string) ($parentAgent['username'] ?? '')));
+                    if ($parentUsername === $agentUsername . 'MA') {
+                        // Same person — check grandparent instead
+                        $grandparentModel = (string) ($parentAgent['createdByModel'] ?? '');
+                        $isUnderHouse = ($grandparentModel === 'Admin' || $grandparentModel === '');
+                    }
+                }
+                if ($isUnderHouse) {
+                    // Agent directly under house (or same-person pair under house): must be exactly 95%
                     $required = 100.0 - (float) self::HOUSE_PERCENT;
                     if (round($pct, 4) !== round($required, 4)) {
                         Response::json(['message' => "Agent directly under house must have exactly {$required}%. House always takes " . self::HOUSE_PERCENT . "%."], 400);
                         return;
                     }
-                } elseif ($parentModel === 'Agent' && $parentId !== '' && preg_match('/^[a-f0-9]{24}$/i', $parentId) === 1) {
+                } elseif ($parentModel === 'Agent' && isset($parentAgent) && $parentAgent !== null && isset($parentAgent['agentPercent'])) {
                     // Agent under another agent: cannot exceed parent's agentPercent
-                    $parentAgent = $this->db->findOne('agents', ['id' => MongoRepository::id($parentId)], ['projection' => ['agentPercent' => 1]]);
-                    if ($parentAgent !== null && isset($parentAgent['agentPercent'])) {
-                        $maxAllowed = (float) $parentAgent['agentPercent'];
-                        if ($pct > $maxAllowed) {
-                            Response::json(['message' => "agentPercent cannot exceed {$maxAllowed}% (parent agent's limit)."], 400);
-                            return;
-                        }
+                    $maxAllowed = (float) $parentAgent['agentPercent'];
+                    if ($pct > $maxAllowed) {
+                        Response::json(['message' => "agentPercent cannot exceed {$maxAllowed}% (parent agent's limit)."], 400);
+                        return;
                     }
                 }
                 $updates['agentPercent'] = round($pct, 4);
