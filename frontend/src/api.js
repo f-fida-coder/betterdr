@@ -1,5 +1,31 @@
 const DEFAULT_PROD_API_URL = '/api/index.php?path=';
 
+/**
+ * For same-person MA/agent pairs (e.g., NJG365MA and NJG365),
+ * returns combined display name like "NJG365MA/NJG365".
+ * If no counterpart exists, returns the username as-is.
+ *
+ * @param {string} username - The agent username to display
+ * @param {Array} agents - List of all agents (each with a .username field)
+ * @returns {string} Combined display name or original username
+ */
+export function linkedAgentName(username, agents) {
+  if (!username) return '';
+  const upper = String(username).toUpperCase();
+  if (!agents || !Array.isArray(agents) || agents.length === 0) return upper;
+
+  if (upper.endsWith('MA')) {
+    const base = upper.slice(0, -2);
+    const linked = agents.find((a) => String(a.username || '').toUpperCase() === base);
+    if (linked) return `${upper}/${base}`;
+  } else {
+    const maName = upper + 'MA';
+    const linked = agents.find((a) => String(a.username || '').toUpperCase() === maName);
+    if (linked) return `${maName}/${upper}`;
+  }
+  return upper;
+}
+
 const normalizeApiUrl = (url) => {
     if (!url) return '';
     const normalized = String(url).replace(/\/+$/, '');

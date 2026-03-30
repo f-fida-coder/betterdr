@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { getAgentTree, getMe } from '../../api';
+import { getAgentTree, getMe, linkedAgentName } from '../../api';
 
 function AgentTreeView({
     onClose,
@@ -163,6 +163,13 @@ function AgentTreeView({
     const isViewingOriginTree = Boolean(canRestoreBaseContext && currentContextId && treeRootId && currentContextId !== treeRootId);
     const rootChildren = (treeData?.tree || []).filter((node) => isAgentNode(node));
     const rootHasChildren = rootChildren.length > 0;
+    // Flatten all tree nodes for linkedAgentName lookups
+    const allNodes = React.useMemo(() => {
+        const flat = [];
+        const walk = (nodes) => { (nodes || []).forEach((n) => { flat.push(n); walk(n.children); }); };
+        walk(treeData?.tree || []);
+        return flat;
+    }, [treeData]);
     const rootCanExpand = Boolean(treeData?.root) && isExpandableRole(treeData.root);
     const rootExpanded = expandedNodes.has(treeData?.root?.id);
 
@@ -195,7 +202,7 @@ function AgentTreeView({
                         ) : (
                             <span className="node-toggle node-toggle-spacer" aria-hidden="true"></span>
                         )}
-                        <span className="node-name">{node.username.toUpperCase()}</span>
+                        <span className="node-name">{node.role === 'admin' ? node.username.toUpperCase() : linkedAgentName(node.username, allNodes)}</span>
                         <span className={`node-role-badge role-${roleClassName}`}>{roleLabel}</span>
                         {node.agentPercent != null && (
                           <span className="node-pct-badge">{node.agentPercent}%</span>

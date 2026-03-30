@@ -15,6 +15,7 @@ import {
   getAgentCommissionChain,
   calculateCommission,
   validateCommissionChain,
+  linkedAgentName,
 } from '../../api';
 import { formatTransactionType, isDebitTransaction } from '../../utils/transactionPresentation';
 import { resolveDepositFreeplayBonusPreview } from '../../utils/freeplayBonus';
@@ -1972,7 +1973,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
             <div className="player-title-wrap">
               <div className="player-title-main">
                 <span className="player-kicker">Player ID</span>
-                <h2>{customer.username || 'USER'}</h2>
+                <h2>{isAgent ? linkedAgentName(customer.username, agents) : (customer.username || 'USER')}</h2>
               </div>
               <span className="player-badge">{roleBadgeLabel}</span>
             </div>
@@ -2427,7 +2428,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
                   <div key={node.id || idx} className="ch-row ch-row-hiring">
                     <span className="ch-row-label">{idx === arr.length - 1 ? 'Hiring Agent' : 'Upline Agent'}</span>
                     <span className="ch-row-username">
-                      ({node.username || '—'})
+                      ({linkedAgentName(node.username, agents)})
                     </span>
                     <span className={`ch-row-pct ${node.effectivePercent == null && node.agentPercent == null ? 'unset' : ''}`}>
                       {node.effectivePercent != null ? `(${node.effectivePercent}%)` : (node.agentPercent != null ? `(${node.agentPercent}%)` : '(not set)')}
@@ -2459,7 +2460,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
                   <div className="ch-row ch-row-agent">
                     <span className="ch-row-label">Agent</span>
                     <span className="ch-row-username">
-                      ({commissionChain.upline[0].username || '—'})
+                      ({linkedAgentName(commissionChain.upline[0].username, agents)})
                     </span>
                     <span className={`ch-row-pct ${commissionChain.upline[0].agentPercent == null ? 'unset' : ''}`}>
                       {commissionChain.upline[0].agentPercent != null ? `(${commissionChain.upline[0].agentPercent}%)` : '(not set)'}
@@ -2476,7 +2477,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
                 {commissionChain.downlines.map((d, idx) => (
                   <div key={d.id || idx} className="ch-row ch-row-sub">
                     <span className="ch-row-label">Sub Agent {idx + 1}</span>
-                    <span className="ch-row-username">({d.username || '—'})</span>
+                    <span className="ch-row-username">({linkedAgentName(d.username, agents)})</span>
                     <span className={`ch-row-pct ${d.agentPercent == null ? 'unset' : ''}`}>
                       {d.agentPercent != null ? `(${d.agentPercent}%)` : '(not set)'}
                     </span>

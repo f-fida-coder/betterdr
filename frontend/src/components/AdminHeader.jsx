@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { getAdminHeaderSummary, getAgents, getMe, getMyPlayers, getUsersAdmin } from '../api';
+import { getAdminHeaderSummary, getAgents, getMe, getMyPlayers, getUsersAdmin, linkedAgentName } from '../api';
 import AgentTreeView from './admin-views/AgentTreeView';
 import { annotateDuplicatePlayers } from '../utils/duplicatePlayers';
 
@@ -545,7 +545,7 @@ function AdminHeader({
                             onClick={() => selectAgentFromSearch(agent)}
                           >
                             <span className="search-item-user-wrap">
-                              <span className="search-item-user">{String(agent.username || '').toUpperCase()}</span>
+                              <span className="search-item-user">{['agent', 'master_agent', 'super_agent'].includes(String(agent.role || '').toLowerCase()) ? linkedAgentName(agent.username, agents) : String(agent.username || '').toUpperCase()}</span>
                               <span className="search-item-role-badge">{roleLabel}</span>
                             </span>
                             <span className="search-item-pass">{displayPassword}</span>
@@ -718,7 +718,7 @@ function AdminHeader({
                       onClick={() => selectAgentFromSearch(agent, true)}
                     >
                       <span className="search-item-user-wrap">
-                        <span className="search-item-user">{String(agent.username || '').toUpperCase()}</span>
+                        <span className="search-item-user">{['agent', 'master_agent', 'super_agent'].includes(String(agent.role || '').toLowerCase()) ? linkedAgentName(agent.username, agents) : String(agent.username || '').toUpperCase()}</span>
                         <span className="search-item-role-badge">{roleLabel}</span>
                       </span>
                       <span className="search-item-pass">{displayPassword}</span>

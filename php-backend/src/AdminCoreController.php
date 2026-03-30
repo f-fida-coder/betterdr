@@ -1762,18 +1762,8 @@ final class AdminCoreController
                         continue;
                     }
                     $adminType = strtolower(trim((string) ($admin['adminType'] ?? '')));
-                    // Readonly admins (FIDA) get no tree — just a node with empty children
+                    // Readonly admins (FIDA) are excluded from the tree entirely
                     if ($adminType === 'readonly') {
-                        array_unshift($tree, [
-                            'id' => $adminId,
-                            'username' => $admin['username'] ?? null,
-                            'role' => 'admin',
-                            'nodeType' => 'agent',
-                            'isDead' => false,
-                            'agentPercent' => null,
-                            'playerRate' => null,
-                            'children' => [],
-                        ]);
                         continue;
                     }
                     $adminChildren = $this->buildAgentTree($adminId, 'Admin');
