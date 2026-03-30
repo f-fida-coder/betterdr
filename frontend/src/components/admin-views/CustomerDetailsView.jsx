@@ -1976,7 +1976,12 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
             <div className="player-title-wrap">
               <div className="player-title-main">
                 <span className="player-kicker">Player ID</span>
-                <h2>{isAgent ? linkedAgentName(customer.username, agents) : (customer.username || 'USER')}</h2>
+                <h2>{isAgent ? (() => {
+                  const u = String(customer.username || '').toUpperCase();
+                  const maName = u + 'MA';
+                  const linked = agents?.find((a) => String(a.username || '').toUpperCase() === maName);
+                  return linked ? `${u} (${maName})` : u;
+                })() : (customer.username || 'USER')}</h2>
               </div>
               <span className="player-badge">{roleBadgeLabel}</span>
             </div>
@@ -1989,7 +1994,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
             </div>
             {isAgent ? (
               <button type="button" className={`detail-item detail-metric${activeSection === 'commission' ? ' detail-metric-active' : ''}`} onClick={() => openSection('commission')}>
-                <span className="detail-label">Agent %</span>
+                <span className="detail-label">{String(customer?.username || 'Agent').toUpperCase()} %</span>
                 <strong className="detail-value">{customer?.agentPercent != null ? `${customer.agentPercent}%` : '—'}</strong>
               </button>
             ) : (
