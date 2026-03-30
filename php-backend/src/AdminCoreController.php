@@ -5860,6 +5860,27 @@ final class AdminCoreController
                     Response::json(['message' => 'agentPercent must be between 0 and 100'], 400);
                     return;
                 }
+                // Enforce commission chain rules
+                $parentId = (string) ($agent['createdBy'] ?? '');
+                $parentModel = (string) ($agent['createdByModel'] ?? '');
+                if ($parentModel === 'Admin' || $parentModel === '') {
+                    // Agent directly under house: must be exactly 100 - HOUSE_PERCENT
+                    $required = 100.0 - (float) self::HOUSE_PERCENT;
+                    if (round($pct, 4) !== round($required, 4)) {
+                        Response::json(['message' => "Agent directly under house must have exactly {$required}%. House always takes " . self::HOUSE_PERCENT . "%."], 400);
+                        return;
+                    }
+                } elseif ($parentModel === 'Agent' && $parentId !== '' && preg_match('/^[a-f0-9]{24}$/i', $parentId) === 1) {
+                    // Agent under another agent: cannot exceed parent's agentPercent
+                    $parentAgent = $this->db->findOne('agents', ['id' => MongoRepository::id($parentId)], ['projection' => ['agentPercent' => 1]]);
+                    if ($parentAgent !== null && isset($parentAgent['agentPercent'])) {
+                        $maxAllowed = (float) $parentAgent['agentPercent'];
+                        if ($pct > $maxAllowed) {
+                            Response::json(['message' => "agentPercent cannot exceed {$maxAllowed}% (parent agent's limit)."], 400);
+                            return;
+                        }
+                    }
+                }
                 $updates['agentPercent'] = round($pct, 4);
             }
             // Dollar rate applied to players under this agent (no upper cap — it's a $ value)
