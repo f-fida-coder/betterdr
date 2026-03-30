@@ -2012,45 +2012,23 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
               const uplinePct = (!isDirectUnderHouse && hiringPct != null) ? (100 - housePct - hiringPct) : null;
               const showUpline = uplinePct != null && uplinePct > 0;
               const showHiring = !isDirectUnderHouse && hiringEffective > 0;
-              // Build right-column items dynamically (no gaps)
+              // Right-column items (only visible ones, stacked top-down)
               const rightItems = [];
-              if (showHiring) rightItems.push({ label: 'Hiring Agent %', value: `${hiringEffective}%` });
-              if (showUpline) rightItems.push({ label: 'Upline Agent %', value: `${uplinePct}%` });
-              rightItems.push({ label: 'House %', value: '5%' });
-              rightItems.push({ label: 'Player Rate', value: customer?.playerRate != null ? `$${customer.playerRate}` : '—', clickable: true });
-              // Left-column items to pair with
-              const leftItems = [
-                { label: 'Min Bet', value: formatDetailMoney(minBetValue) },
-                { label: 'Max Bet', value: formatDetailMoney(maxBetValue) },
-                { label: 'Credit', value: formatDetailMoney(creditLimitValue) },
-                { label: 'Settle', value: `+/- ${formatDetailMoney(settleLimitValue)}` },
-              ];
-              // Interleave: left[0], right[0], left[1], right[1], ...
-              const pairs = [];
-              const maxLen = Math.max(leftItems.length, rightItems.length);
-              for (let i = 0; i < maxLen; i++) {
-                if (i < leftItems.length) pairs.push({ side: 'left', ...leftItems[i] });
-                if (i < rightItems.length) pairs.push({ side: 'right', ...rightItems[i] });
-              }
+              if (showHiring) rightItems.push(<div key="hiring" className="detail-item detail-metric"><span className="detail-label">Hiring Agent %</span><strong className="detail-value">{hiringEffective}%</strong></div>);
+              if (showUpline) rightItems.push(<div key="upline" className="detail-item detail-metric"><span className="detail-label">Upline Agent %</span><strong className="detail-value">{uplinePct}%</strong></div>);
+              rightItems.push(<div key="house" className="detail-item detail-metric"><span className="detail-label">House %</span><strong className="detail-value">5%</strong></div>);
+              rightItems.push(<button key="prate" type="button" className={`detail-item detail-metric${activeSection === 'commission' ? ' detail-metric-active' : ''}`} onClick={() => openSection('commission')}><span className="detail-label">Player Rate</span><strong className="detail-value">{customer?.playerRate != null ? `$${customer.playerRate}` : '—'}</strong></button>);
+              // Left column stays fixed: Min Bet, Max Bet, Credit, Settle
+              // Grid: left[0] right[0], left[1] right[1], ...
               return (<>
-                {pairs.map((item, idx) => (
-                  item.side === 'left' ? (
-                    <div key={`l-${idx}`} className="detail-item">
-                      <span className="detail-label">{item.label}</span>
-                      <strong className="detail-value">{item.value}</strong>
-                    </div>
-                  ) : item.clickable ? (
-                    <button key={`r-${idx}`} type="button" className={`detail-item detail-metric${activeSection === 'commission' ? ' detail-metric-active' : ''}`} onClick={() => openSection('commission')}>
-                      <span className="detail-label">{item.label}</span>
-                      <strong className="detail-value">{item.value}</strong>
-                    </button>
-                  ) : (
-                    <div key={`r-${idx}`} className="detail-item detail-metric">
-                      <span className="detail-label">{item.label}</span>
-                      <strong className="detail-value">{item.value}</strong>
-                    </div>
-                  )
-                ))}
+                <div className="detail-item"><span className="detail-label">Standard Min Bet</span><strong className="detail-value">{formatDetailMoney(minBetValue)}</strong></div>
+                {rightItems[0] || <div className="detail-item detail-empty" aria-hidden="true"></div>}
+                <div className="detail-item"><span className="detail-label">Standard Max Bet</span><strong className="detail-value">{formatDetailMoney(maxBetValue)}</strong></div>
+                {rightItems[1] || <div className="detail-item detail-empty" aria-hidden="true"></div>}
+                <div className="detail-item"><span className="detail-label">Standard Credit</span><strong className="detail-value">{formatDetailMoney(creditLimitValue)}</strong></div>
+                {rightItems[2] || <div className="detail-item detail-empty" aria-hidden="true"></div>}
+                <div className="detail-item"><span className="detail-label">Standard Settle</span><strong className="detail-value">+/- {formatDetailMoney(settleLimitValue)}</strong></div>
+                {rightItems[3] || <div className="detail-item detail-empty" aria-hidden="true"></div>}
               </>);
             })() : (
             <>
