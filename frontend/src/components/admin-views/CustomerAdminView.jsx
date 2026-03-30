@@ -2079,7 +2079,7 @@ Please ensure you manage your sectors responsibly and maintain clear communicati
                               <td className="user-cell">
                                 <div className="user-cell-main">
                                   <button className="user-link-btn" onClick={() => handleViewDetails(customer)}>
-                                    <span className="customer-username">{['agent', 'master_agent', 'super_agent'].includes(customer.role) ? linkedAgentName(customer.username, agents) : customer.username.toUpperCase()}</span>
+                                    <span className="customer-username">{customer.username.toUpperCase()}</span>
                                   </button>
                                   {customer.isDuplicatePlayer && (
                                     <span className="duplicate-player-badge">Duplicate Player</span>

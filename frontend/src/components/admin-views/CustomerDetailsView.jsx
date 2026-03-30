@@ -2428,7 +2428,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
                   <div key={node.id || idx} className="ch-row ch-row-hiring">
                     <span className="ch-row-label">{idx === arr.length - 1 ? 'Hiring Agent' : 'Upline Agent'}</span>
                     <span className="ch-row-username">
-                      ({linkedAgentName(node.username, agents)})
+                      ({node.username || '—'})
                     </span>
                     <span className={`ch-row-pct ${node.effectivePercent == null && node.agentPercent == null ? 'unset' : ''}`}>
                       {node.effectivePercent != null ? `(${node.effectivePercent}%)` : (node.agentPercent != null ? `(${node.agentPercent}%)` : '(not set)')}
@@ -2460,7 +2460,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
                   <div className="ch-row ch-row-agent">
                     <span className="ch-row-label">Agent</span>
                     <span className="ch-row-username">
-                      ({linkedAgentName(commissionChain.upline[0].username, agents)})
+                      ({commissionChain.upline[0].username || '—'})
                     </span>
                     <span className={`ch-row-pct ${commissionChain.upline[0].agentPercent == null ? 'unset' : ''}`}>
                       {commissionChain.upline[0].agentPercent != null ? `(${commissionChain.upline[0].agentPercent}%)` : '(not set)'}
@@ -2477,7 +2477,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
                 {commissionChain.downlines.map((d, idx) => (
                   <div key={d.id || idx} className="ch-row ch-row-sub">
                     <span className="ch-row-label">Sub Agent {idx + 1}</span>
-                    <span className="ch-row-username">({linkedAgentName(d.username, agents)})</span>
+                    <span className="ch-row-username">({d.username || '—'})</span>
                     <span className={`ch-row-pct ${d.agentPercent == null ? 'unset' : ''}`}>
                       {d.agentPercent != null ? `(${d.agentPercent}%)` : '(not set)'}
                     </span>

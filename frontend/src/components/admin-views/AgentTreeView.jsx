@@ -202,7 +202,7 @@ function AgentTreeView({
                         ) : (
                             <span className="node-toggle node-toggle-spacer" aria-hidden="true"></span>
                         )}
-                        <span className="node-name">{node.role === 'admin' ? node.username.toUpperCase() : linkedAgentName(node.username, allNodes)}</span>
+                        <span className="node-name">{(node.username || '').toUpperCase()}</span>
                         <span className={`node-role-badge role-${roleClassName}`}>{roleLabel}</span>
                         {node.agentPercent != null && (
                           <span className="node-pct-badge">{node.agentPercent}%</span>

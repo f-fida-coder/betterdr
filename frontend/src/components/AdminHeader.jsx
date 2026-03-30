@@ -545,7 +545,7 @@ function AdminHeader({
                             onClick={() => selectAgentFromSearch(agent)}
                           >
                             <span className="search-item-user-wrap">
-                              <span className="search-item-user">{['agent', 'master_agent', 'super_agent'].includes(String(agent.role || '').toLowerCase()) ? linkedAgentName(agent.username, allAgents) : String(agent.username || '').toUpperCase()}</span>
+                              <span className="search-item-user">{String(agent.username || '').toUpperCase()}</span>
                               <span className="search-item-role-badge">{roleLabel}</span>
                             </span>
                             <span className="search-item-pass">{displayPassword}</span>
@@ -718,7 +718,7 @@ function AdminHeader({
                       onClick={() => selectAgentFromSearch(agent, true)}
                     >
                       <span className="search-item-user-wrap">
-                        <span className="search-item-user">{['agent', 'master_agent', 'super_agent'].includes(String(agent.role || '').toLowerCase()) ? linkedAgentName(agent.username, allAgents) : String(agent.username || '').toUpperCase()}</span>
+                        <span className="search-item-user">{String(agent.username || '').toUpperCase()}</span>
                         <span className="search-item-role-badge">{roleLabel}</span>
                       </span>
                       <span className="search-item-pass">{displayPassword}</span>
