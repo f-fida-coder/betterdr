@@ -504,6 +504,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
         setTxError('');
         setDuplicateWarning(null);
         setCustomer(null);
+        setCommissionChain(null);
         setForm(DEFAULT_FORM);
         setActiveSection('basics');
 
@@ -2022,20 +2023,20 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
               const agentPct = customer?.agentPercent != null ? parseFloat(customer.agentPercent) : null;
               const hiringPct = customer?.hiringAgentPercent != null ? parseFloat(customer.hiringAgentPercent) : null;
               const housePct = 5;
-              // Check if agent is directly under house (no hiring agent between)
-              const isDirectUnderHouse = hiringPct == null;
-              const hiringEffective = (!isDirectUnderHouse && agentPct != null) ? (hiringPct - agentPct) : null;
+              // Check if agent is directly under house or same-person pair (hiringPct === agentPct means MA counterpart)
+              const hiringEffective = (hiringPct != null && agentPct != null) ? (hiringPct - agentPct) : null;
+              const isDirectUnderHouse = hiringPct == null || hiringEffective === 0;
               const uplinePct = (!isDirectUnderHouse && hiringPct != null) ? (100 - housePct - hiringPct) : null;
               // Only show upline if there IS an upline (uplinePct > 0 means there's a level between hiring agent and house)
               const showUpline = uplinePct != null && uplinePct > 0;
               return (<>
-                {!isDirectUnderHouse && (
+                {!isDirectUnderHouse && hiringEffective > 0 && (
                   <div className="detail-item detail-metric">
                     <span className="detail-label">Hiring Agent %</span>
-                    <strong className="detail-value">{hiringEffective != null ? `${hiringEffective}%` : '—'}</strong>
+                    <strong className="detail-value">{hiringEffective}%</strong>
                   </div>
                 )}
-                {isDirectUnderHouse && (
+                {(isDirectUnderHouse || hiringEffective === 0) && (
                   <div className="detail-item detail-empty" aria-hidden="true"></div>
                 )}
                 <div className="detail-item">
