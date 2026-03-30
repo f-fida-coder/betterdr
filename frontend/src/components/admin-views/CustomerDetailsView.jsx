@@ -2408,37 +2408,31 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
                 </div>
               )}
 
-              {/* ── Hierarchy summary box ────────────────────────── */}
+              {/* ── Hierarchy summary box (top-down: House → Uplines → Agent) ── */}
               <div className="commission-hierarchy-box">
-                {/* Current agent — always index 0 */}
-                {commissionChain.upline[0] && (
-                  <div className="ch-row ch-row-agent">
-                    <span className="ch-row-label">Agent</span>
-                    <span className="ch-row-username">
-                      ({commissionChain.upline[0].username || '—'})
-                    </span>
-                    <span className={`ch-row-pct ${commissionChain.upline[0].agentPercent == null ? 'unset' : ''}`}>
-                      {commissionChain.upline[0].agentPercent != null ? `(${commissionChain.upline[0].agentPercent}%)` : '(not set)'}
-                    </span>
-                    {commissionChain.upline[1] && (
-                      <span className="ch-row-under">under {commissionChain.upline[1].username || '—'}</span>
-                    )}
+                {/* Admin/House row — always at top */}
+                {commissionChain.upline.find((n) => n.role === 'admin') && (
+                  <div className="ch-row ch-row-upline">
+                    <span className="ch-row-label">House</span>
+                    <span className="ch-row-username">({commissionChain.upline.find((n) => n.role === 'admin').username || '—'})</span>
+                    <span className="ch-row-pct">(5%)</span>
                   </div>
                 )}
 
-                {/* Middle upline nodes — hiring agents / master agents (index 1 to N-1, excluding admin) */}
-                {commissionChain.upline
+                {/* Middle upline nodes — hiring agents / master agents (reversed for top-down) */}
+                {[...commissionChain.upline]
                   .filter((n, idx) => idx > 0 && n.role !== 'admin')
-                  .map((node, idx) => (
+                  .reverse()
+                  .map((node, idx, arr) => (
                   <div key={node.id || idx} className="ch-row ch-row-hiring">
-                    <span className="ch-row-label">{idx === 0 ? 'Hiring Agent' : 'Upline Agent'}</span>
+                    <span className="ch-row-label">{idx === arr.length - 1 ? 'Hiring Agent' : 'Upline Agent'}</span>
                     <span className="ch-row-username">
                       ({node.username || '—'})
                     </span>
                     <span className={`ch-row-pct ${node.effectivePercent == null && node.agentPercent == null ? 'unset' : ''}`}>
                       {node.effectivePercent != null ? `(${node.effectivePercent}%)` : (node.agentPercent != null ? `(${node.agentPercent}%)` : '(not set)')}
                     </span>
-                    {idx === 0 && (
+                    {idx === arr.length - 1 && (
                       <select
                         className="ch-row-ma-select"
                         value={hiringAgentIdDraft}
@@ -2460,13 +2454,15 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
                   </div>
                 ))}
 
-                {/* Admin/House row */}
-                {commissionChain.upline.find((n) => n.role === 'admin') && (
-                  <div className="ch-row ch-row-upline">
-                    <span className="ch-row-label">House</span>
-                    <span className="ch-row-username">({commissionChain.upline.find((n) => n.role === 'admin').username || '—'})</span>
-                    <span className="ch-row-pct">
-                      (5%)
+                {/* Current agent — at bottom */}
+                {commissionChain.upline[0] && (
+                  <div className="ch-row ch-row-agent">
+                    <span className="ch-row-label">Agent</span>
+                    <span className="ch-row-username">
+                      ({commissionChain.upline[0].username || '—'})
+                    </span>
+                    <span className={`ch-row-pct ${commissionChain.upline[0].agentPercent == null ? 'unset' : ''}`}>
+                      {commissionChain.upline[0].agentPercent != null ? `(${commissionChain.upline[0].agentPercent}%)` : '(not set)'}
                     </span>
                   </div>
                 )}

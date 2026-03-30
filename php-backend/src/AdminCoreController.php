@@ -1751,13 +1751,29 @@ final class AdminCoreController
                     array_unshift($tree, $usernameLinkedNode);
                 }
 
-                // Other admins shown as child nodes, each with their own sub-tree
+                // Other admins shown as child nodes
+                // Readonly admins (e.g., FIDA) are shown but with no tree (empty children)
                 $otherAdmins = $this->db->findMany('admins', [
                     'id' => ['$ne' => $actor['id']],
                 ], ['sort' => ['username' => 1]]);
                 foreach ($otherAdmins as $admin) {
                     $adminId = (string) ($admin['id'] ?? '');
                     if ($adminId === '') {
+                        continue;
+                    }
+                    $adminType = strtolower(trim((string) ($admin['adminType'] ?? '')));
+                    // Readonly admins (FIDA) get no tree — just a node with empty children
+                    if ($adminType === 'readonly') {
+                        array_unshift($tree, [
+                            'id' => $adminId,
+                            'username' => $admin['username'] ?? null,
+                            'role' => 'admin',
+                            'nodeType' => 'agent',
+                            'isDead' => false,
+                            'agentPercent' => null,
+                            'playerRate' => null,
+                            'children' => [],
+                        ]);
                         continue;
                     }
                     $adminChildren = $this->buildAgentTree($adminId, 'Admin');
@@ -10482,7 +10498,30 @@ final class AdminCoreController
             }
         }
 
-        return $chain; // index 0 = the requested agent, last = root
+        // Collapse same-person MA ↔ agent pairs in the chain.
+        // E.g., NJG365 (agent) and NJG365MA (master_agent) are the same person.
+        // Remove the MA node and keep only the agent node (index 0).
+        $collapsed = [];
+        $skipIds = [];
+        for ($i = 0; $i < count($chain); $i++) {
+            if (isset($skipIds[(string) ($chain[$i]['id'] ?? '')])) {
+                continue;
+            }
+            $thisUsername = strtoupper(trim((string) ($chain[$i]['username'] ?? '')));
+            // Check if next node is the same person (MA counterpart)
+            if ($i + 1 < count($chain)) {
+                $nextUsername = strtoupper(trim((string) ($chain[$i + 1]['username'] ?? '')));
+                $nextRole = strtolower(trim((string) ($chain[$i + 1]['role'] ?? '')));
+                // If current is "NJG365" and next is "NJG365MA", collapse
+                if ($nextUsername === $thisUsername . 'MA' && in_array($nextRole, ['master_agent', 'super_agent'], true)) {
+                    $skipIds[(string) ($chain[$i + 1]['id'] ?? '')] = true;
+                }
+                // If current is "NJG365MA" and previous was "NJG365", already handled
+            }
+            $collapsed[] = $chain[$i];
+        }
+
+        return $collapsed; // index 0 = the requested agent, last = root
     }
 
     /**
