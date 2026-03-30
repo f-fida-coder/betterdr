@@ -1775,25 +1775,44 @@ final class AdminCoreController
             } else {
                 $tree = $this->buildAgentTree((string) $actor['id'], 'Agent');
             }
-            // Collect readonly admins (FIDA) to show as flat nodes above the tree
+            // When FIDA logs in: show other admins (HOUSE) with full tree below FIDA
+            // When HOUSE logs in: no readonly admins shown above — HOUSE is the sole root
             $readonlyAdmins = [];
-            if (($actor['role'] ?? '') === 'admin') {
+            $actorUsername = strtolower(trim((string) ($actor['username'] ?? '')));
+            $actorAdminType = strtolower(trim((string) ($actor['adminType'] ?? '')));
+            $isFidaLogin = ($actorAdminType === 'readonly' || $actorUsername === 'fida');
+            if (($actor['role'] ?? '') === 'admin' && $isFidaLogin) {
+                // FIDA is logged in — show HOUSE with its full tree as a child node
                 $allAdmins = $this->db->findMany('admins', [], ['sort' => ['username' => 1]]);
                 foreach ($allAdmins as $adm) {
-                    $admName = strtolower(trim((string) ($adm['username'] ?? '')));
-                    $admType = strtolower(trim((string) ($adm['adminType'] ?? '')));
                     $admId = (string) ($adm['id'] ?? '');
                     if ($admId === (string) ($actor['id'] ?? '')) {
-                        continue; // skip self (HOUSE)
+                        continue; // skip self (FIDA)
                     }
-                    if ($admType === 'readonly' || $admName === 'fida') {
-                        $readonlyAdmins[] = [
+                    $admName = strtolower(trim((string) ($adm['username'] ?? '')));
+                    $admType = strtolower(trim((string) ($adm['adminType'] ?? '')));
+                    // HOUSE admin — show with full tree
+                    if ($admType === 'house' || $admName === 'house') {
+                        $houseTree = $this->buildAgentTree($admId, 'Admin');
+                        // Also merge agents from FIDA into HOUSE's tree
+                        $fidaAgents = $this->buildAgentTree((string) ($actor['id'] ?? ''), 'Admin');
+                        foreach ($fidaAgents as $fa) {
+                            $houseTree[] = $fa;
+                        }
+                        $houseLinked = $this->buildUsernameLinkedAgentTreeNode((string) ($adm['username'] ?? ''), $houseTree);
+                        if ($houseLinked !== null) {
+                            array_unshift($houseTree, $houseLinked);
+                        }
+                        $tree = [[
                             'id' => $admId,
                             'username' => $adm['username'] ?? null,
                             'role' => 'admin',
                             'nodeType' => 'agent',
-                            'isReadonly' => true,
-                        ];
+                            'isDead' => false,
+                            'agentPercent' => null,
+                            'playerRate' => null,
+                            'children' => $houseTree,
+                        ]];
                     }
                 }
             }
