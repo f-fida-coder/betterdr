@@ -2021,14 +2021,14 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
               // Left column stays fixed: Min Bet, Max Bet, Credit, Settle
               // Grid: left[0] right[0], left[1] right[1], ...
               return (<>
-                <div className="detail-item"><span className="detail-label">Standard Min Bet</span><strong className="detail-value">{formatDetailMoney(minBetValue)}</strong></div>
                 {rightItems[0] || <div className="detail-item detail-empty" aria-hidden="true"></div>}
-                <div className="detail-item"><span className="detail-label">Standard Max Bet</span><strong className="detail-value">{formatDetailMoney(maxBetValue)}</strong></div>
+                <div className="detail-item"><span className="detail-label">Standard Min Bet</span><strong className="detail-value">{formatDetailMoney(minBetValue)}</strong></div>
                 {rightItems[1] || <div className="detail-item detail-empty" aria-hidden="true"></div>}
-                <div className="detail-item"><span className="detail-label">Standard Credit</span><strong className="detail-value">{formatDetailMoney(creditLimitValue)}</strong></div>
+                <div className="detail-item"><span className="detail-label">Standard Max Bet</span><strong className="detail-value">{formatDetailMoney(maxBetValue)}</strong></div>
                 {rightItems[2] || <div className="detail-item detail-empty" aria-hidden="true"></div>}
-                <div className="detail-item"><span className="detail-label">Standard Settle</span><strong className="detail-value">+/- {formatDetailMoney(settleLimitValue)}</strong></div>
+                <div className="detail-item"><span className="detail-label">Standard Credit</span><strong className="detail-value">{formatDetailMoney(creditLimitValue)}</strong></div>
                 {rightItems[3] || <div className="detail-item detail-empty" aria-hidden="true"></div>}
+                <div className="detail-item"><span className="detail-label">Standard Settle</span><strong className="detail-value">+/- {formatDetailMoney(settleLimitValue)}</strong></div>
               </>);
             })() : (
             <>
