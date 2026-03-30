@@ -1744,15 +1744,16 @@ final class AdminCoreController
             }
 
             if (($actor['role'] ?? '') === 'admin') {
-                // Root admin's own agents/players shown directly
+                // Build tree for the logged-in admin's own agents/players
                 $tree = $this->buildAgentTree((string) $actor['id'], 'Admin');
                 $usernameLinkedNode = $this->buildUsernameLinkedAgentTreeNode((string) ($actor['username'] ?? ''), $tree);
                 if ($usernameLinkedNode !== null) {
                     array_unshift($tree, $usernameLinkedNode);
                 }
 
-                // Other admins shown as child nodes
-                // Readonly admins (e.g., FIDA) are shown but with no tree (empty children)
+                // Merge agents from other admins (FIDA, etc.) into this tree
+                // so HOUSE sees ALL agents regardless of who created them.
+                // Other admins themselves are shown as flat nodes with no children.
                 $otherAdmins = $this->db->findMany('admins', [
                     'id' => ['$ne' => $actor['id']],
                 ], ['sort' => ['username' => 1]]);
@@ -1761,27 +1762,15 @@ final class AdminCoreController
                     if ($adminId === '') {
                         continue;
                     }
-                    $adminType = strtolower(trim((string) ($admin['adminType'] ?? '')));
-                    // Readonly admins (FIDA) are excluded from the tree entirely
-                    $adminUsername = strtolower(trim((string) ($admin['username'] ?? '')));
-                    if ($adminType === 'readonly' || $adminUsername === 'fida') {
-                        continue;
-                    }
-                    $adminChildren = $this->buildAgentTree($adminId, 'Admin');
-                    $adminLinkedNode = $this->buildUsernameLinkedAgentTreeNode((string) ($admin['username'] ?? ''), $adminChildren);
+                    // Merge this admin's agents/players into the main tree
+                    $adminAgents = $this->buildAgentTree($adminId, 'Admin');
+                    $adminLinkedNode = $this->buildUsernameLinkedAgentTreeNode((string) ($admin['username'] ?? ''), $adminAgents);
                     if ($adminLinkedNode !== null) {
-                        array_unshift($adminChildren, $adminLinkedNode);
+                        array_unshift($adminAgents, $adminLinkedNode);
                     }
-                    array_unshift($tree, [
-                        'id' => $adminId,
-                        'username' => $admin['username'] ?? null,
-                        'role' => 'admin',
-                        'nodeType' => 'agent',
-                        'isDead' => false,
-                        'agentPercent' => null,
-                        'playerRate' => null,
-                        'children' => $adminChildren,
-                    ]);
+                    foreach ($adminAgents as $agentNode) {
+                        $tree[] = $agentNode;
+                    }
                 }
             } else {
                 $tree = $this->buildAgentTree((string) $actor['id'], 'Agent');
@@ -10436,6 +10425,16 @@ final class AdminCoreController
             if ($parentModel === 'Admin') {
                 $adminDoc = $this->db->findOne('admins', ['id' => MongoRepository::id($parentId)]);
                 if ($adminDoc !== null) {
+                    // If this admin is FIDA (readonly), substitute HOUSE as the root
+                    $adminName = strtolower(trim((string) ($adminDoc['username'] ?? '')));
+                    $adminTypeVal = strtolower(trim((string) ($adminDoc['adminType'] ?? '')));
+                    if ($adminTypeVal === 'readonly' || $adminName === 'fida') {
+                        // Use the HOUSE admin as the chain root instead
+                        $houseAdmin = $this->getHouseAdmin();
+                        if ($houseAdmin !== null) {
+                            $adminDoc = $houseAdmin;
+                        }
+                    }
                     // House admin always uses the platform constant (5%)
                     $isHouse = ($adminDoc['adminType'] ?? '') === 'house'
                         || strtolower(trim((string) ($adminDoc['username'] ?? ''))) === 'house';
