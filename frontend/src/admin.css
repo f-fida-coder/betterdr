@@ -4522,8 +4522,8 @@
 }
 
 .agent-tree-container {
-  width: 360px;
-  max-width: min(96vw, 420px);
+  width: 420px;
+  max-width: min(96vw, 480px);
   height: calc(100vh - 78px);
   margin-top: 78px;
   background: rgba(255, 255, 255, 0.95);
@@ -4668,13 +4668,10 @@
 }
 
 .node-name {
-  font-size: 0.78rem;
+  font-size: 0.82rem;
   color: #333;
   font-weight: 500;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 160px;
 }
 
 .node-role-badge {

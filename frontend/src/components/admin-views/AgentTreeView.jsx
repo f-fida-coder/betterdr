@@ -250,7 +250,18 @@ function AgentTreeView({
                         <div className="tree-error">{error}</div>
                     ) : treeData ? (
                         <div className="tree-root">
-                            {/* Render Root */}
+                            {/* Readonly admins (FIDA) shown above root, no expand */}
+                            {(treeData.readonlyAdmins || []).map((ra) => (
+                                <div key={ra.id} className="tree-node depth-0 root-node" style={{ opacity: 0.7, marginBottom: 2 }}>
+                                    <div className="node-content">
+                                        <span className="node-toggle node-toggle-spacer" aria-hidden="true"></span>
+                                        <span className="node-name">{(ra.username || '').toUpperCase()}</span>
+                                        <span className="node-role-badge role-admin">ADMIN</span>
+                                    </div>
+                                    <button className="node-go-btn" onClick={() => onGo(ra.id, 'admin')}>Go</button>
+                                </div>
+                            ))}
+                            {/* Render Root (HOUSE) */}
                             <div className="tree-node depth-0 root-node">
                                 <div className="node-content" onClick={() => rootCanExpand && toggleNode(treeData.root.id)}>
                                     {rootCanExpand ? (

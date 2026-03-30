@@ -1775,6 +1775,29 @@ final class AdminCoreController
             } else {
                 $tree = $this->buildAgentTree((string) $actor['id'], 'Agent');
             }
+            // Collect readonly admins (FIDA) to show as flat nodes above the tree
+            $readonlyAdmins = [];
+            if (($actor['role'] ?? '') === 'admin') {
+                $allAdmins = $this->db->findMany('admins', [], ['sort' => ['username' => 1]]);
+                foreach ($allAdmins as $adm) {
+                    $admName = strtolower(trim((string) ($adm['username'] ?? '')));
+                    $admType = strtolower(trim((string) ($adm['adminType'] ?? '')));
+                    $admId = (string) ($adm['id'] ?? '');
+                    if ($admId === (string) ($actor['id'] ?? '')) {
+                        continue; // skip self (HOUSE)
+                    }
+                    if ($admType === 'readonly' || $admName === 'fida') {
+                        $readonlyAdmins[] = [
+                            'id' => $admId,
+                            'username' => $adm['username'] ?? null,
+                            'role' => 'admin',
+                            'nodeType' => 'agent',
+                            'isReadonly' => true,
+                        ];
+                    }
+                }
+            }
+
             Response::json([
                 'root' => [
                     'username' => $actor['username'] ?? null,
@@ -1783,6 +1806,7 @@ final class AdminCoreController
                     'nodeType' => 'agent',
                 ],
                 'tree' => $tree,
+                'readonlyAdmins' => $readonlyAdmins,
             ]);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error fetching agent tree'], 500);
