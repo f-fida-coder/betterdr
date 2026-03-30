@@ -2001,47 +2001,28 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
               <span className="detail-label">Password</span>
               <strong className="detail-value detail-secret">{displayPassword}</strong>
             </div>
-            {isAgent ? (
-              <button type="button" className={`detail-item detail-metric${activeSection === 'commission' ? ' detail-metric-active' : ''}`} onClick={() => openSection('commission')}>
-                <span className="detail-label">Player Rate</span>
-                <strong className="detail-value">{customer?.playerRate != null ? `$${customer.playerRate}` : '—'}</strong>
-              </button>
-            ) : (
-              <button type="button" className={`detail-item detail-metric${activeSection === 'transactions' && txStatusFilter === 'pending' ? ' detail-metric-active' : ''}`} onClick={() => openSection('pending')}>
-                <span className="detail-label">Pending</span>
-                <strong className="detail-value neutral">{formatCurrency(pendingBalance)}</strong>
-              </button>
-            )}
-
-            <div className="detail-item">
-              <span className="detail-label">Min Bet</span>
-              <strong className="detail-value">{formatDetailMoney(minBetValue)}</strong>
-            </div>
             {isAgent ? (() => {
-              // Build effective percentages from commission chain if available,
-              // otherwise fall back to hiringAgentPercent from the API
               const agentPct = customer?.agentPercent != null ? parseFloat(customer.agentPercent) : null;
               const hiringPct = customer?.hiringAgentPercent != null ? parseFloat(customer.hiringAgentPercent) : null;
               const housePct = 5;
-              // Check if agent is directly under house or same-person pair (hiringPct === agentPct means MA counterpart)
               const hiringEffective = (hiringPct != null && agentPct != null) ? (hiringPct - agentPct) : null;
               const isDirectUnderHouse = hiringPct == null || hiringEffective === 0;
               const uplinePct = (!isDirectUnderHouse && hiringPct != null) ? (100 - housePct - hiringPct) : null;
-              // Only show upline if there IS an upline (uplinePct > 0 means there's a level between hiring agent and house)
               const showUpline = uplinePct != null && uplinePct > 0;
+              const showHiring = !isDirectUnderHouse && hiringEffective > 0;
+              // Right column order: Agent%(already above) → Hiring Agent% → Upline% → House% → Player Rate → Balance
               return (<>
-                {!isDirectUnderHouse && hiringEffective > 0 && (
+                {showHiring ? (
                   <div className="detail-item detail-metric">
                     <span className="detail-label">Hiring Agent %</span>
                     <strong className="detail-value">{hiringEffective}%</strong>
                   </div>
-                )}
-                {(isDirectUnderHouse || hiringEffective === 0) && (
+                ) : (
                   <div className="detail-item detail-empty" aria-hidden="true"></div>
                 )}
                 <div className="detail-item">
-                  <span className="detail-label">Max Bet</span>
-                  <strong className="detail-value">{formatDetailMoney(maxBetValue)}</strong>
+                  <span className="detail-label">Min Bet</span>
+                  <strong className="detail-value">{formatDetailMoney(minBetValue)}</strong>
                 </div>
                 {showUpline ? (
                   <div className="detail-item detail-metric">
@@ -2052,16 +2033,33 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
                   <div className="detail-item detail-empty" aria-hidden="true"></div>
                 )}
                 <div className="detail-item">
-                  <span className="detail-label">Credit</span>
-                  <strong className="detail-value">{formatDetailMoney(creditLimitValue)}</strong>
+                  <span className="detail-label">Max Bet</span>
+                  <strong className="detail-value">{formatDetailMoney(maxBetValue)}</strong>
                 </div>
                 <div className="detail-item detail-metric">
                   <span className="detail-label">House %</span>
                   <strong className="detail-value">5%</strong>
                 </div>
+                <div className="detail-item">
+                  <span className="detail-label">Credit</span>
+                  <strong className="detail-value">{formatDetailMoney(creditLimitValue)}</strong>
+                </div>
+                <button type="button" className={`detail-item detail-metric${activeSection === 'commission' ? ' detail-metric-active' : ''}`} onClick={() => openSection('commission')}>
+                  <span className="detail-label">Player Rate</span>
+                  <strong className="detail-value">{customer?.playerRate != null ? `$${customer.playerRate}` : '—'}</strong>
+                </button>
               </>);
             })() : (
             <>
+              <button type="button" className={`detail-item detail-metric${activeSection === 'transactions' && txStatusFilter === 'pending' ? ' detail-metric-active' : ''}`} onClick={() => openSection('pending')}>
+                <span className="detail-label">Pending</span>
+                <strong className="detail-value neutral">{formatCurrency(pendingBalance)}</strong>
+              </button>
+
+            <div className="detail-item">
+              <span className="detail-label">Min Bet</span>
+              <strong className="detail-value">{formatDetailMoney(minBetValue)}</strong>
+            </div>
               <div className="detail-item detail-metric">
                 <span className="detail-label">Available</span>
                 <strong className="detail-value neutral">{formatCurrency(available)}</strong>
@@ -2211,198 +2209,91 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
       {activeSection === 'commission' && (
         <div className="commission-section">
 
-          {/* ── Edit Commission Split ─────────────────────────── */}
+          {/* ── Inline Editable Commission Fields ──────────────────── */}
           <div className="commission-edit-card">
+            <h4 className="commission-card-title">Commission Settings</h4>
             {(() => {
-              const agentPct = parseFloat(agentPercentDraft) || 0;
-              const hiringPct = parseFloat(hiringAgentPercentDraft) || 0;
-              const firstTwoPct = agentPct + hiringPct;
-              const showSubAgent = firstTwoPct !== 100;
-              const subPct = showSubAgent ? (parseFloat(subAgentPercentDraft) || 0) : 0;
-              const extraPcts = extraSubAgentsDraft.reduce((sum, sa) => sum + (parseFloat(sa.percent) || 0), 0);
-              const totalPct = agentPct + hiringPct + subPct + extraPcts;
-              const totalColor = totalPct === 100 ? '#16a34a' : totalPct > 100 ? '#ef4444' : '#f59e0b';
+              const [editField, setEditField] = React.useState(null);
+              const [editValue, setEditValue] = React.useState('');
+
+              const openEdit = (field, currentValue) => {
+                setEditField(field);
+                setEditValue(currentValue != null ? String(currentValue) : '');
+              };
+              const closeEdit = () => { setEditField(null); setEditValue(''); };
+
+              const saveField = async () => {
+                const token = localStorage.getItem('token');
+                if (!token || !editField) return;
+                try {
+                  setCommissionSaving(true);
+                  const payload = {};
+                  if (editField === 'agentPercent') {
+                    const pct = parseFloat(editValue);
+                    if (isNaN(pct) || pct < 0 || pct > 100) { setCommissionSaveError('Must be 0-100'); return; }
+                    payload.agentPercent = pct;
+                  } else if (editField === 'playerRate') {
+                    const rate = parseFloat(editValue);
+                    if (isNaN(rate) || rate < 0) { setCommissionSaveError('Must be a positive number'); return; }
+                    payload.playerRate = rate;
+                  }
+                  await updateAgent(userId, payload, token);
+                  setCommissionSaveError('');
+                  setCommissionSaveSuccess('Saved');
+                  closeEdit();
+                  // Refresh data
+                  const detailData = await getUserStatistics(userId, token);
+                  if (detailData?.user) setCustomer(normalizeCustomerFinancials(detailData.user));
+                  setCommissionChain(null); // force chain reload
+                  setTimeout(() => setCommissionSaveSuccess(''), 2000);
+                } catch (err) {
+                  setCommissionSaveError(err.message || 'Save failed');
+                } finally {
+                  setCommissionSaving(false);
+                }
+              };
+
+              const fields = [
+                { key: 'agentPercent', label: 'Agent %', value: customer?.agentPercent, display: customer?.agentPercent != null ? `${customer.agentPercent}%` : '—', editable: true },
+                { key: 'playerRate', label: 'Player Rate', value: customer?.playerRate, display: customer?.playerRate != null ? `$${customer.playerRate}` : '—', editable: true },
+              ];
 
               return (
-                <>
-                  <div className="commission-split-head">
-                    <h4 className="commission-card-title">Commission Split</h4>
-                    <span className="commission-total-badge" style={{ color: totalColor }}>{totalPct.toFixed(2)}% {totalPct === 100 ? '✓' : `/ 100%`}</span>
-                  </div>
-
-                  <div className="commission-grid">
-                    <div className="commission-grid-field">
-                      <label className="commission-field-label">Agent % <span className="commission-name-chip">{String(customer?.username || '').toUpperCase()}</span></label>
-                      <input
-                        type="number"
-                        min="0"
-                        max="100"
-                        step="0.01"
-                        className="commission-input"
-                        placeholder="e.g. 90"
-                        value={agentPercentDraft}
-                        onChange={(e) => setAgentPercentDraft(e.target.value)}
-                      />
-                    </div>
-                    <div className="commission-grid-field">
-                      <label className="commission-field-label">Hiring Agent % <span className="commission-name-chip">{hiringAgentUsername || 'PARENT'}</span></label>
-                      <div className="commission-hiring-row">
-                        <input
-                          type="number"
-                          min="0"
-                          max="100"
-                          step="0.01"
-                          className="commission-input"
-                          placeholder="e.g. 5"
-                          value={hiringAgentPercentDraft}
-                          onChange={(e) => setHiringAgentPercentDraft(e.target.value)}
-                        />
-                        <select
-                          className="commission-input"
-                          value={hiringAgentIdDraft}
-                          onChange={(e) => setHiringAgentIdDraft(e.target.value)}
-                        >
-                          <option value="">Select Master Agent</option>
-                          {agents
-                            .filter((a) => {
-                              const r = String(a.role || '').toLowerCase();
-                              return r === 'master_agent' || r === 'super_agent';
-                            })
-                            .map((a) => {
-                              const id = a.id;
-                              return <option key={id} value={id}>{String(a.username || '').toUpperCase()}</option>;
-                            })}
-                        </select>
-                      </div>
-                    </div>
-                    {showSubAgent && (
-                      <div className="commission-grid-field">
-                        <label className="commission-field-label">Sub Agent % <span className="commission-name-chip">ADMIN</span></label>
-                        <input
-                          type="number"
-                          min="0"
-                          max="100"
-                          step="0.01"
-                          className="commission-input"
-                          placeholder="e.g. 5"
-                          value={subAgentPercentDraft}
-                          onChange={(e) => setSubAgentPercentDraft(e.target.value)}
-                        />
-                      </div>
-                    )}
-                    <div className="commission-grid-field">
-                      <label className="commission-field-label">Player Rate ($)</label>
-                      <div className="commission-input-prefix-wrap">
-                        <span className="commission-input-prefix">$</span>
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          className="commission-input commission-input-with-prefix"
-                          placeholder="e.g. 25"
-                          value={playerRateDraft}
-                          onChange={(e) => setPlayerRateDraft(e.target.value)}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </>
-              );
-            })()}
-
-            {/* Extra sub agents — auto-grow: always show one empty row when total < 100% */}
-            {(() => {
-              const agentPct = parseFloat(agentPercentDraft) || 0;
-              const hiringPct = parseFloat(hiringAgentPercentDraft) || 0;
-              const firstTwoPct = agentPct + hiringPct;
-              if (firstTwoPct === 100) return null;
-              const subPct = parseFloat(subAgentPercentDraft) || 0;
-              const extraPcts = extraSubAgentsDraft.reduce((sum, sa) => sum + (parseFloat(sa.percent) || 0), 0);
-              const totalPct = agentPct + hiringPct + subPct + extraPcts;
-              const remaining = 100 - totalPct;
-              const totalColor = totalPct === 100 ? '#16a34a' : totalPct > 100 ? '#ef4444' : '#f59e0b';
-
-              const needsNewRow = totalPct < 100 && extraSubAgentsDraft.every((sa) => sa.percent !== '');
-              const displayList = needsNewRow
-                ? [...extraSubAgentsDraft, { id: `new-${Date.now()}`, name: '', percent: '', isNew: true }]
-                : extraSubAgentsDraft;
-
-              return (
-                <>
-                  {displayList.map((sa, idx) => (
-                    <div key={sa.id} className="commission-extra-agent-row">
-                      <div className="commission-grid-field commission-extra-name">
-                        <label className="commission-field-label">Sub Agent {idx + 1} Name</label>
-                        <input
-                          type="text"
-                          className="commission-input"
-                          placeholder="Username"
-                          value={sa.name}
-                          onChange={(e) => {
-                            if (sa.isNew) {
-                              setExtraSubAgentsDraft((prev) => [...prev, { id: Date.now(), name: e.target.value, percent: '' }]);
-                            } else {
-                              const updated = [...extraSubAgentsDraft];
-                              updated[idx] = { ...updated[idx], name: e.target.value };
-                              setExtraSubAgentsDraft(updated);
-                            }
-                          }}
-                        />
-                      </div>
-                      <div className="commission-grid-field commission-extra-pct">
-                        <label className="commission-field-label">%</label>
-                        <input
-                          type="number"
-                          min="0"
-                          max="100"
-                          step="0.01"
-                          className="commission-input"
-                          placeholder="%"
-                          value={sa.percent}
-                          onChange={(e) => {
-                            if (sa.isNew) {
-                              setExtraSubAgentsDraft((prev) => [...prev, { id: Date.now(), name: '', percent: e.target.value }]);
-                            } else {
-                              const updated = [...extraSubAgentsDraft];
-                              updated[idx] = { ...updated[idx], percent: e.target.value };
-                              setExtraSubAgentsDraft(updated);
-                            }
-                          }}
-                        />
-                      </div>
-                      {!sa.isNew && (
-                        <button
-                          type="button"
-                          className="commission-remove-btn"
-                          onClick={() => setExtraSubAgentsDraft((prev) => prev.filter((_, i) => i !== idx))}
-                        >
-                          Remove
+                <div className="commission-inline-fields">
+                  {fields.map((f) => (
+                    <div key={f.key} className="commission-inline-row">
+                      <span className="commission-inline-label">{f.label}</span>
+                      {editField === f.key ? (
+                        <div className="commission-inline-edit">
+                          <input
+                            type="number"
+                            min="0"
+                            max={f.key === 'agentPercent' ? '100' : undefined}
+                            step="0.01"
+                            className="commission-inline-input"
+                            value={editValue}
+                            onChange={(e) => setEditValue(e.target.value)}
+                            autoFocus
+                            onKeyDown={(e) => { if (e.key === 'Enter') saveField(); if (e.key === 'Escape') closeEdit(); }}
+                          />
+                          <button className="commission-inline-save" onClick={saveField} disabled={commissionSaving}>
+                            {commissionSaving ? '...' : 'Save'}
+                          </button>
+                          <button className="commission-inline-cancel" onClick={closeEdit}>Cancel</button>
+                        </div>
+                      ) : (
+                        <button className="commission-inline-value" onClick={() => f.editable && openEdit(f.key, f.value)}>
+                          {f.display}
+                          {f.editable && <span className="commission-inline-edit-icon">&#9998;</span>}
                         </button>
                       )}
                     </div>
                   ))}
-                  {totalPct < 100 && (
-                    <div className="commission-add-row">
-                      <span className="commission-remaining-label" style={{ color: totalColor }}>
-                        {remaining.toFixed(2)}% remaining
-                      </span>
-                    </div>
-                  )}
-                </>
+                  {commissionSaveError && <div className="alert error" style={{ marginTop: 8, fontSize: '0.85rem' }}>{commissionSaveError}</div>}
+                  {commissionSaveSuccess && <div className="alert success" style={{ marginTop: 8, fontSize: '0.85rem' }}>{commissionSaveSuccess}</div>}
+                </div>
               );
             })()}
-
-            <div style={{ marginTop: 12 }}>
-              <button
-                className="btn btn-save"
-                onClick={handleSaveCommission}
-                disabled={commissionSaving}
-              >
-                {commissionSaving ? 'Saving...' : 'Save'}
-              </button>
-            </div>
-            {commissionSaveError && <div className="alert error" style={{ marginTop: 8 }}>{commissionSaveError}</div>}
-            {commissionSaveSuccess && <div className="alert success" style={{ marginTop: 8 }}>{commissionSaveSuccess}</div>}
           </div>
 
           {/* ── Hierarchy Box ──────────────────────────────────────── */}
