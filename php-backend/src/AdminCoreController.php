@@ -10513,29 +10513,23 @@ final class AdminCoreController
         }
 
         // Collapse same-person MA ↔ agent pairs in the chain.
-        // E.g., NJG365 (agent) and NJG365MA (master_agent) are the same person.
-        // Remove the MA node and keep only the agent node (index 0).
-        $collapsed = [];
-        $skipIds = [];
-        for ($i = 0; $i < count($chain); $i++) {
-            if (isset($skipIds[(string) ($chain[$i]['id'] ?? '')])) {
-                continue;
+        // ONLY collapse when the viewed agent (index 0) and its direct parent (index 1)
+        // are the same person (e.g., NJG365 at index 0, NJG365MA at index 1).
+        // Do NOT collapse intermediate nodes — they are different people in the hierarchy.
+        if (count($chain) >= 2) {
+            $firstUsername = strtoupper(trim((string) ($chain[0]['username'] ?? '')));
+            $secondUsername = strtoupper(trim((string) ($chain[1]['username'] ?? '')));
+            $secondRole = strtolower(trim((string) ($chain[1]['role'] ?? '')));
+            if (
+                $secondUsername === $firstUsername . 'MA'
+                && in_array($secondRole, ['master_agent', 'super_agent'], true)
+            ) {
+                // Remove index 1 (the MA counterpart) — keep the agent at index 0
+                array_splice($chain, 1, 1);
             }
-            $thisUsername = strtoupper(trim((string) ($chain[$i]['username'] ?? '')));
-            // Check if next node is the same person (MA counterpart)
-            if ($i + 1 < count($chain)) {
-                $nextUsername = strtoupper(trim((string) ($chain[$i + 1]['username'] ?? '')));
-                $nextRole = strtolower(trim((string) ($chain[$i + 1]['role'] ?? '')));
-                // If current is "NJG365" and next is "NJG365MA", collapse
-                if ($nextUsername === $thisUsername . 'MA' && in_array($nextRole, ['master_agent', 'super_agent'], true)) {
-                    $skipIds[(string) ($chain[$i + 1]['id'] ?? '')] = true;
-                }
-                // If current is "NJG365MA" and previous was "NJG365", already handled
-            }
-            $collapsed[] = $chain[$i];
         }
 
-        return $collapsed; // index 0 = the requested agent, last = root
+        return $chain; // index 0 = the requested agent, last = root
     }
 
     /**

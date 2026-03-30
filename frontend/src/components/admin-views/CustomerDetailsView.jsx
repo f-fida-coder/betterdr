@@ -2017,24 +2017,39 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
               <strong className="detail-value">{formatDetailMoney(minBetValue)}</strong>
             </div>
             {isAgent ? (() => {
+              // Build effective percentages from commission chain if available,
+              // otherwise fall back to hiringAgentPercent from the API
               const agentPct = customer?.agentPercent != null ? parseFloat(customer.agentPercent) : null;
               const hiringPct = customer?.hiringAgentPercent != null ? parseFloat(customer.hiringAgentPercent) : null;
               const housePct = 5;
-              const hiringEffective = (hiringPct != null && agentPct != null) ? (hiringPct - agentPct) : null;
-              const uplinePct = hiringPct != null ? (100 - housePct - hiringPct) : null;
+              // Check if agent is directly under house (no hiring agent between)
+              const isDirectUnderHouse = hiringPct == null;
+              const hiringEffective = (!isDirectUnderHouse && agentPct != null) ? (hiringPct - agentPct) : null;
+              const uplinePct = (!isDirectUnderHouse && hiringPct != null) ? (100 - housePct - hiringPct) : null;
+              // Only show upline if there IS an upline (uplinePct > 0 means there's a level between hiring agent and house)
+              const showUpline = uplinePct != null && uplinePct > 0;
               return (<>
-                <div className="detail-item detail-metric">
-                  <span className="detail-label">Hiring Agent %</span>
-                  <strong className="detail-value">{hiringEffective != null ? `${hiringEffective}%` : '—'}</strong>
-                </div>
+                {!isDirectUnderHouse && (
+                  <div className="detail-item detail-metric">
+                    <span className="detail-label">Hiring Agent %</span>
+                    <strong className="detail-value">{hiringEffective != null ? `${hiringEffective}%` : '—'}</strong>
+                  </div>
+                )}
+                {isDirectUnderHouse && (
+                  <div className="detail-item detail-empty" aria-hidden="true"></div>
+                )}
                 <div className="detail-item">
                   <span className="detail-label">Max Bet</span>
                   <strong className="detail-value">{formatDetailMoney(maxBetValue)}</strong>
                 </div>
-                <div className="detail-item detail-metric">
-                  <span className="detail-label">Upline Agent %</span>
-                  <strong className="detail-value">{uplinePct != null ? `${uplinePct}%` : '—'}</strong>
-                </div>
+                {showUpline ? (
+                  <div className="detail-item detail-metric">
+                    <span className="detail-label">Upline Agent %</span>
+                    <strong className="detail-value">{uplinePct}%</strong>
+                  </div>
+                ) : (
+                  <div className="detail-item detail-empty" aria-hidden="true"></div>
+                )}
                 <div className="detail-item">
                   <span className="detail-label">Credit</span>
                   <strong className="detail-value">{formatDetailMoney(creditLimitValue)}</strong>
