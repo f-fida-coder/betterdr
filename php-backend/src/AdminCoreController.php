@@ -1763,7 +1763,8 @@ final class AdminCoreController
                     }
                     $adminType = strtolower(trim((string) ($admin['adminType'] ?? '')));
                     // Readonly admins (FIDA) are excluded from the tree entirely
-                    if ($adminType === 'readonly') {
+                    $adminUsername = strtolower(trim((string) ($admin['username'] ?? '')));
+                    if ($adminType === 'readonly' || $adminUsername === 'fida') {
                         continue;
                     }
                     $adminChildren = $this->buildAgentTree($adminId, 'Admin');

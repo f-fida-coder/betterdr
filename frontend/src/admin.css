@@ -4634,9 +4634,11 @@
 .node-content {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 6px;
   cursor: pointer;
   flex: 1;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .node-toggle {
@@ -4666,9 +4668,13 @@
 }
 
 .node-name {
-  font-size: 0.95rem;
+  font-size: 0.78rem;
   color: #333;
   font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 160px;
 }
 
 .node-role-badge {
