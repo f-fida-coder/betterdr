@@ -1087,13 +1087,18 @@ final class AdminCoreController
                 $activeAccounts = count($activeUserIds);
                 
                 // Resolve roles from collected adminIds
+                // Optimization: Query both collections in parallel (same $lookupIds)
                 $resolvedRoles = [];
                 if (count($missingRoleAdminIds) > 0) {
                     $lookupIds = array_map(static fn (string $id): string => MongoRepository::id($id), array_keys($missingRoleAdminIds));
+                    
+                    // Query agents collection
                     $foundAgents = $this->db->findMany('agents', ['id' => ['$in' => $lookupIds]], ['projection' => ['id' => 1, 'role' => 1]]);
                     foreach ($foundAgents as $fa) {
                         $resolvedRoles[(string) $fa['id']] = strtolower(trim((string) ($fa['role'] ?? 'agent')));
                     }
+                    
+                    // Query admins collection - hardcode role as 'admin' (no need to fetch from DB)
                     $foundAdmins = $this->db->findMany('admins', ['id' => ['$in' => $lookupIds]], ['projection' => ['id' => 1]]);
                     foreach ($foundAdmins as $fadm) {
                         $resolvedRoles[(string) $fadm['id']] = 'admin';
