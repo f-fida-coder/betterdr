@@ -1174,9 +1174,22 @@ final class AdminCoreController
                 $actorAgentPercent = isset($actor['agentPercent']) ? (float) $actor['agentPercent'] : null;
                 $actorRole = strtolower(trim((string) ($actor['role'] ?? '')));
 
-                // Carry-forward: read cumulative values from agent record
-                $previousMakeup = $this->num($actor['settlementMakeup'] ?? 0);
-                $previousBalanceOwed = $this->num($actor['settlementBalanceOwed'] ?? 0);
+                // ── Carry-forward via auto-close snapshots ─────────────
+                // Lazily close the previous week (no-op if already done),
+                // then read the carry-forward from the most recent snapshot.
+                if (in_array($actorRole, ['agent', 'master_agent', 'super_agent'], true)) {
+                    $this->ensurePreviousWeekSnapshot(
+                        $actorId,
+                        $actor,
+                        $startOfWeek,
+                        $scopedUserIds,
+                        $linkedApproverIds,
+                        $strictLinkedScope
+                    );
+                }
+                $carryForward = $this->resolveSettlementCarryForward($actorId, $startOfWeek, $actor);
+                $previousMakeup = $carryForward['previousMakeup'];
+                $previousBalanceOwed = $carryForward['previousBalanceOwed'];
 
                 $settlementSummary = AgentSettlementRules::summarize(
                     $agentDeposits - $agentWithdrawals,
@@ -3466,6 +3479,24 @@ final class AdminCoreController
                 'settlementFinalizedAt' => $now,
                 'updatedAt' => $now,
             ]);
+
+            // Also write a snapshot for the current week so auto-close
+            // and resolveSettlementCarryForward stay in sync.
+            $currentWeekStart = $this->startOfWeek($this->pacificNow());
+            $this->db->updateOneUpsert('settlement_snapshots', [
+                'agentId'      => $agentId,
+                'weekStartStr' => $currentWeekStart->format('Y-m-d\TH:i:s\Z'),
+            ], [
+                'closingMakeup'      => max(0.0, $newMakeup),
+                'closingBalanceOwed'  => $newBalanceOwed,
+                'updatedAt'           => $now,
+            ], [
+                'agentId'      => $agentId,
+                'weekStartStr' => $currentWeekStart->format('Y-m-d\TH:i:s\Z'),
+                'weekStart'    => MongoRepository::utcFromMillis($currentWeekStart->getTimestamp() * 1000),
+                'createdAt'    => $now,
+            ]);
+
             $this->invalidateHeaderSummaryCache();
 
             Response::json([
@@ -3484,6 +3515,215 @@ final class AdminCoreController
             error_log('[FINALIZE_SETTLEMENT_ERROR] ' . $e->getMessage());
             Response::json(['message' => 'Server error finalizing settlement'], 500);
         }
+    }
+
+    // ── Settlement snapshot helpers ──────────────────────────────────
+
+    /**
+     * Resolve the carry-forward (previousMakeup, previousBalanceOwed) for the
+     * given agent at the start of the week that contains $currentWeekStart.
+     *
+     * Strategy:
+     *  1. Look for the most recent settlement_snapshots row whose weekStart
+     *     is strictly before $currentWeekStart.
+     *  2. If found, use its closingMakeup / closingBalanceOwed.
+     *  3. Otherwise fall back to the agent record's seed values (which may be 0
+     *     for agents that have never been finalized).
+     *
+     * @return array{previousMakeup: float, previousBalanceOwed: float}
+     */
+    private function resolveSettlementCarryForward(string $agentId, DateTimeImmutable $currentWeekStart, array $agentDoc): array
+    {
+        $weekStartStr = $currentWeekStart->format('Y-m-d\TH:i:s\Z');
+
+        $snapshots = $this->db->findMany('settlement_snapshots', [
+            'agentId' => $agentId,
+            'weekStartStr' => ['$lt' => $weekStartStr],
+        ], [
+            'sort' => ['weekStartStr' => -1],
+            'limit' => 1,
+            'projection' => ['closingMakeup' => 1, 'closingBalanceOwed' => 1],
+        ]);
+
+        if (count($snapshots) > 0) {
+            return [
+                'previousMakeup'      => $this->num($snapshots[0]['closingMakeup'] ?? 0),
+                'previousBalanceOwed'  => $this->num($snapshots[0]['closingBalanceOwed'] ?? 0),
+            ];
+        }
+
+        // No snapshot exists — seed from agent record (may be 0 for new agents)
+        return [
+            'previousMakeup'      => $this->num($agentDoc['settlementMakeup'] ?? 0),
+            'previousBalanceOwed'  => $this->num($agentDoc['settlementBalanceOwed'] ?? 0),
+        ];
+    }
+
+    /**
+     * Ensure a settlement snapshot exists for the week BEFORE $currentWeekStart.
+     *
+     * If the snapshot already exists this is a no-op. Otherwise it queries the
+     * previous week's transactions, runs AgentSettlementRules::summarize(), and
+     * persists the result. This is the "lazy auto-close" mechanism that removes
+     * the need for a manual finalize-settlement call.
+     */
+    private function ensurePreviousWeekSnapshot(
+        string $agentId,
+        array $agentDoc,
+        DateTimeImmutable $currentWeekStart,
+        array $scopedUserIds,
+        array $linkedApproverIds,
+        bool $strictLinkedScope
+    ): void {
+        $prevWeekStart = $currentWeekStart->modify('-7 days');
+        $prevWeekKey = $agentId . '_' . $prevWeekStart->format('Y-m-d');
+
+        // Fast check — does this snapshot already exist?
+        $existing = $this->db->findOne('settlement_snapshots', [
+            'agentId' => $agentId,
+            'weekStartStr' => $prevWeekStart->format('Y-m-d\TH:i:s\Z'),
+        ], ['projection' => ['id' => 1]]);
+
+        if ($existing !== null) {
+            return; // Already closed
+        }
+
+        // ── Compute the previous week's settlement ──────────────────
+        $prevWeekEnd = $currentWeekStart; // exclusive upper bound
+
+        $txQuery = [
+            'status' => 'completed',
+            'createdAt' => [
+                '$gte' => MongoRepository::utcFromMillis($prevWeekStart->getTimestamp() * 1000),
+                '$lt'  => MongoRepository::utcFromMillis($prevWeekEnd->getTimestamp() * 1000),
+            ],
+        ];
+        if (count($scopedUserIds) > 0) {
+            $txQuery['userId'] = ['$in' => $scopedUserIds];
+        }
+        $txProjection = ['projection' => ['userId' => 1, 'amount' => 1, 'type' => 1, 'entrySide' => 1, 'reason' => 1, 'description' => 1, 'balanceBefore' => 1, 'balanceAfter' => 1, 'approvedByRole' => 1, 'adminId' => 1]];
+        $prevTx = $this->db->findMany('transactions', $txQuery, $txProjection);
+
+        // Classify deposits/withdrawals and count active users
+        $missingRoleAdminIds = [];
+        $activeUserIds = [];
+        foreach ($prevTx as $tx) {
+            $txType = strtolower(trim((string) ($tx['type'] ?? '')));
+            $txUserId = (string) ($tx['userId'] ?? '');
+            if ($txType === 'deposit' || $txType === 'withdrawal') {
+                $approverRole = trim((string) ($tx['approvedByRole'] ?? ''));
+                if ($approverRole === '') {
+                    $aid = (string) ($tx['adminId'] ?? '');
+                    if ($aid !== '' && preg_match('/^[a-f0-9]{24}$/i', $aid) === 1) {
+                        $missingRoleAdminIds[$aid] = true;
+                    }
+                }
+            }
+            if ($txUserId !== '' && $this->isWeeklyActiveTransaction($tx)) {
+                $activeUserIds[$txUserId] = true;
+            }
+        }
+
+        // Resolve missing approver roles
+        $resolvedRoles = [];
+        if (count($missingRoleAdminIds) > 0) {
+            $lookupIds = array_map(static fn (string $id): string => MongoRepository::id($id), array_keys($missingRoleAdminIds));
+            $foundAgents = $this->db->findMany('agents', ['id' => ['$in' => $lookupIds]], ['projection' => ['id' => 1, 'role' => 1]]);
+            foreach ($foundAgents as $fa) {
+                $resolvedRoles[(string) $fa['id']] = strtolower(trim((string) ($fa['role'] ?? 'agent')));
+            }
+            $foundAdmins = $this->db->findMany('admins', ['id' => ['$in' => $lookupIds]], ['projection' => ['id' => 1]]);
+            foreach ($foundAdmins as $fadm) {
+                $resolvedRoles[(string) $fadm['id']] = 'admin';
+            }
+        }
+
+        // Bucket collections
+        $agentDeposits = 0.0;
+        $agentWithdrawals = 0.0;
+        $houseDeposits = 0.0;
+        $houseWithdrawals = 0.0;
+        foreach ($prevTx as $tx) {
+            $txType = strtolower(trim((string) ($tx['type'] ?? '')));
+            if ($txType !== 'deposit' && $txType !== 'withdrawal') {
+                continue;
+            }
+            $approverRole = strtolower(trim((string) ($tx['approvedByRole'] ?? '')));
+            if ($approverRole === '') {
+                $aid = (string) ($tx['adminId'] ?? '');
+                $approverRole = $resolvedRoles[$aid] ?? '';
+            }
+            $amt = $this->num($tx['amount'] ?? 0);
+            $aid = (string) ($tx['adminId'] ?? '');
+            $bucket = AgentSettlementRules::classifyScopedApprover($approverRole, $aid, $linkedApproverIds, $strictLinkedScope);
+            if ($bucket === 'agent') {
+                if ($txType === 'deposit') { $agentDeposits += $amt; } else { $agentWithdrawals += $amt; }
+            } else {
+                if ($txType === 'deposit') { $houseDeposits += $amt; } else { $houseWithdrawals += $amt; }
+            }
+        }
+
+        // Player Fees for previous week
+        $usersForBalance = $this->db->findMany('users', count($scopedUserIds) > 0
+            ? ['id' => ['$in' => $scopedUserIds]]
+            : ['role' => 'user'],
+            ['projection' => ['id' => 1, 'balance' => 1]]
+        );
+        $userBalanceMap = [];
+        foreach ($usersForBalance as $u) {
+            $uid = (string) ($u['id'] ?? '');
+            if ($uid !== '') { $userBalanceMap[$uid] = $this->num($u['balance'] ?? 0); }
+        }
+        $activePositive = 0;
+        $activeNonPositive = 0;
+        foreach ($activeUserIds as $uid => $flag) {
+            $bal = $userBalanceMap[$uid] ?? 0.0;
+            if ($bal > 0) { $activePositive++; } else { $activeNonPositive++; }
+        }
+        $paidPlayerFees = $activePositive * self::FEE_PER_PLAYER;
+        $unpaidPlayerFees = $activeNonPositive * self::FEE_PER_PLAYER;
+
+        // Carry-forward for that previous week (from snapshot before it, or agent seed)
+        $carryForward = $this->resolveSettlementCarryForward($agentId, $prevWeekStart, $agentDoc);
+
+        $agentPercent = isset($agentDoc['agentPercent']) ? (float) $agentDoc['agentPercent'] : null;
+        $summary = AgentSettlementRules::summarize(
+            $agentDeposits - $agentWithdrawals,
+            $houseDeposits - $houseWithdrawals,
+            $paidPlayerFees,
+            $unpaidPlayerFees,
+            $agentPercent,
+            $carryForward['previousMakeup'],
+            $carryForward['previousBalanceOwed']
+        );
+
+        // Persist snapshot (idempotent via insertOneIfAbsent)
+        $now = MongoRepository::nowUtc();
+        $this->db->insertOneIfAbsent('settlement_snapshots', [
+            'agentId'             => $agentId,
+            'weekStartStr'        => $prevWeekStart->format('Y-m-d\TH:i:s\Z'),
+            'weekStart'           => MongoRepository::utcFromMillis($prevWeekStart->getTimestamp() * 1000),
+            'closingMakeup'       => $summary['cumulativeMakeup'],
+            'closingBalanceOwed'  => $summary['balanceOwed'],
+            'agentCollections'    => $summary['agentCollections'],
+            'houseCollections'    => $summary['houseCollections'],
+            'netCollections'      => $summary['netCollections'],
+            'agentSplit'          => $summary['agentSplit'],
+            'kickToHouse'         => $summary['kickToHouse'],
+            'paidPlayerFees'      => $paidPlayerFees,
+            'unpaidPlayerFees'    => $unpaidPlayerFees,
+            'previousMakeup'      => $carryForward['previousMakeup'],
+            'previousBalanceOwed' => $carryForward['previousBalanceOwed'],
+            'createdAt'           => $now,
+        ]);
+
+        // Also update the agent record so the seed stays current (used as fallback)
+        $this->db->updateOne('agents', ['id' => MongoRepository::id($agentId)], [
+            'settlementMakeup'       => $summary['cumulativeMakeup'],
+            'settlementBalanceOwed'  => $summary['balanceOwed'],
+            'settlementFinalizedAt'  => $now,
+            'updatedAt'              => $now,
+        ]);
     }
 
     private function getCashierSummary(): void

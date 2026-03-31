@@ -827,7 +827,7 @@ function AdminHeader({
                 </button>
                 <div className="stat-row">
                   <span className="stat-label">Previous Makeup</span>
-                  <span className={`stat-value ${previousMakeupValue > 0 ? 'negative' : 'neutral'}`}>{previousMakeupValue === 0 ? '—' : formatCurrency(previousMakeupValue)}</span>
+                  <span className={`stat-value ${previousMakeupValue > 0 ? 'negative' : 'neutral'}`}>{formatCurrency(previousMakeupValue)}</span>
                 </div>
               </div>
             )}
@@ -855,11 +855,11 @@ function AdminHeader({
               <div className="stat-group stat-group-salmon">
                 <div className="stat-row">
                   <span className="stat-label">Agent Makeup</span>
-                  <span className={`stat-value ${cumulativeMakeupValue > 0 ? 'negative' : 'neutral'}`}>{cumulativeMakeupValue === 0 ? '—' : formatCurrency(cumulativeMakeupValue)}</span>
+                  <span className={`stat-value ${cumulativeMakeupValue > 0 ? 'negative' : 'neutral'}`}>{formatCurrency(cumulativeMakeupValue)}</span>
                 </div>
                 <div className="stat-row">
                   <span className="stat-label">Previous Balance</span>
-                  <span className={`stat-value ${getSignedValueClass(previousBalanceOwedValue)}`}>{previousBalanceOwedValue === 0 ? '—' : formatCurrency(previousBalanceOwedValue)}</span>
+                  <span className={`stat-value ${getSignedValueClass(previousBalanceOwedValue)}`}>{formatCurrency(previousBalanceOwedValue)}</span>
                 </div>
                 <div className="stat-row">
                   <span className="stat-label">Player Fees</span>
