@@ -834,11 +834,11 @@ function AdminHeader({
               </div>
             )}
 
-            {/* Row 5: Commissionable Profit / House Share (agent only) */}
+            {/* Row 5: Agent Profit / Kick To House (agent only) */}
             {roleKey === 'agent' && (
               <div className="stat-box">
-                <span className="stat-label">Comm. Profit</span>
-                <span className={`stat-value ${getSignedValueClass(commissionableValue)}`}>{formatCurrency(commissionableValue)}</span>
+                <span className="stat-label">Agent Profit{agentPercentValue != null ? ` (${agentPercentValue}%)` : ''}</span>
+                <span className={`stat-value ${getSignedValueClass(agentProfitAfterMakeupValue)}`}>{formatCurrency(agentProfitAfterMakeupValue)}</span>
               </div>
             )}
             {roleKey === 'agent' && (
@@ -848,13 +848,7 @@ function AdminHeader({
               </div>
             )}
 
-            {/* Row 6: Agent Profit (with %) / Balance (agent only) */}
-            {roleKey === 'agent' && (
-              <div className="stat-box">
-                <span className="stat-label">Agent Profit{agentPercentValue != null ? ` (${agentPercentValue}%)` : ''}</span>
-                <span className={`stat-value ${getSignedValueClass(agentProfitAfterMakeupValue)}`}>{formatCurrency(agentProfitAfterMakeupValue)}</span>
-              </div>
-            )}
+            {/* Row 6: Balance (agent only) */}
             {roleKey === 'agent' && (
               <div className="stat-box">
                 <span className="stat-label">Balance</span>

@@ -11234,8 +11234,8 @@ final class AdminCoreController
         $remainingAfterHousePayback = $agentCollections;
         $makeup = $netCollections < 0.0 ? $netCollections : 0.0;
         $agentProfitAfterFees = max(0.0, $agentShareFromProfit - $playerFees);
-        // Balance: agent owes house (houseShare + fees) minus what house already collected
-        $houseFinalAmount = round($houseShareFromProfit + $playerFees - $houseCollections, 2);
+        // Balance: what agent keeps after settlement
+        $houseFinalAmount = round($agentShareFromProfit - $playerFees, 2);
         $unpaidAmount = max(0.0, $houseFinalAmount);
 
         return [
