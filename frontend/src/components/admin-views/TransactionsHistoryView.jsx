@@ -183,6 +183,7 @@ function TransactionsHistoryView() {
   ));
   const [agentsSearch, setAgentsSearch] = useState('');
   const [playersSearch, setPlayersSearch] = useState('');
+  const [enteredBySearch, setEnteredBySearch] = useState('');
   const [selectedTransactionTypes, setSelectedTransactionTypes] = useState(['deposit', 'withdrawal']);
   const [typeFilterOpen, setTypeFilterOpen] = useState(false);
   const [mode, setMode] = useState('player-transactions');
@@ -198,6 +199,7 @@ function TransactionsHistoryView() {
   const [searched, setSearched] = useState(false);
   const [agentSuggestOpen, setAgentSuggestOpen] = useState(false);
   const [playerSuggestOpen, setPlayerSuggestOpen] = useState(false);
+  const [enteredBySuggestOpen, setEnteredBySuggestOpen] = useState(false);
   const [agentOptions, setAgentOptions] = useState([]);
   const [playerSuggestions, setPlayerSuggestions] = useState([]);
   const [playerSuggestLoading, setPlayerSuggestLoading] = useState(false);
@@ -243,6 +245,39 @@ function TransactionsHistoryView() {
       ));
     return filtered.slice(0, 12);
   }, [agentOptions, agentsSearch]);
+
+  const enteredBySuggestions = useMemo(() => {
+    const q = enteredBySearch.trim().toLowerCase();
+    // Build unique "entered by" actors from loaded rows + agent options
+    const seen = new Set();
+    const out = [];
+    // First: actors from current result rows (most relevant)
+    rows.forEach((row) => {
+      const username = String(row?.actorUsername || row?.enteredBy || '').trim();
+      if (!username) return;
+      const key = username.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push({ id: key, username, role: row?.actorRole || null });
+    });
+    // Second: all agents/admins from the agent tree (covers actors not yet in rows)
+    agentOptions.forEach((agent) => {
+      const username = String(agent.username || '').trim();
+      if (!username) return;
+      const key = username.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push({ id: key, username, role: agent.role || null });
+    });
+    // Also include HOUSE as an option
+    if (!seen.has('house')) {
+      out.push({ id: 'house', username: 'HOUSE', role: 'admin' });
+    }
+    const filtered = q === ''
+      ? out
+      : out.filter((item) => item.username.toLowerCase().includes(q));
+    return filtered.slice(0, 12);
+  }, [enteredBySearch, rows, agentOptions]);
 
   const playerSeedSuggestions = useMemo(() => {
     const seen = new Set();
@@ -366,6 +401,7 @@ function TransactionsHistoryView() {
     const effectiveTypeValues = overrides.selectedTypeValues !== undefined ? overrides.selectedTypeValues : selectedTypeValues;
     const effectiveAgents = overrides.agentsSearch !== undefined ? overrides.agentsSearch : agentsSearch;
     const effectivePlayers = overrides.playersSearch !== undefined ? overrides.playersSearch : playersSearch;
+    const effectiveEnteredBy = overrides.enteredBySearch !== undefined ? overrides.enteredBySearch : enteredBySearch;
 
     if (effectiveStart && effectiveEnd && effectiveStart > effectiveEnd) {
       setError('Start date cannot be after end date.');
@@ -376,8 +412,8 @@ function TransactionsHistoryView() {
       setLoading(true);
       setError('');
       const transactionType = effectiveTypeValues.length === 1 ? effectiveTypeValues[0] : 'all-types';
-      const hasScopedSearch = effectiveAgents.trim() !== '' || effectivePlayers.trim() !== '';
-      const data = await getTransactionsHistory({
+      const hasScopedSearch = effectiveAgents.trim() !== '' || effectivePlayers.trim() !== '' || effectiveEnteredBy.trim() !== '';
+      const params = {
         mode: effectiveMode,
         agents: effectiveAgents,
         players: effectivePlayers,
@@ -385,7 +421,11 @@ function TransactionsHistoryView() {
         startDate: effectiveStart,
         endDate: effectiveEnd,
         limit: hasScopedSearch ? 1000 : 700,
-      }, token);
+      };
+      if (effectiveEnteredBy.trim() !== '') {
+        params.enteredBy = effectiveEnteredBy.trim();
+      }
+      const data = await getTransactionsHistory(params, token);
 
       const list = Array.isArray(data?.rows)
         ? data.rows
@@ -662,7 +702,7 @@ function TransactionsHistoryView() {
                   setAgentsSearch(e.target.value);
                   setAgentSuggestOpen(true);
                 }}
-                onFocus={() => setAgentSuggestOpen(true)}
+                onFocus={() => { setAgentSuggestOpen(true); setPlayerSuggestOpen(false); setEnteredBySuggestOpen(false); }}
                 onBlur={() => setTimeout(() => setAgentSuggestOpen(false), 120)}
                 placeholder="Search accounts..."
                 className="txh-search-input"
@@ -704,7 +744,7 @@ function TransactionsHistoryView() {
                   setPlayersSearch(e.target.value);
                   setPlayerSuggestOpen(true);
                 }}
-                onFocus={() => setPlayerSuggestOpen(true)}
+                onFocus={() => { setPlayerSuggestOpen(true); setAgentSuggestOpen(false); setEnteredBySuggestOpen(false); }}
                 onBlur={() => setTimeout(() => setPlayerSuggestOpen(false), 120)}
                 placeholder="Search accounts..."
                 className="txh-search-input"
@@ -731,6 +771,50 @@ function TransactionsHistoryView() {
                     >
                       <span className="txh-suggest-main">{String(player.username || '').toUpperCase()}</span>
                       <span className="txh-suggest-meta">{player.fullName || 'Player account'}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className={`txh-search-row${enteredBySuggestOpen ? ' txh-search-row-open' : ''}`}>
+            <div className="txh-search-label">Entered By</div>
+            <div className="txh-search-input-wrap">
+              <input
+                type="text"
+                value={enteredBySearch}
+                onChange={(e) => {
+                  setEnteredBySearch(e.target.value);
+                  setEnteredBySuggestOpen(true);
+                }}
+                onFocus={() => { setEnteredBySuggestOpen(true); setAgentSuggestOpen(false); setPlayerSuggestOpen(false); }}
+                onBlur={() => setTimeout(() => setEnteredBySuggestOpen(false), 120)}
+                placeholder="Search who entered..."
+                className="txh-search-input"
+                autoComplete="off"
+              />
+              {enteredBySuggestOpen && (
+                <div className="txh-suggest-list" role="listbox" aria-label="Entered by suggestions">
+                  {enteredBySuggestions.length === 0 ? (
+                    <div className="txh-suggest-empty">No matching users</div>
+                  ) : enteredBySuggestions.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className="txh-suggest-item"
+                      onMouseDown={(event) => {
+                        event.preventDefault();
+                        setEnteredBySearch(String(item.username || ''));
+                        setEnteredBySuggestOpen(false);
+                      }}
+                    >
+                      <span className="txh-suggest-main">{String(item.username || '').toUpperCase()}</span>
+                      {item.role && (
+                        <span className={`txh-agent-badge role-${String(item.role || 'agent').replace(/_/g, '-')}`}>
+                          {item.role === 'master_agent' ? 'MASTER' : item.role === 'super_agent' ? 'SUPER' : item.role === 'admin' ? 'ADMIN' : 'AGENT'}
+                        </span>
+                      )}
                     </button>
                   ))}
                 </div>

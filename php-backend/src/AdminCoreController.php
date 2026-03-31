@@ -3795,8 +3795,10 @@ final class AdminCoreController
 
             $playersSearch = trim((string) ($_GET['players'] ?? $_GET['player'] ?? $_GET['user'] ?? ''));
             $agentsSearch = trim((string) ($_GET['agents'] ?? $_GET['agent'] ?? ''));
+            $enteredBySearch = trim((string) ($_GET['enteredBy'] ?? $_GET['entered_by'] ?? ''));
             $playersSearchLc = strtolower($playersSearch);
             $agentsSearchLc = strtolower($agentsSearch);
+            $enteredBySearchLc = strtolower($enteredBySearch);
             $transactionType = strtolower(trim((string) ($_GET['transactionType'] ?? $_GET['type'] ?? 'all-types')));
             $status = strtolower(trim((string) ($_GET['status'] ?? 'all')));
             $time = strtolower(trim((string) ($_GET['time'] ?? '')));
@@ -4320,8 +4322,8 @@ final class AdminCoreController
             };
 
             $applyAgentTextFilter = $agentsSearchLc !== '' && $matchedAgentIds === null;
-            if ($playersSearchLc !== '' || $applyAgentTextFilter) {
-                $formatted = array_values(array_filter($formatted, static function (array $row) use ($playersSearchLc, $agentsSearchLc, $applyAgentTextFilter, $containsNeedle): bool {
+            if ($playersSearchLc !== '' || $applyAgentTextFilter || $enteredBySearchLc !== '') {
+                $formatted = array_values(array_filter($formatted, static function (array $row) use ($playersSearchLc, $agentsSearchLc, $enteredBySearchLc, $applyAgentTextFilter, $containsNeedle): bool {
                     if ($playersSearchLc !== '') {
                         $playerMatch = $containsNeedle((string) ($row['playerUsername'] ?? ''), $playersSearchLc)
                             || $containsNeedle((string) ($row['playerName'] ?? ''), $playersSearchLc)
@@ -4337,6 +4339,13 @@ final class AdminCoreController
                             || $containsNeedle((string) ($row['actorUsername'] ?? ''), $agentsSearchLc)
                             || $containsNeedle((string) ($row['description'] ?? ''), $agentsSearchLc);
                         if (!$agentMatch) {
+                            return false;
+                        }
+                    }
+
+                    if ($enteredBySearchLc !== '') {
+                        $enteredByMatch = $containsNeedle((string) ($row['actorUsername'] ?? ''), $enteredBySearchLc);
+                        if (!$enteredByMatch) {
                             return false;
                         }
                     }
@@ -4513,6 +4522,7 @@ final class AdminCoreController
                 'filters' => [
                     'agents' => $agentsSearch,
                     'players' => $playersSearch,
+                    'enteredBy' => $enteredBySearch,
                     'transactionType' => $transactionType,
                     'status' => $status,
                     'startDate' => $startDateRaw !== '' ? $startDateRaw : null,
