@@ -2042,50 +2042,37 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
                 <strong className="detail-value neutral">{formatCurrency(pendingBalance)}</strong>
               </button>
 
-            <div className="detail-item">
-              <span className="detail-label">Min Bet</span>
-              <strong className="detail-value">{formatDetailMoney(minBetValue)}</strong>
-            </div>
+              <div className="detail-item">
+                <span className="detail-label">Min Bet</span>
+                <strong className="detail-value">{formatDetailMoney(minBetValue)}</strong>
+              </div>
               <div className="detail-item detail-metric">
                 <span className="detail-label">Available</span>
                 <strong className="detail-value neutral">{formatCurrency(available)}</strong>
               </div>
 
-            <div className="detail-item">
-              <span className="detail-label">Max Bet</span>
-              <strong className="detail-value">{formatDetailMoney(maxBetValue)}</strong>
-            </div>
+              <div className="detail-item">
+                <span className="detail-label">Max Bet</span>
+                <strong className="detail-value">{formatDetailMoney(maxBetValue)}</strong>
+              </div>
               <button type="button" className={`detail-item detail-metric${activeSection === 'freeplays' ? ' detail-metric-active' : ''}`} onClick={() => openSection('freeplays')}>
                 <span className="detail-label">Freeplay</span>
                 <strong className="detail-value neutral">{formatCurrency(freeplayBalanceValue)}</strong>
               </button>
 
-            <div className="detail-item">
-              <span className="detail-label">Credit</span>
-              <strong className="detail-value">{formatDetailMoney(creditLimitValue)}</strong>
-            </div>
-              <div className="detail-item detail-empty" aria-hidden="true"></div>
-            </>
-            )}
-            {!isAgent && (
+              <div className="detail-item">
+                <span className="detail-label">Credit</span>
+                <strong className="detail-value">{formatDetailMoney(creditLimitValue)}</strong>
+              </div>
               <button type="button" className={`detail-item detail-metric${activeSection === 'performance' ? ' detail-metric-active' : ''}`} onClick={() => openSection('performance')}>
                 <span className="detail-label">Lifetime +/-</span>
                 <strong className={`detail-value ${getMoneyToneClass(lifetimePlusMinusValue)}`}>{formatCurrency(lifetimePlusMinusValue)}</strong>
               </button>
-            )}
 
-            {!isAgent && (
               <div className="detail-item">
                 <span className="detail-label">Settle</span>
                 <strong className="detail-value">+/- {formatDetailMoney(settleLimitValue)}</strong>
               </div>
-            )}
-            {isAgent ? (
-              <button type="button" className={`detail-item detail-metric${activeSection === 'transactions' ? ' detail-metric-active' : ''}`} onClick={openTransactionSlip}>
-                <span className="detail-label">Balance</span>
-                <strong className={`detail-value ${getMoneyToneClass(customerBalance)}`}>{formatCurrency(customerBalance)}</strong>
-              </button>
-            ) : (
               <button
                 type="button"
                 className={`detail-item ${canOpenReferredByProfile ? 'detail-link-item' : ''}`}
@@ -2097,7 +2084,14 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
                   {referredByDisplayName}
                 </strong>
               </button>
+            </>
             )}
+            {isAgent ? (
+              <button type="button" className={`detail-item detail-metric${activeSection === 'transactions' ? ' detail-metric-active' : ''}`} onClick={openTransactionSlip}>
+                <span className="detail-label">Balance</span>
+                <strong className={`detail-value ${getMoneyToneClass(customerBalance)}`}>{formatCurrency(customerBalance)}</strong>
+              </button>
+            ) : null}
           </div>
 
           <div className="player-card-foot">
