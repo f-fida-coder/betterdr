@@ -7,6 +7,12 @@ final class AdminCoreController
 {
     /** House always takes this percentage from the commission chain. */
     public const HOUSE_PERCENT = 5;
+    
+    /** Player fee per active account (in dollars). */
+    private const FEE_PER_PLAYER = 4.0;
+    
+    /** Cache TTL for header summary endpoint (in seconds). */
+    private const HEADER_CACHE_TTL_SECONDS = 15;
 
     private MongoRepository $db;
     private string $jwtSecret;
@@ -962,7 +968,7 @@ final class AdminCoreController
             }
             $actorId = (string) ($actor['id'] ?? '');
             $actorRole = (string) ($actor['role'] ?? '');
-            $this->respondJsonWithCache('header-summary-' . $actorRole, $actorId, 15, function () use ($actor): array {
+            $this->respondJsonWithCache('header-summary-' . $actorRole, $actorId, self::HEADER_CACHE_TTL_SECONDS, function () use ($actor): array {
                 $startOfToday = new DateTimeImmutable('today');
                 $startOfWeek = $this->startOfWeek(new DateTimeImmutable('now'));
 
@@ -1145,7 +1151,7 @@ final class AdminCoreController
                 $activeAccounts = count($activeUserIds);
 
                 // Player Fees: $4 per active player, split by balance
-                $feePerPlayer = 4.0;
+                $feePerPlayer = self::FEE_PER_PLAYER;
                 $userBalanceMap = [];
                 foreach ($usersForBalance as $u) {
                     $uid = (string) ($u['id'] ?? '');
