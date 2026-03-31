@@ -433,6 +433,7 @@ function AdminHeader({
   const agentSplitValue = Number(summary.agentSplit ?? 0);
   const kickToHouseValue = Number(summary.kickToHouse ?? 0);
   const weeklyHouseBalanceValue = Number(summary.weeklyHouseBalance ?? 0);
+  const previousBalanceOwedValue = Number(summary.previousBalanceOwed ?? 0);
   const balanceOwedValue = Number(summary.balanceOwed ?? 0);
   const agentPercentValue = summary.agentPercent;
 
@@ -857,14 +858,17 @@ function AdminHeader({
               </div>
             )}
 
-            {/* Group 6: Balance Owed (agent only) */}
-            {/* Weekly House Balance hidden — re-enable when needed */}
+            {/* Group 6: Weekly House Balance / Previous Balance / Balance Owed (agent only) */}
             {roleKey === 'agent' && (
               <div className="stat-group stat-group-teal">
-                {/* <div className="stat-row">
+                <div className="stat-row">
                   <span className="stat-label">Weekly House Balance</span>
                   <span className={`stat-value ${getSignedValueClass(weeklyHouseBalanceValue)}`}>{formatCurrency(weeklyHouseBalanceValue)}</span>
-                </div> */}
+                </div>
+                <div className="stat-row">
+                  <span className="stat-label">Previous Balance</span>
+                  <span className={`stat-value ${getSignedValueClass(previousBalanceOwedValue)}`}>{formatCurrency(previousBalanceOwedValue)}</span>
+                </div>
                 <div className="stat-row">
                   <span className="stat-label">Balance Owed</span>
                   <span className={`stat-value ${getSignedValueClass(balanceOwedValue)}`}>{formatCurrency(balanceOwedValue)}</span>

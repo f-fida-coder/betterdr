@@ -14,6 +14,9 @@ final class AdminCoreController
     /** Cache TTL for header summary endpoint (in seconds). */
     private const HEADER_CACHE_TTL_SECONDS = 15;
 
+    /** All dashboard period boundaries use Pacific Time. */
+    private const DASHBOARD_TIMEZONE = 'America/Los_Angeles';
+
     private MongoRepository $db;
     private string $jwtSecret;
     private ?array $cachedHouseAdmin = null;
@@ -974,8 +977,8 @@ final class AdminCoreController
             $actorId = (string) ($actor['id'] ?? '');
             $actorRole = (string) ($actor['role'] ?? '');
             $this->respondJsonWithCache('header-summary-' . $actorRole, $actorId, self::HEADER_CACHE_TTL_SECONDS, function () use ($actor): array {
-                $startOfToday = new DateTimeImmutable('today');
-                $startOfWeek = $this->startOfWeek(new DateTimeImmutable('now'));
+                $startOfToday = $this->pacificStartOfToday();
+                $startOfWeek = $this->startOfWeek($this->pacificNow());
 
                 $matchUser = ['role' => 'user'];
                 $actorRole = (string) ($actor['role'] ?? '');
@@ -2750,7 +2753,7 @@ final class AdminCoreController
             }
 
             $period = (string) ($_GET['period'] ?? 'this-week');
-            $now = new DateTimeImmutable('now');
+            $now = $this->pacificNow();
             $start = $this->startOfWeek($now);
             if ($period === 'last-week') {
                 $start = $start->modify('-7 days');
@@ -3490,7 +3493,7 @@ final class AdminCoreController
                 return;
             }
 
-            $startOfDay = new DateTimeImmutable('today');
+            $startOfDay = $this->pacificStartOfToday();
             $today = MongoRepository::utcFromMillis($startOfDay->getTimestamp() * 1000);
             $deposits = $this->db->findMany('transactions', [
                 'type' => 'deposit',
@@ -10075,12 +10078,12 @@ final class AdminCoreController
 
     private function getStartDateFromPeriod(string $period): ?DateTimeImmutable
     {
-        $now = new DateTimeImmutable('now');
+        $now = $this->pacificNow();
         if ($period === '' || $period === 'all') {
             return null;
         }
         if ($period === 'today') {
-            return new DateTimeImmutable('today');
+            return $this->pacificStartOfToday();
         }
         if ($period === 'this-week' || $period === '7d') {
             return $now->modify('-7 days');
@@ -10585,12 +10588,33 @@ final class AdminCoreController
         return [];
     }
 
+    /**
+     * Current moment in the dashboard timezone (Pacific).
+     */
+    private function pacificNow(): DateTimeImmutable
+    {
+        return new DateTimeImmutable('now', new \DateTimeZone(self::DASHBOARD_TIMEZONE));
+    }
+
+    /**
+     * Start of today at 00:00:00 Pacific, returned as a UTC-equivalent timestamp
+     * so DB comparisons against UTC-stored createdAt work correctly.
+     */
+    private function pacificStartOfToday(): DateTimeImmutable
+    {
+        return new DateTimeImmutable('today', new \DateTimeZone(self::DASHBOARD_TIMEZONE));
+    }
+
+    /**
+     * Start of the business week (Tuesday 00:00 Pacific) that contains $date.
+     */
     private function startOfWeek(DateTimeImmutable $date): DateTimeImmutable
     {
-        $weekday = (int) $date->format('N'); // 1..7, Monday=1
+        $pacific = $date->setTimezone(new \DateTimeZone(self::DASHBOARD_TIMEZONE));
+        $weekday = (int) $pacific->format('N'); // 1..7, Monday=1
         // Business week: Tuesday 00:00 through Monday 23:59:59.
         $daysFromTuesday = ($weekday + 5) % 7;
-        return $date->setTime(0, 0, 0)->modify('-' . $daysFromTuesday . ' days');
+        return $pacific->setTime(0, 0, 0)->modify('-' . $daysFromTuesday . ' days');
     }
 
     /**
