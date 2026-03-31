@@ -857,13 +857,14 @@ function AdminHeader({
               </div>
             )}
 
-            {/* Group 6: Weekly House Balance / Balance Owed (agent only) */}
+            {/* Group 6: Balance Owed (agent only) */}
+            {/* Weekly House Balance hidden — re-enable when needed */}
             {roleKey === 'agent' && (
               <div className="stat-group stat-group-teal">
-                <div className="stat-row">
+                {/* <div className="stat-row">
                   <span className="stat-label">Weekly House Balance</span>
                   <span className={`stat-value ${getSignedValueClass(weeklyHouseBalanceValue)}`}>{formatCurrency(weeklyHouseBalanceValue)}</span>
-                </div>
+                </div> */}
                 <div className="stat-row">
                   <span className="stat-label">Balance Owed</span>
                   <span className={`stat-value ${getSignedValueClass(balanceOwedValue)}`}>{formatCurrency(balanceOwedValue)}</span>
