@@ -436,6 +436,10 @@ function AdminHeader({
   const previousBalanceOwedValue = Number(summary.previousBalanceOwed ?? 0);
   const balanceOwedValue = Number(summary.balanceOwed ?? 0);
   const agentPercentValue = summary.agentPercent;
+  const housePercentValue = agentPercentValue != null ? (100 - agentPercentValue) : null;
+  const paidPlayerFeesValue = Number(summary.paidPlayerFees ?? 0);
+  const unpaidPlayerFeesValue = Number(summary.unpaidPlayerFees ?? 0);
+  const totalPlayerFeesValue = Number(summary.totalPlayerFees ?? 0);
 
   const openWeeklyCollections = (summaryFocus) => {
     if (typeof onViewChange !== 'function') {
@@ -800,9 +804,9 @@ function AdminHeader({
               )}
             </div>
 
-            {/* Group 3: Agent Collections / House Collections (agent only) */}
+            {/* ── Excel Section 1 (Green): Collections ── */}
             {roleKey === 'agent' && (
-              <div className="stat-group stat-group-orange">
+              <div className="stat-group stat-group-green">
                 <button
                   type="button"
                   className="stat-row stat-row-button"
@@ -819,57 +823,57 @@ function AdminHeader({
                   aria-label={`Open weekly figures for ${displayName} house collections`}
                 >
                   <span className="stat-label">House Collections</span>
-                  <span className={`stat-value ${getSignedValueClass(houseCollectionsValue)}`}>{formatCurrency(houseCollectionsValue)}</span>
+                  <span className={`stat-value ${getSignedValueClass(-houseCollectionsValue)}`}>{houseCollectionsValue !== 0 ? `(${formatCurrency(Math.abs(houseCollectionsValue))})` : formatCurrency(0)}</span>
                 </button>
+                <div className="stat-row">
+                  <span className="stat-label">Previous Makeup</span>
+                  <span className={`stat-value ${previousMakeupValue > 0 ? 'negative' : 'neutral'}`}>{previousMakeupValue === 0 ? '—' : formatCurrency(previousMakeupValue)}</span>
+                </div>
               </div>
             )}
 
-            {/* Group 4: Net Collections / Makeup (agent only) */}
+            {/* ── Excel Section 2 (Yellow): Net / Split ── */}
             {roleKey === 'agent' && (
-              <div className="stat-group stat-group-blue">
+              <div className="stat-group stat-group-yellow">
                 <div className="stat-row">
                   <span className="stat-label">Net Collections</span>
                   <span className={`stat-value ${getSignedValueClass(netCollectionsValue)}`}>{formatCurrency(netCollectionsValue)}</span>
                 </div>
                 <div className="stat-row">
-                  <span className="stat-label">Current Makeup</span>
-                  <span className={`stat-value ${cumulativeMakeupValue > 0 ? 'negative' : 'neutral'}`}>{formatCurrency(cumulativeMakeupValue)}</span>
-                </div>
-                {previousMakeupValue > 0 && (
-                  <div className="stat-row">
-                    <span className="stat-label">Previous Makeup</span>
-                    <span className="stat-value neutral">{formatCurrency(previousMakeupValue)}</span>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Group 5: Agent Split / Kick To House (agent only) */}
-            {roleKey === 'agent' && (
-              <div className="stat-group stat-group-purple">
-                <div className="stat-row">
-                  <span className="stat-label">Agent Split{agentPercentValue != null ? ` (${agentPercentValue}%)` : ''}</span>
+                  <span className="stat-label">Agent Split{agentPercentValue != null ? ` ${agentPercentValue}%` : ''}</span>
                   <span className={`stat-value ${getSignedValueClass(agentSplitValue)}`}>{formatCurrency(agentSplitValue)}</span>
                 </div>
                 <div className="stat-row">
-                  <span className="stat-label">Kick To House</span>
+                  <span className="stat-label">Kick to House{housePercentValue != null ? ` ${housePercentValue}%` : ''}</span>
                   <span className={`stat-value ${getSignedValueClass(kickToHouseValue)}`}>{formatCurrency(kickToHouseValue)}</span>
                 </div>
               </div>
             )}
 
-            {/* Group 6: Weekly House Balance / Previous Balance / Balance Owed (agent only) */}
+            {/* ── Excel Section 3 (Pink/Orange): Balance Owed Breakdown ── */}
             {roleKey === 'agent' && (
-              <div className="stat-group stat-group-teal">
+              <div className="stat-group stat-group-salmon">
                 <div className="stat-row">
-                  <span className="stat-label">Weekly House Balance</span>
-                  <span className={`stat-value ${getSignedValueClass(weeklyHouseBalanceValue)}`}>{formatCurrency(weeklyHouseBalanceValue)}</span>
+                  <span className="stat-label">Agent Makeup</span>
+                  <span className={`stat-value ${cumulativeMakeupValue > 0 ? 'negative' : 'neutral'}`}>{cumulativeMakeupValue === 0 ? '—' : formatCurrency(cumulativeMakeupValue)}</span>
                 </div>
                 <div className="stat-row">
                   <span className="stat-label">Previous Balance</span>
-                  <span className={`stat-value ${getSignedValueClass(previousBalanceOwedValue)}`}>{formatCurrency(previousBalanceOwedValue)}</span>
+                  <span className={`stat-value ${getSignedValueClass(previousBalanceOwedValue)}`}>{previousBalanceOwedValue === 0 ? '—' : formatCurrency(previousBalanceOwedValue)}</span>
                 </div>
                 <div className="stat-row">
+                  <span className="stat-label">Player Fees</span>
+                  <span className="stat-value">{formatCurrency(paidPlayerFeesValue)}</span>
+                </div>
+                <div className="stat-row">
+                  <span className="stat-label">Kick to House</span>
+                  <span className={`stat-value ${getSignedValueClass(kickToHouseValue)}`}>{formatCurrency(kickToHouseValue)}</span>
+                </div>
+                <div className="stat-row">
+                  <span className="stat-label">House Collections</span>
+                  <span className={`stat-value ${getSignedValueClass(-houseCollectionsValue)}`}>{houseCollectionsValue !== 0 ? `(${formatCurrency(Math.abs(houseCollectionsValue))})` : formatCurrency(0)}</span>
+                </div>
+                <div className="stat-row stat-row-total">
                   <span className="stat-label">Balance Owed</span>
                   <span className={`stat-value ${getSignedValueClass(balanceOwedValue)}`}>{formatCurrency(balanceOwedValue)}</span>
                 </div>

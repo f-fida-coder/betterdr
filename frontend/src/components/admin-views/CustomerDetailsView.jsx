@@ -2313,7 +2313,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
                   <div key={node.id || idx} className="ch-row ch-row-hiring">
                     <span className="ch-row-label">{idx === arr.length - 1 ? 'Hiring Agent' : 'Upline Agent'}</span>
                     <span className="ch-row-username">
-                      ({node.username || '—'})
+                      ({node.isSharedNode && node.linkedUsername ? `${node.username}/${node.linkedUsername}` : (node.username || '—')})
                     </span>
                     <span className={`ch-row-pct ${node.effectivePercent == null && node.agentPercent == null ? 'unset' : ''}`}>
                       {node.effectivePercent != null ? `(${node.effectivePercent}%)` : (node.agentPercent != null ? `(${node.agentPercent}%)` : '(not set)')}
@@ -2345,7 +2345,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
                   <div className="ch-row ch-row-agent">
                     <span className="ch-row-label">Agent</span>
                     <span className="ch-row-username">
-                      ({commissionChain.upline[0].username || '—'})
+                      ({commissionChain.upline[0].isSharedNode && commissionChain.upline[0].linkedUsername ? `${commissionChain.upline[0].username}/${commissionChain.upline[0].linkedUsername}` : (commissionChain.upline[0].username || '—')})
                     </span>
                     <span className={`ch-row-pct ${commissionChain.upline[0].agentPercent == null ? 'unset' : ''}`}>
                       {commissionChain.upline[0].agentPercent != null ? `(${commissionChain.upline[0].agentPercent}%)` : '(not set)'}
@@ -2415,9 +2415,9 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
                       <tbody>
                         {calcResult.distributions.map((d, idx) => (
                           <tr key={d.id || idx}>
-                            <td className="commission-username">{d.username || '—'}</td>
+                            <td className="commission-username">{d.isSharedNode && d.linkedUsername ? `${d.username}/${d.linkedUsername}` : (d.username || '—')}</td>
                             <td>{d.role ? d.role.replace(/_/g, ' ') : '—'}</td>
-                            <td>{d.agentPercent != null ? `${d.agentPercent}%` : '—'}</td>
+                            <td>{d.effectivePercent != null ? `${d.effectivePercent}%` : (d.agentPercent != null ? `${d.agentPercent}%` : '—')}</td>
                             <td className="commission-amount">${Number(d.amount || 0).toFixed(2)}</td>
                           </tr>
                         ))}

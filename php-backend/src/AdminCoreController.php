@@ -1208,13 +1208,16 @@ final class AdminCoreController
                                 // First node (the viewing agent) gets their full percentage
                                 $effectivePct = $nodePct;
                             } elseif ($idx === $lastIdx) {
-                                // Last node (root/HOUSE) gets whatever remains
-                                $effectivePct = 0.0; // will use remainder below
+                                // Last node (root/HOUSE) gets whatever remains: 100 - previous node's %
+                                $effectivePct = max(0.0, 100.0 - $prevPct);
                             } else {
                                 // Middle nodes earn the difference: their % minus child's %
                                 $effectivePct = max(0.0, $nodePct - $prevPct);
                             }
-                            $prevPct = $nodePct;
+                            // Only advance prevPct for non-last nodes (preserve it for last node calc)
+                            if ($idx < $lastIdx) {
+                                $prevPct = $nodePct;
+                            }
 
                             $share = ($idx === $lastIdx)
                                 ? round($distributableAmount - $allocatedTotal, 2)
@@ -1225,9 +1228,7 @@ final class AdminCoreController
                                 'username' => $node['username'],
                                 'role' => $node['role'],
                                 'agentPercent' => $nodePct,
-                                'effectivePercent' => ($idx === $lastIdx)
-                                    ? round(100 - $prevPct, 4)
-                                    : round($effectivePct, 4),
+                                'effectivePercent' => round($effectivePct, 4),
                                 'amount' => $share,
                             ];
                         }
@@ -5912,12 +5913,43 @@ final class AdminCoreController
                 'updatedAt' => MongoRepository::nowUtc(),
             ];
 
-            // Commission split fields
+            // Commission split fields — with chain validation
             if (isset($body['agentPercent']) && is_numeric($body['agentPercent'])) {
                 $pct = (float) $body['agentPercent'];
-                if ($pct >= 0 && $pct <= 100) {
-                    $doc['agentPercent'] = round($pct, 4);
+                if ($pct < 0 || $pct > 100) {
+                    Response::json(['message' => 'agentPercent must be between 0 and 100'], 400);
+                    return;
                 }
+                // Enforce chain rules: if directly under Admin (house), must be exactly 95%
+                if ($createdByModel === 'Admin') {
+                    $requiredPct = 100.0 - (float) self::HOUSE_PERCENT;
+                    if (round($pct, 4) !== round($requiredPct, 4)) {
+                        Response::json([
+                            'message' => "Agent directly under house must have exactly {$requiredPct}%. House always takes " . self::HOUSE_PERCENT . "%.",
+                        ], 400);
+                        return;
+                    }
+                }
+                // If under a parent agent, cannot exceed parent's agentPercent
+                if ($createdByModel === 'Agent') {
+                    $createdByIdStr = (string) $createdById;
+                    if (preg_match('/^[a-f0-9]{24}$/i', $createdByIdStr) === 1) {
+                        $parentForPctCheck = $this->db->findOne('agents', [
+                            'id' => MongoRepository::id($createdByIdStr),
+                        ], ['projection' => ['agentPercent' => 1, 'username' => 1]]);
+                        if ($parentForPctCheck !== null && isset($parentForPctCheck['agentPercent'])) {
+                            $parentMax = (float) $parentForPctCheck['agentPercent'];
+                            if ($pct > $parentMax) {
+                                $parentName = $parentForPctCheck['username'] ?? 'parent';
+                                Response::json([
+                                    'message' => "agentPercent ({$pct}%) cannot exceed parent {$parentName}'s agentPercent ({$parentMax}%).",
+                                ], 400);
+                                return;
+                            }
+                        }
+                    }
+                }
+                $doc['agentPercent'] = round($pct, 4);
             }
             if (isset($body['playerRate']) && is_numeric($body['playerRate'])) {
                 $rate = (float) $body['playerRate'];
@@ -6012,9 +6044,11 @@ final class AdminCoreController
             if (array_key_exists('parentAgentId', $body)) {
                 $parentId = trim((string) $body['parentAgentId']);
                 if ($parentId === '') {
-                    // Remove parent assignment
-                    $updates['createdBy'] = null;
-                    $updates['createdByModel'] = null;
+                    // Block orphaning — clearing parent breaks the commission chain
+                    // (house would never appear in the chain, violating the 5% rule).
+                    // Instead of silently creating an orphan, reject the request.
+                    Response::json(['message' => 'Cannot remove parent assignment — agent must belong to a commission chain.'], 400);
+                    return;
                 } elseif (preg_match('/^[a-f0-9]{24}$/i', $parentId) === 1) {
                     $parentAgent = $this->db->findOne('agents', [
                         'id' => MongoRepository::id($parentId),
@@ -6022,6 +6056,16 @@ final class AdminCoreController
                     ]);
                     if ($parentAgent === null) {
                         Response::json(['message' => 'Parent must be a Master Agent or Super Agent'], 400);
+                        return;
+                    }
+                    // Validate: agent's agentPercent must not exceed new parent's agentPercent
+                    $agentPct = isset($agent['agentPercent']) ? (float) $agent['agentPercent'] : null;
+                    $newParentPct = isset($parentAgent['agentPercent']) ? (float) $parentAgent['agentPercent'] : null;
+                    if ($agentPct !== null && $newParentPct !== null && $agentPct > $newParentPct) {
+                        $newParentName = $parentAgent['username'] ?? 'new parent';
+                        Response::json([
+                            'message' => "Cannot reassign: agent's agentPercent ({$agentPct}%) exceeds {$newParentName}'s agentPercent ({$newParentPct}%). Lower agent's percentage first.",
+                        ], 400);
                         return;
                     }
                     $updates['createdBy'] = MongoRepository::id($parentId);
@@ -6077,6 +6121,51 @@ final class AdminCoreController
                     if ($pct > $maxAllowed) {
                         Response::json(['message' => "agentPercent cannot exceed {$maxAllowed}% (parent agent's limit)."], 400);
                         return;
+                    }
+                }
+                // Cascading guard: if lowering agentPercent, verify no child exceeds the new value.
+                // Check BOTH this agent's children AND the linked same-person counterpart's
+                // children (since the sync will copy this value to the counterpart).
+                $agentId = (string) ($agent['id'] ?? '');
+                $idsToCheck = [];
+                if ($agentId !== '') {
+                    $idsToCheck[] = $agentId;
+                }
+                // Find linked same-person counterpart so we can check its children too
+                $agentUsernameForLink = strtoupper(trim((string) ($agent['username'] ?? '')));
+                $agentRoleForLink = strtolower(trim((string) ($agent['role'] ?? '')));
+                $linkedCounterpartId = null;
+                if ($agentUsernameForLink !== '') {
+                    $linkedName = AgentSettlementRules::linkedCounterpartUsername($agentUsernameForLink, $agentRoleForLink);
+                    if ($linkedName !== null) {
+                        $linkedDoc = $this->db->findOne('agents', ['username' => $linkedName], ['projection' => ['id' => 1]]);
+                        if ($linkedDoc !== null) {
+                            $linkedCounterpartId = (string) ($linkedDoc['id'] ?? '');
+                            if ($linkedCounterpartId !== '') {
+                                $idsToCheck[] = $linkedCounterpartId;
+                            }
+                        }
+                    }
+                }
+                foreach ($idsToCheck as $checkId) {
+                    $childAgents = $this->db->findMany('agents', [
+                        'createdBy'      => MongoRepository::id($checkId),
+                        'createdByModel' => 'Agent',
+                    ], ['projection' => ['username' => 1, 'agentPercent' => 1]]);
+                    foreach ($childAgents as $child) {
+                        $childPct = isset($child['agentPercent']) ? (float) $child['agentPercent'] : null;
+                        // Skip the linked counterpart itself — it will be synced to the same value
+                        $childId = (string) ($child['id'] ?? '');
+                        if ($childId === $agentId || $childId === $linkedCounterpartId) {
+                            continue;
+                        }
+                        if ($childPct !== null && $childPct > $pct) {
+                            $childName = $child['username'] ?? 'unknown';
+                            Response::json([
+                                'message' => "Cannot set agentPercent to {$pct}%: child agent {$childName} has {$childPct}%. Lower child percentages first.",
+                            ], 400);
+                            return;
+                        }
                     }
                 }
                 $updates['agentPercent'] = round($pct, 4);
@@ -10786,21 +10875,53 @@ final class AdminCoreController
             }
         }
 
-        // Collapse same-person MA ↔ agent pairs in the chain.
-        // ONLY collapse when the viewed agent (index 0) and its direct parent (index 1)
-        // are the same person (e.g., NJG365 at index 0, NJG365MA at index 1).
-        // Do NOT collapse intermediate nodes — they are different people in the hierarchy.
-        if (count($chain) >= 2) {
-            $firstUsername = strtoupper(trim((string) ($chain[0]['username'] ?? '')));
-            $secondUsername = strtoupper(trim((string) ($chain[1]['username'] ?? '')));
-            $secondRole = strtolower(trim((string) ($chain[1]['role'] ?? '')));
-            if (
-                $secondUsername === $firstUsername . 'MA'
-                && in_array($secondRole, ['master_agent', 'super_agent'], true)
-            ) {
-                // Remove index 1 (the MA counterpart) — keep the agent at index 0
-                array_splice($chain, 1, 1);
+        // Collapse same-person MA ↔ agent pairs ANYWHERE in the chain.
+        // A same-person pair is two adjacent nodes where one username = other + "MA".
+        // They represent the same real-world person and must act as ONE shared economic
+        // node — not two separate subtraction levels.
+        //
+        // Rules:
+        //   - Only collapse if their agentPercent values match (safety guard against sync failure).
+        //     If they differ, keep both visible so the mismatch is surfaced.
+        //   - At leaf position (i=0): keep the agent (index 0, the viewed profile),
+        //     remove the MA (index 1).
+        //   - At any other position: keep the MA (higher index, structural parent closer
+        //     to root), remove the agent (lower index).
+        //   - Tag the surviving node with linkedUsername + isSharedNode for display.
+        $collapseIdx = 0;
+        while ($collapseIdx < count($chain) - 1) {
+            $curName  = strtoupper(trim((string) ($chain[$collapseIdx]['username'] ?? '')));
+            $nextName = strtoupper(trim((string) ($chain[$collapseIdx + 1]['username'] ?? '')));
+            $nextRole = strtolower(trim((string) ($chain[$collapseIdx + 1]['role'] ?? '')));
+
+            $isSamePerson = (
+                $nextName === $curName . 'MA'
+                && in_array($nextRole, ['master_agent', 'super_agent'], true)
+            );
+
+            if ($isSamePerson) {
+                $pctA = $chain[$collapseIdx]['agentPercent'];
+                $pctB = $chain[$collapseIdx + 1]['agentPercent'];
+                $pctMatch = ($pctA !== null && $pctB !== null)
+                    ? abs((float) $pctA - (float) $pctB) < 0.01
+                    : ($pctA === null && $pctB === null);
+
+                if ($pctMatch) {
+                    if ($collapseIdx === 0) {
+                        // Leaf: keep the viewed agent (index 0), remove MA (index 1)
+                        $chain[0]['linkedUsername'] = $nextName;
+                        $chain[0]['isSharedNode'] = true;
+                        array_splice($chain, 1, 1);
+                    } else {
+                        // Intermediate: keep MA (index+1, structural parent), remove agent (index)
+                        $chain[$collapseIdx + 1]['linkedUsername'] = $curName;
+                        $chain[$collapseIdx + 1]['isSharedNode'] = true;
+                        array_splice($chain, $collapseIdx, 1);
+                    }
+                    continue; // re-check same position after splice
+                }
             }
+            $collapseIdx++;
         }
 
         return $chain; // index 0 = the requested agent, last = root
@@ -10919,34 +11040,49 @@ final class AdminCoreController
                 return;
             }
 
-            // Validate chain first
+            // Compute cascading effective percentages (same logic as getAgentCommissionChain):
+            // Each node's effective cut = their agentPercent - previous (child) node's agentPercent.
+            // Last node (root/house) gets whatever remains to reach 100%.
             $chainTotal = 0.0;
-            foreach ($upline as $node) {
-                if ($node['agentPercent'] !== null) {
-                    $chainTotal += $node['agentPercent'];
+            $prevPct = 0.0;
+            $lastIdx = count($upline) - 1;
+            $effectivePcts = [];
+            foreach ($upline as $idx => $node) {
+                $nodePct = (float) ($node['agentPercent'] ?? 0.0);
+                if ($idx === 0) {
+                    $effectivePct = $nodePct;
+                } elseif ($idx === $lastIdx) {
+                    $effectivePct = max(0.0, 100.0 - $prevPct);
+                } else {
+                    $effectivePct = max(0.0, $nodePct - $prevPct);
                 }
+                if ($idx < $lastIdx) {
+                    $prevPct = $nodePct;
+                }
+                $effectivePcts[] = round($effectivePct, 4);
+                $chainTotal += $effectivePct;
             }
             $chainTotal = round($chainTotal, 4);
             $isValid = abs($chainTotal - 100.0) < 0.01;
 
-            // Build distribution
+            // Build distribution using effective (cascading) percentages
             $distributions = [];
             $allocatedTotal = 0.0;
-            $lastIdx = count($upline) - 1;
             foreach ($upline as $idx => $node) {
-                $pct   = $node['agentPercent'] ?? 0.0;
+                $epct = $effectivePcts[$idx];
                 $share = ($idx === $lastIdx)
                     // Give the last node the remainder to avoid floating-point drift
                     ? round($amount - $allocatedTotal, 2)
-                    : round($amount * $pct / 100, 2);
+                    : round($amount * $epct / 100, 2);
 
                 $allocatedTotal += $share;
                 $distributions[] = [
-                    'id'           => $node['id'],
-                    'username'     => $node['username'],
-                    'role'         => $node['role'],
-                    'agentPercent' => $pct,
-                    'amount'       => $share,
+                    'id'               => $node['id'],
+                    'username'         => $node['username'],
+                    'role'             => $node['role'],
+                    'agentPercent'     => (float) ($node['agentPercent'] ?? 0.0),
+                    'effectivePercent' => $epct,
+                    'amount'           => $share,
                 ];
             }
 
@@ -10980,8 +11116,9 @@ final class AdminCoreController
             $nodes = is_array($body['nodes'] ?? null) ? $body['nodes'] : [];
 
             $errors = [];
-            $total  = 0.0;
 
+            // Validate individual values
+            $pctValues = [];
             foreach ($nodes as $i => $node) {
                 $pct = isset($node['agentPercent']) && is_numeric($node['agentPercent'])
                     ? (float) $node['agentPercent']
@@ -10990,6 +11127,7 @@ final class AdminCoreController
 
                 if ($pct === null) {
                     $errors[] = "{$username}: agentPercent is missing";
+                    $pctValues[] = 0.0;
                     continue;
                 }
                 if ($pct < 0) {
@@ -10998,10 +11136,48 @@ final class AdminCoreController
                 if ($pct > 100) {
                     $errors[] = "{$username}: agentPercent cannot exceed 100%";
                 }
-                $total += $pct;
+                $pctValues[] = $pct;
             }
 
+            // Use cascading effective percentages (same logic as commission chain):
+            // Nodes arrive in order [leaf, …, root]. Each node's effective cut is
+            // the difference between its agentPercent and the previous (child) node's.
+            // The last node (root/house) gets 100 - prevPct.
+            $total = 0.0;
+            $prevPct = 0.0;
+            $lastIdx = count($pctValues) - 1;
+            foreach ($pctValues as $idx => $pct) {
+                if ($idx === 0) {
+                    $effectivePct = $pct;
+                } elseif ($idx === $lastIdx) {
+                    $effectivePct = max(0.0, 100.0 - $prevPct);
+                } else {
+                    $effectivePct = max(0.0, $pct - $prevPct);
+                }
+                if ($idx < $lastIdx) {
+                    $prevPct = $pct;
+                }
+                $total += $effectivePct;
+            }
             $total = round($total, 4);
+
+            // Also validate that child percentages don't exceed parent percentages
+            // (nodes are ordered leaf→root, so each node's % should be ≤ next node's %)
+            for ($i = 0; $i < count($pctValues) - 1; $i++) {
+                $childPct = $pctValues[$i];
+                $parentPct = $pctValues[$i + 1];
+                $childName = $nodes[$i]['username'] ?? "node #{$i}";
+                $parentName = $nodes[$i + 1]['username'] ?? "node #" . ($i + 1);
+                $parentRole = strtolower(trim((string) ($nodes[$i + 1]['role'] ?? '')));
+                // Skip house/admin node — its agentPercent (5%) is smaller than children by design
+                if ($parentRole === 'admin') {
+                    continue;
+                }
+                if ($childPct > $parentPct) {
+                    $errors[] = "{$childName} ({$childPct}%) exceeds parent {$parentName} ({$parentPct}%)";
+                }
+            }
+
             $isValid = count($errors) === 0 && abs($total - 100.0) < 0.01;
 
             if (!$isValid && abs($total - 100.0) >= 0.01) {

@@ -821,13 +821,26 @@ final class AgentController
             }
             $fullName = strtoupper($fullName !== '' ? $fullName : $username);
 
-            // Commission fields (optional, validated 0-100)
+            // Commission fields (optional, validated 0-100 and ≤ parent's agentPercent)
             $agentPercent = null;
             if (isset($body['agentPercent']) && is_numeric($body['agentPercent'])) {
                 $pct = (float) $body['agentPercent'];
                 if ($pct < 0 || $pct > 100) {
                     Response::json(['message' => 'agentPercent must be between 0 and 100'], 400);
                     return;
+                }
+                // Enforce: child agentPercent cannot exceed parent's agentPercent
+                $parentForValidation = $this->db->findOne('agents', [
+                    'id' => MongoRepository::id($resolvedParentAgentId),
+                ], ['projection' => ['agentPercent' => 1, 'username' => 1]]);
+                if ($parentForValidation !== null && isset($parentForValidation['agentPercent'])) {
+                    $parentMax = (float) $parentForValidation['agentPercent'];
+                    if ($pct > $parentMax) {
+                        Response::json([
+                            'message' => "agentPercent ({$pct}%) cannot exceed parent's agentPercent ({$parentMax}%)."
+                        ], 400);
+                        return;
+                    }
                 }
                 $agentPercent = round($pct, 4);
             }
