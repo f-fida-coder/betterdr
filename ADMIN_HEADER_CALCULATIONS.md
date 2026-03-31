@@ -166,10 +166,14 @@ $agentProfitAfterFees = max(0.0, $agentShareFromProfit - $playerFees)
 
 ### 16. **House Final Amount** (Agent's Settlement Balance)
 ```php
-$houseFinalAmount = round($agentShareFromProfit - $playerFees, 2)
+if ($netCollections >= 0.0) {
+    $houseFinalAmount = round(max(0.0, $houseShareFromProfit) + max(0.0, $playerFees), 2)
+} else {
+    $houseFinalAmount = round(max(0.0, $agentCollections), 2)
+}
 ```
-- What the agent keeps after settlement
-- Can be negative if fees exceed profit
+- Positive week: house percentage plus positive player fees
+- Negative week: only positive agent-collected money is applied toward makeup
 
 ### 17. **Unpaid Amount**
 ```php
@@ -254,8 +258,8 @@ Calculations:
 - unpaidPlayerFees = 2 * $4 = $8
 - makeup = 0 (net is positive)
 - agentProfitAfterFees = max(0, 1750 - 40) = $1710
-- houseFinalAmount = 1750 - 40 = $1710
-- unpaidAmount = max(0, 1710) = $1710
+- houseFinalAmount = 1750 + 40 = $1790
+- unpaidAmount = max(0, 1790) = $1790
 ```
 
 ---

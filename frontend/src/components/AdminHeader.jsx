@@ -423,7 +423,7 @@ function AdminHeader({
   const houseCollectionsValue = Number(summary.houseCollections ?? 0);
   const netCollectionsValue = Number(summary.netCollections ?? 0);
   const makeupValue = Number(summary.makeup ?? 0);
-  const agentProfitAfterMakeupValue = Number(summary.agentProfitAfterFees ?? 0);
+  const agentProfitValue = Number(summary.agentShareFromProfit ?? 0);
   const houseFinalAmountValue = Number(summary.houseFinalAmount ?? 0);
   const houseShareValue = Number(summary.houseShareFromProfit ?? 0);
   const agentPercentValue = summary.agentPercent;
@@ -832,7 +832,7 @@ function AdminHeader({
             {roleKey === 'agent' && (
               <div className="stat-box">
                 <span className="stat-label">Agent Profit{agentPercentValue != null ? ` (${agentPercentValue}%)` : ''}</span>
-                <span className={`stat-value ${getSignedValueClass(agentProfitAfterMakeupValue)}`}>{formatCurrency(agentProfitAfterMakeupValue)}</span>
+                <span className={`stat-value ${getSignedValueClass(agentProfitValue)}`}>{formatCurrency(agentProfitValue)}</span>
               </div>
             )}
             {roleKey === 'agent' && (

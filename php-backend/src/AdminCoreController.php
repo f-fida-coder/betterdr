@@ -11219,8 +11219,16 @@ final class AdminCoreController
         $remainingAfterHousePayback = $agentCollections;
         $makeup = $netCollections < 0.0 ? $netCollections : 0.0;
         $agentProfitAfterFees = max(0.0, $agentShareFromProfit - $playerFees);
-        // Balance: what agent keeps after settlement
-        $houseFinalAmount = round($agentShareFromProfit - $playerFees, 2);
+
+        $positivePlayerFees = max(0.0, $playerFees);
+        $positiveAgentCollections = max(0.0, $agentCollections);
+
+        // Dashboard balance business rule:
+        // - Positive week: house percentage + positive player fees.
+        // - Negative week: only positive agent-collected money applied toward makeup.
+        $houseFinalAmount = $netCollections >= 0.0
+            ? round(max(0.0, $houseShareFromProfit) + $positivePlayerFees, 2)
+            : round($positiveAgentCollections, 2);
         $unpaidAmount = max(0.0, $houseFinalAmount);
 
         return [
