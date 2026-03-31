@@ -11218,12 +11218,12 @@ final class AdminCoreController
         ?float $agentPercent = null
     ): array {
         $netCollections = $agentCollections + $houseCollections;
-        $commissionableProfit = max(0.0, $netCollections);
+        $commissionableProfit = max(0.0, $agentCollections);
 
-        // Apply agent commission percentage to net collections (agent+house combined)
+        // Apply agent commission percentage to NET collections (agent+house combined)
         if ($agentPercent !== null && $agentPercent >= 0 && $agentPercent <= 100) {
-            $agentShareFromProfit = round($commissionableProfit * $agentPercent / 100, 2);
-            $houseShareFromProfit = round($commissionableProfit - $agentShareFromProfit, 2);
+            $agentShareFromProfit = round($netCollections * $agentPercent / 100, 2);
+            $houseShareFromProfit = round($netCollections - $agentShareFromProfit, 2);
         } else {
             // Admin view or no commission set: agent gets full commissionable profit
             $agentShareFromProfit = $commissionableProfit;
