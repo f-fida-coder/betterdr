@@ -8009,6 +8009,17 @@ final class AdminCoreController
                     Response::json(['message' => 'Agent account not found'], 404);
                     return;
                 }
+                // Same-person MA counterpart check: if this agent (e.g. NJG365) has a
+                // master_agent counterpart (NJG365MA), treat them as master_agent and
+                // skip the balance check — they are the same person.
+                $agentUsername = strtoupper(trim((string) ($agent['username'] ?? '')));
+                $maCounterpart = $this->db->findOne('agents', [
+                    'username' => $agentUsername . 'MA',
+                    'role' => ['$in' => ['master_agent', 'super_agent']],
+                ]);
+                if ($maCounterpart !== null) {
+                    $agent = null; // Skip balance check — same person as master_agent
+                }
             }
 
             $body = Http::jsonBody();
