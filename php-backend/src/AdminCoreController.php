@@ -1177,6 +1177,9 @@ final class AdminCoreController
                 // ── Carry-forward via auto-close snapshots ─────────────
                 // Lazily close the previous week (no-op if already done),
                 // then read the carry-forward from the most recent snapshot.
+                // NOTE: $actorId is not captured by the enclosing closure;
+                // derive it here from $actor which IS captured.
+                $actorId = (string) ($actor['id'] ?? '');
                 if (in_array($actorRole, ['agent', 'master_agent', 'super_agent'], true)) {
                     $this->ensurePreviousWeekSnapshot(
                         $actorId,
