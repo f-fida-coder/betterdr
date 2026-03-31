@@ -1234,6 +1234,14 @@ final class AdminCoreController
                 ];
             });
         } catch (Throwable $e) {
+            error_log(sprintf(
+                '[HEADER_SUMMARY_ERROR] actor=%s role=%s error=%s file=%s line=%d',
+                $actor['username'] ?? 'unknown',
+                $actor['role'] ?? 'unknown',
+                $e->getMessage(),
+                $e->getFile(),
+                $e->getLine()
+            ));
             Response::json(['message' => 'Server error getting header summary'], 500);
         }
     }
