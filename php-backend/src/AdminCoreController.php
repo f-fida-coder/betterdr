@@ -1059,20 +1059,34 @@ final class AdminCoreController
                 $houseWithdrawals = 0.0;
 
                 // Collect adminIds from transactions missing approvedByRole for bulk lookup
+                // Also track active users in the same pass to reduce iterations
                 $missingRoleAdminIds = [];
+                $activeUserIds = [];
+                
                 foreach ($weekTx as $tx) {
                     $txType = strtolower(trim((string) ($tx['type'] ?? '')));
-                    if ($txType !== 'deposit' && $txType !== 'withdrawal') {
-                        continue;
-                    }
-                    $approverRole = trim((string) ($tx['approvedByRole'] ?? ''));
-                    if ($approverRole === '') {
-                        $aid = (string) ($tx['adminId'] ?? '');
-                        if ($aid !== '' && preg_match('/^[a-f0-9]{24}$/i', $aid) === 1) {
-                            $missingRoleAdminIds[$aid] = true;
+                    $txUserId = (string) ($tx['userId'] ?? '');
+                    
+                    // 1. Collect adminIds for role resolution (deposits/withdrawals only)
+                    if ($txType === 'deposit' || $txType === 'withdrawal') {
+                        $approverRole = trim((string) ($tx['approvedByRole'] ?? ''));
+                        if ($approverRole === '') {
+                            $aid = (string) ($tx['adminId'] ?? '');
+                            if ($aid !== '' && preg_match('/^[a-f0-9]{24}$/i', $aid) === 1) {
+                                $missingRoleAdminIds[$aid] = true;
+                            }
                         }
                     }
+                    
+                    // 2. Track active users (excludes funding/promo transactions)
+                    if ($txUserId !== '' && $this->isWeeklyActiveTransaction($tx)) {
+                        $activeUserIds[$txUserId] = true;
+                    }
                 }
+                
+                $activeAccounts = count($activeUserIds);
+                
+                // Resolve roles from collected adminIds
                 $resolvedRoles = [];
                 if (count($missingRoleAdminIds) > 0) {
                     $lookupIds = array_map(static fn (string $id): string => MongoRepository::id($id), array_keys($missingRoleAdminIds));
@@ -1086,6 +1100,12 @@ final class AdminCoreController
                     }
                 }
 
+                // Second pass: Calculate collections (need resolved roles first)
+                $agentDeposits = 0.0;
+                $agentWithdrawals = 0.0;
+                $houseDeposits = 0.0;
+                $houseWithdrawals = 0.0;
+                
                 foreach ($weekTx as $tx) {
                     $txType = strtolower(trim((string) ($tx['type'] ?? '')));
                     if ($txType !== 'deposit' && $txType !== 'withdrawal') {
@@ -1111,16 +1131,6 @@ final class AdminCoreController
                         }
                     }
                 }
-
-                // Active players: those with real betting/gaming activity this week
-                $activeUserIds = [];
-                foreach ($weekTx as $tx) {
-                    $txUserId = (string) ($tx['userId'] ?? '');
-                    if ($txUserId !== '' && $this->isWeeklyActiveTransaction($tx)) {
-                        $activeUserIds[$txUserId] = true;
-                    }
-                }
-                $activeAccounts = count($activeUserIds);
 
                 // Player Fees: $4 per active player, split by balance
                 $feePerPlayer = self::FEE_PER_PLAYER;
