@@ -44,14 +44,12 @@ function AdminHeader({
     netCollections: 0,
     housePayback: 0,
     remainingAfterHousePayback: 0,
-    commissionableProfit: 0,
     houseShareFromProfit: 0,
     agentShareFromProfit: 0,
     houseFinalAmount: 0,
     agentProfitAfterFees: 0,
     makeup: 0,
     unpaidAmount: 0,
-    commissionDistribution: [],
     sportsbookHealth: null
   });
   const [profile, setProfile] = useState(null);
@@ -89,14 +87,12 @@ function AdminHeader({
         netCollections: headerData?.netCollections ?? 0,
         housePayback: headerData?.housePayback ?? 0,
         remainingAfterHousePayback: headerData?.remainingAfterHousePayback ?? 0,
-        commissionableProfit: headerData?.commissionableProfit ?? 0,
         houseShareFromProfit: headerData?.houseShareFromProfit ?? 0,
         agentShareFromProfit: headerData?.agentShareFromProfit ?? 0,
         houseFinalAmount: headerData?.houseFinalAmount ?? 0,
         agentProfitAfterFees: headerData?.agentProfitAfterFees ?? 0,
         makeup: headerData?.makeup ?? 0,
         unpaidAmount: headerData?.unpaidAmount ?? 0,
-        commissionDistribution: headerData?.commissionDistribution ?? [],
         sportsbookHealth: headerData?.sportsbookHealth ?? null
       });
     };
@@ -430,9 +426,7 @@ function AdminHeader({
   const agentProfitAfterMakeupValue = Number(summary.agentProfitAfterFees ?? 0);
   const houseFinalAmountValue = Number(summary.houseFinalAmount ?? 0);
   const houseShareValue = Number(summary.houseShareFromProfit ?? 0);
-  const commissionableValue = Number(summary.commissionableProfit ?? 0);
   const agentPercentValue = summary.agentPercent;
-  const commissionDistribution = summary.commissionDistribution ?? [];
 
   const openWeeklyCollections = (summaryFocus) => {
     if (typeof onViewChange !== 'function') {
@@ -853,27 +847,6 @@ function AdminHeader({
               <div className="stat-box">
                 <span className="stat-label">Balance</span>
                 <span className={`stat-value ${getSignedValueClass(houseFinalAmountValue)}`}>{formatCurrency(houseFinalAmountValue)}</span>
-              </div>
-            )}
-
-            {/* Row 7: Commission Distribution (agent only, when chain exists) */}
-            {roleKey === 'agent' && commissionDistribution.length > 0 && (
-              <div className="stat-box" style={{ gridColumn: '1 / -1' }}>
-                <span className="stat-label">Commission Split</span>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '4px' }}>
-                  {commissionDistribution.map((node, idx) => (
-                    <span key={node.id || idx} style={{
-                      fontSize: '11px',
-                      padding: '2px 6px',
-                      borderRadius: '4px',
-                      background: node.role === 'admin' ? 'rgba(255,107,107,0.15)' : 'rgba(78,205,196,0.15)',
-                      color: node.role === 'admin' ? '#ff6b6b' : '#4ecdc4',
-                      whiteSpace: 'nowrap'
-                    }}>
-                      {node.username}: {node.agentPercent}% ({formatCurrency(node.amount)})
-                    </span>
-                  ))}
-                </div>
               </div>
             )}
           </div>
