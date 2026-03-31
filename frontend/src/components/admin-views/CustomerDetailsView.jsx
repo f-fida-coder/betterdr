@@ -4151,6 +4151,11 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
             gap: 5px;
           }
 
+          .paired-grid {
+            grid-template-columns: 1fr 1fr;
+            gap: 5px;
+          }
+
           .detail-item {
             padding: 5px 7px;
             gap: 2px;

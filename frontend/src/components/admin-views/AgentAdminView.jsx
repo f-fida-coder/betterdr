@@ -113,7 +113,8 @@ function AgentAdminView() {
       phoneNumber: agent.phoneNumber || '',
       password: '', // Don't show existing hash
       agentBillingRate: agent.agentBillingRate ?? '',
-      agentBillingStatus: agent.agentBillingStatus || 'paid'
+      agentBillingStatus: agent.agentBillingStatus || 'paid',
+      unlimitedBalance: agent.unlimitedBalance || false
     });
     setSelectedAgent(agent);
     setShowEditModal(true);
@@ -127,7 +128,7 @@ function AgentAdminView() {
       const token = localStorage.getItem('token');
       if (!token) throw new Error('No token found');
 
-      const updateData = { phoneNumber: editForm.phoneNumber, agentBillingRate: editForm.agentBillingRate, agentBillingStatus: editForm.agentBillingStatus };
+      const updateData = { phoneNumber: editForm.phoneNumber, agentBillingRate: editForm.agentBillingRate, agentBillingStatus: editForm.agentBillingStatus, unlimitedBalance: editForm.unlimitedBalance };
       if (editForm.password) updateData.password = editForm.password;
 
       await updateAgent(editForm.id, updateData, token);
@@ -313,6 +314,18 @@ function AgentAdminView() {
                   <option value="paid">Paid</option>
                   <option value="unpaid">Unpaid</option>
                 </select>
+              </div>
+              <div className="form-group">
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={editForm.unlimitedBalance}
+                    onChange={e => setEditForm({ ...editForm, unlimitedBalance: e.target.checked })}
+                    style={{ width: 'auto' }}
+                  />
+                  Unlimited Balance
+                </label>
+                <small style={{ color: '#aaa', fontSize: '11px' }}>When enabled, this agent can credit players without balance restrictions</small>
               </div>
               <div className="modal-actions">
                 <button type="submit" className="btn-primary">Save Changes</button>

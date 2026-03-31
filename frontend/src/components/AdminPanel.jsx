@@ -54,6 +54,7 @@ const FALLBACK_VIEW_ORDER = [
 function AdminPanel({ onExit, role = 'admin' }) {
   const [adminView, setAdminView] = useState('dashboard');
   const [selectedUserId, setSelectedUserId] = useState(null);
+  const [viewContext, setViewContext] = useState(null);
   const [layoutPref, setLayoutPref] = useState('tiles');
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
   const [permissions, setPermissions] = useState(null);
@@ -92,16 +93,33 @@ function AdminPanel({ onExit, role = 'admin' }) {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  const handleViewChange = (view, userId = null) => {
+  const handleViewChange = (view, userIdOrContext = null, nextViewContext = null) => {
     const normalizedView = (view === 'transactions-history')
       ? 'transaction-history'
       : view;
     if (!hasViewPermission(effectiveRole, permissions, normalizedView)) {
       return;
     }
+
+    const resolvedUserId = (
+      typeof userIdOrContext === 'string' || typeof userIdOrContext === 'number'
+    ) ? String(userIdOrContext) : null;
+    const resolvedViewContext = (
+      nextViewContext && typeof nextViewContext === 'object'
+    )
+      ? nextViewContext
+      : (
+        userIdOrContext && typeof userIdOrContext === 'object' && !Array.isArray(userIdOrContext)
+          ? userIdOrContext
+          : null
+      );
+
     setAdminView(normalizedView);
-    if (userId) {
-      setSelectedUserId(userId);
+    setViewContext(resolvedViewContext);
+    if (resolvedUserId) {
+      setSelectedUserId(resolvedUserId);
+    } else if (normalizedView !== 'user-details') {
+      setSelectedUserId(null);
     }
   };
 
@@ -214,7 +232,7 @@ function AdminPanel({ onExit, role = 'admin' }) {
           />
         );
       case 'weekly-figures':
-        return <WeeklyFiguresView onViewChange={handleViewChange} />;
+        return <WeeklyFiguresView onViewChange={handleViewChange} viewContext={viewContext} />;
       case 'pending':
         return <PendingView />;
       case 'messaging':

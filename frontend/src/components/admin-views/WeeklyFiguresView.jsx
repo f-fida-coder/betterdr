@@ -11,6 +11,9 @@ const WEEK_OPTIONS = [
   }),
 ];
 
+const DEFAULT_WEEKLY_PERIOD = 'this-week';
+const DEFAULT_WEEKLY_FILTER = 'active-week';
+
 const FILTER_OPTIONS = [
   {
     value: 'all-players',
@@ -78,9 +81,9 @@ const cycleOptionValue = (options, currentValue, direction) => {
   return options[nextIndex]?.value ?? currentValue;
 };
 
-function WeeklyFiguresView({ onViewChange = null }) {
-  const [timePeriod, setTimePeriod] = useState('this-week');
-  const [playerFilter, setPlayerFilter] = useState('active-week');
+function WeeklyFiguresView({ onViewChange = null, viewContext = null }) {
+  const [timePeriod, setTimePeriod] = useState(() => String(viewContext?.timePeriod || DEFAULT_WEEKLY_PERIOD));
+  const [playerFilter, setPlayerFilter] = useState(() => String(viewContext?.playerFilter || DEFAULT_WEEKLY_FILTER));
   const [openDropdown, setOpenDropdown] = useState(null);
   const [summaryData, setSummaryData] = useState(null);
   const [customers, setCustomers] = useState([]);
@@ -95,6 +98,11 @@ function WeeklyFiguresView({ onViewChange = null }) {
     () => new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' }),
     []
   );
+  const summaryFocus = String(viewContext?.summaryFocus || '').trim().toLowerCase();
+  const focusActorLabel = String(viewContext?.actorLabel || '').trim().toUpperCase();
+  const isAgentCollectionsFocus = summaryFocus === 'agent-collections';
+  const isHouseCollectionsFocus = summaryFocus === 'house-collections';
+  const isCollectionsFocus = isAgentCollectionsFocus || isHouseCollectionsFocus;
 
   const roundForDisplay = (value) => {
     if (value === null || value === undefined) return null;
@@ -138,6 +146,16 @@ function WeeklyFiguresView({ onViewChange = null }) {
     return Math.abs(week) > 0.01;
   };
 
+  const getFocusedCollectionValue = (customer) => {
+    if (isAgentCollectionsFocus) {
+      return parseNumericAmount(customer?.agentCollections ?? 0);
+    }
+    if (isHouseCollectionsFocus) {
+      return parseNumericAmount(customer?.houseCollections ?? 0);
+    }
+    return 0;
+  };
+
   useEffect(() => {
     const fetchWeeklyFigures = async () => {
       const token = localStorage.getItem('token');
@@ -163,6 +181,16 @@ function WeeklyFiguresView({ onViewChange = null }) {
 
     fetchWeeklyFigures();
   }, [timePeriod]);
+
+  useEffect(() => {
+    if (!viewContext || typeof viewContext !== 'object') {
+      return;
+    }
+    setTimePeriod(String(viewContext?.timePeriod || DEFAULT_WEEKLY_PERIOD));
+    setPlayerFilter(String(viewContext?.playerFilter || DEFAULT_WEEKLY_FILTER));
+    setSelectedDayIndex(0);
+    setOpenDropdown(null);
+  }, [viewContext]);
 
   useEffect(() => {
     const handleResize = () => {
@@ -230,17 +258,27 @@ function WeeklyFiguresView({ onViewChange = null }) {
   ), [customersWithDuplicateFlags, playerFilter]);
 
   const filteredCustomers = useMemo(() => {
-    if (includeAllPlayers) {
-      return customersWithFilterState;
+    const baseList = includeAllPlayers
+      ? customersWithFilterState
+      : customersWithFilterState.filter((customer) => customer.matchesSelectedFilter);
+
+    if (!isCollectionsFocus) {
+      return baseList;
     }
-    return customersWithFilterState.filter((customer) => customer.matchesSelectedFilter);
-  }, [customersWithFilterState, includeAllPlayers]);
+
+    return baseList.filter((customer) => Math.abs(getFocusedCollectionValue(customer)) > 0.01);
+  }, [customersWithFilterState, getFocusedCollectionValue, includeAllPlayers, isCollectionsFocus]);
 
   const customerComparator = useMemo(() => {
     return (a, b) => {
       const aUsername = String(a?.username || '');
       const bUsername = String(b?.username || '');
       const usernameFallback = collator.compare(aUsername, bUsername);
+
+      if (isCollectionsFocus) {
+        const diff = Math.abs(getFocusedCollectionValue(b)) - Math.abs(getFocusedCollectionValue(a));
+        return diff !== 0 ? diff : usernameFallback;
+      }
 
       if (includeAllPlayers) {
         return usernameFallback;
@@ -260,7 +298,7 @@ function WeeklyFiguresView({ onViewChange = null }) {
       }
       return usernameFallback;
     };
-  }, [collator, includeAllPlayers, playerFilter]);
+  }, [collator, getFocusedCollectionValue, includeAllPlayers, isCollectionsFocus, playerFilter]);
 
   const sortedCustomers = useMemo(() => {
     return [...filteredCustomers].sort(customerComparator);
@@ -414,6 +452,29 @@ function WeeklyFiguresView({ onViewChange = null }) {
   };
 
   const visibleCustomers = useMemo(() => sortedCustomers, [sortedCustomers]);
+
+  const focusMessage = useMemo(() => {
+    const actorLabel = focusActorLabel || 'THIS AGENT';
+    if (summaryFocus === 'agent-collections') {
+      return `Opened from Agent Collections for ${actorLabel}. Showing This Week collections automatically.`;
+    }
+    if (summaryFocus === 'house-collections') {
+      return `Opened from House Collection for ${actorLabel}. Showing This Week collections automatically.`;
+    }
+    return '';
+  }, [focusActorLabel, summaryFocus]);
+
+  const focusedCollectionSummary = useMemo(() => {
+    if (!isCollectionsFocus) {
+      return null;
+    }
+    const total = visibleCustomers.reduce((sum, customer) => sum + getFocusedCollectionValue(customer), 0);
+    return {
+      label: isAgentCollectionsFocus ? 'Agent Collections' : 'House Collection',
+      count: visibleCustomers.length,
+      total,
+    };
+  }, [getFocusedCollectionValue, isAgentCollectionsFocus, isCollectionsFocus, visibleCustomers]);
 
   const dynamicSummary = useMemo(() => {
     const playerCount = visibleCustomers.length;
@@ -573,6 +634,12 @@ function WeeklyFiguresView({ onViewChange = null }) {
       </div>
 
       <div className="view-content">
+        {focusMessage && <div className="weekly-focus-banner">{focusMessage}</div>}
+        {focusedCollectionSummary && (
+          <div className="weekly-focus-banner">
+            {focusedCollectionSummary.label}: {focusedCollectionSummary.count} player{focusedCollectionSummary.count === 1 ? '' : 's'} matched, total {formatMoney(focusedCollectionSummary.total)}
+          </div>
+        )}
         {loading && <div style={{ padding: '20px', textAlign: 'center' }}>Loading weekly figures...</div>}
         {error && <div style={{ padding: '20px', color: 'red', textAlign: 'center' }}>{error}</div>}
         {!loading && !error && summaryData && (

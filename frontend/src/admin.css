@@ -466,6 +466,26 @@
   /* default */
 }
 
+.stat-box-button {
+  appearance: none;
+  width: 100%;
+  border: none;
+  border-left: 4px solid transparent;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+
+.stat-box-button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.10);
+}
+
+.stat-box-button:focus-visible {
+  outline: 2px solid #1d4ed8;
+  outline-offset: 2px;
+}
+
 /* Specific border colors for visual distinction */
 .stat-box:nth-child(1) { border-left-color: #4caf50; }
 .stat-box:nth-child(2) { border-left-color: #4caf50; }
@@ -2365,6 +2385,18 @@
   grid-template-columns: repeat(2, minmax(220px, 1fr));
   gap: 12px;
   align-items: center;
+}
+
+.weekly-focus-banner {
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid #cfe3f7;
+  background: linear-gradient(180deg, #f7fbff 0%, #edf5fc 100%);
+  color: #12324a;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
 }
 
 .period-filter-control {

@@ -201,6 +201,7 @@ function TransactionsHistoryView() {
   const [playerSuggestOpen, setPlayerSuggestOpen] = useState(false);
   const [enteredBySuggestOpen, setEnteredBySuggestOpen] = useState(false);
   const [agentOptions, setAgentOptions] = useState([]);
+  const [enteredByOptions, setEnteredByOptions] = useState([]);
   const [playerSuggestions, setPlayerSuggestions] = useState([]);
   const [playerSuggestLoading, setPlayerSuggestLoading] = useState(false);
   const playerSuggestCacheRef = useRef(new Map());
@@ -248,36 +249,34 @@ function TransactionsHistoryView() {
 
   const enteredBySuggestions = useMemo(() => {
     const q = enteredBySearch.trim().toLowerCase();
-    // Build unique "entered by" actors from loaded rows + agent options
     const seen = new Set();
     const out = [];
-    // First: actors from current result rows (most relevant)
+
+    const pushOption = (username, role = null) => {
+      const normalized = String(username || '').trim();
+      if (!normalized) return;
+      const key = normalized.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push({ id: key, username: normalized, role });
+    };
+
+    enteredByOptions.forEach((item) => {
+      pushOption(item?.value || item?.username, item?.role || null);
+    });
     rows.forEach((row) => {
-      const username = String(row?.actorUsername || row?.enteredBy || '').trim();
-      if (!username) return;
-      const key = username.toLowerCase();
-      if (seen.has(key)) return;
-      seen.add(key);
-      out.push({ id: key, username, role: row?.actorRole || null });
+      pushOption(row?.actorUsername || row?.enteredBy, row?.actorRole || null);
     });
-    // Second: all agents/admins from the agent tree (covers actors not yet in rows)
     agentOptions.forEach((agent) => {
-      const username = String(agent.username || '').trim();
-      if (!username) return;
-      const key = username.toLowerCase();
-      if (seen.has(key)) return;
-      seen.add(key);
-      out.push({ id: key, username, role: agent.role || null });
+      pushOption(agent?.username, agent?.role || null);
     });
-    // Also include HOUSE as an option
-    if (!seen.has('house')) {
-      out.push({ id: 'house', username: 'HOUSE', role: 'admin' });
-    }
+    pushOption('HOUSE', 'admin');
+
     const filtered = q === ''
       ? out
       : out.filter((item) => item.username.toLowerCase().includes(q));
     return filtered.slice(0, 12);
-  }, [enteredBySearch, rows, agentOptions]);
+  }, [enteredByOptions, enteredBySearch, rows, agentOptions]);
 
   const playerSeedSuggestions = useMemo(() => {
     const seen = new Set();
@@ -449,6 +448,7 @@ function TransactionsHistoryView() {
       );
       const apiTypeOptions = Array.isArray(data?.meta?.transactionTypes) ? data.meta.transactionTypes : [];
       setTypeOptions(apiTypeOptions.length > 0 ? apiTypeOptions : DEFAULT_TYPE_OPTIONS);
+      setEnteredByOptions(Array.isArray(data?.meta?.enteredByOptions) ? data.meta.enteredByOptions : []);
       setSearched(true);
     } catch (err) {
       console.error('Failed to load transaction history:', err);
@@ -546,7 +546,7 @@ function TransactionsHistoryView() {
                     <td className={`txh-col-amount ${isCredit ? 'txh-credit' : 'txh-debit'}`}>
                       {formatSignedAmount(signed, row.amount)}
                     </td>
-                    <td className="txh-col-user">{String(row.actorUsername || row.enteredBy || 'ME').toUpperCase()}</td>
+                    <td className="txh-col-user">{String(row.actorUsername || row.enteredBy || 'HOUSE').toUpperCase()}</td>
                   </tr>
                 );
               })}
@@ -790,7 +790,7 @@ function TransactionsHistoryView() {
                 }}
                 onFocus={() => { setEnteredBySuggestOpen(true); setAgentSuggestOpen(false); setPlayerSuggestOpen(false); }}
                 onBlur={() => setTimeout(() => setEnteredBySuggestOpen(false), 120)}
-                placeholder="Search who entered..."
+                placeholder="Search who entered the transaction..."
                 className="txh-search-input"
                 autoComplete="off"
               />
@@ -821,6 +821,8 @@ function TransactionsHistoryView() {
               )}
             </div>
           </div>
+
+          <div className="txh-filter-help">Use "Entered By" to filter the person or house account that posted the transaction.</div>
 
           <div className="txh-select-row">
             <div className="txh-type-filter-wrap">
@@ -963,6 +965,8 @@ function TransactionsHistoryView() {
         .txh-date-row {
           grid-template-columns: 68px 1fr;
           overflow: hidden;
+          position: relative;
+          z-index: 1;
         }
         .txh-search-label,
         .txh-date-icon {
@@ -1079,11 +1083,19 @@ function TransactionsHistoryView() {
         .txh-search-input::placeholder {
           color: #a0a7b0;
         }
+        .txh-filter-help {
+          margin-top: -2px;
+          font-size: 12px;
+          color: #5b6472;
+          line-height: 1.4;
+        }
         .txh-select-row {
           display: grid;
           grid-template-columns: 1fr 1.4fr;
           gap: 10px;
           align-items: center;
+          position: relative;
+          z-index: 1;
         }
         .txh-type-select,
         .txh-mode-select {
@@ -1427,6 +1439,9 @@ function TransactionsHistoryView() {
           .txh-select-row {
             grid-template-columns: 1fr 1fr;
             gap: 8px;
+          }
+          .txh-filter-help {
+            font-size: 11px;
           }
           .txh-type-select,
           .txh-mode-select {

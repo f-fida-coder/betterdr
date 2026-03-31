@@ -792,6 +792,7 @@ final class AdminCoreController
                     'extraSubAgents' => isset($agent['extraSubAgents']) && is_array($agent['extraSubAgents']) ? $agent['extraSubAgents'] : [],
                     'parentAgentId' => isset($agent['createdBy']) ? (string) $agent['createdBy'] : null,
                     'parentAgentModel' => $agent['createdByModel'] ?? null,
+                    'unlimitedBalance' => (bool) ($agent['unlimitedBalance'] ?? false),
                 ];
             }
 
@@ -2943,7 +2944,7 @@ final class AdminCoreController
                         '$gte' => MongoRepository::utcFromMillis($start->getTimestamp() * 1000),
                         '$lt' => MongoRepository::utcFromMillis($end->getTimestamp() * 1000),
                     ],
-                ], ['projection' => ['userId' => 1, 'amount' => 1, 'type' => 1, 'entrySide' => 1, 'reason' => 1, 'description' => 1, 'balanceBefore' => 1, 'balanceAfter' => 1, 'createdAt' => 1, 'status' => 1]])
+                ], ['projection' => ['userId' => 1, 'amount' => 1, 'type' => 1, 'entrySide' => 1, 'reason' => 1, 'description' => 1, 'balanceBefore' => 1, 'balanceAfter' => 1, 'createdAt' => 1, 'status' => 1, 'approvedByRole' => 1, 'adminId' => 1]])
                 : [];
 
             $activeWindowStart = (new DateTimeImmutable('now'))->modify('-14 days');
@@ -2982,6 +2983,32 @@ final class AdminCoreController
 
             $summaryDaily = [0, 0, 0, 0, 0, 0, 0];
             $activeWeeklyUserIds = [];
+            $missingRoleAdminIds = [];
+            foreach ($transactions as $tx) {
+                $txType = strtolower(trim((string) ($tx['type'] ?? '')));
+                if ($txType !== 'deposit' && $txType !== 'withdrawal') {
+                    continue;
+                }
+                $approverRole = trim((string) ($tx['approvedByRole'] ?? ''));
+                if ($approverRole === '') {
+                    $aid = (string) ($tx['adminId'] ?? '');
+                    if ($aid !== '' && preg_match('/^[a-f0-9]{24}$/i', $aid) === 1) {
+                        $missingRoleAdminIds[$aid] = true;
+                    }
+                }
+            }
+            $resolvedRoles = [];
+            if (count($missingRoleAdminIds) > 0) {
+                $lookupIds = array_map(static fn (string $id): string => MongoRepository::id($id), array_keys($missingRoleAdminIds));
+                $foundAgents = $this->db->findMany('agents', ['id' => ['$in' => $lookupIds]], ['projection' => ['id' => 1, 'role' => 1]]);
+                foreach ($foundAgents as $agentDoc) {
+                    $resolvedRoles[(string) ($agentDoc['id'] ?? '')] = strtolower(trim((string) ($agentDoc['role'] ?? 'agent')));
+                }
+                $foundAdmins = $this->db->findMany('admins', ['id' => ['$in' => $lookupIds]], ['projection' => ['id' => 1]]);
+                foreach ($foundAdmins as $adminDoc) {
+                    $resolvedRoles[(string) ($adminDoc['id'] ?? '')] = 'admin';
+                }
+            }
             foreach ($transactions as $tx) {
                 $uid = (string) ($tx['userId'] ?? '');
                 if ($uid !== '' && isset($userMap[$uid]) && $this->isWeeklyActiveTransaction($tx)) {
@@ -3007,6 +3034,24 @@ final class AdminCoreController
                         if ($lastCreditTimestamp === null || $created >= (int) $lastCreditTimestamp) {
                             $userMap[$uid]['lastCreditTimestamp'] = $created;
                             $userMap[$uid]['lastCreditDayIndex'] = $dayIndex;
+                        }
+                    }
+
+                    $txType = strtolower(trim((string) ($tx['type'] ?? '')));
+                    if ($txType === 'deposit' || $txType === 'withdrawal') {
+                        $approverRole = strtolower(trim((string) ($tx['approvedByRole'] ?? '')));
+                        if ($approverRole === '') {
+                            $aid = (string) ($tx['adminId'] ?? '');
+                            $approverRole = $resolvedRoles[$aid] ?? '';
+                        }
+                        $collectionAmount = $this->num($tx['amount'] ?? 0);
+                        if ($txType === 'withdrawal') {
+                            $collectionAmount *= -1;
+                        }
+                        if ($approverRole === 'agent') {
+                            $userMap[$uid]['agentCollections'] = ($userMap[$uid]['agentCollections'] ?? 0.0) + $collectionAmount;
+                        } elseif ($approverRole === 'admin') {
+                            $userMap[$uid]['houseCollections'] = ($userMap[$uid]['houseCollections'] ?? 0.0) + $collectionAmount;
                         }
                     }
                 }
@@ -3059,6 +3104,9 @@ final class AdminCoreController
                     'activeForWeek' => $activeForWeek,
                     'receivedDayIndex' => $receivedDayIndex,
                     'receivedDayLabel' => $receivedDayLabel,
+                    'agentCollections' => $this->num($row['agentCollections'] ?? 0),
+                    'houseCollections' => $this->num($row['houseCollections'] ?? 0),
+                    'netCollections' => $this->num($row['agentCollections'] ?? 0) + $this->num($row['houseCollections'] ?? 0),
                     'lastActive' => $user['lastActive'] ?? null,
                     'status' => $user['status'] ?? null,
                 ];
@@ -4276,6 +4324,15 @@ final class AdminCoreController
                 $balanceBefore = array_key_exists('balanceBefore', $tx) && $tx['balanceBefore'] !== null ? $this->num($tx['balanceBefore']) : null;
                 $balanceAfter = array_key_exists('balanceAfter', $tx) && $tx['balanceAfter'] !== null ? $this->num($tx['balanceAfter']) : null;
 
+                $resolvedActorUsername = trim((string) ($actorUsername ?? ''));
+                if ($resolvedActorUsername === '') {
+                    $resolvedActorUsername = 'HOUSE';
+                }
+                $resolvedActorRole = $actorRoleResolved ?? null;
+                if (($resolvedActorRole === null || $resolvedActorRole === '') && $resolvedActorUsername === 'HOUSE') {
+                    $resolvedActorRole = 'admin';
+                }
+
                 $formatted[] = [
                     'id' => (string) ($tx['_deletedTxId'] ?? ($tx['id'] ?? '')),
                     'transactionId' => (string) ($tx['id'] ?? ''),
@@ -4305,8 +4362,9 @@ final class AdminCoreController
                     'agentId' => $assignedAgentId !== '' ? $assignedAgentId : null,
                     'agentUsername' => $assignedAgentUsername,
                     'actorId' => $actorRefId !== '' ? $actorRefId : null,
-                    'actorUsername' => $actorUsername,
-                    'actorRole' => $actorRoleResolved,
+                    'actorUsername' => $resolvedActorUsername,
+                    'actorRole' => $resolvedActorRole,
+                    'enteredBy' => $resolvedActorUsername,
                     'isFreePlay' => $isFreePlay,
                 ];
             }
@@ -4335,9 +4393,7 @@ final class AdminCoreController
                     }
 
                     if ($applyAgentTextFilter) {
-                        $agentMatch = $containsNeedle((string) ($row['agentUsername'] ?? ''), $agentsSearchLc)
-                            || $containsNeedle((string) ($row['actorUsername'] ?? ''), $agentsSearchLc)
-                            || $containsNeedle((string) ($row['description'] ?? ''), $agentsSearchLc);
+                        $agentMatch = $containsNeedle((string) ($row['agentUsername'] ?? ''), $agentsSearchLc);
                         if (!$agentMatch) {
                             return false;
                         }
@@ -4507,6 +4563,28 @@ final class AdminCoreController
                 ['value' => 'fp_deposit', 'label' => 'Free Play'],
             ];
 
+            $enteredByOptions = [];
+            $enteredBySeen = [];
+            foreach ($formatted as $row) {
+                $username = trim((string) ($row['actorUsername'] ?? ''));
+                if ($username === '') {
+                    continue;
+                }
+                $key = strtolower($username);
+                if (isset($enteredBySeen[$key])) {
+                    continue;
+                }
+                $enteredBySeen[$key] = true;
+                $enteredByOptions[] = [
+                    'value' => $username,
+                    'label' => strtoupper($username),
+                    'role' => $row['actorRole'] ?? null,
+                ];
+            }
+            usort($enteredByOptions, static function (array $a, array $b): int {
+                return strcmp((string) ($a['value'] ?? ''), (string) ($b['value'] ?? ''));
+            });
+
             Response::json([
                 'mode' => $mode,
                 'resultType' => $resultType,
@@ -4531,6 +4609,7 @@ final class AdminCoreController
                 ],
                 'meta' => [
                     'transactionTypes' => $transactionTypeOptions,
+                    'enteredByOptions' => $enteredByOptions,
                     'viewModes' => [
                         ['value' => 'player-transactions', 'label' => 'Player Transactions'],
                         ['value' => 'agent-transactions', 'label' => 'Agent Transactions'],
@@ -5957,6 +6036,9 @@ final class AdminCoreController
             }
             if (isset($body['dashboardLayout']) && $body['dashboardLayout'] !== '') {
                 $updates['dashboardLayout'] = $body['dashboardLayout'];
+            }
+            if (array_key_exists('unlimitedBalance', $body)) {
+                $updates['unlimitedBalance'] = (bool) $body['unlimitedBalance'];
             }
 
             $this->db->beginTransaction();
@@ -8047,7 +8129,8 @@ final class AdminCoreController
                         return;
                     }
                     $agentBalance = $this->num($lockedAgent['balance'] ?? 0);
-                    if ($diff > 0 && $agentBalance < $diff) {
+                    $hasUnlimited = !empty($lockedAgent['unlimitedBalance']);
+                    if ($diff > 0 && !$hasUnlimited && $agentBalance < $diff) {
                         $this->db->rollback();
                         Response::json(['message' => 'Insufficient balance. You need ' . round($diff) . ' but only have ' . round($agentBalance)], 400);
                         return;

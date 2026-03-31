@@ -434,6 +434,18 @@ function AdminHeader({
   const agentPercentValue = summary.agentPercent;
   const commissionDistribution = summary.commissionDistribution ?? [];
 
+  const openWeeklyCollections = (summaryFocus) => {
+    if (typeof onViewChange !== 'function') {
+      return;
+    }
+    onViewChange('weekly-figures', {
+      summaryFocus,
+      timePeriod: 'this-week',
+      playerFilter: 'all-players',
+      actorLabel: displayName,
+    });
+  };
+
   // For Admin, show Total Outstanding from all users. For Agent/User, show their own.
   // const isSuperAdmin = profile?.role === 'admin' || profile?.role === 'super_agent' || profile?.role === 'agent';
   // const outstandingDisplay = isSuperAdmin ? summary.totalOutstanding : (profile?.balanceOwed ?? null);
@@ -749,10 +761,26 @@ function AdminHeader({
             </div>
 
             {/* Row 2: Active Players / Player Fees (agent) or Active Accts / Balance (other) */}
-            <div className="stat-box">
-              <span className="stat-label">{roleKey === 'agent' ? 'Active Players' : 'Active Accts'}</span>
-              <span className="stat-value highlight">{formatCount(summary.activeAccounts)}</span>
-            </div>
+            {roleKey === 'agent' ? (
+              <button
+                type="button"
+                className="stat-box stat-box-button"
+                onClick={() => onViewChange?.('weekly-figures', {
+                  timePeriod: 'this-week',
+                  playerFilter: 'active-week',
+                  actorLabel: displayName,
+                })}
+                aria-label={`Open weekly figures for ${displayName} active players this week`}
+              >
+                <span className="stat-label">Active Players</span>
+                <span className="stat-value highlight">{formatCount(summary.activeAccounts)}</span>
+              </button>
+            ) : (
+              <div className="stat-box">
+                <span className="stat-label">Active Accts</span>
+                <span className="stat-value highlight">{formatCount(summary.activeAccounts)}</span>
+              </div>
+            )}
             {roleKey === 'agent' ? (
               <div className="stat-box">
                 <span className="stat-label">Player Fees</span>
@@ -770,14 +798,24 @@ function AdminHeader({
             {roleKey === 'agent' && (() => {
               return (
                 <>
-                  <div className="stat-box">
+                  <button
+                    type="button"
+                    className="stat-box stat-box-button"
+                    onClick={() => openWeeklyCollections('agent-collections')}
+                    aria-label={`Open weekly figures for ${displayName} agent collections`}
+                  >
                     <span className="stat-label">Agent Collections</span>
                     <span className={`stat-value ${getSignedValueClass(agentCollectionsValue)}`}>{formatCurrency(agentCollectionsValue)}</span>
-                  </div>
-                  <div className="stat-box">
-                    <span className="stat-label">House Collections</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="stat-box stat-box-button"
+                    onClick={() => openWeeklyCollections('house-collections')}
+                    aria-label={`Open weekly figures for ${displayName} house collections`}
+                  >
+                    <span className="stat-label">House Collection</span>
                     <span className={`stat-value ${getSignedValueClass(houseCollectionsValue)}`}>{formatCurrency(houseCollectionsValue)}</span>
-                  </div>
+                  </button>
                 </>
               );
             })()}
@@ -805,7 +843,7 @@ function AdminHeader({
             )}
             {roleKey === 'agent' && (
               <div className="stat-box">
-                <span className="stat-label">House Share</span>
+                <span className="stat-label">Kick To House</span>
                 <span className={`stat-value ${getSignedValueClass(houseShareValue)}`}>{formatCurrency(houseShareValue)}</span>
               </div>
             )}
