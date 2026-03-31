@@ -78,20 +78,19 @@ $unpaidPlayerFees = $activeNonPositive * $feePerPlayer
 ```php
 $agentCollections = $agentDeposits - $agentWithdrawals
 ```
-- **agentDeposits**: Sum of deposits approved by `approvedByRole = 'agent'`
-- **agentWithdrawals**: Sum of withdrawals approved by `approvedByRole = 'agent'`
+- **agentDeposits**: Sum of deposits approved by the logged-in agent account or its same-person `MA` counterpart
+- **agentWithdrawals**: Sum of withdrawals approved by the logged-in agent account or its same-person `MA` counterpart
 - Only includes `deposit` and `withdrawal` transaction types
-- For older transactions missing `approvedByRole`, resolves from `adminId`:
-  - Look up `adminId` in `agents` collection → `'agent'`
-  - Look up `adminId` in `admins` collection → `'admin'`
+- For agent-like views, any other scoped approver counts toward house collections
+- For older transactions missing `approvedByRole`, resolves from `adminId`
 
 ### 7. **House Collections**
 ```php
 $houseCollections = $houseDeposits - $houseWithdrawals
 ```
-- **houseDeposits**: Sum of deposits approved by `approvedByRole = 'admin'`
-- **houseWithdrawals**: Sum of withdrawals approved by `approvedByRole = 'admin'`
-- Transactions approved by `master_agent` or `super_agent` are **excluded** from both
+- **houseDeposits**: Sum of deposits approved by any scoped approver outside the logged-in linked pair
+- **houseWithdrawals**: Sum of withdrawals approved by any scoped approver outside the logged-in linked pair
+- In practice this is usually house/root activity above the agent, such as `HOUSE/HOUSE365`
 
 ### 8. **Net Collections**
 ```php
@@ -151,23 +150,25 @@ $remainingAfterHousePayback = $agentCollections
 
 ### 14. **Makeup**
 ```php
-$makeup = $netCollections < 0.0 ? $netCollections : 0.0
+$makeup = $netCollections < 0.0
+    ? round($netCollections - $unpaidPlayerFees, 2)
+    : 0.0
 ```
-- Negative amount if net collections are negative
+- Negative net collections plus unpaid player fees
 - Zero otherwise
 - Represents agent's "debt" or negative performance
 
 ### 15. **Agent Profit After Fees**
 ```php
-$agentProfitAfterFees = max(0.0, $agentShareFromProfit - $playerFees)
+$agentProfitAfterFees = max(0.0, round($agentShareFromProfit - $paidPlayerFees, 2))
 ```
-- Agent's share minus player fees
+- Agent's share minus paid player fees only
 - Zero if fees exceed share
 
 ### 16. **House Final Amount** (Agent's Settlement Balance)
 ```php
 if ($netCollections >= 0.0) {
-    $houseFinalAmount = round(max(0.0, $houseShareFromProfit) + max(0.0, $playerFees), 2)
+    $houseFinalAmount = round(max(0.0, $houseShareFromProfit) + max(0.0, $paidPlayerFees), 2)
 } else {
     $houseFinalAmount = round(max(0.0, $agentCollections), 2)
 }
@@ -257,9 +258,9 @@ Calculations:
 - paidPlayerFees = 8 * $4 = $32
 - unpaidPlayerFees = 2 * $4 = $8
 - makeup = 0 (net is positive)
-- agentProfitAfterFees = max(0, 1750 - 40) = $1710
-- houseFinalAmount = 1750 + 40 = $1790
-- unpaidAmount = max(0, 1790) = $1790
+- agentProfitAfterFees = max(0, 1750 - 32) = $1718
+- houseFinalAmount = 1750 + 32 = $1782
+- unpaidAmount = max(0, 1782) = $1782
 ```
 
 ---

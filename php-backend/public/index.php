@@ -13,6 +13,7 @@ require_once __DIR__ . '/../src/SportsbookHealth.php';
 require_once __DIR__ . '/../src/SportsbookBetSupport.php';
 require_once __DIR__ . '/../src/MongoRepository.php';
 require_once __DIR__ . '/../src/BetModeRules.php';
+require_once __DIR__ . '/../src/AgentSettlementRules.php';
 require_once __DIR__ . '/../src/BetSettlementService.php';
 require_once __DIR__ . '/../src/OddsSyncService.php';
 require_once __DIR__ . '/../src/AuthController.php';

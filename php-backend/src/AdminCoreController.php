@@ -42,7 +42,8 @@ final class AdminCoreController
         }
         // Fallback: look by username
         foreach ($admins as $admin) {
-            if (strtolower(trim((string) ($admin['username'] ?? ''))) === 'house') {
+            $username = strtolower(trim((string) ($admin['username'] ?? '')));
+            if ($username === 'house' || $username === 'house365') {
                 $this->cachedHouseAdmin = $admin;
                 return $admin;
             }
@@ -1047,16 +1048,11 @@ final class AdminCoreController
 
                 // Agent Collections vs House Collections:
                 // Only deposits & withdrawals (no promo, no adjustments).
-                // Agent collections = approved by 'agent' only.
-                // House collections = approved by 'admin' only.
-                // Transactions approved by master_agent/super_agent are excluded from both.
-                //
-                // For older transactions missing approvedByRole, resolve from adminId:
-                // look up adminId in agents collection → 'agent', in admins collection → 'admin'.
-                $agentDeposits = 0.0;
-                $agentWithdrawals = 0.0;
-                $houseDeposits = 0.0;
-                $houseWithdrawals = 0.0;
+                // For agent-like actors, agent collections are limited to the logged-in
+                // account and its same-person MA counterpart. Any other scoped approver
+                // counts toward house collections.
+                $strictLinkedScope = in_array($actorRole, ['agent', 'master_agent', 'super_agent'], true);
+                $linkedApproverIds = $this->buildLinkedSettlementApproverIdSet($actor);
 
                 // Collect adminIds from transactions missing approvedByRole for bulk lookup
                 // Also track active users in the same pass to reduce iterations
@@ -1122,13 +1118,21 @@ final class AdminCoreController
                         $approverRole = $resolvedRoles[$aid] ?? '';
                     }
                     $amt = $this->num($tx['amount'] ?? 0);
-                    if ($approverRole === 'agent') {
+                    $aid = (string) ($tx['adminId'] ?? '');
+                    $collectionBucket = AgentSettlementRules::classifyScopedApprover(
+                        $approverRole,
+                        $aid,
+                        $linkedApproverIds,
+                        $strictLinkedScope
+                    );
+
+                    if ($collectionBucket === 'agent') {
                         if ($txType === 'deposit') {
                             $agentDeposits += $amt;
                         } else {
                             $agentWithdrawals += $amt;
                         }
-                    } elseif ($approverRole === 'admin') {
+                    } elseif ($collectionBucket === 'admin') {
                         if ($txType === 'deposit') {
                             $houseDeposits += $amt;
                         } else {
@@ -1163,11 +1167,11 @@ final class AdminCoreController
                 $actorAgentPercent = isset($actor['agentPercent']) ? (float) $actor['agentPercent'] : null;
                 $actorRole = strtolower(trim((string) ($actor['role'] ?? '')));
 
-                // Pass agentPercent so settlement uses real commission split
-                $settlementSummary = $this->buildAgentSettlementSummary(
+                $settlementSummary = AgentSettlementRules::summarize(
                     $agentDeposits - $agentWithdrawals,
                     $houseDeposits - $houseWithdrawals,
-                    $totalPlayerFees,
+                    $paidPlayerFees,
+                    $unpaidPlayerFees,
                     $actorAgentPercent
                 );
 
@@ -11194,57 +11198,36 @@ final class AdminCoreController
     }
 
     /**
-     * @return array<string, float>
+     * @return array<string, bool>
      */
-    private function buildAgentSettlementSummary(
-        float $agentCollections,
-        float $houseCollections,
-        float $playerFees,
-        ?float $agentPercent = null
-    ): array {
-        $netCollections = $agentCollections + $houseCollections;
-        $commissionableProfit = max(0.0, $agentCollections);
-
-        // Apply agent commission percentage to NET collections (agent+house combined)
-        if ($agentPercent !== null && $agentPercent >= 0 && $agentPercent <= 100) {
-            $agentShareFromProfit = round($netCollections * $agentPercent / 100, 2);
-            $houseShareFromProfit = round($netCollections - $agentShareFromProfit, 2);
-        } else {
-            // Admin view or no commission set: agent gets full commissionable profit
-            $agentShareFromProfit = $commissionableProfit;
-            $houseShareFromProfit = 0.0;
+    private function buildLinkedSettlementApproverIdSet(array $actor): array
+    {
+        $role = strtolower(trim((string) ($actor['role'] ?? '')));
+        if (!in_array($role, ['agent', 'master_agent', 'super_agent'], true)) {
+            return [];
         }
 
-        $housePayback = 0.0;
-        $remainingAfterHousePayback = $agentCollections;
-        $makeup = $netCollections < 0.0 ? $netCollections : 0.0;
-        $agentProfitAfterFees = max(0.0, $agentShareFromProfit - $playerFees);
+        $approverIds = [];
+        $actorId = (string) ($actor['id'] ?? '');
+        if ($actorId !== '' && preg_match('/^[a-f0-9]{24}$/i', $actorId) === 1) {
+            $approverIds[$actorId] = true;
+        }
 
-        $positivePlayerFees = max(0.0, $playerFees);
-        $positiveAgentCollections = max(0.0, $agentCollections);
+        $linkedUsername = AgentSettlementRules::linkedCounterpartUsername(
+            (string) ($actor['username'] ?? ''),
+            $role
+        );
+        if ($linkedUsername === null || $linkedUsername === '') {
+            return $approverIds;
+        }
 
-        // Dashboard balance business rule:
-        // - Positive week: house percentage + positive player fees.
-        // - Negative week: only positive agent-collected money applied toward makeup.
-        $houseFinalAmount = $netCollections >= 0.0
-            ? round(max(0.0, $houseShareFromProfit) + $positivePlayerFees, 2)
-            : round($positiveAgentCollections, 2);
-        $unpaidAmount = max(0.0, $houseFinalAmount);
+        $linked = $this->db->findOne('agents', ['username' => $linkedUsername], ['projection' => ['id' => 1]]);
+        $linkedId = (string) ($linked['id'] ?? '');
+        if ($linkedId !== '' && preg_match('/^[a-f0-9]{24}$/i', $linkedId) === 1) {
+            $approverIds[$linkedId] = true;
+        }
 
-        return [
-            'agentCollections' => $agentCollections,
-            'houseCollections' => $houseCollections,
-            'netCollections' => $netCollections,
-            'housePayback' => $housePayback,
-            'remainingAfterHousePayback' => $remainingAfterHousePayback,
-            'commissionableProfit' => $commissionableProfit,
-            'houseShareFromProfit' => $houseShareFromProfit,
-            'agentShareFromProfit' => $agentShareFromProfit,
-            'houseFinalAmount' => $houseFinalAmount,
-            'agentProfitAfterFees' => $agentProfitAfterFees,
-            'makeup' => $makeup,
-            'unpaidAmount' => $unpaidAmount,
-        ];
+        return $approverIds;
     }
 
     /**
@@ -11254,7 +11237,7 @@ final class AdminCoreController
      */
     private function buildEmptyHeaderSummary(): array
     {
-        $emptySettlement = $this->buildAgentSettlementSummary(0.0, 0.0, 0.0);
+        $emptySettlement = AgentSettlementRules::summarize(0.0, 0.0, 0.0, 0.0);
         
         return [
             'totalBalance' => 0.0,
