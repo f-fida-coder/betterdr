@@ -11217,11 +11217,10 @@ final class AdminCoreController
         float $playerFees,
         ?float $agentPercent = null
     ): array {
-        $housePayback = $houseCollections < 0.0 ? abs($houseCollections) : 0.0;
-        $remainingAfterHousePayback = $agentCollections - $housePayback;
-        $commissionableProfit = max(0.0, $remainingAfterHousePayback);
+        $netCollections = $agentCollections + $houseCollections;
+        $commissionableProfit = max(0.0, $netCollections);
 
-        // Apply agent commission percentage to split profit between agent and house
+        // Apply agent commission percentage to net collections (agent+house combined)
         if ($agentPercent !== null && $agentPercent >= 0 && $agentPercent <= 100) {
             $agentShareFromProfit = round($commissionableProfit * $agentPercent / 100, 2);
             $houseShareFromProfit = round($commissionableProfit - $agentShareFromProfit, 2);
@@ -11231,15 +11230,18 @@ final class AdminCoreController
             $houseShareFromProfit = 0.0;
         }
 
-        $houseFinalAmount = $housePayback + $houseShareFromProfit + $playerFees;
-        $makeup = min(0.0, $remainingAfterHousePayback);
+        $housePayback = 0.0;
+        $remainingAfterHousePayback = $agentCollections;
+        $makeup = $netCollections < 0.0 ? $netCollections : 0.0;
         $agentProfitAfterFees = max(0.0, $agentShareFromProfit - $playerFees);
-        $unpaidAmount = max(0.0, $houseFinalAmount - $agentCollections);
+        // Balance: agent owes house (houseShare + fees) minus what house already collected
+        $houseFinalAmount = round($houseShareFromProfit + $playerFees - $houseCollections, 2);
+        $unpaidAmount = max(0.0, $houseFinalAmount);
 
         return [
             'agentCollections' => $agentCollections,
             'houseCollections' => $houseCollections,
-            'netCollections' => $houseCollections + $agentCollections,
+            'netCollections' => $netCollections,
             'housePayback' => $housePayback,
             'remainingAfterHousePayback' => $remainingAfterHousePayback,
             'commissionableProfit' => $commissionableProfit,
