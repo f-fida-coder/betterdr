@@ -296,6 +296,7 @@ final class PaymentsController
                 'balanceBefore' => $balanceBefore,
                 'balanceAfter' => $newBalance,
                 'stripePaymentId' => $stripePaymentId,
+                'approvedByRole' => 'admin',
                 'description' => 'Stripe Deposit',
                 'createdAt' => $now,
                 'updatedAt' => $now,

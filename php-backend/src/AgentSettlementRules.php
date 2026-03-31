@@ -36,7 +36,7 @@ final class AgentSettlementRules
         ?string $approverId,
         array $linkedApproverIds = [],
         bool $strictLinkedScope = false
-    ): ?string {
+    ): string {
         $normalizedRole = strtolower(trim((string) $approverRole));
         $normalizedId = trim((string) $approverId);
 
@@ -48,14 +48,24 @@ final class AgentSettlementRules
             return 'agent';
         }
 
-        if ($normalizedRole === 'admin') {
-            return 'admin';
-        }
-
-        return null;
+        // Default to house for admin role, unknown role, or missing role.
+        // Deposits/withdrawals with no identifiable agent approver are
+        // treated as house-side (e.g. Stripe auto-deposits).
+        return 'admin';
     }
 
     /**
+     * Multi-week settlement with cumulative makeup and carry-forward.
+     *
+     * Settlement order (CRITICAL):
+     *   1. Compute Net = Agent Collections - House Collections
+     *   2. If positive week AND previousMakeup > 0:
+     *        reduce makeup first, remainder becomes commissionable profit
+     *   3. Commission split only applies to commissionable profit
+     *   4. Negative-player fees ALWAYS go to makeup (never to balance)
+     *   5. Weekly House Balance = kick + paid fees (this week only)
+     *   6. Balance Owed = previous + houseCollections + weeklyHouseBalance
+     *
      * @return array<string, float>
      */
     public static function summarize(
@@ -63,47 +73,82 @@ final class AgentSettlementRules
         float $houseCollections,
         float $paidPlayerFees,
         float $unpaidPlayerFees,
-        ?float $agentPercent = null
+        ?float $agentPercent = null,
+        float $previousMakeup = 0.0,
+        float $previousBalanceOwed = 0.0
     ): array {
-        $netCollections = $agentCollections + $houseCollections;
-        $commissionableProfit = max(0.0, $agentCollections);
-
-        if ($agentPercent !== null && $agentPercent >= 0 && $agentPercent <= 100) {
-            $agentShareFromProfit = round($netCollections * $agentPercent / 100, 2);
-            $houseShareFromProfit = round($netCollections - $agentShareFromProfit, 2);
-        } else {
-            $agentShareFromProfit = $commissionableProfit;
-            $houseShareFromProfit = 0.0;
-        }
+        $netCollections = $agentCollections - $houseCollections;
+        $isPositiveWeek = $netCollections > 0.0;
 
         $normalizedPaidFees = max(0.0, $paidPlayerFees);
         $normalizedUnpaidFees = max(0.0, $unpaidPlayerFees);
-        $housePayback = 0.0;
-        $remainingAfterHousePayback = $agentCollections;
-        $makeup = $netCollections < 0.0
-            ? round($netCollections - $normalizedUnpaidFees, 2)
-            : 0.0;
-        $agentProfitAfterFees = max(0.0, round($agentShareFromProfit - $normalizedPaidFees, 2));
+        $previousMakeup = max(0.0, $previousMakeup);
 
-        $positiveAgentCollections = max(0.0, $agentCollections);
-        $houseFinalAmount = $netCollections >= 0.0
-            ? round(max(0.0, $houseShareFromProfit) + $normalizedPaidFees, 2)
-            : round($positiveAgentCollections, 2);
-        $unpaidAmount = max(0.0, $houseFinalAmount);
+        // ── Settlement order ───────────────────────────────────────────
+        // Step 1: In a positive week, reduce makeup before distributing
+        $makeupReduction = 0.0;
+        $commissionableProfit = 0.0;
+
+        if ($isPositiveWeek) {
+            if ($previousMakeup > 0.0) {
+                // Use net to pay down makeup first
+                $makeupReduction = round(min($netCollections, $previousMakeup), 2);
+                $commissionableProfit = round(max(0.0, $netCollections - $makeupReduction), 2);
+            } else {
+                $commissionableProfit = round($netCollections, 2);
+            }
+        }
+
+        // Step 2: Commission split ONLY on profit remaining after makeup
+        if ($commissionableProfit > 0.0 && $agentPercent !== null && $agentPercent >= 0 && $agentPercent <= 100) {
+            $agentSplit = round($commissionableProfit * $agentPercent / 100, 2);
+            $kickToHouse = round($commissionableProfit - $agentSplit, 2);
+        } elseif ($commissionableProfit > 0.0) {
+            $agentSplit = round($commissionableProfit, 2);
+            $kickToHouse = 0.0;
+        } else {
+            $agentSplit = 0.0;
+            $kickToHouse = 0.0;
+        }
+
+        // Step 3: Agent profit after paid player fees
+        $agentProfitAfterFees = round($agentSplit - $normalizedPaidFees, 2);
+
+        // ── Weekly House Balance (THIS WEEK ONLY) ──────────────────────
+        // kick + paid player fees; does NOT include previous balance or makeup
+        $weeklyHouseBalance = ($commissionableProfit > 0.0)
+            ? round($kickToHouse + $normalizedPaidFees, 2)
+            : 0.0;
+
+        // ── Makeup (cumulative) ────────────────────────────────────────
+        // Negative-player fees ALWAYS add to makeup (positive or negative week)
+        // Negative net adds the deficit; positive net reduces via makeupReduction
+        $weeklyMakeupAddition = round(max(0.0, -$netCollections) + $normalizedUnpaidFees, 2);
+        $cumulativeMakeup = max(0.0, round(
+            $previousMakeup - $makeupReduction + $weeklyMakeupAddition,
+            2
+        ));
+
+        // ── Balance Owed (cumulative) ──────────────────────────────────
+        // Running total: previous + house collections this week + weekly settlement
+        // paymentsMade defaults to 0 (tracked separately when payment feature exists)
+        $balanceOwed = round($previousBalanceOwed + $houseCollections + $weeklyHouseBalance, 2);
 
         return [
-            'agentCollections' => $agentCollections,
-            'houseCollections' => $houseCollections,
-            'netCollections' => $netCollections,
-            'housePayback' => $housePayback,
-            'remainingAfterHousePayback' => $remainingAfterHousePayback,
+            'agentCollections'     => $agentCollections,
+            'houseCollections'     => $houseCollections,
+            'netCollections'       => $netCollections,
             'commissionableProfit' => $commissionableProfit,
-            'houseShareFromProfit' => $houseShareFromProfit,
-            'agentShareFromProfit' => $agentShareFromProfit,
-            'houseFinalAmount' => $houseFinalAmount,
+            'agentSplit'           => $agentSplit,
+            'kickToHouse'          => $kickToHouse,
             'agentProfitAfterFees' => $agentProfitAfterFees,
-            'makeup' => $makeup,
-            'unpaidAmount' => $unpaidAmount,
+            'weeklyHouseBalance'   => $weeklyHouseBalance,
+            'previousMakeup'       => $previousMakeup,
+            'makeupReduction'      => $makeupReduction,
+            'weeklyMakeupAddition' => $weeklyMakeupAddition,
+            'cumulativeMakeup'     => $cumulativeMakeup,
+            'previousBalanceOwed'  => $previousBalanceOwed,
+            'balanceOwed'          => $balanceOwed,
         ];
     }
 }

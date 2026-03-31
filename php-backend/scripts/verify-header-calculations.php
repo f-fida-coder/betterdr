@@ -102,15 +102,17 @@ function validateStructure(array $data): array
         'agentCollections',
         'houseCollections',
         'netCollections',
-        'housePayback',
-        'remainingAfterHousePayback',
         'commissionableProfit',
-        'houseShareFromProfit',
-        'agentShareFromProfit',
-        'houseFinalAmount',
+        'agentSplit',
+        'kickToHouse',
         'agentProfitAfterFees',
-        'makeup',
-        'unpaidAmount',
+        'weeklyHouseBalance',
+        'previousMakeup',
+        'makeupReduction',
+        'weeklyMakeupAddition',
+        'cumulativeMakeup',
+        'previousBalanceOwed',
+        'balanceOwed',
         'commissionDistribution',
         'sportsbookHealth',
     ];
@@ -144,9 +146,10 @@ function compareResults(array $before, array $after): array
         'paidPlayerFees', 'unpaidPlayerFees', 'todayNet', 'weekNet',
         'agentDeposits', 'agentWithdrawals', 'houseDeposits', 'houseWithdrawals',
         'agentCollections', 'houseCollections', 'netCollections',
-        'housePayback', 'remainingAfterHousePayback', 'commissionableProfit',
-        'houseShareFromProfit', 'agentShareFromProfit', 'houseFinalAmount',
-        'agentProfitAfterFees', 'makeup', 'unpaidAmount',
+        'commissionableProfit', 'agentSplit', 'kickToHouse',
+        'agentProfitAfterFees', 'weeklyHouseBalance',
+        'previousMakeup', 'makeupReduction', 'weeklyMakeupAddition', 'cumulativeMakeup',
+        'previousBalanceOwed', 'balanceOwed',
     ];
     
     $intFields = ['activeAccounts'];
@@ -325,7 +328,7 @@ try {
             }
             echo "\n";
         } else {
-            echo "✅ Response structure is valid (all 27 fields present)\n\n";
+            echo "✅ Response structure is valid (all " . count($requiredFields) . " fields present)\n\n";
         }
         
         // Display summary
@@ -340,11 +343,12 @@ try {
         echo "House Collections:      " . formatNumber($data['houseCollections'] ?? null) . "\n";
         echo "Net Collections:        " . formatNumber($data['netCollections'] ?? null) . "\n";
         echo "Commissionable Profit:  " . formatNumber($data['commissionableProfit'] ?? null) . "\n";
-        echo "Agent Share:            " . formatNumber($data['agentShareFromProfit'] ?? null) . "\n";
-        echo "House Share:            " . formatNumber($data['houseShareFromProfit'] ?? null) . "\n";
+        echo "Agent Split:            " . formatNumber($data['agentSplit'] ?? null) . "\n";
+        echo "Kick To House:          " . formatNumber($data['kickToHouse'] ?? null) . "\n";
         echo "Agent Profit After Fees: " . formatNumber($data['agentProfitAfterFees'] ?? null) . "\n";
-        echo "House Final Amount:     " . formatNumber($data['houseFinalAmount'] ?? null) . "\n";
-        echo "Makeup:                 " . formatNumber($data['makeup'] ?? null) . "\n";
+        echo "Weekly House Balance:   " . formatNumber($data['weeklyHouseBalance'] ?? null) . "\n";
+        echo "Cumulative Makeup:      " . formatNumber($data['cumulativeMakeup'] ?? null) . "\n";
+        echo "Balance Owed:           " . formatNumber($data['balanceOwed'] ?? null) . "\n";
         echo "Player Fees (Total):    " . formatNumber($data['totalPlayerFees'] ?? null) . "\n";
         echo "\n";
         

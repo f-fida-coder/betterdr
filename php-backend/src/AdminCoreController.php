@@ -205,6 +205,10 @@ final class AdminCoreController
             $this->declinePendingTransaction();
             return true;
         }
+        if ($method === 'POST' && $path === '/api/admin/finalize-settlement') {
+            $this->finalizeSettlement();
+            return true;
+        }
         if ($method === 'GET' && $path === '/api/admin/cashier/summary') {
             $this->getCashierSummary();
             return true;
@@ -1167,12 +1171,18 @@ final class AdminCoreController
                 $actorAgentPercent = isset($actor['agentPercent']) ? (float) $actor['agentPercent'] : null;
                 $actorRole = strtolower(trim((string) ($actor['role'] ?? '')));
 
+                // Carry-forward: read cumulative values from agent record
+                $previousMakeup = $this->num($actor['settlementMakeup'] ?? 0);
+                $previousBalanceOwed = $this->num($actor['settlementBalanceOwed'] ?? 0);
+
                 $settlementSummary = AgentSettlementRules::summarize(
                     $agentDeposits - $agentWithdrawals,
                     $houseDeposits - $houseWithdrawals,
                     $paidPlayerFees,
                     $unpaidPlayerFees,
-                    $actorAgentPercent
+                    $actorAgentPercent,
+                    $previousMakeup,
+                    $previousBalanceOwed
                 );
 
                 // Build commission distribution across upline chain for agent actors
@@ -1239,15 +1249,17 @@ final class AdminCoreController
                     'agentCollections' => $settlementSummary['agentCollections'],
                     'houseCollections' => $settlementSummary['houseCollections'],
                     'netCollections' => $settlementSummary['netCollections'],
-                    'housePayback' => $settlementSummary['housePayback'],
-                    'remainingAfterHousePayback' => $settlementSummary['remainingAfterHousePayback'],
                     'commissionableProfit' => $settlementSummary['commissionableProfit'],
-                    'houseShareFromProfit' => $settlementSummary['houseShareFromProfit'],
-                    'agentShareFromProfit' => $settlementSummary['agentShareFromProfit'],
-                    'houseFinalAmount' => $settlementSummary['houseFinalAmount'],
+                    'agentSplit' => $settlementSummary['agentSplit'],
+                    'kickToHouse' => $settlementSummary['kickToHouse'],
                     'agentProfitAfterFees' => $settlementSummary['agentProfitAfterFees'],
-                    'makeup' => $settlementSummary['makeup'],
-                    'unpaidAmount' => $settlementSummary['unpaidAmount'],
+                    'weeklyHouseBalance' => $settlementSummary['weeklyHouseBalance'],
+                    'previousMakeup' => $settlementSummary['previousMakeup'],
+                    'makeupReduction' => $settlementSummary['makeupReduction'],
+                    'weeklyMakeupAddition' => $settlementSummary['weeklyMakeupAddition'],
+                    'cumulativeMakeup' => $settlementSummary['cumulativeMakeup'],
+                    'previousBalanceOwed' => $settlementSummary['previousBalanceOwed'],
+                    'balanceOwed' => $settlementSummary['balanceOwed'],
                     'commissionDistribution' => $commissionDistribution,
                     'sportsbookHealth' => SportsbookHealth::sportsbookSnapshot($this->db),
                 ];
@@ -2970,6 +2982,11 @@ final class AdminCoreController
                 }
             }
 
+            // Build linked approver scope (same logic as header summary)
+            $actorRole = strtolower(trim((string) ($actor['role'] ?? '')));
+            $strictLinkedScope = in_array($actorRole, ['agent', 'master_agent', 'super_agent'], true);
+            $linkedApproverIds = $this->buildLinkedSettlementApproverIdSet($actor);
+
             $summaryDaily = [0, 0, 0, 0, 0, 0, 0];
             $activeWeeklyUserIds = [];
             $missingRoleAdminIds = [];
@@ -3033,13 +3050,20 @@ final class AdminCoreController
                             $aid = (string) ($tx['adminId'] ?? '');
                             $approverRole = $resolvedRoles[$aid] ?? '';
                         }
+                        $aid = (string) ($tx['adminId'] ?? '');
+                        $collectionBucket = AgentSettlementRules::classifyScopedApprover(
+                            $approverRole,
+                            $aid,
+                            $linkedApproverIds,
+                            $strictLinkedScope
+                        );
                         $collectionAmount = $this->num($tx['amount'] ?? 0);
                         if ($txType === 'withdrawal') {
                             $collectionAmount *= -1;
                         }
-                        if ($approverRole === 'agent') {
+                        if ($collectionBucket === 'agent') {
                             $userMap[$uid]['agentCollections'] = ($userMap[$uid]['agentCollections'] ?? 0.0) + $collectionAmount;
-                        } elseif ($approverRole === 'admin') {
+                        } elseif ($collectionBucket === 'admin') {
                             $userMap[$uid]['houseCollections'] = ($userMap[$uid]['houseCollections'] ?? 0.0) + $collectionAmount;
                         }
                     }
@@ -3095,7 +3119,7 @@ final class AdminCoreController
                     'receivedDayLabel' => $receivedDayLabel,
                     'agentCollections' => $this->num($row['agentCollections'] ?? 0),
                     'houseCollections' => $this->num($row['houseCollections'] ?? 0),
-                    'netCollections' => $this->num($row['agentCollections'] ?? 0) + $this->num($row['houseCollections'] ?? 0),
+                    'netCollections' => $this->num($row['agentCollections'] ?? 0) - $this->num($row['houseCollections'] ?? 0),
                     'lastActive' => $user['lastActive'] ?? null,
                     'status' => $user['status'] ?? null,
                 ];
@@ -3260,6 +3284,23 @@ final class AdminCoreController
                     }
 
                 } elseif (($transaction['type'] ?? '') === 'withdrawal') {
+                    // NEW: Check agent balance before approving withdrawal (fraud prevention)
+                    if (($actor['role'] ?? '') === 'agent') {
+                        $agent = $this->db->findOne('agents', ['id' => MongoRepository::id((string) $actor['id'])], ['projection' => ['balance' => 1]]);
+                        $agentBalance = $this->num($agent['balance'] ?? 0);
+                        if ($agentBalance < $amount) {
+                            $this->db->rollback();
+                            Response::json([
+                                'message' => 'Insufficient agent balance. You need $' . number_format($amount - $agentBalance, 2) . ' more to approve this withdrawal.',
+                                'code' => 'INSUFFICIENT_AGENT_BALANCE',
+                                'required' => $amount,
+                                'available' => $agentBalance,
+                                'shortfall' => $amount - $agentBalance
+                            ], 400);
+                            return;
+                        }
+                    }
+                    
                     $balanceBefore = $this->num($user['balance'] ?? 0);
                     $balanceAfter = $balanceBefore - $amount;
                     if ($balanceAfter < 0) {
@@ -3372,6 +3413,72 @@ final class AdminCoreController
             Response::json(['message' => 'Transaction declined', 'transactionId' => $transactionId]);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error declining transaction'], 500);
+        }
+    }
+
+    /**
+     * Persist cumulative settlement values (makeup + balance owed) on the agent record.
+     * Called by admin to finalize a week's settlement before moving to the next week.
+     *
+     * Request body: { "agentId": "...", "cumulativeMakeup": 123.45, "balanceOwed": 678.90 }
+     * Or: { "agentId": "..." } to auto-compute from current header summary.
+     */
+    private function finalizeSettlement(): void
+    {
+        try {
+            $actor = $this->protect(['admin']);
+            if ($actor === null) {
+                return;
+            }
+
+            $body = Http::jsonBody();
+            $agentId = (string) ($body['agentId'] ?? '');
+            if ($agentId === '' || preg_match('/^[a-f0-9]{24}$/i', $agentId) !== 1) {
+                Response::json(['message' => 'Valid agentId is required'], 400);
+                return;
+            }
+
+            $agent = $this->db->findOne('agents', ['id' => MongoRepository::id($agentId)]);
+            if ($agent === null) {
+                Response::json(['message' => 'Agent not found'], 404);
+                return;
+            }
+
+            $newMakeup = isset($body['cumulativeMakeup']) ? round((float) $body['cumulativeMakeup'], 2) : null;
+            $newBalanceOwed = isset($body['balanceOwed']) ? round((float) $body['balanceOwed'], 2) : null;
+
+            if ($newMakeup === null || $newBalanceOwed === null) {
+                Response::json(['message' => 'cumulativeMakeup and balanceOwed are required'], 400);
+                return;
+            }
+
+            $now = MongoRepository::nowUtc();
+            $previousMakeup = $this->num($agent['settlementMakeup'] ?? 0);
+            $previousBalanceOwed = $this->num($agent['settlementBalanceOwed'] ?? 0);
+
+            $this->db->updateOne('agents', ['id' => MongoRepository::id($agentId)], [
+                'settlementMakeup' => max(0.0, $newMakeup),
+                'settlementBalanceOwed' => $newBalanceOwed,
+                'settlementFinalizedAt' => $now,
+                'updatedAt' => $now,
+            ]);
+            $this->invalidateHeaderSummaryCache();
+
+            Response::json([
+                'message' => 'Settlement finalized',
+                'agentId' => $agentId,
+                'previous' => [
+                    'makeup' => $previousMakeup,
+                    'balanceOwed' => $previousBalanceOwed,
+                ],
+                'current' => [
+                    'makeup' => max(0.0, $newMakeup),
+                    'balanceOwed' => $newBalanceOwed,
+                ],
+            ]);
+        } catch (Throwable $e) {
+            error_log('[FINALIZE_SETTLEMENT_ERROR] ' . $e->getMessage());
+            Response::json(['message' => 'Server error finalizing settlement'], 500);
         }
     }
 
@@ -11256,15 +11363,17 @@ final class AdminCoreController
             'agentCollections' => $emptySettlement['agentCollections'],
             'houseCollections' => $emptySettlement['houseCollections'],
             'netCollections' => $emptySettlement['netCollections'],
-            'housePayback' => $emptySettlement['housePayback'],
-            'remainingAfterHousePayback' => $emptySettlement['remainingAfterHousePayback'],
             'commissionableProfit' => $emptySettlement['commissionableProfit'],
-            'houseShareFromProfit' => $emptySettlement['houseShareFromProfit'],
-            'agentShareFromProfit' => $emptySettlement['agentShareFromProfit'],
-            'houseFinalAmount' => $emptySettlement['houseFinalAmount'],
+            'agentSplit' => $emptySettlement['agentSplit'],
+            'kickToHouse' => $emptySettlement['kickToHouse'],
             'agentProfitAfterFees' => $emptySettlement['agentProfitAfterFees'],
-            'makeup' => $emptySettlement['makeup'],
-            'unpaidAmount' => $emptySettlement['unpaidAmount'],
+            'weeklyHouseBalance' => $emptySettlement['weeklyHouseBalance'],
+            'previousMakeup' => $emptySettlement['previousMakeup'],
+            'makeupReduction' => $emptySettlement['makeupReduction'],
+            'weeklyMakeupAddition' => $emptySettlement['weeklyMakeupAddition'],
+            'cumulativeMakeup' => $emptySettlement['cumulativeMakeup'],
+            'previousBalanceOwed' => $emptySettlement['previousBalanceOwed'],
+            'balanceOwed' => $emptySettlement['balanceOwed'],
             'commissionDistribution' => [],
             'sportsbookHealth' => SportsbookHealth::sportsbookSnapshot($this->db),
         ];

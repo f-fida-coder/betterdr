@@ -42,14 +42,17 @@ function AdminHeader({
     agentCollections: 0,
     houseCollections: 0,
     netCollections: 0,
-    housePayback: 0,
-    remainingAfterHousePayback: 0,
-    houseShareFromProfit: 0,
-    agentShareFromProfit: 0,
-    houseFinalAmount: 0,
+    commissionableProfit: 0,
+    agentSplit: 0,
+    kickToHouse: 0,
     agentProfitAfterFees: 0,
-    makeup: 0,
-    unpaidAmount: 0,
+    weeklyHouseBalance: 0,
+    previousMakeup: 0,
+    makeupReduction: 0,
+    weeklyMakeupAddition: 0,
+    cumulativeMakeup: 0,
+    previousBalanceOwed: 0,
+    balanceOwed: 0,
     sportsbookHealth: null
   });
   const [profile, setProfile] = useState(null);
@@ -85,14 +88,17 @@ function AdminHeader({
         agentCollections: headerData?.agentCollections ?? 0,
         houseCollections: headerData?.houseCollections ?? 0,
         netCollections: headerData?.netCollections ?? 0,
-        housePayback: headerData?.housePayback ?? 0,
-        remainingAfterHousePayback: headerData?.remainingAfterHousePayback ?? 0,
-        houseShareFromProfit: headerData?.houseShareFromProfit ?? 0,
-        agentShareFromProfit: headerData?.agentShareFromProfit ?? 0,
-        houseFinalAmount: headerData?.houseFinalAmount ?? 0,
+        commissionableProfit: headerData?.commissionableProfit ?? 0,
+        agentSplit: headerData?.agentSplit ?? 0,
+        kickToHouse: headerData?.kickToHouse ?? 0,
         agentProfitAfterFees: headerData?.agentProfitAfterFees ?? 0,
-        makeup: headerData?.makeup ?? 0,
-        unpaidAmount: headerData?.unpaidAmount ?? 0,
+        weeklyHouseBalance: headerData?.weeklyHouseBalance ?? 0,
+        previousMakeup: headerData?.previousMakeup ?? 0,
+        makeupReduction: headerData?.makeupReduction ?? 0,
+        weeklyMakeupAddition: headerData?.weeklyMakeupAddition ?? 0,
+        cumulativeMakeup: headerData?.cumulativeMakeup ?? 0,
+        previousBalanceOwed: headerData?.previousBalanceOwed ?? 0,
+        balanceOwed: headerData?.balanceOwed ?? 0,
         sportsbookHealth: headerData?.sportsbookHealth ?? null
       });
     };
@@ -422,10 +428,12 @@ function AdminHeader({
   const agentCollectionsValue = Number(summary.agentCollections ?? 0);
   const houseCollectionsValue = Number(summary.houseCollections ?? 0);
   const netCollectionsValue = Number(summary.netCollections ?? 0);
-  const makeupValue = Number(summary.makeup ?? 0);
-  const agentProfitValue = Number(summary.agentShareFromProfit ?? 0);
-  const houseFinalAmountValue = Number(summary.houseFinalAmount ?? 0);
-  const houseShareValue = Number(summary.houseShareFromProfit ?? 0);
+  const cumulativeMakeupValue = Number(summary.cumulativeMakeup ?? 0);
+  const previousMakeupValue = Number(summary.previousMakeup ?? 0);
+  const agentSplitValue = Number(summary.agentSplit ?? 0);
+  const kickToHouseValue = Number(summary.kickToHouse ?? 0);
+  const weeklyHouseBalanceValue = Number(summary.weeklyHouseBalance ?? 0);
+  const balanceOwedValue = Number(summary.balanceOwed ?? 0);
   const agentPercentValue = summary.agentPercent;
 
   const openWeeklyCollections = (summaryFocus) => {
@@ -744,109 +752,122 @@ function AdminHeader({
       {showStats && (
         <div className="admin-header-bottom">
           <div className="admin-stats-grid">
-            {/* Row 1: Week / Today */}
-            <div className="stat-box">
-              <span className="stat-label">Week</span>
-              <span className={`stat-value ${getSignedValueClass(summary.weekNet)}`}>{formatCurrency(summary.weekNet)}</span>
+            {/* Group 1: Week / Today */}
+            <div className="stat-group stat-group-green">
+              <div className="stat-row">
+                <span className="stat-label">Week</span>
+                <span className={`stat-value ${getSignedValueClass(summary.weekNet)}`}>{formatCurrency(summary.weekNet)}</span>
+              </div>
+              <div className="stat-row">
+                <span className="stat-label">Today</span>
+                <span className={`stat-value ${getSignedValueClass(summary.todayNet)}`}>{formatCurrency(summary.todayNet)}</span>
+              </div>
             </div>
-            <div className="stat-box">
-              <span className="stat-label">Today</span>
-              <span className={`stat-value ${getSignedValueClass(summary.todayNet)}`}>{formatCurrency(summary.todayNet)}</span>
+
+            {/* Group 2: Active Players + Player Fees (agent) or Active Accts + Balance (other) */}
+            <div className="stat-group stat-group-red">
+              {roleKey === 'agent' ? (
+                <button
+                  type="button"
+                  className="stat-row stat-row-button"
+                  onClick={() => onViewChange?.('weekly-figures', {
+                    timePeriod: 'this-week',
+                    playerFilter: 'active-week',
+                    actorLabel: displayName,
+                  })}
+                  aria-label={`Open weekly figures for ${displayName} active players this week`}
+                >
+                  <span className="stat-label">Active Players</span>
+                  <span className="stat-value highlight">{formatCount(summary.activeAccounts)}</span>
+                </button>
+              ) : (
+                <div className="stat-row">
+                  <span className="stat-label">Active Accts</span>
+                  <span className="stat-value highlight">{formatCount(summary.activeAccounts)}</span>
+                </div>
+              )}
+              {roleKey === 'agent' ? (
+                <div className="stat-row">
+                  <span className="stat-label">Player Fees</span>
+                  <span className="stat-value">{formatCurrency(summary.paidPlayerFees ?? 0)}</span>
+                </div>
+              ) : (
+                <div className="stat-row">
+                  <span className="stat-label">Balance</span>
+                  <span className={`stat-value ${getSignedValueClass(headerBalance)}`}>{formatCurrency(headerBalance)}</span>
+                </div>
+              )}
             </div>
 
-            {/* Row 2: Active Players / Player Fees (agent) or Active Accts / Balance (other) */}
-            {roleKey === 'agent' ? (
-              <button
-                type="button"
-                className="stat-box stat-box-button"
-                onClick={() => onViewChange?.('weekly-figures', {
-                  timePeriod: 'this-week',
-                  playerFilter: 'active-week',
-                  actorLabel: displayName,
-                })}
-                aria-label={`Open weekly figures for ${displayName} active players this week`}
-              >
-                <span className="stat-label">Active Players</span>
-                <span className="stat-value highlight">{formatCount(summary.activeAccounts)}</span>
-              </button>
-            ) : (
-              <div className="stat-box">
-                <span className="stat-label">Active Accts</span>
-                <span className="stat-value highlight">{formatCount(summary.activeAccounts)}</span>
-              </div>
-            )}
-            {roleKey === 'agent' ? (
-              <div className="stat-box">
-                <span className="stat-label">Player Fees</span>
-                <span className="stat-value">{formatCurrency(summary.paidPlayerFees ?? 0)}</span>
-
-              </div>
-            ) : (
-              <div className="stat-box">
-                <span className="stat-label">Balance</span>
-                <span className={`stat-value ${getSignedValueClass(headerBalance)}`}>{formatCurrency(headerBalance)}</span>
+            {/* Group 3: Agent Collections / House Collections (agent only) */}
+            {roleKey === 'agent' && (
+              <div className="stat-group stat-group-orange">
+                <button
+                  type="button"
+                  className="stat-row stat-row-button"
+                  onClick={() => openWeeklyCollections('agent-collections')}
+                  aria-label={`Open weekly figures for ${displayName} agent collections`}
+                >
+                  <span className="stat-label">Agent Collections</span>
+                  <span className={`stat-value ${getSignedValueClass(agentCollectionsValue)}`}>{formatCurrency(agentCollectionsValue)}</span>
+                </button>
+                <button
+                  type="button"
+                  className="stat-row stat-row-button"
+                  onClick={() => openWeeklyCollections('house-collections')}
+                  aria-label={`Open weekly figures for ${displayName} house collections`}
+                >
+                  <span className="stat-label">House Collections</span>
+                  <span className={`stat-value ${getSignedValueClass(houseCollectionsValue)}`}>{formatCurrency(houseCollectionsValue)}</span>
+                </button>
               </div>
             )}
 
-            {/* Row 3: Agent Collections / House Collections (agent only) */}
-            {roleKey === 'agent' && (() => {
-              return (
-                <>
-                  <button
-                    type="button"
-                    className="stat-box stat-box-button"
-                    onClick={() => openWeeklyCollections('agent-collections')}
-                    aria-label={`Open weekly figures for ${displayName} agent collections`}
-                  >
-                    <span className="stat-label">Agent Collections</span>
-                    <span className={`stat-value ${getSignedValueClass(agentCollectionsValue)}`}>{formatCurrency(agentCollectionsValue)}</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="stat-box stat-box-button"
-                    onClick={() => openWeeklyCollections('house-collections')}
-                    aria-label={`Open weekly figures for ${displayName} house collections`}
-                  >
-                    <span className="stat-label">House Collection</span>
-                    <span className={`stat-value ${getSignedValueClass(houseCollectionsValue)}`}>{formatCurrency(houseCollectionsValue)}</span>
-                  </button>
-                </>
-              );
-            })()}
-
-            {/* Row 4: Net Collections / Makeup (agent only) */}
+            {/* Group 4: Net Collections / Makeup (agent only) */}
             {roleKey === 'agent' && (
-              <div className="stat-box">
-                <span className="stat-label">Net Collections</span>
-                <span className={`stat-value ${getSignedValueClass(netCollectionsValue)}`}>{formatCurrency(netCollectionsValue)}</span>
-              </div>
-            )}
-            {roleKey === 'agent' && (
-              <div className="stat-box">
-                <span className="stat-label">Makeup</span>
-                <span className={`stat-value ${getSignedValueClass(makeupValue)}`}>{formatCurrency(makeupValue)}</span>
+              <div className="stat-group stat-group-blue">
+                <div className="stat-row">
+                  <span className="stat-label">Net Collections</span>
+                  <span className={`stat-value ${getSignedValueClass(netCollectionsValue)}`}>{formatCurrency(netCollectionsValue)}</span>
+                </div>
+                <div className="stat-row">
+                  <span className="stat-label">Current Makeup</span>
+                  <span className={`stat-value ${cumulativeMakeupValue > 0 ? 'negative' : 'neutral'}`}>{formatCurrency(cumulativeMakeupValue)}</span>
+                </div>
+                {previousMakeupValue > 0 && (
+                  <div className="stat-row">
+                    <span className="stat-label">Previous Makeup</span>
+                    <span className="stat-value neutral">{formatCurrency(previousMakeupValue)}</span>
+                  </div>
+                )}
               </div>
             )}
 
-            {/* Row 5: Agent Profit / Kick To House (agent only) */}
+            {/* Group 5: Agent Split / Kick To House (agent only) */}
             {roleKey === 'agent' && (
-              <div className="stat-box">
-                <span className="stat-label">Agent Profit{agentPercentValue != null ? ` (${agentPercentValue}%)` : ''}</span>
-                <span className={`stat-value ${getSignedValueClass(agentProfitValue)}`}>{formatCurrency(agentProfitValue)}</span>
-              </div>
-            )}
-            {roleKey === 'agent' && (
-              <div className="stat-box">
-                <span className="stat-label">Kick To House</span>
-                <span className={`stat-value ${getSignedValueClass(houseShareValue)}`}>{formatCurrency(houseShareValue)}</span>
+              <div className="stat-group stat-group-purple">
+                <div className="stat-row">
+                  <span className="stat-label">Agent Split{agentPercentValue != null ? ` (${agentPercentValue}%)` : ''}</span>
+                  <span className={`stat-value ${getSignedValueClass(agentSplitValue)}`}>{formatCurrency(agentSplitValue)}</span>
+                </div>
+                <div className="stat-row">
+                  <span className="stat-label">Kick To House</span>
+                  <span className={`stat-value ${getSignedValueClass(kickToHouseValue)}`}>{formatCurrency(kickToHouseValue)}</span>
+                </div>
               </div>
             )}
 
-            {/* Row 6: Balance (agent only) */}
+            {/* Group 6: Weekly House Balance / Balance Owed (agent only) */}
             {roleKey === 'agent' && (
-              <div className="stat-box">
-                <span className="stat-label">Balance</span>
-                <span className={`stat-value ${getSignedValueClass(houseFinalAmountValue)}`}>{formatCurrency(houseFinalAmountValue)}</span>
+              <div className="stat-group stat-group-teal">
+                <div className="stat-row">
+                  <span className="stat-label">Weekly House Balance</span>
+                  <span className={`stat-value ${getSignedValueClass(weeklyHouseBalanceValue)}`}>{formatCurrency(weeklyHouseBalanceValue)}</span>
+                </div>
+                <div className="stat-row">
+                  <span className="stat-label">Balance Owed</span>
+                  <span className={`stat-value ${getSignedValueClass(balanceOwedValue)}`}>{formatCurrency(balanceOwedValue)}</span>
+                </div>
               </div>
             )}
           </div>

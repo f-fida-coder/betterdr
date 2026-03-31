@@ -454,6 +454,54 @@
   width: 100%;
 }
 
+/* Grouped stat card */
+.stat-group {
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  border-left: 4px solid transparent;
+  overflow: hidden;
+}
+
+.stat-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+}
+
+.stat-row + .stat-row {
+  border-top: 1px solid #f0f0f0;
+}
+
+.stat-row-button {
+  appearance: none;
+  width: 100%;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+
+.stat-row-button:hover {
+  background: #f8fafc;
+}
+
+.stat-row-button:focus-visible {
+  outline: 2px solid #1d4ed8;
+  outline-offset: -2px;
+}
+
+/* Group border colors */
+.stat-group-green { border-left-color: #4caf50; }
+.stat-group-red { border-left-color: #ff6b6b; }
+.stat-group-orange { border-left-color: #ff6b35; }
+.stat-group-blue { border-left-color: #0d3b5c; }
+.stat-group-purple { border-left-color: #9c27b0; }
+.stat-group-teal { border-left-color: #00897b; }
+
+/* Legacy stat-box support (used in other views) */
 .stat-box {
   background: white;
   padding: 15px 20px;
@@ -463,7 +511,6 @@
   justify-content: space-between;
   align-items: center;
   border-left: 4px solid transparent;
-  /* default */
 }
 
 .stat-box-button {
@@ -485,18 +532,6 @@
   outline: 2px solid #1d4ed8;
   outline-offset: 2px;
 }
-
-/* Specific border colors for visual distinction */
-.stat-box:nth-child(1) { border-left-color: #4caf50; }
-.stat-box:nth-child(2) { border-left-color: #4caf50; }
-.stat-box:nth-child(3) { border-left-color: #ff6b6b; }
-.stat-box:nth-child(4) { border-left-color: #ff6b6b; }
-.stat-box:nth-child(5) { border-left-color: #ff6b35; }
-.stat-box:nth-child(6) { border-left-color: #ff6b35; }
-.stat-box:nth-child(7) { border-left-color: #0d3b5c; }
-.stat-box:nth-child(8) { border-left-color: #0d3b5c; }
-.stat-box:nth-child(9) { border-left-color: #9c27b0; }
-.stat-box:nth-child(10) { border-left-color: #9c27b0; }
 
 .stat-label {
   font-size: 11px;
@@ -1005,7 +1040,11 @@
 
   .admin-stats-grid {
     gap: 8px;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr;
+  }
+
+  .stat-row {
+    padding: 10px 12px;
   }
 
   .stat-box {
@@ -5611,6 +5650,14 @@
   gap: 8px;
 }
 
+.admin-panel.dashboard-home-active .stat-group {
+  border-radius: 10px;
+}
+
+.admin-panel.dashboard-home-active .stat-row {
+  padding: 9px 12px;
+}
+
 .admin-panel.dashboard-home-active .stat-box {
   padding: 9px 12px;
   border-radius: 10px;
@@ -5695,6 +5742,11 @@
 
   .admin-panel.dashboard-home-active .admin-stats-grid {
     gap: 6px;
+    grid-template-columns: 1fr;
+  }
+
+  .admin-panel.dashboard-home-active .stat-row {
+    padding: 8px 10px;
   }
 
   .admin-panel.dashboard-home-active .stat-box {
