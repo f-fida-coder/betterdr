@@ -986,35 +986,7 @@ final class AdminCoreController
                     }
 
                     if (count($managedAgentObjectIds) === 0) {
-                        $emptySettlement = $this->buildAgentSettlementSummary(0.0, 0.0, 0.0);
-                        return [
-                            'totalBalance' => 0.0,
-                            'totalOutstanding' => 0.0,
-                            'totalPlayerFees' => 0.0,
-                            'paidPlayerFees' => 0.0,
-                            'unpaidPlayerFees' => 0.0,
-                            'todayNet' => 0.0,
-                            'weekNet' => 0.0,
-                            'activeAccounts' => 0,
-                            'agentDeposits' => 0.0,
-                            'agentWithdrawals' => 0.0,
-                            'houseDeposits' => 0.0,
-                            'houseWithdrawals' => 0.0,
-                            'agentPercent' => null,
-                            'agentCollections' => $emptySettlement['agentCollections'],
-                            'houseCollections' => $emptySettlement['houseCollections'],
-                            'netCollections' => $emptySettlement['netCollections'],
-                            'housePayback' => $emptySettlement['housePayback'],
-                            'remainingAfterHousePayback' => $emptySettlement['remainingAfterHousePayback'],
-                            'commissionableProfit' => $emptySettlement['commissionableProfit'],
-                            'houseShareFromProfit' => $emptySettlement['houseShareFromProfit'],
-                            'agentShareFromProfit' => $emptySettlement['agentShareFromProfit'],
-                            'houseFinalAmount' => $emptySettlement['houseFinalAmount'],
-                            'agentProfitAfterFees' => $emptySettlement['agentProfitAfterFees'],
-                            'makeup' => $emptySettlement['makeup'],
-                            'unpaidAmount' => $emptySettlement['unpaidAmount'],
-                            'sportsbookHealth' => SportsbookHealth::sportsbookSnapshot($this->db),
-                        ];
+                        return $this->buildEmptyHeaderSummary();
                     }
 
                     $matchUser['$or'] = [
@@ -11241,6 +11213,46 @@ final class AdminCoreController
             'agentProfitAfterFees' => $agentProfitAfterFees,
             'makeup' => $makeup,
             'unpaidAmount' => $unpaidAmount,
+        ];
+    }
+
+    /**
+     * Build empty header summary for agents with no managed users.
+     * 
+     * @return array<string, mixed>
+     */
+    private function buildEmptyHeaderSummary(): array
+    {
+        $emptySettlement = $this->buildAgentSettlementSummary(0.0, 0.0, 0.0);
+        
+        return [
+            'totalBalance' => 0.0,
+            'totalOutstanding' => 0.0,
+            'totalPlayerFees' => 0.0,
+            'paidPlayerFees' => 0.0,
+            'unpaidPlayerFees' => 0.0,
+            'todayNet' => 0.0,
+            'weekNet' => 0.0,
+            'activeAccounts' => 0,
+            'agentDeposits' => 0.0,
+            'agentWithdrawals' => 0.0,
+            'houseDeposits' => 0.0,
+            'houseWithdrawals' => 0.0,
+            'agentPercent' => null,
+            'agentCollections' => $emptySettlement['agentCollections'],
+            'houseCollections' => $emptySettlement['houseCollections'],
+            'netCollections' => $emptySettlement['netCollections'],
+            'housePayback' => $emptySettlement['housePayback'],
+            'remainingAfterHousePayback' => $emptySettlement['remainingAfterHousePayback'],
+            'commissionableProfit' => $emptySettlement['commissionableProfit'],
+            'houseShareFromProfit' => $emptySettlement['houseShareFromProfit'],
+            'agentShareFromProfit' => $emptySettlement['agentShareFromProfit'],
+            'houseFinalAmount' => $emptySettlement['houseFinalAmount'],
+            'agentProfitAfterFees' => $emptySettlement['agentProfitAfterFees'],
+            'makeup' => $emptySettlement['makeup'],
+            'unpaidAmount' => $emptySettlement['unpaidAmount'],
+            'commissionDistribution' => [],
+            'sportsbookHealth' => SportsbookHealth::sportsbookSnapshot($this->db),
         ];
     }
 
