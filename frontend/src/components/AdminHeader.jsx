@@ -857,10 +857,20 @@ function AdminHeader({
           <div className="admin-stats-grid">
             {/* Group 1: Week / Today */}
             <div className="stat-group stat-group-green">
-              <div className="stat-row">
+              <button
+                type="button"
+                className="stat-row stat-row-button"
+                onClick={() => onViewChange?.('weekly-figures', {
+                  timePeriod: 'this-week',
+                  playerFilter: 'active-week',
+                  openDropdown: 'period',
+                  actorLabel: displayName,
+                })}
+                aria-label={`Open weekly reports week selector for ${displayName}`}
+              >
                 <span className="stat-label">Week</span>
                 <span className={`stat-value ${getSignedValueClass(summary.weekNet)}`}>{formatCurrency(summary.weekNet)}</span>
-              </div>
+              </button>
               <div className="stat-row">
                 <span className="stat-label">Today</span>
                 <span className={`stat-value ${getSignedValueClass(summary.todayNet)}`}>{formatCurrency(summary.todayNet)}</span>

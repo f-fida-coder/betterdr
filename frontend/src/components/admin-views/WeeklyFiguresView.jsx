@@ -13,6 +13,7 @@ const WEEK_OPTIONS = [
 
 const DEFAULT_WEEKLY_PERIOD = 'this-week';
 const DEFAULT_WEEKLY_FILTER = 'active-week';
+const DEFAULT_OPEN_DROPDOWN = null;
 
 const FILTER_OPTIONS = [
   {
@@ -81,10 +82,15 @@ const cycleOptionValue = (options, currentValue, direction) => {
   return options[nextIndex]?.value ?? currentValue;
 };
 
+const normalizeOpenDropdown = (value) => {
+  const normalized = String(value || '').trim().toLowerCase();
+  return normalized === 'period' || normalized === 'filter' ? normalized : DEFAULT_OPEN_DROPDOWN;
+};
+
 function WeeklyFiguresView({ onViewChange = null, viewContext = null }) {
   const [timePeriod, setTimePeriod] = useState(() => String(viewContext?.timePeriod || DEFAULT_WEEKLY_PERIOD));
   const [playerFilter, setPlayerFilter] = useState(() => String(viewContext?.playerFilter || DEFAULT_WEEKLY_FILTER));
-  const [openDropdown, setOpenDropdown] = useState(null);
+  const [openDropdown, setOpenDropdown] = useState(() => normalizeOpenDropdown(viewContext?.openDropdown));
   const [summaryData, setSummaryData] = useState(null);
   const [customers, setCustomers] = useState([]);
   const [selectedDayIndex, setSelectedDayIndex] = useState(0);
@@ -189,7 +195,7 @@ function WeeklyFiguresView({ onViewChange = null, viewContext = null }) {
     setTimePeriod(String(viewContext?.timePeriod || DEFAULT_WEEKLY_PERIOD));
     setPlayerFilter(String(viewContext?.playerFilter || DEFAULT_WEEKLY_FILTER));
     setSelectedDayIndex(0);
-    setOpenDropdown(null);
+    setOpenDropdown(normalizeOpenDropdown(viewContext?.openDropdown));
   }, [viewContext]);
 
   useEffect(() => {
