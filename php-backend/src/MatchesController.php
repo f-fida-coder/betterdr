@@ -42,6 +42,11 @@ final class MatchesController
             return true;
         }
 
+        if ($method === 'GET' && $path === '/api/matches/sports') {
+            $this->getAvailableSports();
+            return true;
+        }
+
         return false;
     }
 
@@ -117,6 +122,30 @@ final class MatchesController
             Response::json($annotated);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server Error fetching match'], 500);
+        }
+    }
+
+    /**
+     * Return distinct sport values from visible matches so the frontend can
+     * highlight which categories currently have data.
+     */
+    private function getAvailableSports(): void
+    {
+        try {
+            $matches = $this->db->findMany('matches', [], ['projection' => ['sport' => 1, 'sportKey' => 1, 'status' => 1]]);
+            $sports = [];
+            foreach ($matches as $match) {
+                if (!is_array($match)) continue;
+                $status = strtolower((string) ($match['status'] ?? ''));
+                if (!in_array($status, ['scheduled', 'live'], true)) continue;
+                $sport = (string) ($match['sport'] ?? '');
+                $sportKey = (string) ($match['sportKey'] ?? '');
+                if ($sport !== '') $sports[$sport] = true;
+                if ($sportKey !== '') $sports[$sportKey] = true;
+            }
+            Response::json(array_keys($sports));
+        } catch (Throwable $e) {
+            Response::json([], 200);
         }
     }
 

@@ -1,23 +1,12 @@
 import React from 'react';
-import SportGenericView from './SportGenericView';
-import SportContentView from './SportContentView'; import { sportsData } from '../data/sportsData';
+import SportContentView from './SportContentView';
+import { findSportItemById } from '../data/sportsData';
 
 const DashboardMain = ({ selectedSports = [], activeBetMode = 'straight' }) => {
     const isDefault = selectedSports.length === 0;
 
-    const findItemById = (items, id) => {
-        for (const item of items) {
-            if (item.id === id) return item;
-            if (item.children) {
-                const found = findItemById(item.children, id);
-                if (found) return found;
-            }
-        }
-        return null;
-    };
-
     const primaryId = selectedSports.length > 0 ? selectedSports[0] : null;
-    const selectedItem = primaryId ? findItemById(sportsData, primaryId) : null;
+    const selectedItem = primaryId ? findSportItemById(primaryId) : null;
 
     if (selectedItem && selectedItem.type === 'props-plus') {
         return (
@@ -48,6 +37,18 @@ const DashboardMain = ({ selectedSports = [], activeBetMode = 'straight' }) => {
         );
     }
 
+    /**
+     * Map a parent sport ID to its first child league for content display.
+     * If the selected item has sportKeys, use its own id directly.
+     */
+    const parentToDefaultChild = {
+        football: 'nfl',
+        basketball: 'nba',
+        baseball: 'mlb',
+        hockey: 'nhl',
+        soccer: 'epl',
+    };
+
     const getSportSections = () => {
         if (isDefault) {
             return [{ sportId: null, filter: null, status: 'live-upcoming' }];
@@ -65,73 +66,16 @@ const DashboardMain = ({ selectedSports = [], activeBetMode = 'straight' }) => {
         const addedSports = new Set();
 
         selectedSports.forEach(id => {
-            if (id === 'up-next' || id === 'commercial-live') {
-                return;
-            }
+            if (id === 'up-next' || id === 'commercial-live') return;
 
-            if (id === 'football') {
-                if (!addedSports.has('nfl')) {
-                    sections.push({ sportId: 'nfl', filter: null });
-                    addedSports.add('nfl');
-                }
-            } else if (id === 'basketball') {
-                if (!addedSports.has('nba')) {
-                    sections.push({ sportId: 'nba', filter: null });
-                    addedSports.add('nba');
-                }
-            } else if (id === 'baseball') {
-                if (!addedSports.has('mlb')) {
-                    sections.push({ sportId: 'mlb', filter: null });
-                    addedSports.add('mlb');
-                }
-            } else if (id === 'hockey') {
-                if (!addedSports.has('nhl')) {
-                    sections.push({ sportId: 'nhl', filter: null });
-                    addedSports.add('nhl');
-                }
-            } else if (id === 'soccer') {
-                if (!addedSports.has('epl')) {
-                    sections.push({ sportId: 'epl', filter: null });
-                    addedSports.add('epl');
-                }
-            }
-            else if (id === 'nfl' && !addedSports.has('nfl')) {
-                sections.push({ sportId: 'nfl', filter: null });
-                addedSports.add('nfl');
-            } else if (id.startsWith('nfl-') && (id.includes('half') || id.includes('quarter'))) {
-                if (!addedSports.has('nfl')) {
-                    sections.push({ sportId: 'nfl', filter: id });
-                    addedSports.add('nfl');
-                }
-            }
-            else if (id === 'ncaa-football' && !addedSports.has('ncaaf')) {
-                sections.push({ sportId: 'ncaaf', filter: null });
-                addedSports.add('ncaaf');
-            } else if (id.startsWith('ncaa-') && (id.includes('half') || id.includes('quarter'))) {
-                if (!addedSports.has('ncaaf')) {
-                    sections.push({ sportId: 'ncaaf', filter: id });
-                    addedSports.add('ncaaf');
-                }
-            }
-            else if (id === 'nfl-1st-scoring' || id === 'nfl-1st-td-scorer' || id === 'nfl-anytime-td' || id === 'nfl-margin-victory' || id === 'nfl-player-props') {
-                if (!addedSports.has('nfl')) {
-                    sections.push({ sportId: 'nfl', filter: id });
-                    addedSports.add('nfl');
-                }
-            }
-            else if (id === 'mlb' && !addedSports.has('mlb')) {
-                sections.push({ sportId: 'mlb', filter: null });
-                addedSports.add('mlb');
-            }
-            else if (id === 'nba' && !addedSports.has('nba')) {
-                sections.push({ sportId: 'nba', filter: null });
-                addedSports.add('nba');
-            }
-            else {
-                if (!addedSports.has(id)) {
-                    sections.push({ sportId: id, filter: null });
-                    addedSports.add(id);
-                }
+            // If it's a parent sport, resolve to default child
+            const resolvedId = parentToDefaultChild[id] || id;
+
+            if (!addedSports.has(resolvedId)) {
+                const item = findSportItemById(id);
+                const filter = item?.filter ? id : null;
+                sections.push({ sportId: resolvedId, filter });
+                addedSports.add(resolvedId);
             }
         });
 
@@ -151,11 +95,6 @@ const DashboardMain = ({ selectedSports = [], activeBetMode = 'straight' }) => {
                         status={section.status || 'live-upcoming'}
                         activeBetMode={activeBetMode}
                     />
-                    {/* <SportGenericView
-                        sportId={section.sportId}
-                        filter={section.filter}
-                        selectedItems={selectedSports}
-                    /> */}
                 </React.Fragment>
             ))}
 

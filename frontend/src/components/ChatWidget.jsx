@@ -91,7 +91,7 @@ const ChatWidget = () => {
     }, [isOpen]);
 
     return (
-        <div className="chat-widget-container" style={{ position: 'fixed', bottom: '30px', right: '30px', zIndex: 1000, fontFamily: 'Inter, sans-serif' }}>
+        <div className="chat-widget-container" style={{ position: 'fixed', bottom: '30px', left: '20px', zIndex: 1000, fontFamily: 'Inter, sans-serif' }}>
             {isOpen && (
                 <div style={{
                     width: '350px',

@@ -397,6 +397,20 @@ export const getLiveMatches = async (options = {}) => getMatches('live', options
 
 export const getUpcomingMatches = async (options = {}) => getMatches('upcoming', options);
 
+/**
+ * Fetch distinct sport values that currently have active/scheduled matches.
+ * Returns an array of strings (sport titles and sportKeys).
+ */
+export const getAvailableSports = async () => {
+    try {
+        const response = await fetch(buildApiUrl('/matches/sports'), { headers: getHeaders() });
+        if (!response.ok) return [];
+        return response.json();
+    } catch {
+        return [];
+    }
+};
+
 export const placeBet = async (betData, token, { requestId = '' } = {}) => {
     const normalizedType = normalizeBetMode(betData?.type || 'straight');
     const normalizedSelections = Array.isArray(betData?.selections)

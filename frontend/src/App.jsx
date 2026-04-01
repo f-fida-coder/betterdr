@@ -60,10 +60,28 @@ function App() {
   const [betModeRules, setBetModeRules] = useState(DEFAULT_BET_MODE_RULES);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [showPromo, setShowPromo] = useState(false);
-  const [isMobileSportsSelectionMode, setIsMobileSportsSelectionMode] = useState(false);
+  // Mobile navigation state: true = user clicked Continue and is viewing results
+  const [mobileResultsActive, setMobileResultsActive] = useState(false);
   const isMobileViewport = typeof window !== 'undefined'
     && window.matchMedia
     && window.matchMedia('(max-width: 768px)').matches;
+
+  // Derived mobile state:
+  //   'browsing'  — no actionable selection, showing sports menu
+  //   'selected'  — child sport picked, showing Continue in header
+  //   'results'   — Continue clicked, showing match results
+  const mobileViewState = mobileResultsActive && selectedSports.length > 0
+    ? 'results'
+    : selectedSports.length > 0
+      ? 'selected'
+      : 'browsing';
+
+  // Guard: if selection is emptied, always exit results mode
+  useEffect(() => {
+    if (selectedSports.length === 0 && mobileResultsActive) {
+      setMobileResultsActive(false);
+    }
+  }, [selectedSports, mobileResultsActive]);
 
   const [user, setUser] = useState(null); // Store full user object
   const [oddsFormat, setOddsFormat] = useState(readStoredOddsFormat());
@@ -272,6 +290,7 @@ function App() {
   const handleViewChange = (view) => {
     setDashboardView(view);
     setMobileSidebarOpen(false);
+    setMobileResultsActive(false);
   };
 
   const handleBetModeChange = (mode) => {
@@ -286,15 +305,22 @@ function App() {
     setDashboardView('dashboard');
     setSelectedSports([]);
     setActiveLeague('all');
-    setIsMobileSportsSelectionMode(false);
     setMobileSidebarOpen(false);
+    setMobileResultsActive(false);
   };
 
   const handleContinue = () => {
-    setIsMobileSportsSelectionMode(false);
+    setMobileResultsActive(true);
+  };
+
+  // Go back from results to selection menu, preserving current sport selection
+  const handleMobileBack = () => {
+    setMobileResultsActive(false);
   };
 
   const handleSportToggle = (sport) => {
+    // When user changes selection, exit results state
+    setMobileResultsActive(false);
     const quickFilters = new Set(['up-next', 'commercial-live']);
     setSelectedSports(prev => {
       const isSelected = prev.includes(sport);
@@ -382,12 +408,13 @@ function App() {
             currentView={dashboardView}
             onToggleSidebar={() => setMobileSidebarOpen(!mobileSidebarOpen)}
             selectedSports={selectedSports}
+            mobileViewState={mobileViewState}
             onContinue={handleContinue}
-            isMobileSportsSelectionMode={isMobileSportsSelectionMode}
+            onMobileBack={handleMobileBack}
             onHomeClick={handleHomeClick}
           />
 
-          <div className={`dashboard-content-area ${isMobileSportsSelectionMode ? 'mobile-sports-mode' : ''}`} style={{ position: 'relative', marginTop: '0' }}>
+          <div className="dashboard-content-area" style={{ position: 'relative', marginTop: '0' }}>
             {mobileSidebarOpen && (
               <MobileGridMenu
                 onClose={() => setMobileSidebarOpen(false)}
@@ -397,21 +424,21 @@ function App() {
 
             {dashboardView === 'dashboard' && (
               <>
-                {isMobileViewport && isMobileSportsSelectionMode ? (
-                  // Mobile: Show only sidebar for sports selection
+                {isMobileViewport && mobileViewState === 'results' ? (
+                  // Mobile results: user clicked Continue
+                  <MobileContentView selectedSports={selectedSports} />
+                ) : isMobileViewport ? (
+                  // Mobile browsing or selected: show sports menu
                   <DashboardSidebar
                     selectedSports={selectedSports}
                     onToggleSport={handleSportToggle}
                     betMode={betMode}
                     isOpen={true}
                     onCloseSidebar={() => setMobileSidebarOpen(false)}
-                    isMobileSportsSelectionMode={isMobileSportsSelectionMode}
+                    isMobileSportsSelectionMode={true}
                   />
-                ) : isMobileViewport && selectedSports && selectedSports.length > 0 ? (
-                  // Mobile: Show content after Continue
-                  <MobileContentView selectedSports={selectedSports} />
                 ) : (
-                  // Desktop or default view
+                  // Desktop view
                   <>
                     <DashboardSidebar
                       selectedSports={selectedSports}
@@ -419,7 +446,7 @@ function App() {
                       betMode={betMode}
                       isOpen={mobileSidebarOpen}
                       onCloseSidebar={() => setMobileSidebarOpen(false)}
-                      isMobileSportsSelectionMode={isMobileSportsSelectionMode}
+                      isMobileSportsSelectionMode={false}
                     />
                     <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
                       {showPromo && <PromoCard />}
@@ -499,26 +526,6 @@ function App() {
             />
           )}
 
-          <div style={{
-            position: 'fixed',
-            bottom: '40px',
-            left: '20px',
-            width: '50px',
-            height: '50px',
-            background: '#a30000',
-            borderRadius: '50%',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: 'white',
-            zIndex: 21,
-            boxShadow: '0 2px 5px rgba(0,0,0,0.3)',
-            border: '2px solid white'
-          }}>
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z" />
-            </svg>
-          </div>
         </div>
       )}
       </div>

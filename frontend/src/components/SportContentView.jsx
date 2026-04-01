@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import useMatches from '../hooks/useMatches';
 import { createFallbackTeamLogoDataUri, fetchTeamBadgeUrl } from '../utils/teamLogos';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
+import { getSportKeywords, findSportItemById } from '../data/sportsData';
 import {
     formatOdds,
     formatSpreadDisplay,
@@ -14,17 +15,17 @@ import {
 
 const SportContentView = ({ sportId, selectedItems = [], filter = null, status = 'live-upcoming', activeBetMode = 'straight' }) => {
     const { oddsFormat } = useOddsFormat();
-    const [activeTab, setActiveTab] = useState('matches');
+    const [activeTab] = useState('matches');
     const [teamLogos, setTeamLogos] = useState({});
     const attemptedLogoFetchesRef = React.useRef(new Set());
 
-    const [content, setContent] = useState({ name: '', icon: '', matches: [], scoreboards: [] });
+    const [content, setContent] = useState({ name: '', icon: '', matches: [] });
     const [isLoading, setIsLoading] = useState(true);
     const rawMatches = useMatches({ status, scopeKey: `${sportId || 'all'}:${filter || ''}` });
 
     React.useEffect(() => {
-        // Determine sport name and icon
-        const sportMap = {
+        // Determine sport name and icon — prefer the sportsData tree, fallback to hardcoded map
+        const sportMapFallback = {
             nfl: { name: 'NFL', icon: 'fa-solid fa-football' },
             nba: { name: 'NBA', icon: 'fa-solid fa-basketball' },
             mlb: { name: 'MLB', icon: 'fa-solid fa-baseball' },
@@ -33,49 +34,34 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
             boxing: { name: 'Boxing', icon: 'fa-solid fa-hand-fist' },
             mma: { name: 'MMA/UFC', icon: 'fa-solid fa-hand-fist' },
             ncaaf: { name: 'NCAA Football', icon: 'fa-solid fa-building-columns' },
-            ncaab: { name: 'NCAA Basketball', icon: 'fa-solid fa-basketball' }
+            ncaab: { name: 'NCAA Basketball', icon: 'fa-solid fa-basketball' },
         };
 
-        const getSportKeywords = (id) => {
-            if (!id) return [];
-            const normalized = id.toString().toLowerCase();
-            const keywordMap = {
-                nfl: ['nfl', 'americanfootball_nfl', 'national football', 'american football'],
-                ncaaf: ['ncaaf', 'ncaa football', 'college football'],
-                nba: ['nba', 'basketball_nba', 'national basketball'],
-                ncaab: ['ncaab', 'ncaa basketball', 'college basketball'],
-                mlb: ['mlb', 'baseball_mlb', 'major league baseball'],
-                nhl: ['nhl', 'icehockey_nhl', 'hockey_nhl'],
-                epl: ['epl', 'premier league', 'english premier league'],
-                soccer: ['soccer', 'football', 'premier league', 'la liga', 'serie a', 'bundesliga', 'ligue 1', 'mls'],
-                basketball: ['basketball', 'nba', 'ncaab', 'euroleague'],
-                baseball: ['baseball', 'mlb'],
-                hockey: ['hockey', 'nhl', 'icehockey'],
-                golf: ['golf', 'pga'],
-                tennis: ['tennis', 'atp', 'wta'],
-                boxing: ['boxing'],
-                mma: ['mma', 'ufc'],
-                rugby: ['rugby'],
-                'auto-racing': ['racing', 'motorsport', 'nascar', 'formula'],
-                'martial-arts': ['mma', 'ufc', 'martial'],
-                'olympics': ['olympics', 'olympic'],
-            };
-            return keywordMap[normalized] || [normalized];
+        const resolveSportInfo = (id) => {
+            const item = findSportItemById(id);
+            if (item) return { name: item.label, icon: item.icon || 'fa-solid fa-trophy' };
+            return sportMapFallback[id] || { name: 'Sports', icon: 'fa-solid fa-trophy' };
         };
 
-        // Handle sub-categories (nfl-1st-quarter -> nfl)
+        // Handle sub-categories via filter metadata from sportsData
         let resolvedSportId = sportId;
         let periodFilter = null;
 
         const effectiveFilter = filter || sportId;
+        const filterItem = effectiveFilter ? findSportItemById(effectiveFilter) : null;
 
+        if (filterItem?.filter === 'half') periodFilter = 'H1';
+        else if (filterItem?.filter === 'quarter') periodFilter = 'Q1';
+        else if (filterItem?.filter === 'period1') periodFilter = 'P1';
+
+        // Legacy sub-category resolution
         if (effectiveFilter) {
-            if (effectiveFilter.startsWith('nfl-')) {
+            if (effectiveFilter.startsWith('nfl-') && !filterItem) {
                 resolvedSportId = 'nfl';
                 if (effectiveFilter.includes('1st-quarter')) periodFilter = 'Q1';
                 if (effectiveFilter.includes('2nd-quarter')) periodFilter = 'Q2';
                 if (effectiveFilter.includes('1st-half')) periodFilter = 'H1';
-            } else if (effectiveFilter.startsWith('ncaa-')) {
+            } else if (effectiveFilter.startsWith('ncaa-') && effectiveFilter !== 'ncaa-basketball' && effectiveFilter !== 'ncaa-props-plus' && !filterItem) {
                 resolvedSportId = 'ncaaf';
                 if (effectiveFilter.includes('1st-quarter')) periodFilter = 'Q1';
                 if (effectiveFilter.includes('2nd-quarter')) periodFilter = 'Q2';
@@ -83,7 +69,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
             }
         }
 
-        const sportInfo = sportMap[resolvedSportId] || { name: 'Sports', icon: 'fa-solid fa-trophy' };
+        const sportInfo = resolveSportInfo(resolvedSportId);
         setIsLoading(true);
 
         // Map rawMatches into view-friendly structure and filter by sportId where possible
@@ -158,12 +144,12 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                     id: match.id || match.externalId,
                     time: match.startTime ? new Date(match.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
                     date: match.startTime ? new Date(match.startTime).toLocaleDateString() : '',
-                    team1: { name: homeName, abbr: homeName.substring(0, 3).toUpperCase(), logo: '🔵' },
-                    team2: { name: awayName, abbr: awayName.substring(0, 3).toUpperCase(), logo: '🔴' },
+                    team1: { name: homeName, abbr: homeName.substring(0, 3).toUpperCase() },
+                    team2: { name: awayName, abbr: awayName.substring(0, 3).toUpperCase() },
                     score1: displayScore1,
                     score2: displayScore2,
                     period: match.score?.period, // e.g. 'Q1', '2nd Half'
-                    status: match.status === 'live' || (match.score && (String(match.score.event_status || '').toUpperCase().includes('IN_PROGRESS') || String(match.score.event_status || '').toUpperCase().includes('LIVE'))) ? 'LIVE' : (match.status || 'Scheduled'),
+                    status: (match.status === 'live' || (match.score && (String(match.score.event_status || '').toUpperCase().includes('IN_PROGRESS') || String(match.score.event_status || '').toUpperCase().includes('LIVE')))) ? 'LIVE' : 'SCHEDULED',
                     odds: extractOdds(match, homeName, awayName),
                     rawMatch: match // Keep raw for betting
                 };
@@ -172,7 +158,6 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                 setContent({
                     ...sportInfo,
                     matches: filteredMatches,
-                    scoreboards: []
                 });
                 setIsLoading(false);
             };
@@ -247,18 +232,8 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                     <span>{content.name} - Live & Upcoming</span>
                 </div>
                 <div className="content-tabs">
-                    <button
-                        className={`tab-btn ${activeTab === 'matches' ? 'active' : ''}`}
-                        onClick={() => setActiveTab('matches')}
-                    >
-                        Matches
-                    </button>
-                    <button
-                        className={`tab-btn ${activeTab === 'scoreboards' ? 'active' : ''}`}
-                        onClick={() => setActiveTab('scoreboards')}
-                    >
-                        Scoreboards
-                    </button>
+                    <button className="tab-btn active">Matches</button>
+                    <button className="tab-btn" disabled>Scoreboards</button>
                 </div>
             </div>
 
@@ -415,22 +390,6 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                 </div>
             )}
 
-            {activeTab === 'scoreboards' && (
-                <div className="scoreboards-section">
-                    {content.scoreboards.map((board, idx) => (
-                        <div key={idx} className="scoreboard-card">
-                            <div className="scoreboard-scores">
-                                {Object.entries(board).map(([key, value]) => (
-                                    <div key={key} className="score-cell">
-                                        <span className="score-label">{key}</span>
-                                        <span className="score-value">{value}</span>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            )}
         </div>
     );
 };

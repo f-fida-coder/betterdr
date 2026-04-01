@@ -12,14 +12,12 @@ const buildRefreshRequestId = () => {
     return `matches-refresh-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 };
 
-const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, onViewChange, activeBetMode = 'straight', onBetModeChange, currentView, onToggleSidebar, selectedSports = [], onContinue, onLogout, isMobileSportsSelectionMode = false, onHomeClick, role, unlimitedBalance }) => {
+const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, onViewChange, activeBetMode = 'straight', onBetModeChange, currentView, onToggleSidebar, selectedSports = [], onContinue, onMobileBack, onLogout, mobileViewState = 'browsing', onHomeClick, role, unlimitedBalance }) => {
     const { oddsFormat, setOddsFormat, isUpdatingOddsFormat } = useOddsFormat();
     const [showLiveMenu, setShowLiveMenu] = useState(false);
     const [showMoreMenu, setShowMoreMenu] = useState(false);
     const [showUserMenu, setShowUserMenu] = useState(false);
     const [isRefreshing, setIsRefreshing] = useState(false);
-
-    const hasSelection = selectedSports.length > 0;
 
     const betTypes = [
         { id: 'straight', label: 'STRAIGHT', icon: 'S' },
@@ -133,19 +131,20 @@ const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, 
             <div className="mobile-header-container mobile-only">
                 <div className="top-header">
                     <div className="header-icon-group">
+                        {/* Hamburger menu — always available */}
                         <div className="menu-circle" onClick={onToggleSidebar}>
                             <i className="fa-solid fa-bars"></i>
                         </div>
 
-                        {currentView === 'bonus' || currentView === 'prime-live' || currentView === 'ultra-live' || currentView === 'live-casino' || currentView === 'casino' ? (
+                        {currentView !== 'dashboard' ? (
                             <div className="icon-btn" onClick={() => onHomeClick && onHomeClick()}>
                                 <i className="fa-solid fa-house"></i>
                                 <span>HOME</span>
                             </div>
-                        ) : (hasSelection && !isMobileSportsSelectionMode) ? (
-                            <div className="icon-btn" onClick={() => onHomeClick && onHomeClick()}>
-                                <i className="fa-solid fa-house"></i>
-                                <span>HOME</span>
+                        ) : mobileViewState === 'results' ? (
+                            <div className="icon-btn" onClick={onMobileBack}>
+                                <i className="fa-solid fa-arrow-left"></i>
+                                <span>BACK</span>
                             </div>
                         ) : (
                             <div className="icon-btn">
@@ -161,25 +160,25 @@ const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, 
                                     alert('Deposits and Withdrawals are managed by your Agent. Please contact them to update your balance.');
                                     return;
                                 }
-                                onViewChange && onViewChange(hasSelection ? 'bonus' : 'bonus');
+                                onViewChange && onViewChange('bonus');
                             }}
                         >
                             <i className="fa-solid fa-cash-register"></i>
-                            <span>{hasSelection ? 'BONUS' : 'CASHIER'}</span>
+                            <span>CASHIER</span>
                         </div>
                     </div>
 
                     <div className="right-section">
-                        {(!hasSelection || currentView === 'bonus' || (hasSelection && !isMobileSportsSelectionMode)) ? (
-                            <div className="balance-container">
-                                <div className="balance-amount">{formatMoney(balance)}</div>
-                                <div className="balance-label">BALANCE</div>
-                            </div>
-                        ) : (
-                            <div className="continue-btn-container" onClick={onContinue || onToggleSidebar}>
+                        {mobileViewState === 'selected' ? (
+                            <div className="continue-btn-container" onClick={onContinue}>
                                 <button className="mobile-continue-btn">
                                     Continue <i className="fa-solid fa-chevron-right"></i>
                                 </button>
+                            </div>
+                        ) : (
+                            <div className="balance-container">
+                                <div className="balance-amount">{formatMoney(balance)}</div>
+                                <div className="balance-label">BALANCE</div>
                             </div>
                         )}
                         <div className="dropdown-chevron" onClick={() => setShowUserMenu(!showUserMenu)}>

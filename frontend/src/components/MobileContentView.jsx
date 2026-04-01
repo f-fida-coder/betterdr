@@ -1,6 +1,7 @@
 import React from 'react';
 import useMatches from '../hooks/useMatches';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
+import { getSportKeywords, findSportItemById } from '../data/sportsData';
 import {
     formatLineValue,
     formatOdds,
@@ -12,121 +13,73 @@ import {
 
 const MobileContentView = ({ selectedSports = [] }) => {
     const { oddsFormat } = useOddsFormat();
-    const getSportName = (id) => {
-        const sportMap = {
-            'nfl': 'NFL Football',
-            'ncaa-football': 'College Football',
-            'nba': 'NBA Basketball',
-            'ncaa-basketball': 'College Basketball',
-            'mlb': 'MLB Baseball',
-            'nhl': 'NHL Hockey',
-            'epl': 'EPL Soccer',
-            'mls': 'MLS Soccer',
-            'pga': 'PGA Golf',
-            'wta': 'WTA Tennis',
-            'atp': 'ATP Tennis',
-            'boxing': 'Boxing',
-            'mma': 'MMA',
-            'auto-racing': 'Auto Racing',
-            'rugby': 'Rugby',
-            'volleyball': 'Volleyball',
-            'cricket': 'Cricket',
-            'basketball': 'Basketball',
-            'baseball': 'Baseball',
-            'hockey': 'Hockey',
-            'football': 'Football',
-            'soccer': 'Soccer',
-            'golf': 'Golf',
-            'tennis': 'Tennis',
-            'martial-arts': 'Martial Arts'
-        };
-        return sportMap[id] || id.replace('-', ' ').toUpperCase();
-    };
 
-    const primarySport = selectedSports && selectedSports.length > 0 ? selectedSports[0] : null;
+    const primarySport = selectedSports?.[0] ?? null;
     const statusFilter = primarySport === 'commercial-live'
         ? 'live'
         : primarySport === 'up-next'
             ? 'upcoming'
             : 'live-upcoming';
     const rawMatches = useMatches({ status: statusFilter, scopeKey: selectedSports.join('|') });
-    const sportName = primarySport ? getSportName(primarySport) : 'Selected Sport';
 
-    const getSportKeywords = (id) => {
-        if (!id) return [];
-        const normalized = id.toString().toLowerCase();
-        const keywordMap = {
-            nfl: ['nfl', 'americanfootball_nfl', 'national football', 'american football'],
-            'ncaa-football': ['ncaaf', 'ncaa football', 'college football'],
-            nba: ['nba', 'basketball_nba', 'national basketball'],
-            'ncaa-basketball': ['ncaab', 'ncaa basketball', 'college basketball'],
-            mlb: ['mlb', 'baseball_mlb', 'major league baseball'],
-            nhl: ['nhl', 'icehockey_nhl', 'hockey_nhl'],
-            epl: ['epl', 'premier league', 'english premier league'],
-            soccer: ['soccer', 'football', 'premier league', 'la liga', 'serie a', 'bundesliga', 'ligue 1', 'mls'],
-            basketball: ['basketball', 'nba', 'ncaab', 'euroleague'],
-            baseball: ['baseball', 'mlb'],
-            hockey: ['hockey', 'nhl', 'icehockey'],
-            golf: ['golf', 'pga'],
-            tennis: ['tennis', 'atp', 'wta'],
-            boxing: ['boxing'],
-            mma: ['mma', 'ufc'],
-            rugby: ['rugby'],
-            'auto-racing': ['racing', 'motorsport', 'nascar', 'formula'],
-            'martial-arts': ['mma', 'ufc', 'martial'],
-        };
-        return keywordMap[normalized] || [normalized];
-    };
+    const sportName = React.useMemo(() => {
+        if (!primarySport) return 'Sports';
+        const item = findSportItemById(primarySport);
+        return item ? item.label : primarySport.replace(/-/g, ' ').toUpperCase();
+    }, [primarySport]);
 
     const extractOdds = (match, homeName, awayName) => {
         const h2h = getMatchMarket(match, 'h2h');
         const spreads = getMatchMarket(match, 'spreads');
         const totals = getMatchMarket(match, 'totals');
 
-        const h2hHome = getMarketOutcomeByName(h2h, homeName);
-        const h2hAway = getMarketOutcomeByName(h2h, awayName);
-        const spreadHome = getMarketOutcomeByName(spreads, homeName);
-        const spreadAway = getMarketOutcomeByName(spreads, awayName);
-        const totalOver = getMarketOutcomeByKeyword(totals, 'over');
-        const totalUnder = getMarketOutcomeByKeyword(totals, 'under');
-
         return {
-            spreadHomePoint: spreadHome?.point ?? null,
-            spreadAwayPoint: spreadAway?.point ?? null,
-            spreadHomePrice: parseOddsNumber(spreadHome?.price),
-            spreadAwayPrice: parseOddsNumber(spreadAway?.price),
-            moneylineHome: parseOddsNumber(h2hHome?.price),
-            moneylineAway: parseOddsNumber(h2hAway?.price),
-            totalPoint: totalOver?.point ?? totalUnder?.point ?? null,
-            totalOverPrice: parseOddsNumber(totalOver?.price),
-            totalUnderPrice: parseOddsNumber(totalUnder?.price)
+            spreadHomePoint: getMarketOutcomeByName(spreads, homeName)?.point ?? null,
+            spreadAwayPoint: getMarketOutcomeByName(spreads, awayName)?.point ?? null,
+            spreadHomePrice: parseOddsNumber(getMarketOutcomeByName(spreads, homeName)?.price),
+            spreadAwayPrice: parseOddsNumber(getMarketOutcomeByName(spreads, awayName)?.price),
+            moneylineHome: parseOddsNumber(getMarketOutcomeByName(h2h, homeName)?.price),
+            moneylineAway: parseOddsNumber(getMarketOutcomeByName(h2h, awayName)?.price),
+            totalPoint: getMarketOutcomeByKeyword(totals, 'over')?.point ?? getMarketOutcomeByKeyword(totals, 'under')?.point ?? null,
+            totalOverPrice: parseOddsNumber(getMarketOutcomeByKeyword(totals, 'over')?.price),
+            totalUnderPrice: parseOddsNumber(getMarketOutcomeByKeyword(totals, 'under')?.price),
         };
     };
 
     const matches = React.useMemo(() => {
-        const formattedMatches = (rawMatches || []).map(match => {
+        const formatted = (rawMatches || []).map(match => {
             const homeName = match.homeTeam || match.home_team || '';
             const awayName = match.awayTeam || match.away_team || '';
-            const odds = extractOdds(match, homeName, awayName);
             const eventStatus = (match.score?.event_status || '').toString().toUpperCase();
-            const isLive = match.status === 'live' || eventStatus.includes('IN_PROGRESS') || eventStatus.includes('LIVE') || eventStatus.includes('STATUS_IN_PROGRESS');
+            const isLive = match.status === 'live' || eventStatus.includes('IN_PROGRESS') || eventStatus.includes('LIVE');
+            const startDate = match.startTime ? new Date(match.startTime) : null;
 
             return {
                 id: match.id || match.externalId,
-                sport: match.sport || match.sportTitle || '',
+                sport: match.sport || '',
                 team1: homeName,
                 team2: awayName,
-                odds,
-                isLive
+                odds: extractOdds(match, homeName, awayName),
+                isLive,
+                time: startDate ? startDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
+                date: startDate ? startDate.toLocaleDateString([], { month: 'short', day: 'numeric' }) : '',
             };
         });
 
-        if (!primarySport) return formattedMatches;
+        if (!primarySport) return formatted;
         const keywords = getSportKeywords(primarySport);
-        const filtered = formattedMatches.filter(m => m.sport && keywords.some(k => m.sport.toLowerCase().includes(k)));
-        return filtered.length > 0 ? filtered : formattedMatches;
+        const filtered = formatted.filter(m => m.sport && keywords.some(k => m.sport.toLowerCase().includes(k)));
+        // Show filtered results, or empty state — never fall back to unfiltered
+        return filtered;
     }, [rawMatches, primarySport]);
 
+    const handleAddToSlip = (matchId, selection, marketType, odds, matchName) => {
+        const parsedOdds = parseOddsNumber(odds);
+        if (!matchId || !selection || parsedOdds === null) return;
+        window.dispatchEvent(new CustomEvent('betslip:add', {
+            detail: { matchId, selection, marketType, odds: parsedOdds, matchName, marketLabel: marketType }
+        }));
+    };
 
     return (
         <div style={{
@@ -134,153 +87,156 @@ const MobileContentView = ({ selectedSports = [] }) => {
             height: '100%',
             display: 'flex',
             flexDirection: 'column',
-            backgroundColor: '#f5f5f5',
-            padding: '0',
+            backgroundColor: '#fff',
             overflowY: 'auto',
-            WebkitOverflowScrolling: 'touch'
+            WebkitOverflowScrolling: 'touch',
         }}>
-            {/* Header */}
+            {/* Sport context header */}
             <div style={{
-                padding: '15px 10px',
-                backgroundColor: '#ffffff',
-                borderBottom: '2px solid #e0e0e0',
-                marginBottom: '10px',
-                borderRadius: '4px'
+                padding: '14px 16px',
+                backgroundColor: '#fff',
+                borderBottom: '1px solid #e0e0e0',
+                flexShrink: 0,
             }}>
-                <h2 style={{
-                    margin: '0 0 5px 0',
-                    fontSize: '18px',
-                    fontWeight: 'bold',
-                    color: '#333'
-                }}>
+                <div style={{ fontSize: '16px', fontWeight: '700', color: '#111', lineHeight: 1.3 }}>
                     {sportName}
-                </h2>
-                <p style={{
-                    margin: '0',
-                    fontSize: '12px',
-                    color: '#666',
-                    fontWeight: '500'
-                }}>
-                    Upcoming Matches & Events
-                </p>
+                </div>
+                <div style={{ fontSize: '11px', color: '#999', fontWeight: '500', marginTop: '2px', letterSpacing: '0.2px' }}>
+                    {statusFilter === 'live' ? 'Live Matches' : statusFilter === 'upcoming' ? 'Upcoming Matches' : 'Live & Upcoming'}
+                </div>
             </div>
 
-            {/* Matches List */}
+            {/* Match list */}
             <div style={{ flex: 1 }}>
-                {matches && matches.length > 0 ? (
-                    matches.map(match => (
-                        <div
-                            key={match.id}
-                            style={{
-                                backgroundColor: '#ffffff',
-                                padding: '12px',
-                                marginBottom: '10px',
-                                borderRadius: '6px',
-                                border: '1px solid #e0e0e0',
-                                boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
-                            }}
-                        >
-                            {/* Match Header */}
-                            <div style={{
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                alignItems: 'center',
-                                marginBottom: '10px'
+                {matches.length > 0 ? matches.map(match => (
+                    <div key={match.id} style={{
+                        padding: '14px 16px',
+                        borderBottom: '1px solid #eee',
+                        backgroundColor: '#fff',
+                    }}>
+                        {/* Time + status badge */}
+                        <div style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            marginBottom: '8px',
+                        }}>
+                            <span style={{ fontSize: '11px', color: '#999', fontWeight: '600', letterSpacing: '0.2px' }}>
+                                {match.time}{match.date ? ` \u00B7 ${match.date}` : ''}
+                            </span>
+                            <span style={{
+                                background: match.isLive ? '#2e7d32' : '#78909c',
+                                color: '#fff',
+                                padding: '2px 8px',
+                                borderRadius: '3px',
+                                fontSize: '9px',
+                                fontWeight: '700',
+                                letterSpacing: '0.5px',
                             }}>
-                                <div style={{ fontSize: '12px', color: '#888', fontWeight: '600' }}>
-                                    MATCH {match.id}
-                                </div>
-                                <div style={{
-                                    background: match.isLive ? '#007bff' : '#6c757d',
-                                    color: 'white',
-                                    padding: '3px 8px',
-                                    borderRadius: '3px',
-                                    fontSize: '11px',
-                                    fontWeight: 'bold'
-                                }}>
-                                    {match.isLive ? 'LIVE' : 'UPCOMING'}
-                                </div>
-                            </div>
+                                {match.isLive ? 'LIVE' : 'UPCOMING'}
+                            </span>
+                        </div>
 
-                            {/* Teams */}
-                            <div style={{ marginBottom: '10px' }}>
-                                <div style={{
-                                    display: 'flex',
-                                    justifyContent: 'space-between',
-                                    alignItems: 'center',
-                                    padding: '8px 0',
-                                    borderBottom: '1px solid #f0f0f0',
-                                    fontSize: '13px',
-                                    fontWeight: '600',
-                                    color: '#333'
-                                }}>
-                                    <span>{match.team1}</span>
-                                    <span>{formatLineValue(match.odds.spreadHomePoint, { signed: true })}</span>
-                                </div>
-                                <div style={{
-                                    display: 'flex',
-                                    justifyContent: 'space-between',
-                                    alignItems: 'center',
-                                    padding: '8px 0',
-                                    fontSize: '13px',
-                                    fontWeight: '600',
-                                    color: '#333'
-                                }}>
-                                    <span>{match.team2}</span>
-                                    <span>{formatLineValue(match.odds.spreadAwayPoint, { signed: true })}</span>
-                                </div>
+                        {/* Team rows */}
+                        <div style={{ marginBottom: '10px' }}>
+                            <div style={teamRowStyle}>
+                                <span style={teamNameStyle}>{match.team1}</span>
+                                <span style={spreadValueStyle}>{formatLineValue(match.odds.spreadHomePoint, { signed: true })}</span>
                             </div>
-
-                            {/* Odds Grid */}
-                            <div style={{
-                                display: 'grid',
-                                gridTemplateColumns: '1fr 1fr',
-                                gap: '8px',
-                                marginTop: '10px'
-                            }}>
-                                <button style={{
-                                    padding: '10px',
-                                    backgroundColor: '#f0f0f0',
-                                    border: '1px solid #ddd',
-                                    borderRadius: '4px',
-                                    cursor: 'pointer',
-                                    fontSize: '12px',
-                                    fontWeight: 'bold',
-                                    color: '#333',
-                                    transition: 'all 0.2s',
-                                }}>
-                                    Spread<br />
-                                    <span style={{ fontSize: '14px', fontWeight: 'bold', color: '#007bff' }}>{formatOdds(match.odds.spreadHomePrice, oddsFormat)}</span>
-                                </button>
-                                <button style={{
-                                    padding: '10px',
-                                    backgroundColor: '#f0f0f0',
-                                    border: '1px solid #ddd',
-                                    borderRadius: '4px',
-                                    cursor: 'pointer',
-                                    fontSize: '12px',
-                                    fontWeight: 'bold',
-                                    color: '#333',
-                                    transition: 'all 0.2s',
-                                }}>
-                                    Total<br />
-                                    <span style={{ fontSize: '14px', fontWeight: 'bold', color: '#007bff' }}>{formatOdds(match.odds.totalOverPrice, oddsFormat)}</span>
-                                </button>
+                            <div style={{ ...teamRowStyle, borderBottom: 'none' }}>
+                                <span style={teamNameStyle}>{match.team2}</span>
+                                <span style={spreadValueStyle}>{formatLineValue(match.odds.spreadAwayPoint, { signed: true })}</span>
                             </div>
                         </div>
-                    ))
-                ) : (
-                    <div style={{
-                        textAlign: 'center',
-                        padding: '40px 20px',
-                        color: '#999'
-                    }}>
-                        <p style={{ fontSize: '14px', margin: 0 }}>No matches available</p>
+
+                        {/* 3-column odds grid */}
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px' }}>
+                            <button style={oddsBtnStyle}
+                                onClick={() => handleAddToSlip(match.id, match.team1, 'spreads', match.odds.spreadHomePrice, `${match.team1} vs ${match.team2}`)}
+                                disabled={match.odds.spreadHomePrice === null}>
+                                <span style={oddsLabelStyle}>Spread</span>
+                                <span style={oddsValueStyle}>{formatOdds(match.odds.spreadHomePrice, oddsFormat)}</span>
+                            </button>
+                            <button style={oddsBtnStyle}
+                                onClick={() => handleAddToSlip(match.id, match.team1, 'h2h', match.odds.moneylineHome, `${match.team1} vs ${match.team2}`)}
+                                disabled={match.odds.moneylineHome === null}>
+                                <span style={oddsLabelStyle}>ML</span>
+                                <span style={oddsValueStyle}>{formatOdds(match.odds.moneylineHome, oddsFormat)}</span>
+                            </button>
+                            <button style={oddsBtnStyle}
+                                onClick={() => handleAddToSlip(match.id, 'Over', 'totals', match.odds.totalOverPrice, `${match.team1} vs ${match.team2}`)}
+                                disabled={match.odds.totalOverPrice === null}>
+                                <span style={oddsLabelStyle}>O {match.odds.totalPoint ?? ''}</span>
+                                <span style={oddsValueStyle}>{formatOdds(match.odds.totalOverPrice, oddsFormat)}</span>
+                            </button>
+                        </div>
+                    </div>
+                )) : (
+                    <div style={{ textAlign: 'center', padding: '60px 20px', color: '#bbb' }}>
+                        <i className="fa-solid fa-calendar-xmark" style={{ fontSize: '32px', marginBottom: '12px', opacity: 0.5, display: 'block' }}></i>
+                        <p style={{ fontSize: '13px', margin: '0 0 4px 0', color: '#999', fontWeight: '600' }}>No matches available</p>
+                        <p style={{ fontSize: '11px', margin: 0, color: '#bbb' }}>Check back later for updates</p>
                     </div>
                 )}
             </div>
         </div>
     );
+};
+
+// ── Shared styles ────────────────────────────────────────
+
+const teamRowStyle = {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: '6px 0',
+    borderBottom: '1px solid #f2f2f2',
+};
+
+const teamNameStyle = {
+    flex: 1,
+    minWidth: 0,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    fontSize: '13px',
+    fontWeight: '600',
+    color: '#222',
+};
+
+const spreadValueStyle = {
+    color: '#666',
+    fontSize: '12px',
+    fontWeight: '600',
+    marginLeft: '8px',
+    flexShrink: 0,
+};
+
+const oddsBtnStyle = {
+    padding: '9px 4px',
+    backgroundColor: '#f7f7f7',
+    border: '1px solid #e5e5e5',
+    borderRadius: '5px',
+    cursor: 'pointer',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: '2px',
+    transition: 'background-color 0.15s',
+};
+
+const oddsLabelStyle = {
+    fontSize: '9px',
+    fontWeight: '700',
+    color: '#999',
+    textTransform: 'uppercase',
+    letterSpacing: '0.3px',
+};
+
+const oddsValueStyle = {
+    fontSize: '13px',
+    fontWeight: '700',
+    color: '#1565c0',
 };
 
 export default MobileContentView;
