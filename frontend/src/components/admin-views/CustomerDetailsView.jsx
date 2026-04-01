@@ -1861,7 +1861,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
         type: selectedTxType.apiType,
         reason: selectedTxType.reason,
         description: customDescription || selectedTxType.defaultDescription,
-        applyDepositFreeplayBonus: selectedTxType.value === 'deposit' ? newTxApplyFreeplayBonus : undefined
+        applyDepositFreeplayBonus: (selectedTxType.value === 'deposit' && !isAgent) ? newTxApplyFreeplayBonus : false
       }, token);
       const freePlayBonusAmount = toMoneyNumber(result?.freeplayBonus?.amount, 0);
       const referralBonusAmount = toMoneyNumber(result?.referralBonus?.amount, 0);
@@ -2055,10 +2055,12 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
                 <span className="detail-label">Max Bet</span>
                 <strong className="detail-value">{formatDetailMoney(maxBetValue)}</strong>
               </div>
-              <button type="button" className={`detail-item detail-metric${activeSection === 'freeplays' ? ' detail-metric-active' : ''}`} onClick={() => openSection('freeplays')}>
-                <span className="detail-label">Freeplay</span>
-                <strong className="detail-value neutral">{formatCurrency(freeplayBalanceValue)}</strong>
-              </button>
+              {!isAgent && (
+                <button type="button" className={`detail-item detail-metric${activeSection === 'freeplays' ? ' detail-metric-active' : ''}`} onClick={() => openSection('freeplays')}>
+                  <span className="detail-label">Freeplay</span>
+                  <strong className="detail-value neutral">{formatCurrency(freeplayBalanceValue)}</strong>
+                </button>
+              )}
 
               <div className="detail-item">
                 <span className="detail-label">Credit</span>
@@ -2981,7 +2983,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
                 </div>
                 <label>Description</label>
                 <input value={newTxDescription} onChange={(e) => setNewTxDescription(e.target.value)} placeholder="Optional note" />
-                {selectedTxDraftType.value === 'deposit' && (
+                {selectedTxDraftType.value === 'deposit' && !isAgent && (
                   <label
                     style={{
                       display: 'flex',
@@ -3033,7 +3035,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
                     <div className="tx-confirm-row"><span>Date</span><span>{today}</span></div>
                     <div className="tx-confirm-row"><span>Previous Balance</span><span style={{ color: getSignedBalanceColor(prevBal) }}>{formatCurrency(prevBal)}</span></div>
                     <div className="tx-confirm-row"><span>{selectedTxType.label} :</span><span style={{ color: isDebit ? '#dc2626' : '#1f2937' }}>{isDebit ? '-' : ''}{formatCurrency(amount)}</span></div>
-                    {selectedTxType.value === 'deposit' && (
+                    {selectedTxType.value === 'deposit' && !isAgent && (
                       <div className="tx-confirm-row">
                         <span>Freeplay Bonus</span>
                         <span style={{ color: newTxApplyFreeplayBonus ? '#166534' : '#6b7280' }}>
