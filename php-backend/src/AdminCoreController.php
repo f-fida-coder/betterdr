@@ -6761,7 +6761,7 @@ final class AdminCoreController
             }
 
             $updated = $this->db->findOne('agents', ['id' => SqlRepository::id($id)]);
-            $this->invalidateHeaderCache();
+            $this->invalidateHeaderSummaryCache();
 
             Response::json([
                 'message' => 'Agent balance updated',
