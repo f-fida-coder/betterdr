@@ -870,18 +870,13 @@ function AdminHeader({
                   <span className={`stat-value ${getSignedValueClass(previousBalanceOwedValue)}`}>{formatCurrency(previousBalanceOwedValue)}</span>
                 </div>
                 <div className="stat-row">
-                  <span className="stat-label">Player Fees</span>
-                  <span className="stat-value">{formatCurrency(totalPlayerFeesValue)}</span>
+                  <span className="stat-label">Agent Collections</span>
+                  <span className={`stat-value ${getSignedValueClass(agentCollectionsValue)}`}>{formatCurrency(agentCollectionsValue)}</span>
                 </div>
                 <div className="stat-row">
-                  <span className="stat-label">Kick to House</span>
-                  <span className={`stat-value ${getSignedValueClass(kickToHouseValue)}`}>{formatCurrency(kickToHouseValue)}</span>
+                  <span className="stat-label">Agent Split</span>
+                  <span className={`stat-value ${agentSplitValue > 0 ? 'negative' : 'neutral'}`}>{formatCurrency(agentSplitValue > 0 ? -agentSplitValue : 0)}</span>
                 </div>
-                <div className="stat-row">
-                  <span className="stat-label">House Collections</span>
-                  <span className={`stat-value ${getSignedValueClass(houseCollectionsValue)}`}>{formatCurrency(houseCollectionsValue)}</span>
-                </div>
-                {/* Balance Adjustments row removed */}
                 <div className="stat-row stat-row-total">
                   <span className="stat-label">Balance Owed</span>
                   <span className={`stat-value ${getSignedValueClass(balanceOwedValue)}`}>{formatCurrency(balanceOwedValue)}</span>

@@ -118,16 +118,17 @@ final class AgentSettlementRules
         $weeklyHouseBalance = round($kickToHouse + $totalPlayerFees, 2);
 
         // ── Makeup (cumulative) ────────────────────────────────────────
-        // Negative net adds the deficit; positive net reduces via makeupReduction
-        $weeklyMakeupAddition = round(max(0.0, -$netCollections), 2);
+        // Deficit + player fees go to makeup
+        $weeklyMakeupAddition = round(max(0.0, -$netCollections) + $totalPlayerFees, 2);
         $cumulativeMakeup = max(0.0, round(
             $previousMakeup - $makeupReduction + $weeklyMakeupAddition,
             2
         ));
 
         // ── Balance Owed (cumulative) ──────────────────────────────────
-        // Running total: previous - house collections (house payouts increase agent debt) + weekly settlement
-        $balanceOwed = round($previousBalanceOwed - $houseCollections + $weeklyHouseBalance, 2);
+        // Balance = cash agent holds minus what they earned
+        // Agent collected agentCollections cash, keeps agentSplit as commission
+        $balanceOwed = round($previousBalanceOwed + $agentCollections - $agentSplit, 2);
 
         return [
             'agentCollections'     => $agentCollections,
