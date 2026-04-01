@@ -847,14 +847,18 @@ function AdminHeader({
                   <span className="stat-label">Net Collections</span>
                   <span className={`stat-value ${getSignedValueClass(netCollectionsValue)}`}>{formatCurrency(netCollectionsValue)}</span>
                 </div>
-                <div className="stat-row">
-                  <span className="stat-label">Agent Split{agentPercentValue != null ? ` ${agentPercentValue}%` : ''}</span>
-                  <span className={`stat-value ${getSignedValueClass(agentSplitValue)}`}>{formatCurrency(agentSplitValue)}</span>
-                </div>
-                <div className="stat-row">
-                  <span className="stat-label">Kick to House{housePercentValue != null ? ` ${housePercentValue}%` : ''}</span>
-                  <span className={`stat-value ${getSignedValueClass(kickToHouseValue)}`}>{formatCurrency(kickToHouseValue)}</span>
-                </div>
+                {netCollectionsValue > 0 && (
+                  <>
+                    <div className="stat-row">
+                      <span className="stat-label">Agent Split{agentPercentValue != null ? ` ${agentPercentValue}%` : ''}</span>
+                      <span className={`stat-value ${getSignedValueClass(agentSplitValue)}`}>{formatCurrency(agentSplitValue)}</span>
+                    </div>
+                    <div className="stat-row">
+                      <span className="stat-label">Kick to House{housePercentValue != null ? ` ${housePercentValue}%` : ''}</span>
+                      <span className={`stat-value ${getSignedValueClass(kickToHouseValue)}`}>{formatCurrency(kickToHouseValue)}</span>
+                    </div>
+                  </>
+                )}
               </div>
             )}
 
@@ -873,10 +877,12 @@ function AdminHeader({
                   <span className="stat-label">Agent Collections</span>
                   <span className={`stat-value ${getSignedValueClass(agentCollectionsValue)}`}>{formatCurrency(agentCollectionsValue)}</span>
                 </div>
-                <div className="stat-row">
-                  <span className="stat-label">Agent Split</span>
-                  <span className={`stat-value ${agentSplitValue > 0 ? 'negative' : 'neutral'}`}>{formatCurrency(agentSplitValue > 0 ? -agentSplitValue : 0)}</span>
-                </div>
+                {agentSplitValue > 0 && (
+                  <div className="stat-row">
+                    <span className="stat-label">Agent Split</span>
+                    <span className="stat-value negative">{formatCurrency(-agentSplitValue)}</span>
+                  </div>
+                )}
                 <div className="stat-row stat-row-total">
                   <span className="stat-label">Balance Owed</span>
                   <span className={`stat-value ${getSignedValueClass(balanceOwedValue)}`}>{formatCurrency(balanceOwedValue)}</span>
