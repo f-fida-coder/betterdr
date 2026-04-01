@@ -3161,7 +3161,7 @@ final class AdminCoreController
                     'receivedDayLabel' => $receivedDayLabel,
                     'agentCollections' => $this->num($row['agentCollections'] ?? 0),
                     'houseCollections' => $this->num($row['houseCollections'] ?? 0),
-                    'netCollections' => $this->num($row['agentCollections'] ?? 0) - $this->num($row['houseCollections'] ?? 0),
+                    'netCollections' => $this->num($row['agentCollections'] ?? 0) + $this->num($row['houseCollections'] ?? 0),
                     'lastActive' => $user['lastActive'] ?? null,
                     'status' => $user['status'] ?? null,
                 ];
