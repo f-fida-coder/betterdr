@@ -981,110 +981,18 @@ function AdminHeader({
                   <span className="stat-label">House Collections</span>
                   <span className={`stat-value ${getSignedValueClass(-houseCollectionsValue)}`}>{formatCurrency(houseCollectionsValue !== 0 ? -Math.abs(houseCollectionsValue) : 0)}</span>
                 </div>
-                <div className="stat-row">
-                  <span className="stat-label">Balance Adjustments</span>
-                  <span className={`stat-value ${getSignedValueClass(balanceAdjustmentValue)}`}>{formatCurrency(balanceAdjustmentValue)}</span>
-                </div>
-                <button
-                  type="button"
-                  className={`stat-row stat-row-total ${canAdjustSettlement ? 'stat-row-button stat-row-total-button' : ''}`}
-                  onClick={canAdjustSettlement ? openSettlementAdjustmentModal : undefined}
-                  disabled={!canAdjustSettlement}
-                  aria-label={canAdjustSettlement ? `Adjust ${displayName} balance owed` : undefined}
-                  title={canAdjustSettlement ? 'Record an agent pay-in or house payout' : undefined}
-                >
+                {/* Balance Adjustments row removed */}
+                <div className="stat-row stat-row-total">
                   <span className="stat-label">Balance Owed</span>
                   <span className={`stat-value ${getSignedValueClass(balanceOwedValue)}`}>{formatCurrency(balanceOwedValue)}</span>
-                </button>
+                </div>
               </div>
             )}
           </div>
         </div>
       )}
 
-      {showSettlementAdjustmentModal && (
-        <div className="modal-overlay" onClick={closeSettlementAdjustmentModal}>
-          <div className="modal-content settlement-adjustment-modal" onClick={(event) => event.stopPropagation()}>
-            <h3>Adjust Balance Owed</h3>
-            <p className="settlement-adjustment-copy">
-              Positive balance means the agent owes the house. Negative balance means the house owes the agent.
-            </p>
-            <form onSubmit={handleSettlementAdjustmentSubmit}>
-              <div className="settlement-balance-preview" role="status" aria-live="polite">
-                <div className="settlement-balance-preview-item">
-                  <span>Current Balance</span>
-                  <strong className={getSignedValueClass(balanceOwedValue)}>{formatCurrency(balanceOwedValue)}</strong>
-                </div>
-                <div className="settlement-balance-preview-item">
-                  <span>This Week Adjustments</span>
-                  <strong className={getSignedValueClass(balanceAdjustmentValue)}>{formatCurrency(balanceAdjustmentValue)}</strong>
-                </div>
-                <div className="settlement-balance-preview-item">
-                  <span>Formula Balance</span>
-                  <strong className={getSignedValueClass(computedBalanceOwedValue)}>{formatCurrency(computedBalanceOwedValue)}</strong>
-                </div>
-                <div className="settlement-balance-preview-item">
-                  <span>New Balance After Save</span>
-                  <strong className={getSignedValueClass(projectedBalanceOwedValue)}>{formatCurrency(projectedBalanceOwedValue)}</strong>
-                </div>
-              </div>
-
-              <div className="form-group">
-                <label htmlFor="settlement-direction">Adjustment Type</label>
-                <select
-                  id="settlement-direction"
-                  value={settlementDirection}
-                  onChange={(event) => setSettlementDirection(event.target.value)}
-                  disabled={isSavingSettlementAdjustment}
-                >
-                  <option value="agent-pay-in">Agent paid in</option>
-                  <option value="house-paid-agent">House paid agent</option>
-                </select>
-              </div>
-
-              <div className="form-group">
-                <label htmlFor="settlement-amount">Amount</label>
-                <input
-                  id="settlement-amount"
-                  type="number"
-                  min="0.01"
-                  step="0.01"
-                  inputMode="decimal"
-                  value={settlementAmount}
-                  onChange={(event) => setSettlementAmount(event.target.value)}
-                  placeholder="0.00"
-                  disabled={isSavingSettlementAdjustment}
-                />
-              </div>
-
-              <div className="form-group">
-                <label htmlFor="settlement-note">Note</label>
-                <textarea
-                  id="settlement-note"
-                  rows="3"
-                  value={settlementNote}
-                  onChange={(event) => setSettlementNote(event.target.value)}
-                  placeholder="Optional note for this payment or correction"
-                  disabled={isSavingSettlementAdjustment}
-                />
-              </div>
-
-              {settlementError && (
-                <div className="settlement-adjustment-error" role="alert">{settlementError}</div>
-              )}
-
-              <div className="modal-actions settlement-adjustment-actions">
-                <button type="submit" className="btn-primary" disabled={isSavingSettlementAdjustment}>
-                  {isSavingSettlementAdjustment ? 'Saving...' : 'Save Adjustment'}
-                </button>
-                <button type="button" className="btn-secondary" onClick={closeSettlementAdjustmentModal} disabled={isSavingSettlementAdjustment}>
-                  Cancel
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      {/* Balance Adjustment modal removed */}
 
       {showAgentTree && (
         <AgentTreeView

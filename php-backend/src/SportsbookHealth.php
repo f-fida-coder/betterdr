@@ -12,9 +12,9 @@ final class SportsbookHealth
     /**
      * @param array<string, mixed> $context
      */
-    public static function recordSyncStart(MongoRepository $db, string $source, array $context = []): string
+    public static function recordSyncStart(SqlRepository $db, string $source, array $context = []): string
     {
-        $now = MongoRepository::nowUtc();
+        $now = SqlRepository::nowUtc();
         $existing = self::healthDoc($db, self::SYNC_DOC_ID);
         $runId = self::newRunId('sync');
 
@@ -54,9 +54,9 @@ final class SportsbookHealth
     /**
      * @param array<string, mixed> $result
      */
-    public static function recordSyncSuccess(MongoRepository $db, string $runId, string $source, array $result): void
+    public static function recordSyncSuccess(SqlRepository $db, string $runId, string $source, array $result): void
     {
-        $now = MongoRepository::nowUtc();
+        $now = SqlRepository::nowUtc();
         $existing = self::healthDoc($db, self::SYNC_DOC_ID);
         $runCount = ((int) ($existing['runCount'] ?? 0)) + 1;
         $oddsCallsOk = (int) ($result['oddsCallsOk'] ?? 0);
@@ -109,9 +109,9 @@ final class SportsbookHealth
     /**
      * @param array<string, mixed> $partialResult
      */
-    public static function recordSyncFailure(MongoRepository $db, string $runId, string $source, Throwable $error, array $partialResult = []): void
+    public static function recordSyncFailure(SqlRepository $db, string $runId, string $source, Throwable $error, array $partialResult = []): void
     {
-        $now = MongoRepository::nowUtc();
+        $now = SqlRepository::nowUtc();
         $existing = self::healthDoc($db, self::SYNC_DOC_ID);
         $runCount = ((int) ($existing['runCount'] ?? 0)) + 1;
 
@@ -150,9 +150,9 @@ final class SportsbookHealth
     /**
      * @param array<string, mixed> $result
      */
-    public static function recordSettlementSuccess(MongoRepository $db, string $matchId, string $settledBy, array $result): void
+    public static function recordSettlementSuccess(SqlRepository $db, string $matchId, string $settledBy, array $result): void
     {
-        $now = MongoRepository::nowUtc();
+        $now = SqlRepository::nowUtc();
         $existing = self::healthDoc($db, self::SETTLEMENT_DOC_ID);
         $runCount = ((int) ($existing['runCount'] ?? 0)) + 1;
 
@@ -184,9 +184,9 @@ final class SportsbookHealth
         ]);
     }
 
-    public static function recordSettlementFailure(MongoRepository $db, string $matchId, string $settledBy, Throwable $error): void
+    public static function recordSettlementFailure(SqlRepository $db, string $matchId, string $settledBy, Throwable $error): void
     {
-        $now = MongoRepository::nowUtc();
+        $now = SqlRepository::nowUtc();
         $existing = self::healthDoc($db, self::SETTLEMENT_DOC_ID);
         $runCount = ((int) ($existing['runCount'] ?? 0)) + 1;
 
@@ -220,7 +220,7 @@ final class SportsbookHealth
     /**
      * @return array<string, mixed>
      */
-    public static function sportsbookSnapshot(MongoRepository $db): array
+    public static function sportsbookSnapshot(SqlRepository $db): array
     {
         $sync = self::healthDoc($db, self::SYNC_DOC_ID);
         $settlement = self::healthDoc($db, self::SETTLEMENT_DOC_ID);
@@ -271,7 +271,7 @@ final class SportsbookHealth
      * @param array<string, mixed> $match
      * @return array<string, mixed>
      */
-    public static function applyBettingAvailability(MongoRepository $db, array $match): array
+    public static function applyBettingAvailability(SqlRepository $db, array $match): array
     {
         $annotated = SportsMatchStatus::annotate($match);
         $statusReason = SportsMatchStatus::placementBlockReason($annotated);
@@ -298,7 +298,7 @@ final class SportsbookHealth
      * @param array<string, mixed> $match
      * @return array{allowed: bool, reason: ?string, syncAgeSeconds: ?int, oddsAgeSeconds: ?int, oddsFeedStale: bool}
      */
-    public static function bettingAvailability(MongoRepository $db, array $match): array
+    public static function bettingAvailability(SqlRepository $db, array $match): array
     {
         $snapshot = self::sportsbookSnapshot($db);
         $syncAgeSeconds = self::safeInt($snapshot['oddsSync']['syncAgeSeconds'] ?? null);
@@ -352,9 +352,9 @@ final class SportsbookHealth
     /**
      * @param array<string, mixed> $payload
      */
-    private static function appendAudit(MongoRepository $db, string $event, array $payload, string $severity = 'info'): void
+    private static function appendAudit(SqlRepository $db, string $event, array $payload, string $severity = 'info'): void
     {
-        $now = MongoRepository::nowUtc();
+        $now = SqlRepository::nowUtc();
         $entry = [
             'event' => $event,
             'severity' => $severity,
@@ -369,13 +369,13 @@ final class SportsbookHealth
     /**
      * @return array<string, mixed>
      */
-    private static function healthDoc(MongoRepository $db, string $id): array
+    private static function healthDoc(SqlRepository $db, string $id): array
     {
-        $doc = $db->findOne(self::HEALTH_COLLECTION, ['id' => MongoRepository::id($id)]);
+        $doc = $db->findOne(self::HEALTH_COLLECTION, ['id' => SqlRepository::id($id)]);
         return is_array($doc) ? $doc : [];
     }
 
-    private static function fallbackLatestMatchTimestamp(MongoRepository $db, string $field): ?string
+    private static function fallbackLatestMatchTimestamp(SqlRepository $db, string $field): ?string
     {
         $matches = $db->findMany('matches', [], ['sort' => [$field => -1, 'updatedAt' => -1], 'limit' => 1]);
         $row = $matches[0] ?? null;

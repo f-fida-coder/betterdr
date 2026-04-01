@@ -8,8 +8,8 @@ if (!class_exists('ApiException')) {
     }
 }
 
-if (!class_exists('MongoRepository')) {
-    class MongoRepository
+if (!class_exists('SqlRepository')) {
+    class SqlRepository
     {
         public static function nowUtc(): string { return date('c'); }
         public static function id(string $id): string { return $id; }
@@ -101,7 +101,7 @@ function jurassicCall(object $target, string $method, mixed ...$args): mixed
     return $ref->invoke($target, ...$args);
 }
 
-final class JurassicMockMongoRepository extends MongoRepository
+final class JurassicMockSqlRepository extends SqlRepository
 {
     /** @var array<string, array<int, array<string, mixed>>> */
     private array $collections;
@@ -225,12 +225,12 @@ final class JurassicMockMongoRepository extends MongoRepository
 }
 
 /**
- * @return array{0: CasinoController, 1: JurassicMockMongoRepository, 2: array<string, mixed>}
+ * @return array{0: CasinoController, 1: JurassicMockSqlRepository, 2: array<string, mixed>}
  */
 function jurassicBuildSpinHarness(float $accountMinBet = 25.0, float $balance = 20000.0): array
 {
     $userId = 'jurassic_test_user';
-    $db = new JurassicMockMongoRepository([
+    $db = new JurassicMockSqlRepository([
         'casinogames' => [[
             'id' => 'jurassic_game',
             'slug' => 'jurassic-run',

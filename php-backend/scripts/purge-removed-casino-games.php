@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../src/Env.php';
-require_once __DIR__ . '/../src/MongoRepository.php';
+require_once __DIR__ . '/../src/SqlRepository.php';
 
 /**
  * Purge removed in-house casino game data.
@@ -22,7 +22,7 @@ Env::load($projectRoot, $phpBackendDir);
 $execute = in_array('--execute', $argv, true);
 
 /** @return int */
-function deleteManyByFilter(MongoRepository $repo, string $collection, array $filter, int $batchSize = 500): int
+function deleteManyByFilter(SqlRepository $repo, string $collection, array $filter, int $batchSize = 500): int
 {
     $deleted = 0;
 
@@ -44,7 +44,7 @@ function deleteManyByFilter(MongoRepository $repo, string $collection, array $fi
             if ($id === '') {
                 continue;
             }
-            $deleted += $repo->deleteOne($collection, ['id' => MongoRepository::id($id)]);
+            $deleted += $repo->deleteOne($collection, ['id' => SqlRepository::id($id)]);
         }
 
         if (count($rows) < $batchSize) {
@@ -56,7 +56,7 @@ function deleteManyByFilter(MongoRepository $repo, string $collection, array $fi
 }
 
 try {
-    $repo = new MongoRepository(
+    $repo = new SqlRepository(
         'mysql-native',
         (string) Env::get('MYSQL_DB', Env::get('DB_NAME', 'sports_betting'))
     );

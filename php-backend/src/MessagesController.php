@@ -5,10 +5,10 @@ declare(strict_types=1);
 
 final class MessagesController
 {
-    private MongoRepository $db;
+    private SqlRepository $db;
     private string $jwtSecret;
 
-    public function __construct(MongoRepository $db, string $jwtSecret)
+    public function __construct(SqlRepository $db, string $jwtSecret)
     {
         $this->db = $db;
         $this->jwtSecret = $jwtSecret;
@@ -50,19 +50,19 @@ final class MessagesController
             }
 
             $doc = [
-                'fromUserId' => MongoRepository::id((string) $actor['id']),
+                'fromUserId' => SqlRepository::id((string) $actor['id']),
                 'fromName' => (string) ($actor['username'] ?? 'User'),
                 'subject' => $subject,
                 'body' => $body,
                 'read' => false,
                 'status' => 'open',
                 'replies' => [],
-                'createdAt' => MongoRepository::nowUtc(),
-                'updatedAt' => MongoRepository::nowUtc(),
+                'createdAt' => SqlRepository::nowUtc(),
+                'updatedAt' => SqlRepository::nowUtc(),
             ];
 
             $id = $this->db->insertOne('messages', $doc);
-            $message = $this->db->findOne('messages', ['id' => MongoRepository::id($id)]);
+            $message = $this->db->findOne('messages', ['id' => SqlRepository::id($id)]);
             Response::json($message ?? ['id' => $id], 201);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error creating message'], 500);
@@ -77,7 +77,7 @@ final class MessagesController
                 return;
             }
 
-            $messages = $this->db->findMany('messages', ['fromUserId' => MongoRepository::id((string) $actor['id'])], ['sort' => ['createdAt' => -1]]);
+            $messages = $this->db->findMany('messages', ['fromUserId' => SqlRepository::id((string) $actor['id'])], ['sort' => ['createdAt' => -1]]);
             Response::json($messages);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error fetching messages'], 500);
@@ -108,7 +108,7 @@ final class MessagesController
         }
 
         $collection = $this->collectionByRole($role);
-        $actor = $this->db->findOne($collection, ['id' => MongoRepository::id($id)]);
+        $actor = $this->db->findOne($collection, ['id' => SqlRepository::id($id)]);
         if ($actor === null) {
             Response::json(['message' => 'Not authorized, user not found'], 403);
             return null;

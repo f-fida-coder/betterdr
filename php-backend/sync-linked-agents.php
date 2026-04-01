@@ -8,11 +8,11 @@
  * Safe to run multiple times — only updates if values differ.
  */
 
-require_once __DIR__ . '/src/MongoRepository.php';
+require_once __DIR__ . '/src/SqlRepository.php';
 
-use App\MongoRepository;
+use App\SqlRepository;
 
-$db = new MongoRepository();
+$db = new SqlRepository();
 
 $allAgents = $db->findMany('agents', []);
 $agentsByUsername = [];
@@ -51,7 +51,7 @@ foreach ($agentsByUsername as $username => $agent) {
     $linkedRate = $linked['playerRate'] ?? null;
 
     $needsSync = false;
-    $updates = ['updatedAt' => MongoRepository::nowUtc()];
+    $updates = ['updatedAt' => SqlRepository::nowUtc()];
 
     if ($maPercent !== null && (float) $maPercent !== (float) ($linkedPercent ?? -1)) {
         $updates['agentPercent'] = (float) $maPercent;
@@ -74,7 +74,7 @@ foreach ($agentsByUsername as $username => $agent) {
         continue;
     }
 
-    $db->updateOne('agents', ['id' => MongoRepository::id($linkedId)], $updates);
+    $db->updateOne('agents', ['id' => SqlRepository::id($linkedId)], $updates);
     $synced++;
 
     $newPct = $updates['agentPercent'] ?? $linkedPercent;

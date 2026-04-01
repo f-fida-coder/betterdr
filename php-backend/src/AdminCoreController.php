@@ -17,11 +17,11 @@ final class AdminCoreController
     /** All dashboard period boundaries use Pacific Time. */
     private const DASHBOARD_TIMEZONE = 'America/Los_Angeles';
 
-    private MongoRepository $db;
+    private SqlRepository $db;
     private string $jwtSecret;
     private ?array $cachedHouseAdmin = null;
 
-    public function __construct(MongoRepository $db, string $jwtSecret)
+    public function __construct(SqlRepository $db, string $jwtSecret)
     {
         $this->db = $db;
         $this->jwtSecret = $jwtSecret;
@@ -212,10 +212,11 @@ final class AdminCoreController
             $this->finalizeSettlement();
             return true;
         }
-        if ($method === 'POST' && $path === '/api/admin/settlement-adjustment') {
-            $this->recordSettlementAdjustment();
-            return true;
-        }
+        // Balance adjustment feature removed
+        // if ($method === 'POST' && $path === '/api/admin/settlement-adjustment') {
+        //     $this->recordSettlementAdjustment();
+        //     return true;
+        // }
         if ($method === 'GET' && $path === '/api/admin/cashier/summary') {
             $this->getCashierSummary();
             return true;
@@ -464,7 +465,7 @@ final class AdminCoreController
             // Keep player scope resilient across legacy imports where role may be missing or use an older value.
             $query = $this->playerOnlyQuery();
             if (($actor['role'] ?? '') === 'agent') {
-                $query['agentId'] = MongoRepository::id((string) $actor['id']);
+                $query['agentId'] = SqlRepository::id((string) $actor['id']);
             }
             // admin, master_agent, super_agent — no agentId filter, see all players
 
@@ -491,7 +492,7 @@ final class AdminCoreController
 
             $users = $this->db->findMany('users', $query, ['sort' => ['createdAt' => -1]]);
 
-            $oneWeekAgo = MongoRepository::utcFromMillis((time() - 7 * 24 * 60 * 60) * 1000);
+            $oneWeekAgo = SqlRepository::utcFromMillis((time() - 7 * 24 * 60 * 60) * 1000);
             $userIds = [];
             $agentIdSet = [];
             $creatorAdminIdSet = [];
@@ -499,7 +500,7 @@ final class AdminCoreController
             $referrerIdSet = [];
             foreach ($users as $u) {
                 if (isset($u['id']) && is_string($u['id'])) {
-                    $userIds[] = MongoRepository::id($u['id']);
+                    $userIds[] = SqlRepository::id($u['id']);
                 }
                 $aid = (string) ($u['agentId'] ?? '');
                 if ($aid !== '' && preg_match('/^[a-f0-9]{24}$/i', $aid) === 1) {
@@ -533,7 +534,7 @@ final class AdminCoreController
             }
 
             $agentMap = [];
-            $agentObjectIds = array_map(static fn (string $id): string => MongoRepository::id($id), array_keys($agentIdSet));
+            $agentObjectIds = array_map(static fn (string $id): string => SqlRepository::id($id), array_keys($agentIdSet));
             if (count($agentObjectIds) > 0) {
                 $agentDocs = $this->db->findMany('agents', ['id' => ['$in' => $agentObjectIds]], ['projection' => ['username' => 1]]);
                 foreach ($agentDocs as $agent) {
@@ -545,7 +546,7 @@ final class AdminCoreController
             }
 
             $creatorUserMap = [];
-            $creatorAdminObjectIds = array_map(static fn (string $id): string => MongoRepository::id($id), array_keys($creatorAdminIdSet));
+            $creatorAdminObjectIds = array_map(static fn (string $id): string => SqlRepository::id($id), array_keys($creatorAdminIdSet));
             if (count($creatorAdminObjectIds) > 0) {
                 $admins = $this->db->findMany('admins', ['id' => ['$in' => $creatorAdminObjectIds]], ['projection' => ['username' => 1, 'role' => 1]]);
                 foreach ($admins as $doc) {
@@ -556,7 +557,7 @@ final class AdminCoreController
                 }
             }
 
-            $creatorAgentObjectIds = array_map(static fn (string $id): string => MongoRepository::id($id), array_keys($creatorAgentIdSet));
+            $creatorAgentObjectIds = array_map(static fn (string $id): string => SqlRepository::id($id), array_keys($creatorAgentIdSet));
             if (count($creatorAgentObjectIds) > 0) {
                 $creatorAgents = $this->db->findMany('agents', ['id' => ['$in' => $creatorAgentObjectIds]], ['projection' => ['username' => 1, 'role' => 1]]);
                 foreach ($creatorAgents as $doc) {
@@ -568,7 +569,7 @@ final class AdminCoreController
             }
 
             $referrerMap = [];
-            $referrerObjectIds = array_map(static fn (string $id): string => MongoRepository::id($id), array_keys($referrerIdSet));
+            $referrerObjectIds = array_map(static fn (string $id): string => SqlRepository::id($id), array_keys($referrerIdSet));
             if (count($referrerObjectIds) > 0) {
                 $referrers = $this->db->findMany('users', ['id' => ['$in' => $referrerObjectIds]], ['projection' => ['username' => 1, 'fullName' => 1, 'firstName' => 1, 'lastName' => 1]]);
                 foreach ($referrers as $doc) {
@@ -649,7 +650,7 @@ final class AdminCoreController
                 return;
             }
 
-            $activeSince = MongoRepository::utcFromMillis((time() - 7 * 24 * 60 * 60) * 1000);
+            $activeSince = SqlRepository::utcFromMillis((time() - 7 * 24 * 60 * 60) * 1000);
             $agentIds = [];
             foreach ($agents as $agent) {
                 $aid = (string) ($agent['id'] ?? '');
@@ -657,7 +658,7 @@ final class AdminCoreController
                     $agentIds[] = $aid;
                 }
             }
-            $agentObjectIds = array_map(static fn (string $id): string => MongoRepository::id($id), $agentIds);
+            $agentObjectIds = array_map(static fn (string $id): string => SqlRepository::id($id), $agentIds);
 
             $usersByAgent = [];
             $userCountByAgent = [];
@@ -673,7 +674,7 @@ final class AdminCoreController
                     }
                     $usersByAgent[$aid][] = $u;
                     $userCountByAgent[$aid] = ($userCountByAgent[$aid] ?? 0) + 1;
-                    $allUserObjectIds[] = MongoRepository::id($uid);
+                    $allUserObjectIds[] = SqlRepository::id($uid);
                 }
             }
 
@@ -716,7 +717,7 @@ final class AdminCoreController
             }
 
             if (count($masterIds) > 0) {
-                $masterObjectIds = array_map(static fn (string $id): string => MongoRepository::id($id), $masterIds);
+                $masterObjectIds = array_map(static fn (string $id): string => SqlRepository::id($id), $masterIds);
                 $subAgents = $this->db->findMany(
                     'agents',
                     ['createdBy' => ['$in' => $masterObjectIds], 'createdByModel' => 'Agent'],
@@ -733,7 +734,7 @@ final class AdminCoreController
                     }
                     $subAgentOwner[$sid] = $mid;
                     $subAgentCountByMaster[$mid] = ($subAgentCountByMaster[$mid] ?? 0) + 1;
-                    $subAgentObjectIds[] = MongoRepository::id($sid);
+                    $subAgentObjectIds[] = SqlRepository::id($sid);
                 }
 
                 if (count($subAgentObjectIds) > 0) {
@@ -758,7 +759,7 @@ final class AdminCoreController
                 }
             }
             if (count($referrerIds) > 0) {
-                $referrerObjectIds = array_map(static fn (string $id): string => MongoRepository::id($id), array_keys($referrerIds));
+                $referrerObjectIds = array_map(static fn (string $id): string => SqlRepository::id($id), array_keys($referrerIds));
                 $referrers = $this->db->findMany('users', ['id' => ['$in' => $referrerObjectIds]], ['projection' => ['username' => 1, 'fullName' => 1, 'firstName' => 1, 'lastName' => 1]]);
                 foreach ($referrers as $r) {
                     $rid = (string) ($r['id'] ?? '');
@@ -828,17 +829,17 @@ final class AdminCoreController
                 return;
             }
 
-            $oneWeekAgo = MongoRepository::utcFromMillis((time() - 7 * 24 * 60 * 60) * 1000);
+            $oneWeekAgo = SqlRepository::utcFromMillis((time() - 7 * 24 * 60 * 60) * 1000);
             $betQuery = [
                 'createdAt' => ['$gte' => $oneWeekAgo],
                 'status' => ['$in' => ['won', 'lost']],
             ];
 
             if (($actor['role'] ?? '') === 'agent') {
-                $myUsers = $this->db->findMany('users', ['agentId' => MongoRepository::id((string) $actor['id'])], ['projection' => ['id' => 1]]);
+                $myUsers = $this->db->findMany('users', ['agentId' => SqlRepository::id((string) $actor['id'])], ['projection' => ['id' => 1]]);
                 $ids = [];
                 foreach ($myUsers as $u) {
-                    $ids[] = MongoRepository::id((string) $u['id']);
+                    $ids[] = SqlRepository::id((string) $u['id']);
                 }
                 $betQuery['userId'] = ['$in' => $ids];
             }
@@ -877,11 +878,11 @@ final class AdminCoreController
                 $betQuery = [];
 
                 if (($actor['role'] ?? '') === 'agent') {
-                    $queryUsers['agentId'] = MongoRepository::id((string) $actor['id']);
-                    $myUsers = $this->db->findMany('users', ['agentId' => MongoRepository::id((string) $actor['id'])], ['projection' => ['id' => 1]]);
+                    $queryUsers['agentId'] = SqlRepository::id((string) $actor['id']);
+                    $myUsers = $this->db->findMany('users', ['agentId' => SqlRepository::id((string) $actor['id'])], ['projection' => ['id' => 1]]);
                     $ids = [];
                     foreach ($myUsers as $u) {
-                        $ids[] = MongoRepository::id((string) $u['id']);
+                        $ids[] = SqlRepository::id((string) $u['id']);
                     }
                     $betQuery['userId'] = ['$in' => $ids];
                 }
@@ -987,13 +988,13 @@ final class AdminCoreController
                 $matchUser = ['role' => 'user'];
                 $actorRole = (string) ($actor['role'] ?? '');
                 if ($actorRole === 'agent') {
-                    $matchUser['agentId'] = MongoRepository::id((string) $actor['id']);
+                    $matchUser['agentId'] = SqlRepository::id((string) $actor['id']);
                 } elseif (in_array($actorRole, ['master_agent', 'super_agent'], true)) {
                     $managedAgentIds = $this->listManagedAgentIds((string) ($actor['id'] ?? ''));
                     $managedAgentObjectIds = [];
                     foreach ($managedAgentIds as $managedAgentId) {
                         if (preg_match('/^[a-f0-9]{24}$/i', $managedAgentId) === 1) {
-                            $managedAgentObjectIds[] = MongoRepository::id($managedAgentId);
+                            $managedAgentObjectIds[] = SqlRepository::id($managedAgentId);
                         }
                     }
 
@@ -1016,7 +1017,7 @@ final class AdminCoreController
                     $userOutstanding += $this->num($u['balanceOwed'] ?? 0);
                     $uid = (string) ($u['id'] ?? '');
                     if ($uid !== '' && preg_match('/^[a-f0-9]{24}$/i', $uid) === 1) {
-                        $scopedUserIds[] = MongoRepository::id($uid);
+                        $scopedUserIds[] = SqlRepository::id($uid);
                     }
                 }
 
@@ -1030,11 +1031,11 @@ final class AdminCoreController
 
                 $txQueryToday = [
                     'status' => 'completed',
-                    'createdAt' => ['$gte' => MongoRepository::utcFromMillis($startOfToday->getTimestamp() * 1000)],
+                    'createdAt' => ['$gte' => SqlRepository::utcFromMillis($startOfToday->getTimestamp() * 1000)],
                 ];
                 $txQueryWeek = [
                     'status' => 'completed',
-                    'createdAt' => ['$gte' => MongoRepository::utcFromMillis($startOfWeek->getTimestamp() * 1000)],
+                    'createdAt' => ['$gte' => SqlRepository::utcFromMillis($startOfWeek->getTimestamp() * 1000)],
                 ];
 
                 $txProjection = ['projection' => ['userId' => 1, 'amount' => 1, 'type' => 1, 'entrySide' => 1, 'reason' => 1, 'description' => 1, 'balanceBefore' => 1, 'balanceAfter' => 1, 'approvedByRole' => 1, 'adminId' => 1]];
@@ -1097,7 +1098,7 @@ final class AdminCoreController
                 // Optimization: Query both collections in parallel (same $lookupIds)
                 $resolvedRoles = [];
                 if (count($missingRoleAdminIds) > 0) {
-                    $lookupIds = array_map(static fn (string $id): string => MongoRepository::id($id), array_keys($missingRoleAdminIds));
+                    $lookupIds = array_map(static fn (string $id): string => SqlRepository::id($id), array_keys($missingRoleAdminIds));
                     
                     // Query agents collection
                     $foundAgents = $this->db->findMany('agents', ['id' => ['$in' => $lookupIds]], ['projection' => ['id' => 1, 'role' => 1]]);
@@ -1207,11 +1208,21 @@ final class AdminCoreController
                     $previousMakeup,
                     $previousBalanceOwed
                 );
-                $settlementSummary = $this->applySettlementBalanceAdjustments(
-                    $settlementSummary,
-                    $actorId,
-                    $startOfWeek
-                );
+                // Balance adjustments removed — no longer used
+                // $settlementSummary = $this->applySettlementBalanceAdjustments(
+                //     $settlementSummary,
+                //     $actorId,
+                //     $startOfWeek
+                // );
+                $settlementSummary['computedBalanceOwed'] = $this->num($settlementSummary['balanceOwed'] ?? 0);
+                $settlementSummary['balanceAdjustment'] = 0.0;
+
+                // Sync agent balance field to match balanceOwed
+                $balanceOwed = $this->num($settlementSummary['balanceOwed'] ?? 0);
+                $currentAgentBalance = $this->num($actor['balance'] ?? 0);
+                if (round($currentAgentBalance, 2) !== round($balanceOwed, 2)) {
+                    $this->db->updateOne('agents', ['id' => (string) ($actor['id'] ?? '')], ['balance' => $balanceOwed]);
+                }
 
                 // Build commission distribution across upline chain for agent actors
                 $commissionDistribution = [];
@@ -1418,7 +1429,7 @@ final class AdminCoreController
                 $actorId = (string) ($actor['id'] ?? '');
                 $targetAgent = $this->db->findOne(
                     'agents',
-                    ['id' => MongoRepository::id($agentId)],
+                    ['id' => SqlRepository::id($agentId)],
                     ['projection' => ['role' => 1, 'createdBy' => 1, 'createdByModel' => 1]]
                 );
                 if ($targetAgent === null) {
@@ -1445,7 +1456,7 @@ final class AdminCoreController
                 }
 
                 $scope = 'agent-player';
-                $agentObjectId = MongoRepository::id($agentId);
+                $agentObjectId = SqlRepository::id($agentId);
                 $allDocs = $this->db->findMany('users', [
                     'role' => 'user',
                     'agentId' => $agentObjectId,
@@ -1466,7 +1477,7 @@ final class AdminCoreController
 
                 $parentAgent = $this->db->findOne(
                     'agents',
-                    ['id' => MongoRepository::id($agentId)],
+                    ['id' => SqlRepository::id($agentId)],
                     ['projection' => ['username' => 1, 'role' => 1]]
                 );
                 if (
@@ -1479,7 +1490,7 @@ final class AdminCoreController
 
                 $scope = 'master-agent';
                 $allDocs = $this->db->findMany('agents', [
-                    'createdBy' => MongoRepository::id($agentId),
+                    'createdBy' => SqlRepository::id($agentId),
                     'createdByModel' => 'Agent',
                 ], ['projection' => ['username' => 1]]);
 
@@ -1633,7 +1644,7 @@ final class AdminCoreController
                 'ip' => IpUtils::clientIp(),
                 'userAgent' => (string) ($_SERVER['HTTP_USER_AGENT'] ?? ''),
                 'timestamp' => time(),
-                'createdAt' => MongoRepository::nowUtc(),
+                'createdAt' => SqlRepository::nowUtc(),
             ]);
 
             Response::json(array_merge($payload, ['message' => 'Logged in as ' . (string) ($target['doc']['username'] ?? 'user')]));
@@ -1644,7 +1655,7 @@ final class AdminCoreController
 
     private function resolveImpersonationTarget(string $id): ?array
     {
-        $normalizedId = MongoRepository::id($id);
+        $normalizedId = SqlRepository::id($id);
         $user = $this->db->findOne('users', ['id' => $normalizedId]);
         if (is_array($user)) {
             return ['doc' => $user, 'collection' => 'users'];
@@ -1722,7 +1733,7 @@ final class AdminCoreController
             $seen[$currentId] = true;
             $children = $this->db->findMany(
                 'agents',
-                ['createdBy' => MongoRepository::id($currentId), 'createdByModel' => 'Agent'],
+                ['createdBy' => SqlRepository::id($currentId), 'createdByModel' => 'Agent'],
                 ['projection' => ['id' => 1]]
             );
             foreach ($children as $child) {
@@ -1746,7 +1757,7 @@ final class AdminCoreController
         }
 
         $subAgents = $this->db->findMany('agents', [
-            'createdBy' => MongoRepository::id($masterAgentId),
+            'createdBy' => SqlRepository::id($masterAgentId),
             'createdByModel' => 'Agent',
             'role' => 'agent',
         ], ['projection' => ['id' => 1], 'sort' => ['username' => 1]]);
@@ -1873,7 +1884,7 @@ final class AdminCoreController
                 return;
             }
 
-            $user = $this->db->findOne('users', ['id' => MongoRepository::id($userId)]);
+            $user = $this->db->findOne('users', ['id' => SqlRepository::id($userId)]);
             if ($user === null || (($user['role'] ?? 'user') !== 'user')) {
                 Response::json(['message' => 'User not found'], 404);
                 return;
@@ -1918,7 +1929,7 @@ final class AdminCoreController
 
             $this->db->beginTransaction();
             try {
-                $lockedUser = $this->db->findOneForUpdate('users', ['id' => MongoRepository::id($userId)]);
+                $lockedUser = $this->db->findOneForUpdate('users', ['id' => SqlRepository::id($userId)]);
                 if ($lockedUser === null || (($lockedUser['role'] ?? 'user') !== 'user')) {
                     $this->db->rollback();
                     Response::json(['message' => 'User not found'], 404);
@@ -1931,7 +1942,7 @@ final class AdminCoreController
                 }
 
                 $freeplayBefore = $this->num($lockedUser['freeplayBalance'] ?? 0);
-                $now = MongoRepository::nowUtc();
+                $now = SqlRepository::nowUtc();
                 $nextFreeplay = $nextFreeplayTarget;
 
                 if ($operationMode === 'transaction') {
@@ -1968,15 +1979,15 @@ final class AdminCoreController
                     }
                 }
 
-                $this->db->updateOne('users', ['id' => MongoRepository::id($userId)], [
+                $this->db->updateOne('users', ['id' => SqlRepository::id($userId)], [
                     'freeplayBalance' => $nextFreeplay,
                     'freeplayExpiresAt' => $fpExpiresAt,
                     'updatedAt' => $now,
                 ]);
 
                 $this->db->insertOne('transactions', [
-                    'userId' => MongoRepository::id($userId),
-                    'adminId' => isset($actor['id']) ? MongoRepository::id((string) $actor['id']) : null,
+                    'userId' => SqlRepository::id($userId),
+                    'adminId' => isset($actor['id']) ? SqlRepository::id((string) $actor['id']) : null,
                     'amount' => abs($nextFreeplay - $freeplayBefore),
                     'type' => 'adjustment',
                     'status' => 'completed',
@@ -2025,7 +2036,7 @@ final class AdminCoreController
                 return;
             }
 
-            $user = $this->db->findOne('users', ['id' => MongoRepository::id($userId)]);
+            $user = $this->db->findOne('users', ['id' => SqlRepository::id($userId)]);
             if ($user === null || (($user['role'] ?? 'user') !== 'user')) {
                 Response::json(['message' => 'User not found'], 404);
                 return;
@@ -2037,13 +2048,13 @@ final class AdminCoreController
             }
 
             $passwordFields = $this->passwordFields($newPassword);
-            $this->db->updateOne('users', ['id' => MongoRepository::id($userId)], [
+            $this->db->updateOne('users', ['id' => SqlRepository::id($userId)], [
                 'password' => $passwordFields['password'],
                 'passwordCaseInsensitiveHash' => $passwordFields['passwordCaseInsensitiveHash'],
                 // WARNING: displayPassword is for admin convenience only.
                 // It stores the last set password in plain text.
                 'displayPassword' => $newPassword,
-                'updatedAt' => MongoRepository::nowUtc(),
+                'updatedAt' => SqlRepository::nowUtc(),
             ]);
 
             // Invalidate user's existing sessions by clearing their login_failures
@@ -2068,7 +2079,7 @@ final class AdminCoreController
                 'targetUsername' => (string) ($user['username'] ?? ''),
                 'ip' => IpUtils::clientIp(),
                 'timestamp' => time(),
-                'createdAt' => MongoRepository::nowUtc(),
+                'createdAt' => SqlRepository::nowUtc(),
             ]);
 
             Response::json(['message' => 'Password for user ' . (string) ($user['username'] ?? '') . ' has been reset successfully']);
@@ -2104,18 +2115,18 @@ final class AdminCoreController
                 return;
             }
 
-            $agent = $this->db->findOne('agents', ['id' => MongoRepository::id($agentId)]);
+            $agent = $this->db->findOne('agents', ['id' => SqlRepository::id($agentId)]);
             if ($agent === null || (($agent['role'] ?? '') !== 'agent')) {
                 Response::json(['message' => 'Agent not found'], 404);
                 return;
             }
 
             $passwordFields = $this->passwordFields($newPassword);
-            $this->db->updateOne('agents', ['id' => MongoRepository::id($agentId)], [
+            $this->db->updateOne('agents', ['id' => SqlRepository::id($agentId)], [
                 'password' => $passwordFields['password'],
                 'passwordCaseInsensitiveHash' => $passwordFields['passwordCaseInsensitiveHash'],
                 'displayPassword' => $newPassword,
-                'updatedAt' => MongoRepository::nowUtc(),
+                'updatedAt' => SqlRepository::nowUtc(),
             ]);
 
             Response::json(['message' => 'Password for agent ' . (string) ($agent['username'] ?? '') . ' has been reset successfully']);
@@ -2149,15 +2160,15 @@ final class AdminCoreController
                 return;
             }
 
-            $message = $this->db->findOne('messages', ['id' => MongoRepository::id($id)]);
+            $message = $this->db->findOne('messages', ['id' => SqlRepository::id($id)]);
             if ($message === null) {
                 Response::json(['message' => 'Message not found'], 404);
                 return;
             }
 
-            $this->db->updateOne('messages', ['id' => MongoRepository::id($id)], [
+            $this->db->updateOne('messages', ['id' => SqlRepository::id($id)], [
                 'read' => true,
-                'updatedAt' => MongoRepository::nowUtc(),
+                'updatedAt' => SqlRepository::nowUtc(),
             ]);
             Response::json(['message' => 'Message marked as read']);
         } catch (Throwable $e) {
@@ -2180,7 +2191,7 @@ final class AdminCoreController
                 return;
             }
 
-            $message = $this->db->findOne('messages', ['id' => MongoRepository::id($id)]);
+            $message = $this->db->findOne('messages', ['id' => SqlRepository::id($id)]);
             if ($message === null) {
                 Response::json(['message' => 'Message not found'], 404);
                 return;
@@ -2188,16 +2199,16 @@ final class AdminCoreController
 
             $replies = is_array($message['replies'] ?? null) ? $message['replies'] : [];
             $replies[] = [
-                'adminId' => MongoRepository::id((string) ($actor['id'] ?? '')),
+                'adminId' => SqlRepository::id((string) ($actor['id'] ?? '')),
                 'message' => $reply,
-                'createdAt' => MongoRepository::nowUtc(),
-                'updatedAt' => MongoRepository::nowUtc(),
+                'createdAt' => SqlRepository::nowUtc(),
+                'updatedAt' => SqlRepository::nowUtc(),
             ];
 
-            $this->db->updateOne('messages', ['id' => MongoRepository::id($id)], [
+            $this->db->updateOne('messages', ['id' => SqlRepository::id($id)], [
                 'replies' => $replies,
                 'read' => true,
-                'updatedAt' => MongoRepository::nowUtc(),
+                'updatedAt' => SqlRepository::nowUtc(),
             ]);
 
             Response::json(['message' => 'Reply sent', 'id' => $id]);
@@ -2214,7 +2225,7 @@ final class AdminCoreController
                 return;
             }
 
-            $deleted = $this->db->deleteOne('messages', ['id' => MongoRepository::id($id)]);
+            $deleted = $this->db->deleteOne('messages', ['id' => SqlRepository::id($id)]);
             if ($deleted < 1) {
                 Response::json(['message' => 'Message not found'], 404);
                 return;
@@ -2261,11 +2272,11 @@ final class AdminCoreController
                 'answer' => $answer,
                 'status' => (string) ($body['status'] ?? 'active'),
                 'order' => isset($body['order']) && is_numeric($body['order']) ? (int) $body['order'] : 0,
-                'createdAt' => MongoRepository::nowUtc(),
-                'updatedAt' => MongoRepository::nowUtc(),
+                'createdAt' => SqlRepository::nowUtc(),
+                'updatedAt' => SqlRepository::nowUtc(),
             ];
             $id = $this->db->insertOne('faqs', $doc);
-            $faq = $this->db->findOne('faqs', ['id' => MongoRepository::id($id)]) ?? array_merge($doc, ['id' => $id]);
+            $faq = $this->db->findOne('faqs', ['id' => SqlRepository::id($id)]) ?? array_merge($doc, ['id' => $id]);
 
             Response::json(['message' => 'FAQ created', 'faq' => $faq], 201);
         } catch (Throwable $e) {
@@ -2281,14 +2292,14 @@ final class AdminCoreController
                 return;
             }
 
-            $faq = $this->db->findOne('faqs', ['id' => MongoRepository::id($id)]);
+            $faq = $this->db->findOne('faqs', ['id' => SqlRepository::id($id)]);
             if ($faq === null) {
                 Response::json(['message' => 'FAQ not found'], 404);
                 return;
             }
 
             $body = Http::jsonBody();
-            $updates = ['updatedAt' => MongoRepository::nowUtc()];
+            $updates = ['updatedAt' => SqlRepository::nowUtc()];
             if (isset($body['question']) && trim((string) $body['question']) !== '') {
                 $updates['question'] = trim((string) $body['question']);
             }
@@ -2302,7 +2313,7 @@ final class AdminCoreController
                 $updates['order'] = (int) $body['order'];
             }
 
-            $this->db->updateOne('faqs', ['id' => MongoRepository::id($id)], $updates);
+            $this->db->updateOne('faqs', ['id' => SqlRepository::id($id)], $updates);
             Response::json(['message' => 'FAQ updated', 'id' => $id]);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error updating FAQ'], 500);
@@ -2317,7 +2328,7 @@ final class AdminCoreController
                 return;
             }
 
-            $deleted = $this->db->deleteOne('faqs', ['id' => MongoRepository::id($id)]);
+            $deleted = $this->db->deleteOne('faqs', ['id' => SqlRepository::id($id)]);
             if ($deleted < 1) {
                 Response::json(['message' => 'FAQ not found'], 404);
                 return;
@@ -2364,11 +2375,11 @@ final class AdminCoreController
                 'content' => $content,
                 'order' => isset($body['order']) && is_numeric($body['order']) ? (int) $body['order'] : 0,
                 'status' => (string) ($body['status'] ?? 'active'),
-                'createdAt' => MongoRepository::nowUtc(),
-                'updatedAt' => MongoRepository::nowUtc(),
+                'createdAt' => SqlRepository::nowUtc(),
+                'updatedAt' => SqlRepository::nowUtc(),
             ];
             $id = $this->db->insertOne('manualsections', $doc);
-            $section = $this->db->findOne('manualsections', ['id' => MongoRepository::id($id)]) ?? array_merge($doc, ['id' => $id]);
+            $section = $this->db->findOne('manualsections', ['id' => SqlRepository::id($id)]) ?? array_merge($doc, ['id' => $id]);
 
             Response::json(['message' => 'Section created', 'section' => $section], 201);
         } catch (Throwable $e) {
@@ -2384,14 +2395,14 @@ final class AdminCoreController
                 return;
             }
 
-            $section = $this->db->findOne('manualsections', ['id' => MongoRepository::id($id)]);
+            $section = $this->db->findOne('manualsections', ['id' => SqlRepository::id($id)]);
             if ($section === null) {
                 Response::json(['message' => 'Section not found'], 404);
                 return;
             }
 
             $body = Http::jsonBody();
-            $updates = ['updatedAt' => MongoRepository::nowUtc()];
+            $updates = ['updatedAt' => SqlRepository::nowUtc()];
             if (isset($body['title']) && trim((string) $body['title']) !== '') {
                 $updates['title'] = trim((string) $body['title']);
             }
@@ -2405,7 +2416,7 @@ final class AdminCoreController
                 $updates['status'] = trim((string) $body['status']);
             }
 
-            $this->db->updateOne('manualsections', ['id' => MongoRepository::id($id)], $updates);
+            $this->db->updateOne('manualsections', ['id' => SqlRepository::id($id)], $updates);
             Response::json(['message' => 'Section updated', 'id' => $id]);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error updating manual section'], 500);
@@ -2420,7 +2431,7 @@ final class AdminCoreController
                 return;
             }
 
-            $deleted = $this->db->deleteOne('manualsections', ['id' => MongoRepository::id($id)]);
+            $deleted = $this->db->deleteOne('manualsections', ['id' => SqlRepository::id($id)]);
             if ($deleted < 1) {
                 Response::json(['message' => 'Section not found'], 404);
                 return;
@@ -2451,11 +2462,11 @@ final class AdminCoreController
                     'maintenanceMode' => false,
                     'smsNotifications' => true,
                     'twoFactor' => true,
-                    'createdAt' => MongoRepository::nowUtc(),
-                    'updatedAt' => MongoRepository::nowUtc(),
+                    'createdAt' => SqlRepository::nowUtc(),
+                    'updatedAt' => SqlRepository::nowUtc(),
                 ];
                 $id = $this->db->insertOne('platformsettings', $defaults);
-                $settings = $this->db->findOne('platformsettings', ['id' => MongoRepository::id($id)]) ?? array_merge($defaults, ['id' => $id]);
+                $settings = $this->db->findOne('platformsettings', ['id' => SqlRepository::id($id)]) ?? array_merge($defaults, ['id' => $id]);
             }
 
             Response::json($settings);
@@ -2484,11 +2495,11 @@ final class AdminCoreController
                     'maintenanceMode' => false,
                     'smsNotifications' => true,
                     'twoFactor' => true,
-                    'createdAt' => MongoRepository::nowUtc(),
-                    'updatedAt' => MongoRepository::nowUtc(),
+                    'createdAt' => SqlRepository::nowUtc(),
+                    'updatedAt' => SqlRepository::nowUtc(),
                 ];
                 $id = $this->db->insertOne('platformsettings', $defaults);
-                $settings = $this->db->findOne('platformsettings', ['id' => MongoRepository::id($id)]) ?? array_merge($defaults, ['id' => $id]);
+                $settings = $this->db->findOne('platformsettings', ['id' => SqlRepository::id($id)]) ?? array_merge($defaults, ['id' => $id]);
             }
 
             $body = Http::jsonBody();
@@ -2504,7 +2515,7 @@ final class AdminCoreController
                 'twoFactor',
             ];
 
-            $updates = ['updatedAt' => MongoRepository::nowUtc()];
+            $updates = ['updatedAt' => SqlRepository::nowUtc()];
             foreach ($fields as $field) {
                 if (!array_key_exists($field, $body)) {
                     continue;
@@ -2527,8 +2538,8 @@ final class AdminCoreController
                 return;
             }
 
-            $this->db->updateOne('platformsettings', ['id' => MongoRepository::id($settingsId)], $updates);
-            $updated = $this->db->findOne('platformsettings', ['id' => MongoRepository::id($settingsId)]);
+            $this->db->updateOne('platformsettings', ['id' => SqlRepository::id($settingsId)], $updates);
+            $updated = $this->db->findOne('platformsettings', ['id' => SqlRepository::id($settingsId)]);
             Response::json(['message' => 'Settings updated', 'settings' => $updated]);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error updating settings'], 500);
@@ -2578,11 +2589,11 @@ final class AdminCoreController
                 'title' => $title,
                 'items' => $items,
                 'status' => (string) ($body['status'] ?? 'active'),
-                'createdAt' => MongoRepository::nowUtc(),
-                'updatedAt' => MongoRepository::nowUtc(),
+                'createdAt' => SqlRepository::nowUtc(),
+                'updatedAt' => SqlRepository::nowUtc(),
             ];
             $id = $this->db->insertOne('rules', $rule);
-            $saved = $this->db->findOne('rules', ['id' => MongoRepository::id($id)]) ?? array_merge($rule, ['id' => $id]);
+            $saved = $this->db->findOne('rules', ['id' => SqlRepository::id($id)]) ?? array_merge($rule, ['id' => $id]);
 
             Response::json(['message' => 'Rule created', 'rule' => $saved], 201);
         } catch (Throwable $e) {
@@ -2598,14 +2609,14 @@ final class AdminCoreController
                 return;
             }
 
-            $rule = $this->db->findOne('rules', ['id' => MongoRepository::id($id)]);
+            $rule = $this->db->findOne('rules', ['id' => SqlRepository::id($id)]);
             if ($rule === null) {
                 Response::json(['message' => 'Rule not found'], 404);
                 return;
             }
 
             $body = Http::jsonBody();
-            $updates = ['updatedAt' => MongoRepository::nowUtc()];
+            $updates = ['updatedAt' => SqlRepository::nowUtc()];
             if (isset($body['title']) && trim((string) $body['title']) !== '') {
                 $updates['title'] = trim((string) $body['title']);
             }
@@ -2622,7 +2633,7 @@ final class AdminCoreController
                 $updates['status'] = trim((string) $body['status']);
             }
 
-            $this->db->updateOne('rules', ['id' => MongoRepository::id($id)], $updates);
+            $this->db->updateOne('rules', ['id' => SqlRepository::id($id)], $updates);
             Response::json(['message' => 'Rule updated', 'id' => $id]);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error updating rule'], 500);
@@ -2637,7 +2648,7 @@ final class AdminCoreController
                 return;
             }
 
-            $deleted = $this->db->deleteOne('rules', ['id' => MongoRepository::id($id)]);
+            $deleted = $this->db->deleteOne('rules', ['id' => SqlRepository::id($id)]);
             if ($deleted < 1) {
                 Response::json(['message' => 'Rule not found'], 404);
                 return;
@@ -2667,7 +2678,7 @@ final class AdminCoreController
             foreach ($feedbacks as $item) {
                 $userId = (string) ($item['userId'] ?? '');
                 if ($userId !== '' && !isset($userMap[$userId]) && preg_match('/^[a-f0-9]{24}$/i', $userId) === 1) {
-                    $user = $this->db->findOne('users', ['id' => MongoRepository::id($userId)], ['projection' => ['username' => 1, 'phoneNumber' => 1]]);
+                    $user = $this->db->findOne('users', ['id' => SqlRepository::id($userId)], ['projection' => ['username' => 1, 'phoneNumber' => 1]]);
                     if ($user !== null) {
                         $userMap[$userId] = $user;
                     }
@@ -2710,16 +2721,16 @@ final class AdminCoreController
                 return;
             }
 
-            $feedback = $this->db->findOne('feedbacks', ['id' => MongoRepository::id($id)]);
+            $feedback = $this->db->findOne('feedbacks', ['id' => SqlRepository::id($id)]);
             if ($feedback === null) {
                 Response::json(['message' => 'Feedback not found'], 404);
                 return;
             }
 
-            $this->db->updateOne('feedbacks', ['id' => MongoRepository::id($id)], [
+            $this->db->updateOne('feedbacks', ['id' => SqlRepository::id($id)], [
                 'adminReply' => $reply,
-                'repliedAt' => MongoRepository::nowUtc(),
-                'updatedAt' => MongoRepository::nowUtc(),
+                'repliedAt' => SqlRepository::nowUtc(),
+                'updatedAt' => SqlRepository::nowUtc(),
             ]);
 
             Response::json(['message' => 'Reply saved', 'id' => $id]);
@@ -2736,15 +2747,15 @@ final class AdminCoreController
                 return;
             }
 
-            $feedback = $this->db->findOne('feedbacks', ['id' => MongoRepository::id($id)]);
+            $feedback = $this->db->findOne('feedbacks', ['id' => SqlRepository::id($id)]);
             if ($feedback === null) {
                 Response::json(['message' => 'Feedback not found'], 404);
                 return;
             }
 
-            $this->db->updateOne('feedbacks', ['id' => MongoRepository::id($id)], [
+            $this->db->updateOne('feedbacks', ['id' => SqlRepository::id($id)], [
                 'status' => 'reviewed',
-                'updatedAt' => MongoRepository::nowUtc(),
+                'updatedAt' => SqlRepository::nowUtc(),
             ]);
 
             Response::json(['message' => 'Feedback reviewed', 'id' => $id]);
@@ -2761,7 +2772,7 @@ final class AdminCoreController
                 return;
             }
 
-            $deleted = $this->db->deleteOne('feedbacks', ['id' => MongoRepository::id($id)]);
+            $deleted = $this->db->deleteOne('feedbacks', ['id' => SqlRepository::id($id)]);
             if ($deleted < 1) {
                 Response::json(['message' => 'Feedback not found'], 404);
                 return;
@@ -2795,7 +2806,7 @@ final class AdminCoreController
 
             $query = ['role' => ['$in' => ['user', 'agent', 'master_agent', 'super_agent']]];
             if (($actor['role'] ?? '') === 'agent') {
-                $actorId = MongoRepository::id((string) ($actor['id'] ?? ''));
+                $actorId = SqlRepository::id((string) ($actor['id'] ?? ''));
                 $query['$or'] = [
                     ['agentId' => $actorId],
                     ['createdBy' => $actorId, 'createdByModel' => 'Agent'],
@@ -2806,7 +2817,7 @@ final class AdminCoreController
                 $managedAgentObjectIds = [];
                 foreach ($managedAgentIds as $managedAgentId) {
                     if (preg_match('/^[a-f0-9]{24}$/i', $managedAgentId) === 1) {
-                        $managedAgentObjectIds[] = MongoRepository::id($managedAgentId);
+                        $managedAgentObjectIds[] = SqlRepository::id($managedAgentId);
                     }
                 }
 
@@ -2877,7 +2888,7 @@ final class AdminCoreController
                 }
                 $queue = [];
 
-                $batchOids = array_map(static fn (string $id): string => MongoRepository::id($id), $batch);
+                $batchOids = array_map(static fn (string $id): string => SqlRepository::id($id), $batch);
                 $agentDocs = $this->db->findMany('agents', ['id' => ['$in' => $batchOids]], [
                     'projection' => ['id' => 1, 'username' => 1, 'createdBy' => 1, 'createdByModel' => 1, 'role' => 1],
                 ]);
@@ -2958,7 +2969,7 @@ final class AdminCoreController
             foreach ($users as $user) {
                 $uid = (string) ($user['id'] ?? '');
                 if ($uid !== '' && preg_match('/^[a-f0-9]{24}$/i', $uid) === 1) {
-                    $userIds[] = MongoRepository::id($uid);
+                    $userIds[] = SqlRepository::id($uid);
                     $userMap[$uid] = [
                         'user' => $user,
                         'daily' => [0, 0, 0, 0, 0, 0, 0],
@@ -2973,14 +2984,14 @@ final class AdminCoreController
                     'userId' => ['$in' => $userIds],
                     'status' => 'completed',
                     'createdAt' => [
-                        '$gte' => MongoRepository::utcFromMillis($start->getTimestamp() * 1000),
-                        '$lt' => MongoRepository::utcFromMillis($end->getTimestamp() * 1000),
+                        '$gte' => SqlRepository::utcFromMillis($start->getTimestamp() * 1000),
+                        '$lt' => SqlRepository::utcFromMillis($end->getTimestamp() * 1000),
                     ],
                 ], ['projection' => ['userId' => 1, 'amount' => 1, 'type' => 1, 'entrySide' => 1, 'reason' => 1, 'description' => 1, 'balanceBefore' => 1, 'balanceAfter' => 1, 'createdAt' => 1, 'status' => 1, 'approvedByRole' => 1, 'adminId' => 1]])
                 : [];
 
             $activeWindowStart = (new DateTimeImmutable('now'))->modify('-14 days');
-            $recentWindowStart = MongoRepository::utcFromMillis($activeWindowStart->getTimestamp() * 1000);
+            $recentWindowStart = SqlRepository::utcFromMillis($activeWindowStart->getTimestamp() * 1000);
             $userIdStrings = array_keys($userMap);
             $activeRecentUserIds = [];
 
@@ -3036,7 +3047,7 @@ final class AdminCoreController
             }
             $resolvedRoles = [];
             if (count($missingRoleAdminIds) > 0) {
-                $lookupIds = array_map(static fn (string $id): string => MongoRepository::id($id), array_keys($missingRoleAdminIds));
+                $lookupIds = array_map(static fn (string $id): string => SqlRepository::id($id), array_keys($missingRoleAdminIds));
                 $foundAgents = $this->db->findMany('agents', ['id' => ['$in' => $lookupIds]], ['projection' => ['id' => 1, 'role' => 1]]);
                 foreach ($foundAgents as $agentDoc) {
                     $resolvedRoles[(string) ($agentDoc['id'] ?? '')] = strtolower(trim((string) ($agentDoc['role'] ?? 'agent')));
@@ -3206,10 +3217,10 @@ final class AdminCoreController
 
             $query = ['status' => 'pending'];
             if (($actor['role'] ?? '') === 'agent') {
-                $myUsers = $this->db->findMany('users', ['agentId' => MongoRepository::id((string) $actor['id'])], ['projection' => ['id' => 1]]);
+                $myUsers = $this->db->findMany('users', ['agentId' => SqlRepository::id((string) $actor['id'])], ['projection' => ['id' => 1]]);
                 $ids = [];
                 foreach ($myUsers as $u) {
-                    $ids[] = MongoRepository::id((string) $u['id']);
+                    $ids[] = SqlRepository::id((string) $u['id']);
                 }
                 $query['userId'] = ['$in' => $ids];
             }
@@ -3219,7 +3230,7 @@ final class AdminCoreController
             foreach ($pending as $tx) {
                 $uid = (string) ($tx['userId'] ?? '');
                 if ($uid !== '' && !isset($userMap[$uid]) && preg_match('/^[a-f0-9]{24}$/i', $uid) === 1) {
-                    $user = $this->db->findOne('users', ['id' => MongoRepository::id($uid)], ['projection' => ['username' => 1, 'phoneNumber' => 1]]);
+                    $user = $this->db->findOne('users', ['id' => SqlRepository::id($uid)], ['projection' => ['username' => 1, 'phoneNumber' => 1]]);
                     if ($user !== null) {
                         $userMap[$uid] = $user;
                     }
@@ -3262,7 +3273,7 @@ final class AdminCoreController
 
             $this->db->beginTransaction();
             try {
-                $transaction = $this->db->findOneForUpdate('transactions', ['id' => MongoRepository::id($transactionId)]);
+                $transaction = $this->db->findOneForUpdate('transactions', ['id' => SqlRepository::id($transactionId)]);
                 if ($transaction === null || (($transaction['status'] ?? '') !== 'pending')) {
                     $this->db->rollback();
                     Response::json(['message' => 'Pending transaction not found'], 404);
@@ -3275,7 +3286,7 @@ final class AdminCoreController
                     Response::json(['message' => 'User not found'], 404);
                     return;
                 }
-                $user = $this->db->findOneForUpdate('users', ['id' => MongoRepository::id($userId)]);
+                $user = $this->db->findOneForUpdate('users', ['id' => SqlRepository::id($userId)]);
                 if ($user === null) {
                     $this->db->rollback();
                     Response::json(['message' => 'User not found'], 404);
@@ -3289,7 +3300,7 @@ final class AdminCoreController
                 }
 
                 $amount = $this->num($transaction['amount'] ?? 0);
-                $now = MongoRepository::nowUtc();
+                $now = SqlRepository::nowUtc();
                 $userUpdates = ['updatedAt' => $now];
                 $balanceBefore = null;
                 $balanceAfter = null;
@@ -3317,7 +3328,7 @@ final class AdminCoreController
                 } elseif (($transaction['type'] ?? '') === 'withdrawal') {
                     // NEW: Check agent balance before approving withdrawal (fraud prevention)
                     if (($actor['role'] ?? '') === 'agent') {
-                        $agent = $this->db->findOne('agents', ['id' => MongoRepository::id((string) $actor['id'])], ['projection' => ['balance' => 1]]);
+                        $agent = $this->db->findOne('agents', ['id' => SqlRepository::id((string) $actor['id'])], ['projection' => ['balance' => 1]]);
                         $agentBalance = $this->num($agent['balance'] ?? 0);
                         if ($agentBalance < $amount) {
                             $this->db->rollback();
@@ -3342,11 +3353,11 @@ final class AdminCoreController
                     $userUpdates['balance'] = $balanceAfter;
                 }
 
-                $this->db->updateOne('users', ['id' => MongoRepository::id($userId)], $userUpdates);
+                $this->db->updateOne('users', ['id' => SqlRepository::id($userId)], $userUpdates);
 
                 $txUpdates = [
                     'status' => 'completed',
-                    'approvedById' => isset($actor['id']) ? MongoRepository::id((string) $actor['id']) : null,
+                    'approvedById' => isset($actor['id']) ? SqlRepository::id((string) $actor['id']) : null,
                     'approvedByRole' => (string) ($actor['role'] ?? 'admin'),
                     'approvedByUsername' => (string) ($actor['username'] ?? ''),
                     'updatedAt' => $now,
@@ -3355,7 +3366,7 @@ final class AdminCoreController
                     $txUpdates['balanceBefore'] = $balanceBefore;
                     $txUpdates['balanceAfter'] = $balanceAfter;
                 }
-                $this->db->updateOne('transactions', ['id' => MongoRepository::id($transactionId)], $txUpdates);
+                $this->db->updateOne('transactions', ['id' => SqlRepository::id($transactionId)], $txUpdates);
                 if (($transaction['type'] ?? '') === 'deposit') {
                     $referralBonusAward = $this->grantReferralBonusForFirstCompletedDeposit(
                         $user,
@@ -3370,24 +3381,24 @@ final class AdminCoreController
                     $fpBonusDesc2 = 'Auto free play bonus ' . rtrim(rtrim(number_format($freePlayBonusPercent, 2, '.', ''), '0'), '.') . '% on deposit $' . number_format(abs($amount), 2, '.', '');
                     $referrerIdForDesc2 = trim((string) ($user['referredByUserId'] ?? ''));
                     if ($referrerIdForDesc2 !== '' && preg_match('/^[a-f0-9]{24}$/i', $referrerIdForDesc2) === 1) {
-                        $referrerDoc2 = $this->db->findOne('users', ['id' => MongoRepository::id($referrerIdForDesc2)], ['projection' => ['username' => 1]]);
+                        $referrerDoc2 = $this->db->findOne('users', ['id' => SqlRepository::id($referrerIdForDesc2)], ['projection' => ['username' => 1]]);
                         if ($referrerDoc2 !== null && isset($referrerDoc2['username'])) {
                             $fpBonusDesc2 = 'Auto Freeplay bonus for referral ' . (string) $referrerDoc2['username'];
                         }
                     }
                     $this->db->insertOne('transactions', [
-                        'userId' => MongoRepository::id($userId),
+                        'userId' => SqlRepository::id($userId),
                         'agentId' => isset($user['agentId']) && preg_match('/^[a-f0-9]{24}$/i', (string) $user['agentId']) === 1
-                            ? MongoRepository::id((string) $user['agentId'])
+                            ? SqlRepository::id((string) $user['agentId'])
                             : null,
-                        'adminId' => isset($actor['id']) ? MongoRepository::id((string) $actor['id']) : null,
+                        'adminId' => isset($actor['id']) ? SqlRepository::id((string) $actor['id']) : null,
                         'amount' => $freePlayBonusAmount,
                         'type' => 'adjustment',
                         'status' => 'completed',
                         'balanceBefore' => $freePlayBalanceBefore,
                         'balanceAfter' => $freePlayBalanceAfter,
                         'referenceType' => 'FreePlayBonus',
-                        'referenceId' => MongoRepository::id($transactionId),
+                        'referenceId' => SqlRepository::id($transactionId),
                         'reason' => 'DEPOSIT_FREEPLAY_BONUS',
                         'description' => $fpBonusDesc2,
                         'metadata' => [
@@ -3431,15 +3442,15 @@ final class AdminCoreController
                 return;
             }
 
-            $transaction = $this->db->findOne('transactions', ['id' => MongoRepository::id($transactionId)]);
+            $transaction = $this->db->findOne('transactions', ['id' => SqlRepository::id($transactionId)]);
             if ($transaction === null || (($transaction['status'] ?? '') !== 'pending')) {
                 Response::json(['message' => 'Pending transaction not found'], 404);
                 return;
             }
 
-            $this->db->updateOne('transactions', ['id' => MongoRepository::id($transactionId)], [
+            $this->db->updateOne('transactions', ['id' => SqlRepository::id($transactionId)], [
                 'status' => 'failed',
-                'updatedAt' => MongoRepository::nowUtc(),
+                'updatedAt' => SqlRepository::nowUtc(),
             ]);
             Response::json(['message' => 'Transaction declined', 'transactionId' => $transactionId]);
         } catch (Throwable $e) {
@@ -3469,7 +3480,7 @@ final class AdminCoreController
                 return;
             }
 
-            $agent = $this->db->findOne('agents', ['id' => MongoRepository::id($agentId)]);
+            $agent = $this->db->findOne('agents', ['id' => SqlRepository::id($agentId)]);
             if ($agent === null) {
                 Response::json(['message' => 'Agent not found'], 404);
                 return;
@@ -3483,11 +3494,11 @@ final class AdminCoreController
                 return;
             }
 
-            $now = MongoRepository::nowUtc();
+            $now = SqlRepository::nowUtc();
             $previousMakeup = $this->num($agent['settlementMakeup'] ?? 0);
             $previousBalanceOwed = $this->num($agent['settlementBalanceOwed'] ?? 0);
 
-            $this->db->updateOne('agents', ['id' => MongoRepository::id($agentId)], [
+            $this->db->updateOne('agents', ['id' => SqlRepository::id($agentId)], [
                 'settlementMakeup' => max(0.0, $newMakeup),
                 'settlementBalanceOwed' => $newBalanceOwed,
                 'settlementFinalizedAt' => $now,
@@ -3507,7 +3518,7 @@ final class AdminCoreController
             ], [
                 'agentId'      => $agentId,
                 'weekStartStr' => $currentWeekStart->format('Y-m-d\TH:i:s\Z'),
-                'weekStart'    => MongoRepository::utcFromMillis($currentWeekStart->getTimestamp() * 1000),
+                'weekStart'    => SqlRepository::utcFromMillis($currentWeekStart->getTimestamp() * 1000),
                 'createdAt'    => $now,
             ]);
 
@@ -3579,7 +3590,7 @@ final class AdminCoreController
                 $note = substr($note, 0, 240);
             }
 
-            $agent = $this->db->findOne('agents', ['id' => MongoRepository::id($agentId)], [
+            $agent = $this->db->findOne('agents', ['id' => SqlRepository::id($agentId)], [
                 'projection' => ['id' => 1, 'username' => 1, 'role' => 1],
             ]);
             if ($agent === null) {
@@ -3589,13 +3600,13 @@ final class AdminCoreController
 
             $weekStart = $this->startOfWeek($this->pacificNow());
             $weekStartStr = $weekStart->format('Y-m-d\TH:i:s\Z');
-            $now = MongoRepository::nowUtc();
+            $now = SqlRepository::nowUtc();
 
             $this->db->insertOne('settlement_adjustments', [
                 'agentId' => $agentId,
                 'agentUsername' => (string) ($agent['username'] ?? ''),
                 'weekStartStr' => $weekStartStr,
-                'weekStart' => MongoRepository::utcFromMillis($weekStart->getTimestamp() * 1000),
+                'weekStart' => SqlRepository::utcFromMillis($weekStart->getTimestamp() * 1000),
                 'amount' => $amount,
                 'direction' => $direction,
                 'note' => $note !== '' ? $note : null,
@@ -3744,8 +3755,8 @@ final class AdminCoreController
         $txQuery = [
             'status' => 'completed',
             'createdAt' => [
-                '$gte' => MongoRepository::utcFromMillis($prevWeekStart->getTimestamp() * 1000),
-                '$lt'  => MongoRepository::utcFromMillis($prevWeekEnd->getTimestamp() * 1000),
+                '$gte' => SqlRepository::utcFromMillis($prevWeekStart->getTimestamp() * 1000),
+                '$lt'  => SqlRepository::utcFromMillis($prevWeekEnd->getTimestamp() * 1000),
             ],
         ];
         if (count($scopedUserIds) > 0) {
@@ -3777,7 +3788,7 @@ final class AdminCoreController
         // Resolve missing approver roles
         $resolvedRoles = [];
         if (count($missingRoleAdminIds) > 0) {
-            $lookupIds = array_map(static fn (string $id): string => MongoRepository::id($id), array_keys($missingRoleAdminIds));
+            $lookupIds = array_map(static fn (string $id): string => SqlRepository::id($id), array_keys($missingRoleAdminIds));
             $foundAgents = $this->db->findMany('agents', ['id' => ['$in' => $lookupIds]], ['projection' => ['id' => 1, 'role' => 1]]);
             foreach ($foundAgents as $fa) {
                 $resolvedRoles[(string) $fa['id']] = strtolower(trim((string) ($fa['role'] ?? 'agent')));
@@ -3849,11 +3860,11 @@ final class AdminCoreController
         $summary = $this->applySettlementBalanceAdjustments($summary, $agentId, $prevWeekStart);
 
         // Persist snapshot (idempotent via insertOneIfAbsent)
-        $now = MongoRepository::nowUtc();
+        $now = SqlRepository::nowUtc();
         $this->db->insertOneIfAbsent('settlement_snapshots', [
             'agentId'             => $agentId,
             'weekStartStr'        => $prevWeekStart->format('Y-m-d\TH:i:s\Z'),
-            'weekStart'           => MongoRepository::utcFromMillis($prevWeekStart->getTimestamp() * 1000),
+            'weekStart'           => SqlRepository::utcFromMillis($prevWeekStart->getTimestamp() * 1000),
             'closingMakeup'       => $summary['cumulativeMakeup'],
             'closingBalanceOwed'  => $summary['balanceOwed'],
             'agentCollections'    => $summary['agentCollections'],
@@ -3871,7 +3882,7 @@ final class AdminCoreController
         ]);
 
         // Also update the agent record so the seed stays current (used as fallback)
-        $this->db->updateOne('agents', ['id' => MongoRepository::id($agentId)], [
+        $this->db->updateOne('agents', ['id' => SqlRepository::id($agentId)], [
             'settlementMakeup'       => $summary['cumulativeMakeup'],
             'settlementBalanceOwed'  => $summary['balanceOwed'],
             'settlementFinalizedAt'  => $now,
@@ -3888,7 +3899,7 @@ final class AdminCoreController
             }
 
             $startOfDay = $this->pacificStartOfToday();
-            $today = MongoRepository::utcFromMillis($startOfDay->getTimestamp() * 1000);
+            $today = SqlRepository::utcFromMillis($startOfDay->getTimestamp() * 1000);
             $deposits = $this->db->findMany('transactions', [
                 'type' => 'deposit',
                 'status' => 'completed',
@@ -3943,7 +3954,7 @@ final class AdminCoreController
             foreach ($transactions as $tx) {
                 $uid = (string) ($tx['userId'] ?? '');
                 if ($uid !== '' && !isset($userMap[$uid]) && preg_match('/^[a-f0-9]{24}$/i', $uid) === 1) {
-                    $user = $this->db->findOne('users', ['id' => MongoRepository::id($uid)], ['projection' => ['username' => 1, 'phoneNumber' => 1]]);
+                    $user = $this->db->findOne('users', ['id' => SqlRepository::id($uid)], ['projection' => ['username' => 1, 'phoneNumber' => 1]]);
                     if ($user !== null) {
                         $userMap[$uid] = $user;
                     }
@@ -4071,11 +4082,11 @@ final class AdminCoreController
                 'startTime' => $startTime,
                 'sport' => $sport,
                 'status' => $status === '' ? 'scheduled' : $status,
-                'createdAt' => MongoRepository::nowUtc(),
-                'updatedAt' => MongoRepository::nowUtc(),
+                'createdAt' => SqlRepository::nowUtc(),
+                'updatedAt' => SqlRepository::nowUtc(),
             ];
             $id = $this->db->insertOne('matches', $doc);
-            $created = $this->db->findOne('matches', ['id' => MongoRepository::id($id)]) ?? array_merge($doc, ['id' => $id]);
+            $created = $this->db->findOne('matches', ['id' => SqlRepository::id($id)]) ?? array_merge($doc, ['id' => $id]);
             Response::json($created, 201);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error creating match'], 500);
@@ -4090,22 +4101,22 @@ final class AdminCoreController
                 return;
             }
 
-            $existing = $this->db->findOne('matches', ['id' => MongoRepository::id($id)]);
+            $existing = $this->db->findOne('matches', ['id' => SqlRepository::id($id)]);
             if ($existing === null) {
                 Response::json(['message' => 'Match not found'], 404);
                 return;
             }
 
             $body = Http::jsonBody();
-            $updates = ['updatedAt' => MongoRepository::nowUtc()];
+            $updates = ['updatedAt' => SqlRepository::nowUtc()];
             foreach (['homeTeam', 'awayTeam', 'startTime', 'sport', 'status', 'score', 'odds', 'lastUpdated'] as $field) {
                 if (array_key_exists($field, $body)) {
                     $updates[$field] = $body[$field];
                 }
             }
 
-            $this->db->updateOne('matches', ['id' => MongoRepository::id($id)], $updates);
-            $updated = $this->db->findOne('matches', ['id' => MongoRepository::id($id)]);
+            $this->db->updateOne('matches', ['id' => SqlRepository::id($id)], $updates);
+            $updated = $this->db->findOne('matches', ['id' => SqlRepository::id($id)]);
             Response::json($updated ?? array_merge($existing, $updates));
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error updating match'], 500);
@@ -4147,14 +4158,14 @@ final class AdminCoreController
                 return;
             }
 
-            $limit = $this->db->findOne('thirdpartylimits', ['id' => MongoRepository::id($id)]);
+            $limit = $this->db->findOne('thirdpartylimits', ['id' => SqlRepository::id($id)]);
             if ($limit === null) {
                 Response::json(['message' => 'Limit record not found'], 404);
                 return;
             }
 
             $body = Http::jsonBody();
-            $updates = ['updatedAt' => MongoRepository::nowUtc(), 'lastSync' => MongoRepository::nowUtc()];
+            $updates = ['updatedAt' => SqlRepository::nowUtc(), 'lastSync' => SqlRepository::nowUtc()];
             if (isset($body['provider']) && trim((string) $body['provider']) !== '') {
                 $updates['provider'] = trim((string) $body['provider']);
             }
@@ -4171,8 +4182,8 @@ final class AdminCoreController
                 $updates['status'] = trim((string) $body['status']);
             }
 
-            $this->db->updateOne('thirdpartylimits', ['id' => MongoRepository::id($id)], $updates);
-            $saved = $this->db->findOne('thirdpartylimits', ['id' => MongoRepository::id($id)]) ?? array_merge($limit, $updates);
+            $this->db->updateOne('thirdpartylimits', ['id' => SqlRepository::id($id)], $updates);
+            $saved = $this->db->findOne('thirdpartylimits', ['id' => SqlRepository::id($id)]) ?? array_merge($limit, $updates);
             Response::json([
                 'message' => 'Limit updated',
                 'limit' => [
@@ -4217,12 +4228,12 @@ final class AdminCoreController
                 'monthlyLimit' => (array_key_exists('monthlyLimit', $body) && is_numeric($body['monthlyLimit'])) ? (float) $body['monthlyLimit'] : 0,
                 'used' => (array_key_exists('used', $body) && is_numeric($body['used'])) ? (float) $body['used'] : 0,
                 'status' => (isset($body['status']) && trim((string) $body['status']) !== '') ? trim((string) $body['status']) : 'active',
-                'lastSync' => MongoRepository::nowUtc(),
-                'createdAt' => MongoRepository::nowUtc(),
-                'updatedAt' => MongoRepository::nowUtc(),
+                'lastSync' => SqlRepository::nowUtc(),
+                'createdAt' => SqlRepository::nowUtc(),
+                'updatedAt' => SqlRepository::nowUtc(),
             ];
             $id = $this->db->insertOne('thirdpartylimits', $doc);
-            $saved = $this->db->findOne('thirdpartylimits', ['id' => MongoRepository::id($id)]) ?? array_merge($doc, ['id' => $id]);
+            $saved = $this->db->findOne('thirdpartylimits', ['id' => SqlRepository::id($id)]) ?? array_merge($doc, ['id' => $id]);
 
             Response::json([
                 'message' => 'Limit created',
@@ -4256,7 +4267,7 @@ final class AdminCoreController
                 return;
             }
 
-            $user = $this->db->findOne('users', ['id' => MongoRepository::id($userId)]);
+            $user = $this->db->findOne('users', ['id' => SqlRepository::id($userId)]);
             if ($user === null) {
                 Response::json(['message' => 'User not found'], 404);
                 return;
@@ -4267,9 +4278,9 @@ final class AdminCoreController
                 return;
             }
 
-            $this->db->updateOne('users', ['id' => MongoRepository::id($userId)], [
+            $this->db->updateOne('users', ['id' => SqlRepository::id($userId)], [
                 'status' => 'suspended',
-                'updatedAt' => MongoRepository::nowUtc(),
+                'updatedAt' => SqlRepository::nowUtc(),
             ]);
 
             Response::json(['message' => 'User ' . (string) ($user['username'] ?? '') . ' suspended']);
@@ -4293,7 +4304,7 @@ final class AdminCoreController
                 return;
             }
 
-            $user = $this->db->findOne('users', ['id' => MongoRepository::id($userId)]);
+            $user = $this->db->findOne('users', ['id' => SqlRepository::id($userId)]);
             if ($user === null) {
                 Response::json(['message' => 'User not found'], 404);
                 return;
@@ -4304,9 +4315,9 @@ final class AdminCoreController
                 return;
             }
 
-            $this->db->updateOne('users', ['id' => MongoRepository::id($userId)], [
+            $this->db->updateOne('users', ['id' => SqlRepository::id($userId)], [
                 'status' => 'active',
-                'updatedAt' => MongoRepository::nowUtc(),
+                'updatedAt' => SqlRepository::nowUtc(),
             ]);
 
             Response::json(['message' => 'User ' . (string) ($user['username'] ?? '') . ' unsuspended']);
@@ -4393,7 +4404,7 @@ final class AdminCoreController
                 foreach ($ids as $id) {
                     $sid = trim((string) $id);
                     if ($sid !== '' && preg_match('/^[a-f0-9]{24}$/i', $sid) === 1) {
-                        $out[] = MongoRepository::id($sid);
+                        $out[] = SqlRepository::id($sid);
                     }
                 }
                 return $out;
@@ -4475,7 +4486,7 @@ final class AdminCoreController
             $playerIds = [];
             if ($needsPlayerScope) {
                 // Keep player search resilient across legacy imports where role may be missing or set to custom values.
-                // MongoRepository does not support $nin, so use explicit $ne clauses instead.
+                // SqlRepository does not support $nin, so use explicit $ne clauses instead.
                 $playerQuery = [
                     '$and' => [
                         ['role' => ['$ne' => 'admin']],
@@ -4485,7 +4496,7 @@ final class AdminCoreController
                     ],
                 ];
                 if ($actorRole === 'agent') {
-                    $playerQuery['agentId'] = MongoRepository::id($actorId);
+                    $playerQuery['agentId'] = SqlRepository::id($actorId);
                 } elseif (in_array($actorRole, ['master_agent', 'super_agent'], true)) {
                     if ($scopedAgentIds === []) {
                         Response::json([
@@ -4578,10 +4589,10 @@ final class AdminCoreController
 
             $dateQuery = [];
             if ($startDate !== null) {
-                $dateQuery['$gte'] = MongoRepository::utcFromMillis($startDate->getTimestamp() * 1000);
+                $dateQuery['$gte'] = SqlRepository::utcFromMillis($startDate->getTimestamp() * 1000);
             }
             if ($endDateExclusive !== null) {
-                $dateQuery['$lt'] = MongoRepository::utcFromMillis($endDateExclusive->getTimestamp() * 1000);
+                $dateQuery['$lt'] = SqlRepository::utcFromMillis($endDateExclusive->getTimestamp() * 1000);
             }
             if ($dateQuery !== []) {
                 $query[$dateField] = $dateQuery;
@@ -5171,7 +5182,7 @@ final class AdminCoreController
 
                 $this->db->beginTransaction();
                 try {
-                    $rootTx = $this->db->findOneForUpdate('transactions', ['id' => MongoRepository::id($id)]);
+                    $rootTx = $this->db->findOneForUpdate('transactions', ['id' => SqlRepository::id($id)]);
                     if ($rootTx === null) {
                         $this->db->rollback();
                         $skipped++;
@@ -5186,7 +5197,7 @@ final class AdminCoreController
                         $warnings[] = ['id' => $id, 'message' => 'Transaction has invalid user context'];
                         continue;
                     }
-                    $user = $this->db->findOneForUpdate('users', ['id' => MongoRepository::id($userId)]);
+                    $user = $this->db->findOneForUpdate('users', ['id' => SqlRepository::id($userId)]);
                     if (!is_array($user)) {
                         $this->db->rollback();
                         $skipped++;
@@ -5208,7 +5219,7 @@ final class AdminCoreController
                             if ($bonusId === '' || preg_match('/^[a-f0-9]{24}$/i', $bonusId) !== 1 || isset($txDocsById[$bonusId])) {
                                 continue;
                             }
-                            $lockedBonusTx = $this->db->findOneForUpdate('transactions', ['id' => MongoRepository::id($bonusId)]);
+                            $lockedBonusTx = $this->db->findOneForUpdate('transactions', ['id' => SqlRepository::id($bonusId)]);
                             if ($lockedBonusTx !== null) {
                                 $txDocsById[$bonusId] = $lockedBonusTx;
                             }
@@ -5225,7 +5236,7 @@ final class AdminCoreController
                             continue;
                         }
 
-                        $linkedUser = $this->db->findOneForUpdate('users', ['id' => MongoRepository::id($txUserId)]);
+                        $linkedUser = $this->db->findOneForUpdate('users', ['id' => SqlRepository::id($txUserId)]);
                         if (!is_array($linkedUser)) {
                             throw new RuntimeException('Associated user record was not found for reversal.');
                         }
@@ -5269,7 +5280,7 @@ final class AdminCoreController
                         }
                     }
 
-                    $now = MongoRepository::nowUtc();
+                    $now = SqlRepository::nowUtc();
                     foreach ($lockedUsersById as $lockedUserId => $lockedUser) {
                         $mainBalanceDelta = $mainBalanceDeltaByUserId[$lockedUserId] ?? 0.0;
                         $freeplayBalanceDelta = $freeplayBalanceDeltaByUserId[$lockedUserId] ?? 0.0;
@@ -5313,13 +5324,13 @@ final class AdminCoreController
                             $userUpdates['referralBonusSourceDepositId'] = null;
                         }
 
-                        $this->db->updateOne('users', ['id' => MongoRepository::id($lockedUserId)], $userUpdates);
+                        $this->db->updateOne('users', ['id' => SqlRepository::id($lockedUserId)], $userUpdates);
                     }
 
                     $deletedThisRoot = 0;
                     $cascadeDeletedThisRoot = 0;
                     foreach ($txDocsById as $txId => $txDoc) {
-                        $deletedCount = $this->db->deleteOne('transactions', ['id' => MongoRepository::id($txId)]);
+                        $deletedCount = $this->db->deleteOne('transactions', ['id' => SqlRepository::id($txId)]);
                         if ($deletedCount <= 0) {
                             continue;
                         }
@@ -5481,7 +5492,7 @@ final class AdminCoreController
             $linkedCandidates = $this->db->findMany('transactions', [
                 'status' => 'completed',
                 '$or' => [
-                    ['referenceId' => MongoRepository::id($depositTransactionId)],
+                    ['referenceId' => SqlRepository::id($depositTransactionId)],
                     ['metadata.sourceTransactionId' => $depositTransactionId],
                     ['metadata.sourceDepositTransactionId' => $depositTransactionId],
                     ['metadata.approvedDepositTransactionId' => $depositTransactionId],
@@ -5513,7 +5524,7 @@ final class AdminCoreController
         $depositAmount = abs($this->num($depositTransaction['amount'] ?? 0));
         $depositCreatedTs = $this->toTimestampSeconds($depositTransaction['createdAt'] ?? null);
         $candidates = $this->db->findMany('transactions', [
-            'userId' => MongoRepository::id($userId),
+            'userId' => SqlRepository::id($userId),
             'status' => 'completed',
             'type' => 'adjustment',
             'reason' => 'DEPOSIT_FREEPLAY_BONUS',
@@ -5584,7 +5595,7 @@ final class AdminCoreController
             }
             $startDate = $this->getStartDateFromPeriod($time);
             if ($startDate !== null) {
-                $query['deletedAt'] = ['$gte' => MongoRepository::utcFromMillis($startDate->getTimestamp() * 1000)];
+                $query['deletedAt'] = ['$gte' => SqlRepository::utcFromMillis($startDate->getTimestamp() * 1000)];
             }
 
             if ($user !== '') {
@@ -5593,7 +5604,7 @@ final class AdminCoreController
                 foreach ($users as $u) {
                     $uid = (string) ($u['id'] ?? '');
                     if ($uid !== '' && preg_match('/^[a-f0-9]{24}$/i', $uid) === 1) {
-                        $userIds[] = MongoRepository::id($uid);
+                        $userIds[] = SqlRepository::id($uid);
                     }
                 }
                 $query['userId'] = ['$in' => $userIds];
@@ -5604,7 +5615,7 @@ final class AdminCoreController
             foreach ($wagers as $wager) {
                 $uid = (string) ($wager['userId'] ?? '');
                 if ($uid !== '' && !isset($userMap[$uid]) && preg_match('/^[a-f0-9]{24}$/i', $uid) === 1) {
-                    $u = $this->db->findOne('users', ['id' => MongoRepository::id($uid)], ['projection' => ['username' => 1, 'phoneNumber' => 1]]);
+                    $u = $this->db->findOne('users', ['id' => SqlRepository::id($uid)], ['projection' => ['username' => 1, 'phoneNumber' => 1]]);
                     if ($u !== null) {
                         $userMap[$uid] = $u;
                     }
@@ -5641,17 +5652,17 @@ final class AdminCoreController
                 return;
             }
 
-            $wager = $this->db->findOne('deletedwagers', ['id' => MongoRepository::id($id)]);
+            $wager = $this->db->findOne('deletedwagers', ['id' => SqlRepository::id($id)]);
             if ($wager === null) {
                 Response::json(['message' => 'Deleted wager not found'], 404);
                 return;
             }
 
-            $this->db->updateOne('deletedwagers', ['id' => MongoRepository::id($id)], [
+            $this->db->updateOne('deletedwagers', ['id' => SqlRepository::id($id)], [
                 'status' => 'restored',
-                'restoredAt' => MongoRepository::nowUtc(),
-                'restoredBy' => MongoRepository::id((string) ($actor['id'] ?? '')),
-                'updatedAt' => MongoRepository::nowUtc(),
+                'restoredAt' => SqlRepository::nowUtc(),
+                'restoredBy' => SqlRepository::id((string) ($actor['id'] ?? '')),
+                'updatedAt' => SqlRepository::nowUtc(),
             ]);
 
             Response::json(['message' => 'Wager restored', 'id' => $id]);
@@ -5713,13 +5724,13 @@ final class AdminCoreController
                 'url' => $url,
                 'status' => (isset($body['status']) && trim((string) $body['status']) !== '') ? trim((string) $body['status']) : 'active',
                 'notes' => (array_key_exists('notes', $body)) ? $body['notes'] : null,
-                'createdBy' => MongoRepository::id((string) ($actor['id'] ?? '')),
+                'createdBy' => SqlRepository::id((string) ($actor['id'] ?? '')),
                 'lastSync' => null,
-                'createdAt' => MongoRepository::nowUtc(),
-                'updatedAt' => MongoRepository::nowUtc(),
+                'createdAt' => SqlRepository::nowUtc(),
+                'updatedAt' => SqlRepository::nowUtc(),
             ];
             $id = $this->db->insertOne('sportsbooklinks', $doc);
-            $saved = $this->db->findOne('sportsbooklinks', ['id' => MongoRepository::id($id)]) ?? array_merge($doc, ['id' => $id]);
+            $saved = $this->db->findOne('sportsbooklinks', ['id' => SqlRepository::id($id)]) ?? array_merge($doc, ['id' => $id]);
 
             Response::json([
                 'message' => 'Link created',
@@ -5745,14 +5756,14 @@ final class AdminCoreController
                 return;
             }
 
-            $link = $this->db->findOne('sportsbooklinks', ['id' => MongoRepository::id($id)]);
+            $link = $this->db->findOne('sportsbooklinks', ['id' => SqlRepository::id($id)]);
             if ($link === null) {
                 Response::json(['message' => 'Link not found'], 404);
                 return;
             }
 
             $body = Http::jsonBody();
-            $updates = ['updatedAt' => MongoRepository::nowUtc()];
+            $updates = ['updatedAt' => SqlRepository::nowUtc()];
             if (isset($body['name']) && trim((string) $body['name']) !== '') {
                 $updates['name'] = trim((string) $body['name']);
             }
@@ -5766,7 +5777,7 @@ final class AdminCoreController
                 $updates['notes'] = $body['notes'];
             }
 
-            $this->db->updateOne('sportsbooklinks', ['id' => MongoRepository::id($id)], $updates);
+            $this->db->updateOne('sportsbooklinks', ['id' => SqlRepository::id($id)], $updates);
             Response::json(['message' => 'Link updated', 'id' => $id]);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error updating sportsbook link'], 500);
@@ -5781,13 +5792,13 @@ final class AdminCoreController
                 return;
             }
 
-            $link = $this->db->findOne('sportsbooklinks', ['id' => MongoRepository::id($id)]);
+            $link = $this->db->findOne('sportsbooklinks', ['id' => SqlRepository::id($id)]);
             if ($link === null) {
                 Response::json(['message' => 'Link not found'], 404);
                 return;
             }
 
-            $this->db->deleteOne('sportsbooklinks', ['id' => MongoRepository::id($id)]);
+            $this->db->deleteOne('sportsbooklinks', ['id' => SqlRepository::id($id)]);
             Response::json(['message' => 'Link deleted', 'id' => $id]);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error deleting sportsbook link'], 500);
@@ -5802,18 +5813,18 @@ final class AdminCoreController
                 return;
             }
 
-            $link = $this->db->findOne('sportsbooklinks', ['id' => MongoRepository::id($id)]);
+            $link = $this->db->findOne('sportsbooklinks', ['id' => SqlRepository::id($id)]);
             if ($link === null) {
                 Response::json(['message' => 'Link not found'], 404);
                 return;
             }
 
-            $now = MongoRepository::nowUtc();
-            $this->db->updateOne('sportsbooklinks', ['id' => MongoRepository::id($id)], [
+            $now = SqlRepository::nowUtc();
+            $this->db->updateOne('sportsbooklinks', ['id' => SqlRepository::id($id)], [
                 'lastSync' => $now,
                 'updatedAt' => $now,
             ]);
-            $saved = $this->db->findOne('sportsbooklinks', ['id' => MongoRepository::id($id)]);
+            $saved = $this->db->findOne('sportsbooklinks', ['id' => SqlRepository::id($id)]);
             Response::json([
                 'message' => 'Link tested',
                 'id' => $id,
@@ -5913,12 +5924,12 @@ final class AdminCoreController
             if (isset($body['dueDate']) && is_string($body['dueDate']) && $body['dueDate'] !== '') {
                 $ts = strtotime($body['dueDate']);
                 if ($ts !== false) {
-                    $dueDate = MongoRepository::utcFromMillis($ts * 1000);
+                    $dueDate = SqlRepository::utcFromMillis($ts * 1000);
                 }
             }
             $paidAt = null;
             if ($status === 'paid') {
-                $paidAt = MongoRepository::nowUtc();
+                $paidAt = SqlRepository::nowUtc();
             }
 
             $doc = [
@@ -5927,13 +5938,13 @@ final class AdminCoreController
                 'status' => $status,
                 'dueDate' => $dueDate,
                 'notes' => (array_key_exists('notes', $body)) ? $body['notes'] : null,
-                'createdBy' => MongoRepository::id((string) ($actor['id'] ?? '')),
+                'createdBy' => SqlRepository::id((string) ($actor['id'] ?? '')),
                 'paidAt' => $paidAt,
-                'createdAt' => MongoRepository::nowUtc(),
-                'updatedAt' => MongoRepository::nowUtc(),
+                'createdAt' => SqlRepository::nowUtc(),
+                'updatedAt' => SqlRepository::nowUtc(),
             ];
             $id = $this->db->insertOne('billinginvoices', $doc);
-            $invoice = $this->db->findOne('billinginvoices', ['id' => MongoRepository::id($id)]) ?? array_merge($doc, ['id' => $id]);
+            $invoice = $this->db->findOne('billinginvoices', ['id' => SqlRepository::id($id)]) ?? array_merge($doc, ['id' => $id]);
 
             Response::json([
                 'message' => 'Invoice created',
@@ -5961,27 +5972,27 @@ final class AdminCoreController
                 return;
             }
 
-            $invoice = $this->db->findOne('billinginvoices', ['id' => MongoRepository::id($id)]);
+            $invoice = $this->db->findOne('billinginvoices', ['id' => SqlRepository::id($id)]);
             if ($invoice === null) {
                 Response::json(['message' => 'Invoice not found'], 404);
                 return;
             }
 
             $body = Http::jsonBody();
-            $updates = ['updatedAt' => MongoRepository::nowUtc()];
+            $updates = ['updatedAt' => SqlRepository::nowUtc()];
             if (array_key_exists('amount', $body)) {
                 $updates['amount'] = $this->num($body['amount']);
             }
             if (isset($body['status']) && trim((string) $body['status']) !== '') {
                 $updates['status'] = trim((string) $body['status']);
                 if ($updates['status'] === 'paid') {
-                    $updates['paidAt'] = MongoRepository::nowUtc();
+                    $updates['paidAt'] = SqlRepository::nowUtc();
                 }
             }
             if (array_key_exists('dueDate', $body)) {
                 if (is_string($body['dueDate']) && $body['dueDate'] !== '') {
                     $ts = strtotime($body['dueDate']);
-                    $updates['dueDate'] = $ts === false ? null : MongoRepository::utcFromMillis($ts * 1000);
+                    $updates['dueDate'] = $ts === false ? null : SqlRepository::utcFromMillis($ts * 1000);
                 } else {
                     $updates['dueDate'] = null;
                 }
@@ -5990,7 +6001,7 @@ final class AdminCoreController
                 $updates['notes'] = $body['notes'];
             }
 
-            $this->db->updateOne('billinginvoices', ['id' => MongoRepository::id($id)], $updates);
+            $this->db->updateOne('billinginvoices', ['id' => SqlRepository::id($id)], $updates);
             Response::json(['message' => 'Invoice updated', 'id' => $id]);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error updating invoice'], 500);
@@ -6005,7 +6016,7 @@ final class AdminCoreController
                 return;
             }
 
-            $invoice = $this->db->findOne('billinginvoices', ['id' => MongoRepository::id($id)]);
+            $invoice = $this->db->findOne('billinginvoices', ['id' => SqlRepository::id($id)]);
             if ($invoice === null) {
                 Response::json(['message' => 'Invoice not found'], 404);
                 return;
@@ -6034,7 +6045,7 @@ final class AdminCoreController
                 return;
             }
 
-            $user = $this->db->findOne('users', ['id' => MongoRepository::id($id)]);
+            $user = $this->db->findOne('users', ['id' => SqlRepository::id($id)]);
             if ($user === null) {
                 Response::json(['message' => 'User not found'], 404);
                 return;
@@ -6052,7 +6063,7 @@ final class AdminCoreController
                 return;
             }
 
-            $this->db->deleteOne('users', ['id' => MongoRepository::id($id)]);
+            $this->db->deleteOne('users', ['id' => SqlRepository::id($id)]);
             Response::json(['message' => 'User ' . (string) ($user['username'] ?? '') . ' successfully deleted.']);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error deleting user'], 500);
@@ -6067,7 +6078,7 @@ final class AdminCoreController
                 return;
             }
 
-            $agent = $this->db->findOne('agents', ['id' => MongoRepository::id($id)]);
+            $agent = $this->db->findOne('agents', ['id' => SqlRepository::id($id)]);
             if ($agent === null) {
                 Response::json(['message' => 'Agent not found'], 404);
                 return;
@@ -6079,22 +6090,22 @@ final class AdminCoreController
                 return;
             }
 
-            $activeUsers = $this->db->countDocuments('users', ['agentId' => MongoRepository::id($id)]);
+            $activeUsers = $this->db->countDocuments('users', ['agentId' => SqlRepository::id($id)]);
             if ($activeUsers > 0) {
                 Response::json(['message' => 'Cannot delete agent. They have ' . $activeUsers . ' assigned users. Reassign or delete users first.'], 400);
                 return;
             }
 
             if (($agent['role'] ?? '') === 'master_agent') {
-                $subAgents = $this->db->countDocuments('agents', ['createdBy' => MongoRepository::id($id), 'createdByModel' => 'Agent']);
+                $subAgents = $this->db->countDocuments('agents', ['createdBy' => SqlRepository::id($id), 'createdByModel' => 'Agent']);
                 if ($subAgents > 0) {
                     Response::json(['message' => 'Cannot delete Master Agent. They have ' . $subAgents . ' sub-agents. Reassign or delete sub-agents first.'], 400);
                     return;
                 }
-                $this->db->deleteOne('master_agents', ['agentId' => MongoRepository::id($id)]);
+                $this->db->deleteOne('master_agents', ['agentId' => SqlRepository::id($id)]);
             }
 
-            $this->db->deleteOne('agents', ['id' => MongoRepository::id($id)]);
+            $this->db->deleteOne('agents', ['id' => SqlRepository::id($id)]);
             Response::json(['message' => 'Agent ' . (string) ($agent['username'] ?? '') . ' successfully deleted.']);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error deleting agent'], 500);
@@ -6135,7 +6146,7 @@ final class AdminCoreController
                 return;
             }
 
-            $now = MongoRepository::nowUtc();
+            $now = SqlRepository::nowUtc();
             $masterId = (string) $dth365Master['id'];
             $log = [];
 
@@ -6214,15 +6225,15 @@ final class AdminCoreController
                 return;
             }
             $agentRole = ($role === 'agent' || $role === 'master_agent') ? $role : 'master_agent';
-            $createdById = MongoRepository::id((string) ($actor['id'] ?? ''));
+            $createdById = SqlRepository::id((string) ($actor['id'] ?? ''));
             $createdByModel = (($actor['role'] ?? '') === 'admin') ? 'Admin' : 'Agent';
             if (($actor['role'] ?? '') === 'admin' && $parentAgentId !== '' && preg_match('/^[a-f0-9]{24}$/i', $parentAgentId) === 1) {
-                $parentAgent = $this->db->findOne('agents', ['id' => MongoRepository::id($parentAgentId)]);
+                $parentAgent = $this->db->findOne('agents', ['id' => SqlRepository::id($parentAgentId)]);
                 if ($parentAgent === null || !in_array((string) ($parentAgent['role'] ?? ''), ['master_agent', 'super_agent'], true)) {
                     Response::json(['message' => 'parentAgentId must be a valid Master Agent'], 400);
                     return;
                 }
-                $createdById = MongoRepository::id($parentAgentId);
+                $createdById = SqlRepository::id($parentAgentId);
                 $createdByModel = 'Agent';
             }
 
@@ -6238,13 +6249,13 @@ final class AdminCoreController
             $existing = $this->findExistingAgentByIdentity($username, $phoneNumber, $agentRole);
             if ($existing !== null) {
                 $existingId = (string) $existing['id'];
-                $this->db->updateOne('agents', ['id' => MongoRepository::id($existingId)], [
+                $this->db->updateOne('agents', ['id' => SqlRepository::id($existingId)], [
                     'createdBy'      => $createdById,
                     'createdByModel' => $createdByModel,
-                    'updatedAt'      => MongoRepository::nowUtc(),
+                    'updatedAt'      => SqlRepository::nowUtc(),
                 ]);
                 if ($agentRole === 'master_agent') {
-                    $updated = $this->db->findOne('agents', ['id' => MongoRepository::id($existingId)]);
+                    $updated = $this->db->findOne('agents', ['id' => SqlRepository::id($existingId)]);
                     if ($updated !== null) {
                         $this->syncMasterAgentCollection($updated);
                     }
@@ -6271,12 +6282,12 @@ final class AdminCoreController
                     Response::json(['message' => 'Invalid referredByUserId'], 400);
                     return;
                 }
-                $ref = $this->db->findOne('users', ['id' => MongoRepository::id($referredByUserId)]);
+                $ref = $this->db->findOne('users', ['id' => SqlRepository::id($referredByUserId)]);
                 if (!$this->isPlayerLikeUserDocument($ref)) {
                     Response::json(['message' => 'Invalid referredByUserId'], 400);
                     return;
                 }
-                $referrerObjectId = MongoRepository::id($referredByUserId);
+                $referrerObjectId = SqlRepository::id($referredByUserId);
             }
 
             $passwordFields = $this->passwordFields($password);
@@ -6302,8 +6313,8 @@ final class AdminCoreController
                 'createdBy' => $createdById,
                 'createdByModel' => $createdByModel,
                 'referredByUserId' => $referrerObjectId,
-                'createdAt' => MongoRepository::nowUtc(),
-                'updatedAt' => MongoRepository::nowUtc(),
+                'createdAt' => SqlRepository::nowUtc(),
+                'updatedAt' => SqlRepository::nowUtc(),
             ];
 
             // Commission split fields — with chain validation
@@ -6328,7 +6339,7 @@ final class AdminCoreController
                     $createdByIdStr = (string) $createdById;
                     if (preg_match('/^[a-f0-9]{24}$/i', $createdByIdStr) === 1) {
                         $parentForPctCheck = $this->db->findOne('agents', [
-                            'id' => MongoRepository::id($createdByIdStr),
+                            'id' => SqlRepository::id($createdByIdStr),
                         ], ['projection' => ['agentPercent' => 1, 'username' => 1]]);
                         if ($parentForPctCheck !== null && isset($parentForPctCheck['agentPercent'])) {
                             $parentMax = (float) $parentForPctCheck['agentPercent'];
@@ -6411,14 +6422,14 @@ final class AdminCoreController
                 return;
             }
 
-            $agent = $this->db->findOne('agents', ['id' => MongoRepository::id($id)]);
+            $agent = $this->db->findOne('agents', ['id' => SqlRepository::id($id)]);
             if ($agent === null) {
                 Response::json(['message' => 'Agent not found'], 404);
                 return;
             }
 
             $body = Http::jsonBody();
-            $updates = ['updatedAt' => MongoRepository::nowUtc()];
+            $updates = ['updatedAt' => SqlRepository::nowUtc()];
 
             if (isset($body['firstName']) && trim((string) $body['firstName']) !== '') {
                 $updates['firstName'] = strtoupper(trim((string) $body['firstName']));
@@ -6444,7 +6455,7 @@ final class AdminCoreController
                     return;
                 } elseif (preg_match('/^[a-f0-9]{24}$/i', $parentId) === 1) {
                     $parentAgent = $this->db->findOne('agents', [
-                        'id' => MongoRepository::id($parentId),
+                        'id' => SqlRepository::id($parentId),
                         'role' => ['$in' => ['master_agent', 'super_agent']],
                     ]);
                     if ($parentAgent === null) {
@@ -6461,7 +6472,7 @@ final class AdminCoreController
                         ], 400);
                         return;
                     }
-                    $updates['createdBy'] = MongoRepository::id($parentId);
+                    $updates['createdBy'] = SqlRepository::id($parentId);
                     $updates['createdByModel'] = 'Agent';
                 }
             }
@@ -6491,7 +6502,7 @@ final class AdminCoreController
                 $parentModel = (string) ($agent['createdByModel'] ?? '');
                 $isUnderHouse = ($parentModel === 'Admin' || $parentModel === '');
                 if (!$isUnderHouse && $parentModel === 'Agent' && $parentId !== '' && preg_match('/^[a-f0-9]{24}$/i', $parentId) === 1) {
-                    $parentAgent = $this->db->findOne('agents', ['id' => MongoRepository::id($parentId)], ['projection' => ['username' => 1, 'agentPercent' => 1, 'createdByModel' => 1]]);
+                    $parentAgent = $this->db->findOne('agents', ['id' => SqlRepository::id($parentId)], ['projection' => ['username' => 1, 'agentPercent' => 1, 'createdByModel' => 1]]);
                     // Check if parent is same-person MA counterpart
                     $agentUsername = strtoupper(trim((string) ($agent['username'] ?? '')));
                     $parentUsername = strtoupper(trim((string) ($parentAgent['username'] ?? '')));
@@ -6542,7 +6553,7 @@ final class AdminCoreController
                 }
                 foreach ($idsToCheck as $checkId) {
                     $childAgents = $this->db->findMany('agents', [
-                        'createdBy'      => MongoRepository::id($checkId),
+                        'createdBy'      => SqlRepository::id($checkId),
                         'createdByModel' => 'Agent',
                     ], ['projection' => ['username' => 1, 'agentPercent' => 1]]);
                     foreach ($childAgents as $child) {
@@ -6607,7 +6618,7 @@ final class AdminCoreController
                 $updates['agentBillingStatus'] = $status;
                 $updates['viewOnly'] = ($status === 'unpaid');
                 if ($status === 'paid') {
-                    $updates['agentBillingLastPaidAt'] = MongoRepository::nowUtc();
+                    $updates['agentBillingLastPaidAt'] = SqlRepository::nowUtc();
                 }
             }
             foreach (['defaultMinBet', 'defaultMaxBet', 'defaultCreditLimit', 'defaultSettleLimit'] as $field) {
@@ -6624,12 +6635,12 @@ final class AdminCoreController
 
             $this->db->beginTransaction();
             try {
-                $this->db->updateOne('agents', ['id' => MongoRepository::id($id)], $updates);
-                $updated = $this->db->findOne('agents', ['id' => MongoRepository::id($id)]);
+                $this->db->updateOne('agents', ['id' => SqlRepository::id($id)], $updates);
+                $updated = $this->db->findOne('agents', ['id' => SqlRepository::id($id)]);
                 if (is_array($updated) && (($updated['role'] ?? '') === 'master_agent')) {
                     $this->syncMasterAgentCollection($updated);
                 } else {
-                    $this->db->deleteOne('master_agents', ['agentId' => MongoRepository::id($id)]);
+                    $this->db->deleteOne('master_agents', ['agentId' => SqlRepository::id($id)]);
                 }
 
                 // Sync commission fields to linked MA ↔ agent counterpart (same person)
@@ -6638,8 +6649,8 @@ final class AdminCoreController
                 if ($balanceBefore !== null) {
                     $balanceAfter = $this->num($updated['balance'] ?? ($updates['balance'] ?? $balanceBefore));
                     $this->db->insertOne('transactions', [
-                        'agentId' => MongoRepository::id($id),
-                        'adminId' => MongoRepository::id((string) ($actor['id'] ?? '')),
+                        'agentId' => SqlRepository::id($id),
+                        'adminId' => SqlRepository::id((string) ($actor['id'] ?? '')),
                         'amount' => abs($balanceAfter - $balanceBefore),
                         'type' => 'adjustment',
                         'status' => 'completed',
@@ -6648,8 +6659,8 @@ final class AdminCoreController
                         'referenceType' => 'Adjustment',
                         'reason' => 'ADMIN_AGENT_BALANCE_ADJUSTMENT',
                         'description' => 'Admin updated agent balance',
-                        'createdAt' => MongoRepository::nowUtc(),
-                        'updatedAt' => MongoRepository::nowUtc(),
+                        'createdAt' => SqlRepository::nowUtc(),
+                        'updatedAt' => SqlRepository::nowUtc(),
                     ]);
                 }
                 $this->db->commit();
@@ -6751,7 +6762,7 @@ final class AdminCoreController
                 }
 
                 $sub = $this->db->findOne('agents', [
-                    'id' => MongoRepository::id((string) $assignedAgentId),
+                    'id' => SqlRepository::id((string) $assignedAgentId),
                 ], ['projection' => ['defaultMinBet' => 1, 'defaultMaxBet' => 1, 'defaultCreditLimit' => 1, 'defaultSettleLimit' => 1]]);
                 if ($sub !== null) {
                     $body['minBet'] = $body['minBet'] ?? ($sub['defaultMinBet'] ?? 25);
@@ -6766,7 +6777,7 @@ final class AdminCoreController
                     return;
                 }
                 if ($requested !== '') {
-                    $agent = $this->db->findOne('agents', ['id' => MongoRepository::id($requested), 'role' => 'agent']);
+                    $agent = $this->db->findOne('agents', ['id' => SqlRepository::id($requested), 'role' => 'agent']);
                     if ($agent === null) {
                         Response::json(['message' => 'Invalid Agent ID. Players must be assigned to a regular Agent'], 400);
                         return;
@@ -6781,9 +6792,9 @@ final class AdminCoreController
 
             $referredByUserId = (string) ($body['referredByUserId'] ?? '');
             if ($referredByUserId !== '' && preg_match('/^[a-f0-9]{24}$/i', $referredByUserId) === 1) {
-                $refQuery = ['id' => MongoRepository::id($referredByUserId)];
+                $refQuery = ['id' => SqlRepository::id($referredByUserId)];
                 if ($assignedAgentId !== null && preg_match('/^[a-f0-9]{24}$/i', $assignedAgentId) === 1) {
-                    $refQuery['agentId'] = MongoRepository::id($assignedAgentId);
+                    $refQuery['agentId'] = SqlRepository::id($assignedAgentId);
                 }
                 $ref = $this->db->findOne('users', $refQuery);
                 if (!$this->isPlayerLikeUserDocument($ref)) {
@@ -6802,7 +6813,7 @@ final class AdminCoreController
             $passwordFields = $this->passwordFields($password);
             $startingFreeplayAmount = $grantStartingFreeplay ? 200.0 : 0.0;
             $startingFreeplayExpiresAt = $startingFreeplayAmount > 0 ? time() + (30 * 24 * 3600) : null;
-            $now = MongoRepository::nowUtc();
+            $now = SqlRepository::nowUtc();
             $doc = [
                 'username' => strtoupper($username),
                 'phoneNumber' => $phoneNumber,
@@ -6823,10 +6834,10 @@ final class AdminCoreController
                 'freeplayExpiresAt' => $startingFreeplayExpiresAt,
                 'maxFpCredit' => $this->numOr($body['maxFpCredit'] ?? null, 0), // 0 = uncapped
                 'pendingBalance' => 0,
-                'agentId' => ($assignedAgentId !== null && preg_match('/^[a-f0-9]{24}$/i', $assignedAgentId) === 1) ? MongoRepository::id($assignedAgentId) : null,
-                'createdBy' => MongoRepository::id((string) ($actor['id'] ?? '')),
+                'agentId' => ($assignedAgentId !== null && preg_match('/^[a-f0-9]{24}$/i', $assignedAgentId) === 1) ? SqlRepository::id($assignedAgentId) : null,
+                'createdBy' => SqlRepository::id((string) ($actor['id'] ?? '')),
                 'createdByModel' => (($actor['role'] ?? '') === 'admin') ? 'Admin' : 'Agent',
-                'referredByUserId' => ($referredByUserId !== '' && preg_match('/^[a-f0-9]{24}$/i', $referredByUserId) === 1) ? MongoRepository::id($referredByUserId) : null,
+                'referredByUserId' => ($referredByUserId !== '' && preg_match('/^[a-f0-9]{24}$/i', $referredByUserId) === 1) ? SqlRepository::id($referredByUserId) : null,
                 'referralBonusGranted' => false,
                 'referralBonusAmount' => 0,
                 'apps' => is_array($body['apps'] ?? null) ? $body['apps'] : new stdClass(),
@@ -6838,11 +6849,11 @@ final class AdminCoreController
                 $id = $this->db->insertOne('users', $doc);
                 if ($startingFreeplayAmount > 0) {
                     $this->db->insertOne('transactions', [
-                        'userId' => MongoRepository::id($id),
+                        'userId' => SqlRepository::id($id),
                         'agentId' => ($assignedAgentId !== null && preg_match('/^[a-f0-9]{24}$/i', $assignedAgentId) === 1)
-                            ? MongoRepository::id($assignedAgentId)
+                            ? SqlRepository::id($assignedAgentId)
                             : null,
-                        'adminId' => isset($actor['id']) ? MongoRepository::id((string) $actor['id']) : null,
+                        'adminId' => isset($actor['id']) ? SqlRepository::id((string) $actor['id']) : null,
                         'amount' => $startingFreeplayAmount,
                         'type' => 'fp_deposit',
                         'status' => 'completed',
@@ -6962,7 +6973,7 @@ final class AdminCoreController
                     return;
                 }
                 // If selected agent is a master/super agent, resolve to their first direct sub-agent
-                $targetDoc = $this->db->findOne('agents', ['id' => MongoRepository::id($defaultAgentId)], ['projection' => ['role' => 1]]);
+                $targetDoc = $this->db->findOne('agents', ['id' => SqlRepository::id($defaultAgentId)], ['projection' => ['role' => 1]]);
                 if ($targetDoc !== null && in_array((string) ($targetDoc['role'] ?? ''), ['master_agent', 'super_agent'], true)) {
                     $resolvedSubAgentId = $this->pickDefaultDirectAssignableAgentId($defaultAgentId);
                     if ($resolvedSubAgentId === null) {
@@ -7036,7 +7047,7 @@ final class AdminCoreController
         $actorId = (string) ($actor['id'] ?? '');
         $target = $this->db->findOne(
             'agents',
-            ['id' => MongoRepository::id($agentId)],
+            ['id' => SqlRepository::id($agentId)],
             ['projection' => ['createdBy' => 1, 'createdByModel' => 1, 'role' => 1]]
         );
         if ($target === null) {
@@ -7077,7 +7088,7 @@ final class AdminCoreController
         $actorRole = (string) ($actor['role'] ?? '');
         $actorId = (string) ($actor['id'] ?? '');
         $createdByModel = ($actorRole === 'admin') ? 'Admin' : 'Agent';
-        $now = MongoRepository::nowUtc();
+        $now = SqlRepository::nowUtc();
         $masterAssignableIdSet = [];
         $defaultMasterAssignableAgentId = null;
         if (in_array($actorRole, ['master_agent', 'super_agent'], true)) {
@@ -7173,7 +7184,7 @@ final class AdminCoreController
 
             // Auto-create agents that don't exist yet (only when autoCreateAgents is enabled)
             if ($autoCreateAgents) {
-            $now = MongoRepository::nowUtc();
+            $now = SqlRepository::nowUtc();
             foreach ($agentLabels as $label) {
                 if (isset($agentIdByUsername[$label])) {
                     continue;
@@ -7199,7 +7210,7 @@ final class AdminCoreController
                     'defaultMaxBet' => 200,
                     'defaultCreditLimit' => 1000,
                     'defaultSettleLimit' => 200,
-                    'createdBy' => MongoRepository::id($actorId),
+                    'createdBy' => SqlRepository::id($actorId),
                     'createdByModel' => $createdByModel,
                     'referredByUserId' => null,
                     'createdAt' => $now,
@@ -7293,7 +7304,7 @@ final class AdminCoreController
 
             if (count($updates) > 1) {
                 $existingUserId = (string) ($existingUser['id'] ?? '');
-                $this->db->updateOne('users', ['id' => MongoRepository::id($existingUserId)], $updates);
+                $this->db->updateOne('users', ['id' => SqlRepository::id($existingUserId)], $updates);
                 $updatedRows[] = [
                     'row' => $rowNum,
                     'id' => $existingUserId,
@@ -7399,7 +7410,7 @@ final class AdminCoreController
                     $reqAgent = (string) ($agentIdByUsername[strtoupper($reqAgent)] ?? '');
                 }
                 if ($reqAgent !== '' && preg_match('/^[a-f0-9]{24}$/i', $reqAgent) === 1) {
-                    $agentDoc = $this->db->findOne('agents', ['id' => MongoRepository::id($reqAgent)], ['projection' => ['role' => 1]]);
+                    $agentDoc = $this->db->findOne('agents', ['id' => SqlRepository::id($reqAgent)], ['projection' => ['role' => 1]]);
                     $agentRole = (string) ($agentDoc['role'] ?? '');
                     if ($agentRole === 'agent') {
                         $assignedAgentId = $reqAgent;
@@ -7435,7 +7446,7 @@ final class AdminCoreController
                 if ($assignedAgentId !== null && preg_match('/^[a-f0-9]{24}$/i', $assignedAgentId) === 1) {
                     $generatedPrefix = (string) ($agentUsernameById[$assignedAgentId] ?? '');
                     if ($generatedPrefix === '') {
-                        $agentDoc = $this->db->findOne('agents', ['id' => MongoRepository::id($assignedAgentId)], ['projection' => ['username' => 1]]);
+                        $agentDoc = $this->db->findOne('agents', ['id' => SqlRepository::id($assignedAgentId)], ['projection' => ['username' => 1]]);
                         $generatedPrefix = strtoupper(trim((string) ($agentDoc['username'] ?? '')));
                         if ($generatedPrefix !== '') {
                             $agentUsernameById[$assignedAgentId] = $generatedPrefix;
@@ -7519,8 +7530,8 @@ final class AdminCoreController
                     'lifetime' => $this->numOr($row['lifetime'] ?? null, 0),
                     'playerNotes' => $playerNotes,
                     'pendingBalance' => 0,
-                    'agentId' => ($assignedAgentId !== null && preg_match('/^[a-f0-9]{24}$/i', $assignedAgentId) === 1) ? MongoRepository::id($assignedAgentId) : null,
-                    'createdBy' => MongoRepository::id($actorId),
+                    'agentId' => ($assignedAgentId !== null && preg_match('/^[a-f0-9]{24}$/i', $assignedAgentId) === 1) ? SqlRepository::id($assignedAgentId) : null,
+                    'createdBy' => SqlRepository::id($actorId),
                     'createdByModel' => $createdByModel,
                     'referralBonusGranted' => false,
                     'referralBonusAmount' => 0,
@@ -7914,7 +7925,7 @@ final class AdminCoreController
             $replacePreviousSeed = !array_key_exists('replacePreviousSeed', $body) || (bool) $body['replacePreviousSeed'];
 
             $batchTag = 'WF_POLICY_' . gmdate('Ymd_His');
-            $adminObjectId = MongoRepository::id((string) ($actor['id'] ?? ''));
+            $adminObjectId = SqlRepository::id((string) ($actor['id'] ?? ''));
             if ($replacePreviousSeed) {
                 $this->cleanupWorkflowSeedData();
             }
@@ -8060,8 +8071,8 @@ final class AdminCoreController
                     'createdByModel' => $createdByModel,
                     'seedSource' => 'workflow_policy_v2',
                     'seedBatch' => $batchTag,
-                    'createdAt' => MongoRepository::nowUtc(),
-                    'updatedAt' => MongoRepository::nowUtc(),
+                    'createdAt' => SqlRepository::nowUtc(),
+                    'updatedAt' => SqlRepository::nowUtc(),
                 ];
                 $id = $this->db->insertOne('agents', $doc);
                 if ($role === 'master_agent') {
@@ -8112,8 +8123,8 @@ final class AdminCoreController
                     'apps' => new stdClass(),
                     'seedSource' => 'workflow_policy_v2',
                     'seedBatch' => $batchTag,
-                    'createdAt' => MongoRepository::nowUtc(),
-                    'updatedAt' => MongoRepository::nowUtc(),
+                    'createdAt' => SqlRepository::nowUtc(),
+                    'updatedAt' => SqlRepository::nowUtc(),
                 ];
                 return $this->db->insertOne('users', $doc);
             };
@@ -8138,8 +8149,8 @@ final class AdminCoreController
                     $baseSettleLimit
                 );
                 // Override phone in a single write so password formula uses this exact phone.
-                $this->db->updateOne('agents', ['id' => MongoRepository::id($masterId)], ['phoneNumber' => $phoneForPass]);
-                $this->syncMasterAgentCollection(array_merge(['id' => $masterId, 'phoneNumber' => $phoneForPass], $this->db->findOne('agents', ['id' => MongoRepository::id($masterId)]) ?? []));
+                $this->db->updateOne('agents', ['id' => SqlRepository::id($masterId)], ['phoneNumber' => $phoneForPass]);
+                $this->syncMasterAgentCollection(array_merge(['id' => $masterId, 'phoneNumber' => $phoneForPass], $this->db->findOne('agents', ['id' => SqlRepository::id($masterId)]) ?? []));
                 $allMasters[] = [
                     'id' => $masterId,
                     'username' => $username,
@@ -8160,7 +8171,7 @@ final class AdminCoreController
                 return;
             }
 
-            $firstMasterObjectId = MongoRepository::id((string) $allMasters[0]['id']);
+            $firstMasterObjectId = SqlRepository::id((string) $allMasters[0]['id']);
             for ($i = 1; $i <= $referredMasterCount; $i++) {
                 [$firstName, $lastName] = $pickName();
                 $phoneForPass = $makePhone();
@@ -8179,8 +8190,8 @@ final class AdminCoreController
                     $baseCreditLimit,
                     $baseSettleLimit
                 );
-                $this->db->updateOne('agents', ['id' => MongoRepository::id($masterId)], ['phoneNumber' => $phoneForPass]);
-                $this->syncMasterAgentCollection(array_merge(['id' => $masterId, 'phoneNumber' => $phoneForPass], $this->db->findOne('agents', ['id' => MongoRepository::id($masterId)]) ?? []));
+                $this->db->updateOne('agents', ['id' => SqlRepository::id($masterId)], ['phoneNumber' => $phoneForPass]);
+                $this->syncMasterAgentCollection(array_merge(['id' => $masterId, 'phoneNumber' => $phoneForPass], $this->db->findOne('agents', ['id' => SqlRepository::id($masterId)]) ?? []));
                 $allMasters[] = [
                     'id' => $masterId,
                     'username' => $username,
@@ -8201,7 +8212,7 @@ final class AdminCoreController
             $totalPlayers = 0;
             $totalReferredPlayers = 0;
             foreach ($allMasters as $masterIndex => $master) {
-                $masterObjectId = MongoRepository::id((string) $master['id']);
+                $masterObjectId = SqlRepository::id((string) $master['id']);
                 for ($j = 1; $j <= $agentsPerMaster; $j++) {
                     [$agentFirst, $agentLast] = $pickName();
                     $agentPhone = $makePhone();
@@ -8230,10 +8241,10 @@ final class AdminCoreController
                         $agentCredit,
                         $agentSettle
                     );
-                    $this->db->updateOne('agents', ['id' => MongoRepository::id($agentId)], ['phoneNumber' => $agentPhone]);
+                    $this->db->updateOne('agents', ['id' => SqlRepository::id($agentId)], ['phoneNumber' => $agentPhone]);
                     $totalAgents++;
 
-                    $agentObjectId = MongoRepository::id($agentId);
+                    $agentObjectId = SqlRepository::id($agentId);
                     $playersCreatedForAgent = [];
                     for ($k = 1; $k <= $playersPerAgent; $k++) {
                         [$playerFirst, $playerLast] = $pickName();
@@ -8250,7 +8261,7 @@ final class AdminCoreController
                         $referrerId = null;
                         if ($k > 1 && count($playersCreatedForAgent) > 0 && ($k % 4 === 0)) {
                             $referrerPick = $playersCreatedForAgent[array_rand($playersCreatedForAgent)];
-                            $referrerId = MongoRepository::id((string) $referrerPick);
+                            $referrerId = SqlRepository::id((string) $referrerPick);
                             $totalReferredPlayers++;
                         }
 
@@ -8268,7 +8279,7 @@ final class AdminCoreController
                             $playerFreeplay,
                             $referrerId
                         );
-                        $this->db->updateOne('users', ['id' => MongoRepository::id($playerId)], ['phoneNumber' => $playerPhone]);
+                        $this->db->updateOne('users', ['id' => SqlRepository::id($playerId)], ['phoneNumber' => $playerPhone]);
                         $playersCreatedForAgent[] = $playerId;
                         $totalPlayers++;
                     }
@@ -8340,7 +8351,7 @@ final class AdminCoreController
         foreach ($users as $u) {
             $id = (string) ($u['id'] ?? '');
             if ($id !== '' && preg_match('/^[a-f0-9]{24}$/i', $id) === 1) {
-                $this->db->deleteOne('users', ['id' => MongoRepository::id($id)]);
+                $this->db->deleteOne('users', ['id' => SqlRepository::id($id)]);
                 $deletedUsers++;
             }
         }
@@ -8349,9 +8360,9 @@ final class AdminCoreController
         foreach ($agents as $a) {
             $id = (string) ($a['id'] ?? '');
             if ($id !== '' && preg_match('/^[a-f0-9]{24}$/i', $id) === 1) {
-                $masterAgentLink = $this->db->findOne('master_agents', ['agentId' => MongoRepository::id($id)], ['projection' => ['id' => 1]]);
-                $this->db->deleteOne('master_agents', ['agentId' => MongoRepository::id($id)]);
-                $this->db->deleteOne('agents', ['id' => MongoRepository::id($id)]);
+                $masterAgentLink = $this->db->findOne('master_agents', ['agentId' => SqlRepository::id($id)], ['projection' => ['id' => 1]]);
+                $this->db->deleteOne('master_agents', ['agentId' => SqlRepository::id($id)]);
+                $this->db->deleteOne('agents', ['id' => SqlRepository::id($id)]);
                 if ($masterAgentLink !== null) {
                     $deletedMasterAgentLinks++;
                 }
@@ -8374,14 +8385,14 @@ final class AdminCoreController
                 return;
             }
 
-            $user = $this->db->findOne('users', ['id' => MongoRepository::id($id)]);
+            $user = $this->db->findOne('users', ['id' => SqlRepository::id($id)]);
             if ($user === null) {
                 Response::json(['message' => 'User not found'], 404);
                 return;
             }
 
             $body = Http::jsonBody();
-            $updates = ['updatedAt' => MongoRepository::nowUtc()];
+            $updates = ['updatedAt' => SqlRepository::nowUtc()];
             $allowDuplicateRaw = $body['allowDuplicateSave'] ?? ($body['allowDuplicate'] ?? false);
             $allowDuplicateSave = is_bool($allowDuplicateRaw)
                 ? $allowDuplicateRaw
@@ -8510,9 +8521,9 @@ final class AdminCoreController
                 if ($requestedAgentId === '') {
                     $updates['agentId'] = null;
                 } elseif (preg_match('/^[a-f0-9]{24}$/i', $requestedAgentId) === 1) {
-                    $targetAgent = $this->db->findOne('agents', ['id' => MongoRepository::id($requestedAgentId)]);
+                    $targetAgent = $this->db->findOne('agents', ['id' => SqlRepository::id($requestedAgentId)]);
                     if ($targetAgent !== null) {
-                        $updates['agentId'] = MongoRepository::id($requestedAgentId);
+                        $updates['agentId'] = SqlRepository::id($requestedAgentId);
                     }
                 }
             }
@@ -8525,14 +8536,14 @@ final class AdminCoreController
 
             $this->db->beginTransaction();
             try {
-                $this->db->updateOne('users', ['id' => MongoRepository::id($id)], $updates);
-                $updated = $this->db->findOne('users', ['id' => MongoRepository::id($id)]);
+                $this->db->updateOne('users', ['id' => SqlRepository::id($id)], $updates);
+                $updated = $this->db->findOne('users', ['id' => SqlRepository::id($id)]);
 
                 if ($balanceBefore !== null) {
                     $balanceAfter = $this->num($updated['balance'] ?? ($updates['balance'] ?? $balanceBefore));
                     $this->db->insertOne('transactions', [
-                        'userId' => MongoRepository::id($id),
-                        'adminId' => MongoRepository::id((string) ($actor['id'] ?? '')),
+                        'userId' => SqlRepository::id($id),
+                        'adminId' => SqlRepository::id((string) ($actor['id'] ?? '')),
                         'amount' => abs($balanceAfter - $balanceBefore),
                         'type' => 'adjustment',
                         'status' => 'completed',
@@ -8541,8 +8552,8 @@ final class AdminCoreController
                         'referenceType' => 'Adjustment',
                         'reason' => 'ADMIN_USER_BALANCE_ADJUSTMENT',
                         'description' => 'Admin updated user balance',
-                        'createdAt' => MongoRepository::nowUtc(),
-                        'updatedAt' => MongoRepository::nowUtc(),
+                        'createdAt' => SqlRepository::nowUtc(),
+                        'updatedAt' => SqlRepository::nowUtc(),
                     ]);
                 }
                 $this->db->commit();
@@ -8573,7 +8584,7 @@ final class AdminCoreController
                 return;
             }
 
-            $user = $this->db->findOne('users', ['id' => MongoRepository::id($id)]);
+            $user = $this->db->findOne('users', ['id' => SqlRepository::id($id)]);
             if ($user === null || (($user['role'] ?? 'user') !== 'user')) {
                 Response::json(['message' => 'User not found'], 404);
                 return;
@@ -8585,7 +8596,7 @@ final class AdminCoreController
                     Response::json(['message' => 'Not authorized to update this user'], 403);
                     return;
                 }
-                $agent = $this->db->findOne('agents', ['id' => MongoRepository::id((string) $actor['id'])]);
+                $agent = $this->db->findOne('agents', ['id' => SqlRepository::id((string) $actor['id'])]);
                 if ($agent === null) {
                     Response::json(['message' => 'Agent account not found'], 404);
                     return;
@@ -8690,7 +8701,7 @@ final class AdminCoreController
 
             $this->db->beginTransaction();
             try {
-                $lockedUser = $this->db->findOneForUpdate('users', ['id' => MongoRepository::id($id)]);
+                $lockedUser = $this->db->findOneForUpdate('users', ['id' => SqlRepository::id($id)]);
                 if ($lockedUser === null || (($lockedUser['role'] ?? 'user') !== 'user')) {
                     $this->db->rollback();
                     Response::json(['message' => 'User not found'], 404);
@@ -8714,7 +8725,7 @@ final class AdminCoreController
                 $lockedAgent = null;
                 $agentBalance = 0.0;
                 if (is_array($agent)) {
-                    $lockedAgent = $this->db->findOneForUpdate('agents', ['id' => MongoRepository::id((string) $actor['id'])]);
+                    $lockedAgent = $this->db->findOneForUpdate('agents', ['id' => SqlRepository::id((string) $actor['id'])]);
                     if ($lockedAgent === null) {
                         $this->db->rollback();
                         Response::json(['message' => 'Agent account not found'], 404);
@@ -8735,7 +8746,7 @@ final class AdminCoreController
                     && in_array($normalizedReason, $lifetimeAdjustmentReasons, true);
                 $userUpdates = [
                     'balance' => $nextBalance,
-                    'updatedAt' => MongoRepository::nowUtc(),
+                    'updatedAt' => SqlRepository::nowUtc(),
                 ];
                 if ($shouldAdjustLifetime) {
                     $lifetimeAfter = $lifetimeBefore + $diff;
@@ -8755,17 +8766,17 @@ final class AdminCoreController
                         $fpBonusDesc3 = 'Auto free play bonus ' . rtrim(rtrim(number_format($freePlayBonusPercent, 2, '.', ''), '0'), '.') . '% on deposit $' . number_format(abs($diff), 2, '.', '');
                         $referrerIdForDesc3 = trim((string) ($lockedUser['referredByUserId'] ?? ''));
                         if ($referrerIdForDesc3 !== '' && preg_match('/^[a-f0-9]{24}$/i', $referrerIdForDesc3) === 1) {
-                            $referrerDoc3 = $this->db->findOne('users', ['id' => MongoRepository::id($referrerIdForDesc3)], ['projection' => ['username' => 1]]);
+                            $referrerDoc3 = $this->db->findOne('users', ['id' => SqlRepository::id($referrerIdForDesc3)], ['projection' => ['username' => 1]]);
                             if ($referrerDoc3 !== null && isset($referrerDoc3['username'])) {
                                 $fpBonusDesc3 = 'Auto Freeplay bonus for referral ' . (string) $referrerDoc3['username'];
                             }
                         }
                         $freePlayTransactionDoc = [
-                            'userId' => MongoRepository::id($id),
+                            'userId' => SqlRepository::id($id),
                             'agentId' => isset($lockedUser['agentId']) && preg_match('/^[a-f0-9]{24}$/i', (string) $lockedUser['agentId']) === 1
-                                ? MongoRepository::id((string) $lockedUser['agentId'])
+                                ? SqlRepository::id((string) $lockedUser['agentId'])
                                 : null,
-                            'adminId' => isset($actor['id']) ? MongoRepository::id((string) $actor['id']) : null,
+                            'adminId' => isset($actor['id']) ? SqlRepository::id((string) $actor['id']) : null,
                             'amount' => $freePlayBonusAmount,
                             'type' => 'adjustment',
                             'status' => 'completed',
@@ -8779,8 +8790,8 @@ final class AdminCoreController
                                 'freePlayPercent' => $freePlayBonusPercent,
                                 'maxFpCredit' => $freePlayBonusCap,
                             ],
-                            'createdAt' => MongoRepository::nowUtc(),
-                            'updatedAt' => MongoRepository::nowUtc(),
+                            'createdAt' => SqlRepository::nowUtc(),
+                            'updatedAt' => SqlRepository::nowUtc(),
                         ];
                     }
                 }
@@ -8803,8 +8814,8 @@ final class AdminCoreController
                 }
 
                 $transactionDoc = [
-                    'userId' => MongoRepository::id($id),
-                    'adminId' => MongoRepository::id((string) ($actor['id'] ?? '')),
+                    'userId' => SqlRepository::id($id),
+                    'adminId' => SqlRepository::id((string) ($actor['id'] ?? '')),
                     'amount' => abs($diff),
                     'type' => $txType,
                     'status' => 'completed',
@@ -8813,11 +8824,11 @@ final class AdminCoreController
                     'referenceType' => 'Adjustment',
                     'reason' => $txReason,
                     'description' => $txDescription,
-                    'approvedById' => isset($actor['id']) ? MongoRepository::id((string) $actor['id']) : null,
+                    'approvedById' => isset($actor['id']) ? SqlRepository::id((string) $actor['id']) : null,
                     'approvedByRole' => (string) ($actor['role'] ?? (is_array($agent) ? 'agent' : 'admin')),
                     'approvedByUsername' => (string) ($actor['username'] ?? ''),
-                    'createdAt' => MongoRepository::nowUtc(),
-                    'updatedAt' => MongoRepository::nowUtc(),
+                    'createdAt' => SqlRepository::nowUtc(),
+                    'updatedAt' => SqlRepository::nowUtc(),
                 ];
                 if (is_array($transactionMetadata)) {
                     $transactionDoc['metadata'] = $transactionMetadata;
@@ -8825,16 +8836,16 @@ final class AdminCoreController
 
                 if (is_array($lockedAgent)) {
                     $agentBalanceOut = round($agentBalance - $diff, 2);
-                    $this->db->updateOne('agents', ['id' => MongoRepository::id((string) $actor['id'])], [
+                    $this->db->updateOne('agents', ['id' => SqlRepository::id((string) $actor['id'])], [
                         'balance' => $agentBalanceOut,
-                        'updatedAt' => MongoRepository::nowUtc(),
+                        'updatedAt' => SqlRepository::nowUtc(),
                     ]);
                 }
 
-                $this->db->updateOne('users', ['id' => MongoRepository::id($id)], $userUpdates);
+                $this->db->updateOne('users', ['id' => SqlRepository::id($id)], $userUpdates);
                 $transactionId = $this->db->insertOne('transactions', $transactionDoc);
                 if (is_array($freePlayTransactionDoc)) {
-                    $freePlayTransactionDoc['referenceId'] = MongoRepository::id($transactionId);
+                    $freePlayTransactionDoc['referenceId'] = SqlRepository::id($transactionId);
                     $freePlayMetadata = is_array($freePlayTransactionDoc['metadata'] ?? null)
                         ? $freePlayTransactionDoc['metadata']
                         : [];
@@ -8943,10 +8954,10 @@ final class AdminCoreController
                 return;
             }
 
-            $foundUser = $this->db->findOne('users', ['id' => MongoRepository::id($userId)]);
+            $foundUser = $this->db->findOne('users', ['id' => SqlRepository::id($userId)]);
             $role = 'user';
             if ($foundUser === null) {
-                $foundUser = $this->db->findOne('agents', ['id' => MongoRepository::id($userId)]);
+                $foundUser = $this->db->findOne('agents', ['id' => SqlRepository::id($userId)]);
                 if ($foundUser !== null) {
                     $role = (string) ($foundUser['role'] ?? 'agent');
                 }
@@ -8961,12 +8972,12 @@ final class AdminCoreController
             $createdByModel = (string) ($foundUser['createdByModel'] ?? '');
             if ($createdBy !== '' && preg_match('/^[a-f0-9]{24}$/i', $createdBy) === 1) {
                 if ($createdByModel === 'Admin') {
-                    $admin = $this->db->findOne('admins', ['id' => MongoRepository::id($createdBy)], ['projection' => ['username' => 1]]);
+                    $admin = $this->db->findOne('admins', ['id' => SqlRepository::id($createdBy)], ['projection' => ['username' => 1]]);
                     if ($admin !== null) {
                         $creator = ['username' => $admin['username'] ?? null, 'role' => 'Admin'];
                     }
                 } elseif ($createdByModel === 'Agent') {
-                    $agent = $this->db->findOne('agents', ['id' => MongoRepository::id($createdBy)], ['projection' => ['username' => 1]]);
+                    $agent = $this->db->findOne('agents', ['id' => SqlRepository::id($createdBy)], ['projection' => ['username' => 1]]);
                     if ($agent !== null) {
                         $creator = ['username' => $agent['username'] ?? null, 'role' => 'Agent'];
                     }
@@ -8977,7 +8988,7 @@ final class AdminCoreController
             $masterAgent = null;
             $agentId = (string) ($foundUser['agentId'] ?? '');
             if ($agentId !== '' && preg_match('/^[a-f0-9]{24}$/i', $agentId) === 1) {
-                $agentDoc = $this->db->findOne('agents', ['id' => MongoRepository::id($agentId)], ['projection' => ['username' => 1, 'role' => 1, 'createdBy' => 1, 'createdByModel' => 1]]);
+                $agentDoc = $this->db->findOne('agents', ['id' => SqlRepository::id($agentId)], ['projection' => ['username' => 1, 'role' => 1, 'createdBy' => 1, 'createdByModel' => 1]]);
                 if ($agentDoc !== null) {
                     $agentRole = (string) ($agentDoc['role'] ?? 'agent');
                     $agent = ['username' => $agentDoc['username'] ?? null, 'role' => $agentRole];
@@ -8991,7 +9002,7 @@ final class AdminCoreController
                         $parentAgentId = (string) ($agentDoc['createdBy'] ?? '');
                         $parentModel = (string) ($agentDoc['createdByModel'] ?? '');
                         if ($parentModel === 'Agent' && $parentAgentId !== '' && preg_match('/^[a-f0-9]{24}$/i', $parentAgentId) === 1) {
-                            $masterDoc = $this->db->findOne('agents', ['id' => MongoRepository::id($parentAgentId)], ['projection' => ['username' => 1, 'role' => 1]]);
+                            $masterDoc = $this->db->findOne('agents', ['id' => SqlRepository::id($parentAgentId)], ['projection' => ['username' => 1, 'role' => 1]]);
                             if ($masterDoc !== null) {
                                 $masterRole = (string) ($masterDoc['role'] ?? '');
                                 if (in_array($masterRole, ['master_agent', 'super_agent'], true)) {
@@ -9010,7 +9021,7 @@ final class AdminCoreController
             $referredBy = null;
             $referredByUserId = (string) ($foundUser['referredByUserId'] ?? '');
             if ($referredByUserId !== '' && preg_match('/^[a-f0-9]{24}$/i', $referredByUserId) === 1) {
-                $ref = $this->db->findOne('users', ['id' => MongoRepository::id($referredByUserId)], ['projection' => ['username' => 1, 'fullName' => 1, 'firstName' => 1, 'lastName' => 1]]);
+                $ref = $this->db->findOne('users', ['id' => SqlRepository::id($referredByUserId)], ['projection' => ['username' => 1, 'fullName' => 1, 'firstName' => 1, 'lastName' => 1]]);
                 if ($ref !== null) {
                     $referredBy = [
                         'id' => (string) ($ref['id'] ?? ''),
@@ -9030,10 +9041,10 @@ final class AdminCoreController
                 'referralQualifiedDepositAt' => $foundUser['referralQualifiedDepositAt'] ?? null,
             ];
             if ($role === 'user') {
-                $referralStats['referredCount'] = $this->db->countDocuments('users', ['referredByUserId' => MongoRepository::id($userId)]);
+                $referralStats['referredCount'] = $this->db->countDocuments('users', ['referredByUserId' => SqlRepository::id($userId)]);
             }
 
-            $bets = $this->db->findMany('bets', ['userId' => MongoRepository::id($userId)], ['projection' => ['amount' => 1, 'potentialPayout' => 1, 'status' => 1, 'createdAt' => 1]]);
+            $bets = $this->db->findMany('bets', ['userId' => SqlRepository::id($userId)], ['projection' => ['amount' => 1, 'potentialPayout' => 1, 'status' => 1, 'createdAt' => 1]]);
             $casinoRounds = $this->db->findMany('casino_bets', ['userId' => $userId], ['projection' => ['totalWager' => 1, 'totalReturn' => 1, 'netResult' => 1, 'roundStatus' => 1, 'createdAt' => 1]]);
             $updateLastBetDate = static function (?string $current, mixed $candidate): ?string {
                 $created = trim((string) $candidate);
@@ -9217,7 +9228,7 @@ final class AdminCoreController
                 $oids = [];
                 foreach ($scopedUserIds as $id) {
                     if (preg_match('/^[a-f0-9]{24}$/i', $id) === 1) {
-                        $oids[] = MongoRepository::id($id);
+                        $oids[] = SqlRepository::id($id);
                     }
                 }
                 $query['userId'] = ['$in' => $oids];
@@ -9236,7 +9247,7 @@ final class AdminCoreController
                     if (is_array($scopedUserIds) && !in_array($sid, $scopedUserIds, true)) {
                         continue;
                     }
-                    $searchUserIds[] = MongoRepository::id($sid);
+                    $searchUserIds[] = SqlRepository::id($sid);
                 }
                 $query['$or'] = [
                     ['ip' => ['$regex' => $search, '$options' => 'i']],
@@ -9305,7 +9316,7 @@ final class AdminCoreController
                 return;
             }
 
-            $log = $this->db->findOne('iplogs', ['id' => MongoRepository::id($id)]);
+            $log = $this->db->findOne('iplogs', ['id' => SqlRepository::id($id)]);
             if ($log === null) {
                 Response::json(['message' => 'IP record not found'], 404);
                 return;
@@ -9324,14 +9335,14 @@ final class AdminCoreController
                 'blockedBy' => null,
                 'blockedByModel' => null,
                 'blockReason' => null,
-                'updatedAt' => MongoRepository::nowUtc(),
+                'updatedAt' => SqlRepository::nowUtc(),
             ];
             if ($status === 'blocked') {
-                $updates['blockedAt'] = MongoRepository::nowUtc();
-                $updates['blockedBy'] = MongoRepository::id((string) ($actor['id'] ?? ''));
+                $updates['blockedAt'] = SqlRepository::nowUtc();
+                $updates['blockedBy'] = SqlRepository::id((string) ($actor['id'] ?? ''));
                 $updates['blockedByModel'] = $this->ownerModelForRole((string) ($actor['role'] ?? 'user'));
             }
-            $this->db->updateOne('iplogs', ['id' => MongoRepository::id($id)], $updates);
+            $this->db->updateOne('iplogs', ['id' => SqlRepository::id($id)], $updates);
             Response::json(['message' => $message, 'id' => $id]);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error ' . strtolower(str_replace('IP ', '', $message))], 500);
@@ -9390,7 +9401,7 @@ final class AdminCoreController
                 $oids = [];
                 foreach ($scopedAgentIds as $aid) {
                     if (preg_match('/^[a-f0-9]{24}$/i', $aid) === 1) {
-                        $oids[] = MongoRepository::id($aid);
+                        $oids[] = SqlRepository::id($aid);
                     }
                 }
                 $userQuery['agentId'] = ['$in' => $oids];
@@ -9399,7 +9410,7 @@ final class AdminCoreController
                 $oids = [];
                 foreach ($filteredAgentIds as $aid) {
                     if (preg_match('/^[a-f0-9]{24}$/i', $aid) === 1) {
-                        $oids[] = MongoRepository::id($aid);
+                        $oids[] = SqlRepository::id($aid);
                     }
                 }
                 $userQuery['agentId'] = ['$in' => $oids];
@@ -9417,7 +9428,7 @@ final class AdminCoreController
                 if ($uid === '') {
                     continue;
                 }
-                $userIds[] = MongoRepository::id($uid);
+                $userIds[] = SqlRepository::id($uid);
                 $userMap[$uid] = $u;
             }
 
@@ -9430,7 +9441,7 @@ final class AdminCoreController
             }
             $startDate = $this->getStartDateFromPeriod($timeQ);
             if ($startDate !== null) {
-                $betQuery['createdAt'] = ['$gte' => MongoRepository::utcFromMillis($startDate->getTimestamp() * 1000)];
+                $betQuery['createdAt'] = ['$gte' => SqlRepository::utcFromMillis($startDate->getTimestamp() * 1000)];
             }
 
             $bets = $this->db->findMany('bets', $betQuery, ['sort' => ['createdAt' => -1], 'limit' => $limit]);
@@ -9452,7 +9463,7 @@ final class AdminCoreController
                 $aid = (string) (($user['agentId'] ?? ''));
 
                 if ($aid !== '' && !isset($agentMap[$aid]) && preg_match('/^[a-f0-9]{24}$/i', $aid) === 1) {
-                    $agentMap[$aid] = $this->db->findOne('agents', ['id' => MongoRepository::id($aid)], ['projection' => ['username' => 1]]);
+                    $agentMap[$aid] = $this->db->findOne('agents', ['id' => SqlRepository::id($aid)], ['projection' => ['username' => 1]]);
                 }
 
                 $selectionRows = $selectionRowsByBetId[$betId] ?? [];
@@ -9461,7 +9472,7 @@ final class AdminCoreController
                 $primaryMatch = null;
                 foreach ($matchIds as $mid) {
                     if (!isset($matchMap[$mid]) && preg_match('/^[a-f0-9]{24}$/i', $mid) === 1) {
-                        $matchMap[$mid] = $this->db->findOne('matches', ['id' => MongoRepository::id($mid)], ['projection' => ['homeTeam' => 1, 'awayTeam' => 1, 'sport' => 1, 'status' => 1]]);
+                        $matchMap[$mid] = $this->db->findOne('matches', ['id' => SqlRepository::id($mid)], ['projection' => ['homeTeam' => 1, 'awayTeam' => 1, 'sport' => 1, 'status' => 1]]);
                     }
                     if ($primaryMatch === null) {
                         $primaryMatch = $matchMap[$mid] ?? null;
@@ -9597,7 +9608,7 @@ final class AdminCoreController
                 return;
             }
 
-            $user = $this->db->findOne('users', ['id' => MongoRepository::id($userId), 'role' => 'user']);
+            $user = $this->db->findOne('users', ['id' => SqlRepository::id($userId), 'role' => 'user']);
             if ($user === null) {
                 Response::json(['message' => 'User not found'], 404);
                 return;
@@ -9608,7 +9619,7 @@ final class AdminCoreController
                 return;
             }
             if (in_array((string) ($actor['role'] ?? ''), ['master_agent', 'super_agent'], true)) {
-                $subAgents = $this->db->findMany('agents', ['createdBy' => MongoRepository::id((string) $actor['id']), 'createdByModel' => 'Agent'], ['projection' => ['id' => 1]]);
+                $subAgents = $this->db->findMany('agents', ['createdBy' => SqlRepository::id((string) $actor['id']), 'createdByModel' => 'Agent'], ['projection' => ['id' => 1]]);
                 $allowed = [(string) $actor['id']];
                 foreach ($subAgents as $sa) {
                     $allowed[] = (string) ($sa['id'] ?? '');
@@ -9619,7 +9630,7 @@ final class AdminCoreController
                 }
             }
 
-            $match = $this->db->findOne('matches', ['id' => MongoRepository::id($matchId)]);
+            $match = $this->db->findOne('matches', ['id' => SqlRepository::id($matchId)]);
             if ($match === null) {
                 Response::json(['message' => 'Match not found'], 404);
                 return;
@@ -9645,7 +9656,7 @@ final class AdminCoreController
 
             $this->db->beginTransaction();
             try {
-                $lockedUser = $this->db->findOneForUpdate('users', ['id' => MongoRepository::id($userId)]);
+                $lockedUser = $this->db->findOneForUpdate('users', ['id' => SqlRepository::id($userId)]);
                 if ($lockedUser === null) {
                     $this->db->rollback();
                     Response::json(['message' => 'User not found'], 404);
@@ -9662,12 +9673,12 @@ final class AdminCoreController
                 }
 
                 $potential = $betAmount * $betOdds;
-                $now = MongoRepository::nowUtc();
+                $now = SqlRepository::nowUtc();
                 $normalizedType = strtolower(str_replace('-', '_', trim($type)));
                 $marketType = in_array($normalizedType, ['straight', 'h2h', 'moneyline', 'ml'], true) ? 'h2h' : $normalizedType;
                 $doc = [
-                    'userId' => MongoRepository::id($userId),
-                    'matchId' => MongoRepository::id($matchId),
+                    'userId' => SqlRepository::id($userId),
+                    'matchId' => SqlRepository::id($matchId),
                     'amount' => $betAmount,
                     'odds' => $betOdds,
                     'type' => $type,
@@ -9675,7 +9686,7 @@ final class AdminCoreController
                     'potentialPayout' => $potential,
                     'status' => 'pending',
                     'selections' => [[
-                        'matchId' => MongoRepository::id($matchId),
+                        'matchId' => SqlRepository::id($matchId),
                         'selection' => $selection,
                         'odds' => $betOdds,
                         'marketType' => $marketType,
@@ -9689,23 +9700,23 @@ final class AdminCoreController
 
                 $newBalance = $balance - $betAmount;
                 $newPendingBalance = $pendingBalance + $betAmount;
-                $this->db->updateOne('users', ['id' => MongoRepository::id($userId)], [
+                $this->db->updateOne('users', ['id' => SqlRepository::id($userId)], [
                     'balance' => $newBalance,
                     'pendingBalance' => $newPendingBalance,
                     'updatedAt' => $now,
                 ]);
 
                 $id = $this->db->insertOne('bets', $doc);
-                $bet = $this->db->findOne('bets', ['id' => MongoRepository::id($id)]) ?? array_merge($doc, ['id' => $id]);
+                $bet = $this->db->findOne('bets', ['id' => SqlRepository::id($id)]) ?? array_merge($doc, ['id' => $id]);
                 $this->db->insertOne('transactions', [
-                    'userId' => MongoRepository::id($userId),
+                    'userId' => SqlRepository::id($userId),
                     'amount' => $betAmount,
                     'type' => 'bet_placed_admin',
                     'status' => 'completed',
                     'balanceBefore' => $balance,
                     'balanceAfter' => $newBalance,
                     'referenceType' => 'Bet',
-                    'referenceId' => MongoRepository::id($id),
+                    'referenceId' => SqlRepository::id($id),
                     'reason' => 'BET_PLACED_ADMIN',
                     'description' => 'Admin/TicketWriter placed pending bet',
                     'createdBy' => (string) ($actor['id'] ?? ''),
@@ -9761,7 +9772,7 @@ final class AdminCoreController
 
             $this->db->beginTransaction();
             try {
-                $bet = $this->db->findOneForUpdate('bets', ['id' => MongoRepository::id($id)]);
+                $bet = $this->db->findOneForUpdate('bets', ['id' => SqlRepository::id($id)]);
                 if ($bet === null) {
                     $this->db->rollback();
                     Response::json(['message' => 'Bet not found'], 404);
@@ -9774,7 +9785,7 @@ final class AdminCoreController
                 }
 
                 $userId = (string) ($bet['userId'] ?? '');
-                $user = $userId !== '' ? $this->db->findOne('users', ['id' => MongoRepository::id($userId)], ['projection' => ['id' => 1, 'agentId' => 1, 'username' => 1, 'balance' => 1, 'pendingBalance' => 1]]) : null;
+                $user = $userId !== '' ? $this->db->findOne('users', ['id' => SqlRepository::id($userId)], ['projection' => ['id' => 1, 'agentId' => 1, 'username' => 1, 'balance' => 1, 'pendingBalance' => 1]]) : null;
                 if ($user === null) {
                     $this->db->rollback();
                     Response::json(['message' => 'User not found for this bet'], 404);
@@ -9786,7 +9797,7 @@ final class AdminCoreController
                     return;
                 }
                 if (in_array((string) ($actor['role'] ?? ''), ['master_agent', 'super_agent'], true)) {
-                    $subAgents = $this->db->findMany('agents', ['createdBy' => MongoRepository::id((string) $actor['id']), 'createdByModel' => 'Agent'], ['projection' => ['id' => 1]]);
+                    $subAgents = $this->db->findMany('agents', ['createdBy' => SqlRepository::id((string) $actor['id']), 'createdByModel' => 'Agent'], ['projection' => ['id' => 1]]);
                     $allowed = [(string) $actor['id']];
                     foreach ($subAgents as $sa) {
                         $allowed[] = (string) ($sa['id'] ?? '');
@@ -9798,14 +9809,14 @@ final class AdminCoreController
                     }
                 }
 
-                $existingDeleted = $this->db->findOne('deletedwagers', ['betId' => MongoRepository::id($id), 'status' => 'deleted']);
+                $existingDeleted = $this->db->findOne('deletedwagers', ['betId' => SqlRepository::id($id), 'status' => 'deleted']);
                 if ($existingDeleted !== null) {
                     $this->db->rollback();
                     Response::json(['message' => 'Bet deletion was already processed'], 409);
                     return;
                 }
 
-                $lockedUser = $this->db->findOneForUpdate('users', ['id' => MongoRepository::id($userId)]);
+                $lockedUser = $this->db->findOneForUpdate('users', ['id' => SqlRepository::id($userId)]);
                 if ($lockedUser === null) {
                     $this->db->rollback();
                     Response::json(['message' => 'User not found for this bet'], 404);
@@ -9817,9 +9828,9 @@ final class AdminCoreController
                 $pendingBefore = $this->num($lockedUser['pendingBalance'] ?? 0);
                 $balanceAfter = $balanceBefore + $stake;
                 $pendingAfter = max(0, $pendingBefore - $stake);
-                $now = MongoRepository::nowUtc();
+                $now = SqlRepository::nowUtc();
 
-                $this->db->updateOne('users', ['id' => MongoRepository::id($userId)], [
+                $this->db->updateOne('users', ['id' => SqlRepository::id($userId)], [
                     'balance' => $balanceAfter,
                     'pendingBalance' => $pendingAfter,
                     'updatedAt' => $now,
@@ -9828,13 +9839,13 @@ final class AdminCoreController
                 $sport = 'Unknown';
                 $matchId = (string) ($bet['matchId'] ?? '');
                 if ($matchId !== '' && preg_match('/^[a-f0-9]{24}$/i', $matchId) === 1) {
-                    $match = $this->db->findOne('matches', ['id' => MongoRepository::id($matchId)], ['projection' => ['sport' => 1]]);
+                    $match = $this->db->findOne('matches', ['id' => SqlRepository::id($matchId)], ['projection' => ['sport' => 1]]);
                     $sport = (string) ($match['sport'] ?? 'Unknown');
                 }
 
                 $this->db->insertOne('deletedwagers', [
-                    'userId' => MongoRepository::id($userId),
-                    'betId' => MongoRepository::id($id),
+                    'userId' => SqlRepository::id($userId),
+                    'betId' => SqlRepository::id($id),
                     'amount' => $stake,
                     'sport' => $sport,
                     'reason' => trim('Deleted by ' . (string) ($actor['role'] ?? '') . ' ' . (string) ($actor['username'] ?? '')),
@@ -9845,14 +9856,14 @@ final class AdminCoreController
                 ]);
 
                 $this->db->insertOne('transactions', [
-                    'userId' => MongoRepository::id($userId),
+                    'userId' => SqlRepository::id($userId),
                     'amount' => $stake,
                     'type' => 'bet_void_admin',
                     'status' => 'completed',
                     'balanceBefore' => $balanceBefore,
                     'balanceAfter' => $balanceAfter,
                     'referenceType' => 'Bet',
-                    'referenceId' => MongoRepository::id($id),
+                    'referenceId' => SqlRepository::id($id),
                     'reason' => 'BET_VOID_ADMIN',
                     'description' => 'Admin/TicketWriter voided pending bet',
                     'createdBy' => (string) ($actor['id'] ?? ''),
@@ -9862,15 +9873,15 @@ final class AdminCoreController
                     'updatedAt' => $now,
                 ]);
 
-                $selectionRows = $this->db->findMany('betselections', ['betId' => MongoRepository::id($id)], ['projection' => ['id' => 1]]);
+                $selectionRows = $this->db->findMany('betselections', ['betId' => SqlRepository::id($id)], ['projection' => ['id' => 1]]);
                 foreach ($selectionRows as $row) {
                     $selectionId = (string) ($row['id'] ?? '');
                     if ($selectionId !== '') {
-                        $this->db->deleteOne('betselections', ['id' => MongoRepository::id($selectionId)]);
+                        $this->db->deleteOne('betselections', ['id' => SqlRepository::id($selectionId)]);
                     }
                 }
 
-                $this->db->deleteOne('bets', ['id' => MongoRepository::id($id)]);
+                $this->db->deleteOne('bets', ['id' => SqlRepository::id($id)]);
                 $this->db->commit();
                 Response::json(['message' => 'Bet deleted successfully', 'id' => $id]);
             } catch (Throwable $txe) {
@@ -9904,7 +9915,7 @@ final class AdminCoreController
                 $oids = [];
                 foreach ($scopedAgentIds as $aid) {
                     if (preg_match('/^[a-f0-9]{24}$/i', $aid) === 1) {
-                        $oids[] = MongoRepository::id($aid);
+                        $oids[] = SqlRepository::id($aid);
                     }
                 }
                 $agentQuery['id'] = ['$in' => $oids];
@@ -9920,7 +9931,7 @@ final class AdminCoreController
             foreach ($agents as $a) {
                 $aid = (string) ($a['id'] ?? '');
                 if ($aid !== '') {
-                    $agentIds[] = MongoRepository::id($aid);
+                    $agentIds[] = SqlRepository::id($aid);
                 }
             }
             $users = $this->db->findMany('users', ['role' => 'user', 'agentId' => ['$in' => $agentIds]], ['projection' => ['id' => 1, 'agentId' => 1, 'createdAt' => 1]]);
@@ -9933,7 +9944,7 @@ final class AdminCoreController
                 if ($uid === '' || $aid === '') {
                     continue;
                 }
-                $userIds[] = MongoRepository::id($uid);
+                $userIds[] = SqlRepository::id($uid);
                 $userToAgent[$uid] = $aid;
                 if (!isset($agentToCustomers[$aid])) {
                     $agentToCustomers[$aid] = [];
@@ -9943,12 +9954,12 @@ final class AdminCoreController
 
             $periodQuery = ['userId' => ['$in' => $userIds]];
             if ($startDate !== null) {
-                $periodQuery['createdAt'] = ['$gte' => MongoRepository::utcFromMillis($startDate->getTimestamp() * 1000)];
+                $periodQuery['createdAt'] = ['$gte' => SqlRepository::utcFromMillis($startDate->getTimestamp() * 1000)];
             }
             $periodBets = count($userIds) > 0 ? $this->db->findMany('bets', $periodQuery, ['projection' => ['userId' => 1, 'amount' => 1, 'potentialPayout' => 1, 'status' => 1, 'createdAt' => 1]]) : [];
             $activeWindowBets = count($userIds) > 0 ? $this->db->findMany('bets', [
                 'userId' => ['$in' => $userIds],
-                'createdAt' => ['$gte' => MongoRepository::utcFromMillis($activeWindowStart->getTimestamp() * 1000)],
+                'createdAt' => ['$gte' => SqlRepository::utcFromMillis($activeWindowStart->getTimestamp() * 1000)],
             ], ['projection' => ['userId' => 1]]) : [];
 
             $activeCountByUser = [];
@@ -10076,29 +10087,29 @@ final class AdminCoreController
             $startDate = $this->getStartDateFromPeriod($period);
             $activeWindowStart = (new DateTimeImmutable('now'))->modify('-7 days');
 
-            $agent = $this->db->findOne('agents', ['id' => MongoRepository::id($id)], ['projection' => ['username' => 1, 'status' => 1, 'createdAt' => 1]]);
+            $agent = $this->db->findOne('agents', ['id' => SqlRepository::id($id)], ['projection' => ['username' => 1, 'status' => 1, 'createdAt' => 1]]);
             if ($agent === null) {
                 Response::json(['message' => 'Agent not found'], 404);
                 return;
             }
 
-            $users = $this->db->findMany('users', ['role' => 'user', 'agentId' => MongoRepository::id($id)], ['projection' => ['id' => 1, 'username' => 1, 'createdAt' => 1]]);
+            $users = $this->db->findMany('users', ['role' => 'user', 'agentId' => SqlRepository::id($id)], ['projection' => ['id' => 1, 'username' => 1, 'createdAt' => 1]]);
             $userIds = [];
             $userMap = [];
             foreach ($users as $u) {
                 $uid = (string) ($u['id'] ?? '');
                 if ($uid !== '') {
-                    $userIds[] = MongoRepository::id($uid);
+                    $userIds[] = SqlRepository::id($uid);
                     $userMap[$uid] = $u;
                 }
             }
 
             $periodQuery = ['userId' => ['$in' => $userIds]];
             if ($startDate !== null) {
-                $periodQuery['createdAt'] = ['$gte' => MongoRepository::utcFromMillis($startDate->getTimestamp() * 1000)];
+                $periodQuery['createdAt'] = ['$gte' => SqlRepository::utcFromMillis($startDate->getTimestamp() * 1000)];
             }
             $periodBets = count($userIds) > 0 ? $this->db->findMany('bets', $periodQuery, ['projection' => ['userId' => 1, 'amount' => 1, 'potentialPayout' => 1, 'status' => 1, 'createdAt' => 1, 'type' => 1, 'selection' => 1]]) : [];
-            $activeWindowBets = count($userIds) > 0 ? $this->db->findMany('bets', ['userId' => ['$in' => $userIds], 'createdAt' => ['$gte' => MongoRepository::utcFromMillis($activeWindowStart->getTimestamp() * 1000)]], ['projection' => ['userId' => 1]]) : [];
+            $activeWindowBets = count($userIds) > 0 ? $this->db->findMany('bets', ['userId' => ['$in' => $userIds], 'createdAt' => ['$gte' => SqlRepository::utcFromMillis($activeWindowStart->getTimestamp() * 1000)]], ['projection' => ['userId' => 1]]) : [];
 
             $activeUserIds = [];
             foreach ($activeWindowBets as $b) {
@@ -10451,7 +10462,7 @@ final class AdminCoreController
         }
 
         $filter = [
-            'userId' => MongoRepository::id($userId),
+            'userId' => SqlRepository::id($userId),
             'type' => 'deposit',
             '$or' => [
                 ['status' => 'completed'],
@@ -10460,7 +10471,7 @@ final class AdminCoreController
             ],
         ];
         if ($excludeTransactionId !== null && preg_match('/^[a-f0-9]{24}$/i', $excludeTransactionId) === 1) {
-            $filter['id'] = ['$ne' => MongoRepository::id($excludeTransactionId)];
+            $filter['id'] = ['$ne' => SqlRepository::id($excludeTransactionId)];
         }
 
         return $this->db->countDocuments('transactions', $filter);
@@ -10496,28 +10507,28 @@ final class AdminCoreController
             return ['granted' => false, 'amount' => 0.0, 'referrerUserId' => $referrerUserId, 'transactionId' => null];
         }
 
-        $referrer = $this->db->findOneForUpdate('users', ['id' => MongoRepository::id($referrerUserId)]);
+        $referrer = $this->db->findOneForUpdate('users', ['id' => SqlRepository::id($referrerUserId)]);
         if (!$this->isPlayerLikeUserDocument($referrer) || (string) ($referrer['status'] ?? 'active') !== 'active') {
             return ['granted' => false, 'amount' => 0.0, 'referrerUserId' => $referrerUserId, 'transactionId' => null];
         }
 
-        $awardTimestamp = $now ?? MongoRepository::nowUtc();
+        $awardTimestamp = $now ?? SqlRepository::nowUtc();
         $referralBonusAmount = 200.0;
         $freeplayBefore = $this->num($referrer['freeplayBalance'] ?? 0);
         $freeplayAfter = round($freeplayBefore + $referralBonusAmount, 2);
 
-        $this->db->updateOne('users', ['id' => MongoRepository::id($referrerUserId)], [
+        $this->db->updateOne('users', ['id' => SqlRepository::id($referrerUserId)], [
             'freeplayBalance' => $freeplayAfter,
             'updatedAt' => $awardTimestamp,
         ]);
 
         $referralTransactionId = $this->db->insertOne('transactions', [
-            'userId' => MongoRepository::id($referrerUserId),
+            'userId' => SqlRepository::id($referrerUserId),
             'agentId' => isset($referrer['agentId']) && preg_match('/^[a-f0-9]{24}$/i', (string) $referrer['agentId']) === 1
-                ? MongoRepository::id((string) $referrer['agentId'])
+                ? SqlRepository::id((string) $referrer['agentId'])
                 : null,
             'adminId' => isset($actor['id']) && preg_match('/^[a-f0-9]{24}$/i', (string) $actor['id']) === 1
-                ? MongoRepository::id((string) $actor['id'])
+                ? SqlRepository::id((string) $actor['id'])
                 : null,
             'amount' => $referralBonusAmount,
             'type' => 'fp_deposit',
@@ -10526,7 +10537,7 @@ final class AdminCoreController
             'balanceBefore' => $freeplayBefore,
             'balanceAfter' => $freeplayAfter,
             'referenceType' => 'ReferralBonus',
-            'referenceId' => MongoRepository::id($depositTransactionId),
+            'referenceId' => SqlRepository::id($depositTransactionId),
             'reason' => 'REFERRAL_FREEPLAY_BONUS',
             'description' => 'Referral bonus from ' . (string) ($referredUser['username'] ?? 'user') . ' first deposit',
             'metadata' => [
@@ -10541,7 +10552,7 @@ final class AdminCoreController
             'updatedAt' => $awardTimestamp,
         ]);
 
-        $this->db->updateOne('users', ['id' => MongoRepository::id($referredUserId)], [
+        $this->db->updateOne('users', ['id' => SqlRepository::id($referredUserId)], [
             'referralBonusGranted' => true,
             'referralBonusGrantedAt' => $awardTimestamp,
             'referralQualifiedDepositAt' => $awardTimestamp,
@@ -10690,7 +10701,7 @@ final class AdminCoreController
         $agentMap = [];
         if (count($agentIds) > 0) {
             $agentDocs = $this->db->findMany('agents', [
-                'id' => ['$in' => array_map(static fn (string $id): string => MongoRepository::id($id), array_keys($agentIds))],
+                'id' => ['$in' => array_map(static fn (string $id): string => SqlRepository::id($id), array_keys($agentIds))],
             ], ['projection' => ['id' => 1, 'username' => 1]]);
             foreach ($agentDocs as $agentDoc) {
                 $agentDocId = (string) ($agentDoc['id'] ?? '');
@@ -10972,7 +10983,7 @@ final class AdminCoreController
             return null;
         }
         if ($role === 'agent') {
-            $players = $this->db->findMany('users', ['agentId' => MongoRepository::id($selfId)], ['projection' => ['id' => 1]]);
+            $players = $this->db->findMany('users', ['agentId' => SqlRepository::id($selfId)], ['projection' => ['id' => 1]]);
             $ids = [$selfId];
             foreach ($players as $p) {
                 $ids[] = (string) ($p['id'] ?? '');
@@ -10980,7 +10991,7 @@ final class AdminCoreController
             return array_values(array_filter($ids));
         }
         if ($role === 'master_agent' || $role === 'super_agent') {
-            $subAgents = $this->db->findMany('agents', ['createdBy' => MongoRepository::id($selfId), 'createdByModel' => 'Agent'], ['projection' => ['id' => 1]]);
+            $subAgents = $this->db->findMany('agents', ['createdBy' => SqlRepository::id($selfId), 'createdByModel' => 'Agent'], ['projection' => ['id' => 1]]);
             $agentIds = [$selfId];
             foreach ($subAgents as $a) {
                 $agentIds[] = (string) ($a['id'] ?? '');
@@ -10988,7 +10999,7 @@ final class AdminCoreController
             $agentOids = [];
             foreach ($agentIds as $aid) {
                 if ($aid !== '' && preg_match('/^[a-f0-9]{24}$/i', $aid) === 1) {
-                    $agentOids[] = MongoRepository::id($aid);
+                    $agentOids[] = SqlRepository::id($aid);
                 }
             }
             $players = count($agentOids) > 0
@@ -11015,11 +11026,11 @@ final class AdminCoreController
             }
             $model = (string) ($log['userModel'] ?? 'User');
             if ($model === 'Admin') {
-                $adminIds[] = MongoRepository::id($ownerId);
+                $adminIds[] = SqlRepository::id($ownerId);
             } elseif ($model === 'Agent') {
-                $agentIds[] = MongoRepository::id($ownerId);
+                $agentIds[] = SqlRepository::id($ownerId);
             } else {
-                $userIds[] = MongoRepository::id($ownerId);
+                $userIds[] = SqlRepository::id($ownerId);
             }
         }
 
@@ -11060,7 +11071,7 @@ final class AdminCoreController
             return [(string) ($actor['id'] ?? '')];
         }
         if ($role === 'master_agent' || $role === 'super_agent') {
-            $subAgents = $this->db->findMany('agents', ['createdBy' => MongoRepository::id((string) ($actor['id'] ?? '')), 'createdByModel' => 'Agent'], ['projection' => ['id' => 1]]);
+            $subAgents = $this->db->findMany('agents', ['createdBy' => SqlRepository::id((string) ($actor['id'] ?? '')), 'createdByModel' => 'Agent'], ['projection' => ['id' => 1]]);
             $ids = [(string) ($actor['id'] ?? '')];
             foreach ($subAgents as $a) {
                 $ids[] = (string) ($a['id'] ?? '');
@@ -11178,7 +11189,7 @@ final class AdminCoreController
             }
             $visited[$currentId] = true;
 
-            $doc = $this->db->findOne($collection, ['id' => MongoRepository::id($currentId)]);
+            $doc = $this->db->findOne($collection, ['id' => SqlRepository::id($currentId)]);
             if ($doc === null) {
                 break;
             }
@@ -11203,7 +11214,7 @@ final class AdminCoreController
 
             // If created by Admin, look up admin record for its agentPercent if any
             if ($parentModel === 'Admin') {
-                $adminDoc = $this->db->findOne('admins', ['id' => MongoRepository::id($parentId)]);
+                $adminDoc = $this->db->findOne('admins', ['id' => SqlRepository::id($parentId)]);
                 if ($adminDoc !== null) {
                     // If this admin is FIDA (readonly), substitute HOUSE as the root
                     $adminName = strtolower(trim((string) ($adminDoc['username'] ?? '')));
@@ -11346,7 +11357,7 @@ final class AdminCoreController
 
             // Direct child agents (downlines)
             $childAgents = $this->db->findMany('agents', [
-                'createdBy'      => MongoRepository::id($agentId),
+                'createdBy'      => SqlRepository::id($agentId),
                 'createdByModel' => 'Agent',
             ], ['sort' => ['username' => 1]]);
 
@@ -11594,7 +11605,7 @@ final class AdminCoreController
         $nodes = [];
 
         $subAgents = $this->db->findMany('agents', [
-            'createdBy' => MongoRepository::id($parentId),
+            'createdBy' => SqlRepository::id($parentId),
             'createdByModel' => $parentModel,
         ], ['sort' => ['username' => 1]]);
 
@@ -11603,13 +11614,13 @@ final class AdminCoreController
         }
 
         $playerQuery = [
-            'createdBy' => MongoRepository::id($parentId),
+            'createdBy' => SqlRepository::id($parentId),
             'createdByModel' => $parentModel,
         ];
         if ($parentModel === 'Agent') {
             // Agent trees should always show players assigned to that agent, regardless of who created them.
             $playerQuery = [
-                'agentId' => MongoRepository::id($parentId),
+                'agentId' => SqlRepository::id($parentId),
                 'role' => 'user',
             ];
         }
@@ -11643,7 +11654,7 @@ final class AdminCoreController
             return null;
         }
         if ($parentModel === 'Agent') {
-            $parent = $this->db->findOne('agents', ['id' => MongoRepository::id($parentId)], ['projection' => ['agentPercent' => 1]]);
+            $parent = $this->db->findOne('agents', ['id' => SqlRepository::id($parentId)], ['projection' => ['agentPercent' => 1]]);
             if ($parent !== null && isset($parent['agentPercent'])) {
                 return (float) $parent['agentPercent'];
             }
@@ -11696,7 +11707,7 @@ final class AdminCoreController
         }
 
         // Sync only the commission fields that changed
-        $syncUpdates = ['updatedAt' => MongoRepository::nowUtc()];
+        $syncUpdates = ['updatedAt' => SqlRepository::nowUtc()];
         foreach ($commissionFields as $field) {
             if (array_key_exists($field, $changedFields)) {
                 $syncUpdates[$field] = $changedFields[$field];
@@ -11705,11 +11716,11 @@ final class AdminCoreController
 
         $linkedId = (string) ($linked['id'] ?? '');
         if ($linkedId !== '' && preg_match('/^[a-f0-9]{24}$/i', $linkedId) === 1) {
-            $this->db->updateOne('agents', ['id' => MongoRepository::id($linkedId)], $syncUpdates);
+            $this->db->updateOne('agents', ['id' => SqlRepository::id($linkedId)], $syncUpdates);
             // If the linked agent is a master_agent, sync the master_agents collection too
             $linkedRole = strtolower(trim((string) ($linked['role'] ?? '')));
             if ($linkedRole === 'master_agent') {
-                $updatedLinked = $this->db->findOne('agents', ['id' => MongoRepository::id($linkedId)]);
+                $updatedLinked = $this->db->findOne('agents', ['id' => SqlRepository::id($linkedId)]);
                 if ($updatedLinked !== null) {
                     $this->syncMasterAgentCollection($updatedLinked);
                 }
@@ -11725,7 +11736,7 @@ final class AdminCoreController
         }
 
         $payload = [
-            'agentId' => MongoRepository::id($id),
+            'agentId' => SqlRepository::id($id),
             'username' => strtoupper((string) ($agent['username'] ?? '')),
             'fullName' => (string) ($agent['fullName'] ?? ''),
             'phoneNumber' => (string) ($agent['phoneNumber'] ?? ''),
@@ -11737,20 +11748,20 @@ final class AdminCoreController
             'defaultCreditLimit' => $this->num($agent['defaultCreditLimit'] ?? 0),
             'defaultSettleLimit' => $this->num($agent['defaultSettleLimit'] ?? 0),
             'createdBy' => isset($agent['createdBy']) && preg_match('/^[a-f0-9]{24}$/i', (string) $agent['createdBy']) === 1
-                ? MongoRepository::id((string) $agent['createdBy'])
+                ? SqlRepository::id((string) $agent['createdBy'])
                 : null,
             'createdByModel' => (string) ($agent['createdByModel'] ?? ''),
             'referredByUserId' => isset($agent['referredByUserId']) && preg_match('/^[a-f0-9]{24}$/i', (string) $agent['referredByUserId']) === 1
-                ? MongoRepository::id((string) $agent['referredByUserId'])
+                ? SqlRepository::id((string) $agent['referredByUserId'])
                 : null,
-            'syncedAt' => MongoRepository::nowUtc(),
+            'syncedAt' => SqlRepository::nowUtc(),
         ];
 
         $this->db->updateOneUpsert(
             'master_agents',
-            ['agentId' => MongoRepository::id($id)],
+            ['agentId' => SqlRepository::id($id)],
             $payload,
-            ['createdAt' => MongoRepository::nowUtc()]
+            ['createdAt' => SqlRepository::nowUtc()]
         );
     }
 
@@ -11790,7 +11801,7 @@ final class AdminCoreController
         }
 
         $collection = $this->collectionByRole($role);
-        $actor = $this->db->findOne($collection, ['id' => MongoRepository::id($id)]);
+        $actor = $this->db->findOne($collection, ['id' => SqlRepository::id($id)]);
         if ($actor === null) {
             Response::json(['message' => 'Not authorized, user not found'], 403);
             return null;
@@ -11826,7 +11837,7 @@ final class AdminCoreController
         foreach ($bets as $bet) {
             $betId = (string) ($bet['id'] ?? '');
             if ($betId !== '' && preg_match('/^[a-f0-9]{24}$/i', $betId) === 1) {
-                $betIds[] = MongoRepository::id($betId);
+                $betIds[] = SqlRepository::id($betId);
             }
         }
 

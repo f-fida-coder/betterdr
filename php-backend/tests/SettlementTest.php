@@ -20,8 +20,8 @@ if (!class_exists('ApiException')) {
     }
 }
 
-if (!class_exists('MongoRepository')) {
-    class MongoRepository
+if (!class_exists('SqlRepository')) {
+    class SqlRepository
     {
         public static function nowUtc(): string { return date('c'); }
         public static function id(string $id): string { return $id; }

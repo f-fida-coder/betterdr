@@ -5,7 +5,7 @@ declare(strict_types=1);
 
 final class ContentController
 {
-    private MongoRepository $db;
+    private SqlRepository $db;
     private string $jwtSecret;
 
     private const DEFAULT_TUTORIALS = [
@@ -74,7 +74,7 @@ final class ContentController
         ],
     ];
 
-    public function __construct(MongoRepository $db, string $jwtSecret)
+    public function __construct(SqlRepository $db, string $jwtSecret)
     {
         $this->db = $db;
         $this->jwtSecret = $jwtSecret;
@@ -133,8 +133,8 @@ final class ContentController
 
         foreach (self::DEFAULT_TUTORIALS as $item) {
             $this->db->insertOne('manualsections', array_merge($item, [
-                'createdAt' => MongoRepository::nowUtc(),
-                'updatedAt' => MongoRepository::nowUtc(),
+                'createdAt' => SqlRepository::nowUtc(),
+                'updatedAt' => SqlRepository::nowUtc(),
             ]));
         }
     }
@@ -147,8 +147,8 @@ final class ContentController
 
         foreach (self::DEFAULT_FAQS as $item) {
             $this->db->insertOne('faqs', array_merge($item, [
-                'createdAt' => MongoRepository::nowUtc(),
-                'updatedAt' => MongoRepository::nowUtc(),
+                'createdAt' => SqlRepository::nowUtc(),
+                'updatedAt' => SqlRepository::nowUtc(),
             ]));
         }
     }
@@ -177,7 +177,7 @@ final class ContentController
         }
 
         $collection = $this->collectionByRole($role);
-        $actor = $this->db->findOne($collection, ['id' => MongoRepository::id($id)]);
+        $actor = $this->db->findOne($collection, ['id' => SqlRepository::id($id)]);
         if ($actor === null) {
             Response::json(['message' => 'Not authorized, user not found'], 403);
             return null;

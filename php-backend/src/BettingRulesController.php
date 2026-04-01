@@ -5,10 +5,10 @@ declare(strict_types=1);
 
 final class BettingRulesController
 {
-    private MongoRepository $db;
+    private SqlRepository $db;
     private string $jwtSecret;
 
-    public function __construct(MongoRepository $db, string $jwtSecret)
+    public function __construct(SqlRepository $db, string $jwtSecret)
     {
         $this->db = $db;
         $this->jwtSecret = $jwtSecret;
@@ -133,16 +133,16 @@ final class BettingRulesController
                 return;
             }
 
-            $this->db->updateOne('betmoderules', ['id' => MongoRepository::id((string) $rule['id'])], [
+            $this->db->updateOne('betmoderules', ['id' => SqlRepository::id((string) $rule['id'])], [
                 'minLegs' => $minLegs,
                 'maxLegs' => $maxLegs,
                 'teaserPointOptions' => $teaserPointOptions,
                 'payoutProfile' => $payoutProfile,
                 'isActive' => $isActive,
-                'updatedAt' => MongoRepository::nowUtc(),
+                'updatedAt' => SqlRepository::nowUtc(),
             ]);
 
-            $updated = $this->db->findOne('betmoderules', ['id' => MongoRepository::id((string) $rule['id'])]);
+            $updated = $this->db->findOne('betmoderules', ['id' => SqlRepository::id((string) $rule['id'])]);
             Response::json([
                 'message' => 'Bet mode rule updated',
                 'rule' => $updated,
@@ -161,7 +161,7 @@ final class BettingRulesController
                 continue;
             }
 
-            $now = MongoRepository::nowUtc();
+            $now = SqlRepository::nowUtc();
             $this->db->updateOneUpsert(
                 'betmoderules',
                 ['mode' => $rule['mode']],
@@ -195,7 +195,7 @@ final class BettingRulesController
         }
 
         $collection = $this->collectionByRole($role);
-        $actor = $this->db->findOne($collection, ['id' => MongoRepository::id($id)]);
+        $actor = $this->db->findOne($collection, ['id' => SqlRepository::id($id)]);
         if ($actor === null) {
             Response::json(['message' => 'Not authorized, user not found'], 403);
             return null;

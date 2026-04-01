@@ -5,10 +5,10 @@ declare(strict_types=1);
 
 final class BetsController
 {
-    private MongoRepository $db;
+    private SqlRepository $db;
     private string $jwtSecret;
 
-    public function __construct(MongoRepository $db, string $jwtSecret)
+    public function __construct(SqlRepository $db, string $jwtSecret)
     {
         $this->db = $db;
         $this->jwtSecret = $jwtSecret;
@@ -166,9 +166,9 @@ final class BetsController
                 }, $validatedSelections),
             ]);
 
-            $userId = MongoRepository::id((string) $user['id']);
+            $userId = SqlRepository::id((string) $user['id']);
             $requestDocId = SportsbookBetSupport::idempotencyDocumentId('sportsbook_bet', $userId, $requestId);
-            $requestNow = MongoRepository::nowUtc();
+            $requestNow = SqlRepository::nowUtc();
             $requestDoc = [
                 'id' => $requestDocId,
                 'userId' => $userId,
@@ -180,7 +180,7 @@ final class BetsController
             ];
 
             if (!$this->db->insertOneIfAbsent('betrequests', $requestDoc)) {
-                $existingRequest = $this->db->findOne('betrequests', ['id' => MongoRepository::id($requestDocId)]);
+                $existingRequest = $this->db->findOne('betrequests', ['id' => SqlRepository::id($requestDocId)]);
                 if ($existingRequest === null) {
                     throw new ApiException('Unable to lock request id', 409, ['code' => 'REQUEST_CONFLICT']);
                 }
@@ -209,11 +209,11 @@ final class BetsController
                     ]);
                 }
 
-                $this->db->updateOne('betrequests', ['id' => MongoRepository::id($requestDocId)], [
+                $this->db->updateOne('betrequests', ['id' => SqlRepository::id($requestDocId)], [
                     'payloadHash' => $requestFingerprint,
                     'status' => 'processing',
                     'error' => null,
-                    'updatedAt' => MongoRepository::nowUtc(),
+                    'updatedAt' => SqlRepository::nowUtc(),
                 ]);
             }
             $requestDocOwned = true;
@@ -230,7 +230,7 @@ final class BetsController
 
             $this->db->beginTransaction();
             try {
-                $lockedUser = $this->db->findOneForUpdate('users', ['id' => MongoRepository::id((string) $user['id'])]);
+                $lockedUser = $this->db->findOneForUpdate('users', ['id' => SqlRepository::id((string) $user['id'])]);
                 if ($lockedUser === null) {
                     $this->db->rollback();
                     throw new ApiException('User not found', 404);
@@ -249,10 +249,10 @@ final class BetsController
                         $fpExpiryTs = is_numeric($fpExpiry) ? (int) $fpExpiry : strtotime((string) $fpExpiry);
                         if ($fpExpiryTs !== false && $fpExpiryTs > 0 && $fpExpiryTs < time()) {
                             // Expired — zero out silently so the user sees $0 freeplay
-                            $this->db->updateOne('users', ['id' => MongoRepository::id((string) $lockedUser['id'])], [
+                            $this->db->updateOne('users', ['id' => SqlRepository::id((string) $lockedUser['id'])], [
                                 'freeplayBalance' => 0.0,
                                 'freeplayExpiresAt' => null,
-                                'updatedAt' => MongoRepository::nowUtc(),
+                                'updatedAt' => SqlRepository::nowUtc(),
                             ]);
                             $freeplayBalance = 0.0;
                         }
@@ -283,10 +283,10 @@ final class BetsController
                     $newPending  = $pending;           // real pending unchanged
                     $newFreeplay = $freeplayBalance - $totalRisk;
 
-                    $this->db->updateOne('users', ['id' => MongoRepository::id((string) $lockedUser['id'])], [
+                    $this->db->updateOne('users', ['id' => SqlRepository::id((string) $lockedUser['id'])], [
                         'freeplayBalance' => $newFreeplay,
                         'betCount'        => ((int) ($lockedUser['betCount'] ?? 0)) + 1,
-                        'updatedAt'       => MongoRepository::nowUtc(),
+                        'updatedAt'       => SqlRepository::nowUtc(),
                     ]);
                 } else {
                     // ── Real-balance path (existing logic) ─────────────────────────
@@ -309,18 +309,18 @@ final class BetsController
                     $newPending  = $pending + $totalRisk;
                     $newFreeplay = $freeplayBalance; // unchanged
 
-                    $this->db->updateOne('users', ['id' => MongoRepository::id((string) $lockedUser['id'])], [
+                    $this->db->updateOne('users', ['id' => SqlRepository::id((string) $lockedUser['id'])], [
                         'balance'        => $newBalance,
                         'pendingBalance' => $newPending,
                         'betCount'       => ((int) ($lockedUser['betCount'] ?? 0)) + 1,
                         'totalWagered'   => $this->num($lockedUser['totalWagered'] ?? 0) + $totalRisk,
-                        'updatedAt'      => MongoRepository::nowUtc(),
+                        'updatedAt'      => SqlRepository::nowUtc(),
                     ]);
                 }
 
                 $ipAddress = IpUtils::clientIp();
                 $userAgent = Http::header('user-agent');
-                $now = MongoRepository::nowUtc();
+                $now = SqlRepository::nowUtc();
 
                 $baseBetData = [
                     'userId' => $userId,
@@ -344,7 +344,7 @@ final class BetsController
                 $single = count($validatedSelections) === 1 ? $validatedSelections[0] : null;
                 $doc = array_merge($baseBetData, [
                     'selections' => $selectionDocs,
-                    'matchId' => $single ? MongoRepository::id((string) $single['matchId']) : null,
+                    'matchId' => $single ? SqlRepository::id((string) $single['matchId']) : null,
                     'selection' => $single ? $single['selection'] : 'MULTI',
                     'odds' => $single ? (float) $single['odds'] : $combinedOdds,
                     'marketType' => $single ? (string) ($single['marketType'] ?? '') : $type,
@@ -353,7 +353,7 @@ final class BetsController
                 ]);
                 $betId = $this->db->insertOne('bets', $doc);
                 $createdBetIds[] = $betId;
-                $createdBet = $this->db->findOne('bets', ['id' => MongoRepository::id($betId)]) ?? array_merge($doc, ['id' => $betId]);
+                $createdBet = $this->db->findOne('bets', ['id' => SqlRepository::id($betId)]) ?? array_merge($doc, ['id' => $betId]);
                 SportsbookBetSupport::upsertSelectionRowsForBet($this->db, $createdBet, $selectionDocs);
 
                 $this->db->insertOne('transactions', [
@@ -365,7 +365,7 @@ final class BetsController
                     'balanceBefore' => $useFreeplay ? $freeplayBalance : $balance,
                     'balanceAfter'  => $useFreeplay ? $newFreeplay  : $newBalance,
                     'referenceType' => 'Bet',
-                    'referenceId' => MongoRepository::id($createdBetIds[0]),
+                    'referenceId' => SqlRepository::id($createdBetIds[0]),
                     'reason' => $useFreeplay ? 'FP_BET_PLACED' : 'BET_PLACED',
                     'description' => strtoupper($type) . ($useFreeplay ? ' freeplay' : '') . ' bet placed',
                     'ipAddress' => $ipAddress,
@@ -386,32 +386,32 @@ final class BetsController
                 'pendingBalance' => $newPending,
             ]);
 
-            $this->db->updateOne('betrequests', ['id' => MongoRepository::id($requestDocId)], [
+            $this->db->updateOne('betrequests', ['id' => SqlRepository::id($requestDocId)], [
                 'status' => 'completed',
                 'betIds' => $createdBetIds,
                 'ticketId' => $ticketId,
                 'responseBalance' => $newBalance,
                 'responsePendingBalance' => $newPending,
-                'updatedAt' => MongoRepository::nowUtc(),
+                'updatedAt' => SqlRepository::nowUtc(),
             ]);
             $requestDocOwned = false;
 
             Response::json($responsePayload, 201);
         } catch (ApiException $e) {
             if ($requestDocOwned && $requestDocId !== '') {
-                $this->db->updateOne('betrequests', ['id' => MongoRepository::id($requestDocId)], [
+                $this->db->updateOne('betrequests', ['id' => SqlRepository::id($requestDocId)], [
                     'status' => 'failed',
                     'error' => $e->getMessage(),
-                    'updatedAt' => MongoRepository::nowUtc(),
+                    'updatedAt' => SqlRepository::nowUtc(),
                 ]);
             }
             Response::json(array_merge(['message' => $e->getMessage()], $e->payload()), $e->statusCode());
         } catch (Throwable $e) {
             if ($requestDocOwned && $requestDocId !== '') {
-                $this->db->updateOne('betrequests', ['id' => MongoRepository::id($requestDocId)], [
+                $this->db->updateOne('betrequests', ['id' => SqlRepository::id($requestDocId)], [
                     'status' => 'failed',
                     'error' => $e->getMessage(),
-                    'updatedAt' => MongoRepository::nowUtc(),
+                    'updatedAt' => SqlRepository::nowUtc(),
                 ]);
             }
             Response::json(['message' => $e->getMessage()], 400);
@@ -587,7 +587,7 @@ final class BetsController
         foreach ($selections as $sel) {
             $normalized = $sel;
             if (isset($normalized['matchId']) && is_string($normalized['matchId']) && preg_match('/^[a-f0-9]{24}$/i', $normalized['matchId']) === 1) {
-                $normalized['matchId'] = MongoRepository::id($normalized['matchId']);
+                $normalized['matchId'] = SqlRepository::id($normalized['matchId']);
             }
             $out[] = $normalized;
         }
@@ -606,7 +606,7 @@ final class BetsController
             $limit = isset($_GET['limit']) ? (int) $_GET['limit'] : 50;
             $limit = $limit > 0 ? $limit : 50;
 
-            $query = ['userId' => MongoRepository::id((string) $user['id'])];
+            $query = ['userId' => SqlRepository::id((string) $user['id'])];
             if ($status !== '' && $status !== 'all') {
                 $query['status'] = $status;
             }
@@ -624,7 +624,7 @@ final class BetsController
                 $formatted[] = $this->enrichBetDocument($bet);
             }
 
-            $casinoQuery = ['userId' => MongoRepository::id((string) $user['id'])];
+            $casinoQuery = ['userId' => SqlRepository::id((string) $user['id'])];
             $casinoBets = $this->db->findMany('casino_bets', $casinoQuery, [
                 'sort' => ['createdAt' => -1],
                 'limit' => $limit,
@@ -680,7 +680,7 @@ final class BetsController
             throw new ApiException('Match not found: ' . $matchId, 404);
         }
 
-        $match = $this->db->findOne('matches', ['id' => MongoRepository::id($matchId)]);
+        $match = $this->db->findOne('matches', ['id' => SqlRepository::id($matchId)]);
         if ($match === null) {
             throw new ApiException('Match not found: ' . $matchId, 404);
         }
@@ -801,7 +801,7 @@ final class BetsController
     private function selectionForInsert(array $selection): array
     {
         return [
-            'matchId' => MongoRepository::id((string) $selection['matchId']),
+            'matchId' => SqlRepository::id((string) $selection['matchId']),
             'selection' => $selection['selection'],
             'odds' => (float) $selection['odds'],
             'marketType' => $selection['marketType'] ?? '',
@@ -840,7 +840,7 @@ final class BetsController
             if (!is_string($betId) || preg_match('/^[a-f0-9]{24}$/i', $betId) !== 1) {
                 continue;
             }
-            $bet = $this->db->findOne('bets', ['id' => MongoRepository::id($betId)]);
+            $bet = $this->db->findOne('bets', ['id' => SqlRepository::id($betId)]);
             if ($bet !== null) {
                 $bets[] = $this->enrichBetDocument($bet);
             }
@@ -859,7 +859,7 @@ final class BetsController
 
         $matchId = (string) ($bet['matchId'] ?? '');
         if ($matchId !== '' && preg_match('/^[a-f0-9]{24}$/i', $matchId) === 1) {
-            $match = $this->db->findOne('matches', ['id' => MongoRepository::id($matchId)], [
+            $match = $this->db->findOne('matches', ['id' => SqlRepository::id($matchId)], [
                 'projection' => [
                     'homeTeam' => 1,
                     'awayTeam' => 1,
@@ -902,7 +902,7 @@ final class BetsController
         if ($rule === null) {
             return;
         }
-        $now = MongoRepository::nowUtc();
+        $now = SqlRepository::nowUtc();
         try {
             $this->db->updateOneUpsert(
                 'betmoderules',
@@ -972,7 +972,7 @@ final class BetsController
         }
 
         $collection = $this->collectionByRole($role);
-        $actor = $this->db->findOne($collection, ['id' => MongoRepository::id($id)]);
+        $actor = $this->db->findOne($collection, ['id' => SqlRepository::id($id)]);
         if ($actor === null) {
             Response::json(['message' => 'Not authorized, user not found'], 403);
             return null;
@@ -1034,7 +1034,7 @@ final class BetsController
             }
 
             $since = gmdate(DATE_ATOM, strtotime($interval));
-            $userId = MongoRepository::id((string) $user['id']);
+            $userId = SqlRepository::id((string) $user['id']);
             $bets = $this->db->findMany('bets', [
                 'userId' => $userId,
                 'createdAt' => ['$gte' => $since],

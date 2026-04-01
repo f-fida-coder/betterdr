@@ -5,7 +5,7 @@ class RateLimiter
     /**
      * Check if a request is allowed based on rate limiting rules
      *
-     * @param MongoRepository $db Database repository instance
+     * @param SqlRepository $db Database repository instance
      * @param string $ip IP address of the requester
      * @param string $endpoint Endpoint being accessed
      * @param int $maxAttempts Maximum number of attempts allowed in the window
@@ -13,7 +13,7 @@ class RateLimiter
      * @return bool True if request is allowed, false if rate limited
      */
     public static function checkLimit(
-        MongoRepository $db,
+        SqlRepository $db,
         string $ip,
         string $endpoint,
         int $maxAttempts,
@@ -26,7 +26,7 @@ class RateLimiter
             'endpoint' => $endpoint,
         ], ['limit' => 1]);
 
-        $now = MongoRepository::nowUtc();
+        $now = SqlRepository::nowUtc();
         $nowTimestamp = strtotime($now);
 
         if (!empty($entries)) {
@@ -64,14 +64,14 @@ class RateLimiter
     /**
      * Get the number of seconds remaining in the current rate limit window
      *
-     * @param MongoRepository $db Database repository instance
+     * @param SqlRepository $db Database repository instance
      * @param string $ip IP address of the requester
      * @param string $endpoint Endpoint being accessed
      * @param int $windowSeconds Time window in seconds
      * @return int Seconds remaining in the current window (0 if no active window)
      */
     public static function getRemainingSeconds(
-        MongoRepository $db,
+        SqlRepository $db,
         string $ip,
         string $endpoint,
         int $windowSeconds
@@ -88,7 +88,7 @@ class RateLimiter
         }
         
         $entry = $entries[0];
-        $now = MongoRepository::nowUtc();
+        $now = SqlRepository::nowUtc();
         $nowTimestamp = strtotime($now);
         $windowStartTimestamp = strtotime($entry['windowStart']);
         $windowEndTimestamp = $windowStartTimestamp + $windowSeconds;
@@ -104,7 +104,7 @@ class RateLimiter
      * Returns true if the request is blocked (caller should return early).
      */
     public static function enforce(
-        MongoRepository $db,
+        SqlRepository $db,
         string $endpoint,
         int $maxAttempts,
         int $windowSeconds

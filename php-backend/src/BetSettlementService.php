@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 final class BetSettlementService
 {
-    public static function manualWinnerEligibility(MongoRepository $db, string $matchId): array
+    public static function manualWinnerEligibility(SqlRepository $db, string $matchId): array
     {
         self::assertValidMatchId($matchId);
 
-        $match = $db->findOne('matches', ['id' => MongoRepository::id($matchId)]);
+        $match = $db->findOne('matches', ['id' => SqlRepository::id($matchId)]);
         if ($match === null) {
             throw new RuntimeException('Match not found');
         }
@@ -25,7 +25,7 @@ final class BetSettlementService
 
         self::backfillPendingSelectionsForMatch($db, $matchId);
         $pendingSelections = $db->findMany('betselections', [
-            'matchId' => MongoRepository::id($matchId),
+            'matchId' => SqlRepository::id($matchId),
             'status' => 'pending',
         ], [
             'projection' => ['marketType' => 1],
@@ -55,12 +55,12 @@ final class BetSettlementService
         ];
     }
 
-    public static function settleMatch(MongoRepository $db, string $matchId, ?string $manualWinner = null, string $settledBy = 'system'): array
+    public static function settleMatch(SqlRepository $db, string $matchId, ?string $manualWinner = null, string $settledBy = 'system'): array
     {
         try {
             self::assertValidMatchId($matchId);
 
-            $match = $db->findOne('matches', ['id' => MongoRepository::id($matchId)]);
+            $match = $db->findOne('matches', ['id' => SqlRepository::id($matchId)]);
             if ($match === null) {
                 throw new RuntimeException('Match not found');
             }
@@ -75,7 +75,7 @@ final class BetSettlementService
 
             self::backfillPendingSelectionsForMatch($db, $matchId);
             $pendingSelections = $db->findMany('betselections', [
-                'matchId' => MongoRepository::id($matchId),
+                'matchId' => SqlRepository::id($matchId),
                 'status' => 'pending',
             ], [
                 'projection' => ['betId' => 1],
@@ -111,7 +111,7 @@ final class BetSettlementService
                 try {
                     $db->beginTransaction();
 
-                    $bet = $db->findOneForUpdate('bets', ['id' => MongoRepository::id($betId)]);
+                    $bet = $db->findOneForUpdate('bets', ['id' => SqlRepository::id($betId)]);
                     if ($bet === null || (string) ($bet['status'] ?? '') !== 'pending') {
                         $db->rollback();
                         continue;
@@ -123,7 +123,7 @@ final class BetSettlementService
                         continue;
                     }
 
-                    $user = $db->findOneForUpdate('users', ['id' => MongoRepository::id($userId)]);
+                    $user = $db->findOneForUpdate('users', ['id' => SqlRepository::id($userId)]);
                     if ($user === null) {
                         $db->rollback();
                         continue;
@@ -132,7 +132,7 @@ final class BetSettlementService
                     $selectionRows = SportsbookBetSupport::ensureSelectionRowsForBet($db, $bet);
                     $updatedRows = [];
                     $selectionDirty = false;
-                    $now = MongoRepository::nowUtc();
+                    $now = SqlRepository::nowUtc();
 
                     foreach ($selectionRows as $row) {
                         if (!is_array($row)) {
@@ -154,7 +154,7 @@ final class BetSettlementService
                                 if ($resolvedStatus !== 'pending') {
                                     $row['settledAt'] = $now;
                                 }
-                                $db->updateOne('betselections', ['id' => MongoRepository::id((string) ($row['id'] ?? ''))], [
+                                $db->updateOne('betselections', ['id' => SqlRepository::id((string) ($row['id'] ?? ''))], [
                                     'status' => $resolvedStatus,
                                     'updatedAt' => $row['updatedAt'],
                                     'settledAt' => $row['settledAt'] ?? null,
@@ -182,7 +182,7 @@ final class BetSettlementService
                     $ticketPayout = round(self::num($evaluation['payout'] ?? 0));
 
                     if ($ticketStatus === 'pending') {
-                        $db->updateOne('bets', ['id' => MongoRepository::id($betId)], [
+                        $db->updateOne('bets', ['id' => SqlRepository::id($betId)], [
                             'selections' => $normalizedSelections,
                             'updatedAt' => $now,
                         ]);
@@ -202,7 +202,7 @@ final class BetSettlementService
                         ? $pendingBalance
                         : max(0.0, $pendingBalance - $riskAmount);
 
-                    $db->updateOne('bets', ['id' => MongoRepository::id($betId)], [
+                    $db->updateOne('bets', ['id' => SqlRepository::id($betId)], [
                         'selections'    => $normalizedSelections,
                         'status'        => $ticketStatus,
                         'result'        => $ticketStatus,
@@ -261,9 +261,9 @@ final class BetSettlementService
                         $results['lost']++;
                     }
 
-                    $db->updateOne('users', ['id' => MongoRepository::id($userId)], $userUpdate);
+                    $db->updateOne('users', ['id' => SqlRepository::id($userId)], $userUpdate);
                     $db->insertOne('transactions', [
-                        'userId'        => MongoRepository::id($userId),
+                        'userId'        => SqlRepository::id($userId),
                         'amount'        => $transactionAmount,
                         'type'          => $transactionType,
                         'status'        => 'completed',
@@ -271,7 +271,7 @@ final class BetSettlementService
                         'balanceBefore' => $balanceBefore,
                         'balanceAfter'  => $balanceAfter,
                         'referenceType' => 'Bet',
-                        'referenceId'   => MongoRepository::id($betId),
+                        'referenceId'   => SqlRepository::id($betId),
                         'reason'        => strtoupper($transactionType),
                         'description'   => $description,
                         'createdAt'     => $now,
@@ -297,7 +297,7 @@ final class BetSettlementService
     /**
      * @return array<string, mixed>
      */
-    public static function settlePendingMatches(MongoRepository $db, int $limit = 250, string $settledBy = 'system'): array
+    public static function settlePendingMatches(SqlRepository $db, int $limit = 250, string $settledBy = 'system'): array
     {
         $pendingSelections = $db->findMany('betselections', [
             'status' => 'pending',
@@ -328,7 +328,7 @@ final class BetSettlementService
 
         foreach (array_keys($matchIds) as $matchId) {
             try {
-                $match = $db->findOne('matches', ['id' => MongoRepository::id($matchId)]);
+                $match = $db->findOne('matches', ['id' => SqlRepository::id($matchId)]);
                 if ($match === null) {
                     continue;
                 }
@@ -363,13 +363,13 @@ final class BetSettlementService
         }
     }
 
-    private static function backfillPendingSelectionsForMatch(MongoRepository $db, string $matchId): void
+    private static function backfillPendingSelectionsForMatch(SqlRepository $db, string $matchId): void
     {
         $pendingBets = $db->findMany('bets', [
             'status' => 'pending',
             '$or' => [
-                ['matchId' => MongoRepository::id($matchId)],
-                ['selections.matchId' => MongoRepository::id($matchId)],
+                ['matchId' => SqlRepository::id($matchId)],
+                ['selections.matchId' => SqlRepository::id($matchId)],
             ],
         ], [
             'projection' => [
@@ -402,7 +402,7 @@ final class BetSettlementService
     /**
      * @return array<string, mixed>
      */
-    private static function getTeaserRule(MongoRepository $db): array
+    private static function getTeaserRule(SqlRepository $db): array
     {
         $rule = $db->findOne('betmoderules', ['mode' => 'teaser', 'isActive' => true]);
         if ($rule !== null) {

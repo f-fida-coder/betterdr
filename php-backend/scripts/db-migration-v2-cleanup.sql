@@ -42,7 +42,7 @@
 -- Phase 4: Create clean admin-friendly VIEWs for the most important tables
 --
 -- WHY GENERATED COLUMNS INSTEAD OF FULL TABLE REWRITE:
--- The entire backend (MongoRepository.php) reads/writes the `doc` JSON column.
+-- The entire backend (SqlRepository.php) reads/writes the `doc` JSON column.
 -- Rewriting the ORM is a separate project. Generated columns give us:
 --   ✓ Proper types (DECIMAL, DATETIME, TINYINT, VARCHAR)
 --   ✓ Indexable columns for fast queries
@@ -516,17 +516,17 @@ ALTER TABLE `feedbacks`
 
 
 -- ============================================================================
--- PHASE 3: UPDATE MongoRepository SQL OPTIMIZATION MAPPINGS
+-- PHASE 3: UPDATE SqlRepository SQL OPTIMIZATION MAPPINGS
 -- ============================================================================
 -- The following tables now have generated columns and should be added to
--- MongoRepository::supportsSqlReadOptimization() and sqlFieldSpec():
+-- SqlRepository::supportsSqlReadOptimization() and sqlFieldSpec():
 --   casino_bets (j_user_id, j_round_id, etc.)
 --   casinogames (j_slug, j_status, etc.)
 --   master_agents (j_agent_id, j_username, etc.)
 --   admin_audit_log (j_action, j_actor_id, etc.)
 --   rate_limits (j_ip, j_endpoint)
 --
--- This is a code change in MongoRepository.php, not SQL.
+-- This is a code change in SqlRepository.php, not SQL.
 -- See Phase 3 section in the companion migration guide.
 
 
@@ -826,6 +826,6 @@ SELECT
 -- - All core tables have proper typed columns alongside the JSON doc
 -- - All frequently queried fields are indexed
 -- - Admin can query vw_* views directly in phpMyAdmin
--- - Backend (MongoRepository) continues working unchanged
+-- - Backend (SqlRepository) continues working unchanged
 -- - Zero downtime, zero risk to existing functionality
 -- ============================================================================

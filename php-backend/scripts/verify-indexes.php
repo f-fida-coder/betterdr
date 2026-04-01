@@ -12,7 +12,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../src/Env.php';
-require_once __DIR__ . '/../src/MongoRepository.php';
+require_once __DIR__ . '/../src/SqlRepository.php';
 
 $projectRoot = dirname(__DIR__);
 $phpBackendDir = __DIR__ . '/..';
@@ -23,7 +23,7 @@ echo "Database Index Verification\n";
 echo "==============================================\n\n";
 
 try {
-    $db = new MongoRepository('mysql-native', (string) Env::get('MYSQL_DB', Env::get('DB_NAME', 'betterdr')));
+    $db = new SqlRepository('mysql-native', (string) Env::get('MYSQL_DB', Env::get('DB_NAME', 'betterdr')));
     echo "✅ Connected to database\n\n";
 } catch (Exception $e) {
     echo "❌ Error: Could not connect to database\n";

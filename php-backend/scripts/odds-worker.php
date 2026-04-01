@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../src/Env.php';
-require_once __DIR__ . '/../src/MongoRepository.php';
+require_once __DIR__ . '/../src/SqlRepository.php';
 require_once __DIR__ . '/../src/BetModeRules.php';
 require_once __DIR__ . '/../src/SportsMatchStatus.php';
 require_once __DIR__ . '/../src/SportsbookHealth.php';
@@ -39,7 +39,7 @@ if ($manualMode) {
     exit(0);
 }
 
-if (!MongoRepository::isAvailable()) {
+if (!SqlRepository::isAvailable()) {
     $logWorker('error', 'pdo_mysql extension is required for odds worker.');
     exit(1);
 }
@@ -59,7 +59,7 @@ while (true) {
     $started = microtime(true);
     $ts = gmdate(DATE_ATOM);
     try {
-        $repo = new MongoRepository($dbUri, $dbName);
+        $repo = new SqlRepository($dbUri, $dbName);
         $result = OddsSyncService::updateMatches($repo, 'worker');
         $logWorker('info', sprintf(
             "[%s] update ok created=%d updated=%d scoreOnly=%d settled=%d calls=%d failed=%d blocked=%s",

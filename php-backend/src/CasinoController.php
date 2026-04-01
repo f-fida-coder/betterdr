@@ -5,7 +5,7 @@ declare(strict_types=1);
 
 final class CasinoController
 {
-    private MongoRepository $db;
+    private SqlRepository $db;
     private string $jwtSecret;
 
     private const CASINO_CATEGORIES = ['lobby', 'table_games', 'slots', 'video_poker', 'specialty_games'];
@@ -305,7 +305,7 @@ final class CasinoController
         return false;
     }
 
-    public function __construct(MongoRepository $db, string $jwtSecret)
+    public function __construct(SqlRepository $db, string $jwtSecret)
     {
         $this->db = $db;
         $this->jwtSecret = $jwtSecret;
@@ -561,7 +561,7 @@ final class CasinoController
                 return;
             }
 
-            $game = $this->db->findOne('casinogames', ['id' => MongoRepository::id($id)]);
+            $game = $this->db->findOne('casinogames', ['id' => SqlRepository::id($id)]);
             if ($game === null) {
                 Response::json(['message' => 'Casino game not found'], 404);
                 return;
@@ -647,12 +647,12 @@ final class CasinoController
                 'supportsDemo' => (bool) ($body['supportsDemo'] ?? false),
                 'sortOrder' => $this->safeNumber($body['sortOrder'] ?? null, 100),
                 'metadata' => is_array($body['metadata'] ?? null) ? $body['metadata'] : new stdClass(),
-                'createdAt' => MongoRepository::nowUtc(),
-                'updatedAt' => MongoRepository::nowUtc(),
+                'createdAt' => SqlRepository::nowUtc(),
+                'updatedAt' => SqlRepository::nowUtc(),
             ];
 
             $id = $this->db->insertOne('casinogames', $doc);
-            $created = $this->db->findOne('casinogames', ['id' => MongoRepository::id($id)]);
+            $created = $this->db->findOne('casinogames', ['id' => SqlRepository::id($id)]);
             Response::json($this->toPublicGame($created ?? array_merge($doc, ['id' => $id])), 201);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error creating casino game'], 500);
@@ -671,7 +671,7 @@ final class CasinoController
                 return;
             }
 
-            $existing = $this->db->findOne('casinogames', ['id' => MongoRepository::id($id)]);
+            $existing = $this->db->findOne('casinogames', ['id' => SqlRepository::id($id)]);
             if ($existing === null) {
                 Response::json(['message' => 'Casino game not found'], 404);
                 return;
@@ -701,7 +701,7 @@ final class CasinoController
             if (array_key_exists('rtp', $body)) {
                 $updates['rtp'] = $body['rtp'] === null ? null : $this->safeNumber($body['rtp'], null);
             }
-            $updates['updatedAt'] = MongoRepository::nowUtc();
+            $updates['updatedAt'] = SqlRepository::nowUtc();
 
             if (isset($updates['slug']) && $updates['slug'] !== ($existing['slug'] ?? null)) {
                 $slugConflict = $this->db->findOne('casinogames', ['slug' => $updates['slug']]);
@@ -711,8 +711,8 @@ final class CasinoController
                 }
             }
 
-            $this->db->updateOne('casinogames', ['id' => MongoRepository::id($id)], $updates);
-            $updated = $this->db->findOne('casinogames', ['id' => MongoRepository::id($id)]);
+            $this->db->updateOne('casinogames', ['id' => SqlRepository::id($id)], $updates);
+            $updated = $this->db->findOne('casinogames', ['id' => SqlRepository::id($id)]);
             Response::json($this->toPublicGame($updated ?? array_merge($existing, $updates)));
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error updating casino game'], 500);
@@ -830,15 +830,15 @@ final class CasinoController
                     'supportsDemo' => (bool) ($game['supportsDemo'] ?? false),
                     'sortOrder' => $this->safeNumber($game['sortOrder'] ?? null, $idx + 1),
                     'metadata' => is_array($game['metadata'] ?? null) ? $game['metadata'] : new stdClass(),
-                    'updatedAt' => MongoRepository::nowUtc(),
+                    'updatedAt' => SqlRepository::nowUtc(),
                 ];
 
                 if ($existing === null) {
-                    $mapped['createdAt'] = MongoRepository::nowUtc();
+                    $mapped['createdAt'] = SqlRepository::nowUtc();
                     $this->db->insertOne('casinogames', $mapped);
                     $inserted++;
                 } else {
-                    $this->db->updateOne('casinogames', ['id' => MongoRepository::id((string) $existing['id'])], $mapped);
+                    $this->db->updateOne('casinogames', ['id' => SqlRepository::id((string) $existing['id'])], $mapped);
                     $matched++;
                     $modified++;
                 }
@@ -857,7 +857,7 @@ final class CasinoController
 
     private function ensureCasinoSeeded(): void
     {
-        $now = MongoRepository::nowUtc();
+        $now = SqlRepository::nowUtc();
         // One-time patch: fix stale imageUrl for 3card-poker if it has the old /game/ subpath
         $stale3cp = $this->db->findOne('casinogames', [
             'slug' => self::THREE_CARD_POKER_GAME_SLUG,
@@ -866,7 +866,7 @@ final class CasinoController
         if ($stale3cp !== null) {
             $this->db->updateOne(
                 'casinogames',
-                ['id' => MongoRepository::id((string) $stale3cp['id'])],
+                ['id' => SqlRepository::id((string) $stale3cp['id'])],
                 ['imageUrl' => '/games/3-card-poker/sprites/200x200.jpg', 'updatedAt' => $now]
             );
         }
@@ -890,7 +890,7 @@ final class CasinoController
             if (count($jurassicUpdates) > 1) {
                 $this->db->updateOne(
                     'casinogames',
-                    ['id' => MongoRepository::id((string) $jurassicGame['id'])],
+                    ['id' => SqlRepository::id((string) $jurassicGame['id'])],
                     $jurassicUpdates
                 );
             }
@@ -947,7 +947,7 @@ final class CasinoController
             }
             $this->db->updateOne(
                 'casinogames',
-                ['id' => MongoRepository::id((string) $existingRemoved['id'])],
+                ['id' => SqlRepository::id((string) $existingRemoved['id'])],
                 [
                     'status' => 'disabled',
                     'isFeatured' => false,
@@ -1082,7 +1082,7 @@ final class CasinoController
             $userId = (string) ($actor['id'] ?? '');
             $this->db->beginTransaction();
             try {
-                $lockedUser = $this->db->findOneForUpdate('users', ['id' => MongoRepository::id($userId)]);
+                $lockedUser = $this->db->findOneForUpdate('users', ['id' => SqlRepository::id($userId)]);
                 if ($lockedUser === null) {
                     $this->db->rollback();
                     Response::json(['message' => 'User not found'], 404);
@@ -1152,7 +1152,7 @@ final class CasinoController
                 $balanceAfter = round($balanceAfterDebit + $totalReturn);
                 $availableBalanceAfter = round(max(0, $balanceAfter - $pendingBalance));
 
-                $now = MongoRepository::nowUtc();
+                $now = SqlRepository::nowUtc();
                 $ipAddress = IpUtils::clientIp();
                 $userAgent = Http::header('user-agent') !== '' ? Http::header('user-agent') : null;
 
@@ -1200,14 +1200,14 @@ final class CasinoController
                 ];
                 $creditEntryId = $this->db->insertOne('transactions', $creditEntry);
 
-                $this->db->updateOne('users', ['id' => MongoRepository::id($userId)], [
+                $this->db->updateOne('users', ['id' => SqlRepository::id($userId)], [
                     'balance' => $balanceAfter,
                     'updatedAt' => $now,
                 ]);
 
                 $deckCodes = is_array($roundData['deckCodes'] ?? null) ? $roundData['deckCodes'] : [];
                 $deckHash = hash('sha256', implode(',', $deckCodes));
-                $serverDecisionAt = MongoRepository::nowUtc();
+                $serverDecisionAt = SqlRepository::nowUtc();
                 $latencyMs = max(0, (int) round((microtime(true) - $startedAt) * 1000));
                 $integrityHash = $this->buildIntegrityHash([
                     'roundId' => $roundId,
@@ -1387,7 +1387,7 @@ final class CasinoController
                 $balanceAfter = round($balanceAfterDebit + $totalReturn);
                 $availableBalanceAfter = round(max(0, $balanceAfter - $balanceSnapshot['pendingBalance']));
 
-                $now = MongoRepository::nowUtc();
+                $now = SqlRepository::nowUtc();
                 $ipAddress = IpUtils::clientIp();
                 $userAgent = Http::header('user-agent') !== '' ? Http::header('user-agent') : null;
 
@@ -1425,12 +1425,12 @@ final class CasinoController
                 );
                 $creditEntryId = $this->db->insertOne('transactions', $creditEntry);
 
-                $this->db->updateOne('users', ['id' => MongoRepository::id($userId)], [
+                $this->db->updateOne('users', ['id' => SqlRepository::id($userId)], [
                     'balance' => $balanceAfter,
                     'updatedAt' => $now,
                 ]);
 
-                $serverDecisionAt = MongoRepository::nowUtc();
+                $serverDecisionAt = SqlRepository::nowUtc();
                 $latencyMs = max(0, (int) round((microtime(true) - $startedAt) * 1000));
                 $integrityHash = $this->buildIntegrityHash([
                     'roundId' => $roundId,
@@ -1665,7 +1665,7 @@ final class CasinoController
                 }
 
                 $roundId = $this->deterministicRoundId(self::THREE_CARD_POKER_GAME_SLUG, $userId, $requestId);
-                $now = MongoRepository::nowUtc();
+                $now = SqlRepository::nowUtc();
                 $ipAddress = IpUtils::clientIp();
                 $userAgent = Http::header('user-agent') !== '' ? Http::header('user-agent') : null;
 
@@ -1707,12 +1707,12 @@ final class CasinoController
                 );
                 $creditEntryId = $this->db->insertOne('transactions', $creditEntry);
 
-                $this->db->updateOne('users', ['id' => MongoRepository::id($userId)], [
+                $this->db->updateOne('users', ['id' => SqlRepository::id($userId)], [
                     'balance' => $balanceAfter,
                     'updatedAt' => $now,
                 ]);
 
-                $serverDecisionAt = MongoRepository::nowUtc();
+                $serverDecisionAt = SqlRepository::nowUtc();
                 $latencyMs = max(0, (int) round((microtime(true) - $startedAt) * 1000));
                 $clientNetResult = $this->safeNumber($payload['netResult'] ?? null, null);
                 $clientTotalReturn = $this->safeNumber($payload['totalReturn'] ?? null, null);
@@ -2240,7 +2240,7 @@ final class CasinoController
                 }
 
                 $roundId = $this->deterministicRoundId(self::BLACKJACK_GAME_SLUG, $userId, $requestId);
-                $now = MongoRepository::nowUtc();
+                $now = SqlRepository::nowUtc();
                 $ipAddress = IpUtils::clientIp();
                 $userAgent = Http::header('user-agent') !== '' ? Http::header('user-agent') : null;
 
@@ -2282,12 +2282,12 @@ final class CasinoController
                 );
                 $creditEntryId = $this->db->insertOne('transactions', $creditEntry);
 
-                $this->db->updateOne('users', ['id' => MongoRepository::id($userId)], [
+                $this->db->updateOne('users', ['id' => SqlRepository::id($userId)], [
                     'balance' => $balanceAfter,
                     'updatedAt' => $now,
                 ]);
 
-                $serverDecisionAt = MongoRepository::nowUtc();
+                $serverDecisionAt = SqlRepository::nowUtc();
                 $latencyMs = max(0, (int) round((microtime(true) - $startedAt) * 1000));
                 $integrityHash = $this->buildIntegrityHash([
                     'roundId' => $roundId,
@@ -2523,7 +2523,7 @@ final class CasinoController
                 $availableBalanceAfter = round(max(0, $balanceAfter - $balanceSnapshot['pendingBalance']));
 
                 $roundId = $this->newRoundId();
-                $now = MongoRepository::nowUtc();
+                $now = SqlRepository::nowUtc();
                 $ipAddress = IpUtils::clientIp();
                 $userAgent = Http::header('user-agent') !== '' ? Http::header('user-agent') : null;
 
@@ -2575,13 +2575,13 @@ final class CasinoController
                     'activeBets' => $activeBetsAfter,
                     'updatedAt' => $now,
                 ];
-                $this->db->updateOne('users', ['id' => MongoRepository::id($userId)], [
+                $this->db->updateOne('users', ['id' => SqlRepository::id($userId)], [
                     'balance' => $balanceAfter,
                     'casinoCrapsState' => $nextUserState,
                     'updatedAt' => $now,
                 ]);
 
-                $serverDecisionAt = MongoRepository::nowUtc();
+                $serverDecisionAt = SqlRepository::nowUtc();
                 $latencyMs = max(0, (int) round((microtime(true) - $startedAt) * 1000));
                 $roundData = [
                     'dice' => $dice,
@@ -2857,7 +2857,7 @@ final class CasinoController
                 $roundData = is_array($settlement['roundData'] ?? null) ? $settlement['roundData'] : [];
                 $stateAfter = is_array($settlement['stateAfter'] ?? null) ? $settlement['stateAfter'] : ['freeSpinsRemaining' => 0];
 
-                $now = MongoRepository::nowUtc();
+                $now = SqlRepository::nowUtc();
                 $ipAddress = IpUtils::clientIp();
                 $userAgent = Http::header('user-agent') !== '' ? Http::header('user-agent') : null;
                 $balanceAfterDebit = round($balanceSnapshot['balanceBefore'] - $totalWager);
@@ -2910,13 +2910,13 @@ final class CasinoController
                 $stateAfter['lastRoundId'] = $roundId;
                 $stateAfter['lastSpinAt'] = $now;
 
-                $this->db->updateOne('users', ['id' => MongoRepository::id($userId)], [
+                $this->db->updateOne('users', ['id' => SqlRepository::id($userId)], [
                     'balance' => $balanceAfter,
                     'casinoArabianState' => $stateAfter,
                     'updatedAt' => $now,
                 ]);
 
-                $serverDecisionAt = MongoRepository::nowUtc();
+                $serverDecisionAt = SqlRepository::nowUtc();
                 $latencyMs = max(0, (int) round((microtime(true) - $startedAt) * 1000));
                 $integrityHash = $this->buildIntegrityHash([
                     'roundId' => $roundId,
@@ -3520,7 +3520,7 @@ final class CasinoController
                 $stateAfter = is_array($settlement['stateAfter'] ?? null) ? $settlement['stateAfter'] : [];
                 $progressiveStateAfter = is_array($settlement['progressiveStateAfter'] ?? null) ? $settlement['progressiveStateAfter'] : $progressiveStateBefore;
 
-                $now = MongoRepository::nowUtc();
+                $now = SqlRepository::nowUtc();
                 $ipAddress = IpUtils::clientIp();
                 $userAgent = Http::header('user-agent') !== '' ? Http::header('user-agent') : null;
                 $balanceAfterDebit = round($balanceSnapshot['balanceBefore'] - $totalWager);
@@ -3585,14 +3585,14 @@ final class CasinoController
                 );
                 $progressiveStateAfter['updatedAt'] = $now;
 
-                $this->db->updateOne('users', ['id' => MongoRepository::id($userId)], [
+                $this->db->updateOne('users', ['id' => SqlRepository::id($userId)], [
                     'balance' => $balanceAfter,
                     'casinoJurassicRunState' => $stateAfter,
                     'updatedAt' => $now,
                 ]);
                 $this->db->updateOne('casino_game_state', ['id' => self::JURASSIC_RUN_GAME_SLUG], $progressiveStateAfter);
 
-                $serverDecisionAt = MongoRepository::nowUtc();
+                $serverDecisionAt = SqlRepository::nowUtc();
                 $latencyMs = max(0, (int) round((microtime(true) - $startedAt) * 1000));
                 $integrityHash = $this->buildIntegrityHash([
                     'roundId' => $roundId,
@@ -3872,7 +3872,7 @@ final class CasinoController
     {
         $doc = $this->db->findOneForUpdate('casino_game_state', ['id' => self::JURASSIC_RUN_GAME_SLUG]);
         if ($doc === null) {
-            $now = MongoRepository::nowUtc();
+            $now = SqlRepository::nowUtc();
             $this->db->insertOne('casino_game_state', [
                 'id' => self::JURASSIC_RUN_GAME_SLUG,
                 'game' => self::JURASSIC_RUN_GAME_SLUG,
@@ -4508,7 +4508,7 @@ final class CasinoController
                 $balanceAfter = round($balanceAfterDebit + $totalReturn);
                 $availableBalanceAfter = round(max(0, $balanceAfter - $balanceSnapshot['pendingBalance']));
 
-                $now = MongoRepository::nowUtc();
+                $now = SqlRepository::nowUtc();
                 $roundId = $this->newRoundId();
                 $ipAddress = IpUtils::clientIp();
                 $userAgent = Http::header('user-agent') !== '' ? Http::header('user-agent') : null;
@@ -4553,7 +4553,7 @@ final class CasinoController
                     $creditEntryId = $this->db->insertOne('transactions', $creditEntry);
                 }
 
-                $this->db->updateOne('users', ['id' => MongoRepository::id($userId)], [
+                $this->db->updateOne('users', ['id' => SqlRepository::id($userId)], [
                     'balance' => $balanceAfter,
                     'casinoCrapsState' => [
                         'phase' => $nextPhase,
@@ -5398,7 +5398,7 @@ final class CasinoController
                 $roundId = $this->newRoundId();
                 $openingRound = $this->dealStudPokerOpeningRound();
                 $balanceAfterAnte = round($balanceSnapshot['balanceBefore'] - $anteBet);
-                $now = MongoRepository::nowUtc();
+                $now = SqlRepository::nowUtc();
                 $ipAddress = IpUtils::clientIp();
                 $userAgent = Http::header('user-agent') !== '' ? Http::header('user-agent') : null;
 
@@ -5419,7 +5419,7 @@ final class CasinoController
                 );
                 $debitEntryId = $this->db->insertOne('transactions', $debitEntry);
 
-                $this->db->updateOne('users', ['id' => MongoRepository::id($userId)], [
+                $this->db->updateOne('users', ['id' => SqlRepository::id($userId)], [
                     'balance' => $balanceAfterAnte,
                     'updatedAt' => $now,
                 ]);
@@ -5592,7 +5592,7 @@ final class CasinoController
 
                 $ledgerEntries = $this->findRoundLedgerEntries($roundId);
                 $additionalLedgerEntries = [];
-                $now = MongoRepository::nowUtc();
+                $now = SqlRepository::nowUtc();
                 $ipAddress = IpUtils::clientIp();
                 $userAgent = Http::header('user-agent') !== '' ? Http::header('user-agent') : null;
                 $balanceAfterWagers = $balanceSnapshot['balanceBefore'];
@@ -5660,12 +5660,12 @@ final class CasinoController
                     $additionalLedgerEntries[] = array_merge($creditEntry, ['id' => $creditEntryId]);
                 }
 
-                $this->db->updateOne('users', ['id' => MongoRepository::id($userId)], [
+                $this->db->updateOne('users', ['id' => SqlRepository::id($userId)], [
                     'balance' => $balanceAfter,
                     'updatedAt' => $now,
                 ]);
 
-                $serverDecisionAt = MongoRepository::nowUtc();
+                $serverDecisionAt = SqlRepository::nowUtc();
                 $integrityHash = $this->buildIntegrityHash([
                     'roundId' => $roundId,
                     'requestId' => $round['requestId'] ?? '',
@@ -5706,7 +5706,7 @@ final class CasinoController
                     'serverDecisionAt' => $serverDecisionAt,
                     'updatedAt' => $now,
                 ];
-                $this->db->updateOne('casino_bets', ['id' => MongoRepository::id($roundId)], $updates);
+                $this->db->updateOne('casino_bets', ['id' => SqlRepository::id($roundId)], $updates);
                 $this->updateStudPokerAuditRecord($roundId, [
                     'stage' => 'settled',
                     'playerAction' => $action,
@@ -6509,7 +6509,7 @@ final class CasinoController
 
     private function loadLockedCasinoUser(string $userId): array
     {
-        $lockedUser = $this->db->findOneForUpdate('users', ['id' => MongoRepository::id($userId)]);
+        $lockedUser = $this->db->findOneForUpdate('users', ['id' => SqlRepository::id($userId)]);
         if ($lockedUser === null) {
             throw new InvalidArgumentException('User not found');
         }
@@ -6561,7 +6561,7 @@ final class CasinoController
             ['lossMonthly', 'monthly', '-30 days'],
         ];
 
-        $userId = MongoRepository::id((string) ($user['id'] ?? ''));
+        $userId = SqlRepository::id((string) ($user['id'] ?? ''));
         if ($userId === '') {
             return null;
         }
@@ -7538,7 +7538,7 @@ final class CasinoController
                 'deckCount' => $resolvedDeckCount,
                 'clientResult' => trim((string) ($clientPayload['result'] ?? '')),
                 'clientNetResult' => $this->safeNumber($clientPayload['netResult'] ?? null, null),
-                'submittedAt' => MongoRepository::nowUtc(),
+                'submittedAt' => SqlRepository::nowUtc(),
             ],
             'rawMeta' => $rawMeta,
         ];
@@ -8594,13 +8594,13 @@ final class CasinoController
                 'roundId' => $roundId,
                 'game' => self::STUD_POKER_GAME_SLUG,
                 'rngVersion' => self::STUD_POKER_RNG_VERSION,
-                'createdAt' => MongoRepository::nowUtc(),
+                'createdAt' => SqlRepository::nowUtc(),
             ], $updates);
             $this->db->insertOne('casino_round_audit', $payload);
             return;
         }
 
-        $this->db->updateOne('casino_round_audit', ['id' => MongoRepository::id($roundId)], $updates);
+        $this->db->updateOne('casino_round_audit', ['id' => SqlRepository::id($roundId)], $updates);
     }
 
     private function findRoundLedgerEntries(string $roundId): array
@@ -9112,7 +9112,7 @@ final class CasinoController
         }
 
         $collection = $this->collectionByRole($role);
-        $actor = $this->db->findOne($collection, ['id' => MongoRepository::id($id)]);
+        $actor = $this->db->findOne($collection, ['id' => SqlRepository::id($id)]);
         if ($actor === null) {
             Response::json(['message' => 'Not authorized, user not found'], 403);
             return null;

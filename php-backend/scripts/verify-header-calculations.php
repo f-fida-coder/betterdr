@@ -14,7 +14,7 @@ declare(strict_types=1);
 
 // Bootstrap
 require_once __DIR__ . '/../src/Env.php';
-require_once __DIR__ . '/../src/MongoRepository.php';
+require_once __DIR__ . '/../src/SqlRepository.php';
 
 $projectRoot = dirname(__DIR__);
 $phpBackendDir = __DIR__ . '/..';
@@ -364,7 +364,7 @@ try {
     // Direct database check mode
     echo "Mode: DATABASE VALIDATION\n\n";
     
-    $db = new MongoRepository('mysql-native', (string) Env::get('MYSQL_DB', Env::get('DB_NAME', 'betterdr')));
+    $db = new SqlRepository('mysql-native', (string) Env::get('MYSQL_DB', Env::get('DB_NAME', 'betterdr')));
     
     // Check if we can connect
     $userCount = $db->countDocuments('users', []);
@@ -380,7 +380,7 @@ try {
     // Check for recent transactions
     $recentTx = $db->findMany('transactions', [
         'status' => 'completed',
-        'createdAt' => ['$gte' => MongoRepository::utcFromMillis((time() - 86400) * 1000)]
+        'createdAt' => ['$gte' => SqlRepository::utcFromMillis((time() - 86400) * 1000)]
     ], ['limit' => 5]);
     
     if (count($recentTx) > 0) {

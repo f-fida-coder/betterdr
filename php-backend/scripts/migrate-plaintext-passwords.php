@@ -3,7 +3,7 @@
 require_once __DIR__ . '/../src/Env.php';
 require_once __DIR__ . '/../src/Http.php';
 require_once __DIR__ . '/../src/IpUtils.php';
-require_once __DIR__ . '/../src/MongoRepository.php';
+require_once __DIR__ . '/../src/SqlRepository.php';
 
 // Load environment variables
 $projectRoot = dirname(__DIR__, 2);
@@ -12,7 +12,7 @@ Env::load($projectRoot, $phpBackendDir);
 
 // Connect to database
 $dbName = (string) Env::get('MYSQL_DB', Env::get('DB_NAME', 'sports_betting'));
-$repo = new MongoRepository('mysql-native', $dbName);
+$repo = new SqlRepository('mysql-native', $dbName);
 
 echo "Starting password migration...\n\n";
 

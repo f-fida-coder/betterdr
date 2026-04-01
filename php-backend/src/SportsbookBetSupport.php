@@ -157,7 +157,7 @@ final class SportsbookBetSupport
      * @param array<string, mixed> $bet
      * @return array<int, array<string, mixed>>
      */
-    public static function ensureSelectionRowsForBet(MongoRepository $db, array $bet): array
+    public static function ensureSelectionRowsForBet(SqlRepository $db, array $bet): array
     {
         $betId = (string) ($bet['id'] ?? '');
         if ($betId === '') {
@@ -185,7 +185,7 @@ final class SportsbookBetSupport
         $ticketId = (string) ($bet['ticketId'] ?? $betId);
         $userId = (string) ($bet['userId'] ?? '');
         $betType = (string) ($bet['type'] ?? 'straight');
-        $createdAt = (string) ($bet['createdAt'] ?? MongoRepository::nowUtc());
+        $createdAt = (string) ($bet['createdAt'] ?? SqlRepository::nowUtc());
         $updatedAt = (string) ($bet['updatedAt'] ?? $createdAt);
         foreach (array_values($legacySelections) as $index => $selection) {
             if (!is_array($selection)) {
@@ -201,7 +201,7 @@ final class SportsbookBetSupport
     /**
      * @param array<int, array<string, mixed>> $bets
      */
-    public static function backfillSelectionRowsForBets(MongoRepository $db, array $bets): void
+    public static function backfillSelectionRowsForBets(SqlRepository $db, array $bets): void
     {
         foreach ($bets as $bet) {
             if (is_array($bet)) {
@@ -214,7 +214,7 @@ final class SportsbookBetSupport
      * @param array<string, mixed> $bet
      * @param array<int, array<string, mixed>> $selectionDocs
      */
-    public static function upsertSelectionRowsForBet(MongoRepository $db, array $bet, array $selectionDocs): void
+    public static function upsertSelectionRowsForBet(SqlRepository $db, array $bet, array $selectionDocs): void
     {
         $betId = (string) ($bet['id'] ?? '');
         if ($betId === '') {
@@ -224,8 +224,8 @@ final class SportsbookBetSupport
         $ticketId = (string) ($bet['ticketId'] ?? $betId);
         $userId = (string) ($bet['userId'] ?? '');
         $betType = (string) ($bet['type'] ?? 'straight');
-        $createdAt = (string) ($bet['createdAt'] ?? MongoRepository::nowUtc());
-        $updatedAt = (string) ($bet['updatedAt'] ?? MongoRepository::nowUtc());
+        $createdAt = (string) ($bet['createdAt'] ?? SqlRepository::nowUtc());
+        $updatedAt = (string) ($bet['updatedAt'] ?? SqlRepository::nowUtc());
         foreach (array_values($selectionDocs) as $index => $selection) {
             if (!is_array($selection)) {
                 continue;
@@ -633,7 +633,7 @@ final class SportsbookBetSupport
             'userId' => $userId,
             'betType' => $betType,
             'selectionOrder' => $index,
-            'matchId' => MongoRepository::id((string) ($selection['matchId'] ?? '')),
+            'matchId' => SqlRepository::id((string) ($selection['matchId'] ?? '')),
             'selection' => (string) ($selection['selection'] ?? ''),
             'odds' => self::num($selection['odds'] ?? 0),
             'marketType' => (string) ($selection['marketType'] ?? ''),

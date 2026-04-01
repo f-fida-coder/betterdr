@@ -11,7 +11,7 @@ require_once __DIR__ . '/../src/ApiException.php';
 require_once __DIR__ . '/../src/SportsMatchStatus.php';
 require_once __DIR__ . '/../src/SportsbookHealth.php';
 require_once __DIR__ . '/../src/SportsbookBetSupport.php';
-require_once __DIR__ . '/../src/MongoRepository.php';
+require_once __DIR__ . '/../src/SqlRepository.php';
 require_once __DIR__ . '/../src/BetModeRules.php';
 require_once __DIR__ . '/../src/AgentSettlementRules.php';
 require_once __DIR__ . '/../src/BetSettlementService.php';
@@ -239,13 +239,13 @@ if ($dbName === '') {
     $dbName = 'sports_betting';
 }
 
-$authNativeEnabled = MongoRepository::isAvailable();
+$authNativeEnabled = SqlRepository::isAvailable();
 
 if ($uriPath === '/api/_php/health') {
     $sportsbookHealth = null;
     if ($authNativeEnabled) {
         try {
-            $repo = new MongoRepository($dbUri, $dbName);
+            $repo = new SqlRepository($dbUri, $dbName);
             $sportsbookHealth = SportsbookHealth::sportsbookSnapshot($repo);
         } catch (Throwable $e) {
             $sportsbookHealth = ['error' => $e->getMessage()];
@@ -288,7 +288,7 @@ if (
 ) {
     if ($authNativeEnabled) {
         try {
-            $repo = new MongoRepository($dbUri, $dbName);
+            $repo = new SqlRepository($dbUri, $dbName);
             $jwtSecret = (string) Env::get('JWT_SECRET', '');
 
             // Fail-fast: refuse to start with a missing or weak JWT_SECRET.

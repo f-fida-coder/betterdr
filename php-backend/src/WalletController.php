@@ -5,10 +5,10 @@ declare(strict_types=1);
 
 final class WalletController
 {
-    private MongoRepository $db;
+    private SqlRepository $db;
     private string $jwtSecret;
 
-    public function __construct(MongoRepository $db, string $jwtSecret)
+    public function __construct(SqlRepository $db, string $jwtSecret)
     {
         $this->db = $db;
         $this->jwtSecret = $jwtSecret;
@@ -48,7 +48,7 @@ final class WalletController
                 return;
             }
 
-            $user = $this->db->findOne('users', ['id' => MongoRepository::id((string) $actor['id'])]);
+            $user = $this->db->findOne('users', ['id' => SqlRepository::id((string) $actor['id'])]);
             if ($user === null) {
                 Response::json(['message' => 'User not found'], 404);
                 return;
@@ -93,7 +93,7 @@ final class WalletController
             $type = isset($_GET['type']) ? strtolower(trim((string) $_GET['type'])) : '';
             $status = isset($_GET['status']) ? strtolower(trim((string) $_GET['status'])) : '';
 
-            $query = ['userId' => MongoRepository::id((string) $actor['id'])];
+            $query = ['userId' => SqlRepository::id((string) $actor['id'])];
             if ($type !== '') {
                 $query['type'] = $type;
             }
@@ -158,9 +158,9 @@ final class WalletController
                 return;
             }
 
-            $now = MongoRepository::nowUtc();
+            $now = SqlRepository::nowUtc();
             $doc = [
-                'userId' => MongoRepository::id((string) $actor['id']),
+                'userId' => SqlRepository::id((string) $actor['id']),
                 'agentId' => $this->toOptionalId($actor['agentId'] ?? null),
                 'amount' => $amount,
                 'type' => 'deposit',
@@ -198,7 +198,7 @@ final class WalletController
             $amount = $this->parseAmount($body['amount'] ?? 0);
             $method = strtolower(trim((string) ($body['method'] ?? 'manual')));
 
-            $user = $this->db->findOne('users', ['id' => MongoRepository::id((string) $actor['id'])]);
+            $user = $this->db->findOne('users', ['id' => SqlRepository::id((string) $actor['id'])]);
             if ($user === null) {
                 Response::json(['message' => 'User not found'], 404);
                 return;
@@ -215,9 +215,9 @@ final class WalletController
                 return;
             }
 
-            $now = MongoRepository::nowUtc();
+            $now = SqlRepository::nowUtc();
             $doc = [
-                'userId' => MongoRepository::id((string) $actor['id']),
+                'userId' => SqlRepository::id((string) $actor['id']),
                 'agentId' => $this->toOptionalId($actor['agentId'] ?? null),
                 'amount' => $amount,
                 'type' => 'withdrawal',
@@ -268,7 +268,7 @@ final class WalletController
         }
 
         $collection = $this->collectionByRole($role);
-        $actor = $this->db->findOne($collection, ['id' => MongoRepository::id($id)]);
+        $actor = $this->db->findOne($collection, ['id' => SqlRepository::id($id)]);
         if ($actor === null) {
             Response::json(['message' => 'Not authorized, user not found'], 403);
             return null;
@@ -298,14 +298,14 @@ final class WalletController
             $ownerModel = IpUtils::ownerModelForRole((string) ($actor['role'] ?? 'user'));
             $this->db->updateOneUpsert('iplogs', $this->ownerFilter($actor, $ip), [
                 'userAgent' => Http::header('user-agent') !== '' ? Http::header('user-agent') : null,
-                'lastActive' => MongoRepository::nowUtc(),
+                'lastActive' => SqlRepository::nowUtc(),
                 'userModel' => $ownerModel,
-                'updatedAt' => MongoRepository::nowUtc(),
+                'updatedAt' => SqlRepository::nowUtc(),
             ], [
                 'country' => 'Unknown',
                 'city' => 'Unknown',
                 'status' => 'active',
-                'createdAt' => MongoRepository::nowUtc(),
+                'createdAt' => SqlRepository::nowUtc(),
             ]);
         }
 
@@ -317,7 +317,7 @@ final class WalletController
         $ownerModel = IpUtils::ownerModelForRole((string) ($actor['role'] ?? 'user'));
 
         return [
-            'userId' => MongoRepository::id((string) $actor['id']),
+            'userId' => SqlRepository::id((string) $actor['id']),
             'ip' => $ip,
             '$or' => [['userModel' => $ownerModel], ['userModel' => ['$exists' => false]]],
         ];
@@ -348,7 +348,7 @@ final class WalletController
         if (preg_match('/^[a-f0-9]{24}$/i', $value) !== 1) {
             return null;
         }
-        return MongoRepository::id($value);
+        return SqlRepository::id($value);
     }
 
     private function num(mixed $value): float
@@ -385,7 +385,7 @@ final class WalletController
             ['depositMonthly', 'monthly', '-30 days'],
         ];
 
-        $userId = MongoRepository::id((string) ($user['id'] ?? ''));
+        $userId = SqlRepository::id((string) ($user['id'] ?? ''));
         foreach ($checks as [$key, $label, $interval]) {
             $limit = isset($limits[$key]) && is_numeric($limits[$key]) ? (float) $limits[$key] : 0.0;
             if ($limit <= 0) {
@@ -404,7 +404,7 @@ final class WalletController
 
     private function computeRemainingLimits(array $user, array $limits): array
     {
-        $userId = MongoRepository::id((string) ($user['id'] ?? ''));
+        $userId = SqlRepository::id((string) ($user['id'] ?? ''));
         $remaining = [
             'depositDaily' => null,
             'depositWeekly' => null,

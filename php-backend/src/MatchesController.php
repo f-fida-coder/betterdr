@@ -11,10 +11,10 @@ final class MatchesController
     private const DEFAULT_PUBLIC_REFRESH_COOLDOWN_SECONDS = 120;
     private const DEFAULT_PUBLIC_REFRESH_LOCK_SECONDS = 30;
 
-    private MongoRepository $db;
+    private SqlRepository $db;
     private string $jwtSecret;
 
-    public function __construct(MongoRepository $db, string $jwtSecret)
+    public function __construct(SqlRepository $db, string $jwtSecret)
     {
         $this->db = $db;
         $this->jwtSecret = $jwtSecret;
@@ -109,7 +109,7 @@ final class MatchesController
     private function getMatchById(string $id): void
     {
         try {
-            $match = $this->db->findOne('matches', ['id' => MongoRepository::id($id)]);
+            $match = $this->db->findOne('matches', ['id' => SqlRepository::id($id)]);
             if ($match === null) {
                 Response::json(['message' => 'Match not found'], 404);
                 return;
@@ -200,7 +200,7 @@ final class MatchesController
             return null;
         }
 
-        $admin = $this->db->findOne('admins', ['id' => MongoRepository::id($id)]);
+        $admin = $this->db->findOne('admins', ['id' => SqlRepository::id($id)]);
         if ($admin === null) {
             Response::json(['message' => 'Not authorized, user not found'], 403);
             return null;
@@ -290,7 +290,7 @@ final class MatchesController
                 return $meta;
             }
 
-            $attemptedAt = MongoRepository::nowUtc();
+            $attemptedAt = SqlRepository::nowUtc();
             $this->writePublicRefreshState($state, [
                 'lastRefreshAttemptAt' => $attemptedAt,
                 'lastRefreshStatus' => 'running',
@@ -307,7 +307,7 @@ final class MatchesController
 
             try {
                 OddsSyncService::updateMatches($this->db, 'public_matches');
-                $finishedAt = MongoRepository::nowUtc();
+                $finishedAt = SqlRepository::nowUtc();
                 $postSnapshot = $this->refreshSnapshotMeta($cacheTtl);
 
                 $this->writePublicRefreshState($state, [
@@ -330,7 +330,7 @@ final class MatchesController
                 $meta['lastSuccessAt'] = $postSnapshot['lastSuccessAt'];
                 return $meta;
             } catch (Throwable $e) {
-                $finishedAt = MongoRepository::nowUtc();
+                $finishedAt = SqlRepository::nowUtc();
                 $this->writePublicRefreshState($state, [
                     'lastRefreshAttemptAt' => $attemptedAt,
                     'lastRefreshFinishedAt' => $finishedAt,
@@ -367,7 +367,7 @@ final class MatchesController
             return $existing;
         }
 
-        $createdAt = MongoRepository::nowUtc();
+        $createdAt = SqlRepository::nowUtc();
         $this->db->insertOneIfAbsent('sportsbookcache', [
             'id' => self::PUBLIC_CACHE_DOC_ID,
             'lastRefreshAttemptAt' => null,
@@ -394,7 +394,7 @@ final class MatchesController
         $createdAt = (string) ($state['createdAt'] ?? '');
         $doc = array_merge($state, $changes, [
             'id' => self::PUBLIC_CACHE_DOC_ID,
-            'createdAt' => $createdAt !== '' ? $createdAt : MongoRepository::nowUtc(),
+            'createdAt' => $createdAt !== '' ? $createdAt : SqlRepository::nowUtc(),
         ]);
         $this->db->insertOne('sportsbookcache', $doc);
     }
@@ -491,7 +491,7 @@ final class MatchesController
         $maxRuntime = 55;
         $pollSeconds = 2;
         $startedAt = time();
-        $lastSeen = MongoRepository::nowUtc();
+        $lastSeen = SqlRepository::nowUtc();
 
         echo ": stream-open\n\n";
         @ob_flush();
@@ -515,7 +515,7 @@ final class MatchesController
                 // Keep stream alive even if one poll fails.
             }
 
-            $lastSeen = MongoRepository::nowUtc();
+            $lastSeen = SqlRepository::nowUtc();
             echo ": ping\n\n";
             @ob_flush();
             @flush();

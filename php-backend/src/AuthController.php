@@ -5,10 +5,10 @@ declare(strict_types=1);
 
 final class AuthController
 {
-    private MongoRepository $db;
+    private SqlRepository $db;
     private string $jwtSecret;
 
-    public function __construct(MongoRepository $db, string $jwtSecret)
+    public function __construct(SqlRepository $db, string $jwtSecret)
     {
         $this->db = $db;
         $this->jwtSecret = $jwtSecret;
@@ -106,13 +106,13 @@ final class AuthController
 
             $validAgentId = null;
             if ($agentId !== '' && preg_match('/^[a-f0-9]{24}$/i', $agentId) === 1) {
-                $agent = $this->db->findOne('agents', ['id' => MongoRepository::id($agentId)]);
+                $agent = $this->db->findOne('agents', ['id' => SqlRepository::id($agentId)]);
                 if ($agent !== null) {
-                    $validAgentId = MongoRepository::id($agentId);
+                    $validAgentId = SqlRepository::id($agentId);
                 }
             }
 
-            $now = MongoRepository::nowUtc();
+            $now = SqlRepository::nowUtc();
             $passwordFields = $this->passwordFields($password);
             $insert = [
                 'username' => $username,
@@ -138,7 +138,7 @@ final class AuthController
             ];
 
             $userId = $this->db->insertOne('users', $insert);
-            $user = $this->db->findOne('users', ['id' => MongoRepository::id($userId)]);
+            $user = $this->db->findOne('users', ['id' => SqlRepository::id($userId)]);
             if ($user === null) {
                 Response::json(['message' => 'Server error'], 500);
                 return;
@@ -427,7 +427,7 @@ final class AuthController
             }
 
             $collection = $this->collectionByRole($role);
-            $user = $this->db->findOne($collection, ['id' => MongoRepository::id($id)]);
+            $user = $this->db->findOne($collection, ['id' => SqlRepository::id($id)]);
             if ($user === null) {
                 Response::json(['message' => 'User not found'], 401);
                 return;
@@ -504,7 +504,7 @@ final class AuthController
         }
 
         $collection = $this->collectionByRole($role);
-        $user = $this->db->findOne($collection, ['id' => MongoRepository::id($id)]);
+        $user = $this->db->findOne($collection, ['id' => SqlRepository::id($id)]);
         if ($user === null) {
             Response::json(['message' => 'Not authorized, user not found'], 403);
             return null;
@@ -542,7 +542,7 @@ final class AuthController
 
             $body = Http::jsonBody();
             $updates = [
-                'updatedAt' => MongoRepository::nowUtc(),
+                'updatedAt' => SqlRepository::nowUtc(),
             ];
             $dashboardLayout = $body['dashboardLayout'] ?? null;
             if (is_string($dashboardLayout) && $dashboardLayout !== '') {
@@ -565,7 +565,7 @@ final class AuthController
 
             if (count($updates) > 1) {
                 $collection = $this->collectionByRole((string) ($user['role'] ?? 'user'));
-                $this->db->updateOne($collection, ['id' => MongoRepository::id((string) $user['id'])], $updates);
+                $this->db->updateOne($collection, ['id' => SqlRepository::id((string) $user['id'])], $updates);
             }
 
             Response::json([
@@ -607,7 +607,7 @@ final class AuthController
         }
 
         $collection = $this->collectionByRole($role);
-        $user = $this->db->findOne($collection, ['id' => MongoRepository::id($id)]);
+        $user = $this->db->findOne($collection, ['id' => SqlRepository::id($id)]);
         if ($user === null) {
             Response::json(['message' => 'Not authorized, user not found'], 403);
             return null;
@@ -655,13 +655,13 @@ final class AuthController
             $ownerModel = IpUtils::ownerModelForRole((string) ($user['role'] ?? 'user'));
             $this->db->updateOneUpsert('iplogs', $this->ownerFilter($user, $ip), [
                 'userAgent' => Http::header('user-agent') !== '' ? Http::header('user-agent') : null,
-                'lastActive' => MongoRepository::nowUtc(),
+                'lastActive' => SqlRepository::nowUtc(),
                 'userModel' => $ownerModel,
             ], [
                 'country' => 'Unknown',
                 'city' => 'Unknown',
                 'status' => 'active',
-                'createdAt' => MongoRepository::nowUtc(),
+                'createdAt' => SqlRepository::nowUtc(),
             ]);
         }
 
@@ -820,7 +820,7 @@ final class AuthController
                 'ip' => $ip,
                 'status' => ['$in' => ['active', 'whitelisted']],
                 '$nor' => [[
-                    'userId' => MongoRepository::id((string) $user['id']),
+                    'userId' => SqlRepository::id((string) $user['id']),
                     '$or' => [['userModel' => $ownerModel], ['userModel' => ['$exists' => false]]],
                 ]],
             ]);
@@ -830,14 +830,14 @@ final class AuthController
                     'userModel' => $ownerModel,
                     'status' => 'blocked',
                     'blockReason' => 'DUPLICATE_IP',
-                    'blockedAt' => MongoRepository::nowUtc(),
+                    'blockedAt' => SqlRepository::nowUtc(),
                     'blockedBy' => null,
                     'blockedByModel' => null,
-                    'updatedAt' => MongoRepository::nowUtc(),
+                    'updatedAt' => SqlRepository::nowUtc(),
                 ], [
                     'country' => 'Unknown',
                     'city' => 'Unknown',
-                    'createdAt' => MongoRepository::nowUtc(),
+                    'createdAt' => SqlRepository::nowUtc(),
                 ]);
 
                 return ['allowed' => false, 'message' => 'Security Alert: IP linked to another account.'];
@@ -857,14 +857,14 @@ final class AuthController
 
         $this->db->updateOneUpsert('iplogs', $this->ownerFilter($user, $ip), [
             'userAgent' => Http::header('user-agent') !== '' ? Http::header('user-agent') : null,
-            'lastActive' => MongoRepository::nowUtc(),
+            'lastActive' => SqlRepository::nowUtc(),
             'userModel' => $ownerModel,
-            'updatedAt' => MongoRepository::nowUtc(),
+            'updatedAt' => SqlRepository::nowUtc(),
         ], [
             'country' => 'Unknown',
             'city' => 'Unknown',
             'status' => 'active',
-            'createdAt' => MongoRepository::nowUtc(),
+            'createdAt' => SqlRepository::nowUtc(),
         ]);
     }
 
@@ -897,7 +897,7 @@ final class AuthController
         $ownerModel = IpUtils::ownerModelForRole((string) ($user['role'] ?? 'user'));
 
         return [
-            'userId' => MongoRepository::id((string) $user['id']),
+            'userId' => SqlRepository::id((string) $user['id']),
             'ip' => $ip,
             '$or' => [['userModel' => $ownerModel], ['userModel' => ['$exists' => false]]],
         ];
@@ -953,10 +953,10 @@ final class AuthController
             }
 
             $collection = $this->collectionByRole((string) ($user['role'] ?? 'user'));
-            $this->db->updateOne($collection, ['id' => MongoRepository::id((string) $user['id'])], [
+            $this->db->updateOne($collection, ['id' => SqlRepository::id((string) $user['id'])], [
                 'gamblingLimits' => $newLimits,
                 'realityCheckIntervalMinutes' => isset($body['realityCheckIntervalMinutes']) && is_numeric($body['realityCheckIntervalMinutes']) ? (int) $body['realityCheckIntervalMinutes'] : ($user['realityCheckIntervalMinutes'] ?? 60),
-                'updatedAt' => MongoRepository::nowUtc(),
+                'updatedAt' => SqlRepository::nowUtc(),
             ]);
 
             Response::json(['message' => 'Gambling limits updated successfully', 'gamblingLimits' => $newLimits]);
@@ -990,9 +990,9 @@ final class AuthController
 
             $until = gmdate(DATE_ATOM, strtotime($durations[$duration]));
             $collection = $this->collectionByRole((string) ($user['role'] ?? 'user'));
-            $this->db->updateOne($collection, ['id' => MongoRepository::id((string) $user['id'])], [
+            $this->db->updateOne($collection, ['id' => SqlRepository::id((string) $user['id'])], [
                 'selfExcludedUntil' => $until,
-                'updatedAt' => MongoRepository::nowUtc(),
+                'updatedAt' => SqlRepository::nowUtc(),
             ]);
 
             Response::json(['message' => 'Self-exclusion activated until ' . $until, 'selfExcludedUntil' => $until]);
@@ -1026,9 +1026,9 @@ final class AuthController
 
             $until = gmdate(DATE_ATOM, strtotime($durations[$duration]));
             $collection = $this->collectionByRole((string) ($user['role'] ?? 'user'));
-            $this->db->updateOne($collection, ['id' => MongoRepository::id((string) $user['id'])], [
+            $this->db->updateOne($collection, ['id' => SqlRepository::id((string) $user['id'])], [
                 'coolingOffUntil' => $until,
-                'updatedAt' => MongoRepository::nowUtc(),
+                'updatedAt' => SqlRepository::nowUtc(),
             ]);
 
             Response::json(['message' => 'Cooling-off period activated until ' . $until, 'coolingOffUntil' => $until]);
@@ -1134,9 +1134,9 @@ final class AuthController
                 return;
             }
 
-            $this->db->updateOne($collection, ['id' => MongoRepository::id($id)], [
+            $this->db->updateOne($collection, ['id' => SqlRepository::id($id)], [
                 'passwordCaseInsensitiveHash' => $hash,
-                'updatedAt' => MongoRepository::nowUtc(),
+                'updatedAt' => SqlRepository::nowUtc(),
             ]);
         } catch (Throwable $e) {
             // Never block a successful login due to hash-upgrade persistence failures.
@@ -1156,9 +1156,9 @@ final class AuthController
                 return;
             }
 
-            $this->db->updateOne($collection, ['id' => MongoRepository::id($id)], [
+            $this->db->updateOne($collection, ['id' => SqlRepository::id($id)], [
                 'password' => $hash,
-                'updatedAt' => MongoRepository::nowUtc(),
+                'updatedAt' => SqlRepository::nowUtc(),
             ]);
         } catch (Throwable $e) {
             // Never block a successful login due to hash-upgrade persistence failures.

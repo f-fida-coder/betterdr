@@ -8,12 +8,12 @@
  * Safe to run multiple times — skips already-migrated records.
  */
 
-require_once __DIR__ . '/src/MongoRepository.php';
+require_once __DIR__ . '/src/SqlRepository.php';
 
-use App\MongoRepository;
+use App\SqlRepository;
 
-$db = new MongoRepository();
-$now = MongoRepository::nowUtc();
+$db = new SqlRepository();
+$now = SqlRepository::nowUtc();
 
 // 1. Find FIDA and HOUSE admin records
 $admins = $db->findMany('admins', []);
@@ -64,8 +64,8 @@ if (count($fidaAgents) === 0) {
         $agentId = (string) ($agent['id'] ?? '');
         $agentUsername = $agent['username'] ?? '?';
 
-        $db->updateOne('agents', ['id' => MongoRepository::id($agentId)], [
-            'createdBy' => MongoRepository::id($houseId),
+        $db->updateOne('agents', ['id' => SqlRepository::id($agentId)], [
+            'createdBy' => SqlRepository::id($houseId),
             'updatedAt' => $now,
         ]);
 
@@ -94,7 +94,7 @@ if (!isset($house['balance'])) {
 
 if (count($houseUpdates) > 0) {
     $houseUpdates['updatedAt'] = $now;
-    $db->updateOne('admins', ['id' => MongoRepository::id($houseId)], $houseUpdates);
+    $db->updateOne('admins', ['id' => SqlRepository::id($houseId)], $houseUpdates);
     echo "\nHOUSE admin updated: " . implode(', ', array_keys($houseUpdates)) . "\n";
 }
 
@@ -105,7 +105,7 @@ if (($fida['adminType'] ?? '') !== 'readonly') {
 }
 if (count($fidaUpdates) > 0) {
     $fidaUpdates['updatedAt'] = $now;
-    $db->updateOne('admins', ['id' => MongoRepository::id($fidaId)], $fidaUpdates);
+    $db->updateOne('admins', ['id' => SqlRepository::id($fidaId)], $fidaUpdates);
     echo "FIDA admin marked as readonly (adminType: 'readonly')\n";
 }
 

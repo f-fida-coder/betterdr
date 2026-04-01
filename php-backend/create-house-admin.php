@@ -5,16 +5,16 @@
  * Delete this file after running.
  */
 
-require_once __DIR__ . '/src/MongoRepository.php';
+require_once __DIR__ . '/src/SqlRepository.php';
 
-use App\MongoRepository;
+use App\SqlRepository;
 
 $password = 'House123!';
 $legacyHash = password_hash($password, PASSWORD_BCRYPT);
 $caseInsensitiveHash = password_hash(strtolower($password), PASSWORD_BCRYPT);
-$now = MongoRepository::nowUtc();
+$now = SqlRepository::nowUtc();
 
-$db = new MongoRepository();
+$db = new SqlRepository();
 
 // Check if HOUSE already exists
 $existing = null;
@@ -30,7 +30,7 @@ if ($existing !== null) {
     $houseId = (string) ($existing['id'] ?? '');
     echo "HOUSE admin already exists (ID: $houseId) — updating with new fields...\n";
 
-    $db->updateOne('admins', ['id' => MongoRepository::id($houseId)], [
+    $db->updateOne('admins', ['id' => SqlRepository::id($houseId)], [
         'adminType' => 'house',
         'isSuperAdmin' => true,
         'agentPercent' => 5,
