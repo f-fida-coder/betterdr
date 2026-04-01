@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { getAdminHeaderSummary, getAgents, getMe, getMyPlayers, getUsersAdmin, linkedAgentName, recordSettlementAdjustment } from '../api';
+import { getAdminHeaderSummary, getAgents, getMe, getMyPlayers, getUsersAdmin, linkedAgentName } from '../api';
 import AgentTreeView from './admin-views/AgentTreeView';
 import { annotateDuplicatePlayers } from '../utils/duplicatePlayers';
 
@@ -30,8 +30,6 @@ const createDefaultHeaderSummary = () => ({
   weeklyMakeupAddition: 0,
   cumulativeMakeup: 0,
   previousBalanceOwed: 0,
-  computedBalanceOwed: 0,
-  balanceAdjustment: 0,
   balanceOwed: 0,
   sportsbookHealth: null
 });
@@ -63,8 +61,6 @@ const normalizeHeaderSummary = (headerData = null) => ({
   weeklyMakeupAddition: headerData?.weeklyMakeupAddition ?? 0,
   cumulativeMakeup: headerData?.cumulativeMakeup ?? 0,
   previousBalanceOwed: headerData?.previousBalanceOwed ?? 0,
-  computedBalanceOwed: headerData?.computedBalanceOwed ?? headerData?.balanceOwed ?? 0,
-  balanceAdjustment: headerData?.balanceAdjustment ?? 0,
   balanceOwed: headerData?.balanceOwed ?? 0,
   sportsbookHealth: headerData?.sportsbookHealth ?? null
 });
@@ -93,12 +89,6 @@ function AdminHeader({
   const [selectedSearchPlayer, setSelectedSearchPlayer] = useState(null);
   const [summary, setSummary] = useState(createDefaultHeaderSummary);
   const [profile, setProfile] = useState(null);
-  const [showSettlementAdjustmentModal, setShowSettlementAdjustmentModal] = useState(false);
-  const [settlementDirection, setSettlementDirection] = useState('agent-pay-in');
-  const [settlementAmount, setSettlementAmount] = useState('');
-  const [settlementNote, setSettlementNote] = useState('');
-  const [settlementError, setSettlementError] = useState('');
-  const [isSavingSettlementAdjustment, setIsSavingSettlementAdjustment] = useState(false);
 
   const toPlayerList = (users) => (
     Array.isArray(users) ? users : []
@@ -453,14 +443,9 @@ function AdminHeader({
   const weeklyHouseBalanceValue = Number(summary.weeklyHouseBalance ?? 0);
   const previousBalanceOwedValue = Number(summary.previousBalanceOwed ?? 0);
   const balanceOwedValue = Number(summary.balanceOwed ?? 0);
-  const computedBalanceOwedValue = Number(summary.computedBalanceOwed ?? balanceOwedValue);
-  const balanceAdjustmentValue = Number(summary.balanceAdjustment ?? 0);
   const agentPercentValue = summary.agentPercent;
   const housePercentValue = agentPercentValue != null ? (100 - agentPercentValue) : null;
-  const paidPlayerFeesValue = Number(summary.paidPlayerFees ?? 0);
-  const unpaidPlayerFeesValue = Number(summary.unpaidPlayerFees ?? 0);
   const totalPlayerFeesValue = Number(summary.totalPlayerFees ?? 0);
-  const canAdjustSettlement = roleKey === 'agent' && Boolean(profile?.id);
 
   const openWeeklyCollections = (summaryFocus) => {
     if (typeof onViewChange !== 'function') {
@@ -474,87 +459,6 @@ function AdminHeader({
     });
   };
 
-  const closeSettlementAdjustmentModal = () => {
-    setShowSettlementAdjustmentModal(false);
-    setSettlementDirection('agent-pay-in');
-    setSettlementAmount('');
-    setSettlementNote('');
-    setSettlementError('');
-    setIsSavingSettlementAdjustment(false);
-  };
-
-  const openSettlementAdjustmentModal = () => {
-    if (!canAdjustSettlement) {
-      return;
-    }
-    setSettlementDirection(balanceOwedValue < 0 ? 'house-paid-agent' : 'agent-pay-in');
-    setSettlementAmount('');
-    setSettlementNote('');
-    setSettlementError('');
-    setShowSettlementAdjustmentModal(true);
-  };
-
-  const getSignedSettlementAdjustment = () => {
-    const numericAmount = Number(settlementAmount);
-    if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
-      return null;
-    }
-    const absoluteAmount = Math.round(numericAmount * 100) / 100;
-    if (settlementDirection === 'house-paid-agent') {
-      return absoluteAmount;
-    }
-    return -absoluteAmount;
-  };
-
-  const signedSettlementAdjustment = getSignedSettlementAdjustment();
-  const projectedBalanceOwedValue = signedSettlementAdjustment == null
-    ? balanceOwedValue
-    : (balanceOwedValue + signedSettlementAdjustment);
-
-  const handleSettlementAdjustmentSubmit = async (event) => {
-    event.preventDefault();
-
-    if (!profile?.id) {
-      setSettlementError('Agent profile is not loaded yet.');
-      return;
-    }
-
-    const signedAmount = getSignedSettlementAdjustment();
-    if (signedAmount == null) {
-      setSettlementError('Enter a valid amount greater than zero.');
-      return;
-    }
-
-    const token = localStorage.getItem('token');
-    if (!token) {
-      setSettlementError('Please login again to record the adjustment.');
-      return;
-    }
-
-    setIsSavingSettlementAdjustment(true);
-    setSettlementError('');
-
-    try {
-      await recordSettlementAdjustment({
-        agentId: profile.id,
-        amount: signedAmount,
-        direction: settlementDirection,
-        note: settlementNote.trim(),
-      }, token);
-
-      const refreshedHeader = await getAdminHeaderSummary(token);
-      applyHeaderSummary(refreshedHeader);
-      closeSettlementAdjustmentModal();
-    } catch (error) {
-      setSettlementError(error.message || 'Failed to record settlement adjustment.');
-      setIsSavingSettlementAdjustment(false);
-    }
-  };
-
-  // For Admin, show Total Outstanding from all users. For Agent/User, show their own.
-  // const isSuperAdmin = profile?.role === 'admin' || profile?.role === 'super_agent' || profile?.role === 'agent';
-  // const outstandingDisplay = isSuperAdmin ? summary.totalOutstanding : (profile?.balanceOwed ?? null);
-  // const outstandingLabel = isSuperAdmin ? 'Outstanding Balance' : 'Outstanding';
 
   return (
     <div className="admin-header">
@@ -931,7 +835,7 @@ function AdminHeader({
                   aria-label={`Open weekly figures for ${displayName} house collections`}
                 >
                   <span className="stat-label">House Collections</span>
-                  <span className={`stat-value ${getSignedValueClass(-houseCollectionsValue)}`}>{formatCurrency(houseCollectionsValue !== 0 ? -Math.abs(houseCollectionsValue) : 0)}</span>
+                  <span className={`stat-value ${getSignedValueClass(houseCollectionsValue)}`}>{formatCurrency(houseCollectionsValue)}</span>
                 </button>
                 <div className="stat-row">
                   <span className="stat-label">Previous Makeup</span>
@@ -979,7 +883,7 @@ function AdminHeader({
                 </div>
                 <div className="stat-row">
                   <span className="stat-label">House Collections</span>
-                  <span className={`stat-value ${getSignedValueClass(-houseCollectionsValue)}`}>{formatCurrency(houseCollectionsValue !== 0 ? -Math.abs(houseCollectionsValue) : 0)}</span>
+                  <span className={`stat-value ${getSignedValueClass(houseCollectionsValue)}`}>{formatCurrency(houseCollectionsValue)}</span>
                 </div>
                 {/* Balance Adjustments row removed */}
                 <div className="stat-row stat-row-total">
