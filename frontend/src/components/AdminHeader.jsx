@@ -442,7 +442,7 @@ function AdminHeader({
   const agentPercentValue = summary.agentPercent;
   const housePercentValue = agentPercentValue != null ? (100 - agentPercentValue) : null;
   const totalPlayerFeesValue = Number(summary.totalPlayerFees ?? 0);
-  const houseProfitValue = Number(summary.houseProfit ?? (kickToHouseValue + totalPlayerFeesValue));
+  const houseProfitValue = Number(summary.houseProfit ?? 0);
 
   const openWeeklyCollections = (summaryFocus) => {
     if (typeof onViewChange !== 'function') {
