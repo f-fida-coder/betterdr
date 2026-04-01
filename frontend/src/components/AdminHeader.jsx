@@ -865,10 +865,12 @@ function AdminHeader({
             {/* ── Excel Section 3 (Pink/Orange): Balance Owed Breakdown ── */}
             {roleKey === 'agent' && (
               <div className="stat-group stat-group-salmon">
-                <div className="stat-row">
-                  <span className="stat-label">Agent Makeup</span>
-                  <span className={`stat-value ${cumulativeMakeupValue > 0 ? 'negative' : 'neutral'}`}>{formatCurrency(cumulativeMakeupValue > 0 ? -cumulativeMakeupValue : 0)}</span>
-                </div>
+                {cumulativeMakeupValue > 0 && (
+                  <div className="stat-row">
+                    <span className="stat-label">Agent Makeup</span>
+                    <span className="stat-value negative">{formatCurrency(-cumulativeMakeupValue)}</span>
+                  </div>
+                )}
                 <div className="stat-row">
                   <span className="stat-label">Previous Balance</span>
                   <span className={`stat-value ${getSignedValueClass(previousBalanceOwedValue)}`}>{formatCurrency(previousBalanceOwedValue)}</span>

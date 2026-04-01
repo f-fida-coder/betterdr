@@ -118,8 +118,11 @@ final class AgentSettlementRules
         $weeklyHouseBalance = round($kickToHouse + $totalPlayerFees, 2);
 
         // ── Makeup (cumulative) ────────────────────────────────────────
-        // Deficit + player fees go to makeup
-        $weeklyMakeupAddition = round(max(0.0, -$netCollections) + $totalPlayerFees, 2);
+        // Negative week: deficit + player fees go to makeup
+        // Positive week: no makeup addition (fees are in balance owed via agent split reduction)
+        $weeklyMakeupAddition = $isPositiveWeek
+            ? 0.0
+            : round(max(0.0, -$netCollections) + $totalPlayerFees, 2);
         $cumulativeMakeup = max(0.0, round(
             $previousMakeup - $makeupReduction + $weeklyMakeupAddition,
             2
