@@ -7,7 +7,7 @@ import App from './App.jsx'
 import AdminPanel from './components/AdminPanel.jsx'
 import LoadingSpinner from './components/LoadingSpinner.jsx'
 import ErrorBoundary from './components/ErrorBoundary.jsx'
-import { getMe, logoutSession } from './api'
+import { getMe, getSession, logoutSession } from './api'
 import { useEffect, useState } from 'react'
 import { ToastProvider } from './contexts/ToastContext.jsx'
 
@@ -46,26 +46,43 @@ const ProtectedRoleRoute = ({ children, allowedRoles }) => {
       const storedRole = String(localStorage.getItem('userRole') || sessionStorage.getItem('userRole') || '').toLowerCase();
 
       try {
-        if (!token) {
+        // 1. Try Bearer-token validation first (fast, no cookie dependency).
+        if (token) {
+          if (!localStorage.getItem('token')) {
+            localStorage.setItem('token', token);
+          }
+          const me = await getMe(token);
+          const role = String(me?.role || '').toLowerCase();
+          if (role) {
+            localStorage.setItem('userRole', role);
+            sessionStorage.setItem('userRole', role);
+          }
           if (isMounted) {
-            setIsAllowed(false);
+            setIsAllowed(allowedRoles.includes(role));
             setIsChecking(false);
           }
           return;
         }
 
-        if (!localStorage.getItem('token')) {
-          localStorage.setItem('token', token);
+        // 2. No localStorage token — try cookie-based session restore.
+        //    This covers the case where the user reloaded and App.jsx session
+        //    restore hasn't populated localStorage yet (race condition).
+        const session = await getSession({ timeoutMs: 6000 });
+        if (session?.token) {
+          // Sync localStorage so subsequent checks are instant.
+          localStorage.setItem('token', session.token);
+          localStorage.setItem('userRole', session.role || 'user');
+          const role = String(session.role || '').toLowerCase();
+          if (isMounted) {
+            setIsAllowed(allowedRoles.includes(role));
+            setIsChecking(false);
+          }
+          return;
         }
 
-        const me = await getMe(token);
-        const role = String(me?.role || '').toLowerCase();
-        if (role) {
-          localStorage.setItem('userRole', role);
-          sessionStorage.setItem('userRole', role);
-        }
+        // 3. Neither method worked — deny.
         if (isMounted) {
-          setIsAllowed(allowedRoles.includes(role));
+          setIsAllowed(false);
           setIsChecking(false);
         }
       } catch (error) {

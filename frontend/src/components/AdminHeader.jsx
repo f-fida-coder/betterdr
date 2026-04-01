@@ -823,11 +823,11 @@ function AdminHeader({
                   aria-label={`Open weekly figures for ${displayName} house collections`}
                 >
                   <span className="stat-label">House Collections</span>
-                  <span className={`stat-value ${getSignedValueClass(-houseCollectionsValue)}`}>{houseCollectionsValue !== 0 ? `(${formatCurrency(Math.abs(houseCollectionsValue))})` : formatCurrency(0)}</span>
+                  <span className={`stat-value ${getSignedValueClass(-houseCollectionsValue)}`}>{formatCurrency(houseCollectionsValue !== 0 ? -Math.abs(houseCollectionsValue) : 0)}</span>
                 </button>
                 <div className="stat-row">
                   <span className="stat-label">Previous Makeup</span>
-                  <span className={`stat-value ${previousMakeupValue > 0 ? 'negative' : 'neutral'}`}>{formatCurrency(previousMakeupValue)}</span>
+                  <span className={`stat-value ${previousMakeupValue > 0 ? 'negative' : 'neutral'}`}>{formatCurrency(previousMakeupValue > 0 ? -previousMakeupValue : 0)}</span>
                 </div>
               </div>
             )}
@@ -855,7 +855,7 @@ function AdminHeader({
               <div className="stat-group stat-group-salmon">
                 <div className="stat-row">
                   <span className="stat-label">Agent Makeup</span>
-                  <span className={`stat-value ${cumulativeMakeupValue > 0 ? 'negative' : 'neutral'}`}>{formatCurrency(cumulativeMakeupValue)}</span>
+                  <span className={`stat-value ${cumulativeMakeupValue > 0 ? 'negative' : 'neutral'}`}>{formatCurrency(cumulativeMakeupValue > 0 ? -cumulativeMakeupValue : 0)}</span>
                 </div>
                 <div className="stat-row">
                   <span className="stat-label">Previous Balance</span>
@@ -871,7 +871,7 @@ function AdminHeader({
                 </div>
                 <div className="stat-row">
                   <span className="stat-label">House Collections</span>
-                  <span className={`stat-value ${getSignedValueClass(-houseCollectionsValue)}`}>{houseCollectionsValue !== 0 ? `(${formatCurrency(Math.abs(houseCollectionsValue))})` : formatCurrency(0)}</span>
+                  <span className={`stat-value ${getSignedValueClass(-houseCollectionsValue)}`}>{formatCurrency(houseCollectionsValue !== 0 ? -Math.abs(houseCollectionsValue) : 0)}</span>
                 </div>
                 <div className="stat-row stat-row-total">
                   <span className="stat-label">Balance Owed</span>

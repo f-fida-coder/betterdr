@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { loginUser, getMe, getSession, logoutSession, getPublicBetModeRules, normalizeBetMode, updateProfile } from './api';
 import Header from './components/Header';
 import LeagueNav from './components/LeagueNav';
@@ -43,7 +43,9 @@ const DEFAULT_BET_MODE_RULES = {
 
 function App() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { showToast } = useToast();
+  const hasRedirectedRole = useRef(false);
   // Token lives in React memory only — never written to localStorage (XSS protection).
   // On page load we restore it from the httpOnly cookie via getSession().
   const [token, setToken] = useState(null);
@@ -88,6 +90,10 @@ function App() {
         const result = await getSession({ timeoutMs: 8000 });
         if (isMounted && result?.token) {
           setToken(result.token);
+          // Keep localStorage in sync so ProtectedRoleRoute can validate
+          // without a second network round-trip on the same page load.
+          localStorage.setItem('token', result.token);
+          localStorage.setItem('userRole', result.role || 'user');
           setIsLoggedIn(true);
           document.body.classList.add('dashboard-mode');
           setUser({
@@ -164,16 +170,19 @@ function App() {
     return () => window.removeEventListener('betslip:add', handleAddToSlip);
   }, [betMode]);
 
-  // Redirect admins/agents who land on root "/" back to their dashboard
-  // Redirect admins/agents who land on root "/" back to their dashboard
+  // Redirect admins/agents who land on root "/" to their dashboard (once).
+  // Only fires when on "/" to prevent redirect loops with ProtectedRoleRoute.
   useEffect(() => {
-    if (user && (user.role === 'admin' || user.role === 'agent' || user.role === 'super_agent' || user.role === 'master_agent')) {
-      const targetPath = user.role === 'admin'
-        ? '/admin/dashboard'
-        : ((user.role === 'super_agent' || user.role === 'master_agent') ? '/super_agent/dashboard' : '/agent/dashboard');
-      navigate(targetPath, { replace: true });
-    }
-  }, [user, navigate]);
+    if (!user || hasRedirectedRole.current) return;
+    const isAdminLike = ['admin', 'agent', 'super_agent', 'master_agent'].includes(user.role);
+    if (!isAdminLike || location.pathname !== '/') return;
+
+    const targetPath = user.role === 'admin'
+      ? '/admin/dashboard'
+      : ((user.role === 'super_agent' || user.role === 'master_agent') ? '/super_agent/dashboard' : '/agent/dashboard');
+    hasRedirectedRole.current = true;
+    navigate(targetPath, { replace: true });
+  }, [user, navigate, location.pathname]);
 
   // Listen for user refresh events (e.g., after placing a bet)
   useEffect(() => {
@@ -251,6 +260,7 @@ function App() {
     setSlipSelections([]);
     setWager('');
     setTeaserPoints('');
+    hasRedirectedRole.current = false; // allow redirect again on next login
     localStorage.removeItem('token');   // clear legacy cache
     localStorage.removeItem('userRole');
     document.body.classList.remove('dashboard-mode');
