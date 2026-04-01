@@ -81,44 +81,46 @@ final class AgentSettlementRules
         $totalPlayerFees = max(0.0, $paidPlayerFees) + max(0.0, $unpaidPlayerFees);
         $previousMakeup = max(0.0, $previousMakeup);
 
-        // ── Step 1: Pay down makeup before anything else ──────────────
+        // ── Step 1: Pay down makeup from positive net ─────────────────
         $makeupReduction = 0.0;
-        $commissionableProfit = 0.0;
+        $afterMakeup = 0.0;
 
         if ($netCollections > 0.0 && $previousMakeup > 0.0) {
             $makeupReduction = round(min($netCollections, $previousMakeup), 2);
-            $commissionableProfit = round(max(0.0, $netCollections - $makeupReduction), 2);
+            $afterMakeup = round(max(0.0, $netCollections - $makeupReduction), 2);
         } elseif ($netCollections > 0.0) {
-            $commissionableProfit = round($netCollections, 2);
+            $afterMakeup = round($netCollections, 2);
         }
-        // If net <= 0: commissionableProfit stays 0, no split for anyone
 
-        // ── Step 2: Commission split ONLY on commissionable profit ────
+        // ── Step 2: Cover player fees BEFORE profit split ─────────────
+        // Only what remains after fees is distributable profit
+        $distributableProfit = round(max(0.0, $afterMakeup - $totalPlayerFees), 2);
+
+        // ── Step 3: Commission split on distributable profit only ──────
         $agentSplit = 0.0;
         $kickToHouse = 0.0;
-        if ($commissionableProfit > 0.0 && $agentPercent !== null && $agentPercent >= 0 && $agentPercent <= 100) {
-            $agentSplit = round($commissionableProfit * $agentPercent / 100, 2);
-            $kickToHouse = round($commissionableProfit - $agentSplit, 2);
-        } elseif ($commissionableProfit > 0.0) {
-            $agentSplit = round($commissionableProfit, 2);
+        if ($distributableProfit > 0.0 && $agentPercent !== null && $agentPercent >= 0 && $agentPercent <= 100) {
+            $agentSplit = round($distributableProfit * $agentPercent / 100, 2);
+            $kickToHouse = round($distributableProfit - $agentSplit, 2);
+        } elseif ($distributableProfit > 0.0) {
+            $agentSplit = round($distributableProfit, 2);
         }
 
-        // ── Step 3: House Profit (only when there is commissionable profit) ──
-        // If makeup not cleared → house profit = 0 (no one profits yet)
-        $houseProfit = ($commissionableProfit > 0.0)
+        // ── Step 4: House Profit (only when distributable profit exists) ──
+        $houseProfit = ($distributableProfit > 0.0)
             ? round($kickToHouse + $totalPlayerFees, 2)
             : 0.0;
 
-        // ── Step 4: Makeup (cumulative) ───────────────────────────────
-        // Negative week: deficit + player fees → makeup
-        // Positive week but still in makeup: player fees → makeup
-        // Positive week, no makeup: no addition
+        // ── Step 5: Makeup (cumulative) ───────────────────────────────
         if ($netCollections <= 0.0) {
+            // Negative week: full deficit + fees → makeup
             $weeklyMakeupAddition = round(abs($netCollections) + $totalPlayerFees, 2);
-        } elseif ($commissionableProfit <= 0.0) {
-            // Positive net but fully absorbed by makeup — fees go to makeup
-            $weeklyMakeupAddition = round($totalPlayerFees, 2);
+        } elseif ($distributableProfit <= 0.0) {
+            // Positive net but no distributable profit — uncovered fees → makeup
+            $uncoveredFees = round(max(0.0, $totalPlayerFees - $afterMakeup), 2);
+            $weeklyMakeupAddition = $uncoveredFees;
         } else {
+            // In profit — fees fully covered, no makeup addition
             $weeklyMakeupAddition = 0.0;
         }
         $cumulativeMakeup = max(0.0, round(
@@ -126,10 +128,10 @@ final class AgentSettlementRules
             2
         ));
 
-        // ── Step 5: Balance Owed ──────────────────────────────────────
-        // When no profit (makeup active): agent owes what they're holding = agent collections
-        // When profit: House Profit - House Collections
-        if ($commissionableProfit > 0.0) {
+        // ── Step 6: Balance Owed ──────────────────────────────────────
+        // In profit: House Profit - House Collections (negative = house owes agent)
+        // No profit: agent owes what they're holding (agent collections)
+        if ($distributableProfit > 0.0) {
             $balanceOwed = round($previousBalanceOwed + $houseProfit - $houseCollections, 2);
         } else {
             $balanceOwed = round($previousBalanceOwed + $agentCollections, 2);
@@ -139,7 +141,7 @@ final class AgentSettlementRules
             'agentCollections'     => $agentCollections,
             'houseCollections'     => $houseCollections,
             'netCollections'       => $netCollections,
-            'commissionableProfit' => $commissionableProfit,
+            'commissionableProfit' => $distributableProfit,
             'agentSplit'           => $agentSplit,
             'kickToHouse'          => $kickToHouse,
             'houseProfit'          => $houseProfit,
