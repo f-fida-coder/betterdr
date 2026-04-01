@@ -1218,11 +1218,18 @@ final class AdminCoreController
                 //     $actorId,
                 //     $startOfWeek
                 // );
-                $settlementSummary['computedBalanceOwed'] = $this->num($settlementSummary['balanceOwed'] ?? 0);
-                $settlementSummary['balanceAdjustment'] = 0.0;
+                // Apply agent funding (deposits/withdrawals to agent account) to balance owed.
+                // Credits reduce what agent owes, debits increase it.
+                $fundingAdjustment = $this->getAgentFundingAdjustment($actorId, $startOfWeek);
+                $settlementSummary['fundingAdjustment'] = $fundingAdjustment;
+                $settlementSummary['balanceOwed'] = round($this->num($settlementSummary['balanceOwed'] ?? 0) - $fundingAdjustment, 2);
 
-                // Agent balance is managed separately via funding deposits/withdrawals.
-                // Do NOT sync it to balanceOwed — they are independent values.
+                // Sync agent.balance to match final balanceOwed so detail page shows same value
+                $finalBalanceOwed = $this->num($settlementSummary['balanceOwed'] ?? 0);
+                $currentAgentBalance = $this->num($actor['balance'] ?? 0);
+                if (round($currentAgentBalance, 2) !== round($finalBalanceOwed, 2)) {
+                    $this->db->updateOne('agents', ['id' => (string) ($actor['id'] ?? '')], ['balance' => $finalBalanceOwed]);
+                }
 
                 // Build commission distribution across upline chain for agent actors
                 $commissionDistribution = [];
@@ -1298,6 +1305,7 @@ final class AdminCoreController
                     'weeklyMakeupAddition' => $settlementSummary['weeklyMakeupAddition'],
                     'cumulativeMakeup' => $settlementSummary['cumulativeMakeup'],
                     'previousBalanceOwed' => $settlementSummary['previousBalanceOwed'],
+                    'fundingAdjustment' => $settlementSummary['fundingAdjustment'] ?? 0,
                     'balanceOwed' => $settlementSummary['balanceOwed'],
                     'commissionDistribution' => $commissionDistribution,
                     'sportsbookHealth' => SportsbookHealth::sportsbookSnapshot($this->db),
@@ -3690,6 +3698,39 @@ final class AdminCoreController
      *
      * @return array{previousMakeup: float, previousBalanceOwed: float}
      */
+    /**
+     * Sum agent funding transactions (AgentFunding) this week.
+     * Returns net credit amount: positive = agent received funds (reduces balance owed).
+     */
+    private function getAgentFundingAdjustment(string $agentId, DateTimeImmutable $weekStart): float
+    {
+        if ($agentId === '' || preg_match('/^[a-f0-9]{24}$/i', $agentId) !== 1) {
+            return 0.0;
+        }
+
+        $rows = $this->db->findMany('transactions', [
+            'agentId' => SqlRepository::id($agentId),
+            'referenceType' => 'AgentFunding',
+            'status' => 'completed',
+            'createdAt' => ['$gte' => SqlRepository::utcFromMillis($weekStart->getTimestamp() * 1000)],
+        ], [
+            'projection' => ['amount' => 1, 'entrySide' => 1],
+        ]);
+
+        $net = 0.0;
+        foreach ($rows as $row) {
+            $amt = $this->num($row['amount'] ?? 0);
+            $side = strtoupper(trim((string) ($row['entrySide'] ?? '')));
+            if ($side === 'CREDIT') {
+                $net += $amt;
+            } elseif ($side === 'DEBIT') {
+                $net -= $amt;
+            }
+        }
+
+        return round($net, 2);
+    }
+
     private function resolveSettlementCarryForward(string $agentId, DateTimeImmutable $currentWeekStart, array $agentDoc): array
     {
         $weekStartStr = $currentWeekStart->format('Y-m-d\TH:i:s\Z');

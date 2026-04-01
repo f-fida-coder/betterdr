@@ -443,6 +443,7 @@ function AdminHeader({
   const housePercentValue = agentPercentValue != null ? (100 - agentPercentValue) : null;
   const totalPlayerFeesValue = Number(summary.totalPlayerFees ?? 0);
   const houseProfitValue = Number(summary.houseProfit ?? 0);
+  const fundingAdjustmentValue = Number(summary.fundingAdjustment ?? 0);
 
   const openWeeklyCollections = (summaryFocus) => {
     if (typeof onViewChange !== 'function') {
@@ -897,6 +898,12 @@ function AdminHeader({
                       <span className={`stat-value ${getSignedValueClass(-houseCollectionsValue)}`}>{formatCurrency(-houseCollectionsValue)}</span>
                     </div>
                   </>
+                )}
+                {fundingAdjustmentValue !== 0 && (
+                  <div className="stat-row">
+                    <span className="stat-label">Payments</span>
+                    <span className={`stat-value ${getSignedValueClass(-fundingAdjustmentValue)}`}>{formatCurrency(-fundingAdjustmentValue)}</span>
+                  </div>
                 )}
                 <div className="stat-row stat-row-total">
                   <span className="stat-label">Balance Owed</span>
