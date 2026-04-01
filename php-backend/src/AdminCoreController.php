@@ -1221,12 +1221,8 @@ final class AdminCoreController
                 $settlementSummary['computedBalanceOwed'] = $this->num($settlementSummary['balanceOwed'] ?? 0);
                 $settlementSummary['balanceAdjustment'] = 0.0;
 
-                // Sync agent balance field to match balanceOwed
-                $balanceOwed = $this->num($settlementSummary['balanceOwed'] ?? 0);
-                $currentAgentBalance = $this->num($actor['balance'] ?? 0);
-                if (round($currentAgentBalance, 2) !== round($balanceOwed, 2)) {
-                    $this->db->updateOne('agents', ['id' => (string) ($actor['id'] ?? '')], ['balance' => $balanceOwed]);
-                }
+                // Agent balance is managed separately via funding deposits/withdrawals.
+                // Do NOT sync it to balanceOwed — they are independent values.
 
                 // Build commission distribution across upline chain for agent actors
                 $commissionDistribution = [];
@@ -6738,6 +6734,7 @@ final class AdminCoreController
                 $this->db->updateOne('agents', ['id' => SqlRepository::id($id)], ['balance' => $balanceAfter]);
 
                 $this->db->insertOne('transactions', [
+                    'userId' => SqlRepository::id($id),
                     'agentId' => SqlRepository::id($id),
                     'adminId' => SqlRepository::id((string) ($actor['id'] ?? '')),
                     'amount' => $amount,
