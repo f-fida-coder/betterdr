@@ -431,11 +431,7 @@ function AdminHeader({
   const headerBalance = summary.totalBalance;
   const agentCollectionsValue = Number(summary.agentCollections ?? 0);
   const houseCollectionsValue = Number(summary.houseCollections ?? 0);
-  // Net Collections for display = commissionable profit (post-makeup deduction).
-  // This is the actual base from which Agent Split and Kick to House are derived.
-  // summary.netCollections is the raw (agent - house) before makeup; using it here
-  // would show a number that doesn't match the split math below it.
-  const netCollectionsValue = Number(summary.commissionableProfit ?? summary.netCollections ?? 0);
+  const netCollectionsValue = Number(summary.netCollections ?? 0);
   const cumulativeMakeupValue = Number(summary.cumulativeMakeup ?? 0);
   const previousMakeupValue = Number(summary.previousMakeup ?? 0);
   const agentSplitValue = Number(summary.agentSplit ?? 0);
