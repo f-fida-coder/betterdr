@@ -6,7 +6,8 @@
       "Bash(git push)",
       "Bash(chmod *)",
       "Bash(php *)",
-      "Bash(grep *)"
+      "Bash(grep *)",
+      "Bash(rm *)"
     ]
   },
   "$version": 3
