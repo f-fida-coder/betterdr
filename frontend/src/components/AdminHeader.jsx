@@ -871,18 +871,10 @@ function AdminHeader({
                     <span className="stat-value negative">{formatCurrency(-cumulativeMakeupValue)}</span>
                   </div>
                 )}
-                <div className="stat-row">
-                  <span className="stat-label">Previous Balance</span>
-                  <span className={`stat-value ${getSignedValueClass(previousBalanceOwedValue)}`}>{formatCurrency(previousBalanceOwedValue)}</span>
-                </div>
-                <div className="stat-row">
-                  <span className="stat-label">Agent Collections</span>
-                  <span className={`stat-value ${getSignedValueClass(agentCollectionsValue)}`}>{formatCurrency(agentCollectionsValue)}</span>
-                </div>
-                {agentSplitValue > 0 && (
+                {previousBalanceOwedValue !== 0 && (
                   <div className="stat-row">
-                    <span className="stat-label">Agent Split</span>
-                    <span className="stat-value negative">{formatCurrency(-agentSplitValue)}</span>
+                    <span className="stat-label">Previous Balance</span>
+                    <span className={`stat-value ${getSignedValueClass(previousBalanceOwedValue)}`}>{formatCurrency(previousBalanceOwedValue)}</span>
                   </div>
                 )}
                 <div className="stat-row stat-row-total">
