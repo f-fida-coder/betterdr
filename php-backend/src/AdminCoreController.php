@@ -341,6 +341,10 @@ final class AdminCoreController
             $this->updateAgent($m[1]);
             return true;
         }
+        if ($method === 'POST' && preg_match('#^/api/admin/agent/([a-fA-F0-9]{24})/credit$#', $path, $m) === 1) {
+            $this->updateAgentCredit($m[1]);
+            return true;
+        }
         // Commission chain: full upline + downlines for a given agent
         if ($method === 'GET' && preg_match('#^/api/admin/agent/([a-fA-F0-9]{24})/commission-chain$#', $path, $m) === 1) {
             $this->getAgentCommissionChain($m[1]);
@@ -6669,6 +6673,106 @@ final class AdminCoreController
             Response::json(['message' => 'Agent updated successfully', 'agent' => $updated]);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error updating agent', 'details' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * POST /api/admin/agent/{id}/credit
+     * Deposit or withdraw from an agent/master-agent account.
+     * Body: { amount, direction: "credit"|"debit", type: "deposit"|"withdrawal"|"adjustment", description }
+     * These transactions do NOT affect weekly settlement (they have no userId in users table).
+     */
+    private function updateAgentCredit(string $id): void
+    {
+        try {
+            $actor = $this->protect(['admin', 'agent', 'master_agent', 'super_agent']);
+            if ($actor === null) {
+                return;
+            }
+
+            $agent = $this->db->findOne('agents', ['id' => SqlRepository::id($id)]);
+            if ($agent === null) {
+                Response::json(['message' => 'Agent not found'], 404);
+                return;
+            }
+
+            $body = Http::jsonBody();
+            $amount = round((float) ($body['amount'] ?? 0), 2);
+            if ($amount <= 0) {
+                Response::json(['message' => 'Amount must be greater than 0'], 400);
+                return;
+            }
+
+            $direction = strtolower(trim((string) ($body['direction'] ?? '')));
+            if (!in_array($direction, ['credit', 'debit'], true)) {
+                Response::json(['message' => 'Direction must be credit or debit'], 400);
+                return;
+            }
+
+            $txType = strtolower(trim((string) ($body['type'] ?? 'adjustment')));
+            if (!in_array($txType, ['deposit', 'withdrawal', 'adjustment'], true)) {
+                $txType = 'adjustment';
+            }
+            $description = trim((string) ($body['description'] ?? ''));
+            if ($description === '') {
+                $description = $direction === 'credit' ? 'Agent Deposit' : 'Agent Withdrawal';
+            }
+
+            $this->db->beginTransaction();
+            try {
+                $locked = $this->db->findOneForUpdate('agents', ['id' => SqlRepository::id($id)]);
+                if ($locked === null) {
+                    $this->db->rollback();
+                    Response::json(['message' => 'Agent not found'], 404);
+                    return;
+                }
+
+                $balanceBefore = $this->num($locked['balance'] ?? 0);
+                $diff = $direction === 'credit' ? $amount : -$amount;
+                $balanceAfter = round($balanceBefore + $diff, 2);
+
+                if ($direction === 'debit' && $balanceAfter < 0) {
+                    // Allow negative balance for agents (tracks debt)
+                }
+
+                $this->db->updateOne('agents', ['id' => SqlRepository::id($id)], ['balance' => $balanceAfter]);
+
+                $this->db->insertOne('transactions', [
+                    'agentId' => SqlRepository::id($id),
+                    'adminId' => SqlRepository::id((string) ($actor['id'] ?? '')),
+                    'amount' => $amount,
+                    'type' => $txType,
+                    'status' => 'completed',
+                    'entrySide' => strtoupper($direction),
+                    'balanceBefore' => $balanceBefore,
+                    'balanceAfter' => $balanceAfter,
+                    'referenceType' => 'AgentFunding',
+                    'reason' => 'AGENT_FUNDING_' . strtoupper($direction),
+                    'description' => $description,
+                    'approvedByRole' => (string) ($actor['role'] ?? ''),
+                    'createdAt' => SqlRepository::nowUtc(),
+                    'updatedAt' => SqlRepository::nowUtc(),
+                ]);
+
+                $this->db->commit();
+            } catch (Throwable $txErr) {
+                $this->db->rollback();
+                throw $txErr;
+            }
+
+            $updated = $this->db->findOne('agents', ['id' => SqlRepository::id($id)]);
+            $this->invalidateHeaderCache();
+
+            Response::json([
+                'message' => 'Agent balance updated',
+                'agent' => [
+                    'id' => $id,
+                    'balance' => $this->num($updated['balance'] ?? 0),
+                    'username' => (string) ($updated['username'] ?? ''),
+                ],
+            ]);
+        } catch (Throwable $e) {
+            Response::json(['message' => 'Server error', 'details' => $e->getMessage()], 500);
         }
     }
 

@@ -10,6 +10,7 @@ import {
   updateUserByAdmin,
   updateUserByAgent,
   updateUserCredit,
+  updateAgentCredit,
   impersonateUser,
   updateAgent,
   getAgentCommissionChain,
@@ -1854,20 +1855,32 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
       const currentBalance = toMoneyNumber(customer.balance, 0);
       const nextBalance = roundMoney(currentBalance + (selectedTxType.balanceDirection === 'credit' ? amount : -amount));
       const customDescription = newTxDescription.trim();
-      const result = await updateUserCredit(userId, {
-        operationMode: 'transaction',
-        amount,
-        direction: selectedTxType.balanceDirection,
-        type: selectedTxType.apiType,
-        reason: selectedTxType.reason,
-        description: customDescription || selectedTxType.defaultDescription,
-        applyDepositFreeplayBonus: (selectedTxType.value === 'deposit' && !isAgent) ? newTxApplyFreeplayBonus : false
-      }, token);
-      const freePlayBonusAmount = toMoneyNumber(result?.freeplayBonus?.amount, 0);
-      const referralBonusAmount = toMoneyNumber(result?.referralBonus?.amount, 0);
+      let result;
+      if (isAgent) {
+        result = await updateAgentCredit(userId, {
+          amount,
+          direction: selectedTxType.balanceDirection,
+          type: selectedTxType.apiType,
+          description: customDescription || selectedTxType.defaultDescription,
+        }, token);
+      } else {
+        result = await updateUserCredit(userId, {
+          operationMode: 'transaction',
+          amount,
+          direction: selectedTxType.balanceDirection,
+          type: selectedTxType.apiType,
+          reason: selectedTxType.reason,
+          description: customDescription || selectedTxType.defaultDescription,
+          applyDepositFreeplayBonus: newTxApplyFreeplayBonus,
+        }, token);
+      }
+      const freePlayBonusAmount = isAgent ? 0 : toMoneyNumber(result?.freeplayBonus?.amount, 0);
+      const referralBonusAmount = isAgent ? 0 : toMoneyNumber(result?.referralBonus?.amount, 0);
       setCustomer((prev) => {
         if (!prev) return prev;
-        const serverBalance = toMoneyNumber(result?.user?.balance, NaN);
+        const serverBalance = isAgent
+          ? toMoneyNumber(result?.agent?.balance, NaN)
+          : toMoneyNumber(result?.user?.balance, NaN);
         const nextBalanceValue = Number.isFinite(serverBalance) ? serverBalance : nextBalance;
         const serverFreeplay = toMoneyNumber(result?.user?.freeplayBalance, NaN);
         const nextFreeplayValue = Number.isFinite(serverFreeplay) ? serverFreeplay : toMoneyNumber(prev.freeplayBalance, 0);

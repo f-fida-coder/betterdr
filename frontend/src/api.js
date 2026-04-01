@@ -1443,6 +1443,19 @@ export const updateUserCredit = async (userId, payload, token) => {
     return response.json();
 };
 
+export const updateAgentCredit = async (agentId, payload, token) => {
+    const response = await fetch(buildApiUrl(`/admin/agent/${agentId}/credit`), {
+        method: 'POST',
+        headers: getHeaders(token),
+        body: JSON.stringify(payload)
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || 'Failed to update agent balance');
+    }
+    return response.json();
+};
+
 export const updateUserBalanceOwedByAgent = async (userId, balance, token) => {
     const response = await fetch(buildApiUrl('/agent/update-balance-owed'), {
         method: 'POST',
