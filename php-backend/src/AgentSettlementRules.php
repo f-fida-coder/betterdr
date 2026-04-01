@@ -129,9 +129,11 @@ final class AgentSettlementRules
         ));
 
         // ── Balance Owed (cumulative) ──────────────────────────────────
-        // Balance = cash agent holds minus what they earned
-        // Agent collected agentCollections cash, keeps agentSplit as commission
-        $balanceOwed = round($previousBalanceOwed + $agentCollections - $agentSplit, 2);
+        // House Profit = Kick to House + Player Fees (what house earned this week)
+        // Balance = House Profit - House Collections
+        // Positive = agent owes house, Negative = house owes agent
+        $houseProfit = round($kickToHouse + $totalPlayerFees, 2);
+        $balanceOwed = round($previousBalanceOwed + $houseProfit - $houseCollections, 2);
 
         return [
             'agentCollections'     => $agentCollections,
@@ -146,6 +148,7 @@ final class AgentSettlementRules
             'makeupReduction'      => $makeupReduction,
             'weeklyMakeupAddition' => $weeklyMakeupAddition,
             'cumulativeMakeup'     => $cumulativeMakeup,
+            'houseProfit'          => $houseProfit,
             'previousBalanceOwed'  => $previousBalanceOwed,
             'balanceOwed'          => $balanceOwed,
         ];
