@@ -868,7 +868,7 @@ function AdminHeader({
               <div className="stat-group stat-group-salmon">
                 {cumulativeMakeupValue > 0 && (
                   <div className="stat-row">
-                    <span className="stat-label">Agent Makeup</span>
+                    <span className="stat-label">Remaining Makeup</span>
                     <span className="stat-value negative">{formatCurrency(-cumulativeMakeupValue)}</span>
                   </div>
                 )}
@@ -878,14 +878,18 @@ function AdminHeader({
                     <span className={`stat-value ${getSignedValueClass(previousBalanceOwedValue)}`}>{formatCurrency(previousBalanceOwedValue)}</span>
                   </div>
                 )}
-                <div className="stat-row">
-                  <span className="stat-label">House Profit</span>
-                  <span className={`stat-value ${getSignedValueClass(houseProfitValue)}`}>{formatCurrency(houseProfitValue)}</span>
-                </div>
-                <div className="stat-row">
-                  <span className="stat-label">House Collections</span>
-                  <span className={`stat-value ${getSignedValueClass(-houseCollectionsValue)}`}>{formatCurrency(-houseCollectionsValue)}</span>
-                </div>
+                {houseProfitValue > 0 && (
+                  <>
+                    <div className="stat-row">
+                      <span className="stat-label">House Profit</span>
+                      <span className={`stat-value ${getSignedValueClass(houseProfitValue)}`}>{formatCurrency(houseProfitValue)}</span>
+                    </div>
+                    <div className="stat-row">
+                      <span className="stat-label">House Collections</span>
+                      <span className={`stat-value ${getSignedValueClass(-houseCollectionsValue)}`}>{formatCurrency(-houseCollectionsValue)}</span>
+                    </div>
+                  </>
+                )}
                 <div className="stat-row stat-row-total">
                   <span className="stat-label">Balance Owed</span>
                   <span className={`stat-value ${getSignedValueClass(balanceOwedValue)}`}>{formatCurrency(balanceOwedValue)}</span>

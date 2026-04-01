@@ -127,9 +127,13 @@ final class AgentSettlementRules
         ));
 
         // ── Step 5: Balance Owed ──────────────────────────────────────
-        // Balance = House Profit - House Collections
-        // Positive = agent owes house, Negative = house owes agent
-        $balanceOwed = round($previousBalanceOwed + $houseProfit - $houseCollections, 2);
+        // When no profit (makeup active): agent owes what they're holding = agent collections
+        // When profit: House Profit - House Collections
+        if ($commissionableProfit > 0.0) {
+            $balanceOwed = round($previousBalanceOwed + $houseProfit - $houseCollections, 2);
+        } else {
+            $balanceOwed = round($previousBalanceOwed + $agentCollections, 2);
+        }
 
         return [
             'agentCollections'     => $agentCollections,
