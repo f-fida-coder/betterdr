@@ -4576,6 +4576,38 @@ final class AdminCoreController
                     $playerIds[$id] = true;
                     $playerDocsById[$id] = $userDoc;
                 }
+                // Also include agent/master_agent IDs so their funding transactions appear
+                $agentQuery = [];
+                if ($playersSearch !== '') {
+                    $safe = preg_quote($playersSearch, '/');
+                    $agentQuery['username'] = ['$regex' => $safe, '$options' => 'i'];
+                }
+                if ($actorRole === 'agent') {
+                    $agentQuery['id'] = SqlRepository::id($actorId);
+                } elseif (in_array($actorRole, ['master_agent', 'super_agent'], true) && $scopedAgentIds !== []) {
+                    $agentQuery['id'] = ['$in' => $toObjectIds($scopedAgentIds)];
+                }
+                if ($agentQuery !== []) {
+                    $agentDocs = $this->db->findMany('agents', $agentQuery, [
+                        'projection' => ['id' => 1, 'username' => 1, 'role' => 1, 'balance' => 1],
+                        'limit' => 500,
+                    ]);
+                    foreach ($agentDocs as $agentDoc) {
+                        $aid = (string) ($agentDoc['id'] ?? '');
+                        if ($aid !== '' && preg_match('/^[a-f0-9]{24}$/i', $aid) === 1 && !isset($playerIds[$aid])) {
+                            $playerIds[$aid] = true;
+                            $playerDocsById[$aid] = [
+                                'id' => $aid,
+                                'username' => (string) ($agentDoc['username'] ?? ''),
+                                'fullName' => (string) ($agentDoc['username'] ?? ''),
+                                'agentId' => $aid,
+                                'balance' => $this->num($agentDoc['balance'] ?? 0),
+                                'freeplayBalance' => 0,
+                            ];
+                        }
+                    }
+                }
+
                 $playerIds = array_keys($playerIds);
                 if ($playerIds === []) {
                     Response::json([
