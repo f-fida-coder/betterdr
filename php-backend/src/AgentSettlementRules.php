@@ -77,7 +77,7 @@ final class AgentSettlementRules
         float $previousMakeup = 0.0,
         float $previousBalanceOwed = 0.0
     ): array {
-        $netCollections = $agentCollections - $houseCollections;
+        $netCollections = $agentCollections + $houseCollections;
         $isPositiveWeek = $netCollections > 0.0;
 
         $totalPlayerFees = max(0.0, $paidPlayerFees) + max(0.0, $unpaidPlayerFees);
@@ -114,10 +114,8 @@ final class AgentSettlementRules
         $agentProfitAfterFees = round($agentSplit - $totalPlayerFees, 2);
 
         // ── Weekly House Balance (THIS WEEK ONLY) ──────────────────────
-        // kick + all player fees; does NOT include previous balance or makeup
-        $weeklyHouseBalance = ($commissionableProfit > 0.0)
-            ? round($kickToHouse + $totalPlayerFees, 2)
-            : 0.0;
+        // kick + all player fees; player fees always apply regardless of profit
+        $weeklyHouseBalance = round($kickToHouse + $totalPlayerFees, 2);
 
         // ── Makeup (cumulative) ────────────────────────────────────────
         // Negative net adds the deficit; positive net reduces via makeupReduction
@@ -128,9 +126,8 @@ final class AgentSettlementRules
         ));
 
         // ── Balance Owed (cumulative) ──────────────────────────────────
-        // Running total: previous + house collections this week + weekly settlement
-        // paymentsMade defaults to 0 (tracked separately when payment feature exists)
-        $balanceOwed = round($previousBalanceOwed + $houseCollections + $weeklyHouseBalance, 2);
+        // Running total: previous - house collections (house payouts increase agent debt) + weekly settlement
+        $balanceOwed = round($previousBalanceOwed - $houseCollections + $weeklyHouseBalance, 2);
 
         return [
             'agentCollections'     => $agentCollections,
