@@ -11,7 +11,7 @@
     max-width: 100%;
     flex: 1 1 auto;
     min-width: 0;
-    background: radial-gradient(circle at top left, #ffffff 0%, var(--tt-bg) 70%);
+    background: var(--tt-bg);
     padding: 18px;
 }
 
@@ -39,7 +39,7 @@
     border: 1px solid #d6e3f2;
     background: #fff;
     color: #365b86;
-    border-radius: 9px;
+    border-radius: 6px;
     padding: 8px 12px;
     font-size: 12px;
     font-weight: 800;
@@ -57,7 +57,7 @@
 .tutorial-search {
     border: 1px solid #d5e2f2;
     background: #fff;
-    border-radius: 9px;
+    border-radius: 6px;
     padding: 9px 11px;
     font-size: 13px;
     min-width: 260px;
@@ -97,7 +97,7 @@
 .tutorial-state {
     background: #fff;
     border: 1px solid var(--tt-border);
-    border-radius: 12px;
+    border-radius: 8px;
     padding: 22px;
     color: #5f7c9c;
     font-weight: 700;
@@ -117,11 +117,11 @@
 .tutorial-card {
     border: 1px solid var(--tt-border);
     background: var(--tt-card);
-    border-radius: 12px;
+    border-radius: 8px;
     overflow: hidden;
     display: flex;
     flex-direction: column;
-    box-shadow: 0 8px 18px rgba(16, 36, 64, 0.08);
+    box-shadow: 0 4px 8px rgba(16, 36, 64, 0.08);
 }
 
 .tutorial-img-placeholder {
@@ -202,10 +202,10 @@
 
 .tutorial-modal {
     width: min(760px, 100%);
-    border-radius: 14px;
+    border-radius: 8px;
     border: 1px solid #d8e4f3;
     background: #ffffff;
-    box-shadow: 0 24px 60px rgba(8, 25, 46, 0.35);
+    box-shadow: 0 8px 8px rgba(8, 25, 46, 0.35);
     overflow: hidden;
 }
 

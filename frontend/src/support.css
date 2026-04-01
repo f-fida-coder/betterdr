@@ -11,7 +11,7 @@
     max-width: 100%;
     flex: 1 1 auto;
     min-width: 0;
-    background: radial-gradient(circle at top left, #ffffff 0%, var(--sp-bg) 70%);
+    background: var(--sp-bg);
     padding: 16px;
     display: grid;
     gap: 12px;
@@ -20,7 +20,7 @@
 .support-header {
     border: 1px solid var(--sp-border);
     background: var(--sp-card);
-    border-radius: 12px;
+    border-radius: 8px;
     padding: 14px;
     display: flex;
     align-items: center;
@@ -44,7 +44,7 @@
     border: 1px solid #d5e2f2;
     background: #fff;
     color: #335983;
-    border-radius: 9px;
+    border-radius: 6px;
     padding: 8px 12px;
     font-size: 12px;
     font-weight: 800;
@@ -55,7 +55,7 @@
     border: 1px solid #f3c9c9;
     background: #fdeeee;
     color: #a73838;
-    border-radius: 10px;
+    border-radius: 8px;
     padding: 10px 12px;
     font-size: 13px;
     font-weight: 700;
@@ -78,7 +78,7 @@
 .support-card {
     border: 1px solid var(--sp-border);
     background: var(--sp-card);
-    border-radius: 12px;
+    border-radius: 8px;
     padding: 12px;
 }
 
@@ -105,7 +105,7 @@
 .faq-search {
     border: 1px solid #d5e2f2;
     background: #fff;
-    border-radius: 9px;
+    border-radius: 6px;
     padding: 10px;
     color: var(--sp-text);
     font-size: 13px;
@@ -123,7 +123,7 @@
     border: 1px solid var(--sp-accent);
     background: var(--sp-accent);
     color: #fff;
-    border-radius: 9px;
+    border-radius: 6px;
     padding: 10px 12px;
     font-size: 12px;
     font-weight: 900;
@@ -164,7 +164,7 @@
 .thread-item {
     border: 1px solid #dbe7f5;
     background: #f8fbff;
-    border-radius: 10px;
+    border-radius: 8px;
     padding: 9px;
     display: flex;
     justify-content: space-between;
@@ -227,7 +227,7 @@
 .thread-main-message,
 .reply-item {
     border: 1px solid #dce8f6;
-    border-radius: 10px;
+    border-radius: 8px;
     padding: 10px;
     background: #f9fcff;
 }
@@ -262,7 +262,7 @@
 
 .faq-item {
     border: 1px solid #dce8f6;
-    border-radius: 10px;
+    border-radius: 8px;
     background: #f8fbff;
     padding: 9px;
 }

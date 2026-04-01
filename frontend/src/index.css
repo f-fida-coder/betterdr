@@ -79,7 +79,7 @@ body::after {
   background: var(--bg-card);
   backdrop-filter: blur(15px);
   border: 1px solid var(--border-glass);
-  border-radius: 16px;
+  border-radius: 10px;
 }
 
 .glow-red {
@@ -748,8 +748,8 @@ body::after {
 
 .bet-item {
   background: rgba(255, 255, 255, 0.05);
-  border-radius: 12px;
-  padding: 15px;
+  border-radius: 8px;
+  padding: 14px;
   border-left: 3px solid var(--primary);
   position: relative;
   animation: slideIn 0.3s ease-out;
@@ -805,9 +805,9 @@ body::after {
 
 .btn-place-bet {
   width: 100%;
-  margin-top: 20px;
-  padding: 15px;
-  border-radius: 12px;
+  margin-top: 16px;
+  padding: 14px;
+  border-radius: 8px;
   background: linear-gradient(135deg, var(--gold) 0%, #b38f00 100%);
   color: black;
   border: none;
@@ -815,7 +815,7 @@ body::after {
   text-transform: uppercase;
   letter-spacing: 1px;
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: background 0.15s ease;
 }
 
 .btn-place-bet:disabled {
@@ -1249,49 +1249,45 @@ body::after {
 .odds-values-group {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
   width: 100%;
 }
 
 .odds-value-btn {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  color: #ff1e1e;
-  padding: 8px 12px;
-  border-radius: 6px;
+  background: #fff;
+  border: 1px solid var(--dash-border, #e6e6e6);
+  color: var(--dash-text, #222);
+  padding: 8px 10px;
+  border-radius: 4px;
   font-family: inherit;
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 700;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
   text-align: center;
   width: 100%;
 }
 
 .odds-value-btn:hover {
-  background: #ff1e1e;
-  color: white;
-  box-shadow: 0 0 15px rgba(255, 30, 30, 0.4);
-  transform: translateY(-1px);
-  border-color: #ff1e1e;
+  background: var(--dash-green, #00703c);
+  color: #fff;
+  border-color: var(--dash-green, #00703c);
 }
 
 .odds-value-btn:disabled {
-  background: rgba(255, 255, 255, 0.04);
-  border-color: rgba(255, 255, 255, 0.08);
-  color: #888;
+  background: #f5f5f5;
+  border-color: #e6e6e6;
+  color: #aaa;
   cursor: not-allowed;
-  box-shadow: none;
-  transform: none;
 }
 
 .odds-unavailable {
   width: 100%;
-  padding: 8px 12px;
-  border-radius: 6px;
-  border: 1px dashed rgba(255, 255, 255, 0.12);
-  color: #8a8a8a;
-  font-size: 12px;
+  padding: 8px 10px;
+  border-radius: 4px;
+  border: 1px dashed #ddd;
+  color: #aaa;
+  font-size: 11px;
   font-weight: 600;
   text-align: center;
 }
@@ -1301,7 +1297,7 @@ body::after {
 }
 
 .match-footer span {
-  letter-spacing: 0.5px;
+  letter-spacing: 0.3px;
   opacity: 0.7;
   font-weight: 500;
 }

@@ -1,9 +1,27 @@
-import React from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import SportContentView from './SportContentView';
 import { findSportItemById } from '../data/sportsData';
 
 const DashboardMain = ({ selectedSports = [], activeBetMode = 'straight' }) => {
     const isDefault = selectedSports.length === 0;
+    const [isTransitioning, setIsTransitioning] = useState(false);
+    const prevSportsRef = useRef(selectedSports);
+    const transitionTimer = useRef(null);
+
+    // Show a brief content-area loader when selection changes
+    useEffect(() => {
+        const prev = prevSportsRef.current;
+        const changed = prev.length !== selectedSports.length ||
+            prev.some((s, i) => s !== selectedSports[i]);
+
+        if (changed && selectedSports.length > 0) {
+            setIsTransitioning(true);
+            clearTimeout(transitionTimer.current);
+            transitionTimer.current = setTimeout(() => setIsTransitioning(false), 350);
+        }
+        prevSportsRef.current = selectedSports;
+        return () => clearTimeout(transitionTimer.current);
+    }, [selectedSports]);
 
     const primaryId = selectedSports.length > 0 ? selectedSports[0] : null;
     const selectedItem = primaryId ? findSportItemById(primaryId) : null;
@@ -84,26 +102,36 @@ const DashboardMain = ({ selectedSports = [], activeBetMode = 'straight' }) => {
 
     const sportSections = getSportSections();
 
+    // Stable key that changes when selection changes, forcing remount
+    const sectionKey = selectedSports.join(',') || 'default';
+
     return (
         <main className="dash-main">
-            {sportSections.map((section, idx) => (
-                <React.Fragment key={`${section.sportId}-${idx}`}>
-                    <SportContentView
-                        sportId={section.sportId}
-                        selectedItems={selectedSports}
-                        filter={section.filter}
-                        status={section.status || 'live-upcoming'}
-                        activeBetMode={activeBetMode}
-                    />
-                </React.Fragment>
-            ))}
-
-            {selectedSports.length === 0 && (
-                <div style={{ textAlign: 'center', padding: '30px', color: '#666' }}>
-                    <h3>Showing all sports</h3>
-                    <p style={{ fontSize: '13px' }}>Use the sidebar to filter by a specific sport.</p>
+            {isTransitioning && (
+                <div className="sport-content-transition-loader">
+                    <div className="transition-loader-bar"></div>
                 </div>
             )}
+            <div className={`dash-main-content ${isTransitioning ? 'content-fading' : 'content-visible'}`}>
+                {sportSections.map((section, idx) => (
+                    <React.Fragment key={`${sectionKey}-${section.sportId}-${idx}`}>
+                        <SportContentView
+                            sportId={section.sportId}
+                            selectedItems={selectedSports}
+                            filter={section.filter}
+                            status={section.status || 'live-upcoming'}
+                            activeBetMode={activeBetMode}
+                        />
+                    </React.Fragment>
+                ))}
+
+                {selectedSports.length === 0 && (
+                    <div style={{ textAlign: 'center', padding: '30px', color: '#666' }}>
+                        <h3>Showing all sports</h3>
+                        <p style={{ fontSize: '13px' }}>Use the sidebar to filter by a specific sport.</p>
+                    </div>
+                )}
+            </div>
         </main>
     );
 };

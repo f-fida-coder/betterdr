@@ -11,7 +11,7 @@
 
     width: 100%;
     min-height: calc(100vh - 72px);
-    background: radial-gradient(circle at top left, #ffffff 0%, var(--bonus-bg) 72%);
+    background: var(--bonus-bg);
 }
 
 .bonus-shell {
@@ -62,7 +62,7 @@
 .wallet-card {
     background: #f7fbff;
     border: 1px solid #dbe8f7;
-    border-radius: 10px;
+    border-radius: 8px;
     padding: 9px 10px;
     display: flex;
     justify-content: space-between;
@@ -88,7 +88,7 @@
     border: 1px solid #d7e4f2;
     background: #ffffff;
     color: #385b84;
-    border-radius: 10px;
+    border-radius: 8px;
     padding: 10px 11px;
     font-size: 13px;
     font-weight: 800;
@@ -118,7 +118,7 @@
     gap: 12px;
     background: var(--bonus-panel);
     border: 1px solid var(--bonus-border);
-    border-radius: 12px;
+    border-radius: 8px;
     padding: 14px;
 }
 
@@ -138,7 +138,7 @@
     border: 1px solid #d3e2f2;
     background: #fff;
     color: #335983;
-    border-radius: 9px;
+    border-radius: 6px;
     padding: 9px 12px;
     font-weight: 800;
     font-size: 12px;
@@ -150,7 +150,7 @@
 }
 
 .bonus-banner {
-    border-radius: 10px;
+    border-radius: 8px;
     padding: 10px 12px;
     font-size: 13px;
     font-weight: 700;
@@ -171,7 +171,7 @@
 .bonus-loading {
     background: #fff;
     border: 1px solid var(--bonus-border);
-    border-radius: 12px;
+    border-radius: 8px;
     padding: 24px;
     text-align: center;
     color: #56769c;
@@ -187,7 +187,7 @@
 .bonus-card {
     background: var(--bonus-panel);
     border: 1px solid var(--bonus-border);
-    border-radius: 12px;
+    border-radius: 8px;
     padding: 14px;
 }
 
@@ -211,7 +211,7 @@
 .method-card {
     border: 1px solid #d9e6f5;
     background: #f9fcff;
-    border-radius: 10px;
+    border-radius: 8px;
     padding: 10px;
     cursor: pointer;
     text-align: left;
@@ -267,7 +267,7 @@
 .amount-row {
     margin-top: 5px;
     border: 1px solid #d8e5f4;
-    border-radius: 10px;
+    border-radius: 8px;
     background: #fff;
     display: flex;
     align-items: center;
@@ -319,7 +319,7 @@
     border: 1px solid #0f5db3;
     background: #0f5db3;
     color: #fff;
-    border-radius: 10px;
+    border-radius: 8px;
     padding: 10px 12px;
     font-size: 13px;
     font-weight: 900;
@@ -459,7 +459,7 @@
 
     .request-row {
         border: 1px solid #e7effa;
-        border-radius: 10px;
+        border-radius: 8px;
         padding: 8px;
     }
 }

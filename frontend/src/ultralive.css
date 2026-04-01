@@ -8,7 +8,7 @@
     --ultra-accent-soft: #eaf2ff;
     --ultra-green: #0f9d6a;
 
-    background: radial-gradient(circle at top left, #ffffff 0%, var(--ultra-bg) 70%);
+    background: var(--ultra-bg);
     min-height: calc(100vh - 72px);
     height: calc(100vh - 72px);
     color: var(--ultra-text);
@@ -171,7 +171,7 @@
 .ultra-market-tabs {
     display: inline-flex;
     border: 1px solid #d9e5f2;
-    border-radius: 10px;
+    border-radius: 6px;
     overflow: hidden;
     background: #f4f8fd;
 }
@@ -196,7 +196,7 @@
     border: 1px solid #d4e1f1;
     background: #ffffff;
     color: #35587e;
-    border-radius: 9px;
+    border-radius: 6px;
     padding: 8px 11px;
     font-weight: 800;
     font-size: 12px;
@@ -301,10 +301,10 @@
 .ultra-market-section {
     background: #fff;
     border: 1px solid var(--ultra-border);
-    border-radius: 12px;
+    border-radius: 8px;
     margin-bottom: 12px;
     overflow: hidden;
-    box-shadow: 0 7px 20px rgba(17, 41, 76, 0.06);
+    box-shadow: 0 2px 8px rgba(17, 41, 76, 0.04);
 }
 
 .ultra-market-title {
@@ -336,13 +336,13 @@
     flex: 1;
     background: #f7fafe;
     border: 1px solid #dbe7f4;
-    border-radius: 8px;
+    border-radius: 6px;
     padding: 11px;
     display: flex;
     justify-content: space-between;
     align-items: center;
     cursor: pointer;
-    transition: all 0.14s ease;
+    transition: all 0.15s ease;
 }
 
 .ultra-odds-box:hover:not(:disabled) {
@@ -450,7 +450,7 @@
 
 .ultra-my-bet-item {
     border: 1px solid #dbe8f5;
-    border-radius: 9px;
+    border-radius: 8px;
     background: #fafcff;
     padding: 9px;
 }

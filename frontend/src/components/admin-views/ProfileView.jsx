@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { getMe, updateProfile } from '../../api';
+import { getAdminHeaderSummary, getMe, updateProfile } from '../../api';
 
 const formatCurrency = (value) => {
   const num = Number(value);
@@ -13,6 +13,7 @@ const formatCurrency = (value) => {
 
 function ProfileView() {
   const [profile, setProfile] = useState(null);
+  const [settlementBalance, setSettlementBalance] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -45,6 +46,18 @@ function ProfileView() {
         setLoading(true);
         const data = await getMe(token);
         setProfile(data);
+        const roleKey = String(data?.role || '').toLowerCase();
+        if (roleKey === 'agent') {
+          try {
+            const headerSummary = await getAdminHeaderSummary(token);
+            setSettlementBalance(Number(headerSummary?.balanceOwed ?? 0));
+          } catch (summaryError) {
+            console.error('Failed to load settlement balance:', summaryError);
+            setSettlementBalance(null);
+          }
+        } else {
+          setSettlementBalance(null);
+        }
         setError('');
       } catch (err) {
         setError(err.message || 'Failed to load profile');
@@ -122,8 +135,12 @@ function ProfileView() {
                   <input type="text" value={formatCurrency(profile.availableBalance)} readOnly />
                 </div>
                 <div className="form-group">
-                  <label>Outstanding (Settle Limit):</label>
-                  <input type="text" value={formatCurrency(profile.balanceOwed)} readOnly />
+                  <label>{String(profile.role || '').toLowerCase() === 'agent' ? 'Settlement Balance:' : 'Outstanding (Settle Limit):'}</label>
+                  <input
+                    type="text"
+                    value={formatCurrency(String(profile.role || '').toLowerCase() === 'agent' && settlementBalance !== null ? settlementBalance : profile.balanceOwed)}
+                    readOnly
+                  />
                 </div>
                 <div className="form-group">
                   <label>Credit Limit:</label>

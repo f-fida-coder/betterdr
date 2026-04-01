@@ -1,7 +1,73 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { getAdminHeaderSummary, getAgents, getMe, getMyPlayers, getUsersAdmin, linkedAgentName } from '../api';
+import { getAdminHeaderSummary, getAgents, getMe, getMyPlayers, getUsersAdmin, linkedAgentName, recordSettlementAdjustment } from '../api';
 import AgentTreeView from './admin-views/AgentTreeView';
 import { annotateDuplicatePlayers } from '../utils/duplicatePlayers';
+
+const createDefaultHeaderSummary = () => ({
+  totalBalance: 0,
+  totalOutstanding: 0,
+  totalPlayerFees: 0,
+  paidPlayerFees: 0,
+  unpaidPlayerFees: 0,
+  weekNet: 0,
+  todayNet: 0,
+  activeAccounts: 0,
+  agentDeposits: 0,
+  agentWithdrawals: 0,
+  houseDeposits: 0,
+  houseWithdrawals: 0,
+  agentPercent: null,
+  agentCollections: 0,
+  houseCollections: 0,
+  netCollections: 0,
+  commissionableProfit: 0,
+  agentSplit: 0,
+  kickToHouse: 0,
+  agentProfitAfterFees: 0,
+  weeklyHouseBalance: 0,
+  previousMakeup: 0,
+  makeupReduction: 0,
+  weeklyMakeupAddition: 0,
+  cumulativeMakeup: 0,
+  previousBalanceOwed: 0,
+  computedBalanceOwed: 0,
+  balanceAdjustment: 0,
+  balanceOwed: 0,
+  sportsbookHealth: null
+});
+
+const normalizeHeaderSummary = (headerData = null) => ({
+  totalBalance: headerData?.totalBalance ?? 0,
+  totalOutstanding: headerData?.totalOutstanding ?? 0,
+  totalPlayerFees: headerData?.totalPlayerFees ?? 0,
+  paidPlayerFees: headerData?.paidPlayerFees ?? 0,
+  unpaidPlayerFees: headerData?.unpaidPlayerFees ?? 0,
+  weekNet: headerData?.weekNet ?? 0,
+  todayNet: headerData?.todayNet ?? 0,
+  activeAccounts: headerData?.activeAccounts ?? 0,
+  agentDeposits: headerData?.agentDeposits ?? 0,
+  agentWithdrawals: headerData?.agentWithdrawals ?? 0,
+  houseDeposits: headerData?.houseDeposits ?? 0,
+  houseWithdrawals: headerData?.houseWithdrawals ?? 0,
+  agentPercent: headerData?.agentPercent ?? null,
+  agentCollections: headerData?.agentCollections ?? 0,
+  houseCollections: headerData?.houseCollections ?? 0,
+  netCollections: headerData?.netCollections ?? 0,
+  commissionableProfit: headerData?.commissionableProfit ?? 0,
+  agentSplit: headerData?.agentSplit ?? 0,
+  kickToHouse: headerData?.kickToHouse ?? 0,
+  agentProfitAfterFees: headerData?.agentProfitAfterFees ?? 0,
+  weeklyHouseBalance: headerData?.weeklyHouseBalance ?? 0,
+  previousMakeup: headerData?.previousMakeup ?? 0,
+  makeupReduction: headerData?.makeupReduction ?? 0,
+  weeklyMakeupAddition: headerData?.weeklyMakeupAddition ?? 0,
+  cumulativeMakeup: headerData?.cumulativeMakeup ?? 0,
+  previousBalanceOwed: headerData?.previousBalanceOwed ?? 0,
+  computedBalanceOwed: headerData?.computedBalanceOwed ?? headerData?.balanceOwed ?? 0,
+  balanceAdjustment: headerData?.balanceAdjustment ?? 0,
+  balanceOwed: headerData?.balanceOwed ?? 0,
+  sportsbookHealth: headerData?.sportsbookHealth ?? null
+});
 
 function AdminHeader({
   onMenuToggle,
@@ -25,37 +91,14 @@ function AdminHeader({
   const [searchablePlayers, setSearchablePlayers] = useState([]);
   const [allAgents, setAllAgents] = useState([]);
   const [selectedSearchPlayer, setSelectedSearchPlayer] = useState(null);
-  const [summary, setSummary] = useState({
-    totalBalance: 0,
-    totalOutstanding: 0,
-    totalPlayerFees: 0,
-    paidPlayerFees: 0,
-    unpaidPlayerFees: 0,
-    weekNet: 0,
-    todayNet: 0,
-    activeAccounts: 0,
-    agentDeposits: 0,
-    agentWithdrawals: 0,
-    houseDeposits: 0,
-    houseWithdrawals: 0,
-    agentPercent: null,
-    agentCollections: 0,
-    houseCollections: 0,
-    netCollections: 0,
-    commissionableProfit: 0,
-    agentSplit: 0,
-    kickToHouse: 0,
-    agentProfitAfterFees: 0,
-    weeklyHouseBalance: 0,
-    previousMakeup: 0,
-    makeupReduction: 0,
-    weeklyMakeupAddition: 0,
-    cumulativeMakeup: 0,
-    previousBalanceOwed: 0,
-    balanceOwed: 0,
-    sportsbookHealth: null
-  });
+  const [summary, setSummary] = useState(createDefaultHeaderSummary);
   const [profile, setProfile] = useState(null);
+  const [showSettlementAdjustmentModal, setShowSettlementAdjustmentModal] = useState(false);
+  const [settlementDirection, setSettlementDirection] = useState('agent-pay-in');
+  const [settlementAmount, setSettlementAmount] = useState('');
+  const [settlementNote, setSettlementNote] = useState('');
+  const [settlementError, setSettlementError] = useState('');
+  const [isSavingSettlementAdjustment, setIsSavingSettlementAdjustment] = useState(false);
 
   const toPlayerList = (users) => (
     Array.isArray(users) ? users : []
@@ -64,48 +107,19 @@ function AdminHeader({
     return roleKey === '' || roleKey === 'user' || roleKey === 'player';
   });
 
+  const applyHeaderSummary = (headerData) => {
+    setSummary(normalizeHeaderSummary(headerData));
+  };
+
   useEffect(() => {
     let cancelled = false;
     const token = localStorage.getItem('token');
     if (!token) return undefined;
 
-    const applyHeaderSummary = (headerData) => {
-      if (cancelled) return;
-      setSummary({
-        totalBalance: headerData?.totalBalance ?? 0,
-        totalOutstanding: headerData?.totalOutstanding ?? 0,
-        totalPlayerFees: headerData?.totalPlayerFees ?? 0,
-        paidPlayerFees: headerData?.paidPlayerFees ?? 0,
-        unpaidPlayerFees: headerData?.unpaidPlayerFees ?? 0,
-        weekNet: headerData?.weekNet ?? 0,
-        todayNet: headerData?.todayNet ?? 0,
-        activeAccounts: headerData?.activeAccounts ?? 0,
-        agentDeposits: headerData?.agentDeposits ?? 0,
-        agentWithdrawals: headerData?.agentWithdrawals ?? 0,
-        houseDeposits: headerData?.houseDeposits ?? 0,
-        houseWithdrawals: headerData?.houseWithdrawals ?? 0,
-        agentPercent: headerData?.agentPercent ?? null,
-        agentCollections: headerData?.agentCollections ?? 0,
-        houseCollections: headerData?.houseCollections ?? 0,
-        netCollections: headerData?.netCollections ?? 0,
-        commissionableProfit: headerData?.commissionableProfit ?? 0,
-        agentSplit: headerData?.agentSplit ?? 0,
-        kickToHouse: headerData?.kickToHouse ?? 0,
-        agentProfitAfterFees: headerData?.agentProfitAfterFees ?? 0,
-        weeklyHouseBalance: headerData?.weeklyHouseBalance ?? 0,
-        previousMakeup: headerData?.previousMakeup ?? 0,
-        makeupReduction: headerData?.makeupReduction ?? 0,
-        weeklyMakeupAddition: headerData?.weeklyMakeupAddition ?? 0,
-        cumulativeMakeup: headerData?.cumulativeMakeup ?? 0,
-        previousBalanceOwed: headerData?.previousBalanceOwed ?? 0,
-        balanceOwed: headerData?.balanceOwed ?? 0,
-        sportsbookHealth: headerData?.sportsbookHealth ?? null
-      });
-    };
-
     const refreshHeaderSummary = async () => {
       try {
         const headerData = await getAdminHeaderSummary(token);
+        if (cancelled) return;
         applyHeaderSummary(headerData);
       } catch (error) {
         if (!cancelled) {
@@ -120,8 +134,8 @@ function AdminHeader({
           getAdminHeaderSummary(token),
           getMe(token)
         ]);
-        applyHeaderSummary(headerData);
         if (cancelled) return;
+        applyHeaderSummary(headerData);
         setProfile(meData || null);
 
         const roleKey = String(meData?.role || role || '').toLowerCase();
@@ -439,11 +453,14 @@ function AdminHeader({
   const weeklyHouseBalanceValue = Number(summary.weeklyHouseBalance ?? 0);
   const previousBalanceOwedValue = Number(summary.previousBalanceOwed ?? 0);
   const balanceOwedValue = Number(summary.balanceOwed ?? 0);
+  const computedBalanceOwedValue = Number(summary.computedBalanceOwed ?? balanceOwedValue);
+  const balanceAdjustmentValue = Number(summary.balanceAdjustment ?? 0);
   const agentPercentValue = summary.agentPercent;
   const housePercentValue = agentPercentValue != null ? (100 - agentPercentValue) : null;
   const paidPlayerFeesValue = Number(summary.paidPlayerFees ?? 0);
   const unpaidPlayerFeesValue = Number(summary.unpaidPlayerFees ?? 0);
   const totalPlayerFeesValue = Number(summary.totalPlayerFees ?? 0);
+  const canAdjustSettlement = roleKey === 'agent' && Boolean(profile?.id);
 
   const openWeeklyCollections = (summaryFocus) => {
     if (typeof onViewChange !== 'function') {
@@ -455,6 +472,83 @@ function AdminHeader({
       playerFilter: 'all-players',
       actorLabel: displayName,
     });
+  };
+
+  const closeSettlementAdjustmentModal = () => {
+    setShowSettlementAdjustmentModal(false);
+    setSettlementDirection('agent-pay-in');
+    setSettlementAmount('');
+    setSettlementNote('');
+    setSettlementError('');
+    setIsSavingSettlementAdjustment(false);
+  };
+
+  const openSettlementAdjustmentModal = () => {
+    if (!canAdjustSettlement) {
+      return;
+    }
+    setSettlementDirection(balanceOwedValue < 0 ? 'house-paid-agent' : 'agent-pay-in');
+    setSettlementAmount('');
+    setSettlementNote('');
+    setSettlementError('');
+    setShowSettlementAdjustmentModal(true);
+  };
+
+  const getSignedSettlementAdjustment = () => {
+    const numericAmount = Number(settlementAmount);
+    if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
+      return null;
+    }
+    const absoluteAmount = Math.round(numericAmount * 100) / 100;
+    if (settlementDirection === 'house-paid-agent') {
+      return absoluteAmount;
+    }
+    return -absoluteAmount;
+  };
+
+  const signedSettlementAdjustment = getSignedSettlementAdjustment();
+  const projectedBalanceOwedValue = signedSettlementAdjustment == null
+    ? balanceOwedValue
+    : (balanceOwedValue + signedSettlementAdjustment);
+
+  const handleSettlementAdjustmentSubmit = async (event) => {
+    event.preventDefault();
+
+    if (!profile?.id) {
+      setSettlementError('Agent profile is not loaded yet.');
+      return;
+    }
+
+    const signedAmount = getSignedSettlementAdjustment();
+    if (signedAmount == null) {
+      setSettlementError('Enter a valid amount greater than zero.');
+      return;
+    }
+
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setSettlementError('Please login again to record the adjustment.');
+      return;
+    }
+
+    setIsSavingSettlementAdjustment(true);
+    setSettlementError('');
+
+    try {
+      await recordSettlementAdjustment({
+        agentId: profile.id,
+        amount: signedAmount,
+        direction: settlementDirection,
+        note: settlementNote.trim(),
+      }, token);
+
+      const refreshedHeader = await getAdminHeaderSummary(token);
+      applyHeaderSummary(refreshedHeader);
+      closeSettlementAdjustmentModal();
+    } catch (error) {
+      setSettlementError(error.message || 'Failed to record settlement adjustment.');
+      setIsSavingSettlementAdjustment(false);
+    }
   };
 
   // For Admin, show Total Outstanding from all users. For Agent/User, show their own.
@@ -877,12 +971,107 @@ function AdminHeader({
                   <span className="stat-label">House Collections</span>
                   <span className={`stat-value ${getSignedValueClass(-houseCollectionsValue)}`}>{formatCurrency(houseCollectionsValue !== 0 ? -Math.abs(houseCollectionsValue) : 0)}</span>
                 </div>
-                <div className="stat-row stat-row-total">
+                <div className="stat-row">
+                  <span className="stat-label">Balance Adjustments</span>
+                  <span className={`stat-value ${getSignedValueClass(balanceAdjustmentValue)}`}>{formatCurrency(balanceAdjustmentValue)}</span>
+                </div>
+                <button
+                  type="button"
+                  className={`stat-row stat-row-total ${canAdjustSettlement ? 'stat-row-button stat-row-total-button' : ''}`}
+                  onClick={canAdjustSettlement ? openSettlementAdjustmentModal : undefined}
+                  disabled={!canAdjustSettlement}
+                  aria-label={canAdjustSettlement ? `Adjust ${displayName} balance owed` : undefined}
+                  title={canAdjustSettlement ? 'Record an agent pay-in or house payout' : undefined}
+                >
                   <span className="stat-label">Balance Owed</span>
                   <span className={`stat-value ${getSignedValueClass(balanceOwedValue)}`}>{formatCurrency(balanceOwedValue)}</span>
-                </div>
+                </button>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {showSettlementAdjustmentModal && (
+        <div className="modal-overlay" onClick={closeSettlementAdjustmentModal}>
+          <div className="modal-content settlement-adjustment-modal" onClick={(event) => event.stopPropagation()}>
+            <h3>Adjust Balance Owed</h3>
+            <p className="settlement-adjustment-copy">
+              Positive balance means the agent owes the house. Negative balance means the house owes the agent.
+            </p>
+            <form onSubmit={handleSettlementAdjustmentSubmit}>
+              <div className="settlement-balance-preview" role="status" aria-live="polite">
+                <div className="settlement-balance-preview-item">
+                  <span>Current Balance</span>
+                  <strong className={getSignedValueClass(balanceOwedValue)}>{formatCurrency(balanceOwedValue)}</strong>
+                </div>
+                <div className="settlement-balance-preview-item">
+                  <span>This Week Adjustments</span>
+                  <strong className={getSignedValueClass(balanceAdjustmentValue)}>{formatCurrency(balanceAdjustmentValue)}</strong>
+                </div>
+                <div className="settlement-balance-preview-item">
+                  <span>Formula Balance</span>
+                  <strong className={getSignedValueClass(computedBalanceOwedValue)}>{formatCurrency(computedBalanceOwedValue)}</strong>
+                </div>
+                <div className="settlement-balance-preview-item">
+                  <span>New Balance After Save</span>
+                  <strong className={getSignedValueClass(projectedBalanceOwedValue)}>{formatCurrency(projectedBalanceOwedValue)}</strong>
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="settlement-direction">Adjustment Type</label>
+                <select
+                  id="settlement-direction"
+                  value={settlementDirection}
+                  onChange={(event) => setSettlementDirection(event.target.value)}
+                  disabled={isSavingSettlementAdjustment}
+                >
+                  <option value="agent-pay-in">Agent paid in</option>
+                  <option value="house-paid-agent">House paid agent</option>
+                </select>
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="settlement-amount">Amount</label>
+                <input
+                  id="settlement-amount"
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  inputMode="decimal"
+                  value={settlementAmount}
+                  onChange={(event) => setSettlementAmount(event.target.value)}
+                  placeholder="0.00"
+                  disabled={isSavingSettlementAdjustment}
+                />
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="settlement-note">Note</label>
+                <textarea
+                  id="settlement-note"
+                  rows="3"
+                  value={settlementNote}
+                  onChange={(event) => setSettlementNote(event.target.value)}
+                  placeholder="Optional note for this payment or correction"
+                  disabled={isSavingSettlementAdjustment}
+                />
+              </div>
+
+              {settlementError && (
+                <div className="settlement-adjustment-error" role="alert">{settlementError}</div>
+              )}
+
+              <div className="modal-actions settlement-adjustment-actions">
+                <button type="submit" className="btn-primary" disabled={isSavingSettlementAdjustment}>
+                  {isSavingSettlementAdjustment ? 'Saving...' : 'Save Adjustment'}
+                </button>
+                <button type="button" className="btn-secondary" onClick={closeSettlementAdjustmentModal} disabled={isSavingSettlementAdjustment}>
+                  Cancel
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

@@ -11,7 +11,7 @@
     display: flex;
     width: 100%;
     min-height: calc(100vh - 72px);
-    background: radial-gradient(circle at top left, #ffffff 0%, var(--props-bg) 72%);
+    background: var(--props-bg);
     color: var(--props-text);
     overflow: hidden;
 }
@@ -78,7 +78,7 @@
 .props-search-input {
     width: 100%;
     border: 1px solid #d6e3f3;
-    border-radius: 9px;
+    border-radius: 6px;
     padding: 10px;
     font-size: 13px;
     color: var(--props-text);
@@ -96,7 +96,7 @@
     border: 1px solid #d4e1f0;
     background: #ffffff;
     color: #31577f;
-    border-radius: 9px;
+    border-radius: 6px;
     padding: 9px;
     font-size: 12px;
     font-weight: 800;
@@ -270,7 +270,7 @@
 .props-help-card {
     background: #ffffff;
     border: 1px solid #d8e5f3;
-    border-radius: 12px;
+    border-radius: 8px;
     padding: 14px;
     color: #45678f;
 }
@@ -309,7 +309,7 @@
 .props-market-card {
     background: #fff;
     border: 1px solid #d9e5f3;
-    border-radius: 10px;
+    border-radius: 8px;
     overflow: hidden;
     margin-bottom: 10px;
 }

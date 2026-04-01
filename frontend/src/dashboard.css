@@ -145,19 +145,15 @@ body.dashboard-mode {
 }
 
 .dash-subheader {
-    min-height: 60px;
+    min-height: 56px;
     display: flex;
     align-items: center;
-    padding: 10px 10px 10px 0;
-    
+    padding: 8px 16px 8px 0;
     border-bottom: 1px solid var(--dash-border);
     box-shadow: var(--dash-shadow-sm);
-    
     z-index: 8;
-    
     margin-left: 0;
-    gap: 15px;
-    
+    gap: 10px;
     background: #f8f9fa;
 }
 
@@ -168,29 +164,23 @@ body.dashboard-mode {
 
 .bet-type-btn {
     flex: 1;
-    max-width: 140px;
-    
-    height: 48px;
-    
-    background: linear-gradient(to bottom, #ffffff, #f9f9f9);
-    
-    border: 1px solid #e1e1e1;
-    border-radius: 8px;
+    max-width: 130px;
+    height: 42px;
+    background: #fff;
+    border: 1px solid var(--dash-border);
+    border-radius: 6px;
     display: flex;
     flex-direction: row;
     align-items: center;
     justify-content: center;
-    gap: 10px;
-    font-size: 13px;
-    
-    font-weight: 800;
-    
+    gap: 8px;
+    font-size: 12px;
+    font-weight: 700;
     color: #444;
     cursor: pointer;
-    transition: all 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-    
-    letter-spacing: 0.5px;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+    box-shadow: none;
+    letter-spacing: 0.3px;
 }
 
 
@@ -230,21 +220,16 @@ body.dashboard-mode {
 .dash-sidebar { z-index: 10; }
 
 .bet-type-btn:hover {
-    background: white;
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-    
+    background: #f8f9fa;
     color: #111;
     border-color: #ccc;
 }
 
 .bet-type-btn.active {
-    background: linear-gradient(135deg, var(--dash-green) 0%, #005c31 100%);
-    
+    background: var(--dash-green);
     color: white;
     border-color: transparent;
-    box-shadow: 0 4px 12px rgba(0, 112, 60, 0.3);
-    
+    box-shadow: 0 2px 6px rgba(0, 112, 60, 0.25);
 }
 
 
@@ -253,8 +238,7 @@ body.dashboard-mode {
 }
 
 .bet-type-btn .icon {
-    font-size: 18px;
-    
+    font-size: 16px;
     margin-bottom: 0;
     font-weight: 600;
 }
@@ -263,7 +247,7 @@ body.dashboard-mode {
     background: var(--dash-blue);
     color: white;
     border: none;
-    padding: 0 24px;
+    padding: 0 20px;
     font-weight: 700;
     height: 42px;
     border-radius: 6px;
@@ -272,16 +256,14 @@ body.dashboard-mode {
     justify-content: center;
     cursor: pointer;
     font-size: 12px;
-    letter-spacing: 0.5px;
-    transition: all 0.2s ease;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    letter-spacing: 0.3px;
+    transition: background 0.15s ease;
+    box-shadow: none;
     text-transform: uppercase;
 }
 
 .action-btn:hover {
-    transform: translateY(-1px);
     filter: brightness(1.1);
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
 }
 
 .action-btn.green {
@@ -306,8 +288,7 @@ body.dashboard-mode {
 
 
 .search-container {
-    padding: 24px 20px;
-    
+    padding: 14px 16px;
     background: white;
     border-bottom: 1px solid var(--dash-border);
     position: relative;
@@ -317,31 +298,26 @@ body.dashboard-mode {
 .search-icon {
     position: absolute;
     top: 50%;
-    left: 40px;
-    
+    left: 30px;
     transform: translateY(-50%);
     color: #999;
-    font-size: 14px;
+    font-size: 13px;
     z-index: 5;
     pointer-events: none;
-    
-    transition: color 0.3s;
+    transition: color 0.2s;
 }
 
 .search-input {
     width: 100%;
-    padding: 16px 20px 16px 48px;
-    
-    border: 1px solid #e1e1e1;
-    border-radius: 30px;
-    
-    font-size: 14px;
-    
-    background: #f4f6f8;
-    transition: all 0.3s ease;
+    padding: 10px 16px 10px 38px;
+    border: 1px solid var(--dash-border);
+    border-radius: 6px;
+    font-size: 13px;
+    background: #f8f9fa;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
     box-shadow: none;
     font-weight: 600;
-    color: #333;
+    color: var(--dash-text);
 }
 
 .search-input::placeholder {
@@ -352,9 +328,8 @@ body.dashboard-mode {
 .search-input:focus {
     outline: none;
     border-color: var(--dash-green);
-    background: white;
-    box-shadow: 0 4px 12px rgba(0, 112, 60, 0.15);
-    
+    background: #fff;
+    box-shadow: 0 0 0 3px rgba(0, 112, 60, 0.08);
 }
 
 .search-input:focus+.search-icon,
@@ -363,11 +338,11 @@ body.dashboard-mode {
 }
 
 .sidebar-header {
-    background: #f4f4f4;
-    color: #444;
-    padding: 14px 20px;
-    font-size: 12px;
-    font-weight: 800;
+    background: #f8f9fa;
+    color: #888;
+    padding: 10px 16px;
+    font-size: 10px;
+    font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.5px;
     border-bottom: 1px solid #eee;
@@ -427,8 +402,7 @@ body.dashboard-mode {
     margin-left: 260px;
     background: var(--dash-bg);
     min-height: calc(100vh - 132px);
-    
-    padding: 24px;
+    padding: 20px;
     transition: margin 0.3s ease;
 }
 
@@ -444,23 +418,20 @@ body.dashboard-mode {
 }
 
 .stats-card {
-    background: white;
-    border: 1px solid white;
-    border-radius: 12px;
-    
+    background: #fff;
+    border: 1px solid var(--dash-border);
+    border-radius: 8px;
     width: 350px;
     flex-shrink: 0;
     padding: 16px;
-    box-shadow: var(--dash-shadow-sm);
-    transition: all 0.3s ease;
+    box-shadow: none;
+    transition: box-shadow 0.15s ease;
     position: relative;
     overflow: hidden;
 }
 
 .stats-card:hover {
-    transform: translateY(-4px);
-    box-shadow: var(--dash-shadow-lg);
-    border-color: rgba(0, 112, 60, 0.1);
+    box-shadow: var(--dash-shadow-md);
 }
 
 .stats-card-header {
@@ -550,25 +521,23 @@ body.dashboard-mode {
 
 
 .betting-table-container {
-    background: white;
-    border: none;
-    border-radius: 12px;
-    box-shadow: var(--dash-shadow-sm);
+    background: #fff;
+    border: 1px solid var(--dash-border);
+    border-radius: 8px;
     overflow: hidden;
-    
 }
 
 .table-header-row {
-    background: linear-gradient(135deg, #005c31 0%, #004d26 100%);
-    color: white;
-    padding: 16px 20px;
-    font-weight: 800;
-    font-size: 15px;
+    background: var(--dash-header-bg);
+    color: #fff;
+    padding: 12px 16px;
+    font-weight: 700;
+    font-size: 13px;
     display: flex;
     justify-content: space-between;
     align-items: center;
     text-transform: uppercase;
-    letter-spacing: 0.5px;
+    letter-spacing: 0.3px;
 }
 
 .table-subheader-row {
@@ -745,32 +714,6 @@ body.dashboard-mode {
     flex-direction: column;
 }
 
-.sidebar-item-row {
-    padding: 10px 15px;
-    border-bottom: 1px solid #e0e0e0;
-    font-size: 14px;
-    font-weight: 700;
-    text-transform: uppercase;
-    cursor: pointer;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 12px;
-    color: #111;
-    transition: all 0.2s;
-    min-height: 48px;
-    
-}
-
-.sidebar-item-row:hover {
-    background-color: #f9f9f9;
-}
-
-.sidebar-item-row.selected {
-    background-color: rgba(0, 138, 60, 0.08);
-    color: #000;
-}
-
 .sidebar-children {
     background-color: #fafafa;
 }
@@ -834,29 +777,30 @@ body.dashboard-mode {
 .sidebar-item-row {
     display: flex;
     align-items: center;
-    min-height: 48px;
+    min-height: 44px;
     border-bottom: 1px solid #f0f0f0;
     cursor: pointer;
-    transition: background 0.2s;
-    padding: 0 15px;
+    transition: background 0.15s ease;
+    padding: 0 16px;
     gap: 0;
 }
 
 .sidebar-item-row:hover {
-    background-color: #f9f9f9;
+    background: #f5f5f5;
 }
 
 .sidebar-item-row.selected {
-    background-color: #f0f7f2;
+    background: rgba(0, 112, 60, 0.06);
 }
 
 .sidebar-item-row.expander-only {
     cursor: pointer;
-    background-color: #f6f6f6;
+    background: #f8f9fa;
 }
 
 .sidebar-item-row.expander-only .sidebar-label-text {
-    color: #444;
+    color: #666;
+    font-weight: 600;
 }
 
 .sidebar-checkbox-wrapper {
@@ -881,8 +825,8 @@ body.dashboard-mode {
 }
 
 .sidebar-small-checkbox:checked {
-    background-color: #008a3c;
-    border-color: #008a3c;
+    background-color: var(--dash-green);
+    border-color: var(--dash-green);
 }
 
 .sidebar-small-checkbox:checked::after {
@@ -906,14 +850,14 @@ body.dashboard-mode {
 }
 
 .sidebar-label-text {
-    font-size: 13px;
-    
+    font-size: 12px;
     font-weight: 700;
-    color: #111;
+    color: var(--dash-text);
     white-space: nowrap;
     text-overflow: ellipsis;
     overflow: hidden;
     text-transform: uppercase;
+    letter-spacing: 0.2px;
 }
 
 .sidebar-main-icon {
@@ -2391,12 +2335,12 @@ body.dashboard-mode {
     
     .promo-card-container {
         background: #fff;
-        border-radius: 12px;
-        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+        border-radius: 8px;
+        box-shadow: var(--dash-shadow-sm);
         margin: 15px;
         overflow: hidden;
         font-family: 'Open Sans', sans-serif;
-        border: 1px solid #eee;
+        border: 1px solid var(--dash-border);
     }
 
     .promo-team-header {
@@ -2676,15 +2620,15 @@ body.dashboard-mode {
     .dash-sidebar .sidebar-item-row.level-1.selected,
     .dash-sidebar .sidebar-item-row.level-2.selected,
     .dash-sidebar .sidebar-item-row.level-3.selected {
-        background: #e8f5e9;
-        border-left-color: #2e7d32;
+        background: rgba(0, 112, 60, 0.08);
+        border-left-color: var(--dash-green);
     }
 
     .dash-sidebar .sidebar-item-row.level-1.selected .sidebar-label-text,
     .dash-sidebar .sidebar-item-row.level-2.selected .sidebar-label-text,
     .dash-sidebar .sidebar-item-row.level-3.selected .sidebar-label-text {
-        color: #1b5e20;
-        font-weight: 700;
+        color: #111;
+        font-weight: 800;
     }
 
     .dash-sidebar .sidebar-item-row.level-1 .sidebar-item-content,
@@ -3376,35 +3320,35 @@ body.dashboard-mode {
 
 
 .sport-content-view {
-    background: #f5f5f5;
-    padding: 15px;
-    border-radius: 8px;
-    margin: 15px 0;
+    background: transparent;
+    padding: 0;
+    border-radius: 0;
+    margin: 0 0 16px;
 }
 
 .content-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 20px;
-    background: white;
-    padding: 15px;
-    border-radius: 6px;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    margin-bottom: 16px;
+    background: #fff;
+    padding: 12px 16px;
+    border-radius: 8px;
+    border: 1px solid var(--dash-border);
 }
 
 .content-title {
     display: flex;
     align-items: center;
     gap: 10px;
-    font-size: 16px;
+    font-size: 14px;
     font-weight: 700;
-    color: #333;
+    color: var(--dash-text);
 }
 
 .content-title i {
-    font-size: 20px;
-    color: #0088cc;
+    font-size: 18px;
+    color: #555;
 }
 
 .content-tabs {
@@ -3413,51 +3357,52 @@ body.dashboard-mode {
 }
 
 .tab-btn {
-    padding: 8px 16px;
-    background: #e0e0e0;
-    border: none;
+    padding: 6px 14px;
+    background: transparent;
+    border: 1px solid var(--dash-border);
     border-radius: 4px;
     cursor: pointer;
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 700;
+    color: #666;
     text-transform: uppercase;
-    transition: all 0.3s;
+    transition: background 0.15s ease, color 0.15s ease;
 }
 
 .tab-btn.active {
-    background: #0088cc;
-    color: white;
+    background: var(--dash-text);
+    color: #fff;
+    border-color: var(--dash-text);
 }
 
-.tab-btn:hover {
-    background: #0077b0;
-    color: white;
+.tab-btn:hover:not(.active) {
+    background: #f0f0f0;
+    color: #333;
 }
 
 
 .matches-section {
     display: flex;
     flex-direction: column;
-    gap: 15px;
+    gap: 12px;
 }
 
 .match-card {
-    background: white;
-    border-radius: 6px;
+    background: #fff;
+    border-radius: 8px;
     overflow: hidden;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-    transition: transform 0.2s, box-shadow 0.2s;
+    border: 1px solid var(--dash-border);
+    transition: box-shadow 0.15s ease;
 }
 
 .match-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    box-shadow: var(--dash-shadow-md);
 }
 
 .match-header {
-    background: linear-gradient(135deg, #0088cc 0%, #0066aa 100%);
-    color: white;
-    padding: 12px 15px;
+    background: var(--dash-header-bg);
+    color: #fff;
+    padding: 10px 16px;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -3466,34 +3411,35 @@ body.dashboard-mode {
 .match-time {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 2px;
 }
 
 .match-time .time {
     font-weight: 700;
-    font-size: 14px;
+    font-size: 13px;
 }
 
 .match-time .date {
     font-size: 11px;
-    opacity: 0.9;
+    opacity: 0.7;
 }
 
 .match-status {
-    background: rgba(255, 255, 255, 0.2);
-    padding: 4px 10px;
-    border-radius: 4px;
-    font-size: 11px;
+    background: rgba(255, 255, 255, 0.12);
+    padding: 3px 10px;
+    border-radius: 3px;
+    font-size: 10px;
     font-weight: 700;
     text-transform: uppercase;
+    letter-spacing: 0.5px;
 }
 
 .match-body {
-    padding: 15px;
+    padding: 14px 16px;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
 }
 
 .team-box {
@@ -3507,13 +3453,12 @@ body.dashboard-mode {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 40px;
-    height: 40px;
-    min-width: 40px;
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
     border-radius: 50%;
-    background: #f7f9fc;
-    border: 1px solid #d8e1eb;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+    background: #f8f9fa;
+    border: 1px solid var(--dash-border);
     overflow: hidden;
 }
 
@@ -3534,43 +3479,43 @@ body.dashboard-mode {
 .team-name {
     font-weight: 700;
     font-size: 13px;
-    color: #333;
+    color: var(--dash-text);
 }
 
 .team-abbr {
-    font-size: 11px;
-    color: #888;
+    font-size: 10px;
+    color: #999;
     text-transform: uppercase;
+    letter-spacing: 0.3px;
 }
 
 .score {
-    font-size: 24px;
+    font-size: 22px;
     font-weight: 900;
-    color: #0088cc;
-    min-width: 40px;
+    color: var(--dash-text);
+    min-width: 36px;
     text-align: right;
 }
 
 .vs-separator {
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 700;
-    color: #999;
+    color: #bbb;
     text-transform: uppercase;
-    opacity: 0.6;
 }
 
 
 .match-odds {
-    background: #f9f9f9;
-    border-top: 1px solid #eee;
-    padding: 10px;
+    background: #f8f9fa;
+    border-top: 1px solid var(--dash-border);
+    padding: 10px 16px;
     display: flex;
     justify-content: center;
 }
 
 .odds-row {
     display: flex;
-    gap: 15px;
+    gap: 12px;
     width: 100%;
     justify-content: space-around;
 }
@@ -3579,7 +3524,7 @@ body.dashboard-mode {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 5px;
+    gap: 4px;
     flex: 1;
 }
 
@@ -3587,37 +3532,43 @@ body.dashboard-mode {
     font-size: 10px;
     font-weight: 700;
     text-transform: uppercase;
-    color: #666;
+    color: #888;
+    letter-spacing: 0.3px;
 }
 
 .odds-value {
     font-size: 12px;
     font-weight: 700;
-    color: #0088cc;
+    color: var(--dash-text);
     padding: 4px 8px;
-    background: white;
-    border: 1px solid #ddd;
-    border-radius: 3px;
+    background: #fff;
+    border: 1px solid var(--dash-border);
+    border-radius: 4px;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: background 0.15s ease, color 0.15s ease;
 }
 
 .odds-value:hover {
-    background: #0088cc;
-    color: white;
-    border-color: #0088cc;
+    background: var(--dash-green);
+    color: #fff;
+    border-color: var(--dash-green);
 }
 
 .match-footer {
-    background: #f9f9f9;
-    padding: 12px 15px;
-    border-top: 1px solid #eee;
+    background: #f8f9fa;
+    padding: 8px 16px;
+    border-top: 1px solid var(--dash-border);
     display: flex;
     justify-content: flex-end;
 }
 
+.match-status.live {
+    background: var(--dash-red);
+    color: #fff;
+}
+
 .match-card.match-card-closed {
-    box-shadow: 0 2px 8px rgba(120, 120, 120, 0.15);
+    opacity: 0.7;
 }
 
 .bet-btn {
@@ -4018,9 +3969,139 @@ body.dashboard-mode {
         font-size: 11px;
         gap: 6px;
     }
-    
+
     .admin-button svg {
         width: 14px;
         height: 14px;
+    }
+}
+
+
+/* ═══════════════════════════════════════════════════════════
+   Desktop Sportsbook Child Selection — Premium UX
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── Content area transition loader (top bar) ──────────── */
+.sport-content-transition-loader {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    z-index: 10;
+    overflow: hidden;
+    background: rgba(0, 0, 0, 0.05);
+}
+
+.transition-loader-bar {
+    height: 100%;
+    width: 40%;
+    background: linear-gradient(90deg, transparent, #999, transparent);
+    animation: slideLoader 0.6s ease-in-out infinite;
+}
+
+@keyframes slideLoader {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(350%); }
+}
+
+/* ── Content fade transition ───────────────────────────── */
+.dash-main {
+    position: relative;
+}
+
+.dash-main-content {
+    transition: opacity 0.2s ease;
+}
+
+.dash-main-content.content-fading {
+    opacity: 0.3;
+    pointer-events: none;
+}
+
+.dash-main-content.content-visible {
+    opacity: 1;
+}
+
+/* ── Shimmer loading skeleton for SportContentView ─────── */
+.sport-content-loader {
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    background: #fff;
+    border-radius: 8px;
+}
+
+.sport-loader-shimmer {
+    height: 64px;
+    border-radius: 6px;
+    background: linear-gradient(90deg, #f0f0f0 25%, #e8e8e8 50%, #f0f0f0 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.2s ease-in-out infinite;
+}
+
+.sport-loader-shimmer.short {
+    width: 70%;
+}
+
+@keyframes shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+/* ── Desktop sidebar: selected child (existing theme) ──── */
+@media (min-width: 769px) {
+    .dash-sidebar .sidebar-item-row.level-1.selected,
+    .dash-sidebar .sidebar-item-row.level-2.selected,
+    .dash-sidebar .sidebar-item-row.level-3.selected {
+        background: rgba(0, 112, 60, 0.08) !important;
+        border-left: 3px solid var(--dash-green) !important;
+        padding-left: 37px !important;
+    }
+
+    .dash-sidebar .sidebar-item-row.level-1.selected .sidebar-label-text,
+    .dash-sidebar .sidebar-item-row.level-2.selected .sidebar-label-text,
+    .dash-sidebar .sidebar-item-row.level-3.selected .sidebar-label-text {
+        font-weight: 800 !important;
+        color: #111 !important;
+    }
+
+    /* Parent sport row: subtle context when a child is selected */
+    .dash-sidebar .sidebar-item-row.level-0.has-active-child {
+        background: rgba(0, 112, 60, 0.04) !important;
+    }
+
+    .dash-sidebar .sidebar-item-row.level-0.has-active-child .sidebar-label-text {
+        font-weight: 800 !important;
+    }
+}
+
+/* ── Mobile sidebar: selected state clarity ────────────── */
+@media (max-width: 768px) {
+    /* Selected parent sport on mobile */
+    .dash-sidebar .sidebar-item-row.level-0.selected,
+    .dash-sidebar .sidebar-item-row.level-0.has-active-child {
+        background: rgba(0, 112, 60, 0.06) !important;
+    }
+
+    .dash-sidebar .sidebar-item-row.level-0.selected .sidebar-label-text,
+    .dash-sidebar .sidebar-item-row.level-0.has-active-child .sidebar-label-text {
+        font-weight: 800 !important;
+    }
+
+    /* Selected child on mobile — reinforce existing green system */
+    .dash-sidebar .sidebar-item-row.level-1.selected,
+    .dash-sidebar .sidebar-item-row.level-2.selected,
+    .dash-sidebar .sidebar-item-row.level-3.selected {
+        background: rgba(0, 112, 60, 0.08) !important;
+        border-left-color: var(--dash-green) !important;
+    }
+
+    .dash-sidebar .sidebar-item-row.level-1.selected .sidebar-label-text,
+    .dash-sidebar .sidebar-item-row.level-2.selected .sidebar-label-text,
+    .dash-sidebar .sidebar-item-row.level-3.selected .sidebar-label-text {
+        color: #111 !important;
+        font-weight: 800 !important;
     }
 }

@@ -719,6 +719,15 @@ export const getAdminHeaderSummary = async (token) => {
     return response.json();
 };
 
+export const recordSettlementAdjustment = async (payload, token) => {
+    const response = await fetch(buildApiUrl('/admin/settlement-adjustment'), {
+        method: 'POST',
+        headers: getHeaders(token),
+        body: JSON.stringify(payload || {})
+    });
+    return parseJsonResponse(response, 'Failed to record settlement adjustment');
+};
+
 export const getSystemStats = async (token) => {
     const response = await fetch(buildApiUrl('/admin/system-stats'), {
         headers: getHeaders(token)

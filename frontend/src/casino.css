@@ -11,7 +11,7 @@
     width: 100%;
     max-width: 100%;
     min-height: calc(100vh - 72px);
-    background: radial-gradient(circle at top left, #ffffff 0%, var(--casino-bg) 72%);
+    background: var(--casino-bg);
     color: var(--casino-text);
     display: flex;
     flex-direction: column;
@@ -46,7 +46,7 @@
     border: 1px solid #d8e4f2;
     background: #f8fbff;
     color: #436388;
-    border-radius: 12px;
+    border-radius: 6px;
     padding: 10px 12px;
     font-size: 12px;
     font-weight: 800;
@@ -56,7 +56,7 @@
     gap: 8px;
     text-transform: uppercase;
     white-space: nowrap;
-    transition: all 0.16s ease;
+    transition: all 0.15s ease;
 }
 
 .casino-nav-item:hover {
@@ -158,17 +158,17 @@
 .casino-card {
     background: var(--casino-card);
     border: 1px solid var(--casino-border);
-    border-radius: 14px;
+    border-radius: 10px;
     overflow: hidden;
     display: flex;
     flex-direction: column;
-    box-shadow: 0 8px 20px rgba(24, 43, 75, 0.08);
-    transition: transform 0.16s ease, box-shadow 0.16s ease;
+    box-shadow: 0 4px 8px rgba(24, 43, 75, 0.08);
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 
 .casino-card:hover {
     transform: translateY(-2px);
-    box-shadow: 0 12px 24px rgba(20, 37, 66, 0.14);
+    box-shadow: 0 6px 8px rgba(20, 37, 66, 0.14);
 }
 
 .casino-card-image {
@@ -203,7 +203,7 @@
     justify-content: center;
     opacity: 0;
     transform: scale(0.85);
-    transition: all 0.16s ease;
+    transition: all 0.15s ease;
 }
 
 .casino-card:hover .play-overlay {
@@ -361,7 +361,7 @@
     margin: 16px 16px 0;
     min-height: 240px;
     border: 1px solid rgba(22, 101, 52, 0.2);
-    border-radius: 18px;
+    border-radius: 10px;
     overflow: hidden;
     background-position: center;
     background-size: cover;
@@ -369,7 +369,7 @@
     display: block;
     text-align: left;
     cursor: pointer;
-    box-shadow: 0 18px 36px rgba(9, 37, 19, 0.12);
+    box-shadow: 0 4px 8px rgba(9, 37, 19, 0.12);
 }
 
 .casino-feature-poster-overlay {
@@ -414,7 +414,7 @@
     line-height: 1;
     letter-spacing: 0.02em;
     text-transform: uppercase;
-    text-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
+    text-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
 }
 
 .casino-feature-copy {
@@ -445,12 +445,12 @@
     font-weight: 900;
     letter-spacing: 0.04em;
     text-transform: uppercase;
-    box-shadow: 0 12px 24px rgba(132, 204, 22, 0.2);
+    box-shadow: 0 4px 8px rgba(132, 204, 22, 0.2);
 }
 
 .casino-feature-poster:hover {
     transform: translateY(-2px);
-    box-shadow: 0 24px 42px rgba(9, 37, 19, 0.18);
+    box-shadow: 0 4px 8px rgba(9, 37, 19, 0.18);
 }
 
 .casino-feature-poster.is-disabled {
@@ -485,12 +485,12 @@
 .local-game-card {
     cursor: pointer;
     border: 1.5px solid #e2c978;
-    box-shadow: 0 8px 24px rgba(212, 160, 23, 0.12);
+    box-shadow: 0 4px 8px rgba(212, 160, 23, 0.12);
 }
 
 .local-game-card:hover {
     border-color: #d4a017;
-    box-shadow: 0 12px 28px rgba(212, 160, 23, 0.22);
+    box-shadow: 0 4px 8px rgba(212, 160, 23, 0.22);
 }
 
 .local-game-card.is-disabled {
@@ -663,7 +663,7 @@
     border-radius: 10px;
     backdrop-filter: blur(10px);
     border: 1px solid rgba(255, 255, 255, 0.12);
-    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.45);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.45);
     animation: gameResultSlideIn 0.22s ease;
     white-space: nowrap;
 }
@@ -691,7 +691,7 @@
 .game-round-result--jackpot {
     background: rgba(92, 52, 0, 0.95);
     border-color: rgba(251, 191, 36, 0.65);
-    box-shadow: 0 0 28px rgba(251, 191, 36, 0.25), 0 4px 24px rgba(0, 0, 0, 0.45);
+    box-shadow: 0 0 8px rgba(251, 191, 36, 0.25), 0 4px 8px rgba(0, 0, 0, 0.45);
 }
 
 .game-round-result--freespin {
@@ -831,9 +831,9 @@
     width: 140px;
     height: 90px;
     object-fit: cover;
-    border-radius: 12px;
+    border-radius: 8px;
     border: 2px solid rgba(34, 197, 94, 0.4);
-    box-shadow: 0 0 24px rgba(34, 197, 94, 0.25);
+    box-shadow: 0 0 8px rgba(34, 197, 94, 0.25);
 }
 
 .game-launch-logo {
@@ -841,7 +841,7 @@
     height: auto;
     max-height: 112px;
     object-fit: contain;
-    filter: drop-shadow(0 0 18px rgba(34, 197, 94, 0.5));
+    filter: drop-shadow(0 0 8px rgba(34, 197, 94, 0.5));
 }
 
 .game-launch-title {
@@ -850,7 +850,7 @@
     color: #ffffff;
     text-align: center;
     letter-spacing: 0.04em;
-    text-shadow: 0 2px 12px rgba(0, 0, 0, 0.8);
+    text-shadow: 0 2px 8px rgba(0, 0, 0, 0.8);
     text-transform: uppercase;
 }
 
@@ -933,7 +933,7 @@
 .game-fullscreen-loading-logo {
     width: 260px;
     max-width: 70vw;
-    filter: drop-shadow(0 0 18px rgba(34, 197, 94, 0.5));
+    filter: drop-shadow(0 0 8px rgba(34, 197, 94, 0.5));
 }
 
 .game-loading-spinner--lg {
@@ -1019,20 +1019,20 @@
     background: linear-gradient(135deg, #16a34a 0%, #15803d 100%);
     border: 1px solid #22c55e;
     color: #ffffff;
-    border-radius: 14px;
+    border-radius: 10px;
     font-size: 16px;
     font-weight: 800;
     letter-spacing: 0.04em;
     cursor: pointer;
     transition: background 0.15s, transform 0.1s, box-shadow 0.15s, opacity 0.15s;
-    box-shadow: 0 6px 24px rgba(22, 163, 74, 0.45);
+    box-shadow: 0 4px 8px rgba(22, 163, 74, 0.45);
     text-transform: uppercase;
 }
 
 .game-launch-btn:hover:not(.disabled) {
     background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
     transform: translateY(-2px);
-    box-shadow: 0 10px 30px rgba(34, 197, 94, 0.55);
+    box-shadow: 0 4px 8px rgba(34, 197, 94, 0.55);
 }
 
 .game-launch-btn.disabled {
@@ -1142,14 +1142,14 @@
     background: linear-gradient(135deg, #16a34a 0%, #15803d 100%);
     border: 1px solid #22c55e;
     color: #ffffff;
-    border-radius: 12px;
+    border-radius: 8px;
     padding: 10px 22px;
     font-size: 15px;
     font-weight: 800;
     letter-spacing: 0.05em;
     cursor: pointer;
     transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
-    box-shadow: 0 4px 14px rgba(22, 163, 74, 0.4);
+    box-shadow: 0 4px 8px rgba(22, 163, 74, 0.4);
     pointer-events: all;
     min-width: 90px;
     justify-content: center;
@@ -1158,7 +1158,7 @@
 .game-spin-btn:hover {
     background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
     transform: translateY(-2px);
-    box-shadow: 0 6px 20px rgba(34, 197, 94, 0.55);
+    box-shadow: 0 4px 8px rgba(34, 197, 94, 0.55);
 }
 
 .game-spin-btn:active:not(.disabled) {
@@ -1196,9 +1196,9 @@
 .casino-history-section {
     margin: 12px 16px 20px;
     border: 1px solid var(--casino-border);
-    border-radius: 14px;
+    border-radius: 10px;
     background: #fff;
-    box-shadow: 0 10px 24px rgba(17, 33, 58, 0.08);
+    box-shadow: 0 4px 8px rgba(17, 33, 58, 0.08);
     padding: 14px;
 }
 

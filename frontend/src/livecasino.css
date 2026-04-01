@@ -9,7 +9,7 @@
     width: 100%;
     max-width: 100%;
     min-height: calc(100vh - 72px);
-    background: radial-gradient(circle at top left, #ffffff 0%, var(--lc-bg) 70%);
+    background: var(--lc-bg);
     color: var(--lc-text);
     flex: 1 1 auto;
     min-height: 0;
@@ -167,7 +167,7 @@
 .live-state {
     border: 1px solid var(--lc-border);
     background: #fff;
-    border-radius: 12px;
+    border-radius: 8px;
     padding: 24px;
     text-align: center;
     color: #607d9f;
@@ -202,11 +202,11 @@
 .live-table-card {
     border: 1px solid #d8e4f2;
     background: #fff;
-    border-radius: 12px;
+    border-radius: 8px;
     overflow: hidden;
     display: flex;
     flex-direction: column;
-    box-shadow: 0 8px 20px rgba(19, 39, 67, 0.08);
+    box-shadow: 0 4px 8px rgba(19, 39, 67, 0.08);
 }
 
 .table-preview {

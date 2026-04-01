@@ -212,6 +212,10 @@ final class AdminCoreController
             $this->finalizeSettlement();
             return true;
         }
+        if ($method === 'POST' && $path === '/api/admin/settlement-adjustment') {
+            $this->recordSettlementAdjustment();
+            return true;
+        }
         if ($method === 'GET' && $path === '/api/admin/cashier/summary') {
             $this->getCashierSummary();
             return true;
@@ -994,7 +998,7 @@ final class AdminCoreController
                     }
 
                     if (count($managedAgentObjectIds) === 0) {
-                        return $this->buildEmptyHeaderSummary();
+                        return $this->buildEmptyHeaderSummary($actor, $startOfWeek);
                     }
 
                     $matchUser['$or'] = [
@@ -1203,6 +1207,11 @@ final class AdminCoreController
                     $previousMakeup,
                     $previousBalanceOwed
                 );
+                $settlementSummary = $this->applySettlementBalanceAdjustments(
+                    $settlementSummary,
+                    $actorId,
+                    $startOfWeek
+                );
 
                 // Build commission distribution across upline chain for agent actors
                 $commissionDistribution = [];
@@ -1279,6 +1288,8 @@ final class AdminCoreController
                     'weeklyMakeupAddition' => $settlementSummary['weeklyMakeupAddition'],
                     'cumulativeMakeup' => $settlementSummary['cumulativeMakeup'],
                     'previousBalanceOwed' => $settlementSummary['previousBalanceOwed'],
+                    'computedBalanceOwed' => $settlementSummary['computedBalanceOwed'],
+                    'balanceAdjustment' => $settlementSummary['balanceAdjustment'],
                     'balanceOwed' => $settlementSummary['balanceOwed'],
                     'commissionDistribution' => $commissionDistribution,
                     'sportsbookHealth' => SportsbookHealth::sportsbookSnapshot($this->db),
@@ -3520,6 +3531,142 @@ final class AdminCoreController
         }
     }
 
+    private function recordSettlementAdjustment(): void
+    {
+        try {
+            $actor = $this->protect(['admin', 'agent', 'master_agent', 'super_agent']);
+            if ($actor === null) {
+                return;
+            }
+
+            $actorRole = strtolower(trim((string) ($actor['role'] ?? '')));
+            if ($actorRole !== 'admin' && (bool) ($actor['viewOnly'] ?? false)) {
+                Response::json(['message' => 'View-only accounts cannot record settlement adjustments'], 403);
+                return;
+            }
+
+            $body = Http::jsonBody();
+            $agentId = (string) ($body['agentId'] ?? ($actor['id'] ?? ''));
+            if ($agentId === '' || preg_match('/^[a-f0-9]{24}$/i', $agentId) !== 1) {
+                Response::json(['message' => 'Valid agentId is required'], 400);
+                return;
+            }
+
+            if ($actorRole !== 'admin' && $agentId !== (string) ($actor['id'] ?? '')) {
+                Response::json(['message' => 'Not authorized to adjust another agent'], 403);
+                return;
+            }
+
+            $rawAmount = $body['amount'] ?? null;
+            if (!is_numeric($rawAmount)) {
+                Response::json(['message' => 'A signed numeric amount is required'], 400);
+                return;
+            }
+
+            $amount = round((float) $rawAmount, 2);
+            if (abs($amount) < 0.005) {
+                Response::json(['message' => 'Amount must be greater than zero'], 400);
+                return;
+            }
+
+            $direction = strtolower(trim((string) ($body['direction'] ?? 'manual')));
+            if (!in_array($direction, ['agent-pay-in', 'house-paid-agent', 'manual'], true)) {
+                $direction = 'manual';
+            }
+
+            $note = trim((string) ($body['note'] ?? ''));
+            if (strlen($note) > 240) {
+                $note = substr($note, 0, 240);
+            }
+
+            $agent = $this->db->findOne('agents', ['id' => MongoRepository::id($agentId)], [
+                'projection' => ['id' => 1, 'username' => 1, 'role' => 1],
+            ]);
+            if ($agent === null) {
+                Response::json(['message' => 'Agent not found'], 404);
+                return;
+            }
+
+            $weekStart = $this->startOfWeek($this->pacificNow());
+            $weekStartStr = $weekStart->format('Y-m-d\TH:i:s\Z');
+            $now = MongoRepository::nowUtc();
+
+            $this->db->insertOne('settlement_adjustments', [
+                'agentId' => $agentId,
+                'agentUsername' => (string) ($agent['username'] ?? ''),
+                'weekStartStr' => $weekStartStr,
+                'weekStart' => MongoRepository::utcFromMillis($weekStart->getTimestamp() * 1000),
+                'amount' => $amount,
+                'direction' => $direction,
+                'note' => $note !== '' ? $note : null,
+                'createdById' => (string) ($actor['id'] ?? ''),
+                'createdByRole' => (string) ($actor['role'] ?? ''),
+                'createdByUsername' => (string) ($actor['username'] ?? ''),
+                'createdAt' => $now,
+                'updatedAt' => $now,
+            ]);
+
+            $this->invalidateHeaderSummaryCache();
+
+            Response::json([
+                'message' => 'Settlement adjustment recorded',
+                'adjustment' => [
+                    'agentId' => $agentId,
+                    'agentUsername' => (string) ($agent['username'] ?? ''),
+                    'weekStartStr' => $weekStartStr,
+                    'amount' => $amount,
+                    'direction' => $direction,
+                    'note' => $note,
+                ],
+            ]);
+        } catch (Throwable $e) {
+            error_log('[SETTLEMENT_ADJUSTMENT_ERROR] ' . $e->getMessage());
+            Response::json(['message' => 'Server error recording settlement adjustment'], 500);
+        }
+    }
+
+    private function getSettlementBalanceAdjustmentTotal(string $agentId, DateTimeImmutable $weekStart): float
+    {
+        if ($agentId === '' || preg_match('/^[a-f0-9]{24}$/i', $agentId) !== 1) {
+            return 0.0;
+        }
+
+        $rows = $this->db->findMany('settlement_adjustments', [
+            'agentId' => $agentId,
+            'weekStartStr' => $weekStart->format('Y-m-d\TH:i:s\Z'),
+        ], [
+            'projection' => ['amount' => 1],
+        ]);
+
+        $total = 0.0;
+        foreach ($rows as $row) {
+            $total += $this->num($row['amount'] ?? 0);
+        }
+
+        return round($total, 2);
+    }
+
+    /**
+     * Apply signed settlement adjustments recorded for the selected week.
+     *
+     * Positive adjustment increases the amount owed to the house.
+     * Negative adjustment reduces the amount owed to the house.
+     *
+     * @param array<string, mixed> $summary
+     * @return array<string, mixed>
+     */
+    private function applySettlementBalanceAdjustments(array $summary, string $agentId, DateTimeImmutable $weekStart): array
+    {
+        $computedBalanceOwed = $this->num($summary['balanceOwed'] ?? 0);
+        $balanceAdjustment = $this->getSettlementBalanceAdjustmentTotal($agentId, $weekStart);
+
+        $summary['computedBalanceOwed'] = $computedBalanceOwed;
+        $summary['balanceAdjustment'] = $balanceAdjustment;
+        $summary['balanceOwed'] = round($computedBalanceOwed + $balanceAdjustment, 2);
+
+        return $summary;
+    }
+
     // ── Settlement snapshot helpers ──────────────────────────────────
 
     /**
@@ -3699,6 +3846,7 @@ final class AdminCoreController
             $carryForward['previousMakeup'],
             $carryForward['previousBalanceOwed']
         );
+        $summary = $this->applySettlementBalanceAdjustments($summary, $agentId, $prevWeekStart);
 
         // Persist snapshot (idempotent via insertOneIfAbsent)
         $now = MongoRepository::nowUtc();
@@ -3717,6 +3865,8 @@ final class AdminCoreController
             'unpaidPlayerFees'    => $unpaidPlayerFees,
             'previousMakeup'      => $carryForward['previousMakeup'],
             'previousBalanceOwed' => $carryForward['previousBalanceOwed'],
+            'computedBalanceOwed' => $summary['computedBalanceOwed'],
+            'balanceAdjustment'   => $summary['balanceAdjustment'],
             'createdAt'           => $now,
         ]);
 
@@ -11785,9 +11935,33 @@ final class AdminCoreController
      * 
      * @return array<string, mixed>
      */
-    private function buildEmptyHeaderSummary(): array
+    private function buildEmptyHeaderSummary(array $actor = [], ?DateTimeImmutable $weekStart = null): array
     {
-        $emptySettlement = AgentSettlementRules::summarize(0.0, 0.0, 0.0, 0.0);
+        $actorId = (string) ($actor['id'] ?? '');
+        $actorRole = strtolower(trim((string) ($actor['role'] ?? '')));
+        $actorPercent = isset($actor['agentPercent']) ? (float) $actor['agentPercent'] : null;
+
+        if (
+            $weekStart instanceof DateTimeImmutable
+            && $actorId !== ''
+            && in_array($actorRole, ['agent', 'master_agent', 'super_agent'], true)
+        ) {
+            $carryForward = $this->resolveSettlementCarryForward($actorId, $weekStart, $actor);
+            $emptySettlement = AgentSettlementRules::summarize(
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                $actorPercent,
+                $carryForward['previousMakeup'],
+                $carryForward['previousBalanceOwed']
+            );
+            $emptySettlement = $this->applySettlementBalanceAdjustments($emptySettlement, $actorId, $weekStart);
+        } else {
+            $emptySettlement = AgentSettlementRules::summarize(0.0, 0.0, 0.0, 0.0);
+            $emptySettlement['computedBalanceOwed'] = $emptySettlement['balanceOwed'];
+            $emptySettlement['balanceAdjustment'] = 0.0;
+        }
         
         return [
             'totalBalance' => 0.0,
@@ -11816,6 +11990,8 @@ final class AdminCoreController
             'weeklyMakeupAddition' => $emptySettlement['weeklyMakeupAddition'],
             'cumulativeMakeup' => $emptySettlement['cumulativeMakeup'],
             'previousBalanceOwed' => $emptySettlement['previousBalanceOwed'],
+            'computedBalanceOwed' => $emptySettlement['computedBalanceOwed'],
+            'balanceAdjustment' => $emptySettlement['balanceAdjustment'],
             'balanceOwed' => $emptySettlement['balanceOwed'],
             'commissionDistribution' => [],
             'sportsbookHealth' => SportsbookHealth::sportsbookSnapshot($this->db),

@@ -21,7 +21,14 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
 
     const [content, setContent] = useState({ name: '', icon: '', matches: [] });
     const [isLoading, setIsLoading] = useState(true);
+    const loadGenRef = React.useRef(0);
     const rawMatches = useMatches({ status, scopeKey: `${sportId || 'all'}:${filter || ''}` });
+
+    // Clear stale content immediately when sportId changes
+    React.useEffect(() => {
+        setContent({ name: '', icon: '', matches: [] });
+        setIsLoading(true);
+    }, [sportId, filter]);
 
     React.useEffect(() => {
         // Determine sport name and icon — prefer the sportsData tree, fallback to hardcoded map
@@ -70,10 +77,13 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
         }
 
         const sportInfo = resolveSportInfo(resolvedSportId);
+        const gen = ++loadGenRef.current;
         setIsLoading(true);
 
         // Map rawMatches into view-friendly structure and filter by sportId where possible
             const processMatches = () => {
+                // Guard against stale processing from rapid selection changes
+                if (gen !== loadGenRef.current) return;
                 const matchesData = (rawMatches || []);
                 const keywords = getSportKeywords(resolvedSportId);
 
@@ -240,10 +250,10 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
             {activeTab === 'matches' && (
                 <div className="matches-section">
                     {isLoading ? (
-                        <div style={{ padding: '40px', textAlign: 'center', color: '#888', background: '#fff', borderRadius: '8px' }}>
-                            <i className="fa-solid fa-spinner fa-spin" style={{ fontSize: '48px', marginBottom: '16px', opacity: 0.5 }}></i>
-                            <h3>Loading sports data...</h3>
-                            <p>Please wait while we load the latest matches.</p>
+                        <div className="sport-content-loader">
+                            <div className="sport-loader-shimmer"></div>
+                            <div className="sport-loader-shimmer short"></div>
+                            <div className="sport-loader-shimmer"></div>
                         </div>
                     ) : content.matches.length === 0 ? (
                         <div style={{ padding: '40px', textAlign: 'center', color: '#888', background: '#fff', borderRadius: '8px' }}>

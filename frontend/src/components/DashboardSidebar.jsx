@@ -42,6 +42,12 @@ const SidebarItem = ({
     );
 
     const hasChildren = activeChildren.length > 0;
+
+    // Check if any child is selected (for parent active context)
+    const hasSelectedChild = useMemo(() => {
+        if (!activeChildren.length) return false;
+        return activeChildren.some(child => selectedIds.includes(child.id));
+    }, [activeChildren, selectedIds]);
     const isSelectable = item.selectable !== false;
     const isPropsPlus = item.type === 'props-plus';
     const isFutures = item.type === 'futures';
@@ -70,6 +76,7 @@ const SidebarItem = ({
     const rowClasses = [
         'sidebar-item-row',
         isSelected && 'selected',
+        hasSelectedChild && 'has-active-child',
         !isSelectable && hasChildren && 'expander-only',
         `level-${level}`,
         `item-type-${item.type || 'standard'}`,
