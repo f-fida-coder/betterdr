@@ -259,7 +259,7 @@ function AdminPanel({ onExit, role = 'admin' }) {
         return <IPTrackerView canManage={canManageIpTracker(effectiveRole, permissions)} />;
       case 'transaction-history':
       case 'transactions-history':
-        return <TransactionsHistoryView />;
+        return <TransactionsHistoryView viewContext={viewContext} />;
       case 'deleted-wagers':
         return <DeletedWagersView />;
       case 'games-events':

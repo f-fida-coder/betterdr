@@ -171,7 +171,7 @@ const mapUsersToSuggestions = (users) => {
   return out;
 };
 
-function TransactionsHistoryView() {
+function TransactionsHistoryView({ viewContext }) {
   const today = useMemo(() => toIsoDate(new Date()), []);
   const sevenDaysAgo = useMemo(() => {
     const d = new Date();
@@ -183,7 +183,7 @@ function TransactionsHistoryView() {
   ));
   const [agentsSearch, setAgentsSearch] = useState('');
   const [playersSearch, setPlayersSearch] = useState('');
-  const [enteredBySearch, setEnteredBySearch] = useState('');
+  const [enteredBySearch, setEnteredBySearch] = useState(viewContext?.enteredBy || '');
   const [selectedTransactionTypes, setSelectedTransactionTypes] = useState(['deposit', 'withdrawal']);
   const [typeFilterOpen, setTypeFilterOpen] = useState(false);
   const [mode, setMode] = useState('player-transactions');
@@ -459,7 +459,12 @@ function TransactionsHistoryView() {
   };
 
   useEffect(() => {
-    loadHistory();
+    if (viewContext?.enteredBy) {
+      setEnteredBySearch(viewContext.enteredBy);
+      loadHistory({ enteredBySearch: viewContext.enteredBy });
+    } else {
+      loadHistory();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

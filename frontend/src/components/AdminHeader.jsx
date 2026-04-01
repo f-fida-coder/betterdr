@@ -819,8 +819,12 @@ function AdminHeader({
                 <button
                   type="button"
                   className="stat-row stat-row-button"
-                  onClick={() => openWeeklyCollections('agent-collections')}
-                  aria-label={`Open weekly figures for ${displayName} agent collections`}
+                  onClick={() => {
+                    if (typeof onViewChange === 'function') {
+                      onViewChange('transaction-history', { enteredBy: displayName, collectionType: 'agent' });
+                    }
+                  }}
+                  aria-label={`View agent collection transactions`}
                 >
                   <span className="stat-label">Agent Collections</span>
                   <span className={`stat-value ${getSignedValueClass(agentCollectionsValue)}`}>{formatCurrency(agentCollectionsValue)}</span>
@@ -828,8 +832,12 @@ function AdminHeader({
                 <button
                   type="button"
                   className="stat-row stat-row-button"
-                  onClick={() => openWeeklyCollections('house-collections')}
-                  aria-label={`Open weekly figures for ${displayName} house collections`}
+                  onClick={() => {
+                    if (typeof onViewChange === 'function') {
+                      onViewChange('transaction-history', { enteredBy: 'HOUSE', collectionType: 'house' });
+                    }
+                  }}
+                  aria-label={`View house collection transactions`}
                 >
                   <span className="stat-label">House Collections</span>
                   <span className={`stat-value ${getSignedValueClass(houseCollectionsValue)}`}>{formatCurrency(houseCollectionsValue)}</span>
