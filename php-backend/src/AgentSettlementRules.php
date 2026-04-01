@@ -80,8 +80,7 @@ final class AgentSettlementRules
         $netCollections = $agentCollections - $houseCollections;
         $isPositiveWeek = $netCollections > 0.0;
 
-        $normalizedPaidFees = max(0.0, $paidPlayerFees);
-        $normalizedUnpaidFees = max(0.0, $unpaidPlayerFees);
+        $totalPlayerFees = max(0.0, $paidPlayerFees) + max(0.0, $unpaidPlayerFees);
         $previousMakeup = max(0.0, $previousMakeup);
 
         // ── Settlement order ───────────────────────────────────────────
@@ -111,19 +110,18 @@ final class AgentSettlementRules
             $kickToHouse = 0.0;
         }
 
-        // Step 3: Agent profit after paid player fees
-        $agentProfitAfterFees = round($agentSplit - $normalizedPaidFees, 2);
+        // Step 3: Agent profit after all player fees
+        $agentProfitAfterFees = round($agentSplit - $totalPlayerFees, 2);
 
         // ── Weekly House Balance (THIS WEEK ONLY) ──────────────────────
-        // kick + paid player fees; does NOT include previous balance or makeup
+        // kick + all player fees; does NOT include previous balance or makeup
         $weeklyHouseBalance = ($commissionableProfit > 0.0)
-            ? round($kickToHouse + $normalizedPaidFees, 2)
+            ? round($kickToHouse + $totalPlayerFees, 2)
             : 0.0;
 
         // ── Makeup (cumulative) ────────────────────────────────────────
-        // Negative-player fees ALWAYS add to makeup (positive or negative week)
         // Negative net adds the deficit; positive net reduces via makeupReduction
-        $weeklyMakeupAddition = round(max(0.0, -$netCollections) + $normalizedUnpaidFees, 2);
+        $weeklyMakeupAddition = round(max(0.0, -$netCollections), 2);
         $cumulativeMakeup = max(0.0, round(
             $previousMakeup - $makeupReduction + $weeklyMakeupAddition,
             2

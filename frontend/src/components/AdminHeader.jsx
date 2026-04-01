@@ -902,7 +902,7 @@ function AdminHeader({
               {roleKey === 'agent' ? (
                 <div className="stat-row">
                   <span className="stat-label">Player Fees</span>
-                  <span className="stat-value">{formatCurrency(summary.paidPlayerFees ?? 0)}</span>
+                  <span className="stat-value">{formatCurrency(summary.totalPlayerFees ?? 0)}</span>
                 </div>
               ) : (
                 <div className="stat-row">
@@ -971,7 +971,7 @@ function AdminHeader({
                 </div>
                 <div className="stat-row">
                   <span className="stat-label">Player Fees</span>
-                  <span className="stat-value">{formatCurrency(paidPlayerFeesValue)}</span>
+                  <span className="stat-value">{formatCurrency(totalPlayerFeesValue)}</span>
                 </div>
                 <div className="stat-row">
                   <span className="stat-label">Kick to House</span>
