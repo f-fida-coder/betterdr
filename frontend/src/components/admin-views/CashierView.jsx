@@ -329,7 +329,7 @@ function CashierView() {
           type: txType,
           reason,
           description: effectiveDescription,
-          applyDepositFreeplayBonus: entry.type === 'deposit' ? entry.applyDepositFreeplayBonus !== false : undefined
+          applyDepositFreeplayBonus: (entry.type === 'deposit' && !isAgentMode) ? entry.applyDepositFreeplayBonus !== false : false
         }, token);
         const serverBalance = Number(creditResult?.user?.balance);
         if (Number.isFinite(serverBalance)) {
@@ -454,7 +454,7 @@ function CashierView() {
     const selectedUser = usersById.get(String(entry.selectedUserId || ''));
     const settle = Number(selectedUser?.balanceOwed || 0);
     const balance = Number(selectedUser?.balance || 0);
-    const depositFreeplayPreview = resolveDepositFreeplayBonusPreview(selectedUser, Number(entry.amount || 0));
+    const depositFreeplayPreview = isAgentMode ? null : resolveDepositFreeplayBonusPreview(selectedUser, Number(entry.amount || 0));
 
     const updateEntry = (nextEntry) => {
       updateEntryById(entry.id, () => nextEntry, isAgentMode);
@@ -485,7 +485,9 @@ function CashierView() {
               description: defaultDescriptionByType[e.target.value] || entry.description
             })}
           >
-            {TX_OPTIONS.map((opt) => (
+            {TX_OPTIONS
+              .filter((opt) => !isAgentMode || opt.value !== 'fp_deposit')
+              .map((opt) => (
               <option key={opt.value} value={opt.value}>{opt.label}</option>
             ))}
           </select>
@@ -517,7 +519,7 @@ function CashierView() {
             value={entry.description}
             onChange={(e) => updateEntry({ ...entry, description: e.target.value })}
           />
-          {entry.type === 'deposit' && (
+          {entry.type === 'deposit' && !isAgentMode && depositFreeplayPreview && (
             <label
               style={{
                 display: 'flex',
