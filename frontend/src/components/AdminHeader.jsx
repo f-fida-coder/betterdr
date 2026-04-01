@@ -848,7 +848,7 @@ function AdminHeader({
                   <span className="stat-label">Net Collections</span>
                   <span className={`stat-value ${getSignedValueClass(netCollectionsValue)}`}>{formatCurrency(netCollectionsValue)}</span>
                 </div>
-                {netCollectionsValue > 0 && (
+                {agentSplitValue > 0 && (
                   <>
                     <div className="stat-row">
                       <span className="stat-label">Agent Split{agentPercentValue != null ? ` ${agentPercentValue}%` : ''}</span>

@@ -57,14 +57,14 @@ final class AgentSettlementRules
     /**
      * Multi-week settlement with cumulative makeup and carry-forward.
      *
-     * Settlement order (CRITICAL):
-     *   1. Compute Net = Agent Collections - House Collections
-     *   2. If positive week AND previousMakeup > 0:
-     *        reduce makeup first, remainder becomes commissionable profit
-     *   3. Commission split only applies to commissionable profit
-     *   4. Negative-player fees ALWAYS go to makeup (never to balance)
-     *   5. Weekly House Balance = kick + paid fees (this week only)
-     *   6. Balance Owed = previous + houseCollections + weeklyHouseBalance
+     * Settlement order:
+     *   1. Net = Agent Collections + House Collections
+     *   2. If negative net: entire deficit + player fees → makeup. No profit for anyone.
+     *   3. If positive net but makeup exists: pay down makeup first.
+     *      Only remainder after makeup is fully cleared becomes commissionable.
+     *   4. Commission split (agent % / house %) only on commissionable profit.
+     *   5. House Profit = Kick to House + Player Fees (only when commissionable > 0)
+     *   6. Balance Owed = previous + House Profit - House Collections
      *
      * @return array<string, float>
      */
@@ -78,61 +78,57 @@ final class AgentSettlementRules
         float $previousBalanceOwed = 0.0
     ): array {
         $netCollections = $agentCollections + $houseCollections;
-        $isPositiveWeek = $netCollections > 0.0;
-
         $totalPlayerFees = max(0.0, $paidPlayerFees) + max(0.0, $unpaidPlayerFees);
         $previousMakeup = max(0.0, $previousMakeup);
 
-        // ── Settlement order ───────────────────────────────────────────
-        // Step 1: In a positive week, reduce makeup before distributing
+        // ── Step 1: Pay down makeup before anything else ──────────────
         $makeupReduction = 0.0;
         $commissionableProfit = 0.0;
 
-        if ($isPositiveWeek) {
-            if ($previousMakeup > 0.0) {
-                // Use net to pay down makeup first
-                $makeupReduction = round(min($netCollections, $previousMakeup), 2);
-                $commissionableProfit = round(max(0.0, $netCollections - $makeupReduction), 2);
-            } else {
-                $commissionableProfit = round($netCollections, 2);
-            }
+        if ($netCollections > 0.0 && $previousMakeup > 0.0) {
+            $makeupReduction = round(min($netCollections, $previousMakeup), 2);
+            $commissionableProfit = round(max(0.0, $netCollections - $makeupReduction), 2);
+        } elseif ($netCollections > 0.0) {
+            $commissionableProfit = round($netCollections, 2);
         }
+        // If net <= 0: commissionableProfit stays 0, no split for anyone
 
-        // Step 2: Commission split ONLY on profit remaining after makeup
+        // ── Step 2: Commission split ONLY on commissionable profit ────
+        $agentSplit = 0.0;
+        $kickToHouse = 0.0;
         if ($commissionableProfit > 0.0 && $agentPercent !== null && $agentPercent >= 0 && $agentPercent <= 100) {
             $agentSplit = round($commissionableProfit * $agentPercent / 100, 2);
             $kickToHouse = round($commissionableProfit - $agentSplit, 2);
         } elseif ($commissionableProfit > 0.0) {
             $agentSplit = round($commissionableProfit, 2);
-            $kickToHouse = 0.0;
-        } else {
-            $agentSplit = 0.0;
-            $kickToHouse = 0.0;
         }
 
-        // Step 3: Agent profit after all player fees
-        $agentProfitAfterFees = round($agentSplit - $totalPlayerFees, 2);
+        // ── Step 3: House Profit (only when there is commissionable profit) ──
+        // If makeup not cleared → house profit = 0 (no one profits yet)
+        $houseProfit = ($commissionableProfit > 0.0)
+            ? round($kickToHouse + $totalPlayerFees, 2)
+            : 0.0;
 
-        // ── Weekly House Balance (THIS WEEK ONLY) ──────────────────────
-        // kick + all player fees; player fees always apply regardless of profit
-        $weeklyHouseBalance = round($kickToHouse + $totalPlayerFees, 2);
-
-        // ── Makeup (cumulative) ────────────────────────────────────────
-        // Negative week: deficit + player fees go to makeup
-        // Positive week: no makeup addition (fees are in balance owed via agent split reduction)
-        $weeklyMakeupAddition = $isPositiveWeek
-            ? 0.0
-            : round(max(0.0, -$netCollections) + $totalPlayerFees, 2);
+        // ── Step 4: Makeup (cumulative) ───────────────────────────────
+        // Negative week: deficit + player fees → makeup
+        // Positive week but still in makeup: player fees → makeup
+        // Positive week, no makeup: no addition
+        if ($netCollections <= 0.0) {
+            $weeklyMakeupAddition = round(abs($netCollections) + $totalPlayerFees, 2);
+        } elseif ($commissionableProfit <= 0.0) {
+            // Positive net but fully absorbed by makeup — fees go to makeup
+            $weeklyMakeupAddition = round($totalPlayerFees, 2);
+        } else {
+            $weeklyMakeupAddition = 0.0;
+        }
         $cumulativeMakeup = max(0.0, round(
             $previousMakeup - $makeupReduction + $weeklyMakeupAddition,
             2
         ));
 
-        // ── Balance Owed (cumulative) ──────────────────────────────────
-        // House Profit = Kick to House + Player Fees (what house earned this week)
+        // ── Step 5: Balance Owed ──────────────────────────────────────
         // Balance = House Profit - House Collections
         // Positive = agent owes house, Negative = house owes agent
-        $houseProfit = round($kickToHouse + $totalPlayerFees, 2);
         $balanceOwed = round($previousBalanceOwed + $houseProfit - $houseCollections, 2);
 
         return [
@@ -142,13 +138,11 @@ final class AgentSettlementRules
             'commissionableProfit' => $commissionableProfit,
             'agentSplit'           => $agentSplit,
             'kickToHouse'          => $kickToHouse,
-            'agentProfitAfterFees' => $agentProfitAfterFees,
-            'weeklyHouseBalance'   => $weeklyHouseBalance,
+            'houseProfit'          => $houseProfit,
             'previousMakeup'       => $previousMakeup,
             'makeupReduction'      => $makeupReduction,
             'weeklyMakeupAddition' => $weeklyMakeupAddition,
             'cumulativeMakeup'     => $cumulativeMakeup,
-            'houseProfit'          => $houseProfit,
             'previousBalanceOwed'  => $previousBalanceOwed,
             'balanceOwed'          => $balanceOwed,
         ];
