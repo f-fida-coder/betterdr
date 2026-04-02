@@ -62,9 +62,12 @@ final class AgentSettlementRules
      *   2. If negative net: entire deficit + player fees → makeup. No profit for anyone.
      *   3. If positive net but makeup exists: pay down makeup first.
      *      Only remainder after makeup is fully cleared becomes commissionable.
-     *   4. Commission split (agent % / house %) only on commissionable profit.
-     *   5. House Profit = Kick to House + Player Fees (only when commissionable > 0)
-     *   6. Balance Owed = previous + House Profit - House Collections
+     *   4. Commission split (agent % / house %) on commissionable profit.
+     *   5. Player fees deducted from agent's share AFTER the split:
+     *      Agent Final = (commissionable × agent%) - playerFees
+     *      House Final = (commissionable × house%) + playerFees
+     *   6. If agent's share can't cover fees, uncovered fees → makeup.
+     *   7. Balance Owed = previous + House Profit - House Collections
      *
      * @return array<string, float>
      */
@@ -83,45 +86,53 @@ final class AgentSettlementRules
 
         // ── Step 1: Pay down makeup from positive net ─────────────────
         $makeupReduction = 0.0;
-        $afterMakeup = 0.0;
+        $commissionableProfit = 0.0;
 
         if ($netCollections > 0.0 && $previousMakeup > 0.0) {
             $makeupReduction = round(min($netCollections, $previousMakeup), 2);
-            $afterMakeup = round(max(0.0, $netCollections - $makeupReduction), 2);
+            $commissionableProfit = round(max(0.0, $netCollections - $makeupReduction), 2);
         } elseif ($netCollections > 0.0) {
-            $afterMakeup = round($netCollections, 2);
+            $commissionableProfit = round($netCollections, 2);
         }
 
-        // ── Step 2: Cover player fees BEFORE profit split ─────────────
-        // Only what remains after fees is distributable profit
-        $distributableProfit = round(max(0.0, $afterMakeup - $totalPlayerFees), 2);
-
-        // ── Step 3: Commission split on distributable profit only ──────
+        // ── Step 2: Split commissionable profit (agent% / house%) ─────
         $agentSplit = 0.0;
         $kickToHouse = 0.0;
-        if ($distributableProfit > 0.0 && $agentPercent !== null && $agentPercent >= 0 && $agentPercent <= 100) {
-            $agentSplit = round($distributableProfit * $agentPercent / 100, 2);
-            $kickToHouse = round($distributableProfit - $agentSplit, 2);
-        } elseif ($distributableProfit > 0.0) {
-            $agentSplit = round($distributableProfit, 2);
+        if ($commissionableProfit > 0.0 && $agentPercent !== null && $agentPercent >= 0 && $agentPercent <= 100) {
+            $agentSplit = round($commissionableProfit * $agentPercent / 100, 2);
+            $kickToHouse = round($commissionableProfit - $agentSplit, 2);
+        } elseif ($commissionableProfit > 0.0) {
+            $agentSplit = round($commissionableProfit, 2);
         }
 
-        // ── Step 4: House Profit (only when distributable profit exists) ──
-        $houseProfit = ($distributableProfit > 0.0)
-            ? round($kickToHouse + $totalPlayerFees, 2)
+        // ── Step 3: Deduct player fees from agent's share AFTER split ─
+        $uncoveredFees = 0.0;
+        if ($commissionableProfit > 0.0) {
+            if ($agentSplit >= $totalPlayerFees) {
+                $agentSplit = round($agentSplit - $totalPlayerFees, 2);
+            } else {
+                // Agent's share can't cover all fees — remainder goes to makeup
+                $uncoveredFees = round($totalPlayerFees - $agentSplit, 2);
+                $agentSplit = 0.0;
+            }
+        }
+
+        // ── Step 4: House Profit ──────────────────────────────────────
+        // House gets their split + player fees (minus any uncovered portion)
+        $houseProfit = ($commissionableProfit > 0.0)
+            ? round($kickToHouse + $totalPlayerFees - $uncoveredFees, 2)
             : 0.0;
 
         // ── Step 5: Makeup (cumulative) ───────────────────────────────
         if ($netCollections <= 0.0) {
             // Negative week: full deficit + fees → makeup
             $weeklyMakeupAddition = round(abs($netCollections) + $totalPlayerFees, 2);
-        } elseif ($distributableProfit <= 0.0) {
-            // Positive net but no distributable profit — uncovered fees → makeup
-            $uncoveredFees = round(max(0.0, $totalPlayerFees - $afterMakeup), 2);
-            $weeklyMakeupAddition = $uncoveredFees;
+        } elseif ($commissionableProfit <= 0.0) {
+            // Positive net but no commissionable profit — fees → makeup
+            $weeklyMakeupAddition = $totalPlayerFees;
         } else {
-            // In profit — fees fully covered, no makeup addition
-            $weeklyMakeupAddition = 0.0;
+            // In profit — only uncovered fees (if agent split couldn't cover) → makeup
+            $weeklyMakeupAddition = $uncoveredFees;
         }
         $cumulativeMakeup = max(0.0, round(
             $previousMakeup - $makeupReduction + $weeklyMakeupAddition,
@@ -129,9 +140,7 @@ final class AgentSettlementRules
         ));
 
         // ── Step 6: Balance Owed ──────────────────────────────────────
-        // In profit: House Profit - House Collections (negative = house owes agent)
-        // No profit: agent owes what they're holding (agent collections)
-        if ($distributableProfit > 0.0) {
+        if ($commissionableProfit > 0.0) {
             $balanceOwed = round($previousBalanceOwed + $houseProfit - $houseCollections, 2);
         } else {
             $balanceOwed = round($previousBalanceOwed + $agentCollections, 2);
@@ -141,7 +150,7 @@ final class AgentSettlementRules
             'agentCollections'     => $agentCollections,
             'houseCollections'     => $houseCollections,
             'netCollections'       => $netCollections,
-            'commissionableProfit' => $distributableProfit,
+            'commissionableProfit' => $commissionableProfit,
             'agentSplit'           => $agentSplit,
             'kickToHouse'          => $kickToHouse,
             'houseProfit'          => $houseProfit,
