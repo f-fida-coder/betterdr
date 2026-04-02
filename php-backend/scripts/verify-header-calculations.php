@@ -99,19 +99,20 @@ function validateStructure(array $data): array
         'houseDeposits',
         'houseWithdrawals',
         'agentPercent',
+        'housePercent',
         'agentCollections',
         'houseCollections',
         'netCollections',
         'commissionableProfit',
         'agentSplit',
         'kickToHouse',
-        'agentProfitAfterFees',
-        'weeklyHouseBalance',
+        'houseProfit',
         'previousMakeup',
         'makeupReduction',
         'weeklyMakeupAddition',
         'cumulativeMakeup',
         'previousBalanceOwed',
+        'fundingAdjustment',
         'balanceOwed',
         'commissionDistribution',
         'sportsbookHealth',
@@ -146,10 +147,9 @@ function compareResults(array $before, array $after): array
         'paidPlayerFees', 'unpaidPlayerFees', 'todayNet', 'weekNet',
         'agentDeposits', 'agentWithdrawals', 'houseDeposits', 'houseWithdrawals',
         'agentCollections', 'houseCollections', 'netCollections',
-        'commissionableProfit', 'agentSplit', 'kickToHouse',
-        'agentProfitAfterFees', 'weeklyHouseBalance',
+        'commissionableProfit', 'agentSplit', 'kickToHouse', 'houseProfit',
         'previousMakeup', 'makeupReduction', 'weeklyMakeupAddition', 'cumulativeMakeup',
-        'previousBalanceOwed', 'balanceOwed',
+        'previousBalanceOwed', 'fundingAdjustment', 'balanceOwed',
     ];
     
     $intFields = ['activeAccounts'];
@@ -345,9 +345,9 @@ try {
         echo "Commissionable Profit:  " . formatNumber($data['commissionableProfit'] ?? null) . "\n";
         echo "Agent Split:            " . formatNumber($data['agentSplit'] ?? null) . "\n";
         echo "Kick To House:          " . formatNumber($data['kickToHouse'] ?? null) . "\n";
-        echo "Agent Profit After Fees: " . formatNumber($data['agentProfitAfterFees'] ?? null) . "\n";
-        echo "Weekly House Balance:   " . formatNumber($data['weeklyHouseBalance'] ?? null) . "\n";
+        echo "House Profit:           " . formatNumber($data['houseProfit'] ?? null) . "\n";
         echo "Cumulative Makeup:      " . formatNumber($data['cumulativeMakeup'] ?? null) . "\n";
+        echo "Funding Adjustment:     " . formatNumber($data['fundingAdjustment'] ?? null) . "\n";
         echo "Balance Owed:           " . formatNumber($data['balanceOwed'] ?? null) . "\n";
         echo "Player Fees (Total):    " . formatNumber($data['totalPlayerFees'] ?? null) . "\n";
         echo "\n";

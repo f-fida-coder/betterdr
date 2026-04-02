@@ -66,103 +66,56 @@ try {
         'house approver bucket'
     );
 
-    // ---------------------------------------------------------------
-    // Test 3: Positive week (Net = Agent - House > 0)
-    //   Agent collected 7300, House collected 7000
-    //   Net = 7300 - 7000 = 300
-    //   Agent Split = 300 × 95% = 285
-    //   Kick To House = 300 - 285 = 15
-    //   Agent Profit = 285 - 4 (paid fees) = 281
-    //   Makeup = max(0, -300) + 0 (unpaid fees) = 0
-    //   Weekly House Balance = 15 + 4 = 19
-    // ---------------------------------------------------------------
-    echo "3) Verifying positive-week settlement math (Net = Agent - House)...\n";
-    $positive = AgentSettlementRules::summarize(7300.0, 7000.0, 4.0, 0.0, 95.0);
+    echo "3) Verifying positive-week settlement math (net = agent + house)...\n";
+    $positive = AgentSettlementRules::summarize(300.0, 0.0, 4.0, 0.0, 95.0);
     assertMoney($positive['netCollections'], 300.0, 'positive net collections');
-    assertMoney($positive['agentSplit'], 285.0, 'positive agent split');
-    assertMoney($positive['kickToHouse'], 15.0, 'positive kick to house');
-    assertMoney($positive['agentProfitAfterFees'], 281.0, 'positive agent profit after fees');
+    assertMoney($positive['commissionableProfit'], 296.0, 'positive commissionable profit');
+    assertMoney($positive['agentSplit'], 281.2, 'positive agent split');
+    assertMoney($positive['kickToHouse'], 14.8, 'positive kick to house');
+    assertMoney($positive['houseProfit'], 18.8, 'positive house profit');
     assertMoney($positive['cumulativeMakeup'], 0.0, 'positive makeup');
-    assertMoney($positive['weeklyHouseBalance'], 19.0, 'positive weekly house balance');
-    assertMoney($positive['commissionableProfit'], 300.0, 'positive commissionable profit');
+    assertMoney($positive['balanceOwed'], 18.8, 'positive balance owed');
 
-    // ---------------------------------------------------------------
-    // Test 4: Positive week with 50/50 split + player fees
-    //   Agent collected 2000, House collected 500
-    //   Net = 2000 - 500 = 1500
-    //   Agent Split = 1500 × 50% = 750
-    //   Kick = 1500 - 750 = 750
-    //   Agent Profit = 750 - 24 (paid fees) = 726
-    //   Makeup = max(0, -1500) + 16 (unpaid fees) = 16
-    //   Weekly House Balance = 750 + 24 = 774
-    // ---------------------------------------------------------------
-    echo "4) Verifying positive week with 50/50 split and player fees...\n";
-    $split50 = AgentSettlementRules::summarize(2000.0, 500.0, 24.0, 16.0, 50.0);
-    assertMoney($split50['netCollections'], 1500.0, '50/50 net collections');
-    assertMoney($split50['agentSplit'], 750.0, '50/50 agent split');
-    assertMoney($split50['kickToHouse'], 750.0, '50/50 kick to house');
-    assertMoney($split50['agentProfitAfterFees'], 726.0, '50/50 agent profit after fees');
-    assertMoney($split50['cumulativeMakeup'], 16.0, '50/50 makeup (unpaid fees only)');
-    assertMoney($split50['weeklyHouseBalance'], 774.0, '50/50 weekly house balance');
+    echo "4) Verifying previous makeup clears before commissions...\n";
+    $withMakeup = AgentSettlementRules::summarize(1000.0, 500.0, 24.0, 16.0, 50.0, 200.0, 100.0);
+    assertMoney($withMakeup['netCollections'], 1500.0, 'makeup net collections');
+    assertMoney($withMakeup['makeupReduction'], 200.0, 'makeup reduction');
+    assertMoney($withMakeup['commissionableProfit'], 1260.0, 'makeup commissionable profit');
+    assertMoney($withMakeup['agentSplit'], 630.0, 'makeup agent split');
+    assertMoney($withMakeup['kickToHouse'], 630.0, 'makeup kick to house');
+    assertMoney($withMakeup['houseProfit'], 670.0, 'makeup house profit');
+    assertMoney($withMakeup['cumulativeMakeup'], 0.0, 'makeup cleared');
+    assertMoney($withMakeup['balanceOwed'], 270.0, 'makeup balance owed');
 
-    // ---------------------------------------------------------------
-    // Test 5: Negative week (Net = Agent - House < 0)
-    //   Agent collected 200, House collected 800
-    //   Net = 200 - 800 = -600
-    //   Agent Split = 0 (negative week)
-    //   Kick = 0 (negative week)
-    //   Agent Profit = 0 - 4 (paid fees) = -4
-    //   Makeup = |600| + 16 (unpaid fees) = 616
-    //   Weekly House Balance = 0 (negative week)
-    // ---------------------------------------------------------------
     echo "5) Verifying negative-week settlement math...\n";
-    $negative = AgentSettlementRules::summarize(200.0, 800.0, 4.0, 16.0, 50.0);
+    $negative = AgentSettlementRules::summarize(200.0, -800.0, 4.0, 16.0, 50.0, 0.0, 500.0);
     assertMoney($negative['netCollections'], -600.0, 'negative net collections');
     assertMoney($negative['agentSplit'], 0.0, 'negative agent split');
     assertMoney($negative['kickToHouse'], 0.0, 'negative kick to house');
-    assertMoney($negative['agentProfitAfterFees'], -4.0, 'negative agent profit after fees');
-    assertMoney($negative['cumulativeMakeup'], 616.0, 'negative makeup = |net| + unpaid fees');
-    assertMoney($negative['weeklyHouseBalance'], 0.0, 'negative weekly house balance');
-    assertMoney($negative['commissionableProfit'], 0.0, 'negative commissionable profit');
+    assertMoney($negative['houseProfit'], 0.0, 'negative house profit');
+    assertMoney($negative['weeklyMakeupAddition'], 620.0, 'negative makeup addition');
+    assertMoney($negative['cumulativeMakeup'], 620.0, 'negative cumulative makeup');
+    assertMoney($negative['balanceOwed'], 700.0, 'negative balance owed');
 
-    // ---------------------------------------------------------------
-    // Test 6: Both sides negative (agent paid out, house paid out)
-    //   Agent collected -300, House collected -100
-    //   Net = -300 - (-100) = -200
-    //   Negative week → no split, no kick
-    //   Makeup = |200| + 12 = 212
-    // ---------------------------------------------------------------
-    echo "6) Verifying both-sides-negative settlement...\n";
-    $bothNeg = AgentSettlementRules::summarize(-300.0, -100.0, 0.0, 12.0, 95.0);
-    assertMoney($bothNeg['netCollections'], -200.0, 'both negative net');
-    assertMoney($bothNeg['agentSplit'], 0.0, 'both negative agent split');
-    assertMoney($bothNeg['cumulativeMakeup'], 212.0, 'both negative makeup');
-    assertMoney($bothNeg['weeklyHouseBalance'], 0.0, 'both negative house balance');
-
-    // ---------------------------------------------------------------
-    // Test 7: Zero net (exactly break-even)
-    //   Agent collected 500, House collected 500
-    //   Net = 0 → not a positive week
-    //   No split, no kick, no house balance
-    //   Makeup = only unpaid fees
-    // ---------------------------------------------------------------
-    echo "7) Verifying break-even (zero net)...\n";
-    $breakEven = AgentSettlementRules::summarize(500.0, 500.0, 8.0, 4.0, 50.0);
+    echo "6) Verifying break-even week keeps fees in makeup...\n";
+    $breakEven = AgentSettlementRules::summarize(500.0, -500.0, 8.0, 4.0, 50.0, 200.0, 100.0);
     assertMoney($breakEven['netCollections'], 0.0, 'break-even net');
-    assertMoney($breakEven['agentSplit'], 0.0, 'break-even agent split');
-    assertMoney($breakEven['kickToHouse'], 0.0, 'break-even kick');
-    assertMoney($breakEven['weeklyHouseBalance'], 0.0, 'break-even house balance');
-    assertMoney($breakEven['cumulativeMakeup'], 4.0, 'break-even makeup = unpaid fees only');
+    assertMoney($breakEven['makeupReduction'], 0.0, 'break-even makeup reduction');
+    assertMoney($breakEven['commissionableProfit'], 0.0, 'break-even commissionable');
+    assertMoney($breakEven['weeklyMakeupAddition'], 12.0, 'break-even makeup addition');
+    assertMoney($breakEven['cumulativeMakeup'], 212.0, 'break-even cumulative makeup');
+    assertMoney($breakEven['balanceOwed'], 600.0, 'break-even balance owed');
 
-    // ---------------------------------------------------------------
-    // Test 8: No agent percent (fallback: agent gets all net, house gets nothing)
-    // ---------------------------------------------------------------
-    echo "8) Verifying no-percent fallback...\n";
-    $noPct = AgentSettlementRules::summarize(1000.0, 200.0, 0.0, 0.0, null);
-    assertMoney($noPct['netCollections'], 800.0, 'no-pct net');
-    assertMoney($noPct['agentSplit'], 800.0, 'no-pct agent split (full net)');
+    echo "7) Verifying no-percent fallback...\n";
+    $noPct = AgentSettlementRules::summarize(1000.0, 0.0, 0.0, 0.0, null, 300.0, 0.0);
+    assertMoney($noPct['netCollections'], 1000.0, 'no-pct net');
+    assertMoney($noPct['makeupReduction'], 300.0, 'no-pct makeup reduction');
+    assertMoney($noPct['commissionableProfit'], 700.0, 'no-pct commissionable');
+    assertMoney($noPct['agentSplit'], 700.0, 'no-pct agent split (full distributable)');
     assertMoney($noPct['kickToHouse'], 0.0, 'no-pct kick to house');
-    assertMoney($noPct['weeklyHouseBalance'], 0.0, 'no-pct house balance');
+    assertMoney($noPct['houseProfit'], 0.0, 'no-pct house profit');
+    assertMoney($noPct['cumulativeMakeup'], 0.0, 'no-pct makeup cleared');
+    assertMoney($noPct['balanceOwed'], 0.0, 'no-pct balance owed');
 
     echo "\nAll settlement-rule checks passed.\n";
     exit(0);

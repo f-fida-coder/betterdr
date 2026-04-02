@@ -1042,7 +1042,7 @@ final class AdminCoreController
                     'createdAt' => ['$gte' => SqlRepository::utcFromMillis($startOfWeek->getTimestamp() * 1000)],
                 ];
 
-                $txProjection = ['projection' => ['userId' => 1, 'amount' => 1, 'type' => 1, 'entrySide' => 1, 'reason' => 1, 'description' => 1, 'balanceBefore' => 1, 'balanceAfter' => 1, 'approvedByRole' => 1, 'adminId' => 1]];
+                $txProjection = ['projection' => ['userId' => 1, 'amount' => 1, 'type' => 1, 'entrySide' => 1, 'reason' => 1, 'description' => 1, 'balanceBefore' => 1, 'balanceAfter' => 1, 'approvedByRole' => 1, 'adminId' => 1, 'referenceType' => 1]];
                 $todayTx = [];
                 $weekTx = [];
                 if (($actor['role'] ?? '') !== 'admin') {
@@ -1080,7 +1080,7 @@ final class AdminCoreController
                     $txUserId = (string) ($tx['userId'] ?? '');
                     
                     // 1. Collect adminIds for role resolution (deposits/withdrawals only)
-                    if ($txType === 'deposit' || $txType === 'withdrawal') {
+                    if (($txType === 'deposit' || $txType === 'withdrawal') && !$this->isAgentFundingTransaction($tx)) {
                         $approverRole = trim((string) ($tx['approvedByRole'] ?? ''));
                         if ($approverRole === '') {
                             $aid = (string) ($tx['adminId'] ?? '');
@@ -1126,6 +1126,9 @@ final class AdminCoreController
                 foreach ($weekTx as $tx) {
                     $txType = strtolower(trim((string) ($tx['type'] ?? '')));
                     if ($txType !== 'deposit' && $txType !== 'withdrawal') {
+                        continue;
+                    }
+                    if ($this->isAgentFundingTransaction($tx)) {
                         continue;
                     }
                     $approverRole = strtolower(trim((string) ($tx['approvedByRole'] ?? '')));
@@ -1212,12 +1215,11 @@ final class AdminCoreController
                     $previousMakeup,
                     $previousBalanceOwed
                 );
-                // Balance adjustments removed — no longer used
-                // $settlementSummary = $this->applySettlementBalanceAdjustments(
-                //     $settlementSummary,
-                //     $actorId,
-                //     $startOfWeek
-                // );
+                $settlementSummary = $this->applySettlementBalanceAdjustments(
+                    $settlementSummary,
+                    $actorId,
+                    $startOfWeek
+                );
                 // Apply agent funding (deposits/withdrawals to agent account) to balance owed.
                 // Credits reduce what agent owes, debits increase it.
                 $fundingAdjustment = $this->getAgentFundingAdjustment($actorId, $startOfWeek);
@@ -2992,7 +2994,7 @@ final class AdminCoreController
                         '$gte' => SqlRepository::utcFromMillis($start->getTimestamp() * 1000),
                         '$lt' => SqlRepository::utcFromMillis($end->getTimestamp() * 1000),
                     ],
-                ], ['projection' => ['userId' => 1, 'amount' => 1, 'type' => 1, 'entrySide' => 1, 'reason' => 1, 'description' => 1, 'balanceBefore' => 1, 'balanceAfter' => 1, 'createdAt' => 1, 'status' => 1, 'approvedByRole' => 1, 'adminId' => 1]])
+                ], ['projection' => ['userId' => 1, 'amount' => 1, 'type' => 1, 'entrySide' => 1, 'reason' => 1, 'description' => 1, 'balanceBefore' => 1, 'balanceAfter' => 1, 'createdAt' => 1, 'status' => 1, 'approvedByRole' => 1, 'adminId' => 1, 'referenceType' => 1]])
                 : [];
 
             $activeWindowStart = (new DateTimeImmutable('now'))->modify('-14 days');
@@ -3040,6 +3042,9 @@ final class AdminCoreController
             foreach ($transactions as $tx) {
                 $txType = strtolower(trim((string) ($tx['type'] ?? '')));
                 if ($txType !== 'deposit' && $txType !== 'withdrawal') {
+                    continue;
+                }
+                if ($this->isAgentFundingTransaction($tx)) {
                     continue;
                 }
                 $approverRole = trim((string) ($tx['approvedByRole'] ?? ''));
@@ -3091,7 +3096,7 @@ final class AdminCoreController
                     }
 
                     $txType = strtolower(trim((string) ($tx['type'] ?? '')));
-                    if ($txType === 'deposit' || $txType === 'withdrawal') {
+                    if (($txType === 'deposit' || $txType === 'withdrawal') && !$this->isAgentFundingTransaction($tx)) {
                         $approverRole = strtolower(trim((string) ($tx['approvedByRole'] ?? '')));
                         if ($approverRole === '') {
                             $aid = (string) ($tx['adminId'] ?? '');
@@ -3702,18 +3707,23 @@ final class AdminCoreController
      * Sum agent funding transactions (AgentFunding) this week.
      * Returns net credit amount: positive = agent received funds (reduces balance owed).
      */
-    private function getAgentFundingAdjustment(string $agentId, DateTimeImmutable $weekStart): float
+    private function getAgentFundingAdjustment(string $agentId, DateTimeImmutable $weekStart, ?DateTimeImmutable $weekEnd = null): float
     {
         if ($agentId === '' || preg_match('/^[a-f0-9]{24}$/i', $agentId) !== 1) {
             return 0.0;
         }
 
-        $rows = $this->db->findMany('transactions', [
+        $query = [
             'agentId' => SqlRepository::id($agentId),
             'referenceType' => 'AgentFunding',
             'status' => 'completed',
             'createdAt' => ['$gte' => SqlRepository::utcFromMillis($weekStart->getTimestamp() * 1000)],
-        ], [
+        ];
+        if ($weekEnd instanceof DateTimeImmutable) {
+            $query['createdAt']['$lt'] = SqlRepository::utcFromMillis($weekEnd->getTimestamp() * 1000);
+        }
+
+        $rows = $this->db->findMany('transactions', $query, [
             'projection' => ['amount' => 1, 'entrySide' => 1],
         ]);
 
@@ -3800,7 +3810,10 @@ final class AdminCoreController
         if (count($scopedUserIds) > 0) {
             $txQuery['userId'] = ['$in' => $scopedUserIds];
         }
-        $txProjection = ['projection' => ['userId' => 1, 'amount' => 1, 'type' => 1, 'entrySide' => 1, 'reason' => 1, 'description' => 1, 'balanceBefore' => 1, 'balanceAfter' => 1, 'approvedByRole' => 1, 'adminId' => 1]];
+        $txProjection = [
+            'projection' => ['userId' => 1, 'amount' => 1, 'type' => 1, 'entrySide' => 1, 'reason' => 1, 'description' => 1, 'balanceBefore' => 1, 'balanceAfter' => 1, 'approvedByRole' => 1, 'adminId' => 1, 'referenceType' => 1],
+            'sort' => ['createdAt' => 1],
+        ];
         $prevTx = $this->db->findMany('transactions', $txQuery, $txProjection);
 
         // Classify deposits/withdrawals and count active users
@@ -3809,7 +3822,7 @@ final class AdminCoreController
         foreach ($prevTx as $tx) {
             $txType = strtolower(trim((string) ($tx['type'] ?? '')));
             $txUserId = (string) ($tx['userId'] ?? '');
-            if ($txType === 'deposit' || $txType === 'withdrawal') {
+            if (($txType === 'deposit' || $txType === 'withdrawal') && !$this->isAgentFundingTransaction($tx)) {
                 $approverRole = trim((string) ($tx['approvedByRole'] ?? ''));
                 if ($approverRole === '') {
                     $aid = (string) ($tx['adminId'] ?? '');
@@ -3847,6 +3860,9 @@ final class AdminCoreController
             if ($txType !== 'deposit' && $txType !== 'withdrawal') {
                 continue;
             }
+            if ($this->isAgentFundingTransaction($tx)) {
+                continue;
+            }
             $approverRole = strtolower(trim((string) ($tx['approvedByRole'] ?? '')));
             if ($approverRole === '') {
                 $aid = (string) ($tx['adminId'] ?? '');
@@ -3868,10 +3884,20 @@ final class AdminCoreController
             : ['role' => 'user'],
             ['projection' => ['id' => 1, 'balance' => 1]]
         );
+        $weekEndingBalanceMap = [];
+        foreach ($prevTx as $tx) {
+            $uid = (string) ($tx['userId'] ?? '');
+            if ($uid === '' || !isset($activeUserIds[$uid]) || !array_key_exists('balanceAfter', $tx)) {
+                continue;
+            }
+            $weekEndingBalanceMap[$uid] = $this->num($tx['balanceAfter']);
+        }
         $userBalanceMap = [];
         foreach ($usersForBalance as $u) {
             $uid = (string) ($u['id'] ?? '');
-            if ($uid !== '') { $userBalanceMap[$uid] = $this->num($u['balance'] ?? 0); }
+            if ($uid !== '') {
+                $userBalanceMap[$uid] = $weekEndingBalanceMap[$uid] ?? $this->num($u['balance'] ?? 0);
+            }
         }
         $activePositive = 0;
         $activeNonPositive = 0;
@@ -3896,6 +3922,9 @@ final class AdminCoreController
             $carryForward['previousBalanceOwed']
         );
         $summary = $this->applySettlementBalanceAdjustments($summary, $agentId, $prevWeekStart);
+        $fundingAdjustment = $this->getAgentFundingAdjustment($agentId, $prevWeekStart, $prevWeekEnd);
+        $summary['fundingAdjustment'] = $fundingAdjustment;
+        $summary['balanceOwed'] = round($this->num($summary['balanceOwed'] ?? 0) - $fundingAdjustment, 2);
 
         // Persist snapshot (idempotent via insertOneIfAbsent)
         $now = SqlRepository::nowUtc();
@@ -3914,6 +3943,7 @@ final class AdminCoreController
             'unpaidPlayerFees'    => $unpaidPlayerFees,
             'previousMakeup'      => $carryForward['previousMakeup'],
             'previousBalanceOwed' => $carryForward['previousBalanceOwed'],
+            'fundingAdjustment'   => $fundingAdjustment,
             'computedBalanceOwed' => $summary['computedBalanceOwed'],
             'balanceAdjustment'   => $summary['balanceAdjustment'],
             'createdAt'           => $now,
@@ -5568,6 +5598,11 @@ final class AdminCoreController
         return $type === 'deposit' || $type === 'withdrawal';
     }
 
+    private function isAgentFundingTransaction(array $transaction): bool
+    {
+        return trim((string) ($transaction['referenceType'] ?? '')) === 'AgentFunding';
+    }
+
     private function shouldExcludeFromNetSummaries(array $transaction): bool
     {
         return $this->isFundingTransaction($transaction) || $this->isPromotionalOrFreePlayTransaction($transaction);
@@ -6791,7 +6826,8 @@ final class AdminCoreController
      * POST /api/admin/agent/{id}/credit
      * Deposit or withdraw from an agent/master-agent account.
      * Body: { amount, direction: "credit"|"debit", type: "deposit"|"withdrawal"|"adjustment", description }
-     * These transactions do NOT affect weekly settlement (they have no userId in users table).
+     * These transactions do NOT affect weekly settlement collections or player activity.
+     * They are applied separately as a balance-owed adjustment for the selected week.
      */
     private function updateAgentCredit(string $id): void
     {
@@ -12181,10 +12217,12 @@ final class AdminCoreController
                 $carryForward['previousBalanceOwed']
             );
             $emptySettlement = $this->applySettlementBalanceAdjustments($emptySettlement, $actorId, $weekStart);
+            $fundingAdjustment = $this->getAgentFundingAdjustment($actorId, $weekStart);
+            $emptySettlement['fundingAdjustment'] = $fundingAdjustment;
+            $emptySettlement['balanceOwed'] = round($this->num($emptySettlement['balanceOwed'] ?? 0) - $fundingAdjustment, 2);
         } else {
             $emptySettlement = AgentSettlementRules::summarize(0.0, 0.0, 0.0, 0.0);
-            $emptySettlement['computedBalanceOwed'] = $emptySettlement['balanceOwed'];
-            $emptySettlement['balanceAdjustment'] = 0.0;
+            $emptySettlement['fundingAdjustment'] = 0.0;
         }
         
         return [
@@ -12200,22 +12238,21 @@ final class AdminCoreController
             'agentWithdrawals' => 0.0,
             'houseDeposits' => 0.0,
             'houseWithdrawals' => 0.0,
-            'agentPercent' => null,
+            'agentPercent' => $actorPercent,
+            'housePercent' => self::HOUSE_PERCENT,
             'agentCollections' => $emptySettlement['agentCollections'],
             'houseCollections' => $emptySettlement['houseCollections'],
             'netCollections' => $emptySettlement['netCollections'],
             'commissionableProfit' => $emptySettlement['commissionableProfit'],
             'agentSplit' => $emptySettlement['agentSplit'],
             'kickToHouse' => $emptySettlement['kickToHouse'],
-            'agentProfitAfterFees' => $emptySettlement['agentProfitAfterFees'],
-            'weeklyHouseBalance' => $emptySettlement['weeklyHouseBalance'],
+            'houseProfit' => $emptySettlement['houseProfit'],
             'previousMakeup' => $emptySettlement['previousMakeup'],
             'makeupReduction' => $emptySettlement['makeupReduction'],
             'weeklyMakeupAddition' => $emptySettlement['weeklyMakeupAddition'],
             'cumulativeMakeup' => $emptySettlement['cumulativeMakeup'],
             'previousBalanceOwed' => $emptySettlement['previousBalanceOwed'],
-            'computedBalanceOwed' => $emptySettlement['computedBalanceOwed'],
-            'balanceAdjustment' => $emptySettlement['balanceAdjustment'],
+            'fundingAdjustment' => $emptySettlement['fundingAdjustment'] ?? 0.0,
             'balanceOwed' => $emptySettlement['balanceOwed'],
             'commissionDistribution' => [],
             'sportsbookHealth' => SportsbookHealth::sportsbookSnapshot($this->db),

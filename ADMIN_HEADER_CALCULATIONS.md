@@ -1,285 +1,187 @@
-# Admin Header - Financial Metrics Calculation Reference
+# Admin Header Financial Reference
 
-## Overview
+This document reflects the current settlement logic used by `getHeaderSummary()` in [php-backend/src/AdminCoreController.php](/Users/mac/Desktop/betterdr/php-backend/src/AdminCoreController.php) and `AgentSettlementRules::summarize()` in [php-backend/src/AgentSettlementRules.php](/Users/mac/Desktop/betterdr/php-backend/src/AgentSettlementRules.php).
 
-This document explains how all financial metrics in the admin header are calculated. The calculations are performed in `php-backend/src/AdminCoreController.php` in the `getHeaderSummary()` method.
+## Core counters
 
----
-
-## Core Metrics
-
-### 1. **Total Balance**
+### Total Balance
 ```php
 $totalBalance = sum(user.balance) for all scoped users
 ```
-- **Admin**: Sum of ALL user balances in the system
-- **Agent**: Sum of balances for users under their agentId
-- **Master/Super Agent**: Sum of balances for users under their managed agents
 
----
-
-### 2. **Total Outstanding**
+### Total Outstanding
 ```php
 $totalOutstanding = userOutstanding + agentOutstanding
 ```
-- **userOutstanding**: Sum of `balanceOwed` for all scoped users
-- **agentOutstanding**: (Admin only) Sum of `balanceOwed` for all agents
 
----
-
-### 3. **Today Net / Week Net**
+### Today Net / Week Net
 ```php
-$todayNet = sum(signedAmount) for transactions today
-$weekNet = sum(signedAmount) for transactions this week
+$todayNet = sum(signedAmount) for non-funding, non-promo transactions today
+$weekNet = sum(signedAmount) for non-funding, non-promo transactions this week
 ```
 
-**Signed Amount Calculation** (`getComprehensiveSignedTransactionAmount`):
-- Uses `entrySide` field if present:
-  - `CREDIT` → positive amount
-  - `DEBIT` → negative amount
-- Otherwise uses transaction type:
-  - **Positive**: `deposit`, `bet_won`, `bet_refund`, `casino_bet_credit`, `fp_deposit`, `credit`, `credit_adj`, `promotional_credit`
-  - **Negative**: `withdrawal`, `bet_placed`, `bet_placed_admin`, `casino_bet_debit`, `bet_lost`, `debit`, `debit_adj`, `promotional_debit`
-  - **Zero**: Everything else
+Excluded from these two counters:
+- Deposits / withdrawals
+- Promotional / freeplay transactions
 
-**Excluded from Net** (`shouldExcludeFromNetSummaries`):
-- Funding transactions (deposit, withdrawal)
-- Promotional/FreePlay transactions
-
----
-
-### 4. **Active Accounts**
+### Active Accounts
 ```php
-$activeAccounts = count(users with betting activity this week)
+$activeAccounts = count(users with completed weekly transactions that are not deposits, withdrawals, or promo/freeplay)
 ```
-- Users with transactions that are NOT:
-  - Deposits/Withdrawals (funding)
-  - Promotional/FreePlay transactions
-- Based on actual betting/gaming activity only
 
----
-
-### 5. **Player Fees**
+### Player Fees
 ```php
-$feePerPlayer = 4.00  // Fixed $4 per active player
+$feePerPlayer = 4.00
 $totalPlayerFees = $activeAccounts * $feePerPlayer
 $paidPlayerFees = $activePositive * $feePerPlayer
 $unpaidPlayerFees = $activeNonPositive * $feePerPlayer
 ```
-- **activePositive**: Active players with `balance > 0`
-- **activeNonPositive**: Active players with `balance <= 0`
-- Fee is considered "paid" if player has positive balance
 
----
+Definitions:
+- `activePositive`: active players whose balance is `> 0`
+- `activeNonPositive`: active players whose balance is `<= 0`
 
-## Collection Metrics (Agent vs House)
+For lazy previous-week snapshots, the positive/non-positive split is based on each active player's week-ending transaction balance, not today's live balance.
 
-### 6. **Agent Collections**
+## Collections
+
+### Agent Collections
 ```php
 $agentCollections = $agentDeposits - $agentWithdrawals
 ```
-- **agentDeposits**: Sum of deposits approved by the logged-in agent account or its same-person `MA` counterpart
-- **agentWithdrawals**: Sum of withdrawals approved by the logged-in agent account or its same-person `MA` counterpart
-- Only includes `deposit` and `withdrawal` transaction types
-- For agent-like views, any other scoped approver counts toward house collections
-- For older transactions missing `approvedByRole`, resolves from `adminId`
 
-### 7. **House Collections**
+Includes only player-facing `deposit` / `withdrawal` transactions approved by:
+- The logged-in agent
+- Their same-person linked `MA` counterpart
+
+### House Collections
 ```php
 $houseCollections = $houseDeposits - $houseWithdrawals
 ```
-- **houseDeposits**: Sum of deposits approved by any scoped approver outside the logged-in linked pair
-- **houseWithdrawals**: Sum of withdrawals approved by any scoped approver outside the logged-in linked pair
-- In practice this is usually house/root activity above the agent, such as `HOUSE/HOUSE365`
 
-### 8. **Net Collections**
+Includes player-facing `deposit` / `withdrawal` transactions approved by:
+- House / admin
+- Any scoped approver outside the logged-in linked pair
+
+### Important exclusion
+```php
+referenceType === 'AgentFunding'
+```
+
+Agent funding transactions are excluded from:
+- Agent collections
+- House collections
+- Net collections
+- Makeup
+
+They are applied only as a balance-owed adjustment.
+
+### Net Collections
 ```php
 $netCollections = $agentCollections + $houseCollections
 ```
 
----
+This is intentional. Net is not `agent - house`.
 
-## Settlement & Commission Metrics
+## Settlement order
 
-### 9. **Commissionable Profit**
+### 1. Pay down previous makeup first
 ```php
-$commissionableProfit = max(0.0, $agentCollections)
-```
-- Only agent collections are commissionable
-- House collections are NOT commissionable
-- Zero if agent collections are negative
-
-### 10. **Agent Share From Profit**
-```php
-if ($agentPercent != null && 0 <= $agentPercent <= 100) {
-    $agentShareFromProfit = round($netCollections * $agentPercent / 100, 2)
+if ($netCollections > 0 && $previousMakeup > 0) {
+    $makeupReduction = min($netCollections, $previousMakeup)
+    $afterMakeup = $netCollections - $makeupReduction
+} elseif ($netCollections > 0) {
+    $afterMakeup = $netCollections
 } else {
-    $agentShareFromProfit = $commissionableProfit  // Admin view or no commission set
+    $afterMakeup = 0
 }
 ```
-- Uses agent's `agentPercent` from their profile
-- Applied to **NET collections** (agent + house combined)
-- Admin view or missing percent: agent gets full commissionable profit
 
-### 11. **House Share From Profit**
+### 2. Cover fees before profit split
 ```php
-if ($agentPercent != null) {
-    $houseShareFromProfit = round($netCollections - $agentShareFromProfit, 2)
+$commissionableProfit = max(0, $afterMakeup - $totalPlayerFees)
+```
+
+### 3. Split distributable profit
+```php
+if ($commissionableProfit > 0 && $agentPercent !== null) {
+    $agentSplit = $commissionableProfit * $agentPercent / 100
+    $kickToHouse = $commissionableProfit - $agentSplit
+} elseif ($commissionableProfit > 0) {
+    $agentSplit = $commissionableProfit
+    $kickToHouse = 0
 } else {
-    $houseShareFromProfit = 0.0
+    $agentSplit = 0
+    $kickToHouse = 0
 }
 ```
-- Remainder after agent's share
-- Zero if no agent percent set
 
-### 12. **House Payback**
+### 4. House Profit
 ```php
-$housePayback = 0.0  // Always zero in current implementation
+$houseProfit = $commissionableProfit > 0
+    ? $kickToHouse + $totalPlayerFees
+    : 0
 ```
-- Reserved for future use
 
-### 13. **Remaining After House Payback**
+### 5. Weekly makeup addition
 ```php
-$remainingAfterHousePayback = $agentCollections
-```
-- Currently just equals agent collections
-
----
-
-## Agent Settlement Metrics
-
-### 14. **Makeup**
-```php
-$makeup = $netCollections < 0.0
-    ? round($netCollections - $unpaidPlayerFees, 2)
-    : 0.0
-```
-- Negative net collections plus unpaid player fees
-- Zero otherwise
-- Represents agent's "debt" or negative performance
-
-### 15. **Agent Profit After Fees**
-```php
-$agentProfitAfterFees = max(0.0, round($agentShareFromProfit - $paidPlayerFees, 2))
-```
-- Agent's share minus paid player fees only
-- Zero if fees exceed share
-
-### 16. **House Final Amount** (Agent's Settlement Balance)
-```php
-if ($netCollections >= 0.0) {
-    $houseFinalAmount = round(max(0.0, $houseShareFromProfit) + max(0.0, $paidPlayerFees), 2)
+if ($netCollections <= 0) {
+    $weeklyMakeupAddition = abs($netCollections) + $totalPlayerFees
+} elseif ($commissionableProfit <= 0) {
+    $weeklyMakeupAddition = max(0, $totalPlayerFees - $afterMakeup)
 } else {
-    $houseFinalAmount = round(max(0.0, $agentCollections), 2)
+    $weeklyMakeupAddition = 0
 }
 ```
-- Positive week: house percentage plus positive player fees
-- Negative week: only positive agent-collected money is applied toward makeup
 
-### 17. **Unpaid Amount**
+### 6. Cumulative makeup
 ```php
-$unpaidAmount = max(0.0, $houseFinalAmount)
-```
-- Positive portion of house final amount
-- Represents amount owed to agent
-
----
-
-## Commission Distribution (Upline Chain)
-
-For agents in a hierarchy, commission is distributed across the upline chain:
-
-```
-Example Chain: [agent(50%), masterAgent(70%), superAgent(95%), HOUSE(5%)]
-
-Distribution:
-- Agent earns: 50%
-- Master Agent earns: 70% - 50% = 20%
-- Super Agent earns: 95% - 70% = 25%
-- House earns: 5%
+$cumulativeMakeup = max(0, $previousMakeup - $makeupReduction + $weeklyMakeupAddition)
 ```
 
-**Calculation** (`buildUplineChain`):
-1. Build chain from agent up to house
-2. Each node earns the **difference** between their percent and the previous node's percent
-3. Last node (house) gets the remainder
-
----
-
-## Key Functions
-
-| Function | File | Purpose |
-|----------|------|---------|
-| `getHeaderSummary()` | `AdminCoreController.php:965` | Main entry point |
-| `buildAgentSettlementSummary()` | `AdminCoreController.php:11214` | Calculate settlement metrics |
-| `getComprehensiveSignedTransactionAmount()` | `AdminCoreController.php:9769` | Sign transactions |
-| `shouldExcludeFromNetSummaries()` | `AdminCoreController.php:4955` | Filter transactions |
-| `buildUplineChain()` | `AdminCoreController.php` | Build commission chain |
-
----
-
-## Transaction Type Reference
-
-### Included in Net Summaries
-- `bet_placed`, `bet_placed_admin`
-- `bet_won`, `bet_lost`
-- `bet_void`, `bet_refund`
-- `casino_bet_credit`, `casino_bet_debit`
-- `adjustment` (non-promotional)
-
-### Excluded from Net Summaries
-- `deposit`, `withdrawal` (funding)
-- `fp_deposit`, `fp_bet_*` (freeplay)
-- `FreePlayBonus`, `ReferralBonus` (promotional)
-- `DEPOSIT_FREEPLAY_BONUS`
-
----
-
-## Example Calculation
-
-**Scenario**: Agent with 50% commission, 10 active players (8 positive balance, 2 zero balance)
-
-```
-Inputs:
-- agentDeposits = $5000
-- agentWithdrawals = $2000
-- houseDeposits = $1000
-- houseWithdrawals = $500
-- activeAccounts = 10
-
-Calculations:
-- agentCollections = 5000 - 2000 = $3000
-- houseCollections = 1000 - 500 = $500
-- netCollections = 3000 + 500 = $3500
-- commissionableProfit = max(0, 3000) = $3000
-- agentShareFromProfit = 3500 * 50% = $1750
-- houseShareFromProfit = 3500 - 1750 = $1750
-- totalPlayerFees = 10 * $4 = $40
-- paidPlayerFees = 8 * $4 = $32
-- unpaidPlayerFees = 2 * $4 = $8
-- makeup = 0 (net is positive)
-- agentProfitAfterFees = max(0, 1750 - 32) = $1718
-- houseFinalAmount = 1750 + 32 = $1782
-- unpaidAmount = max(0, 1782) = $1782
-```
-
----
-
-## Cache Behavior
-
-Header summary is cached for **15 seconds**:
-- Cache key: `header-summary-{role}__{userId}`
-- Cleared on: deposit, withdrawal, balance update, user creation
-
----
-
-## Debug Logging
-
-Collection calculation details are logged:
+### 7. Balance owed before funding
 ```php
-error_log('COLLECTION_DEBUG actor=' . ...);
+if ($commissionableProfit > 0) {
+    $balanceOwed = $previousBalanceOwed + $houseProfit - $houseCollections
+} else {
+    $balanceOwed = $previousBalanceOwed + $agentCollections
+}
 ```
-Check `php-backend/logs/api-errors.log` for:
-- `agentDep`, `agentWd`: Agent deposits/withdrawals
-- `houseDep`, `houseWd`: House deposits/withdrawals
-- `resolved`: Role resolution for old transactions
+
+### 8. Funding adjustment
+```php
+$balanceOwed = $balanceOwed - $fundingAdjustment
+```
+
+Where:
+- Positive `fundingAdjustment` means the house credited the agent, so the agent owes less
+- Negative `fundingAdjustment` means the house debited the agent, so the agent owes more
+
+## Carry-forward
+
+At week boundary, the previous week is snapshotted into `settlement_snapshots`:
+
+```php
+closingMakeup
+closingBalanceOwed
+```
+
+These become:
+- next week's `previousMakeup`
+- next week's `previousBalanceOwed`
+
+## Commission chain
+
+For upline distribution:
+
+```text
+Agent (50%) -> Master Agent (70%) -> Hiring Agent (95%) -> House (5%)
+```
+
+Each node receives the differential:
+- Agent: `50%`
+- Master Agent: `70 - 50 = 20%`
+- Hiring Agent: `95 - 70 = 25%`
+- House: remainder to `100%`
+
+Same-person `agent` / `MA` pairs are collapsed into one economic node when their percentages match.

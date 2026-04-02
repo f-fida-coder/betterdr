@@ -23,13 +23,13 @@ const createDefaultHeaderSummary = () => ({
   commissionableProfit: 0,
   agentSplit: 0,
   kickToHouse: 0,
-  agentProfitAfterFees: 0,
-  weeklyHouseBalance: 0,
+  houseProfit: 0,
   previousMakeup: 0,
   makeupReduction: 0,
   weeklyMakeupAddition: 0,
   cumulativeMakeup: 0,
   previousBalanceOwed: 0,
+  fundingAdjustment: 0,
   balanceOwed: 0,
   sportsbookHealth: null
 });
@@ -54,13 +54,13 @@ const normalizeHeaderSummary = (headerData = null) => ({
   commissionableProfit: headerData?.commissionableProfit ?? 0,
   agentSplit: headerData?.agentSplit ?? 0,
   kickToHouse: headerData?.kickToHouse ?? 0,
-  agentProfitAfterFees: headerData?.agentProfitAfterFees ?? 0,
-  weeklyHouseBalance: headerData?.weeklyHouseBalance ?? 0,
+  houseProfit: headerData?.houseProfit ?? 0,
   previousMakeup: headerData?.previousMakeup ?? 0,
   makeupReduction: headerData?.makeupReduction ?? 0,
   weeklyMakeupAddition: headerData?.weeklyMakeupAddition ?? 0,
   cumulativeMakeup: headerData?.cumulativeMakeup ?? 0,
   previousBalanceOwed: headerData?.previousBalanceOwed ?? 0,
+  fundingAdjustment: headerData?.fundingAdjustment ?? 0,
   balanceOwed: headerData?.balanceOwed ?? 0,
   sportsbookHealth: headerData?.sportsbookHealth ?? null
 });
@@ -436,7 +436,6 @@ function AdminHeader({
   const previousMakeupValue = Number(summary.previousMakeup ?? 0);
   const agentSplitValue = Number(summary.agentSplit ?? 0);
   const kickToHouseValue = Number(summary.kickToHouse ?? 0);
-  const weeklyHouseBalanceValue = Number(summary.weeklyHouseBalance ?? 0);
   const previousBalanceOwedValue = Number(summary.previousBalanceOwed ?? 0);
   const balanceOwedValue = Number(summary.balanceOwed ?? 0);
   const agentPercentValue = summary.agentPercent;
@@ -830,19 +829,21 @@ function AdminHeader({
                   <span className="stat-label">Agent Collections</span>
                   <span className={`stat-value ${getSignedValueClass(agentCollectionsValue)}`}>{formatCurrency(agentCollectionsValue)}</span>
                 </button>
-                <button
-                  type="button"
-                  className="stat-row stat-row-button"
-                  onClick={() => {
-                    if (typeof onViewChange === 'function') {
-                      onViewChange('transaction-history', { enteredBy: 'HOUSE', collectionType: 'house' });
-                    }
-                  }}
-                  aria-label={`View house collection transactions`}
-                >
-                  <span className="stat-label">House Collections</span>
-                  <span className={`stat-value ${getSignedValueClass(houseCollectionsValue)}`}>{formatCurrency(houseCollectionsValue)}</span>
-                </button>
+                {houseProfitValue > 0 && (
+                  <button
+                    type="button"
+                    className="stat-row stat-row-button"
+                    onClick={() => {
+                      if (typeof onViewChange === 'function') {
+                        onViewChange('transaction-history', { enteredBy: 'HOUSE', collectionType: 'house' });
+                      }
+                    }}
+                    aria-label={`View house collection transactions`}
+                  >
+                    <span className="stat-label">House Collections</span>
+                    <span className={`stat-value ${getSignedValueClass(houseCollectionsValue)}`}>{formatCurrency(houseCollectionsValue)}</span>
+                  </button>
+                )}
                 <div className="stat-row">
                   <span className="stat-label">Previous Makeup</span>
                   <span className={`stat-value ${previousMakeupValue > 0 ? 'negative' : 'neutral'}`}>{formatCurrency(previousMakeupValue > 0 ? -previousMakeupValue : 0)}</span>

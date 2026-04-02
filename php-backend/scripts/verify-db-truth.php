@@ -316,32 +316,32 @@ echo "\n";
 // ---------------------------------------------------------------
 echo "--- 8. Makeup inputs ---\n";
 
-// 8a. Positive week with unpaid fees
+// 8a. Positive week with fees fully covered
 $tc8a = AgentSettlementRules::summarize(1000.0, 500.0, 24.0, 16.0, 50.0);
 verify(
-    abs($tc8a['cumulativeMakeup'] - 16.0) < 0.01,
-    '8a: positive week makeup = 0 + unpaidFees = $16'
+    abs($tc8a['cumulativeMakeup'] - 0.0) < 0.01,
+    '8a: positive week makeup = $0 when net covers makeup and all fees'
 );
 
 // 8b. Negative week
-$tc8b = AgentSettlementRules::summarize(200.0, 800.0, 4.0, 12.0, 50.0);
+$tc8b = AgentSettlementRules::summarize(200.0, -800.0, 4.0, 12.0, 50.0);
 verify(
-    abs($tc8b['cumulativeMakeup'] - 612.0) < 0.01,
-    '8b: negative week makeup = |net=-600| + unpaidFees=12 = $612'
+    abs($tc8b['cumulativeMakeup'] - 616.0) < 0.01,
+    '8b: negative week makeup = |net=-600| + totalFees=16 = $616'
 );
 
 // 8c. Zero net
-$tc8c = AgentSettlementRules::summarize(500.0, 500.0, 0.0, 8.0, 50.0);
+$tc8c = AgentSettlementRules::summarize(500.0, -500.0, 0.0, 8.0, 50.0);
 verify(
     abs($tc8c['cumulativeMakeup'] - 8.0) < 0.01,
-    '8c: zero net week makeup = 0 + unpaidFees = $8'
+    '8c: zero net week makeup = totalFees = $8'
 );
 
 // 8d. Negative net with no unpaid fees
-$tc8d = AgentSettlementRules::summarize(100.0, 400.0, 8.0, 0.0, 50.0);
+$tc8d = AgentSettlementRules::summarize(100.0, -400.0, 8.0, 0.0, 50.0);
 verify(
-    abs($tc8d['cumulativeMakeup'] - 300.0) < 0.01,
-    '8d: negative week, no unpaid fees, makeup = |net=-300| = $300'
+    abs($tc8d['cumulativeMakeup'] - 308.0) < 0.01,
+    '8d: negative week, no unpaid fees, makeup = |net=-300| + paidFees=8 = $308'
 );
 
 echo "\n";
