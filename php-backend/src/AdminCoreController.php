@@ -1231,6 +1231,14 @@ final class AdminCoreController
                 $currentAgentBalance = $this->num($actor['balance'] ?? 0);
                 if (round($currentAgentBalance, 2) !== round($finalBalanceOwed, 2)) {
                     $this->db->updateOne('agents', ['id' => (string) ($actor['id'] ?? '')], ['balance' => $finalBalanceOwed]);
+                    // Sync balance to linked counterpart (agent ↔ MA same-person pair)
+                    $linkedName = AgentSettlementRules::linkedCounterpartUsername(
+                        (string) ($actor['username'] ?? ''),
+                        (string) ($actor['role'] ?? '')
+                    );
+                    if ($linkedName !== null) {
+                        $this->db->updateMany('agents', ['username' => $linkedName], ['balance' => $finalBalanceOwed]);
+                    }
                 }
 
                 // Build commission distribution across upline chain for agent actors
@@ -3508,12 +3516,22 @@ final class AdminCoreController
             $previousMakeup = $this->num($agent['settlementMakeup'] ?? 0);
             $previousBalanceOwed = $this->num($agent['settlementBalanceOwed'] ?? 0);
 
-            $this->db->updateOne('agents', ['id' => SqlRepository::id($agentId)], [
+            $settlementUpdates = [
                 'settlementMakeup' => max(0.0, $newMakeup),
                 'settlementBalanceOwed' => $newBalanceOwed,
                 'settlementFinalizedAt' => $now,
                 'updatedAt' => $now,
-            ]);
+            ];
+            $this->db->updateOne('agents', ['id' => SqlRepository::id($agentId)], $settlementUpdates);
+
+            // Sync settlement fields to linked counterpart (agent ↔ MA same-person pair)
+            $linkedName = AgentSettlementRules::linkedCounterpartUsername(
+                (string) ($agent['username'] ?? ''),
+                (string) ($agent['role'] ?? '')
+            );
+            if ($linkedName !== null) {
+                $this->db->updateMany('agents', ['username' => $linkedName], $settlementUpdates);
+            }
 
             // Also write a snapshot for the current week so auto-close
             // and resolveSettlementCarryForward stay in sync.
@@ -3950,12 +3968,22 @@ final class AdminCoreController
         ]);
 
         // Also update the agent record so the seed stays current (used as fallback)
-        $this->db->updateOne('agents', ['id' => SqlRepository::id($agentId)], [
+        $autoCloseUpdates = [
             'settlementMakeup'       => $summary['cumulativeMakeup'],
             'settlementBalanceOwed'  => $summary['balanceOwed'],
             'settlementFinalizedAt'  => $now,
             'updatedAt'              => $now,
-        ]);
+        ];
+        $this->db->updateOne('agents', ['id' => SqlRepository::id($agentId)], $autoCloseUpdates);
+
+        // Sync settlement fields to linked counterpart (agent ↔ MA same-person pair)
+        $linkedName = AgentSettlementRules::linkedCounterpartUsername(
+            (string) ($agentDoc['username'] ?? ''),
+            (string) ($agentDoc['role'] ?? '')
+        );
+        if ($linkedName !== null) {
+            $this->db->updateMany('agents', ['username' => $linkedName], $autoCloseUpdates);
+        }
     }
 
     private function getCashierSummary(): void
@@ -4622,6 +4650,8 @@ final class AdminCoreController
                         'projection' => ['id' => 1, 'username' => 1, 'role' => 1, 'balance' => 1],
                         'limit' => 500,
                     ]);
+                    // Collect linked counterpart usernames (agent↔MA same-person pairs)
+                    $linkedUsernames = [];
                     foreach ($agentDocs as $agentDoc) {
                         $aid = (string) ($agentDoc['id'] ?? '');
                         if ($aid !== '' && preg_match('/^[a-f0-9]{24}$/i', $aid) === 1 && !isset($playerIds[$aid])) {
@@ -4634,6 +4664,37 @@ final class AdminCoreController
                                 'balance' => $this->num($agentDoc['balance'] ?? 0),
                                 'freeplayBalance' => 0,
                             ];
+                        }
+                        // Find linked counterpart (NJG365 ↔ NJG365MA)
+                        $linkedName = AgentSettlementRules::linkedCounterpartUsername(
+                            (string) ($agentDoc['username'] ?? ''),
+                            (string) ($agentDoc['role'] ?? '')
+                        );
+                        if ($linkedName !== null) {
+                            $linkedUsernames[] = $linkedName;
+                        }
+                    }
+                    // Include linked counterpart agents so their transactions appear together
+                    if ($linkedUsernames !== []) {
+                        $linkedDocs = $this->db->findMany('agents', [
+                            'username' => ['$in' => $linkedUsernames],
+                        ], [
+                            'projection' => ['id' => 1, 'username' => 1, 'role' => 1, 'balance' => 1],
+                            'limit' => 500,
+                        ]);
+                        foreach ($linkedDocs as $linkedDoc) {
+                            $lid = (string) ($linkedDoc['id'] ?? '');
+                            if ($lid !== '' && preg_match('/^[a-f0-9]{24}$/i', $lid) === 1 && !isset($playerIds[$lid])) {
+                                $playerIds[$lid] = true;
+                                $playerDocsById[$lid] = [
+                                    'id' => $lid,
+                                    'username' => (string) ($linkedDoc['username'] ?? ''),
+                                    'fullName' => (string) ($linkedDoc['username'] ?? ''),
+                                    'agentId' => $lid,
+                                    'balance' => $this->num($linkedDoc['balance'] ?? 0),
+                                    'freeplayBalance' => 0,
+                                ];
+                            }
                         }
                     }
                 }
@@ -5309,6 +5370,20 @@ final class AdminCoreController
                             ? round($currentBal - $amt, 2)
                             : round($currentBal + $amt, 2);
                         $this->db->updateOne('agents', ['id' => SqlRepository::id($agentIdForFunding)], ['balance' => $reversedBal]);
+
+                        // Sync reversed balance to linked counterpart (agent ↔ MA)
+                        $fundingAgentUsername = (string) ($lockedAgent['username'] ?? '');
+                        $fundingAgentRole = (string) ($lockedAgent['role'] ?? '');
+                        $linkedFundingName = AgentSettlementRules::linkedCounterpartUsername($fundingAgentUsername, $fundingAgentRole);
+                        if ($linkedFundingName !== null) {
+                            $linkedFunding = $this->db->findOneForUpdate('agents', ['username' => $linkedFundingName]);
+                            if ($linkedFunding !== null) {
+                                $lfId = (string) ($linkedFunding['id'] ?? '');
+                                if ($lfId !== '' && preg_match('/^[a-f0-9]{24}$/i', $lfId) === 1) {
+                                    $this->db->updateOne('agents', ['id' => SqlRepository::id($lfId)], ['balance' => $reversedBal]);
+                                }
+                            }
+                        }
 
                         // Move to deleted_transactions
                         $this->db->insertOne('deleted_transactions', [
@@ -6595,11 +6670,17 @@ final class AdminCoreController
             if (array_key_exists('parentAgentId', $body)) {
                 $parentId = trim((string) $body['parentAgentId']);
                 if ($parentId === '') {
-                    // Block orphaning — clearing parent breaks the commission chain
-                    // (house would never appear in the chain, violating the 5% rule).
-                    // Instead of silently creating an orphan, reject the request.
-                    Response::json(['message' => 'Cannot remove parent assignment — agent must belong to a commission chain.'], 400);
-                    return;
+                    // Allow top-level MAs (created by admin, no parent) to save without a parent.
+                    // Only block orphaning for agents that already have a parent assignment.
+                    $agentRole = strtolower(trim((string) ($agent['role'] ?? '')));
+                    $existingParentModel = trim((string) ($agent['createdByModel'] ?? ''));
+                    $isTopLevel = in_array($agentRole, ['master_agent', 'super_agent'], true)
+                        && ($existingParentModel === 'Admin' || $existingParentModel === '');
+                    if (!$isTopLevel) {
+                        Response::json(['message' => 'Cannot remove parent assignment — agent must belong to a commission chain.'], 400);
+                        return;
+                    }
+                    // Top-level MA — no parent change needed, skip.
                 } elseif (preg_match('/^[a-f0-9]{24}$/i', $parentId) === 1) {
                     $parentAgent = $this->db->findOne('agents', [
                         'id' => SqlRepository::id($parentId),
@@ -6793,6 +6874,35 @@ final class AdminCoreController
                 // Sync commission fields to linked MA ↔ agent counterpart (same person)
                 $this->syncLinkedAgentCommission($updated, $updates);
 
+                // Sync identity fields (name, phone, password) to linked counterpart
+                $identitySync = [];
+                foreach (['firstName', 'lastName', 'fullName', 'phoneNumber', 'password', 'passwordCaseInsensitiveHash', 'displayPassword'] as $iField) {
+                    if (array_key_exists($iField, $updates)) {
+                        $identitySync[$iField] = $updates[$iField];
+                    }
+                }
+                if ($identitySync !== []) {
+                    $linkedName = AgentSettlementRules::linkedCounterpartUsername(
+                        (string) ($agent['username'] ?? ''),
+                        (string) ($agent['role'] ?? '')
+                    );
+                    if ($linkedName !== null) {
+                        $identitySync['updatedAt'] = SqlRepository::nowUtc();
+                        $this->db->updateMany('agents', ['username' => $linkedName], $identitySync);
+                    }
+                }
+
+                // Sync balance to linked counterpart when directly set
+                if ($balanceBefore !== null) {
+                    $linkedNameForBal = AgentSettlementRules::linkedCounterpartUsername(
+                        (string) ($agent['username'] ?? ''),
+                        (string) ($agent['role'] ?? '')
+                    );
+                    if ($linkedNameForBal !== null && isset($updates['balance'])) {
+                        $this->db->updateMany('agents', ['username' => $linkedNameForBal], ['balance' => $updates['balance']]);
+                    }
+                }
+
                 if ($balanceBefore !== null) {
                     $balanceAfter = $this->num($updated['balance'] ?? ($updates['balance'] ?? $balanceBefore));
                     $this->db->insertOne('transactions', [
@@ -6901,6 +7011,20 @@ final class AdminCoreController
                     'createdAt' => SqlRepository::nowUtc(),
                     'updatedAt' => SqlRepository::nowUtc(),
                 ]);
+
+                // Sync balance to linked counterpart (agent ↔ MA same-person pair)
+                $agentUsername = (string) ($locked['username'] ?? '');
+                $agentRole = (string) ($locked['role'] ?? '');
+                $linkedUsername = AgentSettlementRules::linkedCounterpartUsername($agentUsername, $agentRole);
+                if ($linkedUsername !== null) {
+                    $linkedAgent = $this->db->findOneForUpdate('agents', ['username' => $linkedUsername]);
+                    if ($linkedAgent !== null) {
+                        $linkedId = (string) ($linkedAgent['id'] ?? '');
+                        if ($linkedId !== '' && preg_match('/^[a-f0-9]{24}$/i', $linkedId) === 1) {
+                            $this->db->updateOne('agents', ['id' => SqlRepository::id($linkedId)], ['balance' => $balanceAfter]);
+                        }
+                    }
+                }
 
                 $this->db->commit();
             } catch (Throwable $txErr) {

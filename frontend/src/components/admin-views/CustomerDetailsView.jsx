@@ -383,16 +383,22 @@ const getTransactionUsername = (txn) => {
   ).trim().toLowerCase();
 };
 
-const isTransactionForCustomer = (txn, userId, username) => {
+const isTransactionForCustomer = (txn, userId, username, linkedCounterpart) => {
   const txUserId = getTransactionUserId(txn);
   if (txUserId !== '') {
-    return txUserId === String(userId);
+    if (txUserId === String(userId)) return true;
+    // Also match linked counterpart (agent ↔ MA same-person pair)
+    if (linkedCounterpart?.id && txUserId === String(linkedCounterpart.id)) return true;
+    return false;
   }
 
   const txUsername = getTransactionUsername(txn);
   const normalizedUsername = String(username || '').trim().toLowerCase();
   if (txUsername !== '' && normalizedUsername !== '') {
-    return txUsername === normalizedUsername;
+    if (txUsername === normalizedUsername) return true;
+    // Also match linked counterpart username
+    if (linkedCounterpart?.username && txUsername === String(linkedCounterpart.username).trim().toLowerCase()) return true;
+    return false;
   }
 
   // If backend already scoped to a specific user and row does not carry user info,
@@ -771,7 +777,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
       limit: 300
     }, token);
     const list = Array.isArray(data?.transactions) ? data.transactions : [];
-    const forCustomer = list.filter((txn) => isTransactionForCustomer(txn, userId, customer.username));
+    const forCustomer = list.filter((txn) => isTransactionForCustomer(txn, userId, customer.username, linkedCounterpart));
 
     let mergedRows = [...forCustomer];
     if (['deleted_changed', 'deleted_transactions'].includes(normalizeTxnValue(txTypeFilter))) {
@@ -980,7 +986,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
         }, token);
         const list = Array.isArray(data?.transactions) ? data.transactions : [];
         const filtered = list.filter((txn) => (
-          isTransactionForCustomer(txn, userId, customer.username)
+          isTransactionForCustomer(txn, userId, customer.username, linkedCounterpart)
           && isFreePlayTransaction(txn)
         ));
         setFreePlayRows(filtered);
@@ -1059,6 +1065,21 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
     const roleKey = String(customer?.role || 'player').toLowerCase();
     return roleKey === 'agent' || roleKey === 'master_agent' || roleKey === 'master agent' || roleKey === 'super_agent' || roleKey === 'super agent';
   }, [customer?.role]);
+
+  // Find linked counterpart (NJG365 ↔ NJG365MA) for transaction history sharing
+  const linkedCounterpart = useMemo(() => {
+    if (!isAgent || !customer?.username || !agents?.length) return null;
+    const upper = String(customer.username).toUpperCase();
+    if (upper.endsWith('MA')) {
+      const base = upper.slice(0, -2);
+      const linked = agents.find((a) => String(a.username || '').toUpperCase() === base);
+      return linked ? { id: linked.id, username: base } : null;
+    } else {
+      const maName = upper + 'MA';
+      const linked = agents.find((a) => String(a.username || '').toUpperCase() === maName);
+      return linked ? { id: linked.id, username: maName } : null;
+    }
+  }, [isAgent, customer?.username, agents]);
 
   const hiringAgentUsername = useMemo(() => {
     if (!hiringAgentIdDraft) return '';
@@ -1318,8 +1339,11 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
           fullName: `${normalizedFirstName} ${normalizedLastName}`.trim(),
           phoneNumber: normalizedPhoneNumber,
         };
-        if (form.agentId !== undefined) {
-          agentPayload.parentAgentId = form.agentId || '';
+        // Only send parentAgentId when user explicitly selected a new parent.
+        // Sending empty string for top-level MAs (no parent) triggers a backend
+        // "Cannot remove parent assignment" error.
+        if (form.agentId) {
+          agentPayload.parentAgentId = form.agentId;
         }
         await updateAgent(userId, agentPayload, token);
         result = {};
@@ -1518,7 +1542,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
       }, token);
       const list = Array.isArray(data?.transactions) ? data.transactions : [];
       setFreePlayRows(list.filter((txn) => (
-        isTransactionForCustomer(txn, userId, customer.username)
+        isTransactionForCustomer(txn, userId, customer.username, linkedCounterpart)
         && isFreePlayTransaction(txn)
       )));
     } catch (err) {

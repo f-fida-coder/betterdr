@@ -829,21 +829,19 @@ function AdminHeader({
                   <span className="stat-label">Agent Collections</span>
                   <span className={`stat-value ${getSignedValueClass(agentCollectionsValue)}`}>{formatCurrency(agentCollectionsValue)}</span>
                 </button>
-                {houseProfitValue > 0 && (
-                  <button
-                    type="button"
-                    className="stat-row stat-row-button"
-                    onClick={() => {
-                      if (typeof onViewChange === 'function') {
-                        onViewChange('transaction-history', { enteredBy: 'HOUSE', collectionType: 'house' });
-                      }
-                    }}
-                    aria-label={`View house collection transactions`}
-                  >
-                    <span className="stat-label">House Collections</span>
-                    <span className={`stat-value ${getSignedValueClass(houseCollectionsValue)}`}>{formatCurrency(houseCollectionsValue)}</span>
-                  </button>
-                )}
+                <button
+                  type="button"
+                  className="stat-row stat-row-button"
+                  onClick={() => {
+                    if (typeof onViewChange === 'function') {
+                      onViewChange('transaction-history', { enteredBy: 'HOUSE', collectionType: 'house' });
+                    }
+                  }}
+                  aria-label={`View house collection transactions`}
+                >
+                  <span className="stat-label">House Collections</span>
+                  <span className={`stat-value ${getSignedValueClass(houseCollectionsValue)}`}>{formatCurrency(houseCollectionsValue)}</span>
+                </button>
                 <div className="stat-row">
                   <span className="stat-label">Previous Makeup</span>
                   <span className={`stat-value ${previousMakeupValue > 0 ? 'negative' : 'neutral'}`}>{formatCurrency(previousMakeupValue > 0 ? -previousMakeupValue : 0)}</span>
@@ -889,17 +887,15 @@ function AdminHeader({
                   </div>
                 )}
                 {houseProfitValue > 0 && (
-                  <>
-                    <div className="stat-row">
-                      <span className="stat-label">House Profit</span>
-                      <span className={`stat-value ${getSignedValueClass(houseProfitValue)}`}>{formatCurrency(houseProfitValue)}</span>
-                    </div>
-                    <div className="stat-row">
-                      <span className="stat-label">House Collections</span>
-                      <span className={`stat-value ${getSignedValueClass(-houseCollectionsValue)}`}>{formatCurrency(-houseCollectionsValue)}</span>
-                    </div>
-                  </>
+                  <div className="stat-row">
+                    <span className="stat-label">House Profit</span>
+                    <span className={`stat-value ${getSignedValueClass(houseProfitValue)}`}>{formatCurrency(houseProfitValue)}</span>
+                  </div>
                 )}
+                <div className="stat-row">
+                  <span className="stat-label">House Collections</span>
+                  <span className={`stat-value ${getSignedValueClass(-houseCollectionsValue)}`}>{formatCurrency(-houseCollectionsValue)}</span>
+                </div>
                 {fundingAdjustmentValue !== 0 && (
                   <div className="stat-row">
                     <span className="stat-label">Payments</span>
