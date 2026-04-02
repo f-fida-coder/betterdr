@@ -109,18 +109,23 @@ final class AgentSettlementRules
         $uncoveredFees = 0.0;
         if ($commissionableProfit > 0.0) {
             if ($agentSplit >= $totalPlayerFees) {
+                // Agent's share covers all fees
                 $agentSplit = round($agentSplit - $totalPlayerFees, 2);
+            } elseif ($commissionableProfit >= $totalPlayerFees) {
+                // Agent's share alone can't cover, but full profit can —
+                // agent earns nothing, no makeup needed
+                $agentSplit = 0.0;
             } else {
-                // Agent's share can't cover all fees — remainder goes to makeup
-                $uncoveredFees = round($totalPlayerFees - $agentSplit, 2);
+                // Even full profit can't cover fees — real deficit → makeup
+                $uncoveredFees = round($totalPlayerFees - $commissionableProfit, 2);
                 $agentSplit = 0.0;
             }
         }
 
         // ── Step 4: House Profit ──────────────────────────────────────
-        // House gets their split + player fees (minus any uncovered portion)
+        // House gets everything agent doesn't
         $houseProfit = ($commissionableProfit > 0.0)
-            ? round($kickToHouse + $totalPlayerFees - $uncoveredFees, 2)
+            ? round($commissionableProfit - $agentSplit, 2)
             : 0.0;
 
         // ── Step 5: Makeup (cumulative) ───────────────────────────────
