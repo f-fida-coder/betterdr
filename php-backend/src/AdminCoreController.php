@@ -5260,6 +5260,48 @@ final class AdminCoreController
                         continue;
                     }
 
+                    // Handle agent funding transactions separately
+                    $isAgentFunding = ((string) ($rootTx['referenceType'] ?? '')) === 'AgentFunding';
+                    if ($isAgentFunding) {
+                        $agentIdForFunding = (string) ($rootTx['agentId'] ?? '');
+                        $lockedAgent = $this->db->findOneForUpdate('agents', ['id' => SqlRepository::id($agentIdForFunding)]);
+                        if ($lockedAgent === null) {
+                            $this->db->rollback();
+                            $skipped++;
+                            $warnings[] = ['id' => $id, 'message' => 'Agent not found for funding reversal'];
+                            continue;
+                        }
+                        // Reverse the balance change
+                        $amt = $this->num($rootTx['amount'] ?? 0);
+                        $side = strtoupper(trim((string) ($rootTx['entrySide'] ?? '')));
+                        $currentBal = $this->num($lockedAgent['balance'] ?? 0);
+                        $reversedBal = $side === 'CREDIT'
+                            ? round($currentBal - $amt, 2)
+                            : round($currentBal + $amt, 2);
+                        $this->db->updateOne('agents', ['id' => SqlRepository::id($agentIdForFunding)], ['balance' => $reversedBal]);
+
+                        // Move to deleted_transactions
+                        $this->db->insertOne('deleted_transactions', [
+                            'transactionId' => $id,
+                            'userId' => $agentIdForFunding,
+                            'type' => (string) ($rootTx['type'] ?? ''),
+                            'status' => 'completed',
+                            'amount' => $amt,
+                            'createdAt' => $rootTx['createdAt'] ?? SqlRepository::nowUtc(),
+                            'transaction' => $rootTx,
+                            'deletedById' => $actorId,
+                            'deletedByRole' => $actorRole,
+                            'deletedByUsername' => (string) ($actor['username'] ?? ''),
+                            'deletedAt' => SqlRepository::nowUtc(),
+                            'updatedAt' => SqlRepository::nowUtc(),
+                        ]);
+                        $this->db->deleteOne('transactions', ['id' => SqlRepository::id($id)]);
+                        $this->db->commit();
+                        $deleted++;
+                        $processedIds[$id] = true;
+                        continue;
+                    }
+
                     $userId = (string) ($rootTx['userId'] ?? '');
                     if ($userId === '' || preg_match('/^[a-f0-9]{24}$/i', $userId) !== 1) {
                         $this->db->rollback();
