@@ -707,6 +707,12 @@ function WeeklyFiguresView({ onViewChange = null, viewContext = null }) {
                       <span className="stat-label">Net Collections</span>
                       <span className={`stat-value ${getSettlementValueClass(settlementData.netCollections)}`}>{formatCurrency(settlementData.netCollections)}</span>
                     </div>
+                    {Number(settlementData.makeupReduction || 0) > 0 && (
+                      <div className="stat-row">
+                        <span className="stat-label">Makeup Applied</span>
+                        <span className="stat-value negative">{formatCurrency(-(settlementData.makeupReduction))}</span>
+                      </div>
+                    )}
                     {Number(settlementData.agentSplit || 0) > 0 && (
                       <>
                         <div className="stat-row">

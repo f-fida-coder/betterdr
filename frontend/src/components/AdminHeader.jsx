@@ -434,6 +434,7 @@ function AdminHeader({
   const netCollectionsValue = Number(summary.netCollections ?? 0);
   const cumulativeMakeupValue = Number(summary.cumulativeMakeup ?? 0);
   const previousMakeupValue = Number(summary.previousMakeup ?? 0);
+  const makeupReductionValue = Number(summary.makeupReduction ?? 0);
   const agentSplitValue = Number(summary.agentSplit ?? 0);
   const kickToHouseValue = Number(summary.kickToHouse ?? 0);
   const previousBalanceOwedValue = Number(summary.previousBalanceOwed ?? 0);
@@ -835,6 +836,12 @@ function AdminHeader({
                       <span className="stat-label">Net Collections</span>
                       <span className={`stat-value ${getSignedValueClass(netCollectionsValue)}`}>{formatCurrency(netCollectionsValue)}</span>
                     </div>
+                    {makeupReductionValue > 0 && (
+                      <div className="stat-row">
+                        <span className="stat-label">Makeup Applied</span>
+                        <span className="stat-value negative">{formatCurrency(-makeupReductionValue)}</span>
+                      </div>
+                    )}
                     {agentSplitValue > 0 && (
                       <>
                         <div className="stat-row">
