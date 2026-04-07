@@ -93,6 +93,7 @@ function WeeklyFiguresView({ onViewChange = null, viewContext = null }) {
   const [openDropdown, setOpenDropdown] = useState(() => normalizeOpenDropdown(viewContext?.openDropdown));
   const [summaryData, setSummaryData] = useState(null);
   const [settlementData, setSettlementData] = useState(null);
+  const [weekDates, setWeekDates] = useState(null);
   const [customers, setCustomers] = useState([]);
   const [selectedDayIndex, setSelectedDayIndex] = useState(0);
   const [isMobile, setIsMobile] = useState(() => (
@@ -194,6 +195,7 @@ function WeeklyFiguresView({ onViewChange = null, viewContext = null }) {
         const data = await getWeeklyFigures(timePeriod, token);
         setSummaryData(data.summary);
         setSettlementData(data.settlement || null);
+        setWeekDates(data.startDate && data.endDate ? { start: data.startDate, end: data.endDate } : null);
         setCustomers(data.customers || []);
         setError('');
       } catch (err) {
@@ -669,38 +671,19 @@ function WeeklyFiguresView({ onViewChange = null, viewContext = null }) {
         {error && <div style={{ padding: '20px', color: 'red', textAlign: 'center' }}>{error}</div>}
         {!loading && !error && summaryData && (
           <>
-            <div className="summary-section">
-              <div className="summary-header">
-                <h3>Summary</h3>
-              </div>
-              <div className="table-container">
-                <table className="data-table customer-table">
-                  <thead>
-                    <tr>
-                      <th>Summary</th>
-                      <th>{selectedMetricLabel}</th>
-                      <th>Balance</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr>
-                      <td>{dynamicSummary.playerCount} {playerFilter === 'active-week' ? 'Active Players' : 'Players'}</td>
-                      <td className={`weekly-amount ${getSignedValueClass(dynamicSummary.selectedMetricTotal)}`}>
-                        {formatMoney(dynamicSummary.selectedMetricTotal)}
-                      </td>
-                      <td className={`weekly-amount ${getSignedValueClass(dynamicSummary.balanceTotal)}`}>
-                        {formatMoney(dynamicSummary.balanceTotal)}
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {settlementData && (
+            {settlementData && weekDates && (
               <div className="summary-section weekly-settlement-section">
                 <div className="summary-header">
-                  <h3>Settlement Breakdown</h3>
+                  <h3>
+                    {new Date(weekDates.start).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })}
+                    {' – '}
+                    {(() => {
+                      const end = new Date(weekDates.end);
+                      end.setDate(end.getDate() - 1);
+                      return end.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' });
+                    })()}
+                    {' Report'}
+                  </h3>
                 </div>
                 <div className="weekly-settlement-grid">
                   <div className="stat-group stat-group-green">
@@ -784,6 +767,34 @@ function WeeklyFiguresView({ onViewChange = null, viewContext = null }) {
                 </div>
               </div>
             )}
+
+            <div className="summary-section">
+              <div className="summary-header">
+                <h3>Summary</h3>
+              </div>
+              <div className="table-container">
+                <table className="data-table customer-table">
+                  <thead>
+                    <tr>
+                      <th>Summary</th>
+                      <th>{selectedMetricLabel}</th>
+                      <th>Balance</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>{dynamicSummary.playerCount} {playerFilter === 'active-week' ? 'Active Players' : 'Players'}</td>
+                      <td className={`weekly-amount ${getSignedValueClass(dynamicSummary.selectedMetricTotal)}`}>
+                        {formatMoney(dynamicSummary.selectedMetricTotal)}
+                      </td>
+                      <td className={`weekly-amount ${getSignedValueClass(dynamicSummary.balanceTotal)}`}>
+                        {formatMoney(dynamicSummary.balanceTotal)}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
 
             <div className="customer-section">
               <div className="section-header">

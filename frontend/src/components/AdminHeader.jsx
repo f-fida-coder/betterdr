@@ -778,146 +778,142 @@ function AdminHeader({
               </div>
             </div>
 
-            {/* Group 2: Active Players + Player Fees (agent) or Active Accts + Balance (other) */}
-            <div className="stat-group stat-group-red">
-              {roleKey === 'agent' ? (
-                <button
-                  type="button"
-                  className="stat-row stat-row-button"
-                  onClick={() => onViewChange?.('weekly-figures', {
-                    timePeriod: 'this-week',
-                    playerFilter: 'active-week',
-                    actorLabel: displayName,
-                  })}
-                  aria-label={`Open weekly figures for ${displayName} active players this week`}
-                >
-                  <span className="stat-label">Active Players</span>
-                  <span className="stat-value highlight">{formatCount(summary.activeAccounts)}</span>
-                </button>
-              ) : (
+            {/* Group 2: Active Accts + Balance (non-agent only) */}
+            {roleKey !== 'agent' && (
+              <div className="stat-group stat-group-red">
                 <div className="stat-row">
                   <span className="stat-label">Active Accts</span>
                   <span className="stat-value highlight">{formatCount(summary.activeAccounts)}</span>
                 </div>
-              )}
-              {roleKey === 'agent' ? (
-                <div className="stat-row">
-                  <span className="stat-label">Player Fees</span>
-                  <span className="stat-value">{formatCurrency(summary.totalPlayerFees ?? 0)}</span>
-                </div>
-              ) : (
                 <div className="stat-row">
                   <span className="stat-label">Balance</span>
                   <span className={`stat-value ${getSignedValueClass(headerBalance)}`}>{formatCurrency(headerBalance)}</span>
                 </div>
-              )}
-            </div>
-
-            {/* ── Excel Section 1 (Green): Collections ── */}
-            {roleKey === 'agent' && (
-              <div className="stat-group stat-group-green">
-                <button
-                  type="button"
-                  className="stat-row stat-row-button"
-                  onClick={() => {
-                    if (typeof onViewChange === 'function') {
-                      onViewChange('transaction-history', { enteredBy: displayName, collectionType: 'agent' });
-                    }
-                  }}
-                  aria-label={`View agent collection transactions`}
-                >
-                  <span className="stat-label">Agent Collections</span>
-                  <span className={`stat-value ${getSignedValueClass(agentCollectionsValue)}`}>{formatCurrency(agentCollectionsValue)}</span>
-                </button>
-                <button
-                  type="button"
-                  className="stat-row stat-row-button"
-                  onClick={() => {
-                    if (typeof onViewChange === 'function') {
-                      onViewChange('transaction-history', { enteredBy: 'HOUSE', collectionType: 'house' });
-                    }
-                  }}
-                  aria-label={`View house collection transactions`}
-                >
-                  <span className="stat-label">House Collections</span>
-                  <span className={`stat-value ${getSignedValueClass(houseCollectionsValue)}`}>{formatCurrency(houseCollectionsValue)}</span>
-                </button>
-                <div className="stat-row">
-                  <span className="stat-label">Previous Makeup</span>
-                  <span className={`stat-value ${previousMakeupValue > 0 ? 'negative' : 'neutral'}`}>{formatCurrency(previousMakeupValue > 0 ? -previousMakeupValue : 0)}</span>
-                </div>
               </div>
             )}
 
-            {/* ── Excel Section 2 (Yellow): Net / Split ── */}
+            {/* ── Agent Settlement Report Card ── */}
             {roleKey === 'agent' && (
-              <div className="stat-group stat-group-yellow">
-                <div className="stat-row">
-                  <span className="stat-label">Net Collections</span>
-                  <span className={`stat-value ${getSignedValueClass(netCollectionsValue)}`}>{formatCurrency(netCollectionsValue)}</span>
-                </div>
-                {agentSplitValue > 0 && (
-                  <>
+              <div className="summary-section weekly-settlement-section dashboard-settlement">
+                <div className="weekly-settlement-grid">
+                  <div className="stat-group stat-group-green">
+                    <button
+                      type="button"
+                      className="stat-row stat-row-button"
+                      onClick={() => {
+                        if (typeof onViewChange === 'function') {
+                          onViewChange('transaction-history', { enteredBy: displayName, collectionType: 'agent' });
+                        }
+                      }}
+                      aria-label={`View agent collection transactions`}
+                    >
+                      <span className="stat-label">Agent Collections</span>
+                      <span className={`stat-value ${getSignedValueClass(agentCollectionsValue)}`}>{formatCurrency(agentCollectionsValue)}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="stat-row stat-row-button"
+                      onClick={() => {
+                        if (typeof onViewChange === 'function') {
+                          onViewChange('transaction-history', { enteredBy: 'HOUSE', collectionType: 'house' });
+                        }
+                      }}
+                      aria-label={`View house collection transactions`}
+                    >
+                      <span className="stat-label">House Collections</span>
+                      <span className={`stat-value ${getSignedValueClass(houseCollectionsValue)}`}>{formatCurrency(houseCollectionsValue)}</span>
+                    </button>
+                    {previousMakeupValue > 0 && (
+                      <div className="stat-row">
+                        <span className="stat-label">Previous Makeup</span>
+                        <span className="stat-value negative">{formatCurrency(-previousMakeupValue)}</span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="stat-group stat-group-yellow">
                     <div className="stat-row">
-                      <span className="stat-label">Agent Split{agentPercentValue != null ? ` ${agentPercentValue}%` : ''}</span>
-                      <span className={`stat-value ${getSignedValueClass(agentSplitValue)}`}>{formatCurrency(agentSplitValue)}</span>
+                      <span className="stat-label">Net Collections</span>
+                      <span className={`stat-value ${getSignedValueClass(netCollectionsValue)}`}>{formatCurrency(netCollectionsValue)}</span>
                     </div>
+                    {agentSplitValue > 0 && (
+                      <>
+                        <div className="stat-row">
+                          <span className="stat-label">Agent Split{agentPercentValue != null ? ` ${agentPercentValue}%` : ''}</span>
+                          <span className={`stat-value ${getSignedValueClass(agentSplitValue)}`}>{formatCurrency(agentSplitValue)}</span>
+                        </div>
+                        <div className="stat-row">
+                          <span className="stat-label">Kick to House{housePercentValue != null ? ` ${housePercentValue}%` : ''}</span>
+                          <span className={`stat-value ${getSignedValueClass(kickToHouseValue)}`}>{formatCurrency(kickToHouseValue)}</span>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                  <div className="stat-group stat-group-red">
+                    <button
+                      type="button"
+                      className="stat-row stat-row-button"
+                      onClick={() => onViewChange?.('weekly-figures', {
+                        timePeriod: 'this-week',
+                        playerFilter: 'active-week',
+                        actorLabel: displayName,
+                      })}
+                      aria-label={`Open weekly figures for ${displayName} active players this week`}
+                    >
+                      <span className="stat-label">Active Players</span>
+                      <span className="stat-value highlight">{formatCount(summary.activeAccounts)}</span>
+                    </button>
                     <div className="stat-row">
-                      <span className="stat-label">Kick to House{housePercentValue != null ? ` ${housePercentValue}%` : ''}</span>
-                      <span className={`stat-value ${getSignedValueClass(kickToHouseValue)}`}>{formatCurrency(kickToHouseValue)}</span>
+                      <span className="stat-label">Player Fees</span>
+                      <span className="stat-value">{formatCurrency(summary.totalPlayerFees ?? 0)}</span>
                     </div>
-                  </>
-                )}
-              </div>
-            )}
-
-            {/* ── Excel Section 3 (Pink/Orange): Balance Owed Breakdown ── */}
-            {roleKey === 'agent' && (
-              <div className="stat-group stat-group-salmon">
-                {cumulativeMakeupValue > 0 && (
-                  <div className="stat-row">
-                    <span className="stat-label">Remaining Makeup</span>
-                    <span className="stat-value negative">{formatCurrency(-cumulativeMakeupValue)}</span>
                   </div>
-                )}
-                {previousBalanceOwedValue !== 0 && (
-                  <button
-                    type="button"
-                    className="stat-row stat-row-button"
-                    onClick={() => {
-                      if (typeof onViewChange === 'function') {
-                        onViewChange('weekly-figures', {
-                          timePeriod: 'last-week',
-                          playerFilter: 'all-players',
-                          actorLabel: displayName,
-                        });
-                      }
-                    }}
-                    aria-label="View last week figures"
-                  >
-                    <span className="stat-label">Previous Balance</span>
-                    <span className={`stat-value ${getSignedValueClass(previousBalanceOwedValue)}`}>{formatCurrency(previousBalanceOwedValue)}</span>
-                  </button>
-                )}
-                {houseProfitValue > 0 && (
-                  <div className="stat-row">
-                    <span className="stat-label">House Profit</span>
-                    <span className={`stat-value ${getSignedValueClass(houseProfitValue)}`}>{formatCurrency(houseProfitValue)}</span>
+                  <div className="stat-group stat-group-salmon">
+                    {cumulativeMakeupValue > 0 && (
+                      <div className="stat-row">
+                        <span className="stat-label">Remaining Makeup</span>
+                        <span className="stat-value negative">{formatCurrency(-cumulativeMakeupValue)}</span>
+                      </div>
+                    )}
+                    {previousBalanceOwedValue !== 0 && (
+                      <button
+                        type="button"
+                        className="stat-row stat-row-button"
+                        onClick={() => {
+                          if (typeof onViewChange === 'function') {
+                            onViewChange('weekly-figures', {
+                              timePeriod: 'last-week',
+                              playerFilter: 'all-players',
+                              actorLabel: displayName,
+                            });
+                          }
+                        }}
+                        aria-label="View last week figures"
+                      >
+                        <span className="stat-label">Previous Balance</span>
+                        <span className={`stat-value ${getSignedValueClass(previousBalanceOwedValue)}`}>{formatCurrency(previousBalanceOwedValue)}</span>
+                      </button>
+                    )}
+                    {houseProfitValue > 0 && (
+                      <div className="stat-row">
+                        <span className="stat-label">House Profit</span>
+                        <span className={`stat-value ${getSignedValueClass(houseProfitValue)}`}>{formatCurrency(houseProfitValue)}</span>
+                      </div>
+                    )}
+                    <div className="stat-row">
+                      <span className="stat-label">House Collections</span>
+                      <span className={`stat-value ${getSignedValueClass(-houseCollectionsValue)}`}>{formatCurrency(-houseCollectionsValue)}</span>
+                    </div>
+                    {fundingAdjustmentValue !== 0 && (
+                      <div className="stat-row">
+                        <span className="stat-label">Payments</span>
+                        <span className={`stat-value ${getSignedValueClass(-fundingAdjustmentValue)}`}>{formatCurrency(-fundingAdjustmentValue)}</span>
+                      </div>
+                    )}
+                    <div className="stat-row stat-row-total">
+                      <span className="stat-label">Balance Owed / House Money</span>
+                      <span className={`stat-value ${getSignedValueClass(balanceOwedValue)}`}>{formatCurrency(balanceOwedValue)}</span>
+                    </div>
                   </div>
-                )}
-                <div className="stat-row">
-                  <span className="stat-label">House Collections</span>
-                  <span className={`stat-value ${getSignedValueClass(-houseCollectionsValue)}`}>{formatCurrency(-houseCollectionsValue)}</span>
-                </div>
-                {fundingAdjustmentValue !== 0 && (
-                  <div className="stat-row">
-                    <span className="stat-label">Payments</span>
-                    <span className={`stat-value ${getSignedValueClass(-fundingAdjustmentValue)}`}>{formatCurrency(-fundingAdjustmentValue)}</span>
-                  </div>
-                )}
-                <div className="stat-row stat-row-total">
-                  <span className="stat-label">Balance Owed / House Money</span>
-                  <span className={`stat-value ${getSignedValueClass(balanceOwedValue)}`}>{formatCurrency(balanceOwedValue)}</span>
                 </div>
               </div>
             )}

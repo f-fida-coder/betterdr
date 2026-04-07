@@ -443,8 +443,6 @@
 .admin-header-bottom {
   padding: 6px 16px 8px;
   background: white;
-  /* Or keep transparent if needed, but grid usually looks better on white/light bg in this context if not card based */
-  background: transparent;
 }
 
 .admin-stats-grid {
@@ -1272,6 +1270,7 @@
   color: #333;
   font-size: 28px;
 }
+
 
 .view-header .subtitle,
 .view-header .count {
@@ -2805,10 +2804,18 @@
 
 .weekly-settlement-section .stat-group {
   border-radius: 6px;
+  box-shadow: none;
 }
 
 .weekly-settlement-section .stat-row {
   padding: 12px 16px;
+}
+
+.dashboard-settlement {
+  grid-column: 1 / -1;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 .weekly-summary-metrics {
