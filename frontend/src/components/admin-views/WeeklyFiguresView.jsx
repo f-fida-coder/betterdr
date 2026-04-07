@@ -703,14 +703,25 @@ function WeeklyFiguresView({ onViewChange = null, viewContext = null }) {
                     )}
                   </div>
                   <div className="stat-group stat-group-yellow">
-                    <div className="stat-row">
-                      <span className="stat-label">Net Collections</span>
-                      <span className={`stat-value ${getSettlementValueClass(settlementData.netCollections)}`}>{formatCurrency(settlementData.netCollections)}</span>
-                    </div>
-                    {Number(settlementData.makeupReduction || 0) > 0 && (
+                    {Number(settlementData.makeupReduction || 0) > 0 ? (
+                      <>
+                        <div className="stat-row">
+                          <span className="stat-label">Gross Collections</span>
+                          <span className={`stat-value ${getSettlementValueClass(settlementData.netCollections)}`}>{formatCurrency(settlementData.netCollections)}</span>
+                        </div>
+                        <div className="stat-row">
+                          <span className="stat-label">Makeup Cleared</span>
+                          <span className="stat-value negative">{formatCurrency(-(settlementData.makeupReduction))}</span>
+                        </div>
+                        <div className="stat-row">
+                          <span className="stat-label">Net Collections</span>
+                          <span className={`stat-value ${getSettlementValueClass(settlementData.commissionableProfit)}`}>{formatCurrency(settlementData.commissionableProfit)}</span>
+                        </div>
+                      </>
+                    ) : (
                       <div className="stat-row">
-                        <span className="stat-label">Makeup Cleared</span>
-                        <span className="stat-value negative">{formatCurrency(-(settlementData.makeupReduction))}</span>
+                        <span className="stat-label">Net Collections</span>
+                        <span className={`stat-value ${getSettlementValueClass(settlementData.netCollections)}`}>{formatCurrency(settlementData.netCollections)}</span>
                       </div>
                     )}
                     {Number(settlementData.agentSplit || 0) > 0 && (
