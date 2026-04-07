@@ -212,6 +212,10 @@ final class AdminCoreController
             $this->finalizeSettlement();
             return true;
         }
+        if ($method === 'GET' && $path === '/api/admin/settlement-snapshots') {
+            $this->getSettlementSnapshots();
+            return true;
+        }
         // Balance adjustment feature removed
         // if ($method === 'POST' && $path === '/api/admin/settlement-adjustment') {
         //     $this->recordSettlementAdjustment();
@@ -3983,6 +3987,71 @@ final class AdminCoreController
         );
         if ($linkedName !== null) {
             $this->db->updateMany('agents', ['username' => $linkedName], $autoCloseUpdates);
+        }
+    }
+
+    /**
+     * Return all settlement snapshots for the logged-in agent/master_agent/super_agent
+     * that have a non-zero closingBalanceOwed, ordered newest-first.
+     * Admin role gets snapshots for all agents.
+     */
+    private function getSettlementSnapshots(): void
+    {
+        try {
+            $actor = $this->protect(['admin', 'agent', 'master_agent', 'super_agent']);
+            if ($actor === null) {
+                return;
+            }
+
+            $actorId = (string) ($actor['id'] ?? '');
+            $actorRole = (string) ($actor['role'] ?? '');
+
+            $query = [
+                'closingBalanceOwed' => ['$ne' => 0],
+            ];
+
+            // Scope to the actor's own snapshots (unless admin, who sees all)
+            if ($actorRole !== 'admin') {
+                $query['agentId'] = $actorId;
+            }
+
+            $snapshots = $this->db->findMany('settlement_snapshots', $query, [
+                'sort' => ['weekStartStr' => -1],
+                'limit' => 52,
+                'projection' => [
+                    'weekStartStr' => 1,
+                    'closingBalanceOwed' => 1,
+                    'agentId' => 1,
+                ],
+            ]);
+
+            $results = [];
+            foreach ($snapshots as $snap) {
+                $weekStart = $snap['weekStartStr'] ?? '';
+                $closingBalance = $this->num($snap['closingBalanceOwed'] ?? 0);
+                if ($closingBalance == 0) {
+                    continue;
+                }
+
+                // Build a human-readable label like "Mar 31 - Apr 6"
+                try {
+                    $startDt = new DateTimeImmutable($weekStart, new \DateTimeZone(self::DASHBOARD_TIMEZONE));
+                    $endDt = $startDt->modify('+6 days');
+                    $label = $startDt->format('M j') . ' - ' . $endDt->format('M j');
+                } catch (Throwable $e) {
+                    $label = $weekStart;
+                }
+
+                $results[] = [
+                    'weekStartStr' => $weekStart,
+                    'label' => $label,
+                    'closingBalanceOwed' => $closingBalance,
+                ];
+            }
+
+            Response::json(['snapshots' => $results]);
+        } catch (Throwable $e) {
+            Response::json(['message' => 'Failed to fetch settlement snapshots'], 500);
         }
     }
 
