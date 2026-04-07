@@ -695,7 +695,7 @@ function WeeklyFiguresView({ onViewChange = null, viewContext = null }) {
                       <span className="stat-label">House Collections</span>
                       <span className={`stat-value ${getSettlementValueClass(settlementData.houseCollections)}`}>{formatCurrency(settlementData.houseCollections)}</span>
                     </div>
-                    {Number(settlementData.previousMakeup || 0) > 0 && (
+                    {Number(settlementData.previousMakeup || 0) > 0 && Number(settlementData.cumulativeMakeup || 0) > 0 && (
                       <div className="stat-row">
                         <span className="stat-label">Previous Makeup</span>
                         <span className="stat-value negative">{formatCurrency(-(settlementData.previousMakeup))}</span>
@@ -709,7 +709,7 @@ function WeeklyFiguresView({ onViewChange = null, viewContext = null }) {
                     </div>
                     {Number(settlementData.makeupReduction || 0) > 0 && (
                       <div className="stat-row">
-                        <span className="stat-label">Makeup Applied</span>
+                        <span className="stat-label">Makeup Cleared</span>
                         <span className="stat-value negative">{formatCurrency(-(settlementData.makeupReduction))}</span>
                       </div>
                     )}

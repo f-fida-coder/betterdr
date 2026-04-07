@@ -824,7 +824,7 @@ function AdminHeader({
                       <span className="stat-label">House Collections</span>
                       <span className={`stat-value ${getSignedValueClass(houseCollectionsValue)}`}>{formatCurrency(houseCollectionsValue)}</span>
                     </button>
-                    {previousMakeupValue > 0 && (
+                    {previousMakeupValue > 0 && cumulativeMakeupValue > 0 && (
                       <div className="stat-row">
                         <span className="stat-label">Previous Makeup</span>
                         <span className="stat-value negative">{formatCurrency(-previousMakeupValue)}</span>
@@ -838,7 +838,7 @@ function AdminHeader({
                     </div>
                     {makeupReductionValue > 0 && (
                       <div className="stat-row">
-                        <span className="stat-label">Makeup Applied</span>
+                        <span className="stat-label">Makeup Cleared</span>
                         <span className="stat-value negative">{formatCurrency(-makeupReductionValue)}</span>
                       </div>
                     )}
