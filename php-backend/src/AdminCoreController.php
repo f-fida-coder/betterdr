@@ -3208,7 +3208,73 @@ final class AdminCoreController
                 $days[] = ['day' => $label, 'amount' => $summaryDaily[$i]];
             }
 
-            Response::json([
+            // ── Settlement breakdown for agent roles ────────────────
+            $settlement = null;
+            $actorId = (string) ($actor['id'] ?? '');
+            if (in_array($actorRole, ['agent', 'master_agent', 'super_agent'], true)) {
+                // Total agent/house collections from per-user buckets
+                $totalAgentCollections = 0.0;
+                $totalHouseCollections = 0.0;
+                foreach ($userMap as $row) {
+                    $totalAgentCollections += $this->num($row['agentCollections'] ?? 0);
+                    $totalHouseCollections += $this->num($row['houseCollections'] ?? 0);
+                }
+
+                // Player fees: active players × $4
+                $activePositive = 0;
+                $activeNonPositive = 0;
+                foreach ($activeWeeklyUserIds as $uid => $flag) {
+                    $bal = $this->num($userMap[$uid]['user']['balance'] ?? 0);
+                    if ($bal > 0) { $activePositive++; } else { $activeNonPositive++; }
+                }
+                $paidPlayerFees = $activePositive * self::FEE_PER_PLAYER;
+                $unpaidPlayerFees = $activeNonPositive * self::FEE_PER_PLAYER;
+
+                // Carry-forward for this week
+                $carryForward = $this->resolveSettlementCarryForward($actorId, $start, $actor);
+                $agentPercent = isset($actor['agentPercent']) ? (float) $actor['agentPercent'] : null;
+
+                $settlementSummary = AgentSettlementRules::summarize(
+                    $totalAgentCollections,
+                    $totalHouseCollections,
+                    $paidPlayerFees,
+                    $unpaidPlayerFees,
+                    $agentPercent,
+                    $carryForward['previousMakeup'],
+                    $carryForward['previousBalanceOwed']
+                );
+                $settlementSummary = $this->applySettlementBalanceAdjustments($settlementSummary, $actorId, $start);
+
+                $fundingAdjustment = $this->getAgentFundingAdjustment($actorId, $start, $end);
+                $settlementSummary['fundingAdjustment'] = $fundingAdjustment;
+                $settlementSummary['balanceOwed'] = round(
+                    $this->num($settlementSummary['balanceOwed'] ?? 0) - $fundingAdjustment,
+                    2
+                );
+
+                $settlement = [
+                    'agentCollections'     => $totalAgentCollections,
+                    'houseCollections'     => $totalHouseCollections,
+                    'netCollections'       => $settlementSummary['netCollections'],
+                    'previousMakeup'       => $settlementSummary['previousMakeup'],
+                    'makeupReduction'      => $settlementSummary['makeupReduction'],
+                    'commissionableProfit' => $settlementSummary['commissionableProfit'],
+                    'agentPercent'         => $agentPercent,
+                    'agentSplit'           => $settlementSummary['agentSplit'],
+                    'kickToHouse'          => $settlementSummary['kickToHouse'],
+                    'houseProfit'          => $settlementSummary['houseProfit'],
+                    'totalPlayerFees'      => $paidPlayerFees + $unpaidPlayerFees,
+                    'paidPlayerFees'       => $paidPlayerFees,
+                    'unpaidPlayerFees'     => $unpaidPlayerFees,
+                    'activePlayers'        => $activePlayers,
+                    'cumulativeMakeup'     => $settlementSummary['cumulativeMakeup'],
+                    'previousBalanceOwed'  => $settlementSummary['previousBalanceOwed'],
+                    'fundingAdjustment'    => $fundingAdjustment,
+                    'balanceOwed'          => $settlementSummary['balanceOwed'],
+                ];
+            }
+
+            $response = [
                 'period' => $period,
                 'startDate' => $start->format(DATE_ATOM),
                 'endDate' => $end->format(DATE_ATOM),
@@ -3223,7 +3289,11 @@ final class AdminCoreController
                     'pendingTotal' => $pendingTotal,
                 ],
                 'customers' => $customers,
-            ]);
+            ];
+            if ($settlement !== null) {
+                $response['settlement'] = $settlement;
+            }
+            Response::json($response);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error fetching weekly figures'], 500);
         }

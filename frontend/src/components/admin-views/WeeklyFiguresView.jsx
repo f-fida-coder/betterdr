@@ -92,6 +92,7 @@ function WeeklyFiguresView({ onViewChange = null, viewContext = null }) {
   const [playerFilter, setPlayerFilter] = useState(() => String(viewContext?.playerFilter || DEFAULT_WEEKLY_FILTER));
   const [openDropdown, setOpenDropdown] = useState(() => normalizeOpenDropdown(viewContext?.openDropdown));
   const [summaryData, setSummaryData] = useState(null);
+  const [settlementData, setSettlementData] = useState(null);
   const [customers, setCustomers] = useState([]);
   const [selectedDayIndex, setSelectedDayIndex] = useState(0);
   const [isMobile, setIsMobile] = useState(() => (
@@ -175,6 +176,7 @@ function WeeklyFiguresView({ onViewChange = null, viewContext = null }) {
         setLoading(true);
         const data = await getWeeklyFigures(timePeriod, token);
         setSummaryData(data.summary);
+        setSettlementData(data.settlement || null);
         setCustomers(data.customers || []);
         setError('');
       } catch (err) {
@@ -677,6 +679,94 @@ function WeeklyFiguresView({ onViewChange = null, viewContext = null }) {
                 </table>
               </div>
             </div>
+
+            {settlementData && (
+              <div className="summary-section weekly-settlement-section">
+                <div className="summary-header">
+                  <h3>Settlement Breakdown</h3>
+                </div>
+                <div className="weekly-settlement-grid">
+                  <div className="stat-group stat-group-green">
+                    <div className="stat-row">
+                      <span className="stat-label">Agent Collections</span>
+                      <span className={`stat-value ${getSignedValueClass(settlementData.agentCollections)}`}>{formatMoney(settlementData.agentCollections)}</span>
+                    </div>
+                    <div className="stat-row">
+                      <span className="stat-label">House Collections</span>
+                      <span className={`stat-value ${getSignedValueClass(settlementData.houseCollections)}`}>{formatMoney(settlementData.houseCollections)}</span>
+                    </div>
+                    {Number(settlementData.previousMakeup || 0) > 0 && (
+                      <div className="stat-row">
+                        <span className="stat-label">Previous Makeup</span>
+                        <span className="stat-value negative">{formatMoney(-(settlementData.previousMakeup))}</span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="stat-group stat-group-yellow">
+                    <div className="stat-row">
+                      <span className="stat-label">Net Collections</span>
+                      <span className={`stat-value ${getSignedValueClass(settlementData.netCollections)}`}>{formatMoney(settlementData.netCollections)}</span>
+                    </div>
+                    {Number(settlementData.agentSplit || 0) > 0 && (
+                      <>
+                        <div className="stat-row">
+                          <span className="stat-label">Agent Split{settlementData.agentPercent != null ? ` ${settlementData.agentPercent}%` : ''}</span>
+                          <span className={`stat-value ${getSignedValueClass(settlementData.agentSplit)}`}>{formatMoney(settlementData.agentSplit)}</span>
+                        </div>
+                        <div className="stat-row">
+                          <span className="stat-label">Kick to House{settlementData.agentPercent != null ? ` ${100 - settlementData.agentPercent}%` : ''}</span>
+                          <span className={`stat-value ${getSignedValueClass(settlementData.kickToHouse)}`}>{formatMoney(settlementData.kickToHouse)}</span>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                  <div className="stat-group stat-group-red">
+                    <div className="stat-row">
+                      <span className="stat-label">Active Players</span>
+                      <span className="stat-value highlight">{settlementData.activePlayers}</span>
+                    </div>
+                    <div className="stat-row">
+                      <span className="stat-label">Player Fees</span>
+                      <span className="stat-value">{formatMoney(settlementData.totalPlayerFees)}</span>
+                    </div>
+                  </div>
+                  <div className="stat-group stat-group-salmon">
+                    {Number(settlementData.cumulativeMakeup || 0) > 0 && (
+                      <div className="stat-row">
+                        <span className="stat-label">Remaining Makeup</span>
+                        <span className="stat-value negative">{formatMoney(-(settlementData.cumulativeMakeup))}</span>
+                      </div>
+                    )}
+                    {Number(settlementData.previousBalanceOwed || 0) !== 0 && (
+                      <div className="stat-row">
+                        <span className="stat-label">Previous Balance</span>
+                        <span className={`stat-value ${getSignedValueClass(settlementData.previousBalanceOwed)}`}>{formatMoney(settlementData.previousBalanceOwed)}</span>
+                      </div>
+                    )}
+                    {Number(settlementData.houseProfit || 0) > 0 && (
+                      <div className="stat-row">
+                        <span className="stat-label">House Profit</span>
+                        <span className={`stat-value ${getSignedValueClass(settlementData.houseProfit)}`}>{formatMoney(settlementData.houseProfit)}</span>
+                      </div>
+                    )}
+                    <div className="stat-row">
+                      <span className="stat-label">House Collections</span>
+                      <span className={`stat-value ${getSignedValueClass(-(settlementData.houseCollections))}`}>{formatMoney(-(settlementData.houseCollections))}</span>
+                    </div>
+                    {Number(settlementData.fundingAdjustment || 0) !== 0 && (
+                      <div className="stat-row">
+                        <span className="stat-label">Payments</span>
+                        <span className={`stat-value ${getSignedValueClass(-(settlementData.fundingAdjustment))}`}>{formatMoney(-(settlementData.fundingAdjustment))}</span>
+                      </div>
+                    )}
+                    <div className="stat-row stat-row-total">
+                      <span className="stat-label">Balance Owed / House Money</span>
+                      <span className={`stat-value ${getSignedValueClass(settlementData.balanceOwed)}`}>{formatMoney(settlementData.balanceOwed)}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div className="customer-section">
               <div className="section-header">

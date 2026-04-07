@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { getAdminHeaderSummary, getAgents, getMe, getMyPlayers, getSettlementSnapshots, getUsersAdmin, linkedAgentName } from '../api';
+import React, { useEffect, useMemo, useState } from 'react';
+import { getAdminHeaderSummary, getAgents, getMe, getMyPlayers, getUsersAdmin, linkedAgentName } from '../api';
 import AgentTreeView from './admin-views/AgentTreeView';
 import { annotateDuplicatePlayers } from '../utils/duplicatePlayers';
 
@@ -89,10 +89,6 @@ function AdminHeader({
   const [selectedSearchPlayer, setSelectedSearchPlayer] = useState(null);
   const [summary, setSummary] = useState(createDefaultHeaderSummary);
   const [profile, setProfile] = useState(null);
-  const [prevBalanceSnapshots, setPrevBalanceSnapshots] = useState([]);
-  const [showPrevBalanceDropdown, setShowPrevBalanceDropdown] = useState(false);
-  const [selectedSnapshotBalance, setSelectedSnapshotBalance] = useState(null);
-  const prevBalanceRef = useRef(null);
 
   const toPlayerList = (users) => (
     Array.isArray(users) ? users : []
@@ -163,35 +159,6 @@ function AdminHeader({
       window.removeEventListener('focus', handleWindowFocus);
     };
   }, [role]);
-
-  const handlePrevBalanceClick = useCallback(async () => {
-    if (showPrevBalanceDropdown) {
-      setShowPrevBalanceDropdown(false);
-      return;
-    }
-    const token = localStorage.getItem('token');
-    if (!token) return;
-    try {
-      const data = await getSettlementSnapshots(token);
-      setPrevBalanceSnapshots(Array.isArray(data?.snapshots) ? data.snapshots : []);
-    } catch (err) {
-      console.error('Failed to load settlement snapshots:', err);
-      setPrevBalanceSnapshots([]);
-    }
-    setSelectedSnapshotBalance(null);
-    setShowPrevBalanceDropdown(true);
-  }, [showPrevBalanceDropdown]);
-
-  useEffect(() => {
-    if (!showPrevBalanceDropdown) return undefined;
-    const handleOutside = (e) => {
-      if (prevBalanceRef.current && !prevBalanceRef.current.contains(e.target)) {
-        setShowPrevBalanceDropdown(false);
-      }
-    };
-    document.addEventListener('mousedown', handleOutside);
-    return () => document.removeEventListener('mousedown', handleOutside);
-  }, [showPrevBalanceDropdown]);
 
   const roundForDisplay = (value) => {
     if (value === null || value === undefined) return null;
@@ -913,48 +880,24 @@ function AdminHeader({
                     <span className="stat-value negative">{formatCurrency(-cumulativeMakeupValue)}</span>
                   </div>
                 )}
-                {(previousBalanceOwedValue !== 0 || selectedSnapshotBalance !== null) && (
-                  <div className="prev-balance-wrapper" ref={prevBalanceRef}>
-                    <button
-                      type="button"
-                      className="stat-row stat-row-button"
-                      onClick={handlePrevBalanceClick}
-                      aria-expanded={showPrevBalanceDropdown}
-                      aria-haspopup="listbox"
-                    >
-                      <span className="stat-label">
-                        Previous Balance
-                        <i className={`fa-solid fa-caret-${showPrevBalanceDropdown ? 'up' : 'down'}`} style={{ marginLeft: 6, fontSize: 10, opacity: 0.6 }} aria-hidden="true" />
-                      </span>
-                      <span className={`stat-value ${getSignedValueClass(selectedSnapshotBalance != null ? selectedSnapshotBalance : previousBalanceOwedValue)}`}>
-                        {formatCurrency(selectedSnapshotBalance != null ? selectedSnapshotBalance : previousBalanceOwedValue)}
-                      </span>
-                    </button>
-                    {showPrevBalanceDropdown && (
-                      <div className="prev-balance-dropdown" role="listbox" aria-label="Previous week balances">
-                        {prevBalanceSnapshots.length === 0 ? (
-                          <div className="prev-balance-dropdown-empty">No previous balances found</div>
-                        ) : (
-                          prevBalanceSnapshots.map((snap) => (
-                            <button
-                              key={snap.weekStartStr}
-                              type="button"
-                              className={`prev-balance-dropdown-item${selectedSnapshotBalance === snap.closingBalanceOwed && selectedSnapshotBalance !== null ? ' is-selected' : ''}`}
-                              onClick={() => {
-                                setSelectedSnapshotBalance(snap.closingBalanceOwed);
-                                setShowPrevBalanceDropdown(false);
-                              }}
-                            >
-                              <span className="prev-balance-dropdown-label">{snap.label}</span>
-                              <span className={`prev-balance-dropdown-value ${getSignedValueClass(snap.closingBalanceOwed)}`}>
-                                {formatCurrency(snap.closingBalanceOwed)}
-                              </span>
-                            </button>
-                          ))
-                        )}
-                      </div>
-                    )}
-                  </div>
+                {previousBalanceOwedValue !== 0 && (
+                  <button
+                    type="button"
+                    className="stat-row stat-row-button"
+                    onClick={() => {
+                      if (typeof onViewChange === 'function') {
+                        onViewChange('weekly-figures', {
+                          timePeriod: 'last-week',
+                          playerFilter: 'all-players',
+                          actorLabel: displayName,
+                        });
+                      }
+                    }}
+                    aria-label="View last week figures"
+                  >
+                    <span className="stat-label">Previous Balance</span>
+                    <span className={`stat-value ${getSignedValueClass(previousBalanceOwedValue)}`}>{formatCurrency(previousBalanceOwedValue)}</span>
+                  </button>
                 )}
                 {houseProfitValue > 0 && (
                   <div className="stat-row">
@@ -973,7 +916,7 @@ function AdminHeader({
                   </div>
                 )}
                 <div className="stat-row stat-row-total">
-                  <span className="stat-label">Balance Owed</span>
+                  <span className="stat-label">Balance Owed / House Money</span>
                   <span className={`stat-value ${getSignedValueClass(balanceOwedValue)}`}>{formatCurrency(balanceOwedValue)}</span>
                 </div>
               </div>

@@ -522,70 +522,6 @@
   background: #f8fafc;
 }
 
-/* ── Previous Balance dropdown ────────────────────────────── */
-.prev-balance-wrapper {
-  position: relative;
-}
-
-.prev-balance-dropdown {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  right: 0;
-  z-index: 60;
-  background: #ffffff;
-  border: 1px solid #c7d4df;
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
-  max-height: 260px;
-  overflow-y: auto;
-}
-
-.prev-balance-dropdown-empty {
-  padding: 12px 14px;
-  font-size: 12px;
-  color: #8899a6;
-  text-align: center;
-}
-
-.prev-balance-dropdown-item {
-  width: 100%;
-  border: none;
-  background: transparent;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 10px 14px;
-  font-size: 12px;
-  color: #12344d;
-  cursor: pointer;
-  transition: background-color 0.15s ease;
-}
-
-.prev-balance-dropdown-item + .prev-balance-dropdown-item {
-  border-top: 1px solid #ecf2f7;
-}
-
-.prev-balance-dropdown-item:hover {
-  background-color: #f1f7fc;
-}
-
-.prev-balance-dropdown-item.is-selected {
-  background-color: #e6f0f8;
-  font-weight: 600;
-}
-
-.prev-balance-dropdown-label {
-  font-weight: 500;
-}
-
-.prev-balance-dropdown-value {
-  font-weight: 600;
-}
-
-.prev-balance-dropdown-value.positive { color: #16a34a; }
-.prev-balance-dropdown-value.negative { color: #dc2626; }
-
 .settlement-adjustment-modal {
   width: min(480px, calc(100vw - 24px));
 }
@@ -2858,6 +2794,25 @@
 .summary-header h3 {
   margin: 0;
   font-size: 18px;
+}
+
+.weekly-settlement-section .weekly-settlement-grid {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.weekly-settlement-section .stat-group {
+  border-radius: 6px;
+}
+
+.weekly-settlement-section .stat-row {
+  padding: 8px 14px;
+}
+
+.weekly-settlement-section .stat-value {
+  font-size: 14px;
 }
 
 .weekly-summary-metrics {
