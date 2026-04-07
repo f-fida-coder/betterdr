@@ -125,10 +125,27 @@ function WeeklyFiguresView({ onViewChange = null, viewContext = null }) {
     return rounded.toLocaleString('en-US');
   };
 
+  const formatCurrency = (value) => {
+    const rounded = roundForDisplay(value);
+    if (rounded === null) return '—';
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0
+    }).format(rounded);
+  };
+
   const getSignedValueClass = (value) => {
     const rounded = roundForDisplay(value);
     if (rounded === null || rounded === 0) return 'is-neutral';
     return rounded > 0 ? 'is-positive' : 'is-negative';
+  };
+
+  const getSettlementValueClass = (value) => {
+    const rounded = roundForDisplay(value);
+    if (rounded === null || rounded === 0) return 'neutral';
+    return rounded > 0 ? 'positive' : 'negative';
   };
 
   const isInactiveFor14Days = (customer) => {
@@ -689,33 +706,33 @@ function WeeklyFiguresView({ onViewChange = null, viewContext = null }) {
                   <div className="stat-group stat-group-green">
                     <div className="stat-row">
                       <span className="stat-label">Agent Collections</span>
-                      <span className={`stat-value ${getSignedValueClass(settlementData.agentCollections)}`}>{formatMoney(settlementData.agentCollections)}</span>
+                      <span className={`stat-value ${getSettlementValueClass(settlementData.agentCollections)}`}>{formatCurrency(settlementData.agentCollections)}</span>
                     </div>
                     <div className="stat-row">
                       <span className="stat-label">House Collections</span>
-                      <span className={`stat-value ${getSignedValueClass(settlementData.houseCollections)}`}>{formatMoney(settlementData.houseCollections)}</span>
+                      <span className={`stat-value ${getSettlementValueClass(settlementData.houseCollections)}`}>{formatCurrency(settlementData.houseCollections)}</span>
                     </div>
                     {Number(settlementData.previousMakeup || 0) > 0 && (
                       <div className="stat-row">
                         <span className="stat-label">Previous Makeup</span>
-                        <span className="stat-value negative">{formatMoney(-(settlementData.previousMakeup))}</span>
+                        <span className="stat-value negative">{formatCurrency(-(settlementData.previousMakeup))}</span>
                       </div>
                     )}
                   </div>
                   <div className="stat-group stat-group-yellow">
                     <div className="stat-row">
                       <span className="stat-label">Net Collections</span>
-                      <span className={`stat-value ${getSignedValueClass(settlementData.netCollections)}`}>{formatMoney(settlementData.netCollections)}</span>
+                      <span className={`stat-value ${getSettlementValueClass(settlementData.netCollections)}`}>{formatCurrency(settlementData.netCollections)}</span>
                     </div>
                     {Number(settlementData.agentSplit || 0) > 0 && (
                       <>
                         <div className="stat-row">
                           <span className="stat-label">Agent Split{settlementData.agentPercent != null ? ` ${settlementData.agentPercent}%` : ''}</span>
-                          <span className={`stat-value ${getSignedValueClass(settlementData.agentSplit)}`}>{formatMoney(settlementData.agentSplit)}</span>
+                          <span className={`stat-value ${getSettlementValueClass(settlementData.agentSplit)}`}>{formatCurrency(settlementData.agentSplit)}</span>
                         </div>
                         <div className="stat-row">
                           <span className="stat-label">Kick to House{settlementData.agentPercent != null ? ` ${100 - settlementData.agentPercent}%` : ''}</span>
-                          <span className={`stat-value ${getSignedValueClass(settlementData.kickToHouse)}`}>{formatMoney(settlementData.kickToHouse)}</span>
+                          <span className={`stat-value ${getSettlementValueClass(settlementData.kickToHouse)}`}>{formatCurrency(settlementData.kickToHouse)}</span>
                         </div>
                       </>
                     )}
@@ -727,41 +744,41 @@ function WeeklyFiguresView({ onViewChange = null, viewContext = null }) {
                     </div>
                     <div className="stat-row">
                       <span className="stat-label">Player Fees</span>
-                      <span className="stat-value">{formatMoney(settlementData.totalPlayerFees)}</span>
+                      <span className="stat-value">{formatCurrency(settlementData.totalPlayerFees)}</span>
                     </div>
                   </div>
                   <div className="stat-group stat-group-salmon">
                     {Number(settlementData.cumulativeMakeup || 0) > 0 && (
                       <div className="stat-row">
                         <span className="stat-label">Remaining Makeup</span>
-                        <span className="stat-value negative">{formatMoney(-(settlementData.cumulativeMakeup))}</span>
+                        <span className="stat-value negative">{formatCurrency(-(settlementData.cumulativeMakeup))}</span>
                       </div>
                     )}
                     {Number(settlementData.previousBalanceOwed || 0) !== 0 && (
                       <div className="stat-row">
                         <span className="stat-label">Previous Balance</span>
-                        <span className={`stat-value ${getSignedValueClass(settlementData.previousBalanceOwed)}`}>{formatMoney(settlementData.previousBalanceOwed)}</span>
+                        <span className={`stat-value ${getSettlementValueClass(settlementData.previousBalanceOwed)}`}>{formatCurrency(settlementData.previousBalanceOwed)}</span>
                       </div>
                     )}
                     {Number(settlementData.houseProfit || 0) > 0 && (
                       <div className="stat-row">
                         <span className="stat-label">House Profit</span>
-                        <span className={`stat-value ${getSignedValueClass(settlementData.houseProfit)}`}>{formatMoney(settlementData.houseProfit)}</span>
+                        <span className={`stat-value ${getSettlementValueClass(settlementData.houseProfit)}`}>{formatCurrency(settlementData.houseProfit)}</span>
                       </div>
                     )}
                     <div className="stat-row">
                       <span className="stat-label">House Collections</span>
-                      <span className={`stat-value ${getSignedValueClass(-(settlementData.houseCollections))}`}>{formatMoney(-(settlementData.houseCollections))}</span>
+                      <span className={`stat-value ${getSettlementValueClass(-(settlementData.houseCollections))}`}>{formatCurrency(-(settlementData.houseCollections))}</span>
                     </div>
                     {Number(settlementData.fundingAdjustment || 0) !== 0 && (
                       <div className="stat-row">
                         <span className="stat-label">Payments</span>
-                        <span className={`stat-value ${getSignedValueClass(-(settlementData.fundingAdjustment))}`}>{formatMoney(-(settlementData.fundingAdjustment))}</span>
+                        <span className={`stat-value ${getSettlementValueClass(-(settlementData.fundingAdjustment))}`}>{formatCurrency(-(settlementData.fundingAdjustment))}</span>
                       </div>
                     )}
                     <div className="stat-row stat-row-total">
                       <span className="stat-label">Balance Owed / House Money</span>
-                      <span className={`stat-value ${getSignedValueClass(settlementData.balanceOwed)}`}>{formatMoney(settlementData.balanceOwed)}</span>
+                      <span className={`stat-value ${getSettlementValueClass(settlementData.balanceOwed)}`}>{formatCurrency(settlementData.balanceOwed)}</span>
                     </div>
                   </div>
                 </div>

@@ -2808,11 +2808,7 @@
 }
 
 .weekly-settlement-section .stat-row {
-  padding: 8px 14px;
-}
-
-.weekly-settlement-section .stat-value {
-  font-size: 14px;
+  padding: 12px 16px;
 }
 
 .weekly-summary-metrics {
