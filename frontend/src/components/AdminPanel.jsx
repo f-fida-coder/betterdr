@@ -216,6 +216,7 @@ function AdminPanel({ onExit, role = 'admin' }) {
           <AdminDashboard
             onMenuClick={handleViewChange}
             onOpenScoreboard={() => setShowScoreboard(true)}
+            onSwitchContext={handleSwitchContext}
             role={effectiveRole}
             layoutPref={layoutPref}
             isMobile={isMobile}
@@ -295,7 +296,7 @@ function AdminPanel({ onExit, role = 'admin' }) {
       case 'monitor':
         return <SystemMonitorView />;
       default:
-        return <AdminDashboard onMenuClick={handleViewChange} onOpenScoreboard={() => setShowScoreboard(true)} role={effectiveRole} permissions={permissions} />;
+        return <AdminDashboard onMenuClick={handleViewChange} onOpenScoreboard={() => setShowScoreboard(true)} onSwitchContext={handleSwitchContext} role={effectiveRole} permissions={permissions} />;
     }
   };
 

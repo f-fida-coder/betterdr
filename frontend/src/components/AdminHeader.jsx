@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { getAdminHeaderSummary, getAgents, getMe, getMyPlayers, getUsersAdmin, linkedAgentName } from '../api';
+import { getAdminHeaderSummary, getAgents, getDownlineSummary, getMe, getMyPlayers, getUsersAdmin, linkedAgentName } from '../api';
 import AgentTreeView from './admin-views/AgentTreeView';
 import { annotateDuplicatePlayers } from '../utils/duplicatePlayers';
 
@@ -89,6 +89,7 @@ function AdminHeader({
   const [selectedSearchPlayer, setSelectedSearchPlayer] = useState(null);
   const [summary, setSummary] = useState(createDefaultHeaderSummary);
   const [profile, setProfile] = useState(null);
+  const [downlineAgents, setDownlineAgents] = useState([]);
 
   const toPlayerList = (users) => (
     Array.isArray(users) ? users : []
@@ -130,15 +131,18 @@ function AdminHeader({
 
         const roleKey = String(meData?.role || role || '').toLowerCase();
         const isAgentRole = roleKey === 'agent';
-        const [users, agentsData] = await Promise.all([
+        const isMasterRole = roleKey === 'master_agent' || roleKey === 'super_agent';
+        const [users, agentsData, downlineData] = await Promise.all([
           isAgentRole ? getMyPlayers(token) : getUsersAdmin(token),
-          isAgentRole ? Promise.resolve([]) : getAgents(token).catch(() => []),
+          getAgents(token).catch(() => []),
+          isMasterRole ? getDownlineSummary(token).catch(() => ({ agents: [] })) : Promise.resolve({ agents: [] }),
         ]);
         if (cancelled) return;
         const onlyPlayers = toPlayerList(users);
         setAllPlayers(onlyPlayers);
         setSearchablePlayers(onlyPlayers);
         setAllAgents(Array.isArray(agentsData) ? agentsData : []);
+        setDownlineAgents(Array.isArray(downlineData?.agents) ? downlineData.agents : []);
       } catch (error) {
         if (!cancelled) {
           console.error('Failed to load admin header summary:', error);
@@ -780,8 +784,8 @@ function AdminHeader({
               </div>
             </div>
 
-            {/* Group 2: Active Accts + Balance (non-agent only) */}
-            {roleKey !== 'agent' && (
+            {/* Group 2: Active Accts + Balance (admin only, not agent/MA) */}
+            {roleKey !== 'agent' && roleKey !== 'master_agent' && roleKey !== 'super_agent' && (
               <div className="stat-group stat-group-red">
                 <div className="stat-row">
                   <span className="stat-label">Active Accts</span>
@@ -791,6 +795,76 @@ function AdminHeader({
                   <span className="stat-label">Balance</span>
                   <span className={`stat-value ${getSignedValueClass(headerBalance)}`}>{formatCurrency(headerBalance)}</span>
                 </div>
+              </div>
+            )}
+
+            {/* ── MA Stats: Active Accts + Balance Owed to House ── */}
+            {(roleKey === 'master_agent' || roleKey === 'super_agent') && (() => {
+              const dlTotals = downlineAgents.length > 0
+                ? downlineAgents.reduce((acc, a) => ({
+                    players: acc.players + (a.totalPlayerCount ?? 0),
+                    balance: acc.balance + Number(a.balance ?? 0),
+                  }), { players: 0, balance: 0 })
+                : { players: Number(summary.activeAccounts), balance: 0 };
+              return (
+                <div className="stat-group stat-group-red">
+                  <div className="stat-row">
+                    <span className="stat-label">Active Accts</span>
+                    <span className="stat-value highlight">{formatCount(dlTotals.players)}</span>
+                  </div>
+                  <div className="stat-row">
+                    <span className="stat-label">My Settlement to House</span>
+                    <span className={`stat-value ${getSignedValueClass(balanceOwedValue)}`}>{formatCurrency(balanceOwedValue)}</span>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* ── MA Combined Collections ── */}
+            {(roleKey === 'master_agent' || roleKey === 'super_agent') && (netCollectionsValue !== 0 || agentCollectionsValue !== 0 || houseCollectionsValue !== 0) && (
+              <div className="stat-group stat-group-yellow">
+                <div className="stat-row">
+                  <span className="stat-label">Agent Collections</span>
+                  <span className={`stat-value ${getSignedValueClass(agentCollectionsValue)}`}>{formatCurrency(agentCollectionsValue)}</span>
+                </div>
+                <div className="stat-row">
+                  <span className="stat-label">House Collections</span>
+                  <span className={`stat-value ${getSignedValueClass(houseCollectionsValue)}`}>{formatCurrency(houseCollectionsValue)}</span>
+                </div>
+                <div className="stat-row">
+                  <span className="stat-label">Net Collections</span>
+                  <span className={`stat-value ${getSignedValueClass(netCollectionsValue)}`}>{formatCurrency(netCollectionsValue)}</span>
+                </div>
+              </div>
+            )}
+
+            {/* ── Downline Agents Summary (MA only) ── */}
+            {(roleKey === 'master_agent' || roleKey === 'super_agent') && downlineAgents.length > 0 && (
+              <div className="stat-group stat-group-blue downline-pct-group">
+                {downlineAgents.map((agent) => {
+                  const bal = Number(agent.balance ?? 0);
+                  return (
+                    <button
+                      key={agent.id}
+                      type="button"
+                      className="downline-header-row downline-header-row-clickable"
+                      onClick={() => {
+                        if (onSwitchContext) onSwitchContext(agent.id);
+                      }}
+                    >
+                      <span className="downline-header-agent">
+                        <span className={`downline-pct-badge ${(agent.role === 'master_agent' || agent.role === 'super_agent') ? 'role-badge-m' : 'role-badge-a'}`}>
+                          {(agent.role === 'master_agent' || agent.role === 'super_agent') ? 'M' : 'A'}
+                        </span>
+                        <span className="downline-header-name">{agent.username}</span>
+                      </span>
+                      <span className="downline-header-pct">{agent.agentPercent != null ? `${agent.agentPercent}%` : '—'}</span>
+                      <span className="downline-header-players">{agent.totalPlayerCount ?? 0}<small> plyr</small></span>
+                      <span className={`downline-header-balance ${bal > 0 ? 'positive' : bal < 0 ? 'negative' : ''}`}>{formatCurrency(bal)}</span>
+                      <span className="downline-header-arrow"><i className="fa-solid fa-chevron-right"></i></span>
+                    </button>
+                  );
+                })}
               </div>
             )}
 

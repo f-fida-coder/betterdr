@@ -448,6 +448,7 @@ final class AdminCoreController
                 ['role' => ['$ne' => 'agent']],
                 ['role' => ['$ne' => 'master_agent']],
                 ['role' => ['$ne' => 'super_agent']],
+                ['status' => ['$ne' => 'deleted']],
             ],
         ];
     }
@@ -472,12 +473,12 @@ final class AdminCoreController
 
             // Keep player scope resilient across legacy imports where role may be missing or use an older value.
             $query = $this->playerOnlyQuery();
-            if (($actor['role'] ?? '') === 'agent') {
+            $searchQ = trim((string) ($_GET['q'] ?? ''));
+            // When searching (?q=...), all roles can search all players globally.
+            // Without a search query, agents only see their own players.
+            if (($actor['role'] ?? '') === 'agent' && $searchQ === '') {
                 $query['agentId'] = SqlRepository::id((string) $actor['id']);
             }
-            // admin, master_agent, super_agent — no agentId filter, see all players
-
-            $searchQ = trim((string) ($_GET['q'] ?? ''));
             if ($searchQ !== '') {
                 $safe = preg_quote($searchQ, '/');
                 $searchOr = [
@@ -6424,7 +6425,13 @@ final class AdminCoreController
                 return;
             }
 
-            $this->db->deleteOne('users', ['id' => SqlRepository::id($id)]);
+            // Soft-delete: mark as deleted instead of removing from database
+            $this->db->updateOne('users', ['id' => SqlRepository::id($id)], [
+                'status' => 'deleted',
+                'deletedAt' => (new DateTimeImmutable('now', new \DateTimeZone('UTC')))->format('Y-m-d\TH:i:s\Z'),
+                'deletedBy' => (string) ($actor['username'] ?? 'admin'),
+                'previousStatus' => (string) ($user['status'] ?? 'active'),
+            ]);
             Response::json(['message' => 'User ' . (string) ($user['username'] ?? '') . ' successfully deleted.']);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error deleting user'], 500);
@@ -8838,20 +8845,19 @@ final class AdminCoreController
 
     private function cleanupWorkflowSeedData(): array
     {
+        // SAFETY: Only delete records that were explicitly tagged as seed data.
+        // Removed regex-based matching (^WF[0-9]{6}, ^WORKFLOW) because it could
+        // accidentally match real player usernames and cause data loss.
         $legacyAgentQuery = [
             '$or' => [
                 ['seedSource' => 'workflow_policy_v2'],
                 ['seedSource' => 'workflow_seed'],
-                ['fullName' => ['$regex' => '^WORKFLOW ', '$options' => 'i']],
-                ['username' => ['$regex' => '^WF[0-9]{6}', '$options' => 'i']],
             ],
         ];
         $legacyUserQuery = [
             '$or' => [
                 ['seedSource' => 'workflow_policy_v2'],
                 ['seedSource' => 'workflow_seed'],
-                ['fullName' => ['$regex' => '^WORKFLOW ', '$options' => 'i']],
-                ['username' => ['$regex' => '^WF[0-9]{6}', '$options' => 'i']],
             ],
         ];
 
@@ -9027,11 +9033,13 @@ final class AdminCoreController
             if (isset($body['dashboardLayout']) && $body['dashboardLayout'] !== '') {
                 $updates['dashboardLayout'] = $body['dashboardLayout'];
             }
-            // Allow admin to reassign player to a different agent
+            // Allow admin to reassign player to a different agent (cannot clear to null)
             if (array_key_exists('agentId', $body)) {
                 $requestedAgentId = trim((string) $body['agentId']);
                 if ($requestedAgentId === '') {
-                    $updates['agentId'] = null;
+                    // Block nullification — players must always belong to an agent
+                    Response::json(['message' => 'Cannot remove agent assignment. Reassign to another agent instead.'], 400);
+                    return;
                 } elseif (preg_match('/^[a-f0-9]{24}$/i', $requestedAgentId) === 1) {
                     $targetAgent = $this->db->findOne('agents', ['id' => SqlRepository::id($requestedAgentId)]);
                     if ($targetAgent !== null) {

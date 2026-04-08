@@ -1550,6 +1550,21 @@ export const getMySubAgents = async (token) => {
     }
 };
 
+export const getDownlineSummary = async (token) => {
+    try {
+        const response = await fetch(buildApiUrl('/agent/downline-summary'), {
+            method: 'GET',
+            headers: getHeaders(token)
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.message || 'Failed to fetch downline summary');
+        return data;
+    } catch (error) {
+        console.error('getDownlineSummary error:', error);
+        throw error;
+    }
+};
+
 export const getUserStatistics = async (userId, token) => {
     try {
         const response = await fetch(buildApiUrl(`/admin/users/${userId}/stats`), {

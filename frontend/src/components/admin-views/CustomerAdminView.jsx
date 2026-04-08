@@ -1275,7 +1275,15 @@ function CustomerAdminView({ onViewChange }) {
     const isAgent = customer.role === 'agent' || customer.role === 'master_agent';
     const typeLabel = isAgent ? 'Agent' : 'Player';
 
-    if (!window.confirm(`Are you sure you want to PERMANENTLY DELETE ${typeLabel} "${customer.username}"?\n\nThis action cannot be undone.`)) {
+    const confirmText = window.prompt(
+      `\u{1F6A8} DELETE ${typeLabel.toUpperCase()} WARNING \u{1F6A8}\n\n` +
+      `You are about to delete ${typeLabel} "${customer.username}".\n\n` +
+      `This will remove them from all active lists.\n\n` +
+      `To confirm, type the username exactly: ${customer.username}`
+    );
+    if (confirmText === null) return;
+    if (confirmText.trim().toUpperCase() !== String(customer.username).trim().toUpperCase()) {
+      alert('Username did not match. Deletion cancelled.');
       return;
     }
 

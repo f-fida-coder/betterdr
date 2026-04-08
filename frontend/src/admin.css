@@ -6446,3 +6446,335 @@
 .ch-row-sub:nth-child(even) { background: #f8fafc; }
 
 /* ─── End Commission Tree Section ────────────────────────────────────────────── */
+
+/* ─── Downline Agents Section ────────────────────────────────────────────────── */
+
+.downline-agents-section {
+  margin-top: 20px;
+  padding: 0 8px;
+  max-width: 700px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.downline-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1e293b;
+  margin: 0 0 12px;
+  padding: 0 4px;
+}
+
+.downline-totals-bar {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  background: #f1f5f9;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+}
+
+.downline-total-item {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  text-align: center;
+}
+
+.downline-total-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.downline-total-value {
+  font-size: 16px;
+  font-weight: 700;
+  color: #1e293b;
+  margin-top: 2px;
+}
+
+.downline-agent-list {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.downline-agent-header-row {
+  display: flex;
+  align-items: center;
+  padding: 8px 14px;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.downline-agent-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 12px 14px;
+  border: none;
+  border-bottom: 1px solid #f1f5f9;
+  background: #fff;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  font-size: 14px;
+  transition: background-color 0.15s;
+}
+
+.downline-agent-row:last-child {
+  border-bottom: none;
+}
+
+.downline-agent-row:hover {
+  background: #f8fafc;
+}
+
+.downline-agent-row:active {
+  background: #f1f5f9;
+}
+
+.downline-row-suspended {
+  opacity: 0.5;
+}
+
+.downline-col-agent {
+  flex: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.downline-col-pct {
+  flex: 0 0 50px;
+  text-align: center;
+  font-weight: 600;
+  color: #475569;
+}
+
+.downline-col-players {
+  flex: 0 0 60px;
+  text-align: center;
+  color: #475569;
+}
+
+.downline-col-balance {
+  flex: 1;
+  text-align: right;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.downline-col-arrow {
+  flex: 0 0 24px;
+  text-align: center;
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.downline-agent-username {
+  font-weight: 600;
+  color: #1e293b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.role-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.role-badge-m {
+  background: #dbeafe;
+  color: #1d4ed8;
+  border: 1px solid #93c5fd;
+}
+
+.role-badge-a {
+  background: #e0e7ff;
+  color: #4338ca;
+  border: 1px solid #a5b4fc;
+}
+
+.balance-positive {
+  color: #16a34a !important;
+}
+
+.balance-negative {
+  color: #dc2626 !important;
+}
+
+.downline-loading,
+.downline-error {
+  text-align: center;
+  padding: 24px;
+  color: #64748b;
+  font-size: 14px;
+}
+
+.downline-error {
+  color: #dc2626;
+}
+
+@media (max-width: 480px) {
+  .downline-agents-section {
+    padding: 0 4px;
+    margin-top: 14px;
+  }
+
+  .downline-totals-bar {
+    padding: 8px 10px;
+    gap: 8px;
+  }
+
+  .downline-total-value {
+    font-size: 14px;
+  }
+
+  .downline-agent-row {
+    padding: 10px;
+    font-size: 13px;
+  }
+
+  .downline-col-pct {
+    flex: 0 0 40px;
+  }
+
+  .downline-col-players {
+    flex: 0 0 44px;
+  }
+
+  .downline-agent-header-row {
+    font-size: 10px;
+    padding: 6px 10px;
+  }
+}
+
+/* ─── Downline Percentages in Header ─────────────────────────────────────────── */
+
+.stat-group-blue {
+  border-left: 3px solid #3b82f6;
+}
+
+.downline-pct-group {
+  padding: 4px 0;
+}
+
+.downline-header-row {
+  display: flex;
+  align-items: center;
+  padding: 6px 12px;
+  gap: 8px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.downline-header-row:last-child {
+  border-bottom: none;
+}
+
+.downline-header-agent {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.downline-header-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1e293b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.downline-header-pct {
+  flex: 0 0 42px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: #475569;
+}
+
+.downline-header-players {
+  flex: 0 0 48px;
+  text-align: center;
+  font-size: 13px;
+  color: #475569;
+}
+
+.downline-header-players small {
+  font-size: 10px;
+  color: #94a3b8;
+}
+
+.downline-header-balance {
+  flex: 0 0 70px;
+  text-align: right;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.downline-header-arrow {
+  flex: 0 0 18px;
+  text-align: center;
+  color: #94a3b8;
+  font-size: 11px;
+}
+
+button.downline-header-row-clickable {
+  width: 100%;
+  background: none;
+  border: none;
+  border-bottom: 1px solid #f1f5f9;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background-color 0.15s;
+}
+
+button.downline-header-row-clickable:last-child {
+  border-bottom: none;
+}
+
+button.downline-header-row-clickable:hover {
+  background: rgba(59, 130, 246, 0.06);
+}
+
+button.downline-header-row-clickable:active {
+  background: rgba(59, 130, 246, 0.12);
+}
+
+.downline-pct-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+/* ─── End Downline Agents Section ────────────────────────────────────────────── */

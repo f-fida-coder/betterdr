@@ -47,6 +47,10 @@ final class AgentController
             $this->getMySubAgents();
             return true;
         }
+        if ($method === 'GET' && $path === '/api/agent/downline-summary') {
+            $this->getDownlineSummary();
+            return true;
+        }
         if ($method === 'PUT' && preg_match('#^/api/agent/permissions/([a-fA-F0-9]{24})$#', $path, $m) === 1) {
             $this->updateAgentPermissions($m[1]);
             return true;
@@ -271,7 +275,14 @@ final class AgentController
                 return;
             }
 
-            $users = $this->db->findMany('users', ['agentId' => SqlRepository::id((string) $actor['id'])]);
+            $actorObjId = SqlRepository::id((string) $actor['id']);
+            $users = $this->db->findMany('users', [
+                'status' => ['$ne' => 'deleted'],
+                '$or' => [
+                    ['agentId' => $actorObjId],
+                    ['createdBy' => $actorObjId, 'createdByModel' => 'Agent'],
+                ],
+            ]);
             $userIds = [];
             foreach ($users as $u) {
                 if (isset($u['id']) && is_string($u['id']) && preg_match('/^[a-f0-9]{24}$/i', $u['id']) === 1) {
@@ -720,6 +731,237 @@ final class AgentController
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error fetching sub-agents'], 500);
         }
+    }
+
+    private function getDownlineSummary(): void
+    {
+        try {
+            $actor = $this->protect(['master_agent', 'super_agent']);
+            if ($actor === null) {
+                return;
+            }
+
+            $actorId = (string) ($actor['id'] ?? '');
+
+            // 1. Get direct child agents
+            $rawAgents = $this->db->findMany('agents', [
+                'createdBy' => SqlRepository::id($actorId),
+                'createdByModel' => 'Agent',
+            ], ['sort' => ['createdAt' => -1]]);
+
+            if (count($rawAgents) === 0) {
+                Response::json([
+                    'agents' => [],
+                    'totals' => [
+                        'totalBalanceOwed' => 0,
+                        'totalActivePlayers' => 0,
+                        'totalPlayers' => 0,
+                        'totalAgents' => 0,
+                    ],
+                ]);
+                return;
+            }
+
+            // 2. Collect all sub-agent IDs and build a map for managed agent IDs (for MAs with their own sub-agents)
+            $subAgentIds = [];
+            $subAgentMap = []; // id => agent data
+            foreach ($rawAgents as $a) {
+                $aid = (string) ($a['id'] ?? '');
+                if ($aid !== '') {
+                    $subAgentIds[] = $aid;
+                    $subAgentMap[$aid] = $a;
+                }
+            }
+
+            // 3. For each sub-agent, collect ALL managed agent IDs (recursive) so we can count their players too
+            $agentIdToManagedIds = []; // subAgentId => [all descendant agent IDs including self]
+            foreach ($subAgentIds as $sid) {
+                $role = strtolower(trim((string) ($subAgentMap[$sid]['role'] ?? '')));
+                if ($role === 'master_agent' || $role === 'super_agent') {
+                    $agentIdToManagedIds[$sid] = $this->listManagedAgentIds($sid);
+                } else {
+                    $agentIdToManagedIds[$sid] = [$sid];
+                }
+            }
+
+            // 4. Collect all managed IDs into one flat set for a single user query
+            $allManagedIds = [];
+            foreach ($agentIdToManagedIds as $managedList) {
+                foreach ($managedList as $mid) {
+                    $allManagedIds[$mid] = true;
+                }
+            }
+            $allManagedObjectIds = [];
+            foreach (array_keys($allManagedIds) as $mid) {
+                if (preg_match('/^[a-f0-9]{24}$/i', $mid) === 1) {
+                    $allManagedObjectIds[] = SqlRepository::id($mid);
+                }
+            }
+
+            // 5. Get all users (players) assigned to any managed agent
+            // Match both agentId and createdBy (same pattern as header-summary)
+            $userAgentMap = []; // agentId => count of total players
+            $userIdToAgentId = []; // userId => agentId (for active tracking)
+            if (count($allManagedObjectIds) > 0) {
+                $allUsers = $this->db->findMany('users', [
+                    'role' => 'user',
+                    '$or' => [
+                        ['agentId' => ['$in' => $allManagedObjectIds]],
+                        ['createdBy' => ['$in' => $allManagedObjectIds], 'createdByModel' => 'Agent'],
+                    ],
+                ], ['projection' => ['id' => 1, 'agentId' => 1, 'createdBy' => 1, 'createdByModel' => 1, 'status' => 1]]);
+
+                foreach ($allUsers as $u) {
+                    $uid = (string) ($u['id'] ?? '');
+                    if ($uid === '') {
+                        continue;
+                    }
+                    // Use agentId as primary mapping; fall back to createdBy
+                    $uAgentId = (string) ($u['agentId'] ?? '');
+                    if ($uAgentId === '' || !isset($allManagedIds[$uAgentId])) {
+                        $uAgentId = (string) ($u['createdBy'] ?? '');
+                    }
+                    if ($uAgentId !== '' && isset($allManagedIds[$uAgentId])) {
+                        $userAgentMap[$uAgentId] = ($userAgentMap[$uAgentId] ?? 0) + 1;
+                        $userIdToAgentId[$uid] = $uAgentId;
+                    }
+                }
+            }
+
+            // 6. Get this week's transactions to determine active players
+            $tz = new \DateTimeZone('America/Los_Angeles');
+            $now = new DateTimeImmutable('now', $tz);
+            $weekday = (int) $now->format('N');
+            $daysFromTuesday = ($weekday + 5) % 7;
+            $startOfWeek = $now->setTime(0, 0, 0)->modify('-' . $daysFromTuesday . ' days');
+
+            $activeByAgent = []; // agentId => count of active players this week
+            if (count($userIdToAgentId) > 0) {
+                $userObjectIds = [];
+                foreach (array_keys($userIdToAgentId) as $uid) {
+                    if (preg_match('/^[a-f0-9]{24}$/i', $uid) === 1) {
+                        $userObjectIds[] = SqlRepository::id($uid);
+                    }
+                }
+
+                if (count($userObjectIds) > 0) {
+                    $weekTx = $this->db->findMany('transactions', [
+                        'status' => 'completed',
+                        'userId' => ['$in' => $userObjectIds],
+                        'createdAt' => ['$gte' => SqlRepository::utcFromMillis($startOfWeek->getTimestamp() * 1000)],
+                    ], ['projection' => ['userId' => 1, 'type' => 1, 'entrySide' => 1, 'reason' => 1, 'description' => 1, 'balanceBefore' => 1, 'balanceAfter' => 1]]);
+
+                    $activeUserIds = [];
+                    foreach ($weekTx as $tx) {
+                        $txUserId = (string) ($tx['userId'] ?? '');
+                        if ($txUserId === '' || isset($activeUserIds[$txUserId])) {
+                            continue;
+                        }
+                        if ($this->isActiveTransaction($tx)) {
+                            $activeUserIds[$txUserId] = true;
+                        }
+                    }
+
+                    foreach ($activeUserIds as $uid => $_) {
+                        $uAgentId = $userIdToAgentId[$uid] ?? '';
+                        if ($uAgentId !== '') {
+                            $activeByAgent[$uAgentId] = ($activeByAgent[$uAgentId] ?? 0) + 1;
+                        }
+                    }
+                }
+            }
+
+            // 7. Build per-agent response with rolled-up counts for sub-MAs
+            $agents = [];
+            $totalBalanceOwed = 0.0;
+            $totalActivePlayers = 0;
+            $totalPlayers = 0;
+
+            foreach ($rawAgents as $a) {
+                $aid = (string) ($a['id'] ?? '');
+                if ($aid === '') {
+                    continue;
+                }
+
+                $managedIds = $agentIdToManagedIds[$aid] ?? [$aid];
+                $playerCount = 0;
+                $activeCount = 0;
+                foreach ($managedIds as $mid) {
+                    $playerCount += $userAgentMap[$mid] ?? 0;
+                    $activeCount += $activeByAgent[$mid] ?? 0;
+                }
+
+                $balance = $this->num($a['balance'] ?? 0);
+                $totalBalanceOwed += $balance;
+                $totalActivePlayers += $activeCount;
+                $totalPlayers += $playerCount;
+
+                $agents[] = [
+                    'id'                => $aid,
+                    'username'          => $a['username'] ?? null,
+                    'role'              => $a['role'] ?? null,
+                    'status'            => $a['status'] ?? null,
+                    'agentPercent'      => isset($a['agentPercent']) ? (float) $a['agentPercent'] : null,
+                    'balance'           => $balance,
+                    'activePlayerCount' => $activeCount,
+                    'totalPlayerCount'  => $playerCount,
+                ];
+            }
+
+            Response::json([
+                'agents' => $agents,
+                'totals' => [
+                    'totalBalanceOwed'  => round($totalBalanceOwed, 2),
+                    'totalActivePlayers' => $totalActivePlayers,
+                    'totalPlayers'      => $totalPlayers,
+                    'totalAgents'       => count($agents),
+                ],
+            ]);
+        } catch (Throwable $e) {
+            error_log('[DOWNLINE_SUMMARY_ERROR] ' . $e->getMessage());
+            Response::json(['message' => 'Server error fetching downline summary'], 500);
+        }
+    }
+
+    /**
+     * Lightweight check if a transaction indicates player activity this week.
+     * Mirrors AdminCoreController::isWeeklyActiveTransaction() logic.
+     */
+    private function isActiveTransaction(array $tx): bool
+    {
+        $type = strtolower(trim((string) ($tx['type'] ?? '')));
+        if ($type === 'deposit' || $type === 'withdrawal' || $type === 'fp_deposit') {
+            return false;
+        }
+
+        $reason = strtoupper(trim((string) ($tx['reason'] ?? '')));
+        if ($reason !== '' && (str_contains($reason, 'PROMOTIONAL') || str_contains($reason, 'FREEPLAY'))) {
+            return false;
+        }
+        $description = strtolower(trim((string) ($tx['description'] ?? '')));
+        if ($description !== '' && (str_contains($description, 'promotional') || str_contains($description, 'freeplay') || str_contains($description, 'free play'))) {
+            return false;
+        }
+
+        $entrySide = strtoupper(trim((string) ($tx['entrySide'] ?? '')));
+        if ($entrySide === 'CREDIT' || $entrySide === 'DEBIT') {
+            return true;
+        }
+
+        if ($type === 'adjustment') {
+            $beforeRaw = $tx['balanceBefore'] ?? null;
+            $afterRaw = $tx['balanceAfter'] ?? null;
+            if ($beforeRaw !== null && $afterRaw !== null && is_numeric($beforeRaw) && is_numeric($afterRaw)) {
+                return abs(((float) $afterRaw) - ((float) $beforeRaw)) > 0.00001;
+            }
+            return true;
+        }
+
+        return in_array($type, [
+            'bet_placed', 'bet_placed_admin', 'bet_won', 'bet_refund', 'bet_lost',
+            'casino_bet_debit', 'casino_bet_credit',
+            'credit_adj', 'debit_adj', 'credit', 'debit',
+        ], true);
     }
 
     private function createSubAgent(): void

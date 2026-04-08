@@ -343,6 +343,24 @@ final class SqlRepository
         ]);
     }
 
+    /**
+     * Update all documents matching $filter with $set values.
+     * Returns the number of documents updated.
+     */
+    public function updateMany(string $collection, array $filter, array $set): int
+    {
+        $docs = $this->findMany($collection, $filter, ['projection' => ['id' => 1]]);
+        $updated = 0;
+        foreach ($docs as $doc) {
+            $id = (string) ($doc['id'] ?? '');
+            if ($id !== '') {
+                $this->updateOne($collection, ['id' => $id], $set);
+                $updated++;
+            }
+        }
+        return $updated;
+    }
+
     public function updateOneUpsert(string $collection, array $filter, array $set, array $setOnInsert = []): void
     {
         $existing = $this->findOne($collection, $filter);
@@ -374,15 +392,21 @@ final class SqlRepository
         return (int) $stmt->rowCount();
     }
 
-    public function deleteMany(string $collection, array $filter): int
+    public function deleteMany(string $collection, array $filter, int $maxIterations = 10000): int
     {
+        if (count($filter) === 0) {
+            throw new \RuntimeException('deleteMany() requires a non-empty filter to prevent accidental full-table wipe');
+        }
         $deleted = 0;
-        while (true) {
+        while ($deleted < $maxIterations) {
             $count = $this->deleteOne($collection, $filter);
             if ($count === 0) {
                 break;
             }
             $deleted += $count;
+        }
+        if ($deleted >= $maxIterations) {
+            error_log("[SAFETY] deleteMany() hit max iteration limit ({$maxIterations}) on collection={$collection}");
         }
         return $deleted;
     }
