@@ -999,12 +999,16 @@ final class AgentController
                         'myCut'            => $agentMyCut,
                         'weeklyCollection' => $weeklyNet,
                         'totalPlayerCount' => $playerCount,
+                        'isFrontLine'      => $isSamePersonAsMe,
                     ];
                 }
             }
 
-            // Sort by weeklyCollection descending
+            // Sort: front-line (same person) first, then by weeklyCollection descending
             usort($flatAgents, function ($a, $b) {
+                if (($a['isFrontLine'] ?? false) !== ($b['isFrontLine'] ?? false)) {
+                    return ($a['isFrontLine'] ?? false) ? -1 : 1;
+                }
                 return ($b['weeklyCollection'] ?? 0) <=> ($a['weeklyCollection'] ?? 0);
             });
 

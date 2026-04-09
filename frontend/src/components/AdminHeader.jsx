@@ -986,9 +986,9 @@ function AdminHeader({
           {(roleKey === 'master_agent' || roleKey === 'super_agent') && downlineAgents.length > 0 && (
             <div className="downline-flat-list">
               <div className="downline-flat-header">
-                <span className="dfl-name">Agent</span>
+                <span className="dfl-name">Sub Agents</span>
                 <span className="dfl-cut">Cut</span>
-                <span className="dfl-collection">Week</span>
+                <span className="dfl-collection">Profit</span>
               </div>
               {downlineAgents.map((agent) => {
                 const wc = Number(agent.weeklyCollection ?? 0);
