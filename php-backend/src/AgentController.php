@@ -841,6 +841,7 @@ final class AgentController
             $startOfWeek = $now->setTime(0, 0, 0)->modify('-' . $daysFromTuesday . ' days');
 
             $activeByAgent = []; // agentId => count of active players this week
+            $weeklyNetByAgent = []; // agentId => weekly net collection amount
             if (count($userIdToAgentId) > 0) {
                 $userObjectIds = [];
                 foreach (array_keys($userIdToAgentId) as $uid) {
@@ -854,16 +855,25 @@ final class AgentController
                         'status' => 'completed',
                         'userId' => ['$in' => $userObjectIds],
                         'createdAt' => ['$gte' => SqlRepository::utcFromMillis($startOfWeek->getTimestamp() * 1000)],
-                    ], ['projection' => ['userId' => 1, 'type' => 1, 'entrySide' => 1, 'reason' => 1, 'description' => 1, 'balanceBefore' => 1, 'balanceAfter' => 1]]);
+                    ], ['projection' => ['userId' => 1, 'type' => 1, 'entrySide' => 1, 'reason' => 1, 'description' => 1, 'balanceBefore' => 1, 'balanceAfter' => 1, 'amount' => 1]]);
 
                     $activeUserIds = [];
+                    $weeklyNetByUser = []; // userId => net amount
                     foreach ($weekTx as $tx) {
                         $txUserId = (string) ($tx['userId'] ?? '');
-                        if ($txUserId === '' || isset($activeUserIds[$txUserId])) {
+                        if ($txUserId === '') {
                             continue;
                         }
-                        if ($this->isActiveTransaction($tx)) {
+                        if (!isset($activeUserIds[$txUserId]) && $this->isActiveTransaction($tx)) {
                             $activeUserIds[$txUserId] = true;
+                        }
+                        // Sum weekly net: credit side positive, debit side negative
+                        $side = strtolower(trim((string) ($tx['entrySide'] ?? '')));
+                        $amt = abs((float) ($tx['amount'] ?? 0));
+                        if ($side === 'credit') {
+                            $weeklyNetByUser[$txUserId] = ($weeklyNetByUser[$txUserId] ?? 0.0) + $amt;
+                        } elseif ($side === 'debit') {
+                            $weeklyNetByUser[$txUserId] = ($weeklyNetByUser[$txUserId] ?? 0.0) - $amt;
                         }
                     }
 
@@ -871,6 +881,13 @@ final class AgentController
                         $uAgentId = $userIdToAgentId[$uid] ?? '';
                         if ($uAgentId !== '') {
                             $activeByAgent[$uAgentId] = ($activeByAgent[$uAgentId] ?? 0) + 1;
+                        }
+                    }
+                    // Roll up weekly net per agent
+                    foreach ($weeklyNetByUser as $uid => $net) {
+                        $uAgentId = $userIdToAgentId[$uid] ?? '';
+                        if ($uAgentId !== '') {
+                            $weeklyNetByAgent[$uAgentId] = ($weeklyNetByAgent[$uAgentId] ?? 0.0) + $net;
                         }
                     }
                 }
@@ -915,11 +932,9 @@ final class AgentController
                 $masterUsernames[$actorUsername] = true;
             }
 
-            // 9. Build per-agent response with rolled-up counts and commission chain data
+            // 9. Build flat list of ALL leaf agents with myCut and weeklyCollection
             $myPercent = isset($actor['agentPercent']) ? (float) $actor['agentPercent'] : null;
-            $agents = [];
-            $totalBalanceOwed = 0.0;
-            $totalActivePlayers = 0;
+            $flatAgents = [];
             $totalPlayers = 0;
 
             foreach ($rawAgents as $a) {
@@ -928,100 +943,80 @@ final class AgentController
                     continue;
                 }
 
-                // Skip agent-role accounts whose MA counterpart is already in the list
-                $aUsername = strtoupper(trim((string) ($a['username'] ?? '')));
                 $aRole = strtolower(trim((string) ($a['role'] ?? '')));
-                if ($aRole === 'agent' && $aUsername !== '' && isset($masterUsernames[$aUsername . 'MA'])) {
-                    continue;
-                }
-
-                $managedIds = $agentIdToManagedIds[$aid] ?? [$aid];
-                $playerCount = 0;
-                $activeCount = 0;
-                foreach ($managedIds as $mid) {
-                    $playerCount += $userAgentMap[$mid] ?? 0;
-                    $activeCount += $activeByAgent[$mid] ?? 0;
-                }
-
-                $balance = $this->num($a['balance'] ?? 0);
-                $totalBalanceOwed += $balance;
-                $totalActivePlayers += $activeCount;
-                $totalPlayers += $playerCount;
-
+                $aUsername = strtoupper(trim((string) ($a['username'] ?? '')));
                 $agentPct = isset($a['agentPercent']) ? (float) $a['agentPercent'] : null;
-                $myCut = ($myPercent !== null && $agentPct !== null)
+
+                // myCut from this direct child's branch = myPercent - directChild's percent
+                $branchCut = ($myPercent !== null && $agentPct !== null)
                     ? round($myPercent - $agentPct, 2) : null;
 
-                // Build children array for master_agent children
-                $children = [];
-                $gcList = $childrenByParentId[$aid] ?? [];
-                // Build lookup of master usernames among siblings
-                $siblingMasters = [];
-                foreach ($gcList as $gc) {
-                    $gcRole = strtolower(trim((string) ($gc['role'] ?? '')));
-                    if ($gcRole === 'master_agent' || $gcRole === 'super_agent') {
-                        $siblingMasters[strtoupper(trim((string) ($gc['username'] ?? '')))] = true;
-                    }
-                }
-                // Parent MA username is also a master for dedup purposes
-                $parentUsername = strtoupper(trim((string) ($a['username'] ?? '')));
-                if ($parentUsername !== '') {
-                    $siblingMasters[$parentUsername] = true;
-                }
+                if ($aRole === 'master_agent' || $aRole === 'super_agent') {
+                    // Master child: flatten their sub-agents as leaf rows
+                    $gcList = $childrenByParentId[$aid] ?? [];
 
-                foreach ($gcList as $gc) {
-                    $gcId = (string) ($gc['id'] ?? '');
-                    if ($gcId === '') {
-                        continue;
+                    foreach ($gcList as $gc) {
+                        $gcId = (string) ($gc['id'] ?? '');
+                        if ($gcId === '') {
+                            continue;
+                        }
+                        $gcPlayers = $userAgentMap[$gcId] ?? 0;
+                        $gcWeekly = round($weeklyNetByAgent[$gcId] ?? 0.0, 2);
+                        $totalPlayers += $gcPlayers;
+                        $flatAgents[] = [
+                            'id'               => $gcId,
+                            'username'         => $gc['username'] ?? null,
+                            'myCut'            => $branchCut,
+                            'weeklyCollection' => $gcWeekly,
+                            'totalPlayerCount' => $gcPlayers,
+                        ];
                     }
-                    // Skip agent whose username+MA matches parent or a sibling master
-                    $gcUsername = strtoupper(trim((string) ($gc['username'] ?? '')));
-                    $gcRole = strtolower(trim((string) ($gc['role'] ?? '')));
-                    if ($gcRole === 'agent' && $gcUsername !== '' && isset($siblingMasters[$gcUsername . 'MA'])) {
-                        continue;
+
+                    // If master has no sub-agents, show itself as a row
+                    if (count($gcList) === 0) {
+                        $playerCount = $userAgentMap[$aid] ?? 0;
+                        $weeklyNet = round($weeklyNetByAgent[$aid] ?? 0.0, 2);
+                        $totalPlayers += $playerCount;
+                        $flatAgents[] = [
+                            'id'               => $aid,
+                            'username'         => $a['username'] ?? null,
+                            'myCut'            => $branchCut,
+                            'weeklyCollection' => $weeklyNet,
+                            'totalPlayerCount' => $playerCount,
+                        ];
                     }
-                    $gcPct = isset($gc['agentPercent']) ? (float) $gc['agentPercent'] : null;
-                    $parentCut = ($agentPct !== null && $gcPct !== null)
-                        ? round($agentPct - $gcPct, 2) : null;
-                    $gcPlayers = $userAgentMap[$gcId] ?? 0;
-                    $gcActive = $activeByAgent[$gcId] ?? 0;
-                    $children[] = [
-                        'id'               => $gcId,
-                        'username'         => $gc['username'] ?? null,
-                        'role'             => $gc['role'] ?? null,
-                        'status'           => $gc['status'] ?? null,
-                        'contractPercent'  => $gcPct,
-                        'parentCut'        => $parentCut,
-                        'balance'          => $this->num($gc['balance'] ?? 0),
-                        'activePlayerCount' => $gcActive,
-                        'totalPlayerCount' => $gcPlayers,
+                } else {
+                    // Direct agent child
+                    // Same-person of logged-in user: cut = house cut (100 - myPercent)
+                    $isSamePersonAsMe = $actorUsername !== '' && $aUsername . 'MA' === $actorUsername;
+                    $agentMyCut = $isSamePersonAsMe
+                        ? ($myPercent !== null ? round(100 - $myPercent, 2) : null)
+                        : $branchCut;
+                    $playerCount = $userAgentMap[$aid] ?? 0;
+                    $weeklyNet = round($weeklyNetByAgent[$aid] ?? 0.0, 2);
+                    $totalPlayers += $playerCount;
+                    $flatAgents[] = [
+                        'id'               => $aid,
+                        'username'         => $a['username'] ?? null,
+                        'myCut'            => $agentMyCut,
+                        'weeklyCollection' => $weeklyNet,
+                        'totalPlayerCount' => $playerCount,
                     ];
                 }
-
-                $agents[] = [
-                    'id'                => $aid,
-                    'username'          => $a['username'] ?? null,
-                    'role'              => $a['role'] ?? null,
-                    'status'            => $a['status'] ?? null,
-                    'contractPercent'   => $agentPct,
-                    'myCut'             => $myCut,
-                    'balance'           => $balance,
-                    'activePlayerCount' => $activeCount,
-                    'totalPlayerCount'  => $playerCount,
-                    'children'          => $children,
-                ];
             }
 
+            // Sort by weeklyCollection descending
+            usort($flatAgents, function ($a, $b) {
+                return ($b['weeklyCollection'] ?? 0) <=> ($a['weeklyCollection'] ?? 0);
+            });
+
             Response::json([
-                'agents' => $agents,
+                'agents' => $flatAgents,
                 'myAgentPercent' => $myPercent,
                 'myUsername' => $actor['username'] ?? null,
-                'houseCut' => $myPercent !== null ? round(100 - $myPercent, 2) : null,
                 'totals' => [
-                    'totalBalanceOwed'  => round($totalBalanceOwed, 2),
-                    'totalActivePlayers' => $totalActivePlayers,
-                    'totalPlayers'      => $totalPlayers,
-                    'totalAgents'       => count($agents),
+                    'totalPlayers' => $totalPlayers,
+                    'totalAgents'  => count($flatAgents),
                 ],
             ]);
         } catch (Throwable $e) {
