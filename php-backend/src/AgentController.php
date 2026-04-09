@@ -987,11 +987,9 @@ final class AgentController
                     }
                 } else {
                     // Direct agent child
-                    // Same-person of logged-in user: cut = house cut (100 - myPercent)
+                    // Same-person of logged-in user: cut = full contract% (they keep it all)
                     $isSamePersonAsMe = $actorUsername !== '' && $aUsername . 'MA' === $actorUsername;
-                    $agentMyCut = $isSamePersonAsMe
-                        ? ($myPercent !== null ? round(100 - $myPercent, 2) : null)
-                        : $branchCut;
+                    $agentMyCut = $isSamePersonAsMe ? $myPercent : $branchCut;
                     $playerCount = $userAgentMap[$aid] ?? 0;
                     $weeklyNet = round($weeklyNetByAgent[$aid] ?? 0.0, 2);
                     $totalPlayers += $playerCount;
