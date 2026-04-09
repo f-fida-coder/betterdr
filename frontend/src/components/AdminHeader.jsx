@@ -90,6 +90,7 @@ function AdminHeader({
   const [summary, setSummary] = useState(createDefaultHeaderSummary);
   const [profile, setProfile] = useState(null);
   const [downlineAgents, setDownlineAgents] = useState([]);
+  const [downlineMeta, setDownlineMeta] = useState({ myUsername: '', myAgentPercent: null, houseCut: null });
 
   const toPlayerList = (users) => (
     Array.isArray(users) ? users : []
@@ -143,6 +144,11 @@ function AdminHeader({
         setSearchablePlayers(onlyPlayers);
         setAllAgents(Array.isArray(agentsData) ? agentsData : []);
         setDownlineAgents(Array.isArray(downlineData?.agents) ? downlineData.agents : []);
+        setDownlineMeta({
+          myUsername: downlineData?.myUsername || '',
+          myAgentPercent: downlineData?.myAgentPercent ?? null,
+          houseCut: downlineData?.houseCut ?? null,
+        });
       } catch (error) {
         if (!cancelled) {
           console.error('Failed to load admin header summary:', error);
@@ -838,36 +844,6 @@ function AdminHeader({
               </div>
             )}
 
-            {/* ── Downline Agents Summary (MA only) ── */}
-            {(roleKey === 'master_agent' || roleKey === 'super_agent') && downlineAgents.length > 0 && (
-              <div className="stat-group stat-group-blue downline-pct-group">
-                {downlineAgents.map((agent) => {
-                  const bal = Number(agent.balance ?? 0);
-                  return (
-                    <button
-                      key={agent.id}
-                      type="button"
-                      className="downline-header-row downline-header-row-clickable"
-                      onClick={() => {
-                        if (onSwitchContext) onSwitchContext(agent.id);
-                      }}
-                    >
-                      <span className="downline-header-agent">
-                        <span className={`downline-pct-badge ${(agent.role === 'master_agent' || agent.role === 'super_agent') ? 'role-badge-m' : 'role-badge-a'}`}>
-                          {(agent.role === 'master_agent' || agent.role === 'super_agent') ? 'M' : 'A'}
-                        </span>
-                        <span className="downline-header-name">{agent.username}</span>
-                      </span>
-                      <span className="downline-header-pct">{agent.agentPercent != null ? `${agent.agentPercent}%` : '—'}</span>
-                      <span className="downline-header-players">{agent.totalPlayerCount ?? 0}<small> plyr</small></span>
-                      <span className={`downline-header-balance ${bal > 0 ? 'positive' : bal < 0 ? 'negative' : ''}`}>{formatCurrency(bal)}</span>
-                      <span className="downline-header-arrow"><i className="fa-solid fa-chevron-right"></i></span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-
             {/* ── Agent Settlement Report Card ── */}
             {roleKey === 'agent' && (
               <div className="summary-section weekly-settlement-section dashboard-settlement">
@@ -1011,6 +987,73 @@ function AdminHeader({
               </div>
             )}
           </div>
+
+          {/* ── Commission Chain – flat rows, one per leaf (MA only) ── */}
+          {(roleKey === 'master_agent' || roleKey === 'super_agent') && downlineAgents.length > 0 && (() => {
+            const myUser = downlineMeta.myUsername || '';
+            const rows = [];
+            downlineAgents.forEach((agent) => {
+              const hasChildren = Array.isArray(agent.children) && agent.children.length > 0;
+              const myCut = agent.myCut ?? 0;
+              const isSamePerson = myUser.toUpperCase().endsWith('MA') &&
+                (agent.username || '').toUpperCase() === myUser.toUpperCase().slice(0, -2);
+              if (hasChildren) {
+                agent.children.forEach((child) => {
+                  const pCut = child.parentCut ?? 0;
+                  rows.push({
+                    key: `${agent.id}-${child.id}`,
+                    targetId: child.id,
+                    chips: [
+                      myCut > 0 ? { label: `${myUser} ${myCut}%`, type: 'me' } : null,
+                      pCut > 0 ? { label: `${agent.username} ${pCut}%`, type: 'agent' } : null,
+                      { label: `${child.username} ${child.contractPercent != null ? child.contractPercent + '%' : ''}`, type: 'leaf' },
+                    ].filter(Boolean),
+                    players: child.totalPlayerCount ?? 0,
+                    balance: Number(child.balance ?? 0),
+                    samePerson: false,
+                  });
+                });
+              } else {
+                rows.push({
+                  key: agent.id,
+                  targetId: agent.id,
+                  chips: [
+                    myCut > 0 ? { label: `${myUser} ${myCut}%`, type: 'me' } : null,
+                    { label: `${agent.username} ${agent.contractPercent != null ? agent.contractPercent + '%' : ''}`, type: 'leaf' },
+                  ].filter(Boolean),
+                  players: agent.totalPlayerCount ?? 0,
+                  balance: Number(agent.balance ?? 0),
+                  samePerson: isSamePerson,
+                });
+              }
+            });
+            return (
+              <div className="commission-chain-group">
+                {rows.map((row) => (
+                  <button
+                    key={row.key}
+                    type="button"
+                    className="commission-chain-row"
+                    onClick={() => { if (onSwitchContext) onSwitchContext(row.targetId); }}
+                  >
+                    <div className="chain-chips">
+                      {row.chips.map((chip, i) => (
+                        <React.Fragment key={i}>
+                          {i > 0 && <span className="chain-arrow">&rsaquo;</span>}
+                          <span className={`chain-chip chip-${chip.type}`}>{chip.label}</span>
+                        </React.Fragment>
+                      ))}
+                      {row.samePerson && <span className="my-account-badge">MY ACCT</span>}
+                    </div>
+                    <span className="chain-meta">{row.players}<small>p</small></span>
+                    <span className={`chain-balance ${row.balance > 0 ? 'positive' : row.balance < 0 ? 'negative' : ''}`}>{formatCurrency(row.balance)}</span>
+                    <span className="chain-toggle"><i className="fa-solid fa-chevron-right"></i></span>
+                  </button>
+                ))}
+              </div>
+            );
+          })()}
+
         </div>
       )}
 

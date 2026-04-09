@@ -30,6 +30,21 @@ const getRoleBadgeClass = (role) => {
   return 'role-badge role-badge-a';
 };
 
+const isSamePerson = (myUser, childUser) => {
+  const my = (myUser || '').toUpperCase();
+  const child = (childUser || '').toUpperCase();
+  if (!my || !child) return false;
+  if (my.endsWith('MA')) return child === my.slice(0, -2);
+  return child === my + 'MA';
+};
+
+const getActualCut = (myPct, childPct, childRole) => {
+  if (myPct == null || childPct == null) return null;
+  const r = (childRole || '').toLowerCase();
+  if (r === 'agent') return childPct;
+  return myPct - childPct;
+};
+
 function DownlineAgentsSection({ onSwitchContext }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -71,6 +86,8 @@ function DownlineAgentsSection({ onSwitchContext }) {
 
   const agents = data?.agents || [];
   const totals = data?.totals || {};
+  const myAgentPercent = data?.myAgentPercent ?? null;
+  const myUsername = (data?.myUsername || '').toUpperCase();
 
   if (agents.length === 0) {
     return null;
@@ -120,9 +137,14 @@ function DownlineAgentsSection({ onSwitchContext }) {
             <span className="downline-col-agent">
               <span className={getRoleBadgeClass(agent.role)}>{getRoleBadge(agent.role)}</span>
               <span className="downline-agent-username">{agent.username}</span>
+              {isSamePerson(myUsername, agent.username) && (
+                <span className="my-account-badge">MY ACCT</span>
+              )}
             </span>
             <span className="downline-col-pct">
-              {agent.agentPercent != null ? `${agent.agentPercent}%` : '—'}
+              {getActualCut(myAgentPercent, agent.agentPercent, agent.role) != null
+                ? `${getActualCut(myAgentPercent, agent.agentPercent, agent.role)}%`
+                : '—'}
             </span>
             <span className="downline-col-players">{agent.totalPlayerCount ?? 0}</span>
             <span className={`downline-col-balance ${getBalanceClass(agent.balance)}`}>

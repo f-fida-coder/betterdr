@@ -1,8 +1,6 @@
 import React from 'react';
 import { hasViewPermission } from '../utils/adminPermissions';
 import { ADMIN_NAV_ITEMS } from '../config/adminNavigation';
-import DownlineAgentsSection from './admin-views/DownlineAgentsSection';
-
 function AdminDashboard({ onMenuClick, onOpenScoreboard, onSwitchContext, role = 'admin', layoutPref = 'tiles', isMobile = false, permissions = null }) {
   const effectiveRole = role || 'admin';
   const filteredItems = ADMIN_NAV_ITEMS.filter(
@@ -24,8 +22,6 @@ function AdminDashboard({ onMenuClick, onOpenScoreboard, onSwitchContext, role =
       </div>
     );
   }
-
-  const isMasterAgent = effectiveRole === 'master_agent' || effectiveRole === 'super_agent';
 
   return (
     <div className="admin-dashboard">
@@ -51,9 +47,6 @@ function AdminDashboard({ onMenuClick, onOpenScoreboard, onSwitchContext, role =
           );
         })}
       </div>
-      {isMasterAgent && (
-        <DownlineAgentsSection onSwitchContext={onSwitchContext} />
-      )}
     </div>
   );
 }

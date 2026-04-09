@@ -749,9 +749,14 @@ final class AgentController
                 'createdByModel' => 'Agent',
             ], ['sort' => ['createdAt' => -1]]);
 
+            $myPercent0 = isset($actor['agentPercent']) ? (float) $actor['agentPercent'] : null;
+
             if (count($rawAgents) === 0) {
                 Response::json([
                     'agents' => [],
+                    'myAgentPercent' => $myPercent0,
+                    'myUsername' => $actor['username'] ?? null,
+                    'houseCut' => $myPercent0 !== null ? round(100 - $myPercent0, 2) : null,
                     'totals' => [
                         'totalBalanceOwed' => 0,
                         'totalActivePlayers' => 0,
@@ -871,7 +876,47 @@ final class AgentController
                 }
             }
 
-            // 7. Build per-agent response with rolled-up counts for sub-MAs
+            // 7. Fetch grandchildren (children of master_agent children) for commission chain
+            $childrenByParentId = []; // parentId => [child agent records]
+            $masterChildObjectIds = [];
+            foreach ($rawAgents as $a) {
+                $role = strtolower(trim((string) ($a['role'] ?? '')));
+                if ($role === 'master_agent' || $role === 'super_agent') {
+                    $aid = (string) ($a['id'] ?? '');
+                    if ($aid !== '' && preg_match('/^[a-f0-9]{24}$/i', $aid) === 1) {
+                        $masterChildObjectIds[] = SqlRepository::id($aid);
+                    }
+                }
+            }
+            if (count($masterChildObjectIds) > 0) {
+                $grandchildren = $this->db->findMany('agents', [
+                    'createdBy' => ['$in' => $masterChildObjectIds],
+                    'createdByModel' => 'Agent',
+                ], ['sort' => ['createdAt' => -1]]);
+                foreach ($grandchildren as $gc) {
+                    $parentId = (string) ($gc['createdBy'] ?? '');
+                    if ($parentId !== '') {
+                        $childrenByParentId[$parentId][] = $gc;
+                    }
+                }
+            }
+
+            // 8. Build same-person lookup: agent username+MA = master username → skip agent row
+            $masterUsernames = [];
+            foreach ($rawAgents as $a) {
+                $role = strtolower(trim((string) ($a['role'] ?? '')));
+                if ($role === 'master_agent' || $role === 'super_agent') {
+                    $masterUsernames[strtoupper(trim((string) ($a['username'] ?? '')))] = true;
+                }
+            }
+            // Also include the logged-in user's username as a master
+            $actorUsername = strtoupper(trim((string) ($actor['username'] ?? '')));
+            if ($actorUsername !== '') {
+                $masterUsernames[$actorUsername] = true;
+            }
+
+            // 9. Build per-agent response with rolled-up counts and commission chain data
+            $myPercent = isset($actor['agentPercent']) ? (float) $actor['agentPercent'] : null;
             $agents = [];
             $totalBalanceOwed = 0.0;
             $totalActivePlayers = 0;
@@ -880,6 +925,13 @@ final class AgentController
             foreach ($rawAgents as $a) {
                 $aid = (string) ($a['id'] ?? '');
                 if ($aid === '') {
+                    continue;
+                }
+
+                // Skip agent-role accounts whose MA counterpart is already in the list
+                $aUsername = strtoupper(trim((string) ($a['username'] ?? '')));
+                $aRole = strtolower(trim((string) ($a['role'] ?? '')));
+                if ($aRole === 'agent' && $aUsername !== '' && isset($masterUsernames[$aUsername . 'MA'])) {
                     continue;
                 }
 
@@ -896,20 +948,75 @@ final class AgentController
                 $totalActivePlayers += $activeCount;
                 $totalPlayers += $playerCount;
 
+                $agentPct = isset($a['agentPercent']) ? (float) $a['agentPercent'] : null;
+                $myCut = ($myPercent !== null && $agentPct !== null)
+                    ? round($myPercent - $agentPct, 2) : null;
+
+                // Build children array for master_agent children
+                $children = [];
+                $gcList = $childrenByParentId[$aid] ?? [];
+                // Build lookup of master usernames among siblings
+                $siblingMasters = [];
+                foreach ($gcList as $gc) {
+                    $gcRole = strtolower(trim((string) ($gc['role'] ?? '')));
+                    if ($gcRole === 'master_agent' || $gcRole === 'super_agent') {
+                        $siblingMasters[strtoupper(trim((string) ($gc['username'] ?? '')))] = true;
+                    }
+                }
+                // Parent MA username is also a master for dedup purposes
+                $parentUsername = strtoupper(trim((string) ($a['username'] ?? '')));
+                if ($parentUsername !== '') {
+                    $siblingMasters[$parentUsername] = true;
+                }
+
+                foreach ($gcList as $gc) {
+                    $gcId = (string) ($gc['id'] ?? '');
+                    if ($gcId === '') {
+                        continue;
+                    }
+                    // Skip agent whose username+MA matches parent or a sibling master
+                    $gcUsername = strtoupper(trim((string) ($gc['username'] ?? '')));
+                    $gcRole = strtolower(trim((string) ($gc['role'] ?? '')));
+                    if ($gcRole === 'agent' && $gcUsername !== '' && isset($siblingMasters[$gcUsername . 'MA'])) {
+                        continue;
+                    }
+                    $gcPct = isset($gc['agentPercent']) ? (float) $gc['agentPercent'] : null;
+                    $parentCut = ($agentPct !== null && $gcPct !== null)
+                        ? round($agentPct - $gcPct, 2) : null;
+                    $gcPlayers = $userAgentMap[$gcId] ?? 0;
+                    $gcActive = $activeByAgent[$gcId] ?? 0;
+                    $children[] = [
+                        'id'               => $gcId,
+                        'username'         => $gc['username'] ?? null,
+                        'role'             => $gc['role'] ?? null,
+                        'status'           => $gc['status'] ?? null,
+                        'contractPercent'  => $gcPct,
+                        'parentCut'        => $parentCut,
+                        'balance'          => $this->num($gc['balance'] ?? 0),
+                        'activePlayerCount' => $gcActive,
+                        'totalPlayerCount' => $gcPlayers,
+                    ];
+                }
+
                 $agents[] = [
                     'id'                => $aid,
                     'username'          => $a['username'] ?? null,
                     'role'              => $a['role'] ?? null,
                     'status'            => $a['status'] ?? null,
-                    'agentPercent'      => isset($a['agentPercent']) ? (float) $a['agentPercent'] : null,
+                    'contractPercent'   => $agentPct,
+                    'myCut'             => $myCut,
                     'balance'           => $balance,
                     'activePlayerCount' => $activeCount,
                     'totalPlayerCount'  => $playerCount,
+                    'children'          => $children,
                 ];
             }
 
             Response::json([
                 'agents' => $agents,
+                'myAgentPercent' => $myPercent,
+                'myUsername' => $actor['username'] ?? null,
+                'houseCut' => $myPercent !== null ? round(100 - $myPercent, 2) : null,
                 'totals' => [
                     'totalBalanceOwed'  => round($totalBalanceOwed, 2),
                     'totalActivePlayers' => $totalActivePlayers,

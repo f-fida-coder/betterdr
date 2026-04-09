@@ -6615,6 +6615,21 @@
   border: 1px solid #a5b4fc;
 }
 
+.my-account-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  background: #d1fae5;
+  color: #065f46;
+  border: 1px solid #6ee7b7;
+  margin-left: 4px;
+  flex-shrink: 0;
+}
+
 .balance-positive {
   color: #16a34a !important;
 }
@@ -6675,106 +6690,132 @@
   border-left: 3px solid #3b82f6;
 }
 
-.downline-pct-group {
-  padding: 4px 0;
+/* ─── Commission Chain ────────────────────────────────────────────────────── */
+
+.commission-chain-group {
+  width: 100%;
+  margin-top: 8px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  overflow: hidden;
 }
 
-.downline-header-row {
-  display: flex;
-  align-items: center;
-  padding: 6px 12px;
-  gap: 8px;
-  border-bottom: 1px solid #f1f5f9;
+.commission-chain-block {
+  border-bottom: 1px solid #e2e8f0;
 }
 
-.downline-header-row:last-child {
+.commission-chain-block:last-child {
   border-bottom: none;
 }
 
-.downline-header-agent {
-  flex: 1;
+button.commission-chain-row {
   display: flex;
   align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-
-.downline-header-name {
-  font-size: 13px;
-  font-weight: 600;
-  color: #1e293b;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.downline-header-pct {
-  flex: 0 0 42px;
-  text-align: center;
-  font-size: 13px;
-  font-weight: 600;
-  color: #475569;
-}
-
-.downline-header-players {
-  flex: 0 0 48px;
-  text-align: center;
-  font-size: 13px;
-  color: #475569;
-}
-
-.downline-header-players small {
-  font-size: 10px;
-  color: #94a3b8;
-}
-
-.downline-header-balance {
-  flex: 0 0 70px;
-  text-align: right;
-  font-size: 13px;
-  font-weight: 600;
-  color: #1e293b;
-}
-
-.downline-header-arrow {
-  flex: 0 0 18px;
-  text-align: center;
-  color: #94a3b8;
-  font-size: 11px;
-}
-
-button.downline-header-row-clickable {
   width: 100%;
+  padding: 6px 10px;
+  gap: 6px;
   background: none;
   border: none;
-  border-bottom: 1px solid #f1f5f9;
   cursor: pointer;
   font-family: inherit;
   transition: background-color 0.15s;
+  white-space: nowrap;
 }
 
-button.downline-header-row-clickable:last-child {
-  border-bottom: none;
-}
-
-button.downline-header-row-clickable:hover {
+button.commission-chain-row:hover {
   background: rgba(59, 130, 246, 0.06);
 }
 
-button.downline-header-row-clickable:active {
+button.commission-chain-row:active {
   background: rgba(59, 130, 246, 0.12);
 }
 
-.downline-pct-badge {
+.chain-chips {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+/* Mobile: horizontal scroll for chips */
+@media (max-width: 768px) {
+  .chain-chips {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .chain-chips::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+.chain-chip {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  border-radius: 3px;
-  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 10px;
+  font-size: 11px;
   font-weight: 700;
+  white-space: nowrap;
   flex-shrink: 0;
 }
 
-/* ─── End Downline Agents Section ────────────────────────────────────────────── */
+.chip-me {
+  background: #d1fae5;
+  color: #065f46;
+  border: 1px solid #6ee7b7;
+}
+
+.chip-agent {
+  background: #dbeafe;
+  color: #1e40af;
+  border: 1px solid #93c5fd;
+}
+
+.chip-leaf {
+  background: #e0e7ff;
+  color: #3730a3;
+  border: 1px solid #a5b4fc;
+}
+
+.chain-arrow {
+  color: #94a3b8;
+  font-size: 13px;
+  font-weight: 700;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.chain-meta {
+  flex: 0 0 auto;
+  text-align: right;
+  font-size: 12px;
+  color: #475569;
+  white-space: nowrap;
+  padding-left: 4px;
+}
+
+.chain-meta small {
+  font-size: 10px;
+  color: #94a3b8;
+}
+
+.chain-balance {
+  flex: 0 0 auto;
+  text-align: right;
+  font-size: 12px;
+  font-weight: 600;
+  color: #1e293b;
+  padding-left: 4px;
+}
+
+.chain-toggle {
+  flex: 0 0 16px;
+  text-align: center;
+  color: #94a3b8;
+  font-size: 10px;
+}
+
+/* ─── End Commission Chain ────────────────────────────────────────────────── */
