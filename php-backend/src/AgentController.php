@@ -942,33 +942,9 @@ final class AgentController
                 $weeklyNet = round($weeklyNetByAgent[$aid] ?? 0.0, 2);
                 $totalPlayers += $playerCount;
 
-                // Calculate effective cut (what this person actually keeps)
+                // Cut = agent's own contract % (what they keep from their players' profit)
                 $isFrontLine = false;
-                $effectiveCut = $agentOwnPct; // default: full contract %
-
-                // Check if this agent has a same-person MA counterpart
                 $maUsername = $aUsername . 'MA';
-                $maId = $usernameToId[$maUsername] ?? null;
-
-                if ($maId !== null && isset($allAgents[$maId])) {
-                    // This agent IS also a master — sum all direct children's %
-                    $maChildren = $childrenOfParent[$maId] ?? [];
-                    $sumChildPct = 0.0;
-                    foreach ($maChildren as $childId) {
-                        $childUsername = strtoupper(trim((string) ($allAgents[$childId]['username'] ?? '')));
-                        // Skip same-person child (the agent account itself)
-                        if ($childUsername === $aUsername) {
-                            continue;
-                        }
-                        $childPct = isset($allAgents[$childId]['agentPercent']) ? (float) $allAgents[$childId]['agentPercent'] : null;
-                        if ($childPct !== null) {
-                            $sumChildPct += $childPct;
-                        }
-                    }
-                    if ($agentOwnPct !== null) {
-                        $effectiveCut = round($agentOwnPct - $sumChildPct, 2);
-                    }
-                }
 
                 // Front-line: same person as logged-in user
                 if ($actorRole !== 'admin' && $actorUsername !== '' && $maUsername === $actorUsername) {
@@ -978,7 +954,7 @@ final class AgentController
                 $flatAgents[] = [
                     'id'               => $aid,
                     'username'         => $a['username'] ?? null,
-                    'myCut'            => $effectiveCut,
+                    'myCut'            => $agentOwnPct,
                     'weeklyCollection' => $weeklyNet,
                     'totalPlayerCount' => $playerCount,
                     'isFrontLine'      => $isFrontLine,
