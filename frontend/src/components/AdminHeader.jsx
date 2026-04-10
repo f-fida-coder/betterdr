@@ -135,7 +135,7 @@ function AdminHeader({
         const [users, agentsData, downlineData] = await Promise.all([
           isAgentRole ? getMyPlayers(token) : getUsersAdmin(token),
           getAgents(token).catch(() => []),
-          isMasterRole ? getDownlineSummary(token).catch(() => ({ agents: [] })) : Promise.resolve({ agents: [] }),
+          (isMasterRole || roleKey === 'admin') ? getDownlineSummary(token).catch(() => ({ agents: [] })) : Promise.resolve({ agents: [] }),
         ]);
         if (cancelled) return;
         const onlyPlayers = toPlayerList(users);
@@ -982,8 +982,8 @@ function AdminHeader({
             )}
           </div>
 
-          {/* ── Agent List – flat rows, agents only (MA only) ── */}
-          {(roleKey === 'master_agent' || roleKey === 'super_agent') && downlineAgents.length > 0 && (
+          {/* ── Sub Agents flat list (admin + MA) ── */}
+          {(roleKey === 'admin' || roleKey === 'master_agent' || roleKey === 'super_agent') && downlineAgents.length > 0 && (
             <div className="downline-flat-list">
               <div className="downline-flat-header">
                 <span className="dfl-name">Sub Agents</span>

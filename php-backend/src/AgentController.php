@@ -736,112 +736,123 @@ final class AgentController
     private function getDownlineSummary(): void
     {
         try {
-            $actor = $this->protect(['master_agent', 'super_agent']);
+            $actor = $this->protect(['admin', 'master_agent', 'super_agent']);
             if ($actor === null) {
                 return;
             }
 
+            $actorRole = strtolower(trim((string) ($actor['role'] ?? '')));
             $actorId = (string) ($actor['id'] ?? '');
+            $actorUsername = strtoupper(trim((string) ($actor['username'] ?? '')));
+            $myPercent = ($actorRole === 'admin')
+                ? 100.0
+                : (isset($actor['agentPercent']) ? (float) $actor['agentPercent'] : null);
 
-            // 1. Get direct child agents
-            $rawAgents = $this->db->findMany('agents', [
-                'createdBy' => SqlRepository::id($actorId),
-                'createdByModel' => 'Agent',
-            ], ['sort' => ['createdAt' => -1]]);
+            // 1. Get ALL descendant agents recursively using BFS
+            $allAgents = []; // id => agent record
+            $parentMap = []; // childId => parentId
+            $queue = [];
 
-            $myPercent0 = isset($actor['agentPercent']) ? (float) $actor['agentPercent'] : null;
+            if ($actorRole === 'admin') {
+                // Admin: get top-level agents (createdByModel=Admin)
+                $topLevel = $this->db->findMany('agents', [
+                    'createdByModel' => 'Admin',
+                ], ['sort' => ['createdAt' => -1]]);
+                foreach ($topLevel as $a) {
+                    $aid = (string) ($a['id'] ?? '');
+                    if ($aid !== '') {
+                        $allAgents[$aid] = $a;
+                        $parentMap[$aid] = null; // top-level, parent is admin
+                        $queue[] = $aid;
+                    }
+                }
+            } else {
+                // Master/Super agent: get direct children
+                $directChildren = $this->db->findMany('agents', [
+                    'createdBy' => SqlRepository::id($actorId),
+                    'createdByModel' => 'Agent',
+                ], ['sort' => ['createdAt' => -1]]);
+                foreach ($directChildren as $a) {
+                    $aid = (string) ($a['id'] ?? '');
+                    if ($aid !== '') {
+                        $allAgents[$aid] = $a;
+                        $parentMap[$aid] = $actorId;
+                        $queue[] = $aid;
+                    }
+                }
+            }
 
-            if (count($rawAgents) === 0) {
+            // BFS to find all descendants
+            while (count($queue) > 0) {
+                $currentId = array_shift($queue);
+                $role = strtolower(trim((string) ($allAgents[$currentId]['role'] ?? '')));
+                if ($role !== 'master_agent' && $role !== 'super_agent') {
+                    continue; // only masters have children
+                }
+                $children = $this->db->findMany('agents', [
+                    'createdBy' => SqlRepository::id($currentId),
+                    'createdByModel' => 'Agent',
+                ], ['sort' => ['createdAt' => -1]]);
+                foreach ($children as $child) {
+                    $childId = (string) ($child['id'] ?? '');
+                    if ($childId !== '' && !isset($allAgents[$childId])) {
+                        $allAgents[$childId] = $child;
+                        $parentMap[$childId] = $currentId;
+                        $queue[] = $childId;
+                    }
+                }
+            }
+
+            if (count($allAgents) === 0) {
                 Response::json([
                     'agents' => [],
-                    'myAgentPercent' => $myPercent0,
-                    'myUsername' => $actor['username'] ?? null,
-                    'houseCut' => $myPercent0 !== null ? round(100 - $myPercent0, 2) : null,
-                    'totals' => [
-                        'totalBalanceOwed' => 0,
-                        'totalActivePlayers' => 0,
-                        'totalPlayers' => 0,
-                        'totalAgents' => 0,
-                    ],
+                    'totals' => ['totalPlayers' => 0, 'totalAgents' => 0],
                 ]);
                 return;
             }
 
-            // 2. Collect all sub-agent IDs and build a map for managed agent IDs (for MAs with their own sub-agents)
-            $subAgentIds = [];
-            $subAgentMap = []; // id => agent data
-            foreach ($rawAgents as $a) {
-                $aid = (string) ($a['id'] ?? '');
-                if ($aid !== '') {
-                    $subAgentIds[] = $aid;
-                    $subAgentMap[$aid] = $a;
+            // 2. Get all agent IDs for player/transaction queries
+            $allAgentObjectIds = [];
+            foreach (array_keys($allAgents) as $aid) {
+                if (preg_match('/^[a-f0-9]{24}$/i', $aid) === 1) {
+                    $allAgentObjectIds[] = SqlRepository::id($aid);
                 }
             }
 
-            // 3. For each sub-agent, collect ALL managed agent IDs (recursive) so we can count their players too
-            $agentIdToManagedIds = []; // subAgentId => [all descendant agent IDs including self]
-            foreach ($subAgentIds as $sid) {
-                $role = strtolower(trim((string) ($subAgentMap[$sid]['role'] ?? '')));
-                if ($role === 'master_agent' || $role === 'super_agent') {
-                    $agentIdToManagedIds[$sid] = $this->listManagedAgentIds($sid);
-                } else {
-                    $agentIdToManagedIds[$sid] = [$sid];
-                }
-            }
-
-            // 4. Collect all managed IDs into one flat set for a single user query
-            $allManagedIds = [];
-            foreach ($agentIdToManagedIds as $managedList) {
-                foreach ($managedList as $mid) {
-                    $allManagedIds[$mid] = true;
-                }
-            }
-            $allManagedObjectIds = [];
-            foreach (array_keys($allManagedIds) as $mid) {
-                if (preg_match('/^[a-f0-9]{24}$/i', $mid) === 1) {
-                    $allManagedObjectIds[] = SqlRepository::id($mid);
-                }
-            }
-
-            // 5. Get all users (players) assigned to any managed agent
-            // Match both agentId and createdBy (same pattern as header-summary)
-            $userAgentMap = []; // agentId => count of total players
-            $userIdToAgentId = []; // userId => agentId (for active tracking)
-            if (count($allManagedObjectIds) > 0) {
+            // 3. Get all players mapped to agents
+            $userAgentMap = []; // agentId => player count
+            $userIdToAgentId = []; // userId => agentId
+            if (count($allAgentObjectIds) > 0) {
                 $allUsers = $this->db->findMany('users', [
                     'role' => 'user',
                     '$or' => [
-                        ['agentId' => ['$in' => $allManagedObjectIds]],
-                        ['createdBy' => ['$in' => $allManagedObjectIds], 'createdByModel' => 'Agent'],
+                        ['agentId' => ['$in' => $allAgentObjectIds]],
+                        ['createdBy' => ['$in' => $allAgentObjectIds], 'createdByModel' => 'Agent'],
                     ],
-                ], ['projection' => ['id' => 1, 'agentId' => 1, 'createdBy' => 1, 'createdByModel' => 1, 'status' => 1]]);
-
+                ], ['projection' => ['id' => 1, 'agentId' => 1, 'createdBy' => 1, 'createdByModel' => 1]]);
+                $allAgentIdSet = array_flip(array_keys($allAgents));
                 foreach ($allUsers as $u) {
                     $uid = (string) ($u['id'] ?? '');
-                    if ($uid === '') {
-                        continue;
-                    }
-                    // Use agentId as primary mapping; fall back to createdBy
+                    if ($uid === '') continue;
                     $uAgentId = (string) ($u['agentId'] ?? '');
-                    if ($uAgentId === '' || !isset($allManagedIds[$uAgentId])) {
+                    if ($uAgentId === '' || !isset($allAgentIdSet[$uAgentId])) {
                         $uAgentId = (string) ($u['createdBy'] ?? '');
                     }
-                    if ($uAgentId !== '' && isset($allManagedIds[$uAgentId])) {
+                    if ($uAgentId !== '' && isset($allAgentIdSet[$uAgentId])) {
                         $userAgentMap[$uAgentId] = ($userAgentMap[$uAgentId] ?? 0) + 1;
                         $userIdToAgentId[$uid] = $uAgentId;
                     }
                 }
             }
 
-            // 6. Get this week's transactions to determine active players
+            // 4. Get this week's deposit/withdrawal transactions for net collections
             $tz = new \DateTimeZone('America/Los_Angeles');
             $now = new DateTimeImmutable('now', $tz);
             $weekday = (int) $now->format('N');
             $daysFromTuesday = ($weekday + 5) % 7;
             $startOfWeek = $now->setTime(0, 0, 0)->modify('-' . $daysFromTuesday . ' days');
 
-            $activeByAgent = []; // agentId => count of active players this week
-            $weeklyNetByAgent = []; // agentId => weekly net collection amount
+            $weeklyNetByAgent = [];
             if (count($userIdToAgentId) > 0) {
                 $userObjectIds = [];
                 foreach (array_keys($userIdToAgentId) as $uid) {
@@ -849,162 +860,132 @@ final class AgentController
                         $userObjectIds[] = SqlRepository::id($uid);
                     }
                 }
-
                 if (count($userObjectIds) > 0) {
                     $weekTx = $this->db->findMany('transactions', [
                         'status' => 'completed',
                         'userId' => ['$in' => $userObjectIds],
+                        'type' => ['$in' => ['deposit', 'withdrawal']],
                         'createdAt' => ['$gte' => SqlRepository::utcFromMillis($startOfWeek->getTimestamp() * 1000)],
-                    ], ['projection' => ['userId' => 1, 'type' => 1, 'entrySide' => 1, 'reason' => 1, 'description' => 1, 'balanceBefore' => 1, 'balanceAfter' => 1, 'amount' => 1]]);
+                    ], ['projection' => ['userId' => 1, 'type' => 1, 'amount' => 1]]);
 
-                    $activeUserIds = [];
-                    $weeklyNetByUser = []; // userId => net amount
                     foreach ($weekTx as $tx) {
                         $txUserId = (string) ($tx['userId'] ?? '');
-                        if ($txUserId === '') {
-                            continue;
-                        }
-                        if (!isset($activeUserIds[$txUserId]) && $this->isActiveTransaction($tx)) {
-                            $activeUserIds[$txUserId] = true;
-                        }
-                        // Sum weekly net: credit side positive, debit side negative
-                        $side = strtolower(trim((string) ($tx['entrySide'] ?? '')));
+                        if ($txUserId === '') continue;
+                        $txType = strtolower(trim((string) ($tx['type'] ?? '')));
                         $amt = abs((float) ($tx['amount'] ?? 0));
-                        if ($side === 'credit') {
-                            $weeklyNetByUser[$txUserId] = ($weeklyNetByUser[$txUserId] ?? 0.0) + $amt;
-                        } elseif ($side === 'debit') {
-                            $weeklyNetByUser[$txUserId] = ($weeklyNetByUser[$txUserId] ?? 0.0) - $amt;
-                        }
-                    }
-
-                    foreach ($activeUserIds as $uid => $_) {
-                        $uAgentId = $userIdToAgentId[$uid] ?? '';
+                        if ($txType === 'withdrawal') $amt *= -1;
+                        $uAgentId = $userIdToAgentId[$txUserId] ?? '';
                         if ($uAgentId !== '') {
-                            $activeByAgent[$uAgentId] = ($activeByAgent[$uAgentId] ?? 0) + 1;
-                        }
-                    }
-                    // Roll up weekly net per agent
-                    foreach ($weeklyNetByUser as $uid => $net) {
-                        $uAgentId = $userIdToAgentId[$uid] ?? '';
-                        if ($uAgentId !== '') {
-                            $weeklyNetByAgent[$uAgentId] = ($weeklyNetByAgent[$uAgentId] ?? 0.0) + $net;
+                            $weeklyNetByAgent[$uAgentId] = ($weeklyNetByAgent[$uAgentId] ?? 0.0) + $amt;
                         }
                     }
                 }
             }
 
-            // 7. Fetch grandchildren (children of master_agent children) for commission chain
-            $childrenByParentId = []; // parentId => [child agent records]
-            $masterChildObjectIds = [];
-            foreach ($rawAgents as $a) {
-                $role = strtolower(trim((string) ($a['role'] ?? '')));
-                if ($role === 'master_agent' || $role === 'super_agent') {
-                    $aid = (string) ($a['id'] ?? '');
-                    if ($aid !== '' && preg_match('/^[a-f0-9]{24}$/i', $aid) === 1) {
-                        $masterChildObjectIds[] = SqlRepository::id($aid);
-                    }
-                }
-            }
-            if (count($masterChildObjectIds) > 0) {
-                $grandchildren = $this->db->findMany('agents', [
-                    'createdBy' => ['$in' => $masterChildObjectIds],
-                    'createdByModel' => 'Agent',
-                ], ['sort' => ['createdAt' => -1]]);
-                foreach ($grandchildren as $gc) {
-                    $parentId = (string) ($gc['createdBy'] ?? '');
-                    if ($parentId !== '') {
-                        $childrenByParentId[$parentId][] = $gc;
-                    }
+            // 5. For each agent, find the direct-child-of-actor in its ancestry chain
+            //    myCut = actorPercent - that direct child's percent
+            //    For admin: myCut = 100 - directChild's percent
+            $directChildPctMap = []; // directChildId => agentPercent
+            foreach ($allAgents as $aid => $a) {
+                $parent = $parentMap[$aid] ?? null;
+                if ($parent === $actorId || $parent === null) {
+                    // This agent IS a direct child of actor
+                    $directChildPctMap[$aid] = isset($a['agentPercent']) ? (float) $a['agentPercent'] : null;
                 }
             }
 
-            // 8. Build same-person lookup: agent username+MA = master username → skip agent row
-            $masterUsernames = [];
-            foreach ($rawAgents as $a) {
-                $role = strtolower(trim((string) ($a['role'] ?? '')));
-                if ($role === 'master_agent' || $role === 'super_agent') {
-                    $masterUsernames[strtoupper(trim((string) ($a['username'] ?? '')))] = true;
+            // For each agent, walk up to find which direct child branch it's under
+            $agentToBranchPct = []; // agentId => direct child's percent
+            foreach (array_keys($allAgents) as $aid) {
+                $current = $aid;
+                $visited = [];
+                while ($current !== null && !isset($visited[$current])) {
+                    $visited[$current] = true;
+                    if (isset($directChildPctMap[$current])) {
+                        $agentToBranchPct[$aid] = $directChildPctMap[$current];
+                        break;
+                    }
+                    $current = $parentMap[$current] ?? null;
                 }
             }
-            // Also include the logged-in user's username as a master
-            $actorUsername = strtoupper(trim((string) ($actor['username'] ?? '')));
-            if ($actorUsername !== '') {
-                $masterUsernames[$actorUsername] = true;
+
+            // 6. Build children map and MA lookup for effective cut calculation
+            $childrenOfParent = []; // parentId => [childId, ...]
+            foreach ($parentMap as $childId => $pid) {
+                if ($pid !== null) {
+                    $childrenOfParent[$pid][] = $childId;
+                }
             }
 
-            // 9. Build flat list of ALL leaf agents with myCut and weeklyCollection
-            $myPercent = isset($actor['agentPercent']) ? (float) $actor['agentPercent'] : null;
+            // Map agent username → MA counterpart ID (if exists in tree)
+            $usernameToId = []; // UPPERCASE username => agentId
+            foreach ($allAgents as $aid => $a) {
+                $uname = strtoupper(trim((string) ($a['username'] ?? '')));
+                if ($uname !== '') {
+                    $usernameToId[$uname] = $aid;
+                }
+            }
+
+            // 7. Build flat list — only agent-role entries (not masters)
             $flatAgents = [];
             $totalPlayers = 0;
 
-            foreach ($rawAgents as $a) {
-                $aid = (string) ($a['id'] ?? '');
-                if ($aid === '') {
+            foreach ($allAgents as $aid => $a) {
+                $role = strtolower(trim((string) ($a['role'] ?? '')));
+                if ($role !== 'agent') {
                     continue;
                 }
 
-                $aRole = strtolower(trim((string) ($a['role'] ?? '')));
                 $aUsername = strtoupper(trim((string) ($a['username'] ?? '')));
-                $agentPct = isset($a['agentPercent']) ? (float) $a['agentPercent'] : null;
+                $agentOwnPct = isset($a['agentPercent']) ? (float) $a['agentPercent'] : null;
+                $playerCount = $userAgentMap[$aid] ?? 0;
+                $weeklyNet = round($weeklyNetByAgent[$aid] ?? 0.0, 2);
+                $totalPlayers += $playerCount;
 
-                // myCut from this direct child's branch = myPercent - directChild's percent
-                $branchCut = ($myPercent !== null && $agentPct !== null)
-                    ? round($myPercent - $agentPct, 2) : null;
+                // Calculate effective cut (what this person actually keeps)
+                $isFrontLine = false;
+                $effectiveCut = $agentOwnPct; // default: full contract %
 
-                if ($aRole === 'master_agent' || $aRole === 'super_agent') {
-                    // Master child: flatten their sub-agents as leaf rows
-                    $gcList = $childrenByParentId[$aid] ?? [];
+                // Check if this agent has a same-person MA counterpart
+                $maUsername = $aUsername . 'MA';
+                $maId = $usernameToId[$maUsername] ?? null;
 
-                    foreach ($gcList as $gc) {
-                        $gcId = (string) ($gc['id'] ?? '');
-                        if ($gcId === '') {
+                if ($maId !== null && isset($allAgents[$maId])) {
+                    // This agent IS also a master — sum all direct children's %
+                    $maChildren = $childrenOfParent[$maId] ?? [];
+                    $sumChildPct = 0.0;
+                    foreach ($maChildren as $childId) {
+                        $childUsername = strtoupper(trim((string) ($allAgents[$childId]['username'] ?? '')));
+                        // Skip same-person child (the agent account itself)
+                        if ($childUsername === $aUsername) {
                             continue;
                         }
-                        $gcPlayers = $userAgentMap[$gcId] ?? 0;
-                        $gcWeekly = round($weeklyNetByAgent[$gcId] ?? 0.0, 2);
-                        $totalPlayers += $gcPlayers;
-                        $flatAgents[] = [
-                            'id'               => $gcId,
-                            'username'         => $gc['username'] ?? null,
-                            'myCut'            => $branchCut,
-                            'weeklyCollection' => $gcWeekly,
-                            'totalPlayerCount' => $gcPlayers,
-                        ];
+                        $childPct = isset($allAgents[$childId]['agentPercent']) ? (float) $allAgents[$childId]['agentPercent'] : null;
+                        if ($childPct !== null) {
+                            $sumChildPct += $childPct;
+                        }
                     }
-
-                    // If master has no sub-agents, show itself as a row
-                    if (count($gcList) === 0) {
-                        $playerCount = $userAgentMap[$aid] ?? 0;
-                        $weeklyNet = round($weeklyNetByAgent[$aid] ?? 0.0, 2);
-                        $totalPlayers += $playerCount;
-                        $flatAgents[] = [
-                            'id'               => $aid,
-                            'username'         => $a['username'] ?? null,
-                            'myCut'            => $branchCut,
-                            'weeklyCollection' => $weeklyNet,
-                            'totalPlayerCount' => $playerCount,
-                        ];
+                    if ($agentOwnPct !== null) {
+                        $effectiveCut = round($agentOwnPct - $sumChildPct, 2);
                     }
-                } else {
-                    // Direct agent child
-                    // Same-person of logged-in user: cut = full contract% (they keep it all)
-                    $isSamePersonAsMe = $actorUsername !== '' && $aUsername . 'MA' === $actorUsername;
-                    $agentMyCut = $isSamePersonAsMe ? $myPercent : $branchCut;
-                    $playerCount = $userAgentMap[$aid] ?? 0;
-                    $weeklyNet = round($weeklyNetByAgent[$aid] ?? 0.0, 2);
-                    $totalPlayers += $playerCount;
-                    $flatAgents[] = [
-                        'id'               => $aid,
-                        'username'         => $a['username'] ?? null,
-                        'myCut'            => $agentMyCut,
-                        'weeklyCollection' => $weeklyNet,
-                        'totalPlayerCount' => $playerCount,
-                        'isFrontLine'      => $isSamePersonAsMe,
-                    ];
                 }
+
+                // Front-line: same person as logged-in user
+                if ($actorRole !== 'admin' && $actorUsername !== '' && $maUsername === $actorUsername) {
+                    $isFrontLine = true;
+                }
+
+                $flatAgents[] = [
+                    'id'               => $aid,
+                    'username'         => $a['username'] ?? null,
+                    'myCut'            => $effectiveCut,
+                    'weeklyCollection' => $weeklyNet,
+                    'totalPlayerCount' => $playerCount,
+                    'isFrontLine'      => $isFrontLine,
+                ];
             }
 
-            // Sort: front-line (same person) first, then by weeklyCollection descending
+            // Sort: front-line first, then by weeklyCollection descending
             usort($flatAgents, function ($a, $b) {
                 if (($a['isFrontLine'] ?? false) !== ($b['isFrontLine'] ?? false)) {
                     return ($a['isFrontLine'] ?? false) ? -1 : 1;
@@ -1014,8 +995,6 @@ final class AgentController
 
             Response::json([
                 'agents' => $flatAgents,
-                'myAgentPercent' => $myPercent,
-                'myUsername' => $actor['username'] ?? null,
                 'totals' => [
                     'totalPlayers' => $totalPlayers,
                     'totalAgents'  => count($flatAgents),
