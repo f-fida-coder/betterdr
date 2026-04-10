@@ -90,6 +90,7 @@ function AdminHeader({
   const [summary, setSummary] = useState(createDefaultHeaderSummary);
   const [profile, setProfile] = useState(null);
   const [downlineAgents, setDownlineAgents] = useState([]);
+  const [downlineHouse, setDownlineHouse] = useState({ cut: null, profit: 0 });
 
   const toPlayerList = (users) => (
     Array.isArray(users) ? users : []
@@ -143,6 +144,7 @@ function AdminHeader({
         setSearchablePlayers(onlyPlayers);
         setAllAgents(Array.isArray(agentsData) ? agentsData : []);
         setDownlineAgents(Array.isArray(downlineData?.agents) ? downlineData.agents : []);
+        setDownlineHouse({ cut: downlineData?.houseCut ?? null, profit: downlineData?.houseProfit ?? 0 });
       } catch (error) {
         if (!cancelled) {
           console.error('Failed to load admin header summary:', error);
@@ -1005,6 +1007,28 @@ function AdminHeader({
                   </button>
                 );
               })}
+              {downlineHouse.cut != null && (() => {
+                const agentsWithShare = downlineAgents.filter(a => (a.houseShare ?? 0) !== 0);
+                return (
+                  <div className="dfl-house-section">
+                    {agentsWithShare.length > 0 && (
+                      <div className="dfl-house-breakdown">
+                        {agentsWithShare.map(a => (
+                          <div key={a.id} className="dfl-house-detail">
+                            <span className="dfl-house-detail-name">{a.username}</span>
+                            <span className="dfl-house-detail-amt">{formatCurrency(a.houseShare)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div className="dfl-house-row">
+                      <span className="dfl-name">HOUSE</span>
+                      <span className="dfl-cut">{downlineHouse.cut}%</span>
+                      <span className={`dfl-collection ${downlineHouse.profit > 0 ? 'positive' : downlineHouse.profit < 0 ? 'negative' : ''}`}>{formatCurrency(downlineHouse.profit)}</span>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           )}
 

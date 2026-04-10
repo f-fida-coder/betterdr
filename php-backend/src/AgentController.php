@@ -1002,6 +1002,7 @@ final class AgentController
                     'myCut'            => $effectiveCut,
                     'weeklyCollection' => $weeklyNet,
                     'profit'           => $profit,
+                    'houseShare'       => ($weeklyNet != 0) ? round(5.0 / 100 * $weeklyNet, 2) : 0.0,
                     'totalPlayerCount' => $playerCount,
                     'isFrontLine'      => $isFrontLine,
                 ];
@@ -1015,8 +1016,18 @@ final class AgentController
                 return ($b['profit'] ?? 0) <=> ($a['profit'] ?? 0);
             });
 
+            // Calculate house cut and profit
+            $totalWeeklyCollection = 0.0;
+            foreach ($flatAgents as $fa) {
+                $totalWeeklyCollection += ($fa['weeklyCollection'] ?? 0.0);
+            }
+            $housePct = ($actorRole === 'admin') ? 5.0 : round(100 - $myPercent, 2);
+            $houseProfit = round($housePct / 100 * $totalWeeklyCollection, 2);
+
             Response::json([
                 'agents' => $flatAgents,
+                'houseCut' => $housePct,
+                'houseProfit' => $houseProfit,
                 'totals' => [
                     'totalPlayers' => $totalPlayers,
                     'totalAgents'  => count($flatAgents),
