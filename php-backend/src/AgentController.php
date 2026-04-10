@@ -992,17 +992,23 @@ final class AgentController
                     }
                 }
 
-                // Profit = effectiveCut% × weeklyCollection
-                $profit = ($effectiveCut !== null && $weeklyNet != 0)
-                    ? round($effectiveCut / 100 * $weeklyNet, 2) : 0.0;
+                // For admin: show house's 5% cut and profit per agent
+                // For master: show agent's effective cut and profit
+                if ($actorRole === 'admin') {
+                    $displayCut = 5.0;
+                    $profit = ($weeklyNet != 0) ? round(5.0 / 100 * $weeklyNet, 2) : 0.0;
+                } else {
+                    $displayCut = $effectiveCut;
+                    $profit = ($effectiveCut !== null && $weeklyNet != 0)
+                        ? round($effectiveCut / 100 * $weeklyNet, 2) : 0.0;
+                }
 
                 $flatAgents[] = [
                     'id'               => $aid,
                     'username'         => $a['username'] ?? null,
-                    'myCut'            => $effectiveCut,
+                    'myCut'            => $displayCut,
                     'weeklyCollection' => $weeklyNet,
                     'profit'           => $profit,
-                    'houseShare'       => ($weeklyNet != 0) ? round(5.0 / 100 * $weeklyNet, 2) : 0.0,
                     'totalPlayerCount' => $playerCount,
                     'isFrontLine'      => $isFrontLine,
                 ];

@@ -6763,51 +6763,5 @@ button.downline-flat-row:active {
   color: #1e293b;
 }
 
-.dfl-house-section {
-  border-top: 2px solid #fecaca;
-  background: #fef2f2;
-}
-
-.dfl-house-breakdown {
-  padding: 4px 12px 0;
-}
-
-.dfl-house-detail {
-  display: flex;
-  align-items: center;
-  padding: 2px 0;
-  font-size: 11px;
-  color: #94a3b8;
-}
-
-.dfl-house-detail-name {
-  flex: 1;
-  text-align: left;
-}
-
-.dfl-house-detail-amt {
-  flex: 0 0 75px;
-  text-align: right;
-}
-
-.dfl-house-row {
-  display: flex;
-  align-items: center;
-  padding: 7px 12px;
-  font-weight: 700;
-}
-
-.dfl-house-row .dfl-name {
-  color: #991b1b;
-  font-weight: 700;
-}
-
-.dfl-house-row .dfl-cut {
-  color: #991b1b;
-}
-
-.dfl-house-row .dfl-collection {
-  color: #991b1b;
-}
 
 /* ─── End Downline Flat Agent List ────────────────────────────────────────── */
