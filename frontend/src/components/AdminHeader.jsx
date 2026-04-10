@@ -991,7 +991,7 @@ function AdminHeader({
                 <span className="dfl-collection">Profit</span>
               </div>
               {downlineAgents.map((agent) => {
-                const wc = Number(agent.weeklyCollection ?? 0);
+                const profit = Number(agent.profit ?? 0);
                 return (
                   <button
                     key={agent.id}
@@ -1001,7 +1001,7 @@ function AdminHeader({
                   >
                     <span className="dfl-name">{agent.username}</span>
                     <span className="dfl-cut">{agent.myCut != null ? `${agent.myCut}%` : '—'}</span>
-                    <span className={`dfl-collection ${wc > 0 ? 'positive' : wc < 0 ? 'negative' : ''}`}>{formatCurrency(wc)}</span>
+                    <span className={`dfl-collection ${profit > 0 ? 'positive' : profit < 0 ? 'negative' : ''}`}>{formatCurrency(profit)}</span>
                   </button>
                 );
               })}

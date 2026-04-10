@@ -917,8 +917,20 @@ final class AgentController
                 }
             }
 
-            // Map agent username → MA counterpart ID (if exists in tree)
+            // Map agent username → ID (if exists in tree)
+            // Include the logged-in actor so front-line agent's MA lookup works
             $usernameToId = []; // UPPERCASE username => agentId
+            if ($actorUsername !== '' && $actorRole !== 'admin') {
+                $usernameToId[$actorUsername] = $actorId;
+                // Actor's direct children are also children of actor for cut calc
+                $directChildIds = [];
+                foreach ($allAgents as $aid2 => $_) {
+                    if (($parentMap[$aid2] ?? null) === $actorId || $parentMap[$aid2] === null) {
+                        $directChildIds[] = $aid2;
+                    }
+                }
+                $childrenOfParent[$actorId] = $directChildIds;
+            }
             foreach ($allAgents as $aid => $a) {
                 $uname = strtoupper(trim((string) ($a['username'] ?? '')));
                 if ($uname !== '') {
@@ -942,31 +954,65 @@ final class AgentController
                 $weeklyNet = round($weeklyNetByAgent[$aid] ?? 0.0, 2);
                 $totalPlayers += $playerCount;
 
-                // Cut = agent's own contract % (what they keep from their players' profit)
-                $isFrontLine = false;
+                // Effective cut = own% - sum(MA counterpart's direct children %)
+                $effectiveCut = $agentOwnPct;
                 $maUsername = $aUsername . 'MA';
+                $maId = $usernameToId[$maUsername] ?? null;
 
                 // Front-line: same person as logged-in user
+                $isFrontLine = false;
                 if ($actorRole !== 'admin' && $actorUsername !== '' && $maUsername === $actorUsername) {
                     $isFrontLine = true;
                 }
 
+                // Calculate spread: own% - sum of direct agent-role children's %
+                // Only sum agent-role children (not master branches — those are independent pools)
+                if ($maId !== null && (isset($allAgents[$maId]) || $maId === $actorId)) {
+                    $maChildren = $childrenOfParent[$maId] ?? [];
+                    $sumChildPct = 0.0;
+                    foreach ($maChildren as $childId) {
+                        $child = $allAgents[$childId] ?? null;
+                        if ($child === null) continue;
+                        $childUsername = strtoupper(trim((string) ($child['username'] ?? '')));
+                        if ($childUsername === $aUsername) {
+                            continue; // skip same-person agent account
+                        }
+                        $childRole = strtolower(trim((string) ($child['role'] ?? '')));
+                        // Only count agent-role children (not master branches)
+                        if ($childRole !== 'agent') {
+                            continue;
+                        }
+                        $childPct = isset($child['agentPercent']) ? (float) $child['agentPercent'] : null;
+                        if ($childPct !== null) {
+                            $sumChildPct += $childPct;
+                        }
+                    }
+                    if ($agentOwnPct !== null && $sumChildPct > 0) {
+                        $effectiveCut = round(max(0, $agentOwnPct - $sumChildPct), 2);
+                    }
+                }
+
+                // Profit = effectiveCut% × weeklyCollection
+                $profit = ($effectiveCut !== null && $weeklyNet != 0)
+                    ? round($effectiveCut / 100 * $weeklyNet, 2) : 0.0;
+
                 $flatAgents[] = [
                     'id'               => $aid,
                     'username'         => $a['username'] ?? null,
-                    'myCut'            => $agentOwnPct,
+                    'myCut'            => $effectiveCut,
                     'weeklyCollection' => $weeklyNet,
+                    'profit'           => $profit,
                     'totalPlayerCount' => $playerCount,
                     'isFrontLine'      => $isFrontLine,
                 ];
             }
 
-            // Sort: front-line first, then by weeklyCollection descending
+            // Sort: front-line first, then by profit descending
             usort($flatAgents, function ($a, $b) {
                 if (($a['isFrontLine'] ?? false) !== ($b['isFrontLine'] ?? false)) {
                     return ($a['isFrontLine'] ?? false) ? -1 : 1;
                 }
-                return ($b['weeklyCollection'] ?? 0) <=> ($a['weeklyCollection'] ?? 0);
+                return ($b['profit'] ?? 0) <=> ($a['profit'] ?? 0);
             });
 
             Response::json([
