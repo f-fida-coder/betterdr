@@ -23,6 +23,41 @@ function AgentTreeView({
         const role = normalizeRole(node?.role).replace(/_/g, '-');
         return role || 'account';
     };
+    const getEffectiveCut = (node, parentNode) => {
+        const ownPct = node.agentPercent;
+        if (ownPct == null) return '—';
+        const role = normalizeRole(node?.role);
+        const username = (node.username || '').toUpperCase();
+
+        if (role === 'master_agent' || role === 'super_agent') {
+            // Master node: own% - sum(agent-role children %, skip same-person)
+            const children = (node.children || []).filter(c => AGENT_ROLES.has(normalizeRole(c?.role)));
+            let sumChildPct = 0;
+            for (const child of children) {
+                const childRole = normalizeRole(child?.role);
+                const childUsername = (child.username || '').toUpperCase();
+                if (childRole === 'agent' && childUsername === username.replace(/MA$/, '')) continue; // same person
+                if (childRole === 'agent' && child.agentPercent != null) {
+                    sumChildPct += child.agentPercent;
+                }
+            }
+            return sumChildPct > 0 ? Math.max(0, ownPct - sumChildPct) : ownPct;
+        }
+
+        if (role === 'agent') {
+            // Agent node: check if parent is same-person MA → use parent's effective cut
+            if (parentNode && (normalizeRole(parentNode.role) === 'master_agent' || normalizeRole(parentNode.role) === 'super_agent')) {
+                const parentUsername = (parentNode.username || '').toUpperCase();
+                if (username + 'MA' === parentUsername || username === parentUsername.replace(/MA$/, '')) {
+                    return getEffectiveCut(parentNode, null);
+                }
+            }
+            // Leaf agent — no children to subtract
+            return ownPct;
+        }
+
+        return ownPct;
+    };
     const isExpandableRole = (node) => {
         const role = normalizeRole(node?.role);
         return role === 'admin' || role === 'master_agent' || role === 'super_agent';
@@ -173,7 +208,7 @@ function AgentTreeView({
     const rootCanExpand = Boolean(treeData?.root) && isExpandableRole(treeData.root);
     const rootExpanded = expandedNodes.has(treeData?.root?.id);
 
-    const renderNode = (node, depth = 0) => {
+    const renderNode = (node, depth = 0, parentNode = null) => {
         const isAgent = isAgentNode(node);
         if (!isAgent) return null;
 
@@ -205,7 +240,7 @@ function AgentTreeView({
                         <span className="node-name">{(node.username || '').toUpperCase()}</span>
                         <span className={`node-role-badge role-${roleClassName}`}>{roleLabel}</span>
                         {node.agentPercent != null && (
-                          <span className="node-pct-badge">{node.agentPercent}%</span>
+                          <span className="node-pct-badge">{getEffectiveCut(node, parentNode)}%</span>
                         )}
                         {isDead && <span className="dead-tag">DEAD</span>}
                     </div>
@@ -215,7 +250,7 @@ function AgentTreeView({
                 </div>
                 {canExpand && (isExpanded || searchQuery) && (
                     <div className="node-children">
-                        {visibleChildren.map(child => renderNode(child, depth + 1))}
+                        {visibleChildren.map(child => renderNode(child, depth + 1, node))}
                     </div>
                 )}
             </div>
@@ -291,7 +326,7 @@ function AgentTreeView({
                             </div>
                             {rootHasChildren && (rootExpanded || searchQuery) && (
                                 <div className="node-children">
-                                    {treeData.tree.map(node => renderNode(node, 1))}
+                                    {treeData.tree.map(node => renderNode(node, 1, treeData.root))}
                                 </div>
                             )}
                         </div>
