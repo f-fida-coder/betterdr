@@ -6764,4 +6764,16 @@ button.downline-flat-row:active {
 }
 
 
+.downline-flat-total {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  border-top: 2px solid #e2e8f0;
+  font-weight: 700;
+}
+
+.downline-flat-total .dfl-name {
+  font-weight: 700;
+}
+
 /* ─── End Downline Flat Agent List ────────────────────────────────────────── */

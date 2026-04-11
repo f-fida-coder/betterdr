@@ -954,10 +954,7 @@ final class AgentController
                 $weeklyNet = round($weeklyNetByAgent[$aid] ?? 0.0, 2);
                 $totalPlayers += $playerCount;
 
-                // Effective cut = own% - sum(MA counterpart's direct children %)
-                $effectiveCut = $agentOwnPct;
                 $maUsername = $aUsername . 'MA';
-                $maId = $usernameToId[$maUsername] ?? null;
 
                 // Front-line: same person as logged-in user
                 $isFrontLine = false;
@@ -965,43 +962,23 @@ final class AgentController
                     $isFrontLine = true;
                 }
 
-                // Calculate spread: own% - sum of direct agent-role children's %
-                // Only sum agent-role children (not master branches — those are independent pools)
-                if ($maId !== null && (isset($allAgents[$maId]) || $maId === $actorId)) {
-                    $maChildren = $childrenOfParent[$maId] ?? [];
-                    $sumChildPct = 0.0;
-                    foreach ($maChildren as $childId) {
-                        $child = $allAgents[$childId] ?? null;
-                        if ($child === null) continue;
-                        $childUsername = strtoupper(trim((string) ($child['username'] ?? '')));
-                        if ($childUsername === $aUsername) {
-                            continue; // skip same-person agent account
-                        }
-                        $childRole = strtolower(trim((string) ($child['role'] ?? '')));
-                        // Only count agent-role children (not master branches)
-                        if ($childRole !== 'agent') {
-                            continue;
-                        }
-                        $childPct = isset($child['agentPercent']) ? (float) $child['agentPercent'] : null;
-                        if ($childPct !== null) {
-                            $sumChildPct += $childPct;
-                        }
-                    }
-                    if ($agentOwnPct !== null && $sumChildPct > 0) {
-                        $effectiveCut = round(max(0, $agentOwnPct - $sumChildPct), 2);
-                    }
+                // Calculate CUT (what the logged-in user earns from this agent's collections)
+                if ($actorRole === 'admin') {
+                    // Admin/HOUSE: fixed 5% from every agent
+                    $displayCut = 5.0;
+                } elseif ($isFrontLine) {
+                    // Same person as logged-in master: keeps full contract%
+                    $displayCut = $agentOwnPct;
+                } else {
+                    // Master agent: myPercent - directChildBranch%
+                    $branchPct = $agentToBranchPct[$aid] ?? null;
+                    $displayCut = ($myPercent !== null && $branchPct !== null)
+                        ? round($myPercent - $branchPct, 2) : $agentOwnPct;
                 }
 
-                // For admin: show house's 5% cut and profit per agent
-                // For master: show agent's effective cut and profit
-                if ($actorRole === 'admin') {
-                    $displayCut = 5.0;
-                    $profit = ($weeklyNet != 0) ? round(5.0 / 100 * $weeklyNet, 2) : 0.0;
-                } else {
-                    $displayCut = $effectiveCut;
-                    $profit = ($effectiveCut !== null && $weeklyNet != 0)
-                        ? round($effectiveCut / 100 * $weeklyNet, 2) : 0.0;
-                }
+                // Profit = CUT% × weekly collection
+                $profit = ($displayCut !== null && $weeklyNet != 0)
+                    ? round($displayCut / 100 * $weeklyNet, 2) : 0.0;
 
                 $flatAgents[] = [
                     'id'               => $aid,

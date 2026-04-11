@@ -1005,6 +1005,13 @@ function AdminHeader({
                   </button>
                 );
               })}
+              <div className="downline-flat-total">
+                <span className="dfl-name">TOTAL PROFIT</span>
+                <span className="dfl-cut"></span>
+                <span className={`dfl-collection ${downlineAgents.reduce((s, a) => s + Number(a.profit ?? 0), 0) > 0 ? 'positive' : ''}`}>
+                  {formatCurrency(downlineAgents.reduce((s, a) => s + Number(a.profit ?? 0), 0))}
+                </span>
+              </div>
             </div>
           )}
 
