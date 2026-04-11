@@ -800,17 +800,11 @@ function AdminHeader({
 
             {/* ── MA Stats: Active Accts + Balance Owed to House ── */}
             {(roleKey === 'master_agent' || roleKey === 'super_agent') && (() => {
-              const dlTotals = downlineAgents.length > 0
-                ? downlineAgents.reduce((acc, a) => ({
-                    players: acc.players + (a.totalPlayerCount ?? 0),
-                    balance: acc.balance + Number(a.balance ?? 0),
-                  }), { players: 0, balance: 0 })
-                : { players: Number(summary.activeAccounts), balance: 0 };
               return (
                 <div className="stat-group stat-group-red">
                   <div className="stat-row">
                     <span className="stat-label">Active Accts</span>
-                    <span className="stat-value highlight">{formatCount(dlTotals.players)}</span>
+                    <span className="stat-value highlight">{formatCount(summary.activeAccounts)}</span>
                   </div>
                   <div className="stat-row">
                     <span className="stat-label">My Settlement to House</span>
@@ -988,7 +982,7 @@ function AdminHeader({
               <div className="downline-flat-header">
                 <span className="dfl-name">Sub Agents</span>
                 <span className="dfl-cut">Cut</span>
-                <span className="dfl-collection">Profit</span>
+                <span className="dfl-collection">Weekly Profit</span>
               </div>
               {downlineAgents.map((agent) => {
                 const profit = Number(agent.profit ?? 0);
@@ -1006,7 +1000,7 @@ function AdminHeader({
                 );
               })}
               <div className="downline-flat-total">
-                <span className="dfl-name">TOTAL PROFIT</span>
+                <span className="dfl-name">WEEKLY PROFIT</span>
                 <span className="dfl-cut"></span>
                 <span className={`dfl-collection ${downlineAgents.reduce((s, a) => s + Number(a.profit ?? 0), 0) > 0 ? 'positive' : ''}`}>
                   {formatCurrency(downlineAgents.reduce((s, a) => s + Number(a.profit ?? 0), 0))}
