@@ -787,10 +787,19 @@ function AdminHeader({
             {/* Group 2: Active Accts + Balance (admin only, not agent/MA) */}
             {roleKey !== 'agent' && roleKey !== 'master_agent' && roleKey !== 'super_agent' && (
               <div className="stat-group stat-group-red">
-                <div className="stat-row">
+                <button
+                  type="button"
+                  className="stat-row stat-row-button"
+                  onClick={() => onViewChange?.('weekly-figures', {
+                    timePeriod: 'this-week',
+                    playerFilter: 'active-week',
+                    actorLabel: displayName,
+                  })}
+                  aria-label={`Open weekly figures for ${displayName} active players this week`}
+                >
                   <span className="stat-label">Active Accts</span>
                   <span className="stat-value highlight">{formatCount(summary.activeAccounts)}</span>
-                </div>
+                </button>
                 <div className="stat-row">
                   <span className="stat-label">Balance</span>
                   <span className={`stat-value ${getSignedValueClass(headerBalance)}`}>{formatCurrency(headerBalance)}</span>
@@ -799,20 +808,27 @@ function AdminHeader({
             )}
 
             {/* ── MA Stats: Active Accts + Balance Owed to House ── */}
-            {(roleKey === 'master_agent' || roleKey === 'super_agent') && (() => {
-              return (
-                <div className="stat-group stat-group-red">
-                  <div className="stat-row">
-                    <span className="stat-label">Active Accts</span>
-                    <span className="stat-value highlight">{formatCount(summary.activeAccounts)}</span>
-                  </div>
-                  <div className="stat-row">
-                    <span className="stat-label">My Settlement to House</span>
-                    <span className={`stat-value ${getSignedValueClass(balanceOwedValue)}`}>{formatCurrency(balanceOwedValue)}</span>
-                  </div>
+            {(roleKey === 'master_agent' || roleKey === 'super_agent') && (
+              <div className="stat-group stat-group-red">
+                <button
+                  type="button"
+                  className="stat-row stat-row-button"
+                  onClick={() => onViewChange?.('weekly-figures', {
+                    timePeriod: 'this-week',
+                    playerFilter: 'active-week',
+                    actorLabel: displayName,
+                  })}
+                  aria-label={`Open weekly figures for ${displayName} active players this week`}
+                >
+                  <span className="stat-label">Active Accts</span>
+                  <span className="stat-value highlight">{formatCount(summary.activeAccounts)}</span>
+                </button>
+                <div className="stat-row">
+                  <span className="stat-label">My Settlement to House</span>
+                  <span className={`stat-value ${getSignedValueClass(balanceOwedValue)}`}>{formatCurrency(balanceOwedValue)}</span>
                 </div>
-              );
-            })()}
+              </div>
+            )}
 
             {/* ── MA Combined Collections ── */}
             {(roleKey === 'master_agent' || roleKey === 'super_agent') && (netCollectionsValue !== 0 || agentCollectionsValue !== 0 || houseCollectionsValue !== 0) && (

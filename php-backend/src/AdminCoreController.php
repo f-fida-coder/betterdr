@@ -1075,15 +1075,24 @@ final class AdminCoreController
                 $strictLinkedScope = in_array($actorRole, ['agent', 'master_agent', 'super_agent'], true);
                 $linkedApproverIds = $this->buildLinkedSettlementApproverIdSet($actor);
 
+                // Build a set of valid user IDs for active detection
+                $validUserIdSet = [];
+                foreach ($usersForBalance as $u) {
+                    $uid = (string) ($u['id'] ?? '');
+                    if ($uid !== '') {
+                        $validUserIdSet[$uid] = true;
+                    }
+                }
+
                 // Collect adminIds from transactions missing approvedByRole for bulk lookup
-                // Also track active users in the same pass to reduce iterations
+                // Also track active users by accumulating per-user net amounts
                 $missingRoleAdminIds = [];
-                $activeUserIds = [];
-                
+                $activeUserNets = []; // userId => net signed amount
+
                 foreach ($weekTx as $tx) {
                     $txType = strtolower(trim((string) ($tx['type'] ?? '')));
                     $txUserId = (string) ($tx['userId'] ?? '');
-                    
+
                     // 1. Collect adminIds for role resolution (deposits/withdrawals only)
                     if (($txType === 'deposit' || $txType === 'withdrawal') && !$this->isAgentFundingTransaction($tx)) {
                         $approverRole = trim((string) ($tx['approvedByRole'] ?? ''));
@@ -1094,13 +1103,21 @@ final class AdminCoreController
                             }
                         }
                     }
-                    
-                    // 2. Track active users (excludes funding/promo transactions)
-                    if ($txUserId !== '' && $this->isWeeklyActiveTransaction($tx)) {
-                        $activeUserIds[$txUserId] = true;
+
+                    // 2. Accumulate per-user net amounts (only valid users + real player activity)
+                    if ($txUserId !== '' && isset($validUserIdSet[$txUserId]) && $this->isWeeklyActiveTransaction($tx)) {
+                        $signed = $this->getComprehensiveSignedTransactionAmount($tx);
+                        $activeUserNets[$txUserId] = ($activeUserNets[$txUserId] ?? 0.0) + $signed;
                     }
                 }
-                
+
+                // Only count users with non-zero net activity as active
+                $activeUserIds = [];
+                foreach ($activeUserNets as $uid => $net) {
+                    if (abs($net) > 0.001) {
+                        $activeUserIds[$uid] = true;
+                    }
+                }
                 $activeAccounts = count($activeUserIds);
                 
                 // Resolve roles from collected adminIds
@@ -3153,7 +3170,14 @@ final class AdminCoreController
                 $lifetimePerformance = $this->num($user['lifetimePlusMinus'] ?? ($user['lifetime'] ?? 0));
                 $carry = $balance - $weekTotal;
                 $inactive14Days = !isset($activeRecentUserIds[$uid]);
-                $activeForWeek = isset($activeWeeklyUserIds[$uid]);
+                $hasNonZeroDaily = false;
+                foreach ($daily as $dayVal) {
+                    if (abs($dayVal) > 0.001) {
+                        $hasNonZeroDaily = true;
+                        break;
+                    }
+                }
+                $activeForWeek = $hasNonZeroDaily;
                 $receivedDayIndexRaw = $row['lastCreditDayIndex'] ?? null;
                 $receivedDayIndex = is_int($receivedDayIndexRaw) ? $receivedDayIndexRaw : null;
                 $receivedDayLabel = ($receivedDayIndex !== null && isset($dayLabels[$receivedDayIndex]))
@@ -3191,7 +3215,12 @@ final class AdminCoreController
             }
 
             $totalPlayers = count($users);
-            $activePlayers = count($activeWeeklyUserIds);
+            $activePlayers = 0;
+            foreach ($customers as $c) {
+                if ($c['activeForWeek']) {
+                    $activePlayers++;
+                }
+            }
             $deadAccounts = 0;
             $balanceTotal = 0.0;
             $pendingTotal = 0.0;
@@ -3909,9 +3938,9 @@ final class AdminCoreController
         ];
         $prevTx = $this->db->findMany('transactions', $txQuery, $txProjection);
 
-        // Classify deposits/withdrawals and count active users
+        // Classify deposits/withdrawals and count active users by net amount
         $missingRoleAdminIds = [];
-        $activeUserIds = [];
+        $activeUserNets = []; // userId => net signed amount
         foreach ($prevTx as $tx) {
             $txType = strtolower(trim((string) ($tx['type'] ?? '')));
             $txUserId = (string) ($tx['userId'] ?? '');
@@ -3925,7 +3954,14 @@ final class AdminCoreController
                 }
             }
             if ($txUserId !== '' && $this->isWeeklyActiveTransaction($tx)) {
-                $activeUserIds[$txUserId] = true;
+                $signed = $this->getComprehensiveSignedTransactionAmount($tx);
+                $activeUserNets[$txUserId] = ($activeUserNets[$txUserId] ?? 0.0) + $signed;
+            }
+        }
+        $activeUserIds = [];
+        foreach ($activeUserNets as $uid => $net) {
+            if (abs($net) > 0.001) {
+                $activeUserIds[$uid] = true;
             }
         }
 
@@ -10831,12 +10867,12 @@ final class AdminCoreController
             return false;
         }
 
-        $entrySide = strtoupper(trim((string) ($transaction['entrySide'] ?? '')));
-        if ($entrySide === 'CREDIT' || $entrySide === 'DEBIT') {
-            return true;
-        }
-
+        // Admin adjustments don't count as player activity
         if ($type === 'adjustment') {
+            $reason = strtoupper(trim((string) ($transaction['reason'] ?? '')));
+            if (str_contains($reason, 'ADMIN')) {
+                return false;
+            }
             $beforeRaw = $transaction['balanceBefore'] ?? null;
             $afterRaw = $transaction['balanceAfter'] ?? null;
             if ($beforeRaw !== null && $afterRaw !== null && is_numeric($beforeRaw) && is_numeric($afterRaw)) {
@@ -10845,6 +10881,7 @@ final class AdminCoreController
             return true;
         }
 
+        // Only real player activity counts
         return in_array($type, [
             'bet_placed',
             'bet_placed_admin',
