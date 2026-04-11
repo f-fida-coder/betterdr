@@ -986,17 +986,22 @@ final class AgentController
                     'myCut'            => $displayCut,
                     'weeklyCollection' => $weeklyNet,
                     'profit'           => $profit,
+                    'yearlyProfit'     => round($profit * 52, 2),
                     'totalPlayerCount' => $playerCount,
                     'isFrontLine'      => $isFrontLine,
                 ];
             }
 
-            // Sort: front-line first, then by profit descending
+            // Sort: front-line first, then by cut% descending, then alphabetically
             usort($flatAgents, function ($a, $b) {
                 if (($a['isFrontLine'] ?? false) !== ($b['isFrontLine'] ?? false)) {
                     return ($a['isFrontLine'] ?? false) ? -1 : 1;
                 }
-                return ($b['profit'] ?? 0) <=> ($a['profit'] ?? 0);
+                $cutCmp = ($b['myCut'] ?? 0) <=> ($a['myCut'] ?? 0);
+                if ($cutCmp !== 0) {
+                    return $cutCmp;
+                }
+                return strcasecmp((string) ($a['username'] ?? ''), (string) ($b['username'] ?? ''));
             });
 
             // Calculate house cut and profit

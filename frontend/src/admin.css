@@ -6763,6 +6763,22 @@ button.downline-flat-row:active {
   color: #1e293b;
 }
 
+.dfl-weekly {
+  flex: 0 0 75px;
+  text-align: right;
+  font-size: 13px;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.dfl-yearly {
+  flex: 0 0 85px;
+  text-align: right;
+  font-size: 13px;
+  font-weight: 700;
+  color: #1e293b;
+}
+
 
 .downline-flat-total {
   display: flex;

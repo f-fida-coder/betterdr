@@ -830,23 +830,7 @@ function AdminHeader({
               </div>
             )}
 
-            {/* ── MA Combined Collections ── */}
-            {(roleKey === 'master_agent' || roleKey === 'super_agent') && (netCollectionsValue !== 0 || agentCollectionsValue !== 0 || houseCollectionsValue !== 0) && (
-              <div className="stat-group stat-group-yellow">
-                <div className="stat-row">
-                  <span className="stat-label">Agent Collections</span>
-                  <span className={`stat-value ${getSignedValueClass(agentCollectionsValue)}`}>{formatCurrency(agentCollectionsValue)}</span>
-                </div>
-                <div className="stat-row">
-                  <span className="stat-label">House Collections</span>
-                  <span className={`stat-value ${getSignedValueClass(houseCollectionsValue)}`}>{formatCurrency(houseCollectionsValue)}</span>
-                </div>
-                <div className="stat-row">
-                  <span className="stat-label">Net Collections</span>
-                  <span className={`stat-value ${getSignedValueClass(netCollectionsValue)}`}>{formatCurrency(netCollectionsValue)}</span>
-                </div>
-              </div>
-            )}
+            {/* ── Collections (HOUSE/admin only, not MA/SA) ── */}
 
             {/* ── Agent Settlement Report Card ── */}
             {roleKey === 'agent' && (
@@ -992,38 +976,53 @@ function AdminHeader({
             )}
           </div>
 
-          {/* ── Sub Agents flat list (admin + MA) ── */}
-          {(roleKey === 'admin' || roleKey === 'master_agent' || roleKey === 'super_agent') && downlineAgents.length > 0 && (
-            <div className="downline-flat-list">
-              <div className="downline-flat-header">
-                <span className="dfl-name">Sub Agents</span>
-                <span className="dfl-cut">Cut</span>
-                <span className="dfl-collection">Weekly Profit</span>
+          {/* ── Agents flat list (admin + MA) ── */}
+          {(roleKey === 'admin' || roleKey === 'master_agent' || roleKey === 'super_agent') && downlineAgents.length > 0 && (() => {
+            const sorted = [...downlineAgents].sort((a, b) => {
+              const pa = Number(a.profit ?? 0);
+              const pb = Number(b.profit ?? 0);
+              if (pb !== pa) return pb - pa;
+              const ya = Number(a.yearlyProfit ?? 0);
+              const yb = Number(b.yearlyProfit ?? 0);
+              if (yb !== ya) return yb - ya;
+              return (a.username ?? '').localeCompare(b.username ?? '');
+            });
+            const totalWeekly = sorted.reduce((s, a) => s + Number(a.profit ?? 0), 0);
+            const totalYearly = sorted.reduce((s, a) => s + Number(a.yearlyProfit ?? 0), 0);
+            return (
+              <div className="downline-flat-list">
+                <div className="downline-flat-header">
+                  <span className="dfl-name">Agents</span>
+                  <span className="dfl-cut">Cut</span>
+                  <span className="dfl-weekly">Weekly</span>
+                  <span className="dfl-yearly">Yearly</span>
+                </div>
+                {sorted.map((agent) => {
+                  const profit = Number(agent.profit ?? 0);
+                  const yearly = Number(agent.yearlyProfit ?? 0);
+                  return (
+                    <button
+                      key={agent.id}
+                      type="button"
+                      className="downline-flat-row"
+                      onClick={() => { if (onSwitchContext) onSwitchContext(agent.id); }}
+                    >
+                      <span className="dfl-name">{agent.username}</span>
+                      <span className="dfl-cut">{agent.myCut != null ? `${agent.myCut}%` : '—'}</span>
+                      <span className={`dfl-weekly ${profit > 0 ? 'positive' : profit < 0 ? 'negative' : ''}`}>{formatCurrency(profit)}</span>
+                      <span className={`dfl-yearly ${yearly > 0 ? 'positive' : yearly < 0 ? 'negative' : ''}`}>{formatCurrency(yearly)}</span>
+                    </button>
+                  );
+                })}
+                <div className="downline-flat-total">
+                  <span className="dfl-name">PROFIT</span>
+                  <span className="dfl-cut"></span>
+                  <span className={`dfl-weekly ${totalWeekly > 0 ? 'positive' : ''}`}>{formatCurrency(totalWeekly)}</span>
+                  <span className={`dfl-yearly ${totalYearly > 0 ? 'positive' : ''}`}>{formatCurrency(totalYearly)}</span>
+                </div>
               </div>
-              {downlineAgents.map((agent) => {
-                const profit = Number(agent.profit ?? 0);
-                return (
-                  <button
-                    key={agent.id}
-                    type="button"
-                    className="downline-flat-row"
-                    onClick={() => { if (onSwitchContext) onSwitchContext(agent.id); }}
-                  >
-                    <span className="dfl-name">{agent.username}</span>
-                    <span className="dfl-cut">{agent.myCut != null ? `${agent.myCut}%` : '—'}</span>
-                    <span className={`dfl-collection ${profit > 0 ? 'positive' : profit < 0 ? 'negative' : ''}`}>{formatCurrency(profit)}</span>
-                  </button>
-                );
-              })}
-              <div className="downline-flat-total">
-                <span className="dfl-name">WEEKLY PROFIT</span>
-                <span className="dfl-cut"></span>
-                <span className={`dfl-collection ${downlineAgents.reduce((s, a) => s + Number(a.profit ?? 0), 0) > 0 ? 'positive' : ''}`}>
-                  {formatCurrency(downlineAgents.reduce((s, a) => s + Number(a.profit ?? 0), 0))}
-                </span>
-              </div>
-            </div>
-          )}
+            );
+          })()}
 
         </div>
       )}
