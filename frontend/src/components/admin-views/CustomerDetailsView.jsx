@@ -2128,7 +2128,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
             {isAgent ? (
               <button type="button" className={`detail-item detail-metric${activeSection === 'transactions' ? ' detail-metric-active' : ''}`} onClick={openTransactionSlip}>
                 <span className="detail-label">Balance</span>
-                <strong className={`detail-value ${getMoneyToneClass(customerBalance)}`}>{formatCurrency(customerBalance)}</strong>
+                <strong className={`detail-value ${getMoneyToneClass(-customerBalance)}`}>{formatCurrency(customerBalance)}</strong>
               </button>
             ) : null}
           </div>

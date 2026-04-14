@@ -10867,9 +10867,26 @@ final class AdminCoreController
             return false;
         }
 
-        // Admin adjustments don't count as player activity
         if ($type === 'adjustment') {
             $reason = strtoupper(trim((string) ($transaction['reason'] ?? '')));
+            // Explicit credit/debit adjustments represent real movement of
+            // money to/from the player and must count as weekly activity,
+            // regardless of whether an admin, cashier, or agent performed them.
+            $explicitCreditDebitReasons = [
+                'ADMIN_CREDIT_ADJUSTMENT',
+                'ADMIN_DEBIT_ADJUSTMENT',
+                'CASHIER_CREDIT_ADJUSTMENT',
+                'CASHIER_DEBIT_ADJUSTMENT',
+            ];
+            if (in_array($reason, $explicitCreditDebitReasons, true)) {
+                $beforeRaw = $transaction['balanceBefore'] ?? null;
+                $afterRaw = $transaction['balanceAfter'] ?? null;
+                if ($beforeRaw !== null && $afterRaw !== null && is_numeric($beforeRaw) && is_numeric($afterRaw)) {
+                    return abs(((float) $afterRaw) - ((float) $beforeRaw)) > 0.00001;
+                }
+                return true;
+            }
+            // Generic balance fixes / paperwork adjustments do not count.
             if (str_contains($reason, 'ADMIN')) {
                 return false;
             }
@@ -10881,7 +10898,6 @@ final class AdminCoreController
             return true;
         }
 
-        // Only real player activity counts
         return in_array($type, [
             'bet_placed',
             'bet_placed_admin',

@@ -878,7 +878,7 @@ function AdminHeader({
                           <span className={`stat-value ${getSignedValueClass(netCollectionsValue)}`}>{formatCurrency(netCollectionsValue)}</span>
                         </div>
                         <div className="stat-row">
-                          <span className="stat-label">Makeup Cleared</span>
+                          <span className="stat-label">Previous Makeup</span>
                           <span className="stat-value negative">{formatCurrency(-makeupReductionValue)}</span>
                         </div>
                         <div className="stat-row">
@@ -966,10 +966,19 @@ function AdminHeader({
                         <span className={`stat-value ${getSignedValueClass(-fundingAdjustmentValue)}`}>{formatCurrency(-fundingAdjustmentValue)}</span>
                       </div>
                     )}
-                    <div className="stat-row stat-row-total">
+                    <button
+                      type="button"
+                      className="stat-row stat-row-button stat-row-total"
+                      onClick={() => {
+                        if (typeof onViewChange === 'function') {
+                          onViewChange('transaction-history', { enteredBy: displayName, collectionType: 'agent' });
+                        }
+                      }}
+                      aria-label="View balance owed transaction history"
+                    >
                       <span className="stat-label">Balance Owed / House Money</span>
                       <span className={`stat-value ${getSignedValueClass(balanceOwedValue)}`}>{formatCurrency(balanceOwedValue)}</span>
-                    </div>
+                    </button>
                   </div>
                 </div>
               </div>
