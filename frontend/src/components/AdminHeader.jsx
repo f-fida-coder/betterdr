@@ -612,43 +612,53 @@ function AdminHeader({
             <button
               type="button"
               className="user-chip"
-              onClick={() => setShowUserMenu((prev) => !prev)}
-              title="Open account menu"
-              aria-expanded={showUserMenu}
+              onClick={() => toggleAccountTreeSearch()}
+              title="Open agent tree"
+              aria-expanded={showAgentTree}
             >
               <span className="user-chip-desktop">{roleLabel}: {displayName}</span>
               <span className="user-chip-mobile">{mobileUserLabel}</span>
               <span
                 className={`user-chip-caret ${showAgentTree ? 'open' : ''}`}
                 aria-hidden="true"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  toggleAccountTreeSearch();
-                }}
               >
                 ▼
               </span>
             </button>
-            {showUserMenu && (
-              <div className="dropdown-menu user-chip-menu">
-                <button type="button" onClick={() => { setShowUserMenu(false); handleViewChange('profile'); }}>Profile</button>
-                <button type="button" onClick={() => { setShowUserMenu(false); handleViewChange('settings'); }}>Settings</button>
-                {canRestoreBaseContext && (
-                  <button type="button" onClick={() => { setShowUserMenu(false); onRestoreBaseContext?.(); }}>
-                    Back to {baseContextLabel}
+            <div className="power-menu-wrap">
+              <button
+                type="button"
+                className="power-logout-btn"
+                onClick={() => setShowUserMenu((prev) => !prev)}
+                aria-label="Open account menu"
+                aria-expanded={showUserMenu}
+                title="Account menu"
+              >
+                ⏻
+              </button>
+              {showUserMenu && (
+                <div className="dropdown-menu user-chip-menu">
+                  <button type="button" onClick={() => { setShowUserMenu(false); handleViewChange('profile'); }}>
+                    <i className="fa-solid fa-user" aria-hidden="true"></i>
+                    Profile
                   </button>
-                )}
-              </div>
-            )}
-            <button
-              type="button"
-              className="power-logout-btn"
-              onClick={handleLogout}
-              aria-label="Log out"
-              title="Log out"
-            >
-              ⏻
-            </button>
+                  <button type="button" onClick={() => { setShowUserMenu(false); handleViewChange('settings'); }}>
+                    <i className="fa-solid fa-gear" aria-hidden="true"></i>
+                    Settings
+                  </button>
+                  {canRestoreBaseContext && (
+                    <button type="button" onClick={() => { setShowUserMenu(false); onRestoreBaseContext?.(); }}>
+                      <i className="fa-solid fa-arrow-rotate-left" aria-hidden="true"></i>
+                      Back to {baseContextLabel}
+                    </button>
+                  )}
+                  <button type="button" className="power-menu-logout" onClick={() => { setShowUserMenu(false); handleLogout(); }}>
+                    <i className="fa-solid fa-right-from-bracket" aria-hidden="true"></i>
+                    Log out
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>

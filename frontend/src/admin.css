@@ -411,32 +411,84 @@
   transform: translateY(-1px);
 }
 
+.power-menu-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+/* HOUSE chip (sits in the right group next to the power button).
+   The right-group .user-chip already has base styling — this block just
+   adds the caret rotation + spacing tweaks introduced when the chip was
+   split away from the old combined account menu. */
+.user-chip .user-chip-caret {
+  transition: transform 0.15s ease;
+}
+
+.user-chip .user-chip-caret.open {
+  transform: rotate(180deg);
+}
+
 .dropdown-menu.user-chip-menu {
   position: absolute;
-  top: calc(100% + 6px);
-  right: 50px;
-  min-width: 170px;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 200px;
   background: #ffffff;
-  border: 1px solid #d8e0e6;
-  border-radius: 8px;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  box-shadow: 0 10px 32px rgba(15, 23, 42, 0.18);
   z-index: 15;
   overflow: hidden;
+  padding: 4px 0;
 }
 
 .dropdown-menu.user-chip-menu button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   width: 100%;
   text-align: left;
   border: none;
   background: transparent;
-  padding: 10px 12px;
+  padding: 11px 14px;
   font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
-  color: #20354d;
+  color: #1e293b;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.dropdown-menu.user-chip-menu button i {
+  width: 16px;
+  text-align: center;
+  color: #64748b;
 }
 
 .dropdown-menu.user-chip-menu button:hover {
-  background: #edf4f8;
+  background: #f1f5f9;
+}
+
+.dropdown-menu.user-chip-menu button:hover i {
+  color: #1e40af;
+}
+
+.dropdown-menu.user-chip-menu .power-menu-logout {
+  border-top: 1px solid #e2e8f0;
+  color: #b91c1c;
+  font-weight: 600;
+  margin-top: 4px;
+}
+
+.dropdown-menu.user-chip-menu .power-menu-logout i {
+  color: #b91c1c;
+}
+
+.dropdown-menu.user-chip-menu .power-menu-logout:hover {
+  background: #fee2e2;
+}
+
+.dropdown-menu.user-chip-menu .power-menu-logout:hover i {
+  color: #991b1b;
 }
 
 /* Admin Header Bottom - Stats Grid */
@@ -957,7 +1009,6 @@
     white-space: nowrap;
     font-size: 12px;
     padding: 9px 10px;
-    order: 1;
     text-transform: uppercase;
     border-radius: 6px;
   }
@@ -978,7 +1029,6 @@
     width: 42px;
     height: 42px;
     font-size: 18px;
-    order: 2;
     border-radius: 6px;
   }
 

@@ -146,9 +146,10 @@ function AgentCutsTable({ onSelectAgent, onWeekChange }) {
   }, [data, hideZero]);
 
   const periodTotal = Number(data?.totals?.periodAmount ?? 0);
-  // Weekly tab shows ALL-TIME in the second column; Quarterly tab shows
-  // year-to-date for the current calendar year.
-  const useYtdForSecondColumn = tab === 'quarter';
+  // Second column is YTD ("2026") only when Quarterly is showing one of
+  // Q1–Q4. Weekly tab and Quarterly's full-year button both fall back to
+  // all-time ("Lifetime") so the two columns don't duplicate.
+  const useYtdForSecondColumn = tab === 'quarter' && quarterlyChoice !== 'year';
   const secondColumnTotal = useYtdForSecondColumn
     ? Number(data?.totals?.ytdAmount ?? 0)
     : Number(data?.totals?.lifetimeAmount ?? 0);
