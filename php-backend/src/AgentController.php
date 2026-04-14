@@ -51,10 +51,9 @@ final class AgentController
             $this->getDownlineSummary();
             return true;
         }
-        if ($method === 'GET' && $path === '/api/admin/agent-cuts') {
-            $this->getAgentCuts();
-            return true;
-        }
+        // /api/admin/agent-cuts is handled by AgentCutsController (separate file,
+        // kept outside this class so its bytecode is loaded fresh on production
+        // even when this file's opcache is stale).
         if ($method === 'PUT' && preg_match('#^/api/agent/permissions/([a-fA-F0-9]{24})$#', $path, $m) === 1) {
             $this->updateAgentPermissions($m[1]);
             return true;
@@ -1036,7 +1035,10 @@ final class AgentController
      * for a selectable period (week / quarter / lifetime) plus a lifetime
      * total per agent, for the admin dashboard cuts table.
      *
-     * Admin role only — this endpoint is gated to HOUSE login.
+     * NOTE: The active implementation now lives in AgentCutsController so
+     * its bytecode is loaded fresh on production even when this file's
+     * opcache is stale. This copy is unreachable (the route registration
+     * in handle() has been removed) and is retained only for file history.
      */
     private function getAgentCuts(): void
     {

@@ -25,6 +25,7 @@ require_once __DIR__ . '/../src/ContentController.php';
 require_once __DIR__ . '/../src/MessagesController.php';
 require_once __DIR__ . '/../src/CasinoController.php';
 require_once __DIR__ . '/../src/AgentController.php';
+require_once __DIR__ . '/../src/AgentCutsController.php';
 require_once __DIR__ . '/../src/PaymentsController.php';
 require_once __DIR__ . '/../src/AdminCoreController.php';
 require_once __DIR__ . '/../src/AdminEntityCatalog.php';
@@ -318,6 +319,7 @@ if (
             $messagesController = new MessagesController($repo, $jwtSecret);
             $casinoController = new CasinoController($repo, $jwtSecret);
             $agentController = new AgentController($repo, $jwtSecret);
+            $agentCutsController = new AgentCutsController($repo, $jwtSecret);
             $paymentsController = new PaymentsController($repo, $jwtSecret);
             $adminCoreController = new AdminCoreController($repo, $jwtSecret);
             $debugController = new DebugController($repo, $jwtSecret);
@@ -330,6 +332,7 @@ if (
                 || $contentController->handle($method, $uriPath)
                 || $messagesController->handle($method, $uriPath)
                 || $casinoController->handle($method, $uriPath)
+                || $agentCutsController->handle($method, $uriPath)
                 || $agentController->handle($method, $uriPath)
                 || $paymentsController->handle($method, $uriPath)
                 || $adminCoreController->handle($method, $uriPath)
