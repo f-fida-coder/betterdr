@@ -801,8 +801,8 @@ function AdminHeader({
                   <span className="stat-value highlight">{formatCount(summary.activeAccounts)}</span>
                 </button>
                 <div className="stat-row">
-                  <span className="stat-label">Balance</span>
-                  <span className={`stat-value ${getSignedValueClass(headerBalance)}`}>{formatCurrency(headerBalance)}</span>
+                  <span className="stat-label">Player Fees</span>
+                  <span className="stat-value">{formatCurrency(totalPlayerFeesValue)}</span>
                 </div>
               </div>
             )}

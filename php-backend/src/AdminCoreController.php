@@ -3646,6 +3646,7 @@ final class AdminCoreController
             ], [
                 'closingMakeup'      => max(0.0, $newMakeup),
                 'closingBalanceOwed'  => $newBalanceOwed,
+                'manuallyFinalized'  => true,
                 'updatedAt'           => $now,
             ], [
                 'agentId'      => $agentId,
@@ -3909,14 +3910,19 @@ final class AdminCoreController
         $prevWeekStart = $currentWeekStart->modify('-7 days');
         $prevWeekKey = $agentId . '_' . $prevWeekStart->format('Y-m-d');
 
-        // Fast check — does this snapshot already exist?
+        // Check for an existing snapshot. If an admin manually finalized
+        // this week, do not auto-recompute — their override is load-bearing.
+        // Otherwise we intentionally recompute so that transactions posted
+        // AFTER the first auto-close (e.g. backdated corrections, late
+        // payments) are reflected in the closingBalanceOwed that next
+        // week's carry-forward reads.
         $existing = $this->db->findOne('settlement_snapshots', [
             'agentId' => $agentId,
             'weekStartStr' => $prevWeekStart->format('Y-m-d\TH:i:s\Z'),
-        ], ['projection' => ['id' => 1]]);
+        ], ['projection' => ['id' => 1, 'manuallyFinalized' => 1]]);
 
-        if ($existing !== null) {
-            return; // Already closed
+        if ($existing !== null && !empty($existing['manuallyFinalized'])) {
+            return; // Admin override — preserve it
         }
 
         // ── Compute the previous week's settlement ──────────────────
@@ -4055,12 +4061,13 @@ final class AdminCoreController
         $summary['fundingAdjustment'] = $fundingAdjustment;
         $summary['balanceOwed'] = round($this->num($summary['balanceOwed'] ?? 0) - $fundingAdjustment, 2);
 
-        // Persist snapshot (idempotent via insertOneIfAbsent)
+        // Persist snapshot via upsert so late/backdated transactions posted
+        // AFTER the first auto-close still update closingBalanceOwed.
         $now = SqlRepository::nowUtc();
-        $this->db->insertOneIfAbsent('settlement_snapshots', [
-            'agentId'             => $agentId,
-            'weekStartStr'        => $prevWeekStart->format('Y-m-d\TH:i:s\Z'),
-            'weekStart'           => SqlRepository::utcFromMillis($prevWeekStart->getTimestamp() * 1000),
+        $this->db->updateOneUpsert('settlement_snapshots', [
+            'agentId'      => $agentId,
+            'weekStartStr' => $prevWeekStart->format('Y-m-d\TH:i:s\Z'),
+        ], [
             'closingMakeup'       => $summary['cumulativeMakeup'],
             'closingBalanceOwed'  => $summary['balanceOwed'],
             'agentCollections'    => $summary['agentCollections'],
@@ -4075,7 +4082,12 @@ final class AdminCoreController
             'fundingAdjustment'   => $fundingAdjustment,
             'computedBalanceOwed' => $summary['computedBalanceOwed'],
             'balanceAdjustment'   => $summary['balanceAdjustment'],
-            'createdAt'           => $now,
+            'updatedAt'           => $now,
+        ], [
+            'agentId'      => $agentId,
+            'weekStartStr' => $prevWeekStart->format('Y-m-d\TH:i:s\Z'),
+            'weekStart'    => SqlRepository::utcFromMillis($prevWeekStart->getTimestamp() * 1000),
+            'createdAt'    => $now,
         ]);
 
         // Also update the agent record so the seed stays current (used as fallback)
