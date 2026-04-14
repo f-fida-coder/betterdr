@@ -62,7 +62,7 @@ function AgentCutsTable({ onSelectAgent }) {
   const [selectedWeekIso, setSelectedWeekIso] = useState(weeks[0]?.iso || '');
   const currentYear = useMemo(() => new Date().getFullYear(), []);
   const [selectedQuarter, setSelectedQuarter] = useState(getCurrentQuarter());
-  const [hideZero, setHideZero] = useState(true);
+  const [hideZero, setHideZero] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [data, setData] = useState({
