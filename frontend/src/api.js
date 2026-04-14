@@ -1567,12 +1567,12 @@ export const getDownlineSummary = async (token) => {
 
 export const getAgentCuts = async (token, params = {}) => {
     try {
-        const qs = new URLSearchParams();
-        if (params.periodType) qs.set('periodType', params.periodType);
-        if (params.weekStart) qs.set('weekStart', params.weekStart);
-        if (params.quarter) qs.set('quarter', String(params.quarter));
-        if (params.year) qs.set('year', String(params.year));
-        const url = buildApiUrl('/admin/agent-cuts') + (qs.toString() ? `?${qs.toString()}` : '');
+        const queryParams = {};
+        if (params.periodType) queryParams.periodType = params.periodType;
+        if (params.weekStart) queryParams.weekStart = params.weekStart;
+        if (params.quarter) queryParams.quarter = String(params.quarter);
+        if (params.year) queryParams.year = String(params.year);
+        const url = buildApiUrl('/admin/agent-cuts', queryParams);
         const response = await fetch(url, {
             method: 'GET',
             headers: getHeaders(token)
