@@ -980,10 +980,10 @@ function AdminHeader({
                         if (typeof onViewChange !== 'function') return;
                         const selfId = profile?.id ? String(profile.id) : '';
                         if (selfId) {
-                          onViewChange('user-details', selfId);
+                          onViewChange('user-details', selfId, { autoOpenDeposit: true });
                         }
                       }}
-                      aria-label="Open my agent profile"
+                      aria-label="Open my agent profile and start a new deposit"
                     >
                       <span className="stat-label">Balance Owed / House Money</span>
                       <span className={`stat-value ${getSignedValueClass(balanceOwedValue)}`}>{formatCurrency(balanceOwedValue)}</span>

@@ -230,6 +230,7 @@ function AdminPanel({ onExit, role = 'admin' }) {
             onBack={() => setAdminView('customer-admin')}
             onNavigateToUser={(nextUserId) => handleViewChange('user-details', nextUserId)}
             role={effectiveRole}
+            viewContext={viewContext}
           />
         );
       case 'weekly-figures':

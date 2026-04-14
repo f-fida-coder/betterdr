@@ -406,7 +406,7 @@ const isTransactionForCustomer = (txn, userId, username, linkedCounterpart) => {
   return true;
 };
 
-function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' }) {
+function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin', viewContext = null }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -1467,6 +1467,18 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
     setTxError('');
     setShowNewTxModal(true);
   };
+
+  // Auto-open the deposit modal when navigated from the admin header's
+  // Balance Owed click for agents. Fires once after customer loads.
+  const autoOpenDepositRequested = Boolean(viewContext?.autoOpenDeposit);
+  const [autoOpenDone, setAutoOpenDone] = useState(false);
+  useEffect(() => {
+    if (!autoOpenDepositRequested || autoOpenDone) return;
+    if (!customer?.id) return;
+    if (!isAgent) return;
+    openTransactionSlip();
+    setAutoOpenDone(true);
+  }, [autoOpenDepositRequested, autoOpenDone, customer?.id, isAgent]);
 
   const activePerformanceRow = useMemo(() => {
     return performanceRows.find((row) => row.key === performanceSelectedKey) || null;
