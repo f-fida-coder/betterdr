@@ -56,10 +56,24 @@ const getCurrentQuarter = () => {
   return Math.floor(now.getMonth() / 3) + 1;
 };
 
-function AgentCutsTable({ onSelectAgent }) {
+function AgentCutsTable({ onSelectAgent, onWeekChange }) {
   const [tab, setTab] = useState('week');
   const weeks = useMemo(() => buildLast12Weeks(), []);
-  const [selectedWeekIso, setSelectedWeekIso] = useState(weeks[0]?.iso || '');
+  const currentWeekIso = weeks[0]?.iso || '';
+  const [selectedWeekIso, setSelectedWeekIso] = useState(currentWeekIso);
+
+  // Notify parent when the effective "week" view changes so the header
+  // stat block can refetch. On non-week tabs we revert to current-week
+  // stats because the dropdown isn't meaningful there.
+  useEffect(() => {
+    if (typeof onWeekChange !== 'function') return;
+    if (tab === 'week') {
+      const isCurrent = selectedWeekIso === currentWeekIso;
+      onWeekChange(selectedWeekIso, isCurrent);
+    } else {
+      onWeekChange(currentWeekIso, true);
+    }
+  }, [tab, selectedWeekIso, currentWeekIso, onWeekChange]);
   const currentYear = useMemo(() => new Date().getFullYear(), []);
   const [selectedQuarter, setSelectedQuarter] = useState(getCurrentQuarter());
   const [hideZero, setHideZero] = useState(false);

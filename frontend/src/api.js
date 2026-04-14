@@ -711,8 +711,10 @@ export const getBetModeRules = async (token) => {
     return response.json();
 };
 
-export const getAdminHeaderSummary = async (token) => {
-    const response = await fetch(buildApiUrl('/admin/header-summary'), {
+export const getAdminHeaderSummary = async (token, params = null) => {
+    const queryParams = {};
+    if (params && params.weekStart) queryParams.weekStart = params.weekStart;
+    const response = await fetch(buildApiUrl('/admin/header-summary', queryParams), {
         headers: getHeaders(token)
     });
     if (!response.ok) throw new Error('Failed to fetch admin header summary');

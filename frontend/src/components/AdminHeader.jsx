@@ -91,6 +91,10 @@ function AdminHeader({
   const [summary, setSummary] = useState(createDefaultHeaderSummary);
   const [profile, setProfile] = useState(null);
   const [downlineAgents, setDownlineAgents] = useState([]);
+  // When set, the admin has selected a non-current week in the agent-cuts
+  // dropdown. The header summary is refetched with this weekStart so the
+  // WEEK stat reflects the selected period.
+  const [selectedWeekStart, setSelectedWeekStart] = useState(null);
 
   const toPlayerList = (users) => (
     Array.isArray(users) ? users : []
@@ -108,9 +112,11 @@ function AdminHeader({
     const token = localStorage.getItem('token');
     if (!token) return undefined;
 
+    const summaryParams = selectedWeekStart ? { weekStart: selectedWeekStart } : null;
+
     const refreshHeaderSummary = async () => {
       try {
-        const headerData = await getAdminHeaderSummary(token);
+        const headerData = await getAdminHeaderSummary(token, summaryParams);
         if (cancelled) return;
         applyHeaderSummary(headerData);
       } catch (error) {
@@ -123,7 +129,7 @@ function AdminHeader({
     const loadHeaderContext = async () => {
       try {
         const [headerData, meData] = await Promise.all([
-          getAdminHeaderSummary(token),
+          getAdminHeaderSummary(token, summaryParams),
           getMe(token)
         ]);
         if (cancelled) return;
@@ -163,7 +169,7 @@ function AdminHeader({
       window.clearInterval(intervalId);
       window.removeEventListener('focus', handleWindowFocus);
     };
-  }, [role]);
+  }, [role, selectedWeekStart]);
 
   const roundForDisplay = (value) => {
     if (value === null || value === undefined) return null;
@@ -1043,6 +1049,11 @@ function AdminHeader({
                 if (onSwitchContext) {
                   onSwitchContext(agentId);
                 }
+              }}
+              onWeekChange={(weekIso, isCurrentWeek) => {
+                // null weekStart = "current week" (header uses live start-of-week).
+                // ISO string = historical week (header refetches with that param).
+                setSelectedWeekStart(isCurrentWeek ? null : weekIso);
               }}
             />
           )}

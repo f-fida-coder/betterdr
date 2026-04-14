@@ -999,9 +999,29 @@ final class AdminCoreController
             }
             $actorId = (string) ($actor['id'] ?? '');
             $actorRole = (string) ($actor['role'] ?? '');
-            $this->respondJsonWithCache('header-summary-' . $actorRole, $actorId, self::HEADER_CACHE_TTL_SECONDS, function () use ($actor): array {
+
+            // Optional weekStart override — admin house dashboard passes this
+            // so the WEEK stat follows the agent-cuts dropdown. Format: YYYY-MM-DD
+            // interpreted as Pacific-midnight. Only accepted from admin role so
+            // agent headers are unaffected.
+            $overrideWeekStart = null;
+            $weekStartRaw = trim((string) ($_GET['weekStart'] ?? ''));
+            if ($actorRole === 'admin' && $weekStartRaw !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $weekStartRaw) === 1) {
+                try {
+                    $overrideWeekStart = new DateTimeImmutable($weekStartRaw . ' 00:00:00', new \DateTimeZone('America/Los_Angeles'));
+                } catch (Throwable $e) {
+                    $overrideWeekStart = null;
+                }
+            }
+
+            $cacheKey = 'header-summary-' . $actorRole;
+            if ($overrideWeekStart !== null) {
+                $cacheKey .= '-wk' . $overrideWeekStart->format('Ymd');
+            }
+
+            $this->respondJsonWithCache($cacheKey, $actorId, self::HEADER_CACHE_TTL_SECONDS, function () use ($actor, $overrideWeekStart): array {
                 $startOfToday = $this->pacificStartOfToday();
-                $startOfWeek = $this->startOfWeek($this->pacificNow());
+                $startOfWeek = $overrideWeekStart ?? $this->startOfWeek($this->pacificNow());
 
                 $matchUser = ['role' => 'user'];
                 $actorRole = (string) ($actor['role'] ?? '');
@@ -1047,13 +1067,17 @@ final class AdminCoreController
                     }
                 }
 
+                $endOfWeek = $startOfWeek->modify('+7 days');
                 $txQueryToday = [
                     'status' => 'completed',
                     'createdAt' => ['$gte' => SqlRepository::utcFromMillis($startOfToday->getTimestamp() * 1000)],
                 ];
                 $txQueryWeek = [
                     'status' => 'completed',
-                    'createdAt' => ['$gte' => SqlRepository::utcFromMillis($startOfWeek->getTimestamp() * 1000)],
+                    'createdAt' => [
+                        '$gte' => SqlRepository::utcFromMillis($startOfWeek->getTimestamp() * 1000),
+                        '$lt'  => SqlRepository::utcFromMillis($endOfWeek->getTimestamp() * 1000),
+                    ],
                 ];
 
                 $txProjection = ['projection' => ['userId' => 1, 'amount' => 1, 'type' => 1, 'entrySide' => 1, 'reason' => 1, 'description' => 1, 'balanceBefore' => 1, 'balanceAfter' => 1, 'approvedByRole' => 1, 'adminId' => 1, 'referenceType' => 1]];
