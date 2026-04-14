@@ -6792,4 +6792,211 @@ button.downline-flat-row:active {
   font-weight: 700;
 }
 
+/* ── Agent Cuts table (admin dashboard, multi-period) ── */
+.agent-cuts-panel {
+  width: 100%;
+  margin-top: 8px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px 12px 12px;
+}
+
+.agent-cuts-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.agent-cuts-tab {
+  flex: 1;
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: #94a3b8;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.agent-cuts-tab:hover {
+  color: #475569;
+}
+
+.agent-cuts-tab.is-active {
+  color: #1e40af;
+  border-bottom-color: #1e40af;
+}
+
+.agent-cuts-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.agent-cuts-week-select {
+  padding: 6px 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  font-size: 13px;
+  background: #fff;
+  color: #1e293b;
+  cursor: pointer;
+  min-width: 180px;
+}
+
+.agent-cuts-quarter-buttons {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.agent-cuts-quarter-btn {
+  padding: 6px 14px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  color: #475569;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.agent-cuts-quarter-btn:hover {
+  background: #f1f5f9;
+}
+
+.agent-cuts-quarter-btn.is-active {
+  background: #1e40af;
+  border-color: #1e40af;
+  color: #fff;
+}
+
+.agent-cuts-quarter-year {
+  font-size: 12px;
+  color: #94a3b8;
+  margin-left: 6px;
+}
+
+.agent-cuts-lifetime-hint {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.agent-cuts-hide-zero {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  font-size: 12px;
+  color: #475569;
+  cursor: pointer;
+}
+
+.agent-cuts-period-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+}
+
+.agent-cuts-error {
+  color: #b91c1c;
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+
+.agent-cuts-empty {
+  padding: 16px;
+  text-align: center;
+  color: #94a3b8;
+  font-size: 13px;
+}
+
+.agent-cuts-header {
+  display: flex;
+  align-items: center;
+  padding: 6px 12px;
+  background: #f8fafc;
+  border-top: 1px solid #e2e8f0;
+  border-bottom: 1px solid #e2e8f0;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #94a3b8;
+}
+
+button.agent-cuts-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 7px 12px;
+  background: none;
+  border: none;
+  border-bottom: 1px solid #f1f5f9;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background-color 0.15s;
+}
+
+button.agent-cuts-row:hover {
+  background: #f8fafc;
+}
+
+.agent-cuts-total {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  border-top: 2px solid #e2e8f0;
+  font-weight: 800;
+}
+
+.acut-name {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1e293b;
+  text-align: left;
+}
+
+.acut-cut {
+  flex: 0 0 55px;
+  text-align: right;
+  font-size: 13px;
+  font-weight: 600;
+  color: #475569;
+}
+
+.acut-period,
+.acut-lifetime {
+  flex: 0 0 100px;
+  text-align: right;
+  font-size: 13px;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.acut-period.positive,
+.acut-lifetime.positive {
+  color: #15803d;
+}
+
+.acut-period.negative,
+.acut-lifetime.negative {
+  color: #b91c1c;
+}
+
 /* ─── End Downline Flat Agent List ────────────────────────────────────────── */

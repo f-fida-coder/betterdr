@@ -1565,6 +1565,27 @@ export const getDownlineSummary = async (token) => {
     }
 };
 
+export const getAgentCuts = async (token, params = {}) => {
+    try {
+        const qs = new URLSearchParams();
+        if (params.periodType) qs.set('periodType', params.periodType);
+        if (params.weekStart) qs.set('weekStart', params.weekStart);
+        if (params.quarter) qs.set('quarter', String(params.quarter));
+        if (params.year) qs.set('year', String(params.year));
+        const url = buildApiUrl('/admin/agent-cuts') + (qs.toString() ? `?${qs.toString()}` : '');
+        const response = await fetch(url, {
+            method: 'GET',
+            headers: getHeaders(token)
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.message || 'Failed to fetch agent cuts');
+        return data;
+    } catch (error) {
+        console.error('getAgentCuts error:', error);
+        throw error;
+    }
+};
+
 export const getUserStatistics = async (userId, token) => {
     try {
         const response = await fetch(buildApiUrl(`/admin/users/${userId}/stats`), {

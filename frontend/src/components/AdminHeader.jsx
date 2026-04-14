@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { getAdminHeaderSummary, getAgents, getDownlineSummary, getMe, getMyPlayers, getUsersAdmin, linkedAgentName } from '../api';
 import AgentTreeView from './admin-views/AgentTreeView';
+import AgentCutsTable from './AgentCutsTable';
 import { annotateDuplicatePlayers } from '../utils/duplicatePlayers';
 
 const createDefaultHeaderSummary = () => ({
@@ -987,8 +988,8 @@ function AdminHeader({
             )}
           </div>
 
-          {/* ── Agents flat list (admin + MA) ── */}
-          {(roleKey === 'admin' || roleKey === 'master_agent' || roleKey === 'super_agent') && downlineAgents.length > 0 && (() => {
+          {/* ── Agents flat list (MA/super_agent only — admin gets the tabbed AgentCutsTable below) ── */}
+          {(roleKey === 'master_agent' || roleKey === 'super_agent') && downlineAgents.length > 0 && (() => {
             const sorted = [...downlineAgents].sort((a, b) => {
               const pa = Number(a.profit ?? 0);
               const pb = Number(b.profit ?? 0);
@@ -1034,6 +1035,17 @@ function AdminHeader({
               </div>
             );
           })()}
+
+          {/* ── Admin-only tabbed agent cuts table (Weekly / Quarterly / Lifetime) ── */}
+          {roleKey === 'admin' && (
+            <AgentCutsTable
+              onSelectAgent={(agentId) => {
+                if (onSwitchContext) {
+                  onSwitchContext(agentId);
+                }
+              }}
+            />
+          )}
 
         </div>
       )}
