@@ -9100,7 +9100,7 @@ final class CasinoController
         try {
             $decoded = Jwt::decode($token, $this->jwtSecret);
         } catch (Throwable $e) {
-            Response::json(['message' => 'Not authorized, token failed: ' . $e->getMessage()], 401);
+            Response::json(['message' => 'Not authorized'], 401);
             return null;
         }
 
@@ -9176,7 +9176,7 @@ final class CasinoController
         try {
             $decoded = Jwt::decode($token, $jwtSecret);
         } catch (Throwable $e) {
-            Response::json(['message' => 'Not authorized, token failed: ' . $e->getMessage()], 401);
+            Response::json(['message' => 'Not authorized'], 401);
             return null;
         }
 
