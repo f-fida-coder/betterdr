@@ -1460,7 +1460,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin' 
   const openTransactionSlip = () => {
     openSection('transactions');
     const balance = toMoneyNumber(customer?.balance, 0);
-    setNewTxType(balance > 0 ? 'withdrawal' : 'deposit');
+    setNewTxType(isAgent ? 'deposit' : (balance > 0 ? 'withdrawal' : 'deposit'));
     setNewTxAmount('');
     setNewTxDescription('');
     setNewTxApplyFreeplayBonus(true);

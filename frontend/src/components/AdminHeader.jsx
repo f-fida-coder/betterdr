@@ -970,11 +970,13 @@ function AdminHeader({
                       type="button"
                       className="stat-row stat-row-button stat-row-total"
                       onClick={() => {
-                        if (typeof onViewChange === 'function') {
-                          onViewChange('transaction-history', { enteredBy: displayName, collectionType: 'agent' });
+                        if (typeof onViewChange !== 'function') return;
+                        const selfId = profile?.id ? String(profile.id) : '';
+                        if (selfId) {
+                          onViewChange('user-details', selfId);
                         }
                       }}
-                      aria-label="View balance owed transaction history"
+                      aria-label="Open my agent profile"
                     >
                       <span className="stat-label">Balance Owed / House Money</span>
                       <span className={`stat-value ${getSignedValueClass(balanceOwedValue)}`}>{formatCurrency(balanceOwedValue)}</span>
