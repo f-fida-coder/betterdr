@@ -25,13 +25,11 @@ const toIsoDate = (d) => {
 };
 
 const buildLast12Weeks = () => {
-  // Week starts Tuesday. Find the most recent Tuesday (or today if Tuesday),
-  // then generate 12 weeks going back.
   const weeks = [];
   const now = new Date();
   const localStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const dow = localStart.getDay(); // 0=Sun,1=Mon,2=Tue,...
-  const daysSinceTuesday = (dow + 5) % 7; // 0 if Tue, 1 if Wed, ..., 6 if Mon
+  const dow = localStart.getDay();
+  const daysSinceTuesday = (dow + 5) % 7;
   const currentWeekStart = new Date(localStart);
   currentWeekStart.setDate(localStart.getDate() - daysSinceTuesday);
 
@@ -40,10 +38,15 @@ const buildLast12Weeks = () => {
     start.setDate(currentWeekStart.getDate() - i * 7);
     const end = new Date(start);
     end.setDate(start.getDate() + 6);
-    const label = `${MONTH_ABBR[start.getMonth()]} ${start.getDate()} - ${MONTH_ABBR[end.getMonth()]} ${end.getDate()}`;
+    const dropdownLabel = `${MONTH_ABBR[start.getMonth()]} ${start.getDate()} - ${MONTH_ABBR[end.getMonth()]} ${end.getDate()}`;
+    // Short label used as the "Period" column header when a week is selected.
+    const shortLabel = start.getMonth() === end.getMonth()
+      ? `${MONTH_ABBR[start.getMonth()]} ${start.getDate()}-${end.getDate()}`
+      : `${MONTH_ABBR[start.getMonth()]} ${start.getDate()}-${MONTH_ABBR[end.getMonth()]} ${end.getDate()}`;
     weeks.push({
       iso: toIsoDate(start),
-      label,
+      label: dropdownLabel,
+      shortLabel,
       start,
       end,
     });
@@ -62,9 +65,23 @@ function AgentCutsTable({ onSelectAgent, onWeekChange }) {
   const currentWeekIso = weeks[0]?.iso || '';
   const [selectedWeekIso, setSelectedWeekIso] = useState(currentWeekIso);
 
-  // Notify parent when the effective "week" view changes so the header
-  // stat block can refetch. On non-week tabs we revert to current-week
-  // stats because the dropdown isn't meaningful there.
+  const currentYear = useMemo(() => new Date().getFullYear(), []);
+  // 'q1' | 'q2' | 'q3' | 'q4' | 'year' — null until user opens the quarterly tab
+  const [quarterlyChoice, setQuarterlyChoice] = useState(`q${getCurrentQuarter()}`);
+
+  const [hideZero, setHideZero] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [data, setData] = useState({
+    period: { type: 'week', label: '' },
+    ytdLabel: String(currentYear),
+    agents: [],
+    totals: { periodAmount: 0, lifetimeAmount: 0 },
+  });
+
+  // Notify parent (AdminHeader) when the effective "week" view changes so the
+  // top stat block can refetch. For non-week tabs revert to current-week stats
+  // because the dropdown isn't meaningful up there.
   useEffect(() => {
     if (typeof onWeekChange !== 'function') return;
     if (tab === 'week') {
@@ -74,29 +91,27 @@ function AgentCutsTable({ onSelectAgent, onWeekChange }) {
       onWeekChange(currentWeekIso, true);
     }
   }, [tab, selectedWeekIso, currentWeekIso, onWeekChange]);
-  const currentYear = useMemo(() => new Date().getFullYear(), []);
-  const [selectedQuarter, setSelectedQuarter] = useState(getCurrentQuarter());
-  const [hideZero, setHideZero] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [data, setData] = useState({
-    period: { type: 'week', label: '' },
-    agents: [],
-    totals: { periodAmount: 0, lifetimeAmount: 0 },
-  });
 
   useEffect(() => {
     let cancelled = false;
     const token = localStorage.getItem('token');
     if (!token) return undefined;
 
-    const params = { periodType: tab };
+    const params = {};
     if (tab === 'week') {
       if (!selectedWeekIso) return undefined;
+      params.periodType = 'week';
       params.weekStart = selectedWeekIso;
     } else if (tab === 'quarter') {
-      params.quarter = selectedQuarter;
-      params.year = currentYear;
+      if (quarterlyChoice === 'year') {
+        params.periodType = 'yearly';
+        params.year = currentYear;
+      } else {
+        const q = Number(String(quarterlyChoice).replace(/^q/, '')) || getCurrentQuarter();
+        params.periodType = 'quarter';
+        params.quarter = q;
+        params.year = currentYear;
+      }
     }
 
     setLoading(true);
@@ -104,7 +119,12 @@ function AgentCutsTable({ onSelectAgent, onWeekChange }) {
     getAgentCuts(token, params)
       .then((result) => {
         if (cancelled) return;
-        setData(result || { period: { type: tab, label: '' }, agents: [], totals: { periodAmount: 0, lifetimeAmount: 0 } });
+        setData(result || {
+          period: { type: tab, label: '' },
+          ytdLabel: String(currentYear),
+          agents: [],
+          totals: { periodAmount: 0, lifetimeAmount: 0 },
+        });
       })
       .catch((err) => {
         if (cancelled) return;
@@ -117,7 +137,7 @@ function AgentCutsTable({ onSelectAgent, onWeekChange }) {
     return () => {
       cancelled = true;
     };
-  }, [tab, selectedWeekIso, selectedQuarter, currentYear]);
+  }, [tab, selectedWeekIso, quarterlyChoice, currentYear]);
 
   const visibleAgents = useMemo(() => {
     const all = Array.isArray(data?.agents) ? data.agents : [];
@@ -127,6 +147,22 @@ function AgentCutsTable({ onSelectAgent, onWeekChange }) {
 
   const periodTotal = Number(data?.totals?.periodAmount ?? 0);
   const lifetimeTotal = Number(data?.totals?.lifetimeAmount ?? 0);
+
+  // Dynamic column headers: "Period" label reflects the current selection,
+  // second column shows the year for the YTD totals.
+  const periodColumnHeader = useMemo(() => {
+    if (tab === 'week') {
+      const w = weeks.find((x) => x.iso === selectedWeekIso);
+      return w?.shortLabel || 'Period';
+    }
+    if (tab === 'quarter') {
+      if (quarterlyChoice === 'year') return String(currentYear);
+      return String(quarterlyChoice).toUpperCase();
+    }
+    return 'Period';
+  }, [tab, selectedWeekIso, quarterlyChoice, weeks, currentYear]);
+
+  const ytdColumnHeader = String(data?.ytdLabel ?? currentYear);
 
   return (
     <div className="agent-cuts-panel">
@@ -145,13 +181,6 @@ function AgentCutsTable({ onSelectAgent, onWeekChange }) {
         >
           Quarterly
         </button>
-        <button
-          type="button"
-          className={`agent-cuts-tab ${tab === 'lifetime' ? 'is-active' : ''}`}
-          onClick={() => setTab('lifetime')}
-        >
-          Lifetime
-        </button>
       </div>
 
       <div className="agent-cuts-controls">
@@ -168,21 +197,24 @@ function AgentCutsTable({ onSelectAgent, onWeekChange }) {
         )}
         {tab === 'quarter' && (
           <div className="agent-cuts-quarter-buttons">
-            {[1, 2, 3, 4].map((q) => (
+            {['q1', 'q2', 'q3', 'q4'].map((q) => (
               <button
                 key={q}
                 type="button"
-                className={`agent-cuts-quarter-btn ${selectedQuarter === q ? 'is-active' : ''}`}
-                onClick={() => setSelectedQuarter(q)}
+                className={`agent-cuts-quarter-btn ${quarterlyChoice === q ? 'is-active' : ''}`}
+                onClick={() => setQuarterlyChoice(q)}
               >
-                Q{q}
+                {q.toUpperCase()}
               </button>
             ))}
-            <span className="agent-cuts-quarter-year">{currentYear}</span>
+            <button
+              type="button"
+              className={`agent-cuts-quarter-btn ${quarterlyChoice === 'year' ? 'is-active' : ''}`}
+              onClick={() => setQuarterlyChoice('year')}
+            >
+              {currentYear}
+            </button>
           </div>
-        )}
-        {tab === 'lifetime' && (
-          <span className="agent-cuts-lifetime-hint">All-time totals</span>
         )}
         <label className="agent-cuts-hide-zero">
           <input
@@ -194,18 +226,14 @@ function AgentCutsTable({ onSelectAgent, onWeekChange }) {
         </label>
       </div>
 
-      {data?.period?.label && (
-        <div className="agent-cuts-period-label">{data.period.label}</div>
-      )}
-
       {error && <div className="agent-cuts-error">{error}</div>}
 
       <div className="agent-cuts-table">
         <div className="agent-cuts-header">
           <span className="acut-name">Agent</span>
           <span className="acut-cut">Cut%</span>
-          <span className="acut-period">Period</span>
-          <span className="acut-lifetime">Lifetime</span>
+          <span className="acut-period">{periodColumnHeader}</span>
+          <span className="acut-lifetime">{ytdColumnHeader}</span>
         </div>
         {loading && <div className="agent-cuts-empty">Loading…</div>}
         {!loading && visibleAgents.length === 0 && (

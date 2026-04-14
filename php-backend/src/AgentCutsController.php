@@ -40,7 +40,7 @@ final class AgentCutsController
             }
 
             $periodType = strtolower(trim((string) ($_GET['periodType'] ?? 'week')));
-            if (!in_array($periodType, ['week', 'quarter', 'lifetime'], true)) {
+            if (!in_array($periodType, ['week', 'quarter', 'yearly', 'lifetime'], true)) {
                 $periodType = 'week';
             }
 
@@ -49,6 +49,13 @@ final class AgentCutsController
             $periodStart = null;
             $periodEnd = null;
             $periodLabel = '';
+
+            // The second column ("2026") shows year-to-date for the actor's
+            // current calendar year. Computed here so the same bounds are
+            // reused across all period-tab selections.
+            $ytdStart = new DateTimeImmutable($now->format('Y') . '-01-01 00:00:00', $tz);
+            $ytdEnd   = $ytdStart->modify('+1 year');
+            $ytdLabel = $now->format('Y');
 
             if ($periodType === 'week') {
                 $weekStartRaw = trim((string) ($_GET['weekStart'] ?? ''));
@@ -70,9 +77,20 @@ final class AgentCutsController
                 $startMonth = (($quarter - 1) * 3) + 1;
                 $periodStart = new DateTimeImmutable(sprintf('%04d-%02d-01 00:00:00', $year, $startMonth), $tz);
                 $periodEnd = $periodStart->modify('+3 months');
-                $periodLabel = 'Q' . $quarter . ' ' . $year;
+                $periodLabel = 'Q' . $quarter;
+            } elseif ($periodType === 'yearly') {
+                $year = (int) ($_GET['year'] ?? (int) $now->format('Y'));
+                if ($year < 2000 || $year > 2100) {
+                    $year = (int) $now->format('Y');
+                }
+                $periodStart = new DateTimeImmutable(sprintf('%04d-01-01 00:00:00', $year), $tz);
+                $periodEnd = $periodStart->modify('+1 year');
+                $periodLabel = (string) $year;
             } else {
-                $periodLabel = 'Lifetime';
+                // 'lifetime' kept for backwards compat — same as yearly for current year
+                $periodStart = $ytdStart;
+                $periodEnd   = $ytdEnd;
+                $periodLabel = $ytdLabel;
             }
 
             // 1. Walk the full downline tree (admin = all top-level agents + descendants)
@@ -169,8 +187,10 @@ final class AgentCutsController
                         'projection' => ['userId' => 1, 'type' => 1, 'amount' => 1, 'createdAt' => 1, 'referenceType' => 1],
                     ]);
 
-                    $periodStartMs = $periodStart ? $periodStart->getTimestamp() * 1000 : null;
-                    $periodEndMs   = $periodEnd   ? $periodEnd->getTimestamp() * 1000   : null;
+                    $periodStartMs = $periodStart->getTimestamp() * 1000;
+                    $periodEndMs   = $periodEnd->getTimestamp() * 1000;
+                    $ytdStartMs    = $ytdStart->getTimestamp() * 1000;
+                    $ytdEndMs      = $ytdEnd->getTimestamp() * 1000;
 
                     foreach ($allTx as $tx) {
                         $refType = trim((string) ($tx['referenceType'] ?? ''));
@@ -182,22 +202,23 @@ final class AgentCutsController
                         $uAgentId = $userIdToAgentId[$txUserId] ?? '';
                         if ($uAgentId === '') continue;
 
+                        $txMs = $this->extractTxMillis($tx['createdAt'] ?? null);
+                        if ($txMs === null) continue;
+
                         $txType = strtolower(trim((string) ($tx['type'] ?? '')));
                         $amt = abs((float) ($tx['amount'] ?? 0));
                         if ($txType === 'withdrawal') {
                             $amt *= -1;
                         }
 
-                        $lifetimeNetByAgent[$uAgentId] = ($lifetimeNetByAgent[$uAgentId] ?? 0.0) + $amt;
+                        // Year-to-date bucket (the "2026" column)
+                        if ($txMs >= $ytdStartMs && $txMs < $ytdEndMs) {
+                            $lifetimeNetByAgent[$uAgentId] = ($lifetimeNetByAgent[$uAgentId] ?? 0.0) + $amt;
+                        }
 
-                        if ($periodStartMs !== null) {
-                            $txMs = $this->extractTxMillis($tx['createdAt'] ?? null);
-                            if ($txMs === null) continue;
-                            if ($txMs >= $periodStartMs && ($periodEndMs === null || $txMs < $periodEndMs)) {
-                                $periodNetByAgent[$uAgentId] = ($periodNetByAgent[$uAgentId] ?? 0.0) + $amt;
-                            }
-                        } else {
-                            $periodNetByAgent[$uAgentId] = $lifetimeNetByAgent[$uAgentId];
+                        // Period bucket (weekly / quarterly / yearly selection)
+                        if ($txMs >= $periodStartMs && $txMs < $periodEndMs) {
+                            $periodNetByAgent[$uAgentId] = ($periodNetByAgent[$uAgentId] ?? 0.0) + $amt;
                         }
                     }
                 }
@@ -242,6 +263,7 @@ final class AgentCutsController
                     'start' => $periodStart ? $periodStart->format(DATE_ATOM) : null,
                     'end'   => $periodEnd ? $periodEnd->format(DATE_ATOM) : null,
                 ],
+                'ytdLabel' => $ytdLabel,
                 'agents' => $flatAgents,
                 'totals' => [
                     'periodAmount'   => round($totalPeriodAmount, 2),
