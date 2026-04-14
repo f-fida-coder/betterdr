@@ -80,6 +80,15 @@ final class AdminCoreController
             $this->getHeaderSummary();
             return true;
         }
+        if ($method === 'GET' && $path === '/api/admin/agent-cuts') {
+            // Fallback handler — primary lives in AgentCutsController.php.
+            // Duplicated here because production opcache may still be serving
+            // stale bytecode for AgentController / index.php and not yet see
+            // the new controller. AdminCoreController is edited frequently,
+            // so its bytecode is more likely fresh.
+            $this->getAdminAgentCuts();
+            return true;
+        }
         if ($method === 'GET' && preg_match('#^/api/admin/next-username/([^/]+)$#', $path, $m) === 1) {
             $this->getNextUsername(rawurldecode($m[1]));
             return true;
@@ -1814,6 +1823,242 @@ final class AdminCoreController
     {
         $ids = $this->listDirectAssignableAgentIds($masterAgentId);
         return $ids[0] ?? null;
+    }
+
+    /**
+     * Admin-only endpoint: aggregate each downline agent's 5% house cut from
+     * real transactions for a selectable period (week / quarter / lifetime).
+     *
+     * This is a fallback copy of the implementation in AgentCutsController.
+     * Both files register the route so that at least one is guaranteed to
+     * handle it even when production opcache is slow to pick up new files.
+     */
+    private function getAdminAgentCuts(): void
+    {
+        try {
+            $actor = $this->protect(['admin']);
+            if ($actor === null) {
+                return;
+            }
+
+            $periodType = strtolower(trim((string) ($_GET['periodType'] ?? 'week')));
+            if (!in_array($periodType, ['week', 'quarter', 'lifetime'], true)) {
+                $periodType = 'week';
+            }
+
+            $tz = new \DateTimeZone('America/Los_Angeles');
+            $now = new DateTimeImmutable('now', $tz);
+            $periodStart = null;
+            $periodEnd = null;
+            $periodLabel = '';
+
+            if ($periodType === 'week') {
+                $weekStartRaw = trim((string) ($_GET['weekStart'] ?? ''));
+                if ($weekStartRaw !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $weekStartRaw) === 1) {
+                    $periodStart = new DateTimeImmutable($weekStartRaw . ' 00:00:00', $tz);
+                } else {
+                    $weekday = (int) $now->format('N');
+                    $daysFromTuesday = ($weekday + 5) % 7;
+                    $periodStart = $now->setTime(0, 0, 0)->modify('-' . $daysFromTuesday . ' days');
+                }
+                $periodEnd = $periodStart->modify('+7 days');
+                $periodLabel = $periodStart->format('M j') . ' - ' . $periodStart->modify('+6 days')->format('M j');
+            } elseif ($periodType === 'quarter') {
+                $quarter = (int) ($_GET['quarter'] ?? (int) ceil(((int) $now->format('n')) / 3));
+                if ($quarter < 1 || $quarter > 4) {
+                    $quarter = (int) ceil(((int) $now->format('n')) / 3);
+                }
+                $year = (int) ($_GET['year'] ?? (int) $now->format('Y'));
+                $startMonth = (($quarter - 1) * 3) + 1;
+                $periodStart = new DateTimeImmutable(sprintf('%04d-%02d-01 00:00:00', $year, $startMonth), $tz);
+                $periodEnd = $periodStart->modify('+3 months');
+                $periodLabel = 'Q' . $quarter . ' ' . $year;
+            } else {
+                $periodLabel = 'Lifetime';
+            }
+
+            // 1. Walk full downline (admin = all top-level + descendants)
+            $allAgents = [];
+            $queue = [];
+            $topLevel = $this->db->findMany('agents', ['createdByModel' => 'Admin'], ['sort' => ['createdAt' => -1]]);
+            foreach ($topLevel as $a) {
+                $aid = (string) ($a['id'] ?? '');
+                if ($aid !== '') {
+                    $allAgents[$aid] = $a;
+                    $queue[] = $aid;
+                }
+            }
+            while (count($queue) > 0) {
+                $currentId = array_shift($queue);
+                $role = strtolower(trim((string) ($allAgents[$currentId]['role'] ?? '')));
+                if ($role !== 'master_agent' && $role !== 'super_agent') {
+                    continue;
+                }
+                $children = $this->db->findMany('agents', [
+                    'createdBy' => SqlRepository::id($currentId),
+                    'createdByModel' => 'Agent',
+                ], ['sort' => ['createdAt' => -1]]);
+                foreach ($children as $child) {
+                    $childId = (string) ($child['id'] ?? '');
+                    if ($childId !== '' && !isset($allAgents[$childId])) {
+                        $allAgents[$childId] = $child;
+                        $queue[] = $childId;
+                    }
+                }
+            }
+
+            if (count($allAgents) === 0) {
+                Response::json([
+                    'period' => ['type' => $periodType, 'label' => $periodLabel],
+                    'agents' => [],
+                    'totals' => ['periodAmount' => 0.0, 'lifetimeAmount' => 0.0],
+                ]);
+                return;
+            }
+
+            // 2. userId → agentId map
+            $allAgentObjectIds = [];
+            foreach (array_keys($allAgents) as $aid) {
+                if (preg_match('/^[a-f0-9]{24}$/i', $aid) === 1) {
+                    $allAgentObjectIds[] = SqlRepository::id($aid);
+                }
+            }
+            $userIdToAgentId = [];
+            if (count($allAgentObjectIds) > 0) {
+                $allUsers = $this->db->findMany('users', [
+                    'role' => 'user',
+                    '$or' => [
+                        ['agentId' => ['$in' => $allAgentObjectIds]],
+                        ['createdBy' => ['$in' => $allAgentObjectIds], 'createdByModel' => 'Agent'],
+                    ],
+                ], ['projection' => ['id' => 1, 'agentId' => 1, 'createdBy' => 1, 'createdByModel' => 1]]);
+                $allAgentIdSet = array_flip(array_keys($allAgents));
+                foreach ($allUsers as $u) {
+                    $uid = (string) ($u['id'] ?? '');
+                    if ($uid === '') continue;
+                    $uAgentId = (string) ($u['agentId'] ?? '');
+                    if ($uAgentId === '' || !isset($allAgentIdSet[$uAgentId])) {
+                        $uAgentId = (string) ($u['createdBy'] ?? '');
+                    }
+                    if ($uAgentId !== '' && isset($allAgentIdSet[$uAgentId])) {
+                        $userIdToAgentId[$uid] = $uAgentId;
+                    }
+                }
+            }
+
+            // 3. Single pass over deposit/withdrawal transactions for scoped users
+            $periodNetByAgent = [];
+            $lifetimeNetByAgent = [];
+            if (count($userIdToAgentId) > 0) {
+                $userObjectIds = [];
+                foreach (array_keys($userIdToAgentId) as $uid) {
+                    if (preg_match('/^[a-f0-9]{24}$/i', $uid) === 1) {
+                        $userObjectIds[] = SqlRepository::id($uid);
+                    }
+                }
+                if (count($userObjectIds) > 0) {
+                    $allTx = $this->db->findMany('transactions', [
+                        'status' => 'completed',
+                        'userId' => ['$in' => $userObjectIds],
+                        'type'   => ['$in' => ['deposit', 'withdrawal']],
+                    ], [
+                        'projection' => ['userId' => 1, 'type' => 1, 'amount' => 1, 'createdAt' => 1, 'referenceType' => 1],
+                    ]);
+                    $periodStartMs = $periodStart ? $periodStart->getTimestamp() * 1000 : null;
+                    $periodEndMs   = $periodEnd   ? $periodEnd->getTimestamp() * 1000   : null;
+                    foreach ($allTx as $tx) {
+                        $refType = trim((string) ($tx['referenceType'] ?? ''));
+                        if ($refType === 'AgentFunding') continue;
+                        $txUserId = (string) ($tx['userId'] ?? '');
+                        if ($txUserId === '') continue;
+                        $uAgentId = $userIdToAgentId[$txUserId] ?? '';
+                        if ($uAgentId === '') continue;
+                        $txType = strtolower(trim((string) ($tx['type'] ?? '')));
+                        $amt = abs((float) ($tx['amount'] ?? 0));
+                        if ($txType === 'withdrawal') $amt *= -1;
+                        $lifetimeNetByAgent[$uAgentId] = ($lifetimeNetByAgent[$uAgentId] ?? 0.0) + $amt;
+                        if ($periodStartMs !== null) {
+                            $txMs = $this->extractAgentCutsTxMillis($tx['createdAt'] ?? null);
+                            if ($txMs === null) continue;
+                            if ($txMs >= $periodStartMs && ($periodEndMs === null || $txMs < $periodEndMs)) {
+                                $periodNetByAgent[$uAgentId] = ($periodNetByAgent[$uAgentId] ?? 0.0) + $amt;
+                            }
+                        } else {
+                            $periodNetByAgent[$uAgentId] = $lifetimeNetByAgent[$uAgentId];
+                        }
+                    }
+                }
+            }
+
+            // 4. Build flat list (only role=agent)
+            $HOUSE_CUT_PCT = 5.0;
+            $flatAgents = [];
+            $totalPeriodAmount = 0.0;
+            $totalLifetimeAmount = 0.0;
+            foreach ($allAgents as $aid => $a) {
+                $role = strtolower(trim((string) ($a['role'] ?? '')));
+                if ($role !== 'agent') continue;
+                $periodNet = round($periodNetByAgent[$aid] ?? 0.0, 2);
+                $lifetimeNet = round($lifetimeNetByAgent[$aid] ?? 0.0, 2);
+                $periodAmount = round($HOUSE_CUT_PCT / 100 * $periodNet, 2);
+                $lifetimeAmount = round($HOUSE_CUT_PCT / 100 * $lifetimeNet, 2);
+                $totalPeriodAmount += $periodAmount;
+                $totalLifetimeAmount += $lifetimeAmount;
+                $flatAgents[] = [
+                    'id'             => $aid,
+                    'username'       => $a['username'] ?? null,
+                    'myCut'          => $HOUSE_CUT_PCT,
+                    'periodNet'      => $periodNet,
+                    'lifetimeNet'    => $lifetimeNet,
+                    'periodAmount'   => $periodAmount,
+                    'lifetimeAmount' => $lifetimeAmount,
+                ];
+            }
+            usort($flatAgents, function ($a, $b) {
+                $cmp = ($b['lifetimeAmount'] ?? 0) <=> ($a['lifetimeAmount'] ?? 0);
+                if ($cmp !== 0) return $cmp;
+                return strcasecmp((string) ($a['username'] ?? ''), (string) ($b['username'] ?? ''));
+            });
+
+            Response::json([
+                'period' => [
+                    'type'  => $periodType,
+                    'label' => $periodLabel,
+                    'start' => $periodStart ? $periodStart->format(DATE_ATOM) : null,
+                    'end'   => $periodEnd ? $periodEnd->format(DATE_ATOM) : null,
+                ],
+                'agents' => $flatAgents,
+                'totals' => [
+                    'periodAmount'   => round($totalPeriodAmount, 2),
+                    'lifetimeAmount' => round($totalLifetimeAmount, 2),
+                ],
+            ]);
+        } catch (Throwable $e) {
+            error_log('[ADMIN_AGENT_CUTS_ERROR] ' . $e->getMessage());
+            Response::json(['message' => 'Server error fetching agent cuts'], 500);
+        }
+    }
+
+    private function extractAgentCutsTxMillis($raw): ?int
+    {
+        if ($raw === null) return null;
+        if (is_numeric($raw)) {
+            $n = (float) $raw;
+            return $n > 1_000_000_000_000 ? (int) $n : (int) ($n * 1000);
+        }
+        if (is_array($raw)) {
+            if (isset($raw['$date'])) return $this->extractAgentCutsTxMillis($raw['$date']);
+            if (isset($raw['date']))  return $this->extractAgentCutsTxMillis($raw['date']);
+            return null;
+        }
+        if (is_string($raw) && $raw !== '') {
+            try {
+                return (new DateTimeImmutable($raw))->getTimestamp() * 1000;
+            } catch (Throwable $e) {
+                return null;
+            }
+        }
+        return null;
     }
 
     private function getAgentTree(): void
