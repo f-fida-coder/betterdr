@@ -814,7 +814,7 @@ function AdminHeader({
                   })}
                   aria-label={`Open weekly figures for ${displayName} active players this week`}
                 >
-                  <span className="stat-label">Active Accts</span>
+                  <span className="stat-label">Active Players</span>
                   <span className="stat-value highlight">{formatCount(summary.activeAccounts)}</span>
                 </button>
                 <div className="stat-row">
@@ -837,7 +837,7 @@ function AdminHeader({
                   })}
                   aria-label={`Open weekly figures for ${displayName} active players this week`}
                 >
-                  <span className="stat-label">Active Accts</span>
+                  <span className="stat-label">Active Players</span>
                   <span className="stat-value highlight">{formatCount(summary.activeAccounts)}</span>
                 </button>
                 <div className="stat-row">
