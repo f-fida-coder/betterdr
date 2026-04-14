@@ -146,10 +146,16 @@ function AgentCutsTable({ onSelectAgent, onWeekChange }) {
   }, [data, hideZero]);
 
   const periodTotal = Number(data?.totals?.periodAmount ?? 0);
-  const lifetimeTotal = Number(data?.totals?.lifetimeAmount ?? 0);
+  // Weekly tab shows ALL-TIME in the second column; Quarterly tab shows
+  // year-to-date for the current calendar year.
+  const useYtdForSecondColumn = tab === 'quarter';
+  const secondColumnTotal = useYtdForSecondColumn
+    ? Number(data?.totals?.ytdAmount ?? 0)
+    : Number(data?.totals?.lifetimeAmount ?? 0);
 
   // Dynamic column headers: "Period" label reflects the current selection,
-  // second column shows the year for the YTD totals.
+  // second column is "LIFETIME" when on Weekly, or the YTD year when on
+  // Quarterly.
   const periodColumnHeader = useMemo(() => {
     if (tab === 'week') {
       const w = weeks.find((x) => x.iso === selectedWeekIso);
@@ -162,7 +168,9 @@ function AgentCutsTable({ onSelectAgent, onWeekChange }) {
     return 'Period';
   }, [tab, selectedWeekIso, quarterlyChoice, weeks, currentYear]);
 
-  const ytdColumnHeader = String(data?.ytdLabel ?? currentYear);
+  const secondColumnHeader = useYtdForSecondColumn
+    ? String(data?.ytdLabel ?? currentYear)
+    : 'Lifetime';
 
   return (
     <div className="agent-cuts-panel">
@@ -233,7 +241,7 @@ function AgentCutsTable({ onSelectAgent, onWeekChange }) {
           <span className="acut-name">Agent</span>
           <span className="acut-cut">Cut%</span>
           <span className="acut-period">{periodColumnHeader}</span>
-          <span className="acut-lifetime">{ytdColumnHeader}</span>
+          <span className="acut-lifetime">{secondColumnHeader}</span>
         </div>
         {loading && <div className="agent-cuts-empty">Loading…</div>}
         {!loading && visibleAgents.length === 0 && (
@@ -241,7 +249,9 @@ function AgentCutsTable({ onSelectAgent, onWeekChange }) {
         )}
         {!loading && visibleAgents.map((agent) => {
           const period = Number(agent?.periodAmount ?? 0);
-          const lifetime = Number(agent?.lifetimeAmount ?? 0);
+          const second = Number(useYtdForSecondColumn
+            ? (agent?.ytdAmount ?? 0)
+            : (agent?.lifetimeAmount ?? 0));
           return (
             <button
               key={agent.id}
@@ -256,7 +266,7 @@ function AgentCutsTable({ onSelectAgent, onWeekChange }) {
               <span className="acut-name">{agent.username}</span>
               <span className="acut-cut">{agent.myCut != null ? `${agent.myCut}%` : '—'}</span>
               <span className={`acut-period ${toneClass(period)}`}>{formatCurrency(period)}</span>
-              <span className={`acut-lifetime ${toneClass(lifetime)}`}>{formatCurrency(lifetime)}</span>
+              <span className={`acut-lifetime ${toneClass(second)}`}>{formatCurrency(second)}</span>
             </button>
           );
         })}
@@ -265,7 +275,7 @@ function AgentCutsTable({ onSelectAgent, onWeekChange }) {
             <span className="acut-name">PROFIT</span>
             <span className="acut-cut" />
             <span className={`acut-period ${toneClass(periodTotal)}`}>{formatCurrency(periodTotal)}</span>
-            <span className={`acut-lifetime ${toneClass(lifetimeTotal)}`}>{formatCurrency(lifetimeTotal)}</span>
+            <span className={`acut-lifetime ${toneClass(secondColumnTotal)}`}>{formatCurrency(secondColumnTotal)}</span>
           </div>
         )}
       </div>

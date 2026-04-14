@@ -1986,7 +1986,8 @@ final class AdminCoreController
 
             // 3. Single pass over deposit/withdrawal transactions for scoped users
             $periodNetByAgent = [];
-            $lifetimeNetByAgent = [];
+            $ytdNetByAgent = [];
+            $lifetimeNetByAgent = []; // all-time
             if (count($userIdToAgentId) > 0) {
                 $userObjectIds = [];
                 foreach (array_keys($userIdToAgentId) as $uid) {
@@ -2018,8 +2019,11 @@ final class AdminCoreController
                         $txType = strtolower(trim((string) ($tx['type'] ?? '')));
                         $amt = abs((float) ($tx['amount'] ?? 0));
                         if ($txType === 'withdrawal') $amt *= -1;
+                        // All-time bucket (Weekly tab's "Lifetime" column)
+                        $lifetimeNetByAgent[$uAgentId] = ($lifetimeNetByAgent[$uAgentId] ?? 0.0) + $amt;
+                        // YTD bucket (Quarterly tab's "2026" column)
                         if ($txMs >= $ytdStartMs && $txMs < $ytdEndMs) {
-                            $lifetimeNetByAgent[$uAgentId] = ($lifetimeNetByAgent[$uAgentId] ?? 0.0) + $amt;
+                            $ytdNetByAgent[$uAgentId] = ($ytdNetByAgent[$uAgentId] ?? 0.0) + $amt;
                         }
                         if ($txMs >= $periodStartMs && $txMs < $periodEndMs) {
                             $periodNetByAgent[$uAgentId] = ($periodNetByAgent[$uAgentId] ?? 0.0) + $amt;
@@ -2032,23 +2036,29 @@ final class AdminCoreController
             $HOUSE_CUT_PCT = 5.0;
             $flatAgents = [];
             $totalPeriodAmount = 0.0;
+            $totalYtdAmount = 0.0;
             $totalLifetimeAmount = 0.0;
             foreach ($allAgents as $aid => $a) {
                 $role = strtolower(trim((string) ($a['role'] ?? '')));
                 if ($role !== 'agent') continue;
                 $periodNet = round($periodNetByAgent[$aid] ?? 0.0, 2);
+                $ytdNet = round($ytdNetByAgent[$aid] ?? 0.0, 2);
                 $lifetimeNet = round($lifetimeNetByAgent[$aid] ?? 0.0, 2);
                 $periodAmount = round($HOUSE_CUT_PCT / 100 * $periodNet, 2);
+                $ytdAmount = round($HOUSE_CUT_PCT / 100 * $ytdNet, 2);
                 $lifetimeAmount = round($HOUSE_CUT_PCT / 100 * $lifetimeNet, 2);
                 $totalPeriodAmount += $periodAmount;
+                $totalYtdAmount += $ytdAmount;
                 $totalLifetimeAmount += $lifetimeAmount;
                 $flatAgents[] = [
                     'id'             => $aid,
                     'username'       => $a['username'] ?? null,
                     'myCut'          => $HOUSE_CUT_PCT,
                     'periodNet'      => $periodNet,
+                    'ytdNet'         => $ytdNet,
                     'lifetimeNet'    => $lifetimeNet,
                     'periodAmount'   => $periodAmount,
+                    'ytdAmount'      => $ytdAmount,
                     'lifetimeAmount' => $lifetimeAmount,
                 ];
             }
@@ -2069,6 +2079,7 @@ final class AdminCoreController
                 'agents' => $flatAgents,
                 'totals' => [
                     'periodAmount'   => round($totalPeriodAmount, 2),
+                    'ytdAmount'      => round($totalYtdAmount, 2),
                     'lifetimeAmount' => round($totalLifetimeAmount, 2),
                 ],
             ]);
