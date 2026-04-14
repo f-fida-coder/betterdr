@@ -1004,8 +1004,8 @@ function AdminHeader({
             )}
           </div>
 
-          {/* ── Agents flat list (MA/super_agent only — admin gets the tabbed AgentCutsTable below) ── */}
-          {(roleKey === 'master_agent' || roleKey === 'super_agent') && downlineAgents.length > 0 && (() => {
+          {/* ── Legacy agents flat list disabled — admin / MA / SA all get the tabbed AgentCutsTable below ── */}
+          {false && (roleKey === 'master_agent' || roleKey === 'super_agent') && downlineAgents.length > 0 && (() => {
             const sorted = [...downlineAgents].sort((a, b) => {
               const pa = Number(a.profit ?? 0);
               const pb = Number(b.profit ?? 0);
@@ -1052,8 +1052,8 @@ function AdminHeader({
             );
           })()}
 
-          {/* ── Admin-only tabbed agent cuts table (Weekly / Quarterly / Lifetime) ── */}
-          {roleKey === 'admin' && (
+          {/* ── Tabbed agent cuts table (admin, master_agent, super_agent) ── */}
+          {(roleKey === 'admin' || roleKey === 'master_agent' || roleKey === 'super_agent') && (
             <AgentCutsTable
               onSelectAgent={(agentId) => {
                 if (onSwitchContext) {

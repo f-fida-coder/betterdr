@@ -1860,10 +1860,16 @@ final class AdminCoreController
     private function getAdminAgentCuts(): void
     {
         try {
-            $actor = $this->protect(['admin']);
+            $actor = $this->protect(['admin', 'master_agent', 'super_agent']);
             if ($actor === null) {
                 return;
             }
+            $actorRole = strtolower(trim((string) ($actor['role'] ?? '')));
+            $actorId = (string) ($actor['id'] ?? '');
+            $actorUsername = strtoupper(trim((string) ($actor['username'] ?? '')));
+            $actorPercent = ($actorRole === 'admin')
+                ? 100.0
+                : (isset($actor['agentPercent']) ? (float) $actor['agentPercent'] : null);
 
             $periodType = strtolower(trim((string) ($_GET['periodType'] ?? 'week')));
             if (!in_array($periodType, ['week', 'quarter', 'yearly', 'lifetime'], true)) {
@@ -1915,15 +1921,33 @@ final class AdminCoreController
                 $periodLabel = $ytdLabel;
             }
 
-            // 1. Walk full downline (admin = all top-level + descendants)
+            // 1. Walk downline. Admin starts from top-level; MA/SA from their
+            //    direct children.
             $allAgents = [];
+            $parentMap = [];
             $queue = [];
-            $topLevel = $this->db->findMany('agents', ['createdByModel' => 'Admin'], ['sort' => ['createdAt' => -1]]);
-            foreach ($topLevel as $a) {
-                $aid = (string) ($a['id'] ?? '');
-                if ($aid !== '') {
-                    $allAgents[$aid] = $a;
-                    $queue[] = $aid;
+            if ($actorRole === 'admin') {
+                $topLevel = $this->db->findMany('agents', ['createdByModel' => 'Admin'], ['sort' => ['createdAt' => -1]]);
+                foreach ($topLevel as $a) {
+                    $aid = (string) ($a['id'] ?? '');
+                    if ($aid !== '') {
+                        $allAgents[$aid] = $a;
+                        $parentMap[$aid] = null;
+                        $queue[] = $aid;
+                    }
+                }
+            } else {
+                $directChildren = $this->db->findMany('agents', [
+                    'createdBy' => SqlRepository::id($actorId),
+                    'createdByModel' => 'Agent',
+                ], ['sort' => ['createdAt' => -1]]);
+                foreach ($directChildren as $a) {
+                    $aid = (string) ($a['id'] ?? '');
+                    if ($aid !== '') {
+                        $allAgents[$aid] = $a;
+                        $parentMap[$aid] = $actorId;
+                        $queue[] = $aid;
+                    }
                 }
             }
             while (count($queue) > 0) {
@@ -1940,8 +1964,33 @@ final class AdminCoreController
                     $childId = (string) ($child['id'] ?? '');
                     if ($childId !== '' && !isset($allAgents[$childId])) {
                         $allAgents[$childId] = $child;
+                        $parentMap[$childId] = $currentId;
                         $queue[] = $childId;
                     }
+                }
+            }
+
+            // 1b. Direct-child-of-actor percent map for cascading cut calc
+            $directChildPctMap = [];
+            foreach ($allAgents as $aid => $a) {
+                $parent = $parentMap[$aid] ?? null;
+                if ($actorRole === 'admin' && $parent === null) {
+                    $directChildPctMap[$aid] = isset($a['agentPercent']) ? (float) $a['agentPercent'] : null;
+                } elseif ($actorRole !== 'admin' && $parent === $actorId) {
+                    $directChildPctMap[$aid] = isset($a['agentPercent']) ? (float) $a['agentPercent'] : null;
+                }
+            }
+            $agentToBranchPct = [];
+            foreach (array_keys($allAgents) as $aid) {
+                $current = $aid;
+                $visited = [];
+                while ($current !== null && !isset($visited[$current])) {
+                    $visited[$current] = true;
+                    if (isset($directChildPctMap[$current])) {
+                        $agentToBranchPct[$aid] = $directChildPctMap[$current];
+                        break;
+                    }
+                    $current = $parentMap[$current] ?? null;
                 }
             }
 
@@ -2041,19 +2090,36 @@ final class AdminCoreController
             foreach ($allAgents as $aid => $a) {
                 $role = strtolower(trim((string) ($a['role'] ?? '')));
                 if ($role !== 'agent') continue;
+
+                $aUsername = strtoupper(trim((string) ($a['username'] ?? '')));
+                $agentOwnPct = isset($a['agentPercent']) ? (float) $a['agentPercent'] : null;
+                $maUsername = $aUsername . 'MA';
+                $isFrontLine = $actorRole !== 'admin' && $actorUsername !== '' && $maUsername === $actorUsername;
+                if ($actorRole === 'admin') {
+                    $cutPct = $HOUSE_CUT_PCT;
+                } elseif ($isFrontLine) {
+                    $cutPct = $agentOwnPct;
+                } else {
+                    $branchPct = $agentToBranchPct[$aid] ?? null;
+                    $cutPct = ($actorPercent !== null && $branchPct !== null)
+                        ? round($actorPercent - $branchPct, 2)
+                        : $agentOwnPct;
+                }
+                if ($cutPct === null) $cutPct = 0.0;
+
                 $periodNet = round($periodNetByAgent[$aid] ?? 0.0, 2);
                 $ytdNet = round($ytdNetByAgent[$aid] ?? 0.0, 2);
                 $lifetimeNet = round($lifetimeNetByAgent[$aid] ?? 0.0, 2);
-                $periodAmount = round($HOUSE_CUT_PCT / 100 * $periodNet, 2);
-                $ytdAmount = round($HOUSE_CUT_PCT / 100 * $ytdNet, 2);
-                $lifetimeAmount = round($HOUSE_CUT_PCT / 100 * $lifetimeNet, 2);
+                $periodAmount = round($cutPct / 100 * $periodNet, 2);
+                $ytdAmount = round($cutPct / 100 * $ytdNet, 2);
+                $lifetimeAmount = round($cutPct / 100 * $lifetimeNet, 2);
                 $totalPeriodAmount += $periodAmount;
                 $totalYtdAmount += $ytdAmount;
                 $totalLifetimeAmount += $lifetimeAmount;
                 $flatAgents[] = [
                     'id'             => $aid,
                     'username'       => $a['username'] ?? null,
-                    'myCut'          => $HOUSE_CUT_PCT,
+                    'myCut'          => $cutPct,
                     'periodNet'      => $periodNet,
                     'ytdNet'         => $ytdNet,
                     'lifetimeNet'    => $lifetimeNet,

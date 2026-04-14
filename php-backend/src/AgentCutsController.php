@@ -34,10 +34,16 @@ final class AgentCutsController
     private function getAgentCuts(): void
     {
         try {
-            $actor = $this->protectAdmin();
+            $actor = $this->protectAdminOrMaster();
             if ($actor === null) {
                 return;
             }
+            $actorRole = strtolower(trim((string) ($actor['role'] ?? '')));
+            $actorId = (string) ($actor['id'] ?? '');
+            $actorUsername = strtoupper(trim((string) ($actor['username'] ?? '')));
+            $actorPercent = ($actorRole === 'admin')
+                ? 100.0
+                : (isset($actor['agentPercent']) ? (float) $actor['agentPercent'] : null);
 
             $periodType = strtolower(trim((string) ($_GET['periodType'] ?? 'week')));
             if (!in_array($periodType, ['week', 'quarter', 'yearly', 'lifetime'], true)) {
@@ -93,22 +99,41 @@ final class AgentCutsController
                 $periodLabel = $ytdLabel;
             }
 
-            // 1. Walk the full downline tree (admin = all top-level agents + descendants)
+            // 1. Walk the downline tree. For admin we start from all top-level
+            //    agents (createdByModel = Admin); for master/super agent we
+            //    start from their direct children (createdBy = actorId).
             $allAgents = [];
-            $parentMap = [];
+            $parentMap = []; // childId => parentId (null = top-level for this actor)
             $queue = [];
 
-            $topLevel = $this->db->findMany('agents', [
-                'createdByModel' => 'Admin',
-            ], ['sort' => ['createdAt' => -1]]);
-            foreach ($topLevel as $a) {
-                $aid = (string) ($a['id'] ?? '');
-                if ($aid !== '') {
-                    $allAgents[$aid] = $a;
-                    $parentMap[$aid] = null;
-                    $queue[] = $aid;
+            if ($actorRole === 'admin') {
+                $topLevel = $this->db->findMany('agents', [
+                    'createdByModel' => 'Admin',
+                ], ['sort' => ['createdAt' => -1]]);
+                foreach ($topLevel as $a) {
+                    $aid = (string) ($a['id'] ?? '');
+                    if ($aid !== '') {
+                        $allAgents[$aid] = $a;
+                        $parentMap[$aid] = null;
+                        $queue[] = $aid;
+                    }
+                }
+            } else {
+                // master_agent / super_agent — only their direct downline
+                $directChildren = $this->db->findMany('agents', [
+                    'createdBy' => SqlRepository::id($actorId),
+                    'createdByModel' => 'Agent',
+                ], ['sort' => ['createdAt' => -1]]);
+                foreach ($directChildren as $a) {
+                    $aid = (string) ($a['id'] ?? '');
+                    if ($aid !== '') {
+                        $allAgents[$aid] = $a;
+                        $parentMap[$aid] = $actorId;
+                        $queue[] = $aid;
+                    }
                 }
             }
+
             while (count($queue) > 0) {
                 $currentId = array_shift($queue);
                 $role = strtolower(trim((string) ($allAgents[$currentId]['role'] ?? '')));
@@ -126,6 +151,32 @@ final class AgentCutsController
                         $parentMap[$childId] = $currentId;
                         $queue[] = $childId;
                     }
+                }
+            }
+
+            // 1b. Compute which direct-child-of-actor each descendant sits under
+            //     and that direct child's agentPercent — used to calculate the
+            //     cascading cut per downline agent.
+            $directChildPctMap = [];
+            foreach ($allAgents as $aid => $a) {
+                $parent = $parentMap[$aid] ?? null;
+                if ($actorRole === 'admin' && $parent === null) {
+                    $directChildPctMap[$aid] = isset($a['agentPercent']) ? (float) $a['agentPercent'] : null;
+                } elseif ($actorRole !== 'admin' && $parent === $actorId) {
+                    $directChildPctMap[$aid] = isset($a['agentPercent']) ? (float) $a['agentPercent'] : null;
+                }
+            }
+            $agentToBranchPct = [];
+            foreach (array_keys($allAgents) as $aid) {
+                $current = $aid;
+                $visited = [];
+                while ($current !== null && !isset($visited[$current])) {
+                    $visited[$current] = true;
+                    if (isset($directChildPctMap[$current])) {
+                        $agentToBranchPct[$aid] = $directChildPctMap[$current];
+                        break;
+                    }
+                    $current = $parentMap[$current] ?? null;
                 }
             }
 
@@ -228,7 +279,12 @@ final class AgentCutsController
                 }
             }
 
-            // 4. Build the flat list (only role=agent)
+            // 4. Build the flat list (only role=agent). Cut% depends on the
+            //    actor's role and position relative to this downline agent:
+            //      - admin: fixed 5% (house cut)
+            //      - front-line master (same person as agent's MA): full
+            //        contract percent
+            //      - master_agent: actorPercent - directChildBranchPercent
             $flatAgents = [];
             $totalPeriodAmount = 0.0;
             $totalYtdAmount = 0.0;
@@ -237,12 +293,29 @@ final class AgentCutsController
                 $role = strtolower(trim((string) ($a['role'] ?? '')));
                 if ($role !== 'agent') continue;
 
+                $aUsername = strtoupper(trim((string) ($a['username'] ?? '')));
+                $agentOwnPct = isset($a['agentPercent']) ? (float) $a['agentPercent'] : null;
+                $maUsername = $aUsername . 'MA';
+                $isFrontLine = $actorRole !== 'admin' && $actorUsername !== '' && $maUsername === $actorUsername;
+
+                if ($actorRole === 'admin') {
+                    $cutPct = self::HOUSE_CUT_PCT;
+                } elseif ($isFrontLine) {
+                    $cutPct = $agentOwnPct;
+                } else {
+                    $branchPct = $agentToBranchPct[$aid] ?? null;
+                    $cutPct = ($actorPercent !== null && $branchPct !== null)
+                        ? round($actorPercent - $branchPct, 2)
+                        : $agentOwnPct;
+                }
+                if ($cutPct === null) $cutPct = 0.0;
+
                 $periodNet = round($periodNetByAgent[$aid] ?? 0.0, 2);
                 $ytdNet = round($ytdNetByAgent[$aid] ?? 0.0, 2);
                 $lifetimeNet = round($lifetimeNetByAgent[$aid] ?? 0.0, 2);
-                $periodAmount = round(self::HOUSE_CUT_PCT / 100 * $periodNet, 2);
-                $ytdAmount = round(self::HOUSE_CUT_PCT / 100 * $ytdNet, 2);
-                $lifetimeAmount = round(self::HOUSE_CUT_PCT / 100 * $lifetimeNet, 2);
+                $periodAmount = round($cutPct / 100 * $periodNet, 2);
+                $ytdAmount = round($cutPct / 100 * $ytdNet, 2);
+                $lifetimeAmount = round($cutPct / 100 * $lifetimeNet, 2);
                 $totalPeriodAmount += $periodAmount;
                 $totalYtdAmount += $ytdAmount;
                 $totalLifetimeAmount += $lifetimeAmount;
@@ -250,7 +323,7 @@ final class AgentCutsController
                 $flatAgents[] = [
                     'id'             => $aid,
                     'username'       => $a['username'] ?? null,
-                    'myCut'          => self::HOUSE_CUT_PCT,
+                    'myCut'          => $cutPct,
                     'periodNet'      => $periodNet,
                     'ytdNet'         => $ytdNet,
                     'lifetimeNet'    => $lifetimeNet,
@@ -287,7 +360,7 @@ final class AgentCutsController
         }
     }
 
-    private function protectAdmin(): ?array
+    private function protectAdminOrMaster(): ?array
     {
         $auth = Http::header('authorization');
         if (!str_starts_with($auth, 'Bearer ')) {
@@ -302,7 +375,7 @@ final class AgentCutsController
             return null;
         }
         $role = (string) ($decoded['role'] ?? 'user');
-        if ($role !== 'admin') {
+        if (!in_array($role, ['admin', 'master_agent', 'super_agent'], true)) {
             Response::json(['message' => 'User role ' . $role . ' is not authorized to access this route'], 403);
             return null;
         }
@@ -311,7 +384,8 @@ final class AgentCutsController
             Response::json(['message' => 'Not authorized, token failed: invalid user id'], 401);
             return null;
         }
-        $actor = $this->db->findOne('admins', ['id' => SqlRepository::id($id)]);
+        $collection = $role === 'admin' ? 'admins' : 'agents';
+        $actor = $this->db->findOne($collection, ['id' => SqlRepository::id($id)]);
         if ($actor === null) {
             Response::json(['message' => 'Not authorized, user not found'], 403);
             return null;
@@ -319,6 +393,10 @@ final class AgentCutsController
         if (($actor['status'] ?? '') === 'suspended') {
             Response::json(['message' => 'Not authorized, account suspended'], 403);
             return null;
+        }
+        // Ensure role from DB is respected in downstream logic
+        if (!isset($actor['role']) || $actor['role'] === '') {
+            $actor['role'] = $role;
         }
         return $actor;
     }
