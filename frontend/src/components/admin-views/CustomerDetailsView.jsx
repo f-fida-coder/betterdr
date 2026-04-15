@@ -143,6 +143,61 @@ const TRANSACTION_TYPE_OPTIONS = [
   }
 ];
 
+// Agent-side transactions invert direction relative to players. An agent's
+// displayed figure represents what they owe the house, so any positive action
+// (deposit, credit, promo credit) REDUCES that figure, and any negative action
+// (withdrawal, debit, promo debit) INCREASES it.
+const AGENT_TRANSACTION_TYPE_OPTIONS = [
+  {
+    value: 'deposit',
+    label: 'Deposits',
+    balanceDirection: 'debit',
+    apiType: 'deposit',
+    reason: 'AGENT_DEPOSIT',
+    defaultDescription: 'Deposits'
+  },
+  {
+    value: 'withdrawal',
+    label: 'Withdrawals',
+    balanceDirection: 'credit',
+    apiType: 'withdrawal',
+    reason: 'AGENT_WITHDRAWAL',
+    defaultDescription: 'Withdrawals'
+  },
+  {
+    value: 'credit_adj',
+    label: 'Credit Adj',
+    balanceDirection: 'debit',
+    apiType: 'adjustment',
+    reason: 'AGENT_CREDIT_ADJUSTMENT',
+    defaultDescription: 'Credit Adj'
+  },
+  {
+    value: 'debit_adj',
+    label: 'Debit Adj',
+    balanceDirection: 'credit',
+    apiType: 'adjustment',
+    reason: 'AGENT_DEBIT_ADJUSTMENT',
+    defaultDescription: 'Debit Adj'
+  },
+  {
+    value: 'promotional_credit',
+    label: 'Promotional Credit',
+    balanceDirection: 'credit',
+    apiType: 'adjustment',
+    reason: 'AGENT_PROMOTIONAL_CREDIT',
+    defaultDescription: 'Promotional Credit'
+  },
+  {
+    value: 'promotional_debit',
+    label: 'Promotional Debit',
+    balanceDirection: 'debit',
+    apiType: 'adjustment',
+    reason: 'AGENT_PROMOTIONAL_DEBIT',
+    defaultDescription: 'Promotional Debit'
+  }
+];
+
 const TRANSACTION_FILTER_OPTIONS = [
   { value: 'deposit_withdrawal', label: 'Deposits/Withdrawals' },
   { value: 'credit_debit_adjustments', label: 'Credit/Debit Adjustments' },
@@ -1538,8 +1593,9 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
     return '#000000';
   };
 
-  const selectedTxDraftType = TRANSACTION_TYPE_OPTIONS.find((option) => option.value === newTxType)
-    || TRANSACTION_TYPE_OPTIONS[0];
+  const txTypeOptions = isAgent ? AGENT_TRANSACTION_TYPE_OPTIONS : TRANSACTION_TYPE_OPTIONS;
+  const selectedTxDraftType = txTypeOptions.find((option) => option.value === newTxType)
+    || txTypeOptions[0];
   const txDraftAmount = Number(newTxAmount || 0);
   const txDraftHasAmount = Number.isFinite(txDraftAmount) && txDraftAmount > 0;
   const txDraftCanContinue = txDraftHasAmount;
@@ -1900,8 +1956,9 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
         setTxError('Please login again.');
         return;
       }
-      const selectedTxType = TRANSACTION_TYPE_OPTIONS.find((option) => option.value === newTxType)
-        || TRANSACTION_TYPE_OPTIONS[0];
+      const activeTxTypeOptions = isAgent ? AGENT_TRANSACTION_TYPE_OPTIONS : TRANSACTION_TYPE_OPTIONS;
+      const selectedTxType = activeTxTypeOptions.find((option) => option.value === newTxType)
+        || activeTxTypeOptions[0];
       const currentBalance = toMoneyNumber(customer.balance, 0);
       const nextBalance = roundMoney(currentBalance + (selectedTxType.balanceDirection === 'credit' ? amount : -amount));
       const customDescription = newTxDescription.trim();
@@ -2154,7 +2211,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
             {isAgent ? (
               <button type="button" className={`detail-item detail-metric${activeSection === 'transactions' ? ' detail-metric-active' : ''}`} onClick={openTransactionSlip}>
                 <span className="detail-label">Balance</span>
-                <strong className={`detail-value ${getMoneyToneClass(-customerBalance)}`}>{formatCurrency(customerBalance)}</strong>
+                <strong className={`detail-value ${getMoneyToneClass(customerBalance)}`}>{formatCurrency(customerBalance)}</strong>
               </button>
             ) : null}
           </div>
@@ -3004,7 +3061,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
                     setTxError('');
                   }}
                 >
-                  {TRANSACTION_TYPE_OPTIONS.map((option) => (
+                  {txTypeOptions.map((option) => (
                     <option key={option.value} value={option.value}>{option.label}</option>
                   ))}
                 </select>
@@ -3097,7 +3154,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
                   <div className="tx-confirm-table">
                     <div className="tx-confirm-row"><span>Date</span><span>{today}</span></div>
                     <div className="tx-confirm-row"><span>Previous Balance</span><span style={{ color: getSignedBalanceColor(prevBal) }}>{formatCurrency(prevBal)}</span></div>
-                    <div className="tx-confirm-row"><span>{selectedTxType.label} :</span><span style={{ color: isDebit ? '#dc2626' : '#1f2937' }}>{isDebit ? '-' : ''}{formatCurrency(amount)}</span></div>
+                    <div className="tx-confirm-row"><span>{selectedTxType.label} :</span><span style={{ color: getSignedBalanceColor(newBal) }}>{isDebit ? '-' : ''}{formatCurrency(amount)}</span></div>
                     {selectedTxType.value === 'deposit' && !isAgent && (
                       <div className="tx-confirm-row">
                         <span>Freeplay Bonus</span>
