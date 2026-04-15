@@ -7697,8 +7697,12 @@ final class AdminCoreController
                 $duplicateWarningPayload = $this->buildDuplicatePlayerResponse($firstNameRaw, $lastNameRaw, $fullNameRaw, $phoneNumber, $emailRaw, $duplicateMatches);
             }
 
-            if ($this->existsUsernameOrPhone($username, $phoneNumber)) {
-                Response::json(['message' => 'Username or phone number already exists in the system'], 409);
+            if ($this->existsUsername($username)) {
+                Response::json(['message' => 'Username already exists in the system'], 409);
+                return;
+            }
+            if (!$allowDuplicateSave && $this->existsPhone($phoneNumber)) {
+                Response::json(['message' => 'Phone number already exists in the system'], 409);
                 return;
             }
 
@@ -11803,6 +11807,33 @@ final class AdminCoreController
             $or[] = ['username' => ['$regex' => '^' . preg_quote($normalizedUsername, '/') . '$', '$options' => 'i']];
         }
         $query = ['$or' => $or];
+        return $this->db->findOne('users', $query) !== null
+            || $this->db->findOne('admins', $query) !== null
+            || $this->db->findOne('agents', $query) !== null;
+    }
+
+    private function existsUsername(string $username): bool
+    {
+        $normalizedUsername = trim($username);
+        if ($normalizedUsername === '') {
+            return false;
+        }
+        $query = ['$or' => [
+            ['username' => strtoupper($normalizedUsername)],
+            ['username' => strtolower($normalizedUsername)],
+            ['username' => ['$regex' => '^' . preg_quote($normalizedUsername, '/') . '$', '$options' => 'i']],
+        ]];
+        return $this->db->findOne('users', $query) !== null
+            || $this->db->findOne('admins', $query) !== null
+            || $this->db->findOne('agents', $query) !== null;
+    }
+
+    private function existsPhone(string $phoneNumber): bool
+    {
+        if ($phoneNumber === '') {
+            return false;
+        }
+        $query = ['phoneNumber' => $phoneNumber];
         return $this->db->findOne('users', $query) !== null
             || $this->db->findOne('admins', $query) !== null
             || $this->db->findOne('agents', $query) !== null;

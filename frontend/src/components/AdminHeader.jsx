@@ -292,6 +292,10 @@ function AdminHeader({
     const query = normalizeSearchValue(rawQuery);
     if (!query) return true;
 
+    if (query === 'duplicate' || query === 'duplicates' || query === 'dup') {
+      return player?.isDuplicatePlayer === true;
+    }
+
     const userId = normalizeSearchValue(getPlayerId(player));
     const username = normalizeSearchValue(player?.username);
     const fullName = normalizeSearchValue(getPlayerFullName(player));
@@ -340,6 +344,12 @@ function AdminHeader({
       if (cancelled) return;
 
       if (query === '') {
+        setSearchablePlayers(allPlayers);
+        return;
+      }
+
+      const duplicateKeyword = query.toLowerCase();
+      if (duplicateKeyword === 'duplicate' || duplicateKeyword === 'duplicates' || duplicateKeyword === 'dup') {
         setSearchablePlayers(allPlayers);
         return;
       }

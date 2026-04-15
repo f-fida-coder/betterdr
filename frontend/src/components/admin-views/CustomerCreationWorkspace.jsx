@@ -13,6 +13,7 @@ import {
   importUsersSpreadsheet
 } from '../../api';
 import { formatUsPhone, generateIdentityPassword, normalizeIdentityName } from '../../utils/identityPassword';
+import { annotateDuplicatePlayers } from '../../utils/duplicatePlayers';
 
 const derivePlayerPrefix = (value) => {
   const normalized = String(value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -1196,18 +1197,18 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
   // No auto-select: user must explicitly choose an agent from the tree/search.
 
   const referralOptions = (() => {
-    const playersOnly = customers.filter(isPlayerLikeCustomer);
+    const allPlayersAnnotated = annotateDuplicatePlayers(customers.filter(isPlayerLikeCustomer));
     if (creationType !== 'player' && creationType !== 'agent' && creationType !== 'super_agent') return [];
 
     if (currentRole === 'agent') {
-      return playersOnly;
+      return allPlayersAnnotated;
     }
 
     if (newCustomer.agentId) {
-      return playersOnly.filter((p) => String(p.agentId?.id || p.agentId || '') === String(newCustomer.agentId));
+      return allPlayersAnnotated.filter((p) => String(p.agentId?.id || p.agentId || '') === String(newCustomer.agentId));
     }
 
-    return playersOnly;
+    return allPlayersAnnotated;
   })();
 
   const referralSearchOptions = useMemo(() => (
@@ -1223,6 +1224,7 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
           label,
           labelLower: label.toLowerCase(),
           usernameLower: username.toLowerCase(),
+          isDuplicatePlayer: !!player.isDuplicatePlayer,
         };
       })
       .filter(Boolean)
@@ -1570,13 +1572,16 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
                             <button
                               key={option.id}
                               type="button"
-                              className={`agent-search-item ${String(newCustomer.referredByUserId || '') === String(option.id) ? 'selected' : ''}`}
+                              className={`agent-search-item ${String(newCustomer.referredByUserId || '') === String(option.id) ? 'selected' : ''} ${option.isDuplicatePlayer ? 'is-duplicate-player' : ''}`}
                               onMouseDown={(event) => {
                                 event.preventDefault();
                                 handleReferralSelect(option);
                               }}
                             >
                               <span>{option.label}</span>
+                              {option.isDuplicatePlayer && (
+                                <span className="duplicate-badge">Duplicate</span>
+                              )}
                             </button>
                           ))}
                           {filteredReferralOptions.length === 0 && (

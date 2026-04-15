@@ -13,6 +13,32 @@
   --accent-red: #ff3c3c;
 }
 
+.is-duplicate-player,
+.is-duplicate-player td,
+.is-duplicate-player > * {
+  background-color: #fff9c9 !important;
+  color: #1f2937 !important;
+}
+.is-duplicate-player:hover,
+.is-duplicate-player:hover td,
+.is-duplicate-player:hover > * {
+  background-color: #fff3aa !important;
+}
+.is-duplicate-player .duplicate-badge,
+.duplicate-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #7a5a00;
+  background: #ffe27a;
+  border: 1px solid #ecd48a;
+  border-radius: 4px;
+  letter-spacing: 0.3px;
+}
+
 html {
   width: 100%;
   max-width: 100%;
