@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  getAdminHeaderSummary,
   getUserStatistics,
   getAgents,
   getTransactionsHistory,
@@ -518,6 +519,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
   const [duplicateWarning, setDuplicateWarning] = useState(null);
   const [impersonating, setImpersonating] = useState(false);
   const [impersonateError, setImpersonateError] = useState('');
+  const [agentSettlementBalance, setAgentSettlementBalance] = useState(null);
 
   // Commission / hierarchy state (agents only)
   const [commissionChain, setCommissionChain] = useState(null);      // { upline, downlines, chainTotal, isValid }
@@ -562,6 +564,19 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
     { id: 'communication', label: 'Communication', icon: '📞' }
   ];
 
+  const loadAgentSettlementBalance = async (token, agentId) => {
+    const safeAgentId = String(agentId || '').trim();
+    if (!safeAgentId) return null;
+    try {
+      const summary = await getAdminHeaderSummary(token, { agentId: safeAgentId });
+      const balanceOwed = Number(summary?.balanceOwed);
+      return Number.isFinite(balanceOwed) ? balanceOwed : null;
+    } catch (err) {
+      console.warn('Failed to load live agent settlement balance:', err);
+      return null;
+    }
+  };
+
   useEffect(() => {
     const fetchDetails = async () => {
       try {
@@ -572,6 +587,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
         setTxError('');
         setDuplicateWarning(null);
         setCustomer(null);
+        setAgentSettlementBalance(null);
         setCommissionChain(null);
         setForm(DEFAULT_FORM);
         setActiveSection('basics');
@@ -600,16 +616,20 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
           return;
         }
 
+        // Pre-populate commission drafts for agent accounts
+        const userRole = String(user?.role || '').toLowerCase();
+        const userIsAgent = userRole === 'agent' || userRole === 'master_agent' || userRole === 'super_agent';
         const normalizedUser = normalizeCustomerFinancials(user);
+        const liveSettlementBalance = userIsAgent
+          ? await loadAgentSettlementBalance(token, user.id || userId)
+          : null;
 
         setCustomer(normalizedUser);
+        setAgentSettlementBalance(liveSettlementBalance);
         setStats(detailData?.stats || {});
         setReferredBy(detailData?.referredBy || null);
         setAgents(Array.isArray(agentsData) ? agentsData : []);
 
-        // Pre-populate commission drafts for agent accounts
-        const userRole = String(user?.role || '').toLowerCase();
-        const userIsAgent = userRole === 'agent' || userRole === 'master_agent' || userRole === 'super_agent';
         if (userIsAgent) {
           setAgentPercentDraft(user?.agentPercent != null ? String(user.agentPercent) : '');
           setPlayerRateDraft(user?.playerRate != null ? String(user.playerRate) : '');
@@ -1154,6 +1174,9 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
   const settleLimitValue = pickMoneyValue(form.settleLimit, customer?.balanceOwed);
   const minBetValue = toMoneyNumber(customer?.minBet ?? form.minBet, 0);
   const maxBetValue = toMoneyNumber(customer?.maxBet ?? customer?.wagerLimit ?? form.wagerLimit, 0);
+  const displayedAgentBalance = isAgent && agentSettlementBalance !== null
+    ? toMoneyNumber(agentSettlementBalance, 0)
+    : customerBalance;
 
   const available = useMemo(() => {
     return creditLimitValue + customerBalance - pendingBalance;
@@ -1169,10 +1192,10 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
     return {
       pending: pendingBalance,
       available: Number(available || 0),
-      carry: customerBalance,
+      carry: isAgent && agentSettlementBalance !== null ? displayedAgentBalance : customerBalance,
       nonPostedCasino
     };
-  }, [transactions, pendingBalance, customerBalance, available]);
+  }, [transactions, pendingBalance, customerBalance, available, isAgent, agentSettlementBalance, displayedAgentBalance]);
 
   const roundDisplayedMoney = (value) => {
     return Math.round(toMoneyNumber(value, 0));
@@ -1920,6 +1943,13 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
       const latestUser = detailData?.user;
       if (!latestUser || typeof latestUser !== 'object') return;
       const normalizedLatestUser = normalizeCustomerFinancials(latestUser);
+      const latestUserRole = String(latestUser?.role || '').toLowerCase();
+      const latestUserIsAgent = latestUserRole === 'agent'
+        || latestUserRole === 'master_agent'
+        || latestUserRole === 'super_agent';
+      const liveSettlementBalance = latestUserIsAgent
+        ? await loadAgentSettlementBalance(token, latestUser.id || userId)
+        : null;
       setCustomer((prev) => {
         if (!prev) return prev;
         return {
@@ -1934,6 +1964,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
           updatedAt: normalizedLatestUser.updatedAt,
         };
       });
+      setAgentSettlementBalance(liveSettlementBalance);
       if (detailData?.stats && typeof detailData.stats === 'object') {
         setStats(detailData.stats);
       }
@@ -2216,7 +2247,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
             {isAgent ? (
               <button type="button" className={`detail-item detail-metric${activeSection === 'transactions' ? ' detail-metric-active' : ''}`} onClick={openTransactionSlip}>
                 <span className="detail-label">Balance</span>
-                <strong className={`detail-value ${getMoneyToneClass(customerBalance)}`}>{formatCurrency(customerBalance)}</strong>
+                <strong className={`detail-value ${getMoneyToneClass(displayedAgentBalance)}`}>{formatCurrency(displayedAgentBalance)}</strong>
               </button>
             ) : null}
           </div>

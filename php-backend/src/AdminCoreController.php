@@ -993,12 +993,59 @@ final class AdminCoreController
     private function getHeaderSummary(): void
     {
         try {
-            $actor = $this->protect(['admin', 'agent', 'master_agent', 'super_agent']);
-            if ($actor === null) {
+            $requestActor = $this->protect(['admin', 'agent', 'master_agent', 'super_agent']);
+            if ($requestActor === null) {
                 return;
             }
-            $actorId = (string) ($actor['id'] ?? '');
-            $actorRole = (string) ($actor['role'] ?? '');
+            $requestActorId = (string) ($requestActor['id'] ?? '');
+            $requestActorRole = (string) ($requestActor['role'] ?? '');
+
+            $summaryActor = $requestActor;
+            $summaryActorId = $requestActorId;
+            $summaryActorRole = $requestActorRole;
+
+            $summaryAgentId = trim((string) ($_GET['agentId'] ?? ''));
+            if ($summaryAgentId !== '' && preg_match('/^[a-f0-9]{24}$/i', $summaryAgentId) === 1) {
+                $targetAgent = $this->db->findOne('agents', ['id' => SqlRepository::id($summaryAgentId)]);
+                if ($targetAgent === null) {
+                    Response::json(['message' => 'Agent not found'], 404);
+                    return;
+                }
+
+                $targetRole = strtolower(trim((string) ($targetAgent['role'] ?? '')));
+                if (!in_array($targetRole, ['agent', 'master_agent', 'super_agent'], true)) {
+                    Response::json(['message' => 'Header summary is only available for agent accounts'], 400);
+                    return;
+                }
+
+                $canAccessTarget = $requestActorRole === 'admin' || $summaryAgentId === $requestActorId;
+                if (!$canAccessTarget) {
+                    $scopedAgentIds = $this->getScopedAgentIdsForActor($requestActor);
+                    $canAccessTarget = is_array($scopedAgentIds) && in_array($summaryAgentId, $scopedAgentIds, true);
+                }
+                if (!$canAccessTarget) {
+                    $linkedCounterpartUsername = AgentSettlementRules::linkedCounterpartUsername(
+                        (string) ($requestActor['username'] ?? ''),
+                        $requestActorRole
+                    );
+                    $targetUsername = strtoupper(trim((string) ($targetAgent['username'] ?? '')));
+                    if (
+                        $linkedCounterpartUsername !== null
+                        && $targetUsername !== ''
+                        && $targetUsername === strtoupper($linkedCounterpartUsername)
+                    ) {
+                        $canAccessTarget = true;
+                    }
+                }
+                if (!$canAccessTarget) {
+                    Response::json(['message' => 'Not authorized to view this agent summary'], 403);
+                    return;
+                }
+
+                $summaryActor = $targetAgent;
+                $summaryActorId = $summaryAgentId;
+                $summaryActorRole = (string) ($summaryActor['role'] ?? '');
+            }
 
             // Optional weekStart override — admin house dashboard passes this
             // so the WEEK stat follows the agent-cuts dropdown. Format: YYYY-MM-DD
@@ -1006,13 +1053,17 @@ final class AdminCoreController
             // agent headers are unaffected.
             $overrideWeekStart = null;
             $weekStartRaw = trim((string) ($_GET['weekStart'] ?? ''));
-            if ($actorRole === 'admin' && $weekStartRaw !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $weekStartRaw) === 1) {
+            if ($requestActorRole === 'admin' && $weekStartRaw !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $weekStartRaw) === 1) {
                 try {
                     $overrideWeekStart = new DateTimeImmutable($weekStartRaw . ' 00:00:00', new \DateTimeZone('America/Los_Angeles'));
                 } catch (Throwable $e) {
                     $overrideWeekStart = null;
                 }
             }
+
+            $actor = $summaryActor;
+            $actorId = $summaryActorId;
+            $actorRole = $summaryActorRole;
 
             $cacheKey = 'header-summary-' . $actorRole;
             if ($overrideWeekStart !== null) {
@@ -1368,8 +1419,8 @@ final class AdminCoreController
         } catch (Throwable $e) {
             error_log(sprintf(
                 '[HEADER_SUMMARY_ERROR] actor=%s role=%s error=%s file=%s line=%d',
-                $actor['username'] ?? 'unknown',
-                $actor['role'] ?? 'unknown',
+                $summaryActor['username'] ?? ($requestActor['username'] ?? 'unknown'),
+                $summaryActor['role'] ?? ($requestActor['role'] ?? 'unknown'),
                 $e->getMessage(),
                 $e->getFile(),
                 $e->getLine()

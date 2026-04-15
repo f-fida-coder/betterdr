@@ -714,6 +714,7 @@ export const getBetModeRules = async (token) => {
 export const getAdminHeaderSummary = async (token, params = null) => {
     const queryParams = {};
     if (params && params.weekStart) queryParams.weekStart = params.weekStart;
+    if (params && params.agentId) queryParams.agentId = params.agentId;
     const response = await fetch(buildApiUrl('/admin/header-summary', queryParams), {
         headers: getHeaders(token)
     });
