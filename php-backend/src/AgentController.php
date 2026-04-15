@@ -111,6 +111,11 @@ final class AgentController
                 return;
             }
 
+            $allowDuplicateRaw = $body['allowDuplicateSave'] ?? ($body['allowDuplicate'] ?? false);
+            $allowDuplicateSave = is_bool($allowDuplicateRaw)
+                ? $allowDuplicateRaw
+                : filter_var((string) $allowDuplicateRaw, FILTER_VALIDATE_BOOLEAN);
+
             $duplicateMatches = $this->findLikelyDuplicatePlayers([
                 'firstName' => $firstName,
                 'lastName' => $lastName,
@@ -119,9 +124,15 @@ final class AgentController
                 'email' => $email,
                 'password' => $password,
             ]);
-            if (count($duplicateMatches) > 0) {
+            // Soft-block on the first create; caller can retry with
+            // allowDuplicateSave=true after the user clicks "Create Anyway".
+            if (count($duplicateMatches) > 0 && !$allowDuplicateSave) {
                 Response::json($this->buildDuplicatePlayerResponse($firstName, $lastName, $fullName, $phoneNumber, $email, $duplicateMatches), 409);
                 return;
+            }
+            $duplicateWarningPayload = null;
+            if (count($duplicateMatches) > 0) {
+                $duplicateWarningPayload = $this->buildDuplicatePlayerResponse($firstName, $lastName, $fullName, $phoneNumber, $email, $duplicateMatches);
             }
 
             $actorRole = (string) ($actor['role'] ?? '');
@@ -255,7 +266,7 @@ final class AgentController
                 throw $txErr;
             }
 
-            Response::json([
+            $response = [
                 'message' => 'User created successfully',
                 'user' => [
                     'id' => $id,
@@ -264,7 +275,11 @@ final class AgentController
                     'role' => 'user',
                     'agentId' => $assignedAgentId,
                 ],
-            ], 201);
+            ];
+            if ($duplicateWarningPayload !== null) {
+                $response['duplicateWarning'] = $duplicateWarningPayload;
+            }
+            Response::json($response, 201);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error creating user'], 500);
         }
