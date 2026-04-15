@@ -219,13 +219,16 @@ I need active players so if you could do me a solid and place a bet today even i
 const normalizeCustomerFinancials = (user) => {
   if (!user || typeof user !== 'object') return user;
 
+  // Agents store these as default* fields in the agents table; players store
+  // them under the same name in the users table. Fall back to the default*
+  // names so the same UI code can read either record type.
   return {
     ...user,
-    minBet: toMoneyNumber(user.minBet, 0),
-    maxBet: toMoneyNumber(user.maxBet ?? user.wagerLimit, 0),
-    wagerLimit: toMoneyNumber(user.wagerLimit ?? user.maxBet, 0),
-    creditLimit: toMoneyNumber(user.creditLimit, 0),
-    balanceOwed: toMoneyNumber(user.balanceOwed, 0),
+    minBet: toMoneyNumber(user.minBet ?? user.defaultMinBet, 0),
+    maxBet: toMoneyNumber(user.maxBet ?? user.wagerLimit ?? user.defaultMaxBet, 0),
+    wagerLimit: toMoneyNumber(user.wagerLimit ?? user.maxBet ?? user.defaultMaxBet, 0),
+    creditLimit: toMoneyNumber(user.creditLimit ?? user.defaultCreditLimit, 0),
+    balanceOwed: toMoneyNumber(user.balanceOwed ?? user.defaultSettleLimit, 0),
     balance: toMoneyNumber(user.balance, 0),
     pendingBalance: toMoneyNumber(user.pendingBalance, 0),
     freeplayBalance: toMoneyNumber(user.freeplayBalance, 0),
@@ -1332,12 +1335,17 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
 
       let result = null;
       if (isAgent) {
-        // For agents: update the agents collection with name + parent agent changes
+        // For agents: update the agents collection. The limit fields live as
+        // default* in the agents table, not minBet/maxBet/etc.
         const agentPayload = {
           firstName: normalizedFirstName,
           lastName: normalizedLastName,
           fullName: `${normalizedFirstName} ${normalizedLastName}`.trim(),
           phoneNumber: normalizedPhoneNumber,
+          defaultMinBet: Number(form.minBet || 0),
+          defaultMaxBet: Number(form.wagerLimit || 0),
+          defaultCreditLimit: Number(form.creditLimit || 0),
+          defaultSettleLimit: Number(form.settleLimit || 0),
         };
         // Only send parentAgentId when user explicitly selected a new parent.
         // Sending empty string for top-level MAs (no parent) triggers a backend
@@ -1460,7 +1468,13 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
   const openTransactionSlip = () => {
     openSection('transactions');
     const balance = toMoneyNumber(customer?.balance, 0);
-    setNewTxType(isAgent ? 'deposit' : (balance > 0 ? 'withdrawal' : 'deposit'));
+    // Player rule: positive balance → withdrawal default (player has money to take out).
+    // Agent rule (inverted): positive balance → deposit (settle what's owed),
+    //                       negative balance → withdrawal (collect what's owed back).
+    const defaultType = isAgent
+      ? (balance > 0 ? 'deposit' : 'withdrawal')
+      : (balance > 0 ? 'withdrawal' : 'deposit');
+    setNewTxType(defaultType);
     setNewTxAmount('');
     setNewTxDescription('');
     setNewTxApplyFreeplayBonus(true);
