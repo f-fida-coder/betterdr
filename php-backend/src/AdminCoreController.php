@@ -7194,8 +7194,21 @@ final class AdminCoreController
     private function updateAgent(string $id): void
     {
         try {
-            $actor = $this->protect(['admin']);
+            $actor = $this->protect(['admin', 'agent', 'master_agent', 'super_agent']);
             if ($actor === null) {
+                return;
+            }
+
+            $actorRole = strtolower(trim((string) ($actor['role'] ?? '')));
+            $actorId = (string) ($actor['id'] ?? '');
+            $isSelfEdit = ($actorRole !== 'admin') && ($actorId === $id);
+
+            // Non-admin callers may only edit their OWN agent record. Other
+            // agents (including their own downline) stay admin-gated so an
+            // agent can't tamper with siblings or a parent they shouldn't
+            // touch here.
+            if ($actorRole !== 'admin' && !$isSelfEdit) {
+                Response::json(['message' => 'Not authorized to edit this agent'], 403);
                 return;
             }
 
@@ -7206,6 +7219,17 @@ final class AdminCoreController
             }
 
             $body = Http::jsonBody();
+            // Self-edit from a non-admin is restricted to an allowlist of
+            // personal fields (identity + the default limit fields). Strip
+            // everything else before the update loop so the existing admin
+            // logic below never sees balance / percent / billing overrides.
+            if ($isSelfEdit) {
+                $allowedSelfFields = [
+                    'firstName', 'lastName', 'fullName', 'phoneNumber', 'password',
+                    'defaultMinBet', 'defaultMaxBet', 'defaultCreditLimit', 'defaultSettleLimit',
+                ];
+                $body = array_intersect_key($body, array_flip($allowedSelfFields));
+            }
             $updates = ['updatedAt' => SqlRepository::nowUtc()];
 
             if (isset($body['firstName']) && trim((string) $body['firstName']) !== '') {

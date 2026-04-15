@@ -404,16 +404,29 @@ function AdminHeader({
     }
   };
 
+  // Sort search results so usernames with the same prefix appear in
+  // numeric order (AVL100, AVL102, AVL103, AVL104, AVL105, AVL112)
+  // instead of insertion / DB order.
+  const compareUsernamesNumeric = (a, b) => {
+    const ua = String(a?.username || '').toUpperCase();
+    const ub = String(b?.username || '').toUpperCase();
+    return ua.localeCompare(ub, undefined, { numeric: true, sensitivity: 'base' });
+  };
+
   const filteredPlayers = useMemo(() => {
     const query = headerSearchQuery.trim();
     if (!query) return [];
-    return searchablePlayersWithDuplicateMeta.filter((player) => playerMatchesHeaderSearch(player, query));
+    return [...searchablePlayersWithDuplicateMeta]
+      .filter((player) => playerMatchesHeaderSearch(player, query))
+      .sort(compareUsernamesNumeric);
   }, [searchablePlayersWithDuplicateMeta, headerSearchQuery]);
 
   const filteredAgents = useMemo(() => {
     const query = headerSearchQuery.trim();
     if (!query) return [];
-    return allAgents.filter((agent) => agentMatchesHeaderSearch(agent, query));
+    return [...allAgents]
+      .filter((agent) => agentMatchesHeaderSearch(agent, query))
+      .sort(compareUsernamesNumeric);
   }, [allAgents, headerSearchQuery]);
 
   const hasSearchQuery = headerSearchQuery.trim() !== '';

@@ -602,10 +602,12 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
     run();
   }, [initialType]);
 
-  const handleCreateCustomer = async () => {
+  const handleCreateCustomer = async ({ overrideDuplicate = false } = {}) => {
     try {
       setCreateLoading(true);
-      setDuplicateWarning(null);
+      if (!overrideDuplicate) {
+        setDuplicateWarning(null);
+      }
       setError('');
       const token = localStorage.getItem('token') || sessionStorage.getItem('token');
       if (!token) {
@@ -641,6 +643,9 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
       }
 
       const payload = { ...newCustomer, apps: newApps };
+      if (overrideDuplicate) {
+        payload.allowDuplicateSave = true;
+      }
       if (payload.balance === '') delete payload.balance;
       if (creationType !== 'player') {
         delete payload.referredByUserId;
@@ -1336,6 +1341,24 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
                   ))}
                 </div>
               )}
+              <div className="duplicate-warning-actions">
+                <button
+                  type="button"
+                  className="duplicate-warning-cancel"
+                  onClick={() => { setDuplicateWarning(null); setError(''); }}
+                  disabled={createLoading}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="duplicate-warning-confirm"
+                  onClick={() => handleCreateCustomer({ overrideDuplicate: true })}
+                  disabled={createLoading}
+                >
+                  {createLoading ? 'Creating…' : 'Create Anyway'}
+                </button>
+              </div>
             </div>
           )}
           {importSummary && <div className="success-state">{importSummary}</div>}
@@ -2246,6 +2269,44 @@ function CustomerCreationWorkspace({ initialType = 'player' }) {
             }
             .duplicate-warning-item strong {
               color: #4f3200;
+            }
+            .duplicate-warning-actions {
+              display: flex;
+              gap: 8px;
+              justify-content: flex-end;
+              margin-top: 10px;
+            }
+            .duplicate-warning-cancel,
+            .duplicate-warning-confirm {
+              padding: 8px 16px;
+              border-radius: 6px;
+              font-size: 12px;
+              font-weight: 700;
+              text-transform: uppercase;
+              letter-spacing: 0.3px;
+              cursor: pointer;
+              transition: background 0.15s ease, transform 0.15s ease;
+            }
+            .duplicate-warning-cancel {
+              border: 1px solid #d1d5db;
+              background: #ffffff;
+              color: #475569;
+            }
+            .duplicate-warning-cancel:hover {
+              background: #f1f5f9;
+            }
+            .duplicate-warning-confirm {
+              border: 1px solid #b45309;
+              background: #d97706;
+              color: #ffffff;
+            }
+            .duplicate-warning-confirm:hover {
+              background: #b45309;
+            }
+            .duplicate-warning-confirm:disabled,
+            .duplicate-warning-cancel:disabled {
+              opacity: 0.6;
+              cursor: not-allowed;
             }
             .duplicate-warning-item span:last-child {
               color: #6f5400;
