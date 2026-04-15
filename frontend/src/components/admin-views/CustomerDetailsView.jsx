@@ -1177,6 +1177,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
   const displayedAgentBalance = isAgent && agentSettlementBalance !== null
     ? toMoneyNumber(agentSettlementBalance, 0)
     : customerBalance;
+  const agentSettlementLabel = 'Balance Owed / House Money';
 
   const available = useMemo(() => {
     return creditLimitValue + customerBalance - pendingBalance;
@@ -1191,7 +1192,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
     }
     return {
       pending: pendingBalance,
-      available: Number(available || 0),
+      available: isAgent ? customerBalance : Number(available || 0),
       carry: isAgent && agentSettlementBalance !== null ? displayedAgentBalance : customerBalance,
       nonPostedCasino
     };
@@ -1546,7 +1547,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
 
   const openTransactionSlip = () => {
     openSection('transactions');
-    const balance = toMoneyNumber(customer?.balance, 0);
+    const balance = isAgent ? displayedAgentBalance : toMoneyNumber(customer?.balance, 0);
     // Player rule: positive balance → withdrawal default (player has money to take out).
     // Agent rule (inverted): positive balance → deposit (settle what's owed),
     //                       negative balance → withdrawal (collect what's owed back).
@@ -1593,8 +1594,14 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
     return performanceDayBets.filter((row) => !row?.synthetic).length;
   }, [performanceDayBets]);
 
-  const txModalBalance = useMemo(() => toMoneyNumber(customer?.balance, 0), [customer?.balance]);
-  const txModalCarry = useMemo(() => toMoneyNumber(txSummary?.carry, 0), [txSummary?.carry]);
+  const txModalBalance = useMemo(
+    () => (isAgent ? displayedAgentBalance : toMoneyNumber(customer?.balance, 0)),
+    [isAgent, displayedAgentBalance, customer?.balance]
+  );
+  const txModalCarry = useMemo(
+    () => (isAgent ? toMoneyNumber(customer?.balance, 0) : toMoneyNumber(txSummary?.carry, 0)),
+    [isAgent, customer?.balance, txSummary?.carry]
+  );
 
   const freePlayPending = useMemo(() => {
     return freePlayRows
@@ -1612,6 +1619,24 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
 
   const getSignedBalanceColor = (value) => {
     const tone = getMoneyToneClass(value);
+    if (tone === 'neg') return '#dc2626';
+    if (tone === 'pos') return '#16a34a';
+    return '#000000';
+  };
+
+  const getAgentSettlementToneClass = (value) => {
+    const tone = getMoneyToneClass(value);
+    if (tone === 'pos') return 'neg';
+    if (tone === 'neg') return 'pos';
+    return 'neutral';
+  };
+
+  const getDisplayMoneyToneClass = (value) => (
+    isAgent ? getAgentSettlementToneClass(value) : getMoneyToneClass(value)
+  );
+
+  const getDisplayMoneyColor = (value, invert = isAgent) => {
+    const tone = invert ? getAgentSettlementToneClass(value) : getMoneyToneClass(value);
     if (tone === 'neg') return '#dc2626';
     if (tone === 'pos') return '#16a34a';
     return '#000000';
@@ -2246,8 +2271,8 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
             )}
             {isAgent ? (
               <button type="button" className={`detail-item detail-metric${activeSection === 'transactions' ? ' detail-metric-active' : ''}`} onClick={openTransactionSlip}>
-                <span className="detail-label">Balance</span>
-                <strong className={`detail-value ${getMoneyToneClass(displayedAgentBalance)}`}>{formatCurrency(displayedAgentBalance)}</strong>
+                <span className="detail-label">{agentSettlementLabel}</span>
+                <strong className={`detail-value ${getDisplayMoneyToneClass(displayedAgentBalance)}`}>{formatCurrency(displayedAgentBalance)}</strong>
               </button>
             ) : null}
           </div>
@@ -2616,8 +2641,11 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
               </select>
             </div>
             <div className="tx-stat"><label>Pending</label><b>{formatCurrency(txSummary.pending)}</b></div>
-            <div className="tx-stat"><label>Available</label><b>{formatCurrency(txSummary.available)}</b></div>
-            <div className="tx-stat"><label>Carry</label><b className={txSummary.carry < 0 ? 'neg' : ''}>{formatCurrency(txSummary.carry)}</b></div>
+            <div className="tx-stat"><label>{isAgent ? 'Funding Wallet' : 'Available'}</label><b>{formatCurrency(txSummary.available)}</b></div>
+            <div className="tx-stat">
+              <label>{isAgent ? 'House Money' : 'Carry'}</label>
+              <b className={isAgent ? getAgentSettlementToneClass(txSummary.carry) : (txSummary.carry < 0 ? 'neg' : '')}>{formatCurrency(txSummary.carry)}</b>
+            </div>
             <div className="tx-stat"><label>Non-Posted Casino</label><b>{formatCurrency(txSummary.nonPostedCasino)}</b></div>
           </div>
 
@@ -3115,9 +3143,9 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
                 />
                 <div className="tx-modal-balance-strip" role="status" aria-live="polite">
                   <div className="tx-modal-balance-item">
-                    <span>Current Balance</span>
+                    <span>{isAgent ? agentSettlementLabel : 'Current Balance'}</span>
                     <b
-                      className={getMoneyToneClass(txModalBalance)}
+                      className={isAgent ? getAgentSettlementToneClass(txModalBalance) : getMoneyToneClass(txModalBalance)}
                       style={{ cursor: 'pointer' }}
                       title="Click to use this amount"
                       onClick={() => setNewTxAmount(amountFromDisplayedMoney(txModalBalance))}
@@ -3126,9 +3154,9 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
                     </b>
                   </div>
                   <div className="tx-modal-balance-item">
-                    <span>Carry</span>
+                    <span>{isAgent ? 'Funding Wallet' : 'Carry'}</span>
                     <b
-                      className={getMoneyToneClass(txModalCarry)}
+                      className={isAgent ? getMoneyToneClass(txModalCarry) : getMoneyToneClass(txModalCarry)}
                       style={{ cursor: 'pointer' }}
                       title="Click to use this amount"
                       onClick={() => setNewTxAmount(amountFromDisplayedMoney(txModalCarry))}
@@ -3184,13 +3212,14 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
               const newBal = roundMoney(prevBal + (selectedTxType.balanceDirection === 'credit' ? amount : -amount));
               const isDebit = selectedTxType.balanceDirection === 'debit';
               const today = new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }).replace(/\//g, '-');
+              const balanceLabel = isAgent ? agentSettlementLabel : 'Balance';
               return (
                 <>
                   <h4 style={{ marginBottom: '16px' }}>Confirm Transaction</h4>
                   <div className="tx-confirm-table">
                     <div className="tx-confirm-row"><span>Date</span><span>{today}</span></div>
-                    <div className="tx-confirm-row"><span>Previous Balance</span><span style={{ color: getSignedBalanceColor(prevBal) }}>{formatCurrency(prevBal)}</span></div>
-                    <div className="tx-confirm-row"><span>{selectedTxType.label} :</span><span style={{ color: getSignedBalanceColor(newBal) }}>{isDebit ? '-' : ''}{formatCurrency(amount)}</span></div>
+                    <div className="tx-confirm-row"><span>Previous {balanceLabel}</span><span style={{ color: getDisplayMoneyColor(prevBal) }}>{formatCurrency(prevBal)}</span></div>
+                    <div className="tx-confirm-row"><span>{selectedTxType.label} :</span><span style={{ color: getDisplayMoneyColor(newBal) }}>{isDebit ? '-' : ''}{formatCurrency(amount)}</span></div>
                     {selectedTxType.value === 'deposit' && !isAgent && (
                       <div className="tx-confirm-row">
                         <span>Freeplay Bonus</span>
@@ -3201,7 +3230,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
                         </span>
                       </div>
                     )}
-                    <div className="tx-confirm-row tx-confirm-total"><span>New Balance</span><span style={{ color: getSignedBalanceColor(newBal) }}>{formatCurrency(newBal)}</span></div>
+                    <div className="tx-confirm-row tx-confirm-total"><span>New {balanceLabel}</span><span style={{ color: getDisplayMoneyColor(newBal) }}>{formatCurrency(newBal)}</span></div>
                   </div>
                   {txError && (
                     <div style={{ marginTop: '12px', marginBottom: '12px', background: '#fee2e2', color: '#991b1b', border: '1px solid #fecaca', borderRadius: '8px', padding: '10px 12px', fontWeight: 600 }}>
