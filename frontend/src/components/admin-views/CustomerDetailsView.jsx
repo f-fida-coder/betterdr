@@ -490,6 +490,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
   const [newTxDescription, setNewTxDescription] = useState('');
   const [newTxApplyFreeplayBonus, setNewTxApplyFreeplayBonus] = useState(true);
   const [showTxConfirm, setShowTxConfirm] = useState(false);
+  const [txSubmitting, setTxSubmitting] = useState(false);
   const [performancePeriod, setPerformancePeriod] = useState('daily');
   const [performanceLoading, setPerformanceLoading] = useState(false);
   const [performanceError, setPerformanceError] = useState('');
@@ -1945,6 +1946,8 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
   };
 
   const handleCreateTransaction = async () => {
+    if (txSubmitting) return;
+    setTxSubmitting(true);
     try {
       const amount = Number(newTxAmount || 0);
       if (amount <= 0 || Number.isNaN(amount)) {
@@ -2027,6 +2030,8 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
       await refreshTransactions();
     } catch (err) {
       setTxError(err.message || 'Failed to save transaction');
+    } finally {
+      setTxSubmitting(false);
     }
   };
 
@@ -3174,7 +3179,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
                   )}
                   <div className="modal-actions">
                     <button className="btn btn-back" onClick={() => setShowTxConfirm(false)}>Cancel</button>
-                    <button className="btn btn-save" disabled={!txDraftCanContinue} onClick={handleCreateTransaction}>Confirm</button>
+                    <button className="btn btn-save" disabled={!txDraftCanContinue || txSubmitting} onClick={handleCreateTransaction}>{txSubmitting ? 'Saving…' : 'Confirm'}</button>
                   </div>
                 </>
               );

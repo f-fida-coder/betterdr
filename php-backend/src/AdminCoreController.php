@@ -1281,20 +1281,9 @@ final class AdminCoreController
                 $settlementSummary['fundingAdjustment'] = $fundingAdjustment;
                 $settlementSummary['balanceOwed'] = round($this->num($settlementSummary['balanceOwed'] ?? 0) - $fundingAdjustment, 2);
 
-                // Sync agent.balance to match final balanceOwed so detail page shows same value
-                $finalBalanceOwed = $this->num($settlementSummary['balanceOwed'] ?? 0);
-                $currentAgentBalance = $this->num($actor['balance'] ?? 0);
-                if (round($currentAgentBalance, 2) !== round($finalBalanceOwed, 2)) {
-                    $this->db->updateOne('agents', ['id' => (string) ($actor['id'] ?? '')], ['balance' => $finalBalanceOwed]);
-                    // Sync balance to linked counterpart (agent ↔ MA same-person pair)
-                    $linkedName = AgentSettlementRules::linkedCounterpartUsername(
-                        (string) ($actor['username'] ?? ''),
-                        (string) ($actor['role'] ?? '')
-                    );
-                    if ($linkedName !== null) {
-                        $this->db->updateMany('agents', ['username' => $linkedName], ['balance' => $finalBalanceOwed]);
-                    }
-                }
+                // NOTE: we intentionally do NOT sync agent.balance to settlementSummary['balanceOwed'] here.
+                // agent.balance is the agent funding account (updated only by updateAgentCredit); overwriting it
+                // on every header-summary load silently corrupted deposits/withdrawals made via the profile page.
 
                 // Build commission distribution across upline chain for agent actors
                 $commissionDistribution = [];
