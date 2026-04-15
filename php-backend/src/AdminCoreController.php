@@ -4178,7 +4178,8 @@ final class AdminCoreController
      */
     /**
      * Sum agent funding transactions (AgentFunding) this week.
-     * Returns net credit amount: positive = agent received funds (reduces balance owed).
+     * Returns net deposit amount: positive = agent deposited cash to house (reduces balance owed).
+     * Uses transaction `type` as the source of truth so it is independent of entrySide convention.
      */
     private function getAgentFundingAdjustment(string $agentId, DateTimeImmutable $weekStart, ?DateTimeImmutable $weekEnd = null): float
     {
@@ -4197,17 +4198,25 @@ final class AdminCoreController
         }
 
         $rows = $this->db->findMany('transactions', $query, [
-            'projection' => ['amount' => 1, 'entrySide' => 1],
+            'projection' => ['amount' => 1, 'type' => 1, 'entrySide' => 1],
         ]);
 
         $net = 0.0;
         foreach ($rows as $row) {
             $amt = $this->num($row['amount'] ?? 0);
-            $side = strtoupper(trim((string) ($row['entrySide'] ?? '')));
-            if ($side === 'CREDIT') {
+            $type = strtolower(trim((string) ($row['type'] ?? '')));
+            if ($type === 'deposit') {
                 $net += $amt;
-            } elseif ($side === 'DEBIT') {
+            } elseif ($type === 'withdrawal') {
                 $net -= $amt;
+            } else {
+                // Fallback for adjustments: use entrySide (legacy rows without a specific type)
+                $side = strtoupper(trim((string) ($row['entrySide'] ?? '')));
+                if ($side === 'CREDIT') {
+                    $net += $amt;
+                } elseif ($side === 'DEBIT') {
+                    $net -= $amt;
+                }
             }
         }
 
@@ -4234,10 +4243,14 @@ final class AdminCoreController
             ];
         }
 
-        // No snapshot exists — seed from agent record (may be 0 for new agents)
+        // No prior snapshot. Do NOT fall back to agents.settlementBalanceOwed —
+        // that field is rewritten by ensurePreviousWeekSnapshot on every load,
+        // and reading it here used to create a compounding loop where each
+        // dashboard render added the previous week's settlement on top of the
+        // previous render's output. A fresh agent with no history starts at 0.
         return [
-            'previousMakeup'      => $this->num($agentDoc['settlementMakeup'] ?? 0),
-            'previousBalanceOwed'  => $this->num($agentDoc['settlementBalanceOwed'] ?? 0),
+            'previousMakeup'      => 0.0,
+            'previousBalanceOwed' => 0.0,
         ];
     }
 
@@ -4275,6 +4288,17 @@ final class AdminCoreController
             return; // Admin override — preserve it
         }
 
+        // If this agent has zero scoped players the settlement total is 0 by
+        // definition. Bail out before querying transactions — without a
+        // userId filter the query would otherwise return every completed
+        // transaction in the system and silently invent a phantom balance.
+        if (count($scopedUserIds) === 0) {
+            if ($existing !== null) {
+                $this->db->deleteOne('settlement_snapshots', ['id' => SqlRepository::id((string) ($existing['id'] ?? ''))]);
+            }
+            return;
+        }
+
         // ── Compute the previous week's settlement ──────────────────
         $prevWeekEnd = $currentWeekStart; // exclusive upper bound
 
@@ -4284,10 +4308,8 @@ final class AdminCoreController
                 '$gte' => SqlRepository::utcFromMillis($prevWeekStart->getTimestamp() * 1000),
                 '$lt'  => SqlRepository::utcFromMillis($prevWeekEnd->getTimestamp() * 1000),
             ],
+            'userId' => ['$in' => $scopedUserIds],
         ];
-        if (count($scopedUserIds) > 0) {
-            $txQuery['userId'] = ['$in' => $scopedUserIds];
-        }
         $txProjection = [
             'projection' => ['userId' => 1, 'amount' => 1, 'type' => 1, 'entrySide' => 1, 'reason' => 1, 'description' => 1, 'balanceBefore' => 1, 'balanceAfter' => 1, 'approvedByRole' => 1, 'adminId' => 1, 'referenceType' => 1],
             'sort' => ['createdAt' => 1],
@@ -6823,17 +6845,112 @@ final class AdminCoreController
                 return;
             }
 
-            // Soft-delete: mark as deleted instead of removing from database
-            $this->db->updateOne('users', ['id' => SqlRepository::id($id)], [
-                'status' => 'deleted',
-                'deletedAt' => (new DateTimeImmutable('now', new \DateTimeZone('UTC')))->format('Y-m-d\TH:i:s\Z'),
-                'deletedBy' => (string) ($actor['username'] ?? 'admin'),
-                'previousStatus' => (string) ($user['status'] ?? 'active'),
+            $deletedAt = SqlRepository::nowUtc();
+            $deletedBy = (string) ($actor['username'] ?? 'admin');
+            $deletedById = (string) ($actor['id'] ?? '');
+            $userObjectId = SqlRepository::id($id);
+
+            $this->db->beginTransaction();
+            try {
+                $counts = $this->cascadeArchiveUser($id, $userObjectId, $user, $deletedAt, $deletedBy, $deletedById);
+                $this->db->commit();
+            } catch (Throwable $e) {
+                $this->db->rollBack();
+                throw $e;
+            }
+
+            $this->invalidateHeaderSummaryCache();
+
+            Logger::info('User hard-deleted (cascade archived)', [
+                'userId' => $id,
+                'username' => (string) ($user['username'] ?? ''),
+                'deletedBy' => $deletedBy,
+                'archived' => $counts,
             ]);
-            Response::json(['message' => 'User ' . (string) ($user['username'] ?? '') . ' successfully deleted.']);
+
+            Response::json([
+                'message' => 'User ' . (string) ($user['username'] ?? '') . ' successfully deleted.',
+                'archived' => $counts,
+            ]);
         } catch (Throwable $e) {
+            Logger::exception($e, 'deleteUser failed');
             Response::json(['message' => 'Server error deleting user'], 500);
         }
+    }
+
+    /**
+     * Archive a user and every record that references them into mirrored
+     * `deleted_*` tables, then hard-delete the originals from the live tables.
+     *
+     * Caller is responsible for opening/committing the surrounding DB transaction.
+     *
+     * @return array<string,int> counts of rows archived per source table
+     */
+    private function cascadeArchiveUser(
+        string $userId,
+        string $userObjectId,
+        array $user,
+        string $deletedAt,
+        string $deletedBy,
+        string $deletedById
+    ): array {
+        $counts = [
+            'transactions' => 0,
+            'bets' => 0,
+            'casino_bets' => 0,
+            'login_failures' => 0,
+            'users' => 0,
+        ];
+
+        $auditMeta = [
+            'deletedAt' => $deletedAt,
+            'deletedBy' => $deletedBy,
+            'deletedById' => $deletedById !== '' ? $deletedById : null,
+            'sourceUserId' => $userId,
+            'sourceUsername' => (string) ($user['username'] ?? ''),
+        ];
+
+        // Cascade through every collection that references the user, in
+        // dependency order (children first, parent last). Each row is copied
+        // to its `deleted_*` mirror with audit metadata, then removed from the
+        // live table. Mirror tables are auto-created on first insert by
+        // SqlRepository::ensureTable().
+        $childCollections = [
+            'transactions' => 'deleted_transactions',
+            'bets'         => 'deleted_bets',
+            'casino_bets'  => 'deleted_casino_bets',
+        ];
+        foreach ($childCollections as $live => $archive) {
+            $rows = $this->db->findMany($live, ['userId' => $userObjectId]);
+            foreach ($rows as $row) {
+                $rowId = (string) ($row['id'] ?? '');
+                if ($rowId === '') {
+                    continue;
+                }
+                $this->db->insertOne($archive, array_merge($row, $auditMeta));
+                $this->db->deleteOne($live, ['id' => SqlRepository::id($rowId)]);
+                $counts[$live]++;
+            }
+        }
+
+        // Login failure rows are tiny but still reference the user.
+        $loginFailures = $this->db->findMany('login_failures', ['userId' => $userObjectId]);
+        foreach ($loginFailures as $row) {
+            $rowId = (string) ($row['id'] ?? '');
+            if ($rowId === '') {
+                continue;
+            }
+            $this->db->insertOne('deleted_login_failures', array_merge($row, $auditMeta));
+            $this->db->deleteOne('login_failures', ['id' => SqlRepository::id($rowId)]);
+            $counts['login_failures']++;
+        }
+
+        // Finally, archive and remove the user row itself.
+        $this->db->insertOne('deleted_users', array_merge($user, $auditMeta));
+        $this->db->deleteOne('users', ['id' => $userObjectId]);
+        $counts['users'] = 1;
+
+        return $counts;
     }
 
     private function deleteAgent(string $id): void
