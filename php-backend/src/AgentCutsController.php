@@ -185,7 +185,7 @@ final class AgentCutsController
                 Response::json([
                     'period'  => ['type' => $periodType, 'label' => $periodLabel],
                     'agents'  => [],
-                    'totals'  => ['periodAmount' => 0.0, 'ytdAmount' => 0.0, 'lifetimeAmount' => 0.0, 'makeupAmount' => 0.0],
+                    'totals'  => ['owedAmount' => 0.0, 'periodAmount' => 0.0, 'ytdAmount' => 0.0, 'lifetimeAmount' => 0.0, 'makeupAmount' => 0.0],
                 ]);
                 return;
             }
@@ -224,7 +224,7 @@ final class AgentCutsController
             $periodNetByAgent = [];
             $ytdNetByAgent = [];
             $lifetimeNetByAgent = []; // all-time
-            $weekMakeupByAgent = [];
+            $weeklySettlementByAgent = [];
             if (count($userIdToAgentId) > 0) {
                 $userObjectIds = [];
                 foreach (array_keys($userIdToAgentId) as $uid) {
@@ -281,7 +281,7 @@ final class AgentCutsController
                 }
 
                 if ($periodType === 'week') {
-                    $weekMakeupByAgent = $this->computeWeeklyMakeupByAgent(
+                    $weeklySettlementByAgent = $this->computeWeeklySettlementByAgent(
                         $allAgents,
                         $allUsers,
                         $userIdToAgentId,
@@ -301,6 +301,7 @@ final class AgentCutsController
             $totalPeriodAmount = 0.0;
             $totalYtdAmount = 0.0;
             $totalLifetimeAmount = 0.0;
+            $totalOwedAmount = 0.0;
             $totalMakeupAmount = 0.0;
             foreach ($allAgents as $aid => $a) {
                 $role = strtolower(trim((string) ($a['role'] ?? '')));
@@ -329,10 +330,13 @@ final class AgentCutsController
                 $periodAmount = round($cutPct / 100 * $periodNet, 2);
                 $ytdAmount = round($cutPct / 100 * $ytdNet, 2);
                 $lifetimeAmount = round($cutPct / 100 * $lifetimeNet, 2);
-                $makeupAmount = round($weekMakeupByAgent[$aid] ?? 0.0, 2);
+                $settlement = $weeklySettlementByAgent[$aid] ?? [];
+                $owedAmount = round($settlement['owedAmount'] ?? 0.0, 2);
+                $makeupAmount = round($settlement['makeupAmount'] ?? 0.0, 2);
                 $totalPeriodAmount += $periodAmount;
                 $totalYtdAmount += $ytdAmount;
                 $totalLifetimeAmount += $lifetimeAmount;
+                $totalOwedAmount += $owedAmount;
                 $totalMakeupAmount += $makeupAmount;
 
                 $flatAgents[] = [
@@ -342,6 +346,7 @@ final class AgentCutsController
                     'periodNet'      => $periodNet,
                     'ytdNet'         => $ytdNet,
                     'lifetimeNet'    => $lifetimeNet,
+                    'owedAmount'     => $owedAmount,
                     'makeupAmount'   => $makeupAmount,
                     'periodAmount'   => $periodAmount,
                     'ytdAmount'      => $ytdAmount,
@@ -365,6 +370,7 @@ final class AgentCutsController
                 'ytdLabel' => $ytdLabel,
                 'agents' => $flatAgents,
                 'totals' => [
+                    'owedAmount'     => round($totalOwedAmount, 2),
                     'periodAmount'   => round($totalPeriodAmount, 2),
                     'ytdAmount'      => round($totalYtdAmount, 2),
                     'lifetimeAmount' => round($totalLifetimeAmount, 2),
@@ -446,16 +452,16 @@ final class AgentCutsController
      * @param array<string, string> $userIdToAgentId
      * @return array<string, float>
      */
-    private function computeWeeklyMakeupByAgent(
+    private function computeWeeklySettlementByAgent(
         array $allAgents,
         array $allUsers,
         array $userIdToAgentId,
         DateTimeImmutable $weekStart,
         DateTimeImmutable $weekEnd
     ): array {
-        $makeupByAgent = [];
+        $settlementByAgent = [];
         if (count($userIdToAgentId) === 0) {
-            return $makeupByAgent;
+            return $settlementByAgent;
         }
 
         $usernameToAgentId = [];
@@ -470,7 +476,7 @@ final class AgentCutsController
             }
         }
         if (count($rowAgentIds) === 0) {
-            return $makeupByAgent;
+            return $settlementByAgent;
         }
 
         $userObjectIds = [];
@@ -480,7 +486,7 @@ final class AgentCutsController
             }
         }
         if (count($userObjectIds) === 0) {
-            return $makeupByAgent;
+            return $settlementByAgent;
         }
 
         $weekTx = $this->db->findMany('transactions', [
@@ -667,10 +673,93 @@ final class AgentCutsController
                 $carryForward['previousMakeup'],
                 $carryForward['previousBalanceOwed']
             );
-            $makeupByAgent[$agentId] = round($this->num($summary['cumulativeMakeup'] ?? 0), 2);
+            $summary = $this->applySettlementBalanceAdjustments($summary, $agentId, $weekStart);
+            $fundingAdjustment = $this->getAgentFundingAdjustment($agentId, $weekStart, $weekEnd);
+            $summary['balanceOwed'] = round($this->num($summary['balanceOwed'] ?? 0) - $fundingAdjustment, 2);
+            $settlementByAgent[$agentId] = [
+                'owedAmount' => round($this->num($summary['balanceOwed'] ?? 0), 2),
+                'makeupAmount' => round($this->num($summary['cumulativeMakeup'] ?? 0), 2),
+            ];
         }
 
-        return $makeupByAgent;
+        return $settlementByAgent;
+    }
+
+    private function getSettlementBalanceAdjustmentTotal(string $agentId, DateTimeImmutable $weekStart): float
+    {
+        if ($agentId === '' || preg_match('/^[a-f0-9]{24}$/i', $agentId) !== 1) {
+            return 0.0;
+        }
+
+        $rows = $this->db->findMany('settlement_adjustments', [
+            'agentId' => $agentId,
+            'weekStartStr' => $weekStart->format('Y-m-d\TH:i:s\Z'),
+        ], [
+            'projection' => ['amount' => 1],
+        ]);
+
+        $total = 0.0;
+        foreach ($rows as $row) {
+            $total += $this->num($row['amount'] ?? 0);
+        }
+
+        return round($total, 2);
+    }
+
+    /**
+     * @param array<string, mixed> $summary
+     * @return array<string, mixed>
+     */
+    private function applySettlementBalanceAdjustments(array $summary, string $agentId, DateTimeImmutable $weekStart): array
+    {
+        $computedBalanceOwed = $this->num($summary['balanceOwed'] ?? 0);
+        $balanceAdjustment = $this->getSettlementBalanceAdjustmentTotal($agentId, $weekStart);
+        $summary['computedBalanceOwed'] = $computedBalanceOwed;
+        $summary['balanceAdjustment'] = $balanceAdjustment;
+        $summary['balanceOwed'] = round($computedBalanceOwed + $balanceAdjustment, 2);
+
+        return $summary;
+    }
+
+    private function getAgentFundingAdjustment(string $agentId, DateTimeImmutable $weekStart, ?DateTimeImmutable $weekEnd = null): float
+    {
+        if ($agentId === '' || preg_match('/^[a-f0-9]{24}$/i', $agentId) !== 1) {
+            return 0.0;
+        }
+
+        $query = [
+            'agentId' => SqlRepository::id($agentId),
+            'referenceType' => 'AgentFunding',
+            'status' => 'completed',
+            'createdAt' => ['$gte' => SqlRepository::utcFromMillis($weekStart->getTimestamp() * 1000)],
+        ];
+        if ($weekEnd instanceof DateTimeImmutable) {
+            $query['createdAt']['$lt'] = SqlRepository::utcFromMillis($weekEnd->getTimestamp() * 1000);
+        }
+
+        $rows = $this->db->findMany('transactions', $query, [
+            'projection' => ['amount' => 1, 'type' => 1, 'entrySide' => 1],
+        ]);
+
+        $net = 0.0;
+        foreach ($rows as $row) {
+            $amt = $this->num($row['amount'] ?? 0);
+            $type = strtolower(trim((string) ($row['type'] ?? '')));
+            if ($type === 'deposit') {
+                $net += $amt;
+            } elseif ($type === 'withdrawal') {
+                $net -= $amt;
+            } else {
+                $side = strtoupper(trim((string) ($row['entrySide'] ?? '')));
+                if ($side === 'CREDIT') {
+                    $net += $amt;
+                } elseif ($side === 'DEBIT') {
+                    $net -= $amt;
+                }
+            }
+        }
+
+        return round($net, 2);
     }
 
     private function isAgentFundingTransaction(array $transaction): bool

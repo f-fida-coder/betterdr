@@ -2038,7 +2038,7 @@ final class AdminCoreController
                 Response::json([
                     'period' => ['type' => $periodType, 'label' => $periodLabel],
                     'agents' => [],
-                    'totals' => ['periodAmount' => 0.0, 'ytdAmount' => 0.0, 'lifetimeAmount' => 0.0, 'makeupAmount' => 0.0],
+                    'totals' => ['owedAmount' => 0.0, 'periodAmount' => 0.0, 'ytdAmount' => 0.0, 'lifetimeAmount' => 0.0, 'makeupAmount' => 0.0],
                 ]);
                 return;
             }
@@ -2077,7 +2077,7 @@ final class AdminCoreController
             $periodNetByAgent = [];
             $ytdNetByAgent = [];
             $lifetimeNetByAgent = []; // all-time
-            $weekMakeupByAgent = [];
+            $weeklySettlementByAgent = [];
             if (count($userIdToAgentId) > 0) {
                 $userObjectIds = [];
                 foreach (array_keys($userIdToAgentId) as $uid) {
@@ -2122,7 +2122,7 @@ final class AdminCoreController
                 }
 
                 if ($periodType === 'week') {
-                    $weekMakeupByAgent = $this->computeAgentCutsWeeklyMakeupByAgent(
+                    $weeklySettlementByAgent = $this->computeAgentCutsWeeklySettlementByAgent(
                         $allAgents,
                         $allUsers,
                         $userIdToAgentId,
@@ -2138,6 +2138,7 @@ final class AdminCoreController
             $totalPeriodAmount = 0.0;
             $totalYtdAmount = 0.0;
             $totalLifetimeAmount = 0.0;
+            $totalOwedAmount = 0.0;
             $totalMakeupAmount = 0.0;
             foreach ($allAgents as $aid => $a) {
                 $role = strtolower(trim((string) ($a['role'] ?? '')));
@@ -2165,10 +2166,13 @@ final class AdminCoreController
                 $periodAmount = round($cutPct / 100 * $periodNet, 2);
                 $ytdAmount = round($cutPct / 100 * $ytdNet, 2);
                 $lifetimeAmount = round($cutPct / 100 * $lifetimeNet, 2);
-                $makeupAmount = round($weekMakeupByAgent[$aid] ?? 0.0, 2);
+                $settlement = $weeklySettlementByAgent[$aid] ?? [];
+                $owedAmount = round($settlement['owedAmount'] ?? 0.0, 2);
+                $makeupAmount = round($settlement['makeupAmount'] ?? 0.0, 2);
                 $totalPeriodAmount += $periodAmount;
                 $totalYtdAmount += $ytdAmount;
                 $totalLifetimeAmount += $lifetimeAmount;
+                $totalOwedAmount += $owedAmount;
                 $totalMakeupAmount += $makeupAmount;
                 $flatAgents[] = [
                     'id'             => $aid,
@@ -2177,6 +2181,7 @@ final class AdminCoreController
                     'periodNet'      => $periodNet,
                     'ytdNet'         => $ytdNet,
                     'lifetimeNet'    => $lifetimeNet,
+                    'owedAmount'     => $owedAmount,
                     'makeupAmount'   => $makeupAmount,
                     'periodAmount'   => $periodAmount,
                     'ytdAmount'      => $ytdAmount,
@@ -2199,6 +2204,7 @@ final class AdminCoreController
                 'ytdLabel' => $ytdLabel,
                 'agents' => $flatAgents,
                 'totals' => [
+                    'owedAmount'     => round($totalOwedAmount, 2),
                     'periodAmount'   => round($totalPeriodAmount, 2),
                     'ytdAmount'      => round($totalYtdAmount, 2),
                     'lifetimeAmount' => round($totalLifetimeAmount, 2),
@@ -2239,16 +2245,16 @@ final class AdminCoreController
      * @param array<string, string> $userIdToAgentId
      * @return array<string, float>
      */
-    private function computeAgentCutsWeeklyMakeupByAgent(
+    private function computeAgentCutsWeeklySettlementByAgent(
         array $allAgents,
         array $allUsers,
         array $userIdToAgentId,
         DateTimeImmutable $weekStart,
         DateTimeImmutable $weekEnd
     ): array {
-        $makeupByAgent = [];
+        $settlementByAgent = [];
         if (count($userIdToAgentId) === 0) {
-            return $makeupByAgent;
+            return $settlementByAgent;
         }
 
         $usernameToAgentId = [];
@@ -2263,7 +2269,7 @@ final class AdminCoreController
             }
         }
         if (count($rowAgentIds) === 0) {
-            return $makeupByAgent;
+            return $settlementByAgent;
         }
 
         $userObjectIds = [];
@@ -2273,7 +2279,7 @@ final class AdminCoreController
             }
         }
         if (count($userObjectIds) === 0) {
-            return $makeupByAgent;
+            return $settlementByAgent;
         }
 
         $weekTx = $this->db->findMany('transactions', [
@@ -2459,10 +2465,16 @@ final class AdminCoreController
                 $carryForward['previousMakeup'],
                 $carryForward['previousBalanceOwed']
             );
-            $makeupByAgent[$agentId] = round($this->num($summary['cumulativeMakeup'] ?? 0), 2);
+            $summary = $this->applySettlementBalanceAdjustments($summary, $agentId, $weekStart);
+            $fundingAdjustment = $this->getAgentFundingAdjustment($agentId, $weekStart, $weekEnd);
+            $summary['balanceOwed'] = round($this->num($summary['balanceOwed'] ?? 0) - $fundingAdjustment, 2);
+            $settlementByAgent[$agentId] = [
+                'owedAmount' => round($this->num($summary['balanceOwed'] ?? 0), 2),
+                'makeupAmount' => round($this->num($summary['cumulativeMakeup'] ?? 0), 2),
+            ];
         }
 
-        return $makeupByAgent;
+        return $settlementByAgent;
     }
 
     private function getAgentTree(): void

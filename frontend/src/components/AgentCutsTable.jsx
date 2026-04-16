@@ -91,7 +91,7 @@ function AgentCutsTable({ onSelectAgent, onWeekChange }) {
     period: { type: 'week', label: '' },
     ytdLabel: String(currentYear),
     agents: [],
-    totals: { periodAmount: 0, ytdAmount: 0, lifetimeAmount: 0, makeupAmount: 0 },
+    totals: { owedAmount: 0, periodAmount: 0, ytdAmount: 0, lifetimeAmount: 0, makeupAmount: 0 },
   });
 
   // Notify parent (AdminHeader) when the effective "week" view changes so the
@@ -138,7 +138,7 @@ function AgentCutsTable({ onSelectAgent, onWeekChange }) {
           period: { type: tab, label: '' },
           ytdLabel: String(currentYear),
           agents: [],
-          totals: { periodAmount: 0, ytdAmount: 0, lifetimeAmount: 0, makeupAmount: 0 },
+          totals: { owedAmount: 0, periodAmount: 0, ytdAmount: 0, lifetimeAmount: 0, makeupAmount: 0 },
         });
       })
       .catch((err) => {
@@ -154,6 +154,7 @@ function AgentCutsTable({ onSelectAgent, onWeekChange }) {
     };
   }, [tab, selectedWeekIso, quarterlyChoice, currentYear]);
 
+  const owedTotal = Number(data?.totals?.owedAmount ?? 0);
   const periodTotal = Number(data?.totals?.periodAmount ?? 0);
   const ytdTotal = Number(data?.totals?.ytdAmount ?? 0);
   const lifetimeTotal = Number(data?.totals?.lifetimeAmount ?? 0);
@@ -172,6 +173,15 @@ function AgentCutsTable({ onSelectAgent, onWeekChange }) {
   const metricColumns = useMemo(() => {
     if (tab === 'week') {
       return [
+        {
+          key: 'owed',
+          label: 'Owed',
+          className: 'acut-owed',
+          totalValue: owedTotal,
+          getValue: (agent) => Number(agent?.owedAmount ?? 0),
+          formatter: formatLiabilityCurrency,
+          getToneClass: liabilityToneClass,
+        },
         {
           key: 'profit',
           label: 'Profit',
@@ -228,7 +238,7 @@ function AgentCutsTable({ onSelectAgent, onWeekChange }) {
     });
 
     return columns;
-  }, [tab, periodColumnHeader, periodTotal, makeupTotal, useYtdForSecondColumn, data?.ytdLabel, currentYear, ytdTotal, lifetimeTotal]);
+  }, [tab, periodColumnHeader, owedTotal, periodTotal, makeupTotal, useYtdForSecondColumn, data?.ytdLabel, currentYear, ytdTotal, lifetimeTotal]);
 
   const visibleAgents = useMemo(() => {
     const all = Array.isArray(data?.agents) ? data.agents : [];
