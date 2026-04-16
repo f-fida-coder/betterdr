@@ -57,11 +57,24 @@ function AgentPerformanceView() {
 
   useEffect(() => {
     loadPerformance();
+
     const interval = setInterval(() => {
       if (document.hidden) return;
       loadPerformance();
     }, 120000);
-    return () => clearInterval(interval);
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        loadPerformance();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, [period]);
 
   const handleViewDetails = async (agent) => {

@@ -3,34 +3,12 @@ const KNOWN_TEAM_LOGOS = {
     'nottingham forest': 'https://upload.wikimedia.org/wikipedia/en/e/e5/Nottingham_Forest_F.C._logo.svg'
 };
 
-const logoPromiseCache = new Map();
-
 const normalizeTeamName = (teamName = '') =>
     String(teamName || '')
         .toLowerCase()
         .replace(/[.'-]/g, ' ')
         .replace(/\s+/g, ' ')
         .trim();
-
-const buildSearchCandidates = (teamName = '') => {
-    const base = normalizeTeamName(teamName);
-    if (!base) return [];
-    const candidates = [
-        base,
-        base.replace(/\b(fc|cf|sc|afc|b c|bk|basketball club|football club)\b/g, ' ').replace(/\s+/g, ' ').trim(),
-        base.replace(/\b(the)\b/g, ' ').replace(/\s+/g, ' ').trim()
-    ].filter(Boolean);
-    return Array.from(new Set(candidates));
-};
-
-const pickTeamImage = (team) =>
-    team?.strBadge ||
-    team?.strTeamBadge ||
-    team?.strLogo ||
-    team?.strTeamLogo ||
-    team?.strJersey ||
-    team?.strTeamJersey ||
-    '';
 
 const getHash = (input) => {
     let hash = 0;
@@ -77,31 +55,5 @@ export const fetchTeamBadgeUrl = async (teamName = '') => {
         return KNOWN_TEAM_LOGOS[normalized];
     }
 
-    if (logoPromiseCache.has(normalized)) {
-        return logoPromiseCache.get(normalized);
-    }
-
-    const promise = (async () => {
-        const candidates = buildSearchCandidates(teamName);
-        for (const candidate of candidates) {
-            try {
-                const response = await fetch(`https://www.thesportsdb.com/api/v1/json/123/searchteams.php?t=${encodeURIComponent(candidate)}`);
-                if (!response.ok) continue;
-                const data = await response.json();
-                const teams = Array.isArray(data?.teams) ? data.teams : [];
-                if (teams.length === 0) continue;
-
-                const exact = teams.find((team) => normalizeTeamName(team?.strTeam) === normalized);
-                const first = exact || teams[0];
-                const image = pickTeamImage(first);
-                if (image) return image;
-            } catch {
-                // Keep trying other candidates.
-            }
-        }
-        return '';
-    })();
-
-    logoPromiseCache.set(normalized, promise);
-    return promise;
+    return '';
 };

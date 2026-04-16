@@ -36,11 +36,24 @@ function BetTickerView() {
 
   useEffect(() => {
     fetchBets();
+
     const interval = setInterval(() => {
       if (document.hidden) return;
       fetchBets();
     }, 45000);
-    return () => clearInterval(interval);
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        fetchBets();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, []);
 
   const filteredBets = filterType === 'all'

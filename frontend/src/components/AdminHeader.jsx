@@ -159,7 +159,10 @@ function AdminHeader({
     };
 
     loadHeaderContext();
-    const intervalId = window.setInterval(refreshHeaderSummary, 15000);
+    const intervalId = window.setInterval(() => {
+      if (document.hidden) return;
+      refreshHeaderSummary();
+    }, 15000);
     const handleVisibilityChange = () => {
       if (!document.hidden) {
         loadHeaderContext();

@@ -104,6 +104,7 @@ function PropsView() {
 
   useEffect(() => {
     loadBets({ time: timeFilter, type: typeFilter, status: statusFilter });
+
     const interval = setInterval(() => {
       if (document.hidden) return;
       loadBets({
@@ -115,7 +116,26 @@ function PropsView() {
         status: statusFilter
       });
     }, 90000);
-    return () => clearInterval(interval);
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        loadBets({
+          agent: searchAgent,
+          customer: searchPlayer,
+          amount: amountFilter,
+          time: timeFilter,
+          type: typeFilter,
+          status: statusFilter
+        });
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, [searchAgent, searchPlayer, amountFilter, timeFilter, typeFilter, statusFilter]);
 
   const handleDeleteBet = async (betId) => {

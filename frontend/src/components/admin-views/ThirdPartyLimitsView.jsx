@@ -56,11 +56,24 @@ function ThirdPartyLimitsView() {
 
   useEffect(() => {
     loadLimits();
+
     const interval = setInterval(() => {
       if (document.hidden) return;
       loadLimits();
     }, 120000);
-    return () => clearInterval(interval);
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        loadLimits();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, []);
 
   const filteredLimits = limits.filter(limit => {

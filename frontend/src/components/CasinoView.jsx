@@ -430,7 +430,10 @@ const CasinoView = () => {
     useEffect(() => {
         const slug = normalizeEmbeddedGameSlug(activeLocalGame?.slug || activeLocalGame?.name || activeLocalGame?.id);
         if (slug !== 'jurassic-run' || !token || !gameIsReady) return;
-        const intervalId = setInterval(() => {
+
+        const syncJackpotPool = () => {
+            if (document.hidden) return;
+
             getCasinoGameState(slug, token)
                 .then((statePayload) => {
                     const jackpotPool = statePayload?.state?.jackpotPool;
@@ -439,8 +442,24 @@ const CasinoView = () => {
                     }
                 })
                 .catch(() => {});
-        }, 15000);
-        return () => clearInterval(intervalId);
+        };
+
+        syncJackpotPool();
+
+        const intervalId = setInterval(syncJackpotPool, 15000);
+
+        const handleVisibilityChange = () => {
+            if (!document.hidden) {
+                syncJackpotPool();
+            }
+        };
+
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+
+        return () => {
+            clearInterval(intervalId);
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+        };
     }, [activeLocalGame?.id, token, gameIsReady, sendToGame]);
 
     useEffect(() => {

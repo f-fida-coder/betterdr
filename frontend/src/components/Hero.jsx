@@ -50,6 +50,7 @@ const Hero = () => {
 
     useEffect(() => {
         const interval = setInterval(() => {
+            if (document.hidden) return;
             setCurrentIndex((prev) => (prev + 1) % BANNER_DATA.length);
         }, 5000);
         return () => clearInterval(interval);

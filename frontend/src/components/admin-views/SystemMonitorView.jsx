@@ -29,11 +29,24 @@ const SystemMonitorView = () => {
 
     useEffect(() => {
         fetchStats();
+
         const interval = setInterval(() => {
             if (document.hidden) return;
             fetchStats();
         }, 60000);
-        return () => clearInterval(interval);
+
+        const handleVisibilityChange = () => {
+            if (!document.hidden) {
+                fetchStats();
+            }
+        };
+
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+
+        return () => {
+            clearInterval(interval);
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+        };
     }, []);
 
     if (loading && !stats) return <div className="admin-content-card">Loading System Monitor...</div>;

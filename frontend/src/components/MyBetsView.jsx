@@ -120,11 +120,23 @@ const MyBetsView = () => {
     useEffect(() => {
         void fetchBets();
 
+        const handleVisibilityChange = () => {
+            if (!document.hidden) {
+                void fetchBets({ silent: true });
+            }
+        };
+
         const interval = window.setInterval(() => {
+            if (document.hidden) return;
             void fetchBets({ silent: true });
         }, 20000);
 
-        return () => window.clearInterval(interval);
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+
+        return () => {
+            window.clearInterval(interval);
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+        };
     }, []);
 
     const summary = useMemo(() => {
