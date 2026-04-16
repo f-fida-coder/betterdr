@@ -4662,7 +4662,7 @@ final class AdminCoreController
         $existing = $this->db->findOne('settlement_snapshots', [
             'agentId' => $agentId,
             'weekStartStr' => $prevWeekStart->format('Y-m-d\TH:i:s\Z'),
-        ], ['projection' => ['id' => 1, 'manuallyFinalized' => 1]]);
+        ], ['projection' => ['id' => 1, 'manuallyFinalized' => 1, 'closingBalanceOwed' => 1, 'closingMakeup' => 1, 'agentCollections' => 1, 'houseCollections' => 1, 'paidPlayerFees' => 1]]);
 
         if ($existing !== null && !empty($existing['manuallyFinalized'])) {
             return; // Admin override — preserve it
@@ -4812,6 +4812,29 @@ final class AdminCoreController
         $fundingAdjustment = $this->getAgentFundingAdjustment($agentId, $prevWeekStart, $prevWeekEnd);
         $summary['fundingAdjustment'] = $fundingAdjustment;
         $summary['balanceOwed'] = round($this->num($summary['balanceOwed'] ?? 0) - $fundingAdjustment, 2);
+
+        // Guard: if an existing snapshot has non-zero financial activity but
+        // the recomputation produced all zeros, preserve the existing snapshot.
+        // This prevents transaction deletions from corrupting the carry-forward
+        // chain. Late-posted transactions still update the snapshot because they
+        // produce non-zero results.
+        if ($existing !== null) {
+            $existingHasActivity = abs($this->num($existing['closingBalanceOwed'] ?? 0)) > 0.001
+                || abs($this->num($existing['closingMakeup'] ?? 0)) > 0.001
+                || abs($this->num($existing['agentCollections'] ?? 0)) > 0.001
+                || abs($this->num($existing['houseCollections'] ?? 0)) > 0.001
+                || $this->num($existing['paidPlayerFees'] ?? 0) > 0.001;
+
+            $newHasNoActivity = abs($summary['balanceOwed']) < 0.001
+                && abs($summary['cumulativeMakeup']) < 0.001
+                && abs($summary['agentCollections']) < 0.001
+                && abs($summary['houseCollections']) < 0.001
+                && $paidPlayerFees < 0.001;
+
+            if ($existingHasActivity && $newHasNoActivity) {
+                return; // Preserve existing snapshot — data was likely deleted
+            }
+        }
 
         // Persist snapshot via upsert so late/backdated transactions posted
         // AFTER the first auto-close still update closingBalanceOwed.
@@ -5388,6 +5411,8 @@ final class AdminCoreController
             $playersSearch = trim((string) ($_GET['players'] ?? $_GET['player'] ?? $_GET['user'] ?? ''));
             $agentsSearch = trim((string) ($_GET['agents'] ?? $_GET['agent'] ?? ''));
             $enteredBySearch = trim((string) ($_GET['enteredBy'] ?? $_GET['entered_by'] ?? ''));
+            // Direct user/agent ID lookup — bypasses text search for exact-match transaction lookups
+            $directUserId = trim((string) ($_GET['userId'] ?? ''));
             $playersSearchLc = strtolower($playersSearch);
             $agentsSearchLc = strtolower($agentsSearch);
             $enteredBySearchLc = strtolower($enteredBySearch);
@@ -5520,10 +5545,57 @@ final class AdminCoreController
                 }
             }
 
-            $needsPlayerScope = $actorRole !== 'admin' || $playersSearch !== '' || $matchedAgentIds !== null;
+            $needsPlayerScope = $actorRole !== 'admin' || $playersSearch !== '' || $matchedAgentIds !== null || $directUserId !== '';
             $playerDocs = [];
             $playerDocsById = [];
             $playerIds = [];
+
+            // If a direct userId is provided, always include it (and its linked counterpart)
+            if ($directUserId !== '' && preg_match('/^[a-f0-9]{24}$/i', $directUserId) === 1) {
+                $directOid = SqlRepository::id($directUserId);
+                // Check users table first, then agents
+                $directDoc = $this->db->findOne('users', ['id' => $directOid], ['projection' => ['id' => 1, 'username' => 1, 'fullName' => 1, 'agentId' => 1, 'balance' => 1, 'freeplayBalance' => 1]]);
+                if ($directDoc !== null) {
+                    $playerIds[$directUserId] = true;
+                    $playerDocsById[$directUserId] = $directDoc;
+                } else {
+                    $directAgent = $this->db->findOne('agents', ['id' => $directOid], ['projection' => ['id' => 1, 'username' => 1, 'role' => 1, 'balance' => 1]]);
+                    if ($directAgent !== null) {
+                        $playerIds[$directUserId] = true;
+                        $playerDocsById[$directUserId] = [
+                            'id' => $directUserId,
+                            'username' => (string) ($directAgent['username'] ?? ''),
+                            'fullName' => (string) ($directAgent['username'] ?? ''),
+                            'agentId' => $directUserId,
+                            'balance' => $this->num($directAgent['balance'] ?? 0),
+                            'freeplayBalance' => 0,
+                        ];
+                        // Also include linked counterpart (agent ↔ MA)
+                        $linkedName = AgentSettlementRules::linkedCounterpartUsername(
+                            (string) ($directAgent['username'] ?? ''),
+                            (string) ($directAgent['role'] ?? '')
+                        );
+                        if ($linkedName !== null) {
+                            $linkedDoc = $this->db->findOne('agents', ['username' => $linkedName], ['projection' => ['id' => 1, 'username' => 1, 'role' => 1, 'balance' => 1]]);
+                            if ($linkedDoc !== null) {
+                                $lid = (string) ($linkedDoc['id'] ?? '');
+                                if ($lid !== '' && !isset($playerIds[$lid])) {
+                                    $playerIds[$lid] = true;
+                                    $playerDocsById[$lid] = [
+                                        'id' => $lid,
+                                        'username' => (string) ($linkedDoc['username'] ?? ''),
+                                        'fullName' => (string) ($linkedDoc['username'] ?? ''),
+                                        'agentId' => $lid,
+                                        'balance' => $this->num($linkedDoc['balance'] ?? 0),
+                                        'freeplayBalance' => 0,
+                                    ];
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             if ($needsPlayerScope) {
                 // Keep player search resilient across legacy imports where role may be missing or set to custom values.
                 // SqlRepository does not support $nin, so use explicit $ne clauses instead.

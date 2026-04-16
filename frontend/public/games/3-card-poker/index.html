@@ -67,12 +67,23 @@
             var _pendingResult   = null;  // set by __3cp_onHandEnd before save_score
             var _waitingForBet   = false; // prevent duplicate sends per hand
 
+            // Resolve parent origin once at startup for secure postMessage.
+            var _parentOrigin = (function () {
+                try {
+                    if (document.referrer) return new URL(document.referrer).origin;
+                } catch (e) { /* ignore */ }
+                try {
+                    return window.parent.location.origin;
+                } catch (e) { /* cross-origin — fall back */ }
+                return window.location.origin;
+            }());
+
             function _createReqId() {
                 return Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 12);
             }
 
             function _sendToParent(msg) {
-                try { window.parent.postMessage(msg, '*'); } catch (e) { /* standalone */ }
+                try { window.parent.postMessage(msg, _parentOrigin); } catch (e) { /* standalone */ }
             }
 
             function _requestBalance(reqId) {
@@ -91,6 +102,7 @@
 
             // ── Receive messages from parent (CasinoView.jsx) ─────────────
             window.addEventListener('message', function (evt) {
+                if (evt.origin !== _parentOrigin) return;
                 var msg = evt.data;
                 if (!msg || typeof msg !== 'object' || !msg.type) return;
 

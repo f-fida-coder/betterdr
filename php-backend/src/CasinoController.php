@@ -39,7 +39,7 @@ final class CasinoController
     private const CRAPS_RNG_VERSION = 'server-rules-v1';
     private const ARABIAN_RNG_VERSION = 'server-slot-v1';
     private const JURASSIC_RUN_RNG_VERSION = 'jurassic-slot-v1';
-    private const THREE_CARD_POKER_RNG_VERSION = 'client-cards-server-rules-v2';
+    private const THREE_CARD_POKER_RNG_VERSION = 'server-cards-server-rules-v3';
     private const ROULETTE_RNG_VERSION = 'csprng-wheel-v2';
     private const STUD_POKER_RNG_VERSION = 'stud-house-v1';
     private const IN_HOUSE_OVERLAY_ONLY_GAME_MESSAGES = [
@@ -1600,16 +1600,18 @@ final class CasinoController
                 return;
             }
 
-            $playerCards = $this->normalize3CardPokerCards($payload['playerCards'] ?? [], 'payload.playerCards');
-            $dealerCards = $this->normalize3CardPokerCards($payload['dealerCards'] ?? [], 'payload.dealerCards');
-            $allCodes = array_values(array_merge(
-                array_map(static fn(array $card): string => (string) ($card['code'] ?? ''), $playerCards),
-                array_map(static fn(array $card): string => (string) ($card['code'] ?? ''), $dealerCards)
-            ));
-            if (count(array_unique($allCodes)) !== 6) {
-                Response::json(['message' => 'Player and dealer cards must be unique'], 400);
-                return;
-            }
+            // Server-side card dealing — client cards are ignored.
+            // Uses the same CSPRNG Fisher-Yates shuffle as Baccarat.
+            $deck = $this->buildShuffledDeck();
+            $playerCards = array_map(
+                fn(array $card): array => $this->cardCodeToData($card['code']),
+                array_slice($deck, 0, 3)
+            );
+            $dealerCards = array_map(
+                fn(array $card): array => $this->cardCodeToData($card['code']),
+                array_slice($deck, 3, 3)
+            );
+            $deckCodes = array_map(static fn(array $card): string => $card['code'], $deck);
 
             $settlement = $this->resolve3CardPokerSettlement(
                 $anteBet,
@@ -1809,7 +1811,8 @@ final class CasinoController
                     'pendingBalanceSnapshot' => $balanceSnapshot['pendingBalance'],
                     'ledgerEntries' => ['debit' => $debitEntryId, 'credit' => $creditEntryId],
                     'rngVersion' => self::THREE_CARD_POKER_RNG_VERSION,
-                    'outcomeSource' => 'client_actions_server_rules',
+                    'outcomeSource' => 'server_deal_server_rules',
+                    'deckHash' => hash('sha256', implode(',', $deckCodes)),
                     'betDetails' => ['payoutBreakdown' => $payoutBreakdown],
                     'roundData' => $roundData,
                     'integrityHash' => $integrityHash,
@@ -1828,7 +1831,9 @@ final class CasinoController
                     'userId' => $userId,
                     'game' => self::THREE_CARD_POKER_GAME_SLUG,
                     'rngVersion' => self::THREE_CARD_POKER_RNG_VERSION,
-                    'outcomeSource' => 'client_actions_server_rules',
+                    'outcomeSource' => 'server_deal_server_rules',
+                    'deckCodes' => $deckCodes,
+                    'deckHash' => hash('sha256', implode(',', $deckCodes)),
                     'bets' => $betRecord['bets'],
                     'result' => $resultLabel,
                     'resultType' => $resultType,

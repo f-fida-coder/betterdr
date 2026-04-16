@@ -848,13 +848,17 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
       throw new Error('Please login to view transactions.');
     }
 
-    const data = await getTransactionsHistory({
+    const params = {
       user: customer.username || '',
       type: getApiTypeForTransactionFilter(txTypeFilter),
       status: txStatusFilter,
       time: txDisplayFilter,
       limit: 300
-    }, token);
+    };
+    if (userId) {
+      params.userId = userId;
+    }
+    const data = await getTransactionsHistory(params, token);
     const list = Array.isArray(data?.transactions) ? data.transactions : [];
     const forCustomer = list.filter((txn) => isTransactionForCustomer(txn, userId, customer.username, linkedCounterpart));
 
