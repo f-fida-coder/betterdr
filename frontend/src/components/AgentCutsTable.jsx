@@ -17,6 +17,21 @@ const toneClass = (value) => {
   return num > 0 ? 'positive' : 'negative';
 };
 
+const liabilityToneClass = (value) => {
+  const num = Number(value);
+  if (!Number.isFinite(num) || Math.abs(Math.round(num)) < 0.5) return 'neutral';
+  return num > 0 ? 'negative' : 'positive';
+};
+
+const formatLiabilityCurrency = (value) => {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return '$0';
+  const rounded = Math.round(num);
+  if (rounded === 0) return '$0';
+  const sign = rounded > 0 ? '-' : '';
+  return `${sign}$${Math.abs(rounded).toLocaleString('en-US')}`;
+};
+
 const toIsoDate = (d) => {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -76,7 +91,7 @@ function AgentCutsTable({ onSelectAgent, onWeekChange }) {
     period: { type: 'week', label: '' },
     ytdLabel: String(currentYear),
     agents: [],
-    totals: { periodAmount: 0, lifetimeAmount: 0 },
+    totals: { periodAmount: 0, ytdAmount: 0, lifetimeAmount: 0, makeupAmount: 0 },
   });
 
   // Notify parent (AdminHeader) when the effective "week" view changes so the
@@ -123,7 +138,7 @@ function AgentCutsTable({ onSelectAgent, onWeekChange }) {
           period: { type: tab, label: '' },
           ytdLabel: String(currentYear),
           agents: [],
-          totals: { periodAmount: 0, lifetimeAmount: 0 },
+          totals: { periodAmount: 0, ytdAmount: 0, lifetimeAmount: 0, makeupAmount: 0 },
         });
       })
       .catch((err) => {
@@ -139,39 +154,91 @@ function AgentCutsTable({ onSelectAgent, onWeekChange }) {
     };
   }, [tab, selectedWeekIso, quarterlyChoice, currentYear]);
 
-  const visibleAgents = useMemo(() => {
-    const all = Array.isArray(data?.agents) ? data.agents : [];
-    if (!hideZero) return all;
-    return all.filter((a) => Math.abs(Math.round(Number(a?.periodAmount ?? 0))) > 0);
-  }, [data, hideZero]);
-
   const periodTotal = Number(data?.totals?.periodAmount ?? 0);
-  // Second column is YTD ("2026") only when Quarterly is showing one of
-  // Q1–Q4. Weekly tab and Quarterly's full-year button both fall back to
-  // all-time ("Lifetime") so the two columns don't duplicate.
+  const ytdTotal = Number(data?.totals?.ytdAmount ?? 0);
+  const lifetimeTotal = Number(data?.totals?.lifetimeAmount ?? 0);
+  const makeupTotal = Number(data?.totals?.makeupAmount ?? 0);
+  const selectedWeek = weeks.find((x) => x.iso === selectedWeekIso);
   const useYtdForSecondColumn = tab === 'quarter' && quarterlyChoice !== 'year';
-  const secondColumnTotal = useYtdForSecondColumn
-    ? Number(data?.totals?.ytdAmount ?? 0)
-    : Number(data?.totals?.lifetimeAmount ?? 0);
 
-  // Dynamic column headers: "Period" label reflects the current selection,
-  // second column is "LIFETIME" when on Weekly, or the YTD year when on
-  // Quarterly.
   const periodColumnHeader = useMemo(() => {
-    if (tab === 'week') {
-      const w = weeks.find((x) => x.iso === selectedWeekIso);
-      return w?.shortLabel || 'Period';
-    }
     if (tab === 'quarter') {
       if (quarterlyChoice === 'year') return String(currentYear);
       return String(quarterlyChoice).toUpperCase();
     }
     return 'Period';
-  }, [tab, selectedWeekIso, quarterlyChoice, weeks, currentYear]);
+  }, [tab, quarterlyChoice, currentYear]);
 
-  const secondColumnHeader = useYtdForSecondColumn
-    ? String(data?.ytdLabel ?? currentYear)
-    : 'Lifetime';
+  const metricColumns = useMemo(() => {
+    if (tab === 'week') {
+      return [
+        {
+          key: 'profit',
+          label: 'Profit',
+          className: 'acut-period',
+          totalValue: periodTotal,
+          getValue: (agent) => Number(agent?.periodAmount ?? 0),
+          formatter: formatCurrency,
+          getToneClass: toneClass,
+        },
+        {
+          key: 'makeup',
+          label: 'Makeup',
+          className: 'acut-secondary',
+          totalValue: makeupTotal,
+          getValue: (agent) => Number(agent?.makeupAmount ?? 0),
+          formatter: formatLiabilityCurrency,
+          getToneClass: liabilityToneClass,
+        },
+      ];
+    }
+
+    const columns = [
+      {
+        key: 'period',
+        label: periodColumnHeader,
+        className: 'acut-period',
+        totalValue: periodTotal,
+        getValue: (agent) => Number(agent?.periodAmount ?? 0),
+        formatter: formatCurrency,
+        getToneClass: toneClass,
+      },
+    ];
+
+    if (useYtdForSecondColumn) {
+      columns.push({
+        key: 'ytd',
+        label: String(data?.ytdLabel ?? currentYear),
+        className: 'acut-secondary',
+        totalValue: ytdTotal,
+        getValue: (agent) => Number(agent?.ytdAmount ?? 0),
+        formatter: formatCurrency,
+        getToneClass: toneClass,
+      });
+    }
+
+    columns.push({
+      key: 'lifetime',
+      label: 'Lifetime',
+      className: useYtdForSecondColumn ? 'acut-lifetime' : 'acut-secondary',
+      totalValue: lifetimeTotal,
+      getValue: (agent) => Number(agent?.lifetimeAmount ?? 0),
+      formatter: formatCurrency,
+      getToneClass: toneClass,
+    });
+
+    return columns;
+  }, [tab, periodColumnHeader, periodTotal, makeupTotal, useYtdForSecondColumn, data?.ytdLabel, currentYear, ytdTotal, lifetimeTotal]);
+
+  const visibleAgents = useMemo(() => {
+    const all = Array.isArray(data?.agents) ? data.agents : [];
+    if (!hideZero) return all;
+    return all.filter((agent) => metricColumns.some((column) => Math.abs(Math.round(column.getValue(agent))) > 0));
+  }, [data, hideZero, metricColumns]);
+
+  const totalLabel = tab === 'week'
+    ? (data?.period?.label || selectedWeek?.label || 'Total')
+    : 'PROFIT';
 
   return (
     <div className="agent-cuts-panel">
@@ -241,18 +308,15 @@ function AgentCutsTable({ onSelectAgent, onWeekChange }) {
         <div className="agent-cuts-header">
           <span className="acut-name">Agent</span>
           <span className="acut-cut">Cut%</span>
-          <span className="acut-period">{periodColumnHeader}</span>
-          <span className="acut-lifetime">{secondColumnHeader}</span>
+          {metricColumns.map((column) => (
+            <span key={column.key} className={column.className}>{column.label}</span>
+          ))}
         </div>
         {loading && <div className="agent-cuts-empty">Loading…</div>}
         {!loading && visibleAgents.length === 0 && (
           <div className="agent-cuts-empty">No agents with activity for this period.</div>
         )}
         {!loading && visibleAgents.map((agent) => {
-          const period = Number(agent?.periodAmount ?? 0);
-          const second = Number(useYtdForSecondColumn
-            ? (agent?.ytdAmount ?? 0)
-            : (agent?.lifetimeAmount ?? 0));
           return (
             <button
               key={agent.id}
@@ -266,17 +330,26 @@ function AgentCutsTable({ onSelectAgent, onWeekChange }) {
             >
               <span className="acut-name">{agent.username}</span>
               <span className="acut-cut">{agent.myCut != null ? `${agent.myCut}%` : '—'}</span>
-              <span className={`acut-period ${toneClass(period)}`}>{formatCurrency(period)}</span>
-              <span className={`acut-lifetime ${toneClass(second)}`}>{formatCurrency(second)}</span>
+              {metricColumns.map((column) => {
+                const value = column.getValue(agent);
+                return (
+                  <span key={column.key} className={`${column.className} ${column.getToneClass(value)}`}>
+                    {column.formatter(value)}
+                  </span>
+                );
+              })}
             </button>
           );
         })}
         {!loading && visibleAgents.length > 0 && (
           <div className="agent-cuts-total">
-            <span className="acut-name">PROFIT</span>
+            <span className="acut-name">{totalLabel}</span>
             <span className="acut-cut" />
-            <span className={`acut-period ${toneClass(periodTotal)}`}>{formatCurrency(periodTotal)}</span>
-            <span className={`acut-lifetime ${toneClass(secondColumnTotal)}`}>{formatCurrency(secondColumnTotal)}</span>
+            {metricColumns.map((column) => (
+              <span key={column.key} className={`${column.className} ${column.getToneClass(column.totalValue)}`}>
+                {column.formatter(column.totalValue)}
+              </span>
+            ))}
           </div>
         )}
       </div>

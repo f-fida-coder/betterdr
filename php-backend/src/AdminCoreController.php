@@ -2038,7 +2038,7 @@ final class AdminCoreController
                 Response::json([
                     'period' => ['type' => $periodType, 'label' => $periodLabel],
                     'agents' => [],
-                    'totals' => ['periodAmount' => 0.0, 'lifetimeAmount' => 0.0],
+                    'totals' => ['periodAmount' => 0.0, 'ytdAmount' => 0.0, 'lifetimeAmount' => 0.0, 'makeupAmount' => 0.0],
                 ]);
                 return;
             }
@@ -2058,7 +2058,7 @@ final class AdminCoreController
                         ['agentId' => ['$in' => $allAgentObjectIds]],
                         ['createdBy' => ['$in' => $allAgentObjectIds], 'createdByModel' => 'Agent'],
                     ],
-                ], ['projection' => ['id' => 1, 'agentId' => 1, 'createdBy' => 1, 'createdByModel' => 1]]);
+                ], ['projection' => ['id' => 1, 'agentId' => 1, 'createdBy' => 1, 'createdByModel' => 1, 'balance' => 1]]);
                 $allAgentIdSet = array_flip(array_keys($allAgents));
                 foreach ($allUsers as $u) {
                     $uid = (string) ($u['id'] ?? '');
@@ -2077,6 +2077,7 @@ final class AdminCoreController
             $periodNetByAgent = [];
             $ytdNetByAgent = [];
             $lifetimeNetByAgent = []; // all-time
+            $weekMakeupByAgent = [];
             if (count($userIdToAgentId) > 0) {
                 $userObjectIds = [];
                 foreach (array_keys($userIdToAgentId) as $uid) {
@@ -2119,6 +2120,16 @@ final class AdminCoreController
                         }
                     }
                 }
+
+                if ($periodType === 'week') {
+                    $weekMakeupByAgent = $this->computeAgentCutsWeeklyMakeupByAgent(
+                        $allAgents,
+                        $allUsers,
+                        $userIdToAgentId,
+                        $periodStart,
+                        $periodEnd
+                    );
+                }
             }
 
             // 4. Build flat list (only role=agent)
@@ -2127,6 +2138,7 @@ final class AdminCoreController
             $totalPeriodAmount = 0.0;
             $totalYtdAmount = 0.0;
             $totalLifetimeAmount = 0.0;
+            $totalMakeupAmount = 0.0;
             foreach ($allAgents as $aid => $a) {
                 $role = strtolower(trim((string) ($a['role'] ?? '')));
                 if ($role !== 'agent') continue;
@@ -2153,9 +2165,11 @@ final class AdminCoreController
                 $periodAmount = round($cutPct / 100 * $periodNet, 2);
                 $ytdAmount = round($cutPct / 100 * $ytdNet, 2);
                 $lifetimeAmount = round($cutPct / 100 * $lifetimeNet, 2);
+                $makeupAmount = round($weekMakeupByAgent[$aid] ?? 0.0, 2);
                 $totalPeriodAmount += $periodAmount;
                 $totalYtdAmount += $ytdAmount;
                 $totalLifetimeAmount += $lifetimeAmount;
+                $totalMakeupAmount += $makeupAmount;
                 $flatAgents[] = [
                     'id'             => $aid,
                     'username'       => $a['username'] ?? null,
@@ -2163,6 +2177,7 @@ final class AdminCoreController
                     'periodNet'      => $periodNet,
                     'ytdNet'         => $ytdNet,
                     'lifetimeNet'    => $lifetimeNet,
+                    'makeupAmount'   => $makeupAmount,
                     'periodAmount'   => $periodAmount,
                     'ytdAmount'      => $ytdAmount,
                     'lifetimeAmount' => $lifetimeAmount,
@@ -2187,6 +2202,7 @@ final class AdminCoreController
                     'periodAmount'   => round($totalPeriodAmount, 2),
                     'ytdAmount'      => round($totalYtdAmount, 2),
                     'lifetimeAmount' => round($totalLifetimeAmount, 2),
+                    'makeupAmount'   => round($totalMakeupAmount, 2),
                 ],
             ]);
         } catch (Throwable $e) {
@@ -2215,6 +2231,238 @@ final class AdminCoreController
             }
         }
         return null;
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $allAgents
+     * @param array<int, array<string, mixed>> $allUsers
+     * @param array<string, string> $userIdToAgentId
+     * @return array<string, float>
+     */
+    private function computeAgentCutsWeeklyMakeupByAgent(
+        array $allAgents,
+        array $allUsers,
+        array $userIdToAgentId,
+        DateTimeImmutable $weekStart,
+        DateTimeImmutable $weekEnd
+    ): array {
+        $makeupByAgent = [];
+        if (count($userIdToAgentId) === 0) {
+            return $makeupByAgent;
+        }
+
+        $usernameToAgentId = [];
+        $rowAgentIds = [];
+        foreach ($allAgents as $aid => $agent) {
+            $username = strtoupper(trim((string) ($agent['username'] ?? '')));
+            if ($username !== '') {
+                $usernameToAgentId[$username] = $aid;
+            }
+            if (strtolower(trim((string) ($agent['role'] ?? ''))) === 'agent') {
+                $rowAgentIds[$aid] = true;
+            }
+        }
+        if (count($rowAgentIds) === 0) {
+            return $makeupByAgent;
+        }
+
+        $userObjectIds = [];
+        foreach (array_keys($userIdToAgentId) as $uid) {
+            if (preg_match('/^[a-f0-9]{24}$/i', $uid) === 1) {
+                $userObjectIds[] = SqlRepository::id($uid);
+            }
+        }
+        if (count($userObjectIds) === 0) {
+            return $makeupByAgent;
+        }
+
+        $weekTx = $this->db->findMany('transactions', [
+            'status' => 'completed',
+            'createdAt' => [
+                '$gte' => SqlRepository::utcFromMillis($weekStart->getTimestamp() * 1000),
+                '$lt' => SqlRepository::utcFromMillis($weekEnd->getTimestamp() * 1000),
+            ],
+            'userId' => ['$in' => $userObjectIds],
+        ], [
+            'projection' => [
+                'userId' => 1,
+                'amount' => 1,
+                'type' => 1,
+                'entrySide' => 1,
+                'reason' => 1,
+                'description' => 1,
+                'balanceBefore' => 1,
+                'balanceAfter' => 1,
+                'approvedByRole' => 1,
+                'adminId' => 1,
+                'referenceType' => 1,
+            ],
+            'sort' => ['createdAt' => 1],
+        ]);
+
+        $userBalanceById = [];
+        foreach ($allUsers as $user) {
+            $uid = (string) ($user['id'] ?? '');
+            if ($uid !== '') {
+                $userBalanceById[$uid] = $this->num($user['balance'] ?? 0);
+            }
+        }
+
+        $missingRoleAdminIds = [];
+        $activeUserNetsByAgent = [];
+        $weekEndingBalanceByUser = [];
+        foreach ($weekTx as $tx) {
+            $txType = strtolower(trim((string) ($tx['type'] ?? '')));
+            $txUserId = (string) ($tx['userId'] ?? '');
+            $agentId = $userIdToAgentId[$txUserId] ?? '';
+
+            if (($txType === 'deposit' || $txType === 'withdrawal') && !$this->isAgentFundingTransaction($tx)) {
+                $approverRole = trim((string) ($tx['approvedByRole'] ?? ''));
+                if ($approverRole === '') {
+                    $aid = (string) ($tx['adminId'] ?? '');
+                    if ($aid !== '' && preg_match('/^[a-f0-9]{24}$/i', $aid) === 1) {
+                        $missingRoleAdminIds[$aid] = true;
+                    }
+                }
+            }
+
+            if ($agentId !== '' && $this->isWeeklyActiveTransaction($tx)) {
+                $signed = $this->getComprehensiveSignedTransactionAmount($tx);
+                if (!isset($activeUserNetsByAgent[$agentId])) {
+                    $activeUserNetsByAgent[$agentId] = [];
+                }
+                $activeUserNetsByAgent[$agentId][$txUserId] = ($activeUserNetsByAgent[$agentId][$txUserId] ?? 0.0) + $signed;
+                if (array_key_exists('balanceAfter', $tx)) {
+                    $weekEndingBalanceByUser[$txUserId] = $this->num($tx['balanceAfter']);
+                }
+            }
+        }
+
+        $resolvedRoles = [];
+        if (count($missingRoleAdminIds) > 0) {
+            $lookupIds = array_map(static fn (string $id): string => SqlRepository::id($id), array_keys($missingRoleAdminIds));
+            $foundAgents = $this->db->findMany('agents', ['id' => ['$in' => $lookupIds]], ['projection' => ['id' => 1, 'role' => 1]]);
+            foreach ($foundAgents as $agentDoc) {
+                $resolvedRoles[(string) ($agentDoc['id'] ?? '')] = strtolower(trim((string) ($agentDoc['role'] ?? 'agent')));
+            }
+            $foundAdmins = $this->db->findMany('admins', ['id' => ['$in' => $lookupIds]], ['projection' => ['id' => 1]]);
+            foreach ($foundAdmins as $adminDoc) {
+                $resolvedRoles[(string) ($adminDoc['id'] ?? '')] = 'admin';
+            }
+        }
+
+        $linkedApproverIdsByAgent = [];
+        foreach (array_keys($rowAgentIds) as $agentId) {
+            $linkedApproverIdsByAgent[$agentId] = [$agentId => true];
+            $username = strtoupper(trim((string) ($allAgents[$agentId]['username'] ?? '')));
+            $linkedUsername = $username !== '' ? ($username . 'MA') : '';
+            $linkedId = $linkedUsername !== '' ? ($usernameToAgentId[$linkedUsername] ?? '') : '';
+            if ($linkedId !== '' && preg_match('/^[a-f0-9]{24}$/i', $linkedId) === 1) {
+                $linkedApproverIdsByAgent[$agentId][$linkedId] = true;
+            }
+        }
+
+        $agentDepositsByAgent = [];
+        $agentWithdrawalsByAgent = [];
+        $houseDepositsByAgent = [];
+        $houseWithdrawalsByAgent = [];
+        foreach ($weekTx as $tx) {
+            $txType = strtolower(trim((string) ($tx['type'] ?? '')));
+            if ($txType !== 'deposit' && $txType !== 'withdrawal') {
+                continue;
+            }
+            if ($this->isAgentFundingTransaction($tx)) {
+                continue;
+            }
+
+            $txUserId = (string) ($tx['userId'] ?? '');
+            $agentId = $userIdToAgentId[$txUserId] ?? '';
+            if ($agentId === '' || !isset($rowAgentIds[$agentId])) {
+                continue;
+            }
+
+            $approverRole = strtolower(trim((string) ($tx['approvedByRole'] ?? '')));
+            if ($approverRole === '') {
+                $aid = (string) ($tx['adminId'] ?? '');
+                $approverRole = $resolvedRoles[$aid] ?? '';
+            }
+            $amt = $this->num($tx['amount'] ?? 0);
+            $aid = (string) ($tx['adminId'] ?? '');
+            $bucket = AgentSettlementRules::classifyScopedApprover(
+                $approverRole,
+                $aid,
+                $linkedApproverIdsByAgent[$agentId] ?? [],
+                true
+            );
+            if ($bucket === 'agent') {
+                if ($txType === 'deposit') {
+                    $agentDepositsByAgent[$agentId] = ($agentDepositsByAgent[$agentId] ?? 0.0) + $amt;
+                } else {
+                    $agentWithdrawalsByAgent[$agentId] = ($agentWithdrawalsByAgent[$agentId] ?? 0.0) + $amt;
+                }
+            } else {
+                if ($txType === 'deposit') {
+                    $houseDepositsByAgent[$agentId] = ($houseDepositsByAgent[$agentId] ?? 0.0) + $amt;
+                } else {
+                    $houseWithdrawalsByAgent[$agentId] = ($houseWithdrawalsByAgent[$agentId] ?? 0.0) + $amt;
+                }
+            }
+        }
+
+        $weekStartStr = $weekStart->format('Y-m-d\TH:i:s\Z');
+        $priorSnapshots = $this->db->findMany('settlement_snapshots', [
+            'agentId' => ['$in' => array_keys($rowAgentIds)],
+            'weekStartStr' => ['$lt' => $weekStartStr],
+        ], [
+            'sort' => ['weekStartStr' => -1],
+            'projection' => ['agentId' => 1, 'closingMakeup' => 1, 'closingBalanceOwed' => 1],
+        ]);
+        $carryForwardByAgent = [];
+        foreach ($priorSnapshots as $snapshot) {
+            $agentId = (string) ($snapshot['agentId'] ?? '');
+            if ($agentId === '' || isset($carryForwardByAgent[$agentId])) {
+                continue;
+            }
+            $carryForwardByAgent[$agentId] = [
+                'previousMakeup' => $this->num($snapshot['closingMakeup'] ?? 0),
+                'previousBalanceOwed' => $this->num($snapshot['closingBalanceOwed'] ?? 0),
+            ];
+        }
+
+        foreach (array_keys($rowAgentIds) as $agentId) {
+            $activePositive = 0;
+            $activeNonPositive = 0;
+            $activeUsers = $activeUserNetsByAgent[$agentId] ?? [];
+            foreach ($activeUsers as $uid => $net) {
+                if (abs($net) <= 0.001) {
+                    continue;
+                }
+                $balance = $weekEndingBalanceByUser[$uid] ?? ($userBalanceById[$uid] ?? 0.0);
+                if ($balance > 0) {
+                    $activePositive++;
+                } else {
+                    $activeNonPositive++;
+                }
+            }
+
+            $carryForward = $carryForwardByAgent[$agentId] ?? [
+                'previousMakeup' => 0.0,
+                'previousBalanceOwed' => 0.0,
+            ];
+            $agentPercent = isset($allAgents[$agentId]['agentPercent']) ? (float) $allAgents[$agentId]['agentPercent'] : null;
+            $summary = AgentSettlementRules::summarize(
+                ($agentDepositsByAgent[$agentId] ?? 0.0) - ($agentWithdrawalsByAgent[$agentId] ?? 0.0),
+                ($houseDepositsByAgent[$agentId] ?? 0.0) - ($houseWithdrawalsByAgent[$agentId] ?? 0.0),
+                $activePositive * self::FEE_PER_PLAYER,
+                $activeNonPositive * self::FEE_PER_PLAYER,
+                $agentPercent,
+                $carryForward['previousMakeup'],
+                $carryForward['previousBalanceOwed']
+            );
+            $makeupByAgent[$agentId] = round($this->num($summary['cumulativeMakeup'] ?? 0), 2);
+        }
+
+        return $makeupByAgent;
     }
 
     private function getAgentTree(): void

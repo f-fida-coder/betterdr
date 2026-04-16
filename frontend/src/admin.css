@@ -6971,6 +6971,7 @@ button.downline-flat-row:active {
 .agent-cuts-header {
   display: flex;
   align-items: center;
+  gap: 8px;
   padding: 6px 12px;
   background: #f8fafc;
   border-top: 1px solid #e2e8f0;
@@ -6985,6 +6986,7 @@ button.downline-flat-row:active {
 button.agent-cuts-row {
   display: flex;
   align-items: center;
+  gap: 8px;
   width: 100%;
   padding: 7px 12px;
   background: none;
@@ -7002,6 +7004,7 @@ button.agent-cuts-row:hover {
 .agent-cuts-total {
   display: flex;
   align-items: center;
+  gap: 8px;
   padding: 8px 12px;
   border-top: 2px solid #e2e8f0;
   font-weight: 800;
@@ -7009,10 +7012,14 @@ button.agent-cuts-row:hover {
 
 .acut-name {
   flex: 1;
+  min-width: 0;
   font-size: 13px;
   font-weight: 600;
   color: #1e293b;
   text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .acut-cut {
@@ -7024,8 +7031,9 @@ button.agent-cuts-row:hover {
 }
 
 .acut-period,
+.acut-secondary,
 .acut-lifetime {
-  flex: 0 0 100px;
+  flex: 0 0 82px;
   text-align: right;
   font-size: 13px;
   font-weight: 700;
@@ -7033,13 +7041,43 @@ button.agent-cuts-row:hover {
 }
 
 .acut-period.positive,
+.acut-secondary.positive,
 .acut-lifetime.positive {
   color: #15803d;
 }
 
 .acut-period.negative,
+.acut-secondary.negative,
 .acut-lifetime.negative {
   color: #b91c1c;
+}
+
+@media (max-width: 480px) {
+  .agent-cuts-header,
+  button.agent-cuts-row,
+  .agent-cuts-total {
+    gap: 6px;
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+
+  .acut-name,
+  .acut-cut,
+  .acut-period,
+  .acut-secondary,
+  .acut-lifetime {
+    font-size: 12px;
+  }
+
+  .acut-cut {
+    flex-basis: 48px;
+  }
+
+  .acut-period,
+  .acut-secondary,
+  .acut-lifetime {
+    flex-basis: 72px;
+  }
 }
 
 /* ─── End Downline Flat Agent List ────────────────────────────────────────── */
