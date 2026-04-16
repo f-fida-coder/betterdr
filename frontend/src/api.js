@@ -93,6 +93,58 @@ const getHeaders = (token = null) => {
     return headers;
 };
 
+const AUTH_CACHE_TTL_MS = 15_000;
+
+const normalizeStoredRole = (role = '') => String(role || '').toLowerCase().trim();
+
+export const getStoredAuthToken = () => {
+    try {
+        return String(localStorage.getItem('token') || sessionStorage.getItem('token') || '').trim();
+    } catch {
+        return '';
+    }
+};
+
+export const getStoredUserRole = () => {
+    try {
+        return normalizeStoredRole(localStorage.getItem('userRole') || sessionStorage.getItem('userRole') || '');
+    } catch {
+        return '';
+    }
+};
+
+export const syncStoredAuth = ({ token = '', role = '', mirrorToSession = false } = {}) => {
+    const safeToken = String(token || '').trim();
+    const safeRole = normalizeStoredRole(role);
+
+    try {
+        if (safeToken) {
+            localStorage.setItem('token', safeToken);
+            if (mirrorToSession) {
+                sessionStorage.setItem('token', safeToken);
+            }
+        }
+        if (safeRole) {
+            localStorage.setItem('userRole', safeRole);
+            if (mirrorToSession) {
+                sessionStorage.setItem('userRole', safeRole);
+            }
+        }
+    } catch {
+        // Ignore storage failures in restricted/private browser contexts.
+    }
+};
+
+const readAuthUserFromPayload = (payload) => {
+    if (!payload || typeof payload !== 'object') return null;
+    const { token: _token, message: _message, ...user } = payload;
+    return Object.keys(user).length > 0 ? user : null;
+};
+
+const isFreshCacheEntry = (entry, ttlMs = AUTH_CACHE_TTL_MS) => (
+    Boolean(entry) && (Date.now() - entry.createdAt) < ttlMs
+);
+
 // Reads the csrf_token cookie set by the backend after login/refresh/session restore.
 // The backend issues this as a readable (non-httpOnly) cookie so JS can echo it back
 // as X-CSRF-Token on state-changing cookie-auth requests (Double Submit Cookie pattern).
@@ -135,7 +187,10 @@ const parseJsonResponse = async (response, fallbackMessage) => {
         const errorMessage =
             payload?.message ||
             (rawText && !isJson ? `${fallbackMessage}: received HTML/non-JSON response from ${response.url}` : fallbackMessage);
-        throw new Error(errorMessage);
+        const error = new Error(errorMessage);
+        error.status = response.status;
+        error.payload = payload;
+        throw error;
     }
 
     if (isJson) {
@@ -212,6 +267,32 @@ export const fetchWithRefresh = async (url, options = {}) => {
 };
 // ─────────────────────────────────────────────────────────────────────────────
 
+let _authBootstrapPromise = null;
+let _authBootstrapPromiseKey = '';
+let _authBootstrapCache = null;
+
+export const clearAuthBootstrapCache = () => {
+    _authBootstrapPromise = null;
+    _authBootstrapPromiseKey = '';
+    _authBootstrapCache = null;
+};
+
+export const primeAuthBootstrapCache = ({ token = '', role = '', user = null, source = 'manual' } = {}) => {
+    const safeToken = String(token || '').trim();
+    if (!safeToken) return;
+
+    _authBootstrapCache = {
+        key: `token:${safeToken}`,
+        createdAt: Date.now(),
+        value: {
+            token: safeToken,
+            role: normalizeStoredRole(role || user?.role),
+            user,
+            source,
+        },
+    };
+};
+
 // Restore session from httpOnly cookie on page reload (GET — no CSRF token needed).
 export const getSession = async (options = {}) => {
     const timeoutMs = Number.isFinite(options?.timeoutMs) ? Number(options.timeoutMs) : 8000;
@@ -260,7 +341,13 @@ export const loginUser = async (username, password) => {
         headers: getHeaders(),
         body: JSON.stringify({ username, password })
     });
-    return parseJsonResponse(response, 'Login failed');
+    const data = await parseJsonResponse(response, 'Login failed');
+    if (data?.token) {
+        const user = readAuthUserFromPayload(data);
+        primeMeCache(data.token, user);
+        primeAuthBootstrapCache({ token: data.token, role: data.role, user, source: 'login' });
+    }
+    return data;
 };
 
 export const loginAdmin = async (username, password) => {
@@ -269,7 +356,13 @@ export const loginAdmin = async (username, password) => {
         headers: getHeaders(),
         body: JSON.stringify({ username, password })
     });
-    return parseJsonResponse(response, 'Admin login failed');
+    const data = await parseJsonResponse(response, 'Admin login failed');
+    if (data?.token) {
+        const user = readAuthUserFromPayload(data);
+        primeMeCache(data.token, user);
+        primeAuthBootstrapCache({ token: data.token, role: data.role, user, source: 'admin-login' });
+    }
+    return data;
 };
 
 export const loginAgent = async (username, password) => {
@@ -278,7 +371,13 @@ export const loginAgent = async (username, password) => {
         headers: getHeaders(),
         body: JSON.stringify({ username, password })
     });
-    return parseJsonResponse(response, 'Agent login failed');
+    const data = await parseJsonResponse(response, 'Agent login failed');
+    if (data?.token) {
+        const user = readAuthUserFromPayload(data);
+        primeMeCache(data.token, user);
+        primeAuthBootstrapCache({ token: data.token, role: data.role, user, source: 'agent-login' });
+    }
+    return data;
 };
 
 export const registerUser = async (userData) => {
@@ -313,10 +412,108 @@ export const getBalance = async (token) => {
 };
 
 const meRequestCache = new Map();
+const meResponseCache = new Map();
+
+export const primeMeCache = (token, user) => {
+    const cacheKey = String(token || '').trim();
+    if (!cacheKey || !user || typeof user !== 'object') return;
+
+    meResponseCache.set(cacheKey, {
+        createdAt: Date.now(),
+        value: user,
+    });
+};
+
+export const invalidateMeCache = (token = '') => {
+    const cacheKey = String(token || '').trim();
+
+    if (cacheKey) {
+        meRequestCache.delete(cacheKey);
+        meResponseCache.delete(cacheKey);
+        return;
+    }
+
+    meRequestCache.clear();
+    meResponseCache.clear();
+};
+
+export const bootstrapAuthSession = async (options = {}) => {
+    const timeoutMs = Number.isFinite(options?.timeoutMs) ? Number(options.timeoutMs) : 8000;
+    const token = getStoredAuthToken();
+    const cacheKey = token ? `token:${token}` : 'no-token';
+
+    if (isFreshCacheEntry(_authBootstrapCache) && _authBootstrapCache?.key === cacheKey) {
+        return _authBootstrapCache.value;
+    }
+
+    if (_authBootstrapPromise && _authBootstrapPromiseKey === cacheKey) {
+        return _authBootstrapPromise;
+    }
+
+    _authBootstrapPromiseKey = cacheKey;
+    _authBootstrapPromise = (async () => {
+        try {
+            if (token) {
+                const me = await getMe(token, { timeoutMs });
+                const value = {
+                    token,
+                    role: normalizeStoredRole(me?.role || getStoredUserRole()),
+                    user: me,
+                    source: 'token',
+                };
+                syncStoredAuth({ token, role: value.role });
+                _authBootstrapCache = {
+                    key: cacheKey,
+                    createdAt: Date.now(),
+                    value,
+                };
+                return value;
+            }
+
+            const session = await getSession({ timeoutMs });
+            if (!session?.token) {
+                _authBootstrapCache = {
+                    key: cacheKey,
+                    createdAt: Date.now(),
+                    value: null,
+                };
+                return null;
+            }
+
+            const value = {
+                token: String(session.token).trim(),
+                role: normalizeStoredRole(session.role),
+                user: readAuthUserFromPayload(session),
+                source: 'cookie',
+            };
+            syncStoredAuth({ token: value.token, role: value.role });
+            _authBootstrapCache = {
+                key: `token:${value.token}`,
+                createdAt: Date.now(),
+                value,
+            };
+            return value;
+        } finally {
+            _authBootstrapPromise = null;
+            _authBootstrapPromiseKey = '';
+        }
+    })();
+
+    return _authBootstrapPromise;
+};
 
 export const getMe = async (token, options = {}) => {
     const timeoutMs = Number.isFinite(options?.timeoutMs) ? Number(options.timeoutMs) : 30000;
     const cacheKey = token || '';
+    const useCache = options?.useCache !== false;
+
+    if (cacheKey && useCache) {
+        const cached = meResponseCache.get(cacheKey);
+        if (isFreshCacheEntry(cached)) {
+            return cached.value;
+        }
+        meResponseCache.delete(cacheKey);
+    }
 
     if (cacheKey && meRequestCache.has(cacheKey)) {
         return meRequestCache.get(cacheKey);
@@ -339,7 +536,11 @@ export const getMe = async (token, options = {}) => {
                 throw error;
             }
 
-            return await response.json();
+            const user = await response.json();
+            if (cacheKey) {
+                primeMeCache(cacheKey, user);
+            }
+            return user;
         } catch (error) {
             if (error?.name === 'AbortError') {
                 const timeoutError = new Error('Session validation timed out. Please try again.');
@@ -370,7 +571,12 @@ export const updateProfile = async (profileData, token) => {
         const error = await response.json();
         throw new Error(error.message || 'Failed to update profile');
     }
-    return response.json();
+    const data = await response.json();
+    if (token && data?.user) {
+        primeMeCache(token, data.user);
+        primeAuthBootstrapCache({ token, role: data.user.role, user: data.user, source: 'profile-update' });
+    }
+    return data;
 };
 
 const buildMatchesParams = (status = '', options = {}) => {

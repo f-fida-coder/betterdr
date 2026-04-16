@@ -1174,10 +1174,10 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
   const pendingBalance = toMoneyNumber(customer?.pendingBalance, 0);
   const freeplayBalanceValue = toMoneyNumber(customer?.freeplayBalance, 0);
   const lifetimePlusMinusValue = toMoneyNumber(customer?.lifetimePlusMinus ?? customer?.lifetime, 0);
-  const creditLimitValue = pickMoneyValue(form.creditLimit, customer?.creditLimit);
-  const settleLimitValue = pickMoneyValue(form.settleLimit, customer?.balanceOwed);
-  const minBetValue = toMoneyNumber(customer?.minBet ?? form.minBet, 0);
-  const maxBetValue = toMoneyNumber(customer?.maxBet ?? customer?.wagerLimit ?? form.wagerLimit, 0);
+  const creditLimitValue = pickMoneyValue(form.creditLimit, customer?.creditLimit ?? customer?.defaultCreditLimit);
+  const settleLimitValue = pickMoneyValue(form.settleLimit, customer?.balanceOwed ?? customer?.defaultSettleLimit);
+  const minBetValue = toMoneyNumber(customer?.minBet ?? customer?.defaultMinBet ?? form.minBet, 0);
+  const maxBetValue = toMoneyNumber(customer?.maxBet ?? customer?.defaultMaxBet ?? customer?.wagerLimit ?? form.wagerLimit, 0);
   const displayedAgentBalance = isAgent && agentSettlementBalance !== null
     ? toMoneyNumber(agentSettlementBalance, 0)
     : customerBalance;
@@ -1446,15 +1446,37 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
       }
       const persistedPayload = { ...payload };
       delete persistedPayload.allowDuplicateSave;
-      setCustomer((prev) => ({
-        ...prev,
-        ...persistedPayload,
-        displayPassword: isAgent ? (prev?.displayPassword || '') : (policyPassword || prev?.displayPassword || ''),
-        settings: {
-          ...(prev?.settings || {}),
-          ...persistedPayload.settings
-        }
-      }));
+      if (isAgent) {
+        // For agents, merge the agent-format fields so the normalizer's
+        // default* fallback values stay consistent with what was saved.
+        setCustomer((prev) => ({
+          ...prev,
+          firstName: persistedPayload.firstName,
+          lastName: persistedPayload.lastName,
+          fullName: persistedPayload.fullName,
+          phoneNumber: persistedPayload.phoneNumber,
+          status: persistedPayload.status,
+          defaultMinBet: Number(form.minBet || 0),
+          defaultMaxBet: Number(form.wagerLimit || 0),
+          defaultCreditLimit: Number(form.creditLimit || 0),
+          defaultSettleLimit: Number(form.settleLimit || 0),
+          minBet: Number(form.minBet || 0),
+          maxBet: Number(form.wagerLimit || 0),
+          creditLimit: Number(form.creditLimit || 0),
+          balanceOwed: Number(form.settleLimit || 0),
+          displayPassword: prev?.displayPassword || '',
+        }));
+      } else {
+        setCustomer((prev) => ({
+          ...prev,
+          ...persistedPayload,
+          displayPassword: policyPassword || prev?.displayPassword || '',
+          settings: {
+            ...(prev?.settings || {}),
+            ...persistedPayload.settings
+          }
+        }));
+      }
       const duplicateWarningPayload = result?.duplicateWarning;
       if (duplicateWarningPayload && typeof duplicateWarningPayload === 'object') {
         setDuplicateWarning({

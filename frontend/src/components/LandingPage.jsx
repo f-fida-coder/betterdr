@@ -4,18 +4,7 @@ import LeagueNav from './LeagueNav';
 import Hero from './Hero';
 
 const LandingPage = ({ onLogin, isLoggedIn }) => {
-    const [loginForm, setLoginForm] = useState({ username: '', password: '' });
-    const [loginError, setLoginError] = useState('');
     const [activeLeague, setActiveLeague] = useState('all');
-
-    const handleFormLogin = async () => {
-        try {
-            await onLogin(loginForm.username, loginForm.password);
-            setLoginError('');
-        } catch (err) {
-            setLoginError(err.message || 'Login failed');
-        }
-    };
 
     return (
         <div className="landing-page">
@@ -23,14 +12,36 @@ const LandingPage = ({ onLogin, isLoggedIn }) => {
             <LeagueNav activeLeague={activeLeague} onSelectLeague={setActiveLeague} />
             <Hero />
             <div className="banner-content-centered">
-                <img src="/logo.png" alt="bettorplays247" className="banner-logo" />
+                <picture>
+                    <source srcSet="/logo.webp" type="image/webp" />
+                    <img
+                        src="/logo.png"
+                        alt="bettorplays247"
+                        className="banner-logo"
+                        width="384"
+                        height="384"
+                        loading="lazy"
+                        decoding="async"
+                    />
+                </picture>
                 <div className="banner-divider"></div>
                 <p className="banner-tagline">THE PREMIUM CHOICE FOR WINNERS</p>
             </div>
             <footer className="main-footer">
                 <div className="footer-content">
                     <div className="footer-left">
-                        <img src="/logo.png" alt="Logo" className="footer-logo" />
+                        <picture>
+                            <source srcSet="/logo.webp" type="image/webp" />
+                            <img
+                                src="/logo.png"
+                                alt="Logo"
+                                className="footer-logo"
+                                width="384"
+                                height="384"
+                                loading="lazy"
+                                decoding="async"
+                            />
+                        </picture>
                         <p className="copyright">© 2026 bettorplays247 | All Rights Reserved</p>
                     </div>
                     <div className="footer-right">

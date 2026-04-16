@@ -1,0 +1,13 @@
+RewriteEngine On
+
+# Preserve Authorization header for PHP auth middleware.
+RewriteCond %{HTTP:Authorization} .+
+RewriteRule ^ - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+# Serve existing files/directories normally.
+RewriteCond %{REQUEST_FILENAME} -f [OR]
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule ^ - [L]
+
+# Route all /api/* traffic to PHP API entrypoint.
+RewriteRule ^ index.php [QSA,L]

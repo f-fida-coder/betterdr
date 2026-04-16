@@ -1,45 +1,46 @@
-import React, { useState, useEffect } from 'react';
+import React, { Suspense, lazy, useEffect, useState } from 'react';
 import AdminDashboard from './AdminDashboard';
 import AdminHeader from './AdminHeader';
 import AdminSidebar from './AdminSidebar';
-import WeeklyFiguresView from './admin-views/WeeklyFiguresView';
-import PendingView from './admin-views/PendingView';
-import MessagingView from './admin-views/MessagingView';
-import GameAdminView from './admin-views/GameAdminView';
-import CasinoBetsView from './admin-views/CasinoBetsView';
-import CustomerAdminView from './admin-views/CustomerAdminView';
-import CashierView from './admin-views/CashierView';
-import AddCustomerView from './admin-views/AddCustomerView';
-import ThirdPartyLimitsView from './admin-views/ThirdPartyLimitsView';
-import PropsView from './admin-views/PropsView';
-import AgentPerformanceView from './admin-views/AgentPerformanceView';
-import AnalysisView from './admin-views/AnalysisView';
-import IPTrackerView from './admin-views/IPTrackerView';
-import TransactionsHistoryView from './admin-views/TransactionsHistoryView';
-import DeletedWagersView from './admin-views/DeletedWagersView';
-import GamesEventsView from './admin-views/GamesEventsView';
-import SportsBookLinksView from './admin-views/SportsBookLinksView';
-import BetTickerView from './admin-views/BetTickerView';
-import TicketWriterView from './admin-views/TicketWriterView';
-import ScoresView from './admin-views/ScoresView';
-import AgentAdminView from './admin-views/AgentAdminView';
-import MasterAgentManagerView from './admin-views/MasterAgentManagerView';
-import BillingView from './admin-views/BillingView';
-import SettingsView from './admin-views/SettingsView';
-import RulesView from './admin-views/RulesAdminView';
-import FeedbackView from './admin-views/FeedbackView';
-import FAQView from './admin-views/FAQView';
-import UserManualView from './admin-views/UserManualView';
-import SystemMonitorView from './admin-views/SystemMonitorView';
-import ProfileView from './admin-views/ProfileView';
-import ScoreboardSidebar from './ScoreboardSidebar';
 import '../admin.css';
 import { canManageIpTracker, hasViewPermission } from '../utils/adminPermissions';
-
-import CustomerDetailsView from './admin-views/CustomerDetailsView';
 import ErrorBoundary from './ErrorBoundary';
+import LoadingSpinner from './LoadingSpinner';
 
 import { getMe, impersonateUser } from '../api';
+
+const WeeklyFiguresView = lazy(() => import('./admin-views/WeeklyFiguresView'));
+const PendingView = lazy(() => import('./admin-views/PendingView'));
+const MessagingView = lazy(() => import('./admin-views/MessagingView'));
+const GameAdminView = lazy(() => import('./admin-views/GameAdminView'));
+const CasinoBetsView = lazy(() => import('./admin-views/CasinoBetsView'));
+const CustomerAdminView = lazy(() => import('./admin-views/CustomerAdminView'));
+const CashierView = lazy(() => import('./admin-views/CashierView'));
+const AddCustomerView = lazy(() => import('./admin-views/AddCustomerView'));
+const ThirdPartyLimitsView = lazy(() => import('./admin-views/ThirdPartyLimitsView'));
+const PropsView = lazy(() => import('./admin-views/PropsView'));
+const AgentPerformanceView = lazy(() => import('./admin-views/AgentPerformanceView'));
+const AnalysisView = lazy(() => import('./admin-views/AnalysisView'));
+const IPTrackerView = lazy(() => import('./admin-views/IPTrackerView'));
+const TransactionsHistoryView = lazy(() => import('./admin-views/TransactionsHistoryView'));
+const DeletedWagersView = lazy(() => import('./admin-views/DeletedWagersView'));
+const GamesEventsView = lazy(() => import('./admin-views/GamesEventsView'));
+const SportsBookLinksView = lazy(() => import('./admin-views/SportsBookLinksView'));
+const BetTickerView = lazy(() => import('./admin-views/BetTickerView'));
+const TicketWriterView = lazy(() => import('./admin-views/TicketWriterView'));
+const ScoresView = lazy(() => import('./admin-views/ScoresView'));
+const AgentAdminView = lazy(() => import('./admin-views/AgentAdminView'));
+const MasterAgentManagerView = lazy(() => import('./admin-views/MasterAgentManagerView'));
+const BillingView = lazy(() => import('./admin-views/BillingView'));
+const SettingsView = lazy(() => import('./admin-views/SettingsView'));
+const RulesView = lazy(() => import('./admin-views/RulesAdminView'));
+const FeedbackView = lazy(() => import('./admin-views/FeedbackView'));
+const FAQView = lazy(() => import('./admin-views/FAQView'));
+const UserManualView = lazy(() => import('./admin-views/UserManualView'));
+const SystemMonitorView = lazy(() => import('./admin-views/SystemMonitorView'));
+const ProfileView = lazy(() => import('./admin-views/ProfileView'));
+const CustomerDetailsView = lazy(() => import('./admin-views/CustomerDetailsView'));
+const ScoreboardSidebar = lazy(() => import('./ScoreboardSidebar'));
 
 const FALLBACK_VIEW_ORDER = [
   'dashboard',
@@ -50,6 +51,10 @@ const FALLBACK_VIEW_ORDER = [
   'settings',
   'profile'
 ];
+
+const ViewLoadingFallback = ({ label = 'Loading admin view...' }) => (
+  <LoadingSpinner variant="section" label={label} />
+);
 
 function AdminPanel({ onExit, role = 'admin' }) {
   const [adminView, setAdminView] = useState('dashboard');
@@ -209,95 +214,117 @@ function AdminPanel({ onExit, role = 'admin' }) {
     setBaseContextLabel(baseUsername ? `${roleLabel} (${String(baseUsername).toUpperCase()})` : roleLabel);
   }, []);
 
+  const renderLazyView = (element, label = 'Loading admin view...') => (
+    <Suspense fallback={<ViewLoadingFallback label={label} />}>
+      {element}
+    </Suspense>
+  );
+
   const renderView = () => {
+    const dashboardProps = {
+      onMenuClick: handleViewChange,
+      onOpenScoreboard: () => setShowScoreboard(true),
+      onSwitchContext: handleSwitchContext,
+      role: effectiveRole,
+      layoutPref,
+      isMobile,
+      permissions,
+    };
+
     switch (adminView) {
       case 'dashboard':
-        return (
-          <AdminDashboard
-            onMenuClick={handleViewChange}
-            onOpenScoreboard={() => setShowScoreboard(true)}
-            onSwitchContext={handleSwitchContext}
-            role={effectiveRole}
-            layoutPref={layoutPref}
-            isMobile={isMobile}
-            permissions={permissions}
-          />
-        );
+        return <AdminDashboard {...dashboardProps} />;
       case 'user-details':
-        return (
+        return renderLazyView(
           <CustomerDetailsView
             userId={selectedUserId}
             onBack={() => setAdminView('customer-admin')}
             onNavigateToUser={(nextUserId) => handleViewChange('user-details', nextUserId)}
             role={effectiveRole}
             viewContext={viewContext}
-          />
+          />,
+          'Loading customer details...'
         );
       case 'weekly-figures':
-        return <WeeklyFiguresView onViewChange={handleViewChange} viewContext={viewContext} />;
+        return renderLazyView(
+          <WeeklyFiguresView onViewChange={handleViewChange} viewContext={viewContext} />,
+          'Loading weekly figures...'
+        );
       case 'pending':
-        return <PendingView />;
+        return renderLazyView(<PendingView />, 'Loading pending transactions...');
       case 'messaging':
-        return <MessagingView />;
+        return renderLazyView(<MessagingView />, 'Loading messaging...');
       case 'game-admin':
-        return <GameAdminView />;
+        return renderLazyView(<GameAdminView />, 'Loading game admin...');
       case 'casino-bets':
-        return <CasinoBetsView />;
+        return renderLazyView(<CasinoBetsView />, 'Loading casino bets...');
       case 'customer-admin':
-        return <CustomerAdminView onViewChange={handleViewChange} />;
+        return renderLazyView(
+          <CustomerAdminView onViewChange={handleViewChange} />,
+          'Loading customer admin...'
+        );
       case 'cashier':
-        return <CashierView />;
+        return renderLazyView(<CashierView />, 'Loading cashier...');
       case 'add-customer':
-        return <AddCustomerView onBack={() => setAdminView('customer-admin')} />;
+        return renderLazyView(
+          <AddCustomerView onBack={() => setAdminView('customer-admin')} />,
+          'Loading add customer...'
+        );
       case 'third-party-limits':
-        return <ThirdPartyLimitsView />;
+        return renderLazyView(<ThirdPartyLimitsView />, 'Loading limits...');
       case 'props':
-        return <PropsView />;
+        return renderLazyView(<PropsView />, 'Loading props...');
       case 'agent-performance':
-        return <AgentPerformanceView />;
+        return renderLazyView(<AgentPerformanceView />, 'Loading agent performance...');
       case 'analysis':
-        return <AnalysisView />;
+        return renderLazyView(<AnalysisView />, 'Loading analysis...');
       case 'ip-tracker':
-        return <IPTrackerView canManage={canManageIpTracker(effectiveRole, permissions)} />;
+        return renderLazyView(
+          <IPTrackerView canManage={canManageIpTracker(effectiveRole, permissions)} />,
+          'Loading IP tracker...'
+        );
       case 'transaction-history':
       case 'transactions-history':
-        return <TransactionsHistoryView viewContext={viewContext} />;
+        return renderLazyView(
+          <TransactionsHistoryView viewContext={viewContext} />,
+          'Loading transaction history...'
+        );
       case 'deleted-wagers':
-        return <DeletedWagersView />;
+        return renderLazyView(<DeletedWagersView />, 'Loading deleted wagers...');
       case 'games-events':
-        return <GamesEventsView />;
+        return renderLazyView(<GamesEventsView />, 'Loading games and events...');
       case 'sportsbook-links':
-        return <SportsBookLinksView />;
+        return renderLazyView(<SportsBookLinksView />, 'Loading sportsbook links...');
       case 'bet-ticker':
-        return <BetTickerView />;
+        return renderLazyView(<BetTickerView />, 'Loading bet ticker...');
       case 'ticketwriter':
-        return <TicketWriterView />;
+        return renderLazyView(<TicketWriterView />, 'Loading ticket writer...');
       case 'scores':
-        return <ScoresView />;
+        return renderLazyView(<ScoresView />, 'Loading scores...');
       case 'agent-admin':
-        return <AgentAdminView />;
+        return renderLazyView(<AgentAdminView />, 'Loading agent admin...');
       case 'agent-manager':
-        return <MasterAgentManagerView />;
+        return renderLazyView(<MasterAgentManagerView />, 'Loading agent manager...');
       case 'master-agent-admin':
-        return <AgentAdminView />;
+        return renderLazyView(<AgentAdminView />, 'Loading agent admin...');
       case 'billing':
-        return <BillingView />;
+        return renderLazyView(<BillingView />, 'Loading billing...');
       case 'settings':
-        return <SettingsView />;
+        return renderLazyView(<SettingsView />, 'Loading settings...');
       case 'profile':
-        return <ProfileView />;
+        return renderLazyView(<ProfileView />, 'Loading profile...');
       case 'rules':
-        return <RulesView />;
+        return renderLazyView(<RulesView />, 'Loading rules...');
       case 'feedback':
-        return <FeedbackView />;
+        return renderLazyView(<FeedbackView />, 'Loading feedback...');
       case 'faq':
-        return <FAQView />;
+        return renderLazyView(<FAQView />, 'Loading FAQs...');
       case 'user-manual':
-        return <UserManualView />;
+        return renderLazyView(<UserManualView />, 'Loading user manual...');
       case 'monitor':
-        return <SystemMonitorView />;
+        return renderLazyView(<SystemMonitorView />, 'Loading monitor...');
       default:
-        return <AdminDashboard onMenuClick={handleViewChange} onOpenScoreboard={() => setShowScoreboard(true)} onSwitchContext={handleSwitchContext} role={effectiveRole} permissions={permissions} />;
+        return <AdminDashboard {...dashboardProps} />;
     }
   };
 
@@ -331,7 +358,11 @@ function AdminPanel({ onExit, role = 'admin' }) {
           </ErrorBoundary>
         </div>
       </div>
-      {showScoreboard && <ScoreboardSidebar onClose={() => setShowScoreboard(false)} />}
+      {showScoreboard && (
+        <Suspense fallback={<LoadingSpinner variant="overlay" label="Loading scoreboard..." />}>
+          <ScoreboardSidebar onClose={() => setShowScoreboard(false)} />
+        </Suspense>
+      )}
     </div>
   );
 }

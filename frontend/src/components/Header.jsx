@@ -35,7 +35,16 @@ const Header = ({ onLogin, isLoggedIn }) => {
     return (
         <header className="main-header">
             <div className="logo">
-                <img src="/logo.png" alt="bettorplays247" />
+                <picture>
+                    <source srcSet="/logo.webp" type="image/webp" />
+                    <img
+                        src="/logo.png"
+                        alt="bettorplays247"
+                        width="384"
+                        height="384"
+                        decoding="async"
+                    />
+                </picture>
             </div>
 
             {!isLoggedIn ? (

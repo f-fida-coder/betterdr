@@ -1,15 +1,20 @@
 import React, { useState, useEffect, useRef, Suspense } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { loginUser, getMe, getSession, logoutSession, getPublicBetModeRules, normalizeBetMode, updateProfile } from './api';
-import DashboardHeader from './components/DashboardHeader';
-import DashboardSidebar from './components/DashboardSidebar';
-import DashboardMain from './components/DashboardMain';
-import MobileGridMenu from './components/MobileGridMenu';
-import MobileContentView from './components/MobileContentView';
-import PromoCard from './components/PromoCard';
-import ChatWidget from './components/ChatWidget';
+import {
+  bootstrapAuthSession,
+  clearAuthBootstrapCache,
+  getMe,
+  getPublicBetModeRules,
+  invalidateMeCache,
+  loginUser,
+  logoutSession,
+  normalizeBetMode,
+  primeAuthBootstrapCache,
+  primeMeCache,
+  syncStoredAuth,
+  updateProfile
+} from './api';
 import LandingPage from './components/LandingPage';
-import ModeBetPanel from './components/ModeBetPanel';
 import LoadingSpinner from './components/LoadingSpinner';
 import { useToast } from './contexts/ToastContext';
 import { OddsFormatProvider } from './contexts/OddsFormatContext';
@@ -17,16 +22,7 @@ import { normalizeOddsFormat, readStoredOddsFormat, writeStoredOddsFormat } from
 import './index.css';
 import './dashboard.css';
 
-const PrimeLiveView = React.lazy(() => import('./components/PrimeLiveView'));
-const UltraLiveView = React.lazy(() => import('./components/UltraLiveView'));
-const CasinoView = React.lazy(() => import('./components/CasinoView'));
-const LiveCasinoView = React.lazy(() => import('./components/LiveCasinoView'));
-const PropsView = React.lazy(() => import('./components/PropsView'));
-const RulesView = React.lazy(() => import('./components/RulesView'));
-const BonusView = React.lazy(() => import('./components/BonusView'));
-const TutorialsView = React.lazy(() => import('./components/TutorialsView'));
-const SupportView = React.lazy(() => import('./components/SupportView'));
-const MyBetsView = React.lazy(() => import('./components/MyBetsView'));
+const UserDashboardShell = React.lazy(() => import('./components/UserDashboardShell'));
 
 // Structural placeholder only — no hardcoded multipliers.
 // Real values are loaded from /api/betting/rules (DB) on login and merged in below.
@@ -102,29 +98,20 @@ function App() {
 
     const restoreSession = async () => {
       try {
-        const result = await getSession({ timeoutMs: 8000 });
+        const result = await bootstrapAuthSession({ timeoutMs: 8000 });
         if (isMounted && result?.token) {
           setToken(result.token);
-          // Keep localStorage in sync so ProtectedRoleRoute can validate
-          // without a second network round-trip on the same page load.
-          localStorage.setItem('token', result.token);
-          localStorage.setItem('userRole', result.role || 'user');
           setIsLoggedIn(true);
           document.body.classList.add('dashboard-mode');
-          setUser({
-            username: result.username,
-            phoneNumber: result.phoneNumber,
-            balance: result.balance,
-            pendingBalance: result.pendingBalance,
-            availableBalance: result.availableBalance,
-            id: result.id,
-            role: result.role,
-            unlimitedBalance: result.unlimitedBalance,
-            settings: result.settings || null,
-          });
+          setUser(result.user || null);
         }
-      } catch {
-        // No valid cookie — user needs to log in
+      } catch (error) {
+        if (error?.status === 401 || error?.status === 403) {
+          clearAuthBootstrapCache();
+          localStorage.removeItem('token');
+          localStorage.removeItem('userRole');
+          document.body.classList.remove('dashboard-mode');
+        }
       } finally {
         if (isMounted) {
           setIsSessionBootstrapping(false);
@@ -218,6 +205,7 @@ function App() {
     try {
       const userData = await getMe(authToken);
       setUser(userData);
+      primeAuthBootstrapCache({ token: authToken, role: userData?.role, user: userData, source: 'user-refresh' });
     } catch (e) {
       console.error('Failed to fetch user data', e);
       // Logout only when token is invalid/forbidden; keep session on transient errors.
@@ -231,16 +219,7 @@ function App() {
     try {
       // Call real backend authentication
       const result = await loginUser(username, password);
-
-      // Primary auth: httpOnly cookie is set by the backend on every login response.
-      // localStorage write below is kept for backward compat with legacy admin/agent
-      // components — migrate them to use the cookie/session gradually.
-      setToken(result.token);
-      localStorage.setItem('token', result.token);
-      localStorage.setItem('userRole', result.role);
-
-      // Store user data from the backend response
-      setUser({
+      const authenticatedUser = {
         username: result.username,
         phoneNumber: result.phoneNumber,
         balance: result.balance,
@@ -250,7 +229,18 @@ function App() {
         role: result.role,
         unlimitedBalance: result.unlimitedBalance,
         settings: result.settings || null,
-      });
+      };
+
+      // Primary auth: httpOnly cookie is set by the backend on every login response.
+      // localStorage write below is kept for backward compat with legacy admin/agent
+      // components — migrate them to use the cookie/session gradually.
+      setToken(result.token);
+      syncStoredAuth({ token: result.token, role: result.role });
+      primeMeCache(result.token, authenticatedUser);
+      primeAuthBootstrapCache({ token: result.token, role: result.role, user: authenticatedUser, source: 'login' });
+
+      // Store user data from the backend response
+      setUser(authenticatedUser);
 
       setIsLoggedIn(true);
       document.body.classList.add('dashboard-mode');
@@ -269,6 +259,7 @@ function App() {
   };
 
   const handleLogout = () => {
+    const activeToken = token;
     setToken(null);
     setUser(null);
     setIsLoggedIn(false);
@@ -276,6 +267,8 @@ function App() {
     setWager('');
     setTeaserPoints('');
     hasRedirectedRole.current = false; // allow redirect again on next login
+    clearAuthBootstrapCache();
+    invalidateMeCache(activeToken || '');
     localStorage.removeItem('token');   // clear legacy cache
     localStorage.removeItem('userRole');
     document.body.classList.remove('dashboard-mode');
@@ -390,142 +383,36 @@ function App() {
       ) : !isLoggedIn ? (
         <LandingPage onLogin={handleLogin} isLoggedIn={isLoggedIn} />
       ) : (
-        <div className="dashboard-layout">
-            <DashboardHeader
-            username={user?.username || 'Guest'}
-            balance={user?.balance ?? null}
-            pendingBalance={user?.pendingBalance ?? null}
-            availableBalance={user?.availableBalance ?? user?.balance ?? null}
-            role={user?.role} // Pass role
-            unlimitedBalance={user?.unlimitedBalance} // Pass unlimitedBalance
+        <Suspense fallback={<LoadingSpinner variant="overlay" label="Loading dashboard..." />}>
+          <UserDashboardShell
+            user={user}
+            token={token}
+            dashboardView={dashboardView}
+            selectedSports={selectedSports}
+            betMode={betMode}
+            mobileSidebarOpen={mobileSidebarOpen}
+            showPromo={showPromo}
+            mobileViewState={mobileViewState}
+            isMobileViewport={isMobileViewport}
+            slipSelections={slipSelections}
+            wager={wager}
+            teaserPoints={teaserPoints}
+            betModeRules={betModeRules}
             onLogout={handleLogout}
             onViewChange={handleViewChange}
-            activeBetMode={betMode}
-            onBetModeChange={handleBetModeChange}
-            currentView={dashboardView}
             onToggleSidebar={() => setMobileSidebarOpen(!mobileSidebarOpen)}
-            selectedSports={selectedSports}
-            mobileViewState={mobileViewState}
             onContinue={handleContinue}
             onMobileBack={handleMobileBack}
             onHomeClick={handleHomeClick}
+            onSportToggle={handleSportToggle}
+            onBetModeChange={handleBetModeChange}
+            onCloseSidebar={() => setMobileSidebarOpen(false)}
+            onSelectionsChange={setSlipSelections}
+            onWagerChange={setWager}
+            onTeaserPointsChange={setTeaserPoints}
+            onBetPlaced={() => fetchUserData(token)}
           />
-
-          <div className="dashboard-content-area" style={{ position: 'relative', marginTop: '0' }}>
-            {mobileSidebarOpen && (
-              <MobileGridMenu
-                onClose={() => setMobileSidebarOpen(false)}
-                onViewChange={handleViewChange}
-              />
-            )}
-
-            {dashboardView === 'dashboard' && (
-              <>
-                {isMobileViewport && mobileViewState === 'results' ? (
-                  // Mobile results: user clicked Continue
-                  <MobileContentView selectedSports={selectedSports} />
-                ) : isMobileViewport ? (
-                  // Mobile browsing or selected: show sports menu
-                  <DashboardSidebar
-                    selectedSports={selectedSports}
-                    onToggleSport={handleSportToggle}
-                    betMode={betMode}
-                    isOpen={true}
-                    onCloseSidebar={() => setMobileSidebarOpen(false)}
-                    isMobileSportsSelectionMode={true}
-                  />
-                ) : (
-                  // Desktop view
-                  <>
-                    <DashboardSidebar
-                      selectedSports={selectedSports}
-                      onToggleSport={handleSportToggle}
-                      betMode={betMode}
-                      isOpen={mobileSidebarOpen}
-                      onCloseSidebar={() => setMobileSidebarOpen(false)}
-                      isMobileSportsSelectionMode={false}
-                    />
-                    <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-                      {showPromo && <PromoCard />}
-                      <div style={{ flex: 1 }}>
-                        <DashboardMain selectedSports={selectedSports} activeBetMode={betMode} />
-                      </div>
-                    </div>
-                  </>
-                )}
-              </>
-            )}
-
-            <Suspense fallback={<LoadingSpinner variant="inline" label="Loading..." />}>
-            {dashboardView === 'prime-live' && <PrimeLiveView />}
-
-            {dashboardView === 'ultra-live' && <UltraLiveView />}
-
-            {dashboardView === 'casino' && (
-              <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-                <CasinoView />
-              </div>
-            )}
-
-            {dashboardView === 'live-casino' && (
-              <div style={{ flex: 1, backgroundColor: '#505050', minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-                <LiveCasinoView />
-              </div>
-            )}
-
-            {dashboardView === 'props' && <PropsView />}
-
-            {dashboardView === 'rules' && <RulesView />}
-
-            {dashboardView === 'bonus' && <BonusView />}
-
-            {dashboardView === 'tutorials' && <TutorialsView />}
-
-            {dashboardView === 'support' && <SupportView />}
-
-            {dashboardView === 'my-bets' && <MyBetsView />}
-            </Suspense>
-          </div>
-
-          <ChatWidget />
-
-          <div className="desktop-feedback-trigger" style={{
-            position: 'fixed',
-            bottom: '0',
-            left: '0',
-            width: '260px',
-            background: '#004d26',
-            color: 'white',
-            padding: '10px',
-            textAlign: 'center',
-            fontWeight: 'bold',
-            fontSize: '12px',
-            zIndex: 100
-          }}>
-            FEEDBACK
-          </div>
-
-          {isLoggedIn && user && user.role === 'user' && (
-            <ModeBetPanel
-              user={user}
-              balance={user.balance}
-              availableBalance={user.availableBalance ?? user.balance}
-              freeplayBalance={user.freeplayBalance ?? 0}
-              freeplayExpiresAt={user.freeplayExpiresAt ?? null}
-              mode={betMode}
-              onModeChange={handleBetModeChange}
-              selections={slipSelections}
-              onSelectionsChange={setSlipSelections}
-              wager={wager}
-              onWagerChange={setWager}
-              teaserPoints={teaserPoints}
-              onTeaserPointsChange={setTeaserPoints}
-              rulesByMode={betModeRules}
-              onBetPlaced={() => fetchUserData(token)}
-            />
-          )}
-
-        </div>
+        </Suspense>
       )}
       </div>
     </OddsFormatProvider>

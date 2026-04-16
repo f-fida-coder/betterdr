@@ -79,7 +79,7 @@ body::before {
   height: 100%;
   background:
     radial-gradient(circle at 50% 50%, rgba(255, 215, 0, 0.1) 0%, rgba(5, 5, 7, 0.2) 100%),
-    url('/premium-bg.png');
+    url('/premium-bg.webp');
 
   background-size: cover;
   background-position: center;
@@ -264,7 +264,7 @@ body::after {
   width: 100%;
   height: 150px;
   border-radius: 20px;
-  background: url('/arena-banner.png') center/cover no-repeat;
+  background: url('/arena-banner.webp') center/cover no-repeat;
   position: relative;
   overflow: hidden;
   border: 1px solid var(--border-glass);
@@ -416,6 +416,12 @@ body::after {
   transition: all 0.5s ease;
 }
 
+.hero-banner-picture {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
 .hero-controls {
   position: absolute;
   bottom: 20px;
@@ -472,6 +478,12 @@ body::after {
   border: 1px solid var(--border-glass);
   cursor: pointer;
   transition: all 0.3s ease;
+}
+
+.promo-card picture {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
 .promo-card:hover {

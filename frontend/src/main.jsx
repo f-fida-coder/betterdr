@@ -6,13 +6,23 @@ import './mobile.css'
 import App from './App.jsx'
 import LoadingSpinner from './components/LoadingSpinner.jsx'
 import ErrorBoundary from './components/ErrorBoundary.jsx'
-import { getMe, getSession, logoutSession } from './api'
+import {
+  bootstrapAuthSession,
+  clearAuthBootstrapCache,
+  getStoredAuthToken,
+  getStoredUserRole,
+  invalidateMeCache,
+  logoutSession
+} from './api'
 import { useEffect, useState } from 'react'
 import { ToastProvider } from './contexts/ToastContext.jsx'
 
 const AdminPanel = lazy(() => import('./components/AdminPanel.jsx'))
 
 const clearAuthSession = () => {
+  const activeToken = getStoredAuthToken();
+  clearAuthBootstrapCache();
+  invalidateMeCache(activeToken);
   localStorage.removeItem('token');
   localStorage.removeItem('userRole');
   localStorage.removeItem('user');
@@ -43,47 +53,14 @@ const ProtectedRoleRoute = ({ children, allowedRoles }) => {
   useEffect(() => {
     let isMounted = true;
     const validateToken = async () => {
-      const token = localStorage.getItem('token') || sessionStorage.getItem('token');
-      const storedRole = String(localStorage.getItem('userRole') || sessionStorage.getItem('userRole') || '').toLowerCase();
+      const token = getStoredAuthToken();
+      const storedRole = getStoredUserRole();
 
       try {
-        // 1. Try Bearer-token validation first (fast, no cookie dependency).
-        if (token) {
-          if (!localStorage.getItem('token')) {
-            localStorage.setItem('token', token);
-          }
-          const me = await getMe(token);
-          const role = String(me?.role || '').toLowerCase();
-          if (role) {
-            localStorage.setItem('userRole', role);
-            sessionStorage.setItem('userRole', role);
-          }
-          if (isMounted) {
-            setIsAllowed(allowedRoles.includes(role));
-            setIsChecking(false);
-          }
-          return;
-        }
-
-        // 2. No localStorage token — try cookie-based session restore.
-        //    This covers the case where the user reloaded and App.jsx session
-        //    restore hasn't populated localStorage yet (race condition).
-        const session = await getSession({ timeoutMs: 6000 });
-        if (session?.token) {
-          // Sync localStorage so subsequent checks are instant.
-          localStorage.setItem('token', session.token);
-          localStorage.setItem('userRole', session.role || 'user');
-          const role = String(session.role || '').toLowerCase();
-          if (isMounted) {
-            setIsAllowed(allowedRoles.includes(role));
-            setIsChecking(false);
-          }
-          return;
-        }
-
-        // 3. Neither method worked — deny.
+        const auth = await bootstrapAuthSession({ timeoutMs: 6000 });
+        const role = String(auth?.role || auth?.user?.role || '').toLowerCase();
         if (isMounted) {
-          setIsAllowed(false);
+          setIsAllowed(Boolean(auth?.token) && allowedRoles.includes(role));
           setIsChecking(false);
         }
       } catch (error) {

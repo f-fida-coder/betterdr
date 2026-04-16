@@ -1,20 +1,51 @@
 import React, { useState, useEffect } from 'react';
 
 const BANNER_DATA = [
-    { img: '/hero-banner.png', title: 'N.Y KNICKS VS DETROIT', subtitle: 'Tonight @ 7:00 P.M | Madison Square Garden' },
-    { img: '/arena-banner.png', title: 'UPCOMING NFL SUNDAY', subtitle: 'Pre-game Analysis & Live Odds Starts @ 1PM' },
-    { img: '/football-banner.png', title: 'PREMIER LEAGUE ACTION', subtitle: 'Matchday 24: Liverpool vs Man City' }
+    {
+        png: '/hero-banner.png',
+        webp: '/hero-banner.webp',
+        title: 'N.Y KNICKS VS DETROIT',
+        subtitle: 'Tonight @ 7:00 P.M | Madison Square Garden'
+    },
+    {
+        png: '/arena-banner.png',
+        webp: '/arena-banner.webp',
+        title: 'UPCOMING NFL SUNDAY',
+        subtitle: 'Pre-game Analysis & Live Odds Starts @ 1PM'
+    },
+    {
+        png: '/football-banner.png',
+        webp: '/football-banner.webp',
+        title: 'PREMIER LEAGUE ACTION',
+        subtitle: 'Matchday 24: Liverpool vs Man City'
+    }
 ];
+
+const IMAGE_DIMENSION = 1024;
 
 const Hero = () => {
     const [currentIndex, setCurrentIndex] = useState(0);
     const [isImageReady, setIsImageReady] = useState(false);
 
     useEffect(() => {
-        BANNER_DATA.forEach(({ img }) => {
-            const preloadedImage = new Image();
-            preloadedImage.src = img;
-        });
+        if (typeof window === 'undefined') {
+            return undefined;
+        }
+
+        const preloadRemainingBanners = () => {
+            BANNER_DATA.slice(1).forEach(({ webp, png }) => {
+                const preloadedImage = new Image();
+                preloadedImage.src = webp || png;
+            });
+        };
+
+        if (typeof window.requestIdleCallback === 'function') {
+            const idleId = window.requestIdleCallback(preloadRemainingBanners, { timeout: 2500 });
+            return () => window.cancelIdleCallback(idleId);
+        }
+
+        const timeoutId = window.setTimeout(preloadRemainingBanners, 1500);
+        return () => window.clearTimeout(timeoutId);
     }, []);
 
     useEffect(() => {
@@ -33,15 +64,23 @@ const Hero = () => {
     return (
         <div className="hero-container">
             <section className="hero-section">
-                <img
-                    key={currentBanner.img}
-                    className={`hero-banner-image ${isImageReady ? 'is-ready' : ''}`}
-                    src={currentBanner.img}
-                    alt="Sportsbook board"
-                    id="heroImage"
-                    onLoad={() => setIsImageReady(true)}
-                    onError={() => setIsImageReady(true)}
-                />
+                <picture className="hero-banner-picture">
+                    <source srcSet={currentBanner.webp} type="image/webp" />
+                    <img
+                        key={currentBanner.png}
+                        className={`hero-banner-image ${isImageReady ? 'is-ready' : ''}`}
+                        src={currentBanner.png}
+                        alt="Sportsbook board"
+                        id="heroImage"
+                        width={IMAGE_DIMENSION}
+                        height={IMAGE_DIMENSION}
+                        decoding="async"
+                        fetchPriority={currentIndex === 0 ? 'high' : 'auto'}
+                        loading={currentIndex === 0 ? 'eager' : 'lazy'}
+                        onLoad={() => setIsImageReady(true)}
+                        onError={() => setIsImageReady(true)}
+                    />
+                </picture>
                 <div className="hero-overlay">
                     <div className="hero-text">
                         <span className="hero-badge">TODAY'S BOARD</span>
@@ -62,7 +101,17 @@ const Hero = () => {
 
             <div className="promo-flex-row">
                 <div className="promo-card">
-                    <img src="/promo-football.png" alt="NFL Promo" />
+                    <picture>
+                        <source srcSet="/promo-football.webp" type="image/webp" />
+                        <img
+                            src="/promo-football.png"
+                            alt="NFL Promo"
+                            width={IMAGE_DIMENSION}
+                            height={IMAGE_DIMENSION}
+                            loading="lazy"
+                            decoding="async"
+                        />
+                    </picture>
                     <div className="promo-text">
                         <h3>NFL PLAYOFFS</h3>
                         <p>Live Odds & Analysis</p>
@@ -70,7 +119,17 @@ const Hero = () => {
                     <div className="promo-badge">bettorplays247</div>
                 </div>
                 <div className="promo-card">
-                    <img src="/arena-banner.png" alt="Arena Promo" />
+                    <picture>
+                        <source srcSet="/arena-banner.webp" type="image/webp" />
+                        <img
+                            src="/arena-banner.png"
+                            alt="Arena Promo"
+                            width={IMAGE_DIMENSION}
+                            height={IMAGE_DIMENSION}
+                            loading="lazy"
+                            decoding="async"
+                        />
+                    </picture>
                     <div className="promo-text">
                         <h3>NBA FINALS</h3>
                         <p>Get in on the action</p>
