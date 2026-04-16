@@ -42,7 +42,10 @@ final class SportsbookHealth
             'consecutiveOddsFailures' => 0,
         ]);
 
-        self::appendAudit($db, 'odds_sync_started', [
+        // File-log only — no DB row. This event fires every 2 minutes and
+        // generated 29,500+ rows in 41 days. The health doc already records
+        // lastStartedAt / lastRunStatus for operational visibility.
+        self::writeFileLog('odds_sync_started', 'info', [
             'runId' => $runId,
             'source' => $source,
             'context' => $context,
@@ -139,12 +142,22 @@ final class SportsbookHealth
             'consecutiveOddsFailures' => 1,
         ]);
 
-        self::appendAudit($db, 'odds_sync_failed', [
+        // Rate-limit DB audit rows: log only the first failure in a streak
+        // and every 15th consecutive failure. The health doc tracks every
+        // failure regardless. File log always fires for local debugging.
+        $consecutiveFailures = ((int) ($existing['consecutiveFailures'] ?? 0)) + 1;
+        $failPayload = [
             'runId' => $runId,
             'source' => $source,
             'error' => $error->getMessage(),
             'partialResult' => $partialResult,
-        ], 'error');
+            'consecutiveFailures' => $consecutiveFailures,
+        ];
+        if ($consecutiveFailures === 1 || $consecutiveFailures % 15 === 0) {
+            self::appendAudit($db, 'odds_sync_failed', $failPayload, 'error');
+        } else {
+            self::writeFileLog('odds_sync_failed', 'error', $failPayload);
+        }
     }
 
     /**
@@ -271,11 +284,11 @@ final class SportsbookHealth
      * @param array<string, mixed> $match
      * @return array<string, mixed>
      */
-    public static function applyBettingAvailability(SqlRepository $db, array $match): array
+    public static function applyBettingAvailability(SqlRepository $db, array $match, ?array $snapshot = null): array
     {
         $annotated = SportsMatchStatus::annotate($match);
         $statusReason = SportsMatchStatus::placementBlockReason($annotated);
-        $staleState = self::bettingAvailability($db, $annotated);
+        $staleState = self::bettingAvailability($db, $annotated, $snapshot);
 
         if ($statusReason !== null) {
             $annotated['bettingBlockedReason'] = $statusReason;
@@ -298,9 +311,9 @@ final class SportsbookHealth
      * @param array<string, mixed> $match
      * @return array{allowed: bool, reason: ?string, syncAgeSeconds: ?int, oddsAgeSeconds: ?int, oddsFeedStale: bool}
      */
-    public static function bettingAvailability(SqlRepository $db, array $match): array
+    public static function bettingAvailability(SqlRepository $db, array $match, ?array $snapshot = null): array
     {
-        $snapshot = self::sportsbookSnapshot($db);
+        $snapshot = $snapshot ?? self::sportsbookSnapshot($db);
         $syncAgeSeconds = self::safeInt($snapshot['oddsSync']['syncAgeSeconds'] ?? null);
         $threshold = self::staleAfterSeconds();
         $oddsFeedStale = (bool) ($snapshot['oddsSync']['isStale'] ?? true);

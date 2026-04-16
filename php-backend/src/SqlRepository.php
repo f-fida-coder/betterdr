@@ -28,6 +28,7 @@ final class SqlRepository
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
             PDO::ATTR_TIMEOUT => 5,
+            PDO::ATTR_PERSISTENT => true,
         ];
         if (defined('Pdo\\Mysql::ATTR_INIT_COMMAND')) {
             $pdoOptions[\Pdo\Mysql::ATTR_INIT_COMMAND] = 'SET NAMES utf8mb4';

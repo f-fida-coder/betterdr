@@ -1,15 +1,16 @@
-import { StrictMode } from 'react'
+import { StrictMode, Suspense, lazy } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import './index.css'
 import './mobile.css'
 import App from './App.jsx'
-import AdminPanel from './components/AdminPanel.jsx'
 import LoadingSpinner from './components/LoadingSpinner.jsx'
 import ErrorBoundary from './components/ErrorBoundary.jsx'
 import { getMe, getSession, logoutSession } from './api'
 import { useEffect, useState } from 'react'
 import { ToastProvider } from './contexts/ToastContext.jsx'
+
+const AdminPanel = lazy(() => import('./components/AdminPanel.jsx'))
 
 const clearAuthSession = () => {
   localStorage.removeItem('token');
@@ -142,7 +143,9 @@ createRoot(document.getElementById('root')).render(
             element={
               <RouteShell>
                 <ProtectedRoleRoute allowedRoles={['admin']}>
-                  <AdminPanel role="admin" onExit={handleExitToHome} />
+                  <Suspense fallback={<LoadingSpinner variant="overlay" label="Loading admin panel..." />}>
+                    <AdminPanel role="admin" onExit={handleExitToHome} />
+                  </Suspense>
                 </ProtectedRoleRoute>
               </RouteShell>
             }
@@ -152,7 +155,9 @@ createRoot(document.getElementById('root')).render(
             element={
               <RouteShell>
                 <ProtectedRoleRoute allowedRoles={['agent']}>
-                  <AdminPanel role="agent" onExit={handleExitToHome} />
+                  <Suspense fallback={<LoadingSpinner variant="overlay" label="Loading agent panel..." />}>
+                    <AdminPanel role="agent" onExit={handleExitToHome} />
+                  </Suspense>
                 </ProtectedRoleRoute>
               </RouteShell>
             }
@@ -162,7 +167,9 @@ createRoot(document.getElementById('root')).render(
             element={
               <RouteShell>
                 <ProtectedRoleRoute allowedRoles={['super_agent', 'master_agent']}>
-                  <AdminPanel role="super_agent" onExit={handleExitToHome} />
+                  <Suspense fallback={<LoadingSpinner variant="overlay" label="Loading panel..." />}>
+                    <AdminPanel role="super_agent" onExit={handleExitToHome} />
+                  </Suspense>
                 </ProtectedRoleRoute>
               </RouteShell>
             }

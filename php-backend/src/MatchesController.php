@@ -57,12 +57,13 @@ final class MatchesController
             $status = isset($_GET['status']) ? strtolower(trim((string) $_GET['status'])) : '';
             $active = isset($_GET['active']) ? strtolower(trim((string) $_GET['active'])) : '';
             $matches = $this->db->findMany('matches', [], ['sort' => ['startTime' => 1]]);
+            $snapshot = SportsbookHealth::sportsbookSnapshot($this->db);
             $annotated = [];
             foreach ($matches as $match) {
                 if (!is_array($match)) {
                     continue;
                 }
-                $row = SportsbookHealth::applyBettingAvailability($this->db, $match);
+                $row = SportsbookHealth::applyBettingAvailability($this->db, $match, $snapshot);
                 if (($row['isPublicVisible'] ?? false) !== true) {
                     continue;
                 }
@@ -500,11 +501,12 @@ final class MatchesController
         while ((time() - $startedAt) < $maxRuntime) {
             try {
                 $updated = $this->db->findMany('matches', ['updatedAt' => ['$gte' => $lastSeen]], ['sort' => ['updatedAt' => 1]]);
+                $snapshot = SportsbookHealth::sportsbookSnapshot($this->db);
                 foreach ($updated as $match) {
                     if (!is_array($match)) {
                         continue;
                     }
-                    $annotated = SportsbookHealth::applyBettingAvailability($this->db, $match);
+                    $annotated = SportsbookHealth::applyBettingAvailability($this->db, $match, $snapshot);
                     if (($annotated['isPublicVisible'] ?? false) !== true) {
                         continue;
                     }

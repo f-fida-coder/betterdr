@@ -1,27 +1,13 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, Suspense } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { loginUser, getMe, getSession, logoutSession, getPublicBetModeRules, normalizeBetMode, updateProfile } from './api';
-import Header from './components/Header';
-import LeagueNav from './components/LeagueNav';
-import Hero from './components/Hero';
 import DashboardHeader from './components/DashboardHeader';
 import DashboardSidebar from './components/DashboardSidebar';
 import DashboardMain from './components/DashboardMain';
-import PrimeLiveView from './components/PrimeLiveView';
-import UltraLiveView from './components/UltraLiveView';
-import CasinoView from './components/CasinoView';
-import LiveCasinoView from './components/LiveCasinoView';
-import PropsView from './components/PropsView';
-import RulesView from './components/RulesView';
-import BonusView from './components/BonusView';
 import MobileGridMenu from './components/MobileGridMenu';
 import MobileContentView from './components/MobileContentView';
 import PromoCard from './components/PromoCard';
-import TutorialsView from './components/TutorialsView';
-import SupportView from './components/SupportView';
 import ChatWidget from './components/ChatWidget';
-import MyBetsView from './components/MyBetsView';
-import AdminPanel from './components/AdminPanel';
 import LandingPage from './components/LandingPage';
 import ModeBetPanel from './components/ModeBetPanel';
 import LoadingSpinner from './components/LoadingSpinner';
@@ -30,6 +16,17 @@ import { OddsFormatProvider } from './contexts/OddsFormatContext';
 import { normalizeOddsFormat, readStoredOddsFormat, writeStoredOddsFormat } from './utils/odds';
 import './index.css';
 import './dashboard.css';
+
+const PrimeLiveView = React.lazy(() => import('./components/PrimeLiveView'));
+const UltraLiveView = React.lazy(() => import('./components/UltraLiveView'));
+const CasinoView = React.lazy(() => import('./components/CasinoView'));
+const LiveCasinoView = React.lazy(() => import('./components/LiveCasinoView'));
+const PropsView = React.lazy(() => import('./components/PropsView'));
+const RulesView = React.lazy(() => import('./components/RulesView'));
+const BonusView = React.lazy(() => import('./components/BonusView'));
+const TutorialsView = React.lazy(() => import('./components/TutorialsView'));
+const SupportView = React.lazy(() => import('./components/SupportView'));
+const MyBetsView = React.lazy(() => import('./components/MyBetsView'));
 
 // Structural placeholder only — no hardcoded multipliers.
 // Real values are loaded from /api/betting/rules (DB) on login and merged in below.
@@ -459,6 +456,7 @@ function App() {
               </>
             )}
 
+            <Suspense fallback={<LoadingSpinner variant="inline" label="Loading..." />}>
             {dashboardView === 'prime-live' && <PrimeLiveView />}
 
             {dashboardView === 'ultra-live' && <UltraLiveView />}
@@ -486,6 +484,7 @@ function App() {
             {dashboardView === 'support' && <SupportView />}
 
             {dashboardView === 'my-bets' && <MyBetsView />}
+            </Suspense>
           </div>
 
           <ChatWidget />

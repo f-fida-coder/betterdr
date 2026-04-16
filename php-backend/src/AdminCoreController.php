@@ -14,6 +14,21 @@ final class AdminCoreController
     /** Cache TTL for header summary endpoint (in seconds). */
     private const HEADER_CACHE_TTL_SECONDS = 15;
 
+    /** Cache TTL for agents list endpoint (in seconds). */
+    private const AGENTS_CACHE_TTL_SECONDS = 30;
+
+    /** Cache TTL for system stats endpoint (in seconds). */
+    private const SYSTEM_STATS_CACHE_TTL_SECONDS = 60;
+
+    /** Retention for info-level audit logs (30 days). */
+    private const AUDIT_RETENTION_INFO_DAYS = 30;
+
+    /** Retention for error/warning audit logs (90 days). */
+    private const AUDIT_RETENTION_ERROR_DAYS = 90;
+
+    /** Retention for IP logs (30 days). */
+    private const IPLOG_RETENTION_DAYS = 30;
+
     /** All dashboard period boundaries use Pacific Time. */
     private const DASHBOARD_TIMEZONE = 'America/Los_Angeles';
 
@@ -56,6 +71,10 @@ final class AdminCoreController
 
     public function handle(string $method, string $path): bool
     {
+        if (random_int(1, 100) === 1) {
+            $this->maybeCleanupStaleData();
+        }
+
         if ($method === 'GET' && $path === '/api/admin/users') {
             $this->getUsers();
             return true;
@@ -658,14 +677,17 @@ final class AdminCoreController
                 return;
             }
 
+            $actorId = (string) ($actor['id'] ?? '');
+            $actorRole = (string) ($actor['role'] ?? '');
+            $this->respondJsonWithCache('agents-' . $actorRole, $actorId, self::AGENTS_CACHE_TTL_SECONDS, function () use ($actor): array {
+
             // All roles can see all agents globally for search purposes
             $query = [];
 
             $agents = $this->db->findMany('agents', $query, ['sort' => ['createdAt' => -1]]);
 
             if (count($agents) === 0) {
-                Response::json([]);
-                return;
+                return [];
             }
 
             $activeSince = SqlRepository::utcFromMillis((time() - 7 * 24 * 60 * 60) * 1000);
@@ -833,7 +855,8 @@ final class AdminCoreController
                 ];
             }
 
-            Response::json($result);
+            return $result;
+            });
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error fetching agents'], 500);
         }
@@ -891,7 +914,7 @@ final class AdminCoreController
             }
             $actorId = (string) ($actor['id'] ?? '');
             $actorRole = (string) ($actor['role'] ?? '');
-            $this->respondJsonWithCache('system-stats-' . $actorRole, $actorId, 20, function () use ($actor): array {
+            $this->respondJsonWithCache('system-stats-' . $actorRole, $actorId, self::SYSTEM_STATS_CACHE_TTL_SECONDS, function () use ($actor): array {
                 $queryUsers = ['role' => 'user'];
                 $betQuery = [];
 
@@ -916,7 +939,8 @@ final class AdminCoreController
                         ['score.score_away' => ['$gt' => 0]],
                     ],
                 ], ['sort' => ['lastUpdated' => -1], 'limit' => 20]);
-                $liveMatches = array_map(fn (array $match): array => SportsbookHealth::applyBettingAvailability($this->db, $match), array_values(array_filter($liveMatches, 'is_array')));
+                $snapshot = SportsbookHealth::sportsbookSnapshot($this->db);
+                $liveMatches = array_map(fn (array $match): array => SportsbookHealth::applyBettingAvailability($this->db, $match, $snapshot), array_values(array_filter($liveMatches, 'is_array')));
 
                 return [
                     'counts' => [
@@ -1478,6 +1502,8 @@ final class AdminCoreController
             $cacheDir . '/header-summary-agent__*.json',
             $cacheDir . '/header-summary-master_agent__*.json',
             $cacheDir . '/header-summary-super_agent__*.json',
+            $cacheDir . '/agents-*__*.json',
+            $cacheDir . '/system-stats-*__*.json',
         ];
         foreach ($patterns as $pattern) {
             $matches = glob($pattern);
@@ -1489,6 +1515,45 @@ final class AdminCoreController
                     @unlink($path);
                 }
             }
+        }
+    }
+
+    /**
+     * Probabilistic cleanup of stale audit and IP logs.
+     * Called on ~1% of admin API requests to keep table sizes bounded.
+     */
+    private function maybeCleanupStaleData(): void
+    {
+        try {
+            $infoThreshold = SqlRepository::utcFromMillis((time() - self::AUDIT_RETENTION_INFO_DAYS * 86400) * 1000);
+            $errorThreshold = SqlRepository::utcFromMillis((time() - self::AUDIT_RETENTION_ERROR_DAYS * 86400) * 1000);
+            $ipThreshold = SqlRepository::utcFromMillis((time() - self::IPLOG_RETENTION_DAYS * 86400) * 1000);
+
+            // Delete info-level audit logs older than 30 days
+            $this->db->deleteMany('sportsbookauditlogs', [
+                'severity' => 'info',
+                'createdAt' => ['$lte' => $infoThreshold],
+            ], 500);
+
+            // Delete error/warning audit logs older than 90 days (never delete critical)
+            $this->db->deleteMany('sportsbookauditlogs', [
+                'severity' => 'error',
+                'createdAt' => ['$lte' => $errorThreshold],
+            ], 500);
+
+            $this->db->deleteMany('sportsbookauditlogs', [
+                'severity' => 'warning',
+                'createdAt' => ['$lte' => $errorThreshold],
+            ], 500);
+
+            // Delete active IP logs older than 30 days (preserves whitelisted/blocked)
+            $this->db->deleteMany('iplogs', [
+                'status' => 'active',
+                'createdAt' => ['$lte' => $ipThreshold],
+            ], 500);
+        } catch (Throwable $e) {
+            // Cleanup is best-effort; never fail a real request
+            error_log('[CLEANUP] Stale data cleanup error: ' . $e->getMessage());
         }
     }
 
@@ -2942,7 +3007,7 @@ final class AdminCoreController
                 return;
             }
 
-            $faqs = $this->db->findMany('faqs', [], ['sort' => ['order' => 1, 'createdAt' => -1]]);
+            $faqs = $this->db->findMany('faqs', [], ['sort' => ['order' => 1, 'createdAt' => -1], 'limit' => 200]);
             Response::json(['faqs' => $faqs]);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error fetching FAQs'], 500);
@@ -3252,7 +3317,7 @@ final class AdminCoreController
                 return;
             }
 
-            $rules = $this->db->findMany('rules', [], ['sort' => ['createdAt' => -1]]);
+            $rules = $this->db->findMany('rules', [], ['sort' => ['createdAt' => -1], 'limit' => 200]);
             Response::json(['rules' => $rules]);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error fetching rules'], 500);
@@ -3372,14 +3437,18 @@ final class AdminCoreController
             }
 
             $feedbacks = $this->db->findMany('feedbacks', $query, ['sort' => ['createdAt' => -1]]);
-            $userMap = [];
+            $uniqueUserIds = [];
             foreach ($feedbacks as $item) {
                 $userId = (string) ($item['userId'] ?? '');
-                if ($userId !== '' && !isset($userMap[$userId]) && preg_match('/^[a-f0-9]{24}$/i', $userId) === 1) {
-                    $user = $this->db->findOne('users', ['id' => SqlRepository::id($userId)], ['projection' => ['username' => 1, 'phoneNumber' => 1]]);
-                    if ($user !== null) {
-                        $userMap[$userId] = $user;
-                    }
+                if ($userId !== '' && !isset($uniqueUserIds[$userId]) && preg_match('/^[a-f0-9]{24}$/i', $userId) === 1) {
+                    $uniqueUserIds[$userId] = SqlRepository::id($userId);
+                }
+            }
+            $userMap = [];
+            if ($uniqueUserIds !== []) {
+                $users = $this->db->findMany('users', ['id' => ['$in' => array_values($uniqueUserIds)]], ['projection' => ['username' => 1, 'phoneNumber' => 1]]);
+                foreach ($users as $user) {
+                    $userMap[(string) ($user['id'] ?? '')] = $user;
                 }
             }
 
@@ -4917,14 +4986,18 @@ final class AdminCoreController
                 'limit' => $limit,
             ]);
 
-            $userMap = [];
+            $uniqueUserIds = [];
             foreach ($transactions as $tx) {
                 $uid = (string) ($tx['userId'] ?? '');
-                if ($uid !== '' && !isset($userMap[$uid]) && preg_match('/^[a-f0-9]{24}$/i', $uid) === 1) {
-                    $user = $this->db->findOne('users', ['id' => SqlRepository::id($uid)], ['projection' => ['username' => 1, 'phoneNumber' => 1]]);
-                    if ($user !== null) {
-                        $userMap[$uid] = $user;
-                    }
+                if ($uid !== '' && !isset($uniqueUserIds[$uid]) && preg_match('/^[a-f0-9]{24}$/i', $uid) === 1) {
+                    $uniqueUserIds[$uid] = SqlRepository::id($uid);
+                }
+            }
+            $userMap = [];
+            if ($uniqueUserIds !== []) {
+                $users = $this->db->findMany('users', ['id' => ['$in' => array_values($uniqueUserIds)]], ['projection' => ['username' => 1, 'phoneNumber' => 1]]);
+                foreach ($users as $user) {
+                    $userMap[(string) ($user['id'] ?? '')] = $user;
                 }
             }
 

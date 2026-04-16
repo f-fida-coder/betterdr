@@ -115,6 +115,7 @@ function AdminHeader({
     const summaryParams = selectedWeekStart ? { weekStart: selectedWeekStart } : null;
 
     const refreshHeaderSummary = async () => {
+      if (document.hidden) return;
       try {
         const headerData = await getAdminHeaderSummary(token, summaryParams);
         if (cancelled) return;
@@ -159,15 +160,17 @@ function AdminHeader({
 
     loadHeaderContext();
     const intervalId = window.setInterval(refreshHeaderSummary, 15000);
-    const handleWindowFocus = () => {
-      refreshHeaderSummary();
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        loadHeaderContext();
+      }
     };
-    window.addEventListener('focus', handleWindowFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
       cancelled = true;
       window.clearInterval(intervalId);
-      window.removeEventListener('focus', handleWindowFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [role, selectedWeekStart]);
 

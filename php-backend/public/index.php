@@ -59,6 +59,15 @@ register_shutdown_function(static function () use (&$_requestStartTime): void {
 });
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ─── Gzip compression ────────────────────────────────────────────────────────
+if (isset($_SERVER['HTTP_ACCEPT_ENCODING']) &&
+    str_contains($_SERVER['HTTP_ACCEPT_ENCODING'], 'gzip') &&
+    !headers_sent() &&
+    extension_loaded('zlib')) {
+    ob_start('ob_gzhandler');
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 // ─── CORS ─────────────────────────────────────────────────────────────────────
 $origin  = $_SERVER['HTTP_ORIGIN'] ?? '';
 $appEnvForCors = strtolower((string) Env::get('APP_ENV', 'production'));
