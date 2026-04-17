@@ -8,10 +8,35 @@ final class Env
     /** @var array<string, bool> */
     private static array $fileManagedKeys = [];
 
+    private const APCU_CACHE_KEY = 'env:parsed:v1';
+    private const APCU_CACHE_TTL = 60; // seconds — short so .env edits propagate quickly
+
     public static function load(string $projectRoot, string $phpBackendDir): void
     {
         if (self::$loaded) {
             return;
+        }
+
+        // Fast path — reuse parsed env from APCu. Saves 4–6 filesystem reads
+        // per request, which is significant under load on shared hosting.
+        if (function_exists('apcu_enabled') && apcu_enabled()) {
+            $success = false;
+            $cached = apcu_fetch(self::APCU_CACHE_KEY, $success);
+            if ($success && is_array($cached)) {
+                foreach ($cached as $key => $value) {
+                    // Preserve anything the webserver has already injected
+                    // into the process env — matches original file-load precedence.
+                    if (array_key_exists($key, $_ENV)) {
+                        continue;
+                    }
+                    $_ENV[$key] = $value;
+                    $_SERVER[$key] = $value;
+                    putenv($key . '=' . $value);
+                    self::$fileManagedKeys[$key] = true;
+                }
+                self::$loaded = true;
+                return;
+            }
         }
 
         self::loadFile($projectRoot . '/env.runtime');
@@ -30,6 +55,30 @@ final class Env
         self::loadFile($phpBackendDir . '/.env.copy');
 
         self::$loaded = true;
+
+        // Populate APCu so subsequent workers skip the file reads.
+        if (function_exists('apcu_enabled') && apcu_enabled()) {
+            $toCache = [];
+            foreach (self::$fileManagedKeys as $key => $_) {
+                if (array_key_exists($key, $_ENV)) {
+                    $toCache[$key] = $_ENV[$key];
+                }
+            }
+            if ($toCache !== []) {
+                apcu_store(self::APCU_CACHE_KEY, $toCache, self::APCU_CACHE_TTL);
+            }
+        }
+    }
+
+    /**
+     * Invalidate the APCu env cache. Call after editing .env files to force a
+     * reload on the next request instead of waiting for the TTL.
+     */
+    public static function flushCache(): void
+    {
+        if (function_exists('apcu_delete')) {
+            apcu_delete(self::APCU_CACHE_KEY);
+        }
     }
 
     public static function get(string $key, ?string $default = null): ?string

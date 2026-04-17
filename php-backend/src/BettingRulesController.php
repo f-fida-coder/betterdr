@@ -34,6 +34,13 @@ final class BettingRulesController
         return false;
     }
 
+    // Rules are admin-managed and change rarely. Cache in APCu for short windows
+    // and let the browser cache the response too — repeated page loads by a
+    // logged-in user hit neither the DB nor PHP.
+    private const RULES_CACHE_TTL = 30;
+    private const RULES_PUBLIC_CACHE_KEY = 'betmoderules:public:v1';
+    private const RULES_ADMIN_CACHE_KEY = 'betmoderules:admin:v1';
+
     private function getPublicBetModeRules(): void
     {
         try {
@@ -42,8 +49,15 @@ final class BettingRulesController
                 return;
             }
 
-            $this->ensureSeeded();
-            $rules = $this->db->findMany('betmoderules', ['isActive' => true], ['sort' => ['mode' => 1]]);
+            $rules = QueryCache::getInstance()->remember(
+                self::RULES_PUBLIC_CACHE_KEY,
+                self::RULES_CACHE_TTL,
+                function (): array {
+                    $this->ensureSeeded();
+                    return $this->db->findMany('betmoderules', ['isActive' => true], ['sort' => ['mode' => 1]]);
+                }
+            );
+            header('Cache-Control: private, max-age=' . self::RULES_CACHE_TTL);
             Response::json(['rules' => $rules]);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error fetching bet mode rules'], 500);
@@ -62,8 +76,15 @@ final class BettingRulesController
                 return;
             }
 
-            $this->ensureSeeded();
-            $rules = $this->db->findMany('betmoderules', [], ['sort' => ['mode' => 1]]);
+            $rules = QueryCache::getInstance()->remember(
+                self::RULES_ADMIN_CACHE_KEY,
+                self::RULES_CACHE_TTL,
+                function (): array {
+                    $this->ensureSeeded();
+                    return $this->db->findMany('betmoderules', [], ['sort' => ['mode' => 1]]);
+                }
+            );
+            header('Cache-Control: private, max-age=' . self::RULES_CACHE_TTL);
             Response::json(['rules' => $rules]);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error fetching bet mode rules'], 500);
@@ -143,6 +164,12 @@ final class BettingRulesController
             ]);
 
             $updated = $this->db->findOne('betmoderules', ['id' => SqlRepository::id((string) $rule['id'])]);
+
+            // Invalidate cached rule lists so the next read sees the new values.
+            $cache = QueryCache::getInstance();
+            $cache->forget(self::RULES_PUBLIC_CACHE_KEY);
+            $cache->forget(self::RULES_ADMIN_CACHE_KEY);
+
             Response::json([
                 'message' => 'Bet mode rule updated',
                 'rule' => $updated,

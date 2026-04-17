@@ -93,6 +93,10 @@ final class ContentController
         return false;
     }
 
+    // Tutorials/FAQs are static content that rarely changes — 5-minute cache is
+    // conservative and removes two DB lookups per authenticated help-page hit.
+    private const CONTENT_CACHE_TTL = 300;
+
     private function getTutorials(): void
     {
         try {
@@ -101,8 +105,15 @@ final class ContentController
                 return;
             }
 
-            $this->ensureTutorialSeeded();
-            $tutorials = $this->db->findMany('manualsections', ['status' => 'active'], ['sort' => ['order' => 1, 'createdAt' => -1]]);
+            $tutorials = QueryCache::getInstance()->remember(
+                'content:tutorials:v1',
+                self::CONTENT_CACHE_TTL,
+                function (): array {
+                    $this->ensureTutorialSeeded();
+                    return $this->db->findMany('manualsections', ['status' => 'active'], ['sort' => ['order' => 1, 'createdAt' => -1]]);
+                }
+            );
+            header('Cache-Control: private, max-age=' . self::CONTENT_CACHE_TTL);
             Response::json(['tutorials' => $tutorials]);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error fetching tutorials'], 500);
@@ -117,8 +128,15 @@ final class ContentController
                 return;
             }
 
-            $this->ensureFaqSeeded();
-            $faqs = $this->db->findMany('faqs', ['status' => 'active'], ['sort' => ['order' => 1, 'createdAt' => -1]]);
+            $faqs = QueryCache::getInstance()->remember(
+                'content:faqs:v1',
+                self::CONTENT_CACHE_TTL,
+                function (): array {
+                    $this->ensureFaqSeeded();
+                    return $this->db->findMany('faqs', ['status' => 'active'], ['sort' => ['order' => 1, 'createdAt' => -1]]);
+                }
+            );
+            header('Cache-Control: private, max-age=' . self::CONTENT_CACHE_TTL);
             Response::json(['faqs' => $faqs]);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error fetching support FAQs'], 500);

@@ -3,21 +3,39 @@
 declare(strict_types=1);
 
 /**
- * Simple in-memory query result cache with TTL support.
- * Reduces database load during high concurrency by caching frequently-accessed data.
- * 
- * Usage:
+ * Two-tier query-result cache.
+ *
+ * Previously an in-process array — useful only within a single request,
+ * and on a 60-worker shared-hosting setup this meant each worker built
+ * its own cache from scratch. The same hot read was executed up to 60
+ * times before all workers warmed up.
+ *
+ * Now APCu (PHP shared memory) is the primary store, so a single read
+ * populates the cache for every worker on the server. The in-process
+ * array is kept as a tiny L1 to skip APCu overhead when the same key
+ * is looked up repeatedly in one request.
+ *
+ * Usage (unchanged):
  *   $cache = QueryCache::getInstance();
  *   $results = $cache->remember('matches:all', 30, fn() => $db->findMany('matches', []));
  */
 final class QueryCache
 {
     private static ?self $instance = null;
-    /** @var array<string, array{data: mixed, expires_at: int}> */
-    private array $store = [];
-    private const MAX_ENTRIES = 1000;
 
-    private function __construct() {}
+    /** L1: per-request in-process cache. */
+    /** @var array<string, array{data: mixed, expires_at: int}> */
+    private array $l1 = [];
+
+    /** @var bool */
+    private bool $apcu;
+
+    private const MAX_L1_ENTRIES = 256;
+
+    private function __construct()
+    {
+        $this->apcu = function_exists('apcu_enabled') && apcu_enabled();
+    }
 
     public static function getInstance(): self
     {
@@ -29,128 +47,147 @@ final class QueryCache
 
     /**
      * Get cached value or compute and cache it.
-     * 
+     *
      * @template T
-     * @param string $key Cache key
-     * @param int $ttlSeconds Time to live in seconds
-     * @param callable(): T $callback Function to compute value if not cached
+     * @param string $key
+     * @param int $ttlSeconds
+     * @param callable(): T $callback
      * @return T
      */
     public function remember(string $key, int $ttlSeconds, callable $callback): mixed
     {
-        // Check if key exists and hasn't expired
-        if (isset($this->store[$key])) {
-            $entry = $this->store[$key];
-            if (time() < $entry['expires_at']) {
-                return $entry['data'];
-            }
-            // Expired, remove it
-            unset($this->store[$key]);
+        $cached = $this->get($key);
+        if ($cached !== null) {
+            return $cached;
         }
 
-        // Compute new value
         $value = $callback();
-
-        // Store with expiration
         $this->set($key, $value, $ttlSeconds);
-
         return $value;
     }
 
     /**
-     * Store a value in cache.
+     * Store a value. TTL applies to both tiers.
      */
     public function set(string $key, mixed $value, int $ttlSeconds): void
     {
-        // Prevent cache bloat - simple LRU eviction
-        if (count($this->store) >= self::MAX_ENTRIES) {
-            array_shift($this->store);
-        }
+        $expiresAt = time() + $ttlSeconds;
 
-        $this->store[$key] = [
-            'data' => $value,
-            'expires_at' => time() + $ttlSeconds,
-        ];
+        if (count($this->l1) >= self::MAX_L1_ENTRIES) {
+            array_shift($this->l1);
+        }
+        $this->l1[$key] = ['data' => $value, 'expires_at' => $expiresAt];
+
+        if ($this->apcu) {
+            // A null sentinel lets us distinguish a cached null from a miss.
+            apcu_store($this->apcuKey($key), ['v' => $value], $ttlSeconds);
+        }
     }
 
     /**
-     * Get cached value directly.
+     * Get cached value or null on miss.
+     * Returns null for both "not cached" and "cached null" — callers using
+     * remember() don't need to distinguish.
      */
     public function get(string $key): mixed
     {
-        if (!isset($this->store[$key])) {
-            return null;
+        if (isset($this->l1[$key])) {
+            $entry = $this->l1[$key];
+            if (time() < $entry['expires_at']) {
+                return $entry['data'];
+            }
+            unset($this->l1[$key]);
         }
 
-        $entry = $this->store[$key];
-        if (time() >= $entry['expires_at']) {
-            unset($this->store[$key]);
-            return null;
+        if ($this->apcu) {
+            $success = false;
+            $raw = apcu_fetch($this->apcuKey($key), $success);
+            if ($success && is_array($raw) && array_key_exists('v', $raw)) {
+                $value = $raw['v'];
+                $this->l1[$key] = ['data' => $value, 'expires_at' => time() + 5];
+                return $value;
+            }
         }
 
-        return $entry['data'];
+        return null;
     }
 
-    /**
-     * Check if key exists and is not expired.
-     */
     public function has(string $key): bool
     {
-        return $this->get($key) !== null;
+        if (isset($this->l1[$key]) && time() < $this->l1[$key]['expires_at']) {
+            return true;
+        }
+        return $this->apcu && apcu_exists($this->apcuKey($key));
     }
 
-    /**
-     * Remove a cached value.
-     */
     public function forget(string $key): void
     {
-        unset($this->store[$key]);
+        unset($this->l1[$key]);
+        if ($this->apcu) {
+            apcu_delete($this->apcuKey($key));
+        }
     }
 
     /**
-     * Clear all cache entries matching a pattern.
-     * 
-     * @param string $pattern Pattern to match keys against (e.g., 'matches:*')
+     * Clear all cache entries matching a glob-style pattern (e.g., 'bets:123:*').
      */
     public function forgetPattern(string $pattern): void
     {
-        $regex = str_replace('\*', '.*', preg_quote($pattern, '/'));
-        foreach (array_keys($this->store) as $key) {
-            if (preg_match('/^' . $regex . '$/', $key)) {
-                unset($this->store[$key]);
+        $regex = '/^' . str_replace('\*', '.*', preg_quote($pattern, '/')) . '$/';
+
+        foreach (array_keys($this->l1) as $key) {
+            if (preg_match($regex, $key)) {
+                unset($this->l1[$key]);
+            }
+        }
+
+        if ($this->apcu && class_exists('APCuIterator')) {
+            $prefix = $this->apcuPrefix();
+            $apcuRegex = '/^' . preg_quote($prefix, '/')
+                . str_replace('\*', '.*', preg_quote($pattern, '/')) . '$/';
+            $iterator = new APCuIterator($apcuRegex, APC_ITER_KEY);
+            foreach ($iterator as $item) {
+                apcu_delete($item['key']);
             }
         }
     }
 
-    /**
-     * Clear all cache.
-     */
     public function flush(): void
     {
-        $this->store = [];
-    }
-
-    /**
-     * Get cache statistics for monitoring.
-     */
-    public function stats(): array
-    {
-        $entries = count($this->store);
-        $expired = 0;
-        $now = time();
-
-        foreach ($this->store as $entry) {
-            if ($now >= $entry['expires_at']) {
-                $expired++;
+        $this->l1 = [];
+        if ($this->apcu && class_exists('APCuIterator')) {
+            $prefix = $this->apcuPrefix();
+            $iterator = new APCuIterator('/^' . preg_quote($prefix, '/') . '/', APC_ITER_KEY);
+            foreach ($iterator as $item) {
+                apcu_delete($item['key']);
             }
         }
+    }
 
+    public function stats(): array
+    {
+        $now = time();
+        $active = 0;
+        foreach ($this->l1 as $entry) {
+            if ($now < $entry['expires_at']) {
+                $active++;
+            }
+        }
         return [
-            'total_entries' => $entries,
-            'expired_entries' => $expired,
-            'active_entries' => $entries - $expired,
-            'max_entries' => self::MAX_ENTRIES,
-            'usage_percent' => $entries > 0 ? round(($entries / self::MAX_ENTRIES) * 100, 2) : 0,
+            'l1_entries'  => count($this->l1),
+            'l1_active'   => $active,
+            'l1_max'      => self::MAX_L1_ENTRIES,
+            'apcu_enabled' => $this->apcu,
         ];
+    }
+
+    private function apcuPrefix(): string
+    {
+        return 'qc:';
+    }
+
+    private function apcuKey(string $key): string
+    {
+        return $this->apcuPrefix() . $key;
     }
 }
