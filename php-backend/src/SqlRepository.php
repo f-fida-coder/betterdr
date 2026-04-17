@@ -34,11 +34,6 @@ final class SqlRepository
             PDO::ATTR_TIMEOUT => 5,
             PDO::ATTR_PERSISTENT => true,
         ];
-        if (defined('Pdo\\Mysql::ATTR_INIT_COMMAND')) {
-            $pdoOptions[\Pdo\Mysql::ATTR_INIT_COMMAND] = 'SET NAMES utf8mb4';
-        } elseif (defined('PDO::MYSQL_ATTR_INIT_COMMAND')) {
-            $pdoOptions[PDO::MYSQL_ATTR_INIT_COMMAND] = 'SET NAMES utf8mb4';
-        }
 
         // Use connection pool with circuit breaker protection
         $this->pdo = $this->circuitBreaker->execute('database:connection', function() use ($host, $port, $name, $user, $pass, $pdoOptions) {
@@ -1198,6 +1193,44 @@ KEY `idx_updated_at` (`updated_at`)
         $collection = $table;
         if ($this->tablePrefix !== '' && str_starts_with($table, $this->tablePrefix)) {
             $collection = substr($table, strlen($this->tablePrefix));
+        }
+
+        if ($collection === 'matches') {
+            $columns = [
+                'j_external_id' => "ALTER TABLE `{$table}` ADD COLUMN `j_external_id` VARCHAR(128) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(`doc`, _utf8mb4'$.externalId'))) STORED",
+                'j_status' => "ALTER TABLE `{$table}` ADD COLUMN `j_status` VARCHAR(64) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(`doc`, _utf8mb4'$.status'))) STORED",
+                'j_sport' => "ALTER TABLE `{$table}` ADD COLUMN `j_sport` VARCHAR(128) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(`doc`, _utf8mb4'$.sport'))) STORED",
+                'j_home_team' => "ALTER TABLE `{$table}` ADD COLUMN `j_home_team` VARCHAR(255) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(`doc`, _utf8mb4'$.homeTeam'))) STORED",
+                'j_away_team' => "ALTER TABLE `{$table}` ADD COLUMN `j_away_team` VARCHAR(255) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(`doc`, _utf8mb4'$.awayTeam'))) STORED",
+                'j_start_time_dt' => "ALTER TABLE `{$table}` ADD COLUMN `j_start_time_dt` DATETIME GENERATED ALWAYS AS (STR_TO_DATE(REPLACE(REPLACE(JSON_UNQUOTE(JSON_EXTRACT(`doc`, _utf8mb4'$.startTime')), _utf8mb4'T', _utf8mb4' '), _utf8mb4'Z', _utf8mb4''), _utf8mb4'%Y-%m-%d %H:%i:%s')) STORED",
+                'j_last_updated_dt' => "ALTER TABLE `{$table}` ADD COLUMN `j_last_updated_dt` DATETIME GENERATED ALWAYS AS (STR_TO_DATE(REPLACE(REPLACE(JSON_UNQUOTE(JSON_EXTRACT(`doc`, _utf8mb4'$.lastUpdated')), _utf8mb4'T', _utf8mb4' '), _utf8mb4'Z', _utf8mb4''), _utf8mb4'%Y-%m-%d %H:%i:%s')) STORED",
+                'j_score_home' => "ALTER TABLE `{$table}` ADD COLUMN `j_score_home` DECIMAL(10,2) GENERATED ALWAYS AS (CAST(COALESCE(NULLIF(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(`doc`, _utf8mb4'$.score.score_home')), _utf8mb4''), _utf8mb4'null'), _utf8mb4'0') AS DECIMAL(10,2))) STORED",
+                'j_score_away' => "ALTER TABLE `{$table}` ADD COLUMN `j_score_away` DECIMAL(10,2) GENERATED ALWAYS AS (CAST(COALESCE(NULLIF(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(`doc`, _utf8mb4'$.score.score_away')), _utf8mb4''), _utf8mb4'null'), _utf8mb4'0') AS DECIMAL(10,2))) STORED",
+            ];
+
+            foreach ($columns as $column => $sql) {
+                if (!$this->columnExists($table, $column)) {
+                    $this->pdo->exec($sql);
+                    $this->columnExistsCache[$table . '.' . $column] = true;
+                }
+            }
+
+            $indexes = [
+                'idx_matches_external_id' => "ALTER TABLE `{$table}` ADD KEY `idx_matches_external_id` (`j_external_id`)",
+                'idx_matches_status' => "ALTER TABLE `{$table}` ADD KEY `idx_matches_status` (`j_status`)",
+                'idx_matches_sport' => "ALTER TABLE `{$table}` ADD KEY `idx_matches_sport` (`j_sport`)",
+                'idx_matches_start_time' => "ALTER TABLE `{$table}` ADD KEY `idx_matches_start_time` (`j_start_time_dt`)",
+                'idx_matches_status_start' => "ALTER TABLE `{$table}` ADD KEY `idx_matches_status_start` (`j_status`, `j_start_time_dt`)",
+                'idx_matches_updated' => "ALTER TABLE `{$table}` ADD KEY `idx_matches_updated` (`j_last_updated_dt`)",
+            ];
+
+            foreach ($indexes as $index => $sql) {
+                if (!$this->indexExists($table, $index)) {
+                    $this->pdo->exec($sql);
+                    $this->indexExistsCache[$table . '.' . $index] = true;
+                }
+            }
+            return;
         }
 
         if ($collection === 'betselections') {

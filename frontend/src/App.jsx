@@ -99,7 +99,9 @@ function AppInner() {
     
     // Monitor Core Web Vitals for performance analysis
     monitorCoreWebVitals((metric) => {
-      console.debug('Performance Metric:', metric);
+      if (import.meta.env.DEV) {
+        console.debug('Performance Metric:', metric);
+      }
     });
     
     // Optimize image loading strategies

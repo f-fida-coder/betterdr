@@ -3,8 +3,17 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../src/Env.php';
+require_once __DIR__ . '/../src/Logger.php';
+require_once __DIR__ . '/../src/Http.php';
+require_once __DIR__ . '/../src/ApiException.php';
+require_once __DIR__ . '/../src/Response.php';
+require_once __DIR__ . '/../src/CircuitBreaker.php';
+require_once __DIR__ . '/../src/ConnectionPool.php';
+require_once __DIR__ . '/../src/QueryCache.php';
+require_once __DIR__ . '/../src/RequestDeduplicator.php';
 require_once __DIR__ . '/../src/SqlRepository.php';
 require_once __DIR__ . '/../src/BetModeRules.php';
+require_once __DIR__ . '/../src/AgentSettlementRules.php';
 require_once __DIR__ . '/../src/SportsMatchStatus.php';
 require_once __DIR__ . '/../src/SportsbookHealth.php';
 require_once __DIR__ . '/../src/SportsbookBetSupport.php';

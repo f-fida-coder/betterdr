@@ -60,7 +60,7 @@ final class MatchesController
             // Generate cache key based on query parameters
             $cacheKey = 'matches:' . ($status ?: 'all') . ':' . ($active ?: '0');
             $cacheTtl = 15; // 15 second cache for frequently accessed data
-            
+                $cacheTtl = $this->envInt('SPORTSBOOK_MATCHES_CACHE_TTL_SECONDS', 30);
             // Try to get from cache first
             $cache = QueryCache::getInstance();
             $annotated = $cache->get($cacheKey);
@@ -259,6 +259,7 @@ final class MatchesController
             $trigger = 'view';
         }
         $manualRefresh = $this->isTruthy($_GET['refresh'] ?? null) || $trigger === 'manual';
+        $autoRefreshEnabled = $this->isTruthy(Env::get('SPORTSBOOK_PUBLIC_AUTO_REFRESH', 'false'));
         $cacheTtl = $this->envInt('SPORTSBOOK_PUBLIC_CACHE_TTL_SECONDS', self::DEFAULT_PUBLIC_CACHE_TTL_SECONDS);
         $cooldownSeconds = $this->envInt('SPORTSBOOK_PUBLIC_REFRESH_COOLDOWN_SECONDS', self::DEFAULT_PUBLIC_REFRESH_COOLDOWN_SECONDS);
         $lockSeconds = $this->envInt('SPORTSBOOK_PUBLIC_REFRESH_LOCK_SECONDS', self::DEFAULT_PUBLIC_REFRESH_LOCK_SECONDS);
@@ -283,6 +284,13 @@ final class MatchesController
         ];
 
         if ($isFresh && !$manualRefresh) {
+            return $meta;
+        }
+
+        // Protect the public read path under load: refreshes should happen via cron/manual.
+        if (!$manualRefresh && !$autoRefreshEnabled) {
+            $meta['state'] = 'stale_cached';
+            $meta['cooldownRemainingSeconds'] = $cooldownSeconds;
             return $meta;
         }
 

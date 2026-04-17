@@ -158,11 +158,17 @@ export function registerServiceWorker() {
     window.addEventListener('load', () => {
       navigator.serviceWorker.register('/sw.js', { scope: '/' })
         .then(reg => {
-          console.log('Service Worker registered:', reg);
+          if (import.meta.env.DEV) {
+            console.log('Service Worker registered:', reg);
+          }
           // Check for updates periodically
-          setInterval(() => reg.update(), 60000);
+          setInterval(() => reg.update(), 300000);
         })
-        .catch(err => console.warn('Service Worker registration failed:', err));
+        .catch(err => {
+          if (import.meta.env.DEV) {
+            console.warn('Service Worker registration failed:', err);
+          }
+        });
     });
   }
 }
@@ -208,10 +214,24 @@ export function optimizeImageLoading() {
  * DNS prefetch, preconnect, prefetch for faster resource loading
  */
 export function addResourceHints() {
-  const hints = [
-    { rel: 'dns-prefetch', href: 'https://api.example.com' },
-    { rel: 'preconnect', href: 'https://cdn.example.com' },
-  ];
+  const hints = [];
+
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    hints.push({ rel: 'dns-prefetch', href: window.location.origin });
+  }
+
+  const configuredApiUrl = typeof import.meta !== 'undefined' ? import.meta.env?.VITE_API_URL : '';
+  if (configuredApiUrl) {
+    try {
+      const apiUrl = new URL(configuredApiUrl, window.location.origin);
+      if (apiUrl.origin !== window.location.origin) {
+        hints.push({ rel: 'dns-prefetch', href: apiUrl.origin });
+        hints.push({ rel: 'preconnect', href: apiUrl.origin });
+      }
+    } catch {
+      // Ignore malformed API URL.
+    }
+  }
 
   hints.forEach(hint => {
     const link = document.createElement('link');

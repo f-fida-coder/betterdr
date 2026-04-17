@@ -34,7 +34,7 @@ final class ConnectionPool
      * @throws PDOException If connection fails after retries
      * @return PDO Reusable database connection
      */
-    public function getConnection(array $dsn, string $user, string $pass, array $options = []): PDO
+    public function getConnection(string $dsn, string $user, string $pass, array $options = []): PDO
     {
         // Attempt to create/reuse connection with retries
         $lastException = null;
@@ -70,7 +70,6 @@ final class ConnectionPool
                     PDO::ATTR_PERSISTENT => true,
                     PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
                     PDO::ATTR_TIMEOUT => 5,
-                    PDO::MYSQL_ATTR_INIT_COMMAND => 'SET NAMES utf8mb4',
                 ];
                 
                 $mergedOptions = array_merge($defaultOptions, $options);

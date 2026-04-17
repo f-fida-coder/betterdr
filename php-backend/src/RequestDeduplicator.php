@@ -15,8 +15,10 @@ final class RequestDeduplicator
 {
     private static ?self $instance = null;
     
-    /** @var array<string, array{promise: callable|mixed, waiting: bool}> */
+    /** @var array<string, array{promise: mixed, waiting: bool}> */
     private array $pending = [];
+
+    private const MAX_WAIT_ATTEMPTS = 500; // ~50ms total at 100us sleep
     
     private function __construct() {}
 
@@ -43,20 +45,16 @@ final class RequestDeduplicator
     {
         // If already computed/pending, wait for result
         if (isset($this->pending[$key])) {
-            $entry = &$this->pending[$key];
-            
-            // If already computed, return result
-            if (!$entry['waiting']) {
-                return $entry['promise'];
-            }
-            
             // Still computing, wait with simple polling (microsleep)
             $attempts = 0;
-            while ($entry['waiting'] && $attempts < 1000) {
+            while (isset($this->pending[$key]) && $this->pending[$key]['waiting'] && $attempts < self::MAX_WAIT_ATTEMPTS) {
                 usleep(100); // 100 microseconds
                 $attempts++;
             }
-            return $entry['promise'];
+
+            if (isset($this->pending[$key]) && !$this->pending[$key]['waiting']) {
+                return $this->pending[$key]['promise'];
+            }
         }
 
         // Mark as pending
@@ -80,6 +78,9 @@ final class RequestDeduplicator
             // Remove pending entry on error
             unset($this->pending[$key]);
             throw $e;
+        } finally {
+            // Important: never keep completed values forever, otherwise stale data can leak across requests.
+            unset($this->pending[$key]);
         }
     }
 
