@@ -2,20 +2,38 @@
 
 declare(strict_types=1);
 
-// Lazy class loading — previously the top-of-file require_once loaded all 30+
-// files (~1.5MB of source: AdminCoreController alone is 628KB) on every request.
-// With this autoloader only the classes actually referenced for the current
-// request get parsed, which on shared hosting with 60 PHP workers means each
-// worker serves many more requests per second.
-spl_autoload_register(static function (string $class): void {
-    if (strpos($class, '\\') !== false) {
-        return; // namespaced class — not ours
-    }
-    $file = __DIR__ . '/../src/' . $class . '.php';
-    if (is_file($file)) {
-        require_once $file;
-    }
-});
+require_once __DIR__ . '/../src/Env.php';
+require_once __DIR__ . '/../src/Logger.php';
+require_once __DIR__ . '/../src/Http.php';
+require_once __DIR__ . '/../src/IpUtils.php';
+require_once __DIR__ . '/../src/Jwt.php';
+require_once __DIR__ . '/../src/ApiException.php';
+require_once __DIR__ . '/../src/SportsMatchStatus.php';
+require_once __DIR__ . '/../src/SportsbookHealth.php';
+require_once __DIR__ . '/../src/SportsbookBetSupport.php';
+require_once __DIR__ . '/../src/SqlRepository.php';
+require_once __DIR__ . '/../src/QueryCache.php';
+require_once __DIR__ . '/../src/RequestDeduplicator.php';
+require_once __DIR__ . '/../src/BetModeRules.php';
+require_once __DIR__ . '/../src/AgentSettlementRules.php';
+require_once __DIR__ . '/../src/BetSettlementService.php';
+require_once __DIR__ . '/../src/OddsSyncService.php';
+require_once __DIR__ . '/../src/AuthController.php';
+require_once __DIR__ . '/../src/WalletController.php';
+require_once __DIR__ . '/../src/BetsController.php';
+require_once __DIR__ . '/../src/BettingRulesController.php';
+require_once __DIR__ . '/../src/MatchesController.php';
+require_once __DIR__ . '/../src/ContentController.php';
+require_once __DIR__ . '/../src/MessagesController.php';
+require_once __DIR__ . '/../src/CasinoController.php';
+require_once __DIR__ . '/../src/AgentController.php';
+require_once __DIR__ . '/../src/AgentCutsController.php';
+require_once __DIR__ . '/../src/PaymentsController.php';
+require_once __DIR__ . '/../src/AdminCoreController.php';
+require_once __DIR__ . '/../src/AdminEntityCatalog.php';
+require_once __DIR__ . '/../src/DebugController.php';
+require_once __DIR__ . '/../src/RateLimiter.php';
+require_once __DIR__ . '/../src/Response.php';
 
 $projectRoot = dirname(__DIR__, 2);
 $phpBackendDir = dirname(__DIR__);
@@ -265,36 +283,21 @@ if (!str_starts_with($uriPath, '/api')) {
 $handled = false;
 $nativeError = null;
 
-// Prefix → controller map. Longest-prefix-match wins so more specific admin
-// subpaths route to their dedicated controller instead of AdminCoreController.
-// Only the matching controller's class file is autoloaded — AdminCoreController
-// (~628KB) and CasinoController (~397KB) are skipped entirely for unrelated routes.
-$routeTable = [
-    '/api/admin/agent-cuts'     => 'AgentCutsController',
-    '/api/admin/bet-mode-rules' => 'BettingRulesController',
-    '/api/auth'                 => 'AuthController',
-    '/api/wallet'               => 'WalletController',
-    '/api/bets'                 => 'BetsController',
-    '/api/betting'              => 'BettingRulesController',
-    '/api/matches'              => 'MatchesController',
-    '/api/content'              => 'ContentController',
-    '/api/messages'             => 'MessagesController',
-    '/api/casino'               => 'CasinoController',
-    '/api/agent'                => 'AgentController',
-    '/api/payments'             => 'PaymentsController',
-    '/api/admin'                => 'AdminCoreController',
-    '/api/debug'                => 'DebugController',
-];
-
-$controllerClass = null;
-foreach ($routeTable as $prefix => $class) {
-    if (str_starts_with($uriPath, $prefix)) {
-        $controllerClass = $class;
-        break;
-    }
-}
-
-if ($controllerClass !== null) {
+if (
+    str_starts_with($uriPath, '/api/auth')
+    || str_starts_with($uriPath, '/api/wallet')
+    || str_starts_with($uriPath, '/api/bets')
+    || str_starts_with($uriPath, '/api/betting')
+    || str_starts_with($uriPath, '/api/admin/bet-mode-rules')
+    || str_starts_with($uriPath, '/api/matches')
+    || str_starts_with($uriPath, '/api/content')
+    || str_starts_with($uriPath, '/api/messages')
+    || str_starts_with($uriPath, '/api/casino')
+    || str_starts_with($uriPath, '/api/agent')
+    || str_starts_with($uriPath, '/api/payments')
+    || str_starts_with($uriPath, '/api/admin')
+    || str_starts_with($uriPath, '/api/debug')
+) {
     if ($authNativeEnabled) {
         try {
             $repo = new SqlRepository($dbUri, $dbName);
@@ -318,9 +321,33 @@ if ($controllerClass !== null) {
                 // In development: warn loudly in every response header but don't block.
                 header('X-Security-Warning: JWT_SECRET is weak or missing — do not use in production');
             }
+            $authController = new AuthController($repo, $jwtSecret);
+            $walletController = new WalletController($repo, $jwtSecret);
+            $betsController = new BetsController($repo, $jwtSecret);
+            $bettingRulesController = new BettingRulesController($repo, $jwtSecret);
+            $matchesController = new MatchesController($repo, $jwtSecret);
+            $contentController = new ContentController($repo, $jwtSecret);
+            $messagesController = new MessagesController($repo, $jwtSecret);
+            $casinoController = new CasinoController($repo, $jwtSecret);
+            $agentController = new AgentController($repo, $jwtSecret);
+            $agentCutsController = new AgentCutsController($repo, $jwtSecret);
+            $paymentsController = new PaymentsController($repo, $jwtSecret);
+            $adminCoreController = new AdminCoreController($repo, $jwtSecret);
+            $debugController = new DebugController($repo, $jwtSecret);
 
-            $controller = new $controllerClass($repo, $jwtSecret);
-            $handled = $controller->handle($method, $uriPath);
+            $handled = $authController->handle($method, $uriPath)
+                || $walletController->handle($method, $uriPath)
+                || $betsController->handle($method, $uriPath)
+                || $bettingRulesController->handle($method, $uriPath)
+                || $matchesController->handle($method, $uriPath)
+                || $contentController->handle($method, $uriPath)
+                || $messagesController->handle($method, $uriPath)
+                || $casinoController->handle($method, $uriPath)
+                || $agentCutsController->handle($method, $uriPath)
+                || $agentController->handle($method, $uriPath)
+                || $paymentsController->handle($method, $uriPath)
+                || $adminCoreController->handle($method, $uriPath)
+                || $debugController->handle($method, $uriPath);
 
             if ($handled) {
                 exit;

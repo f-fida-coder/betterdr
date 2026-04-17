@@ -1192,13 +1192,6 @@ KEY `idx_updated_at` (`updated_at`)
         return "'" . str_replace(['\\', "'"], ['\\\\', "\\'"], $value) . "'";
     }
 
-    // APCu TTL for positive schema-introspection results. Cross-worker cache
-    // so one worker's information_schema lookup warms the result for all 60.
-    // Only POSITIVE results are cached: storing a stale "false" would cause
-    // ensureSpecializedSchema to attempt an ALTER ADD COLUMN that fails.
-    // Nothing in the codebase drops columns/indexes, so positives never go stale.
-    private const SCHEMA_APCU_TTL = 300;
-
     private function columnExists(string $table, string $column): bool
     {
         $cacheKey = $table . '.' . $column;
@@ -1206,24 +1199,10 @@ KEY `idx_updated_at` (`updated_at`)
             return $this->columnExistsCache[$cacheKey];
         }
 
-        $apcuKey = 'schema:col:' . $cacheKey;
-        if (function_exists('apcu_enabled') && apcu_enabled()) {
-            $success = false;
-            $cached = apcu_fetch($apcuKey, $success);
-            if ($success && $cached === true) {
-                $this->columnExistsCache[$cacheKey] = true;
-                return true;
-            }
-        }
-
         $stmt = $this->pdo->prepare("SELECT 1 FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = :table AND column_name = :column LIMIT 1");
         $stmt->execute([':table' => $table, ':column' => $column]);
         $exists = (bool) $stmt->fetchColumn();
         $this->columnExistsCache[$cacheKey] = $exists;
-
-        if ($exists && function_exists('apcu_store')) {
-            apcu_store($apcuKey, true, self::SCHEMA_APCU_TTL);
-        }
 
         return $exists;
     }
@@ -1235,25 +1214,10 @@ KEY `idx_updated_at` (`updated_at`)
             return $this->indexExistsCache[$cacheKey];
         }
 
-        $apcuKey = 'schema:idx:' . $cacheKey;
-        if (function_exists('apcu_enabled') && apcu_enabled()) {
-            $success = false;
-            $cached = apcu_fetch($apcuKey, $success);
-            if ($success && $cached === true) {
-                $this->indexExistsCache[$cacheKey] = true;
-                return true;
-            }
-        }
-
         $stmt = $this->pdo->prepare("SELECT 1 FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = :table AND index_name = :idx LIMIT 1");
         $stmt->execute([':table' => $table, ':idx' => $index]);
         $exists = (bool) $stmt->fetchColumn();
         $this->indexExistsCache[$cacheKey] = $exists;
-
-        if ($exists && function_exists('apcu_store')) {
-            apcu_store($apcuKey, true, self::SCHEMA_APCU_TTL);
-        }
-
         return $exists;
     }
 
@@ -1279,9 +1243,6 @@ KEY `idx_updated_at` (`updated_at`)
                 if (!$this->columnExists($table, $column)) {
                     $this->pdo->exec($sql);
                     $this->columnExistsCache[$table . '.' . $column] = true;
-                    if (function_exists('apcu_store')) {
-                        apcu_store('schema:col:' . $table . '.' . $column, true, self::SCHEMA_APCU_TTL);
-                    }
                 }
             }
 
@@ -1298,9 +1259,6 @@ KEY `idx_updated_at` (`updated_at`)
                 if (!$this->indexExists($table, $index)) {
                     $this->pdo->exec($sql);
                     $this->indexExistsCache[$table . '.' . $index] = true;
-                    if (function_exists('apcu_store')) {
-                        apcu_store('schema:idx:' . $table . '.' . $index, true, self::SCHEMA_APCU_TTL);
-                    }
                 }
             }
             return;
@@ -1316,9 +1274,6 @@ KEY `idx_updated_at` (`updated_at`)
                 if (!$this->columnExists($table, $column)) {
                     $this->pdo->exec($sql);
                     $this->columnExistsCache[$table . '.' . $column] = true;
-                    if (function_exists('apcu_store')) {
-                        apcu_store('schema:col:' . $table . '.' . $column, true, self::SCHEMA_APCU_TTL);
-                    }
                 }
             }
 
@@ -1330,9 +1285,6 @@ KEY `idx_updated_at` (`updated_at`)
                 if (!$this->indexExists($table, $index)) {
                     $this->pdo->exec($sql);
                     $this->indexExistsCache[$table . '.' . $index] = true;
-                    if (function_exists('apcu_store')) {
-                        apcu_store('schema:idx:' . $table . '.' . $index, true, self::SCHEMA_APCU_TTL);
-                    }
                 }
             }
         }

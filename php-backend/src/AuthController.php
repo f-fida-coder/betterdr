@@ -393,7 +393,6 @@ final class AuthController
             }
             setcookie('auth_token', $newToken, $cookieOptions);
             $this->issueCsrfCookie($ttl, $isHttps);
-            self::issueAuthHintCookie($ttl, $isHttps);
 
             Response::json(['token' => $newToken]);
         } catch (Throwable $e) {
@@ -415,9 +414,7 @@ final class AuthController
                 $decoded = Jwt::decode($cookieToken, $this->jwtSecret);
             } catch (Throwable $e) {
                 // Cookie token is expired/invalid — clear it
-                $isHttps = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
                 setcookie('auth_token', '', ['expires' => time() - 3600, 'path' => '/', 'httponly' => true, 'samesite' => 'Lax']);
-                self::clearAuthHintCookie($isHttps);
                 Response::json(['message' => 'Session expired'], 401);
                 return;
             }
@@ -429,7 +426,8 @@ final class AuthController
                 return;
             }
 
-            $user = $this->findUserCached($role, $id);
+            $collection = $this->collectionByRole($role);
+            $user = $this->db->findOne($collection, ['id' => SqlRepository::id($id)]);
             if ($user === null) {
                 Response::json(['message' => 'User not found'], 401);
                 return;
@@ -462,7 +460,6 @@ final class AuthController
             $csrfExpired['secure'] = true;
         }
         setcookie('csrf_token', '', $csrfExpired);
-        self::clearAuthHintCookie($isHttps);
         Response::json(['message' => 'Logged out successfully']);
     }
 
@@ -609,9 +606,6 @@ final class AuthController
             return null;
         }
 
-        // NOTE: protect() returns fresh DB data — callers like getMe() and
-        // placeBet rely on up-to-the-second balance/status. Do NOT swap this
-        // for the cached lookup used by getSession().
         $collection = $this->collectionByRole($role);
         $user = $this->db->findOne($collection, ['id' => SqlRepository::id($id)]);
         if ($user === null) {
@@ -707,7 +701,6 @@ final class AuthController
         // CSRF double-submit cookie: readable by JS (no httponly) so the frontend can echo
         // it back in the X-CSRF-Token header. A cross-origin attacker cannot read it.
         $this->issueCsrfCookie($ttl, $isHttps);
-        self::issueAuthHintCookie($ttl, $isHttps);
 
         $freeplayBalance = $this->num($user['freeplayBalance'] ?? 0);
         $freeplayExpiresAt = $user['freeplayExpiresAt'] ?? null;
@@ -1265,60 +1258,5 @@ final class AuthController
             $opts['secure'] = true;
         }
         setcookie('csrf_token', $csrfToken, $opts);
-    }
-
-    // Cached user lookup keyed by (role, id). Cuts the most common DB hit on
-    // shared-hosting — every page load's /auth/session and every protected API
-    // call previously did a full findOne. APCu-backed L2 means one worker's
-    // lookup warms the cache for all 60 PHP-FPM workers. TTL is intentionally
-    // short so changes (suspension, balance) become visible within seconds.
-    private const USER_CACHE_TTL = 5;
-
-    private function findUserCached(string $role, string $id): ?array
-    {
-        $collection = $this->collectionByRole($role);
-        $cacheKey = 'auth_user:' . $collection . ':' . $id;
-        $cache = QueryCache::getInstance();
-
-        $cached = $cache->get($cacheKey);
-        if (is_array($cached)) {
-            return $cached;
-        }
-
-        $user = $this->db->findOne($collection, ['id' => SqlRepository::id($id)]);
-        if ($user === null) {
-            return null;
-        }
-
-        $cache->set($cacheKey, $user, self::USER_CACHE_TTL);
-        return $user;
-    }
-
-    // Call after any write that changes a user document (profile update,
-    // balance change, suspension) so the next auth check sees fresh data.
-    public static function invalidateUserCache(string $collection, string $id): void
-    {
-        QueryCache::getInstance()->forget('auth_user:' . $collection . ':' . $id);
-    }
-
-    // Non-httpOnly hint cookie letting the frontend know a session exists, so it
-    // can skip the /auth/session round-trip for anonymous visitors. Value is
-    // non-sensitive ("1") — real auth is still enforced by the httpOnly token.
-    public static function issueAuthHintCookie(int $ttl, bool $secure): void
-    {
-        $opts = ['expires' => time() + $ttl, 'path' => '/', 'httponly' => false, 'samesite' => 'Lax'];
-        if ($secure) {
-            $opts['secure'] = true;
-        }
-        setcookie('has_session', '1', $opts);
-    }
-
-    public static function clearAuthHintCookie(bool $secure): void
-    {
-        $opts = ['expires' => time() - 3600, 'path' => '/', 'httponly' => false, 'samesite' => 'Lax'];
-        if ($secure) {
-            $opts['secure'] = true;
-        }
-        setcookie('has_session', '', $opts);
     }
 }

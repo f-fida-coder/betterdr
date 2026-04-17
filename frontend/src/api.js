@@ -437,14 +437,6 @@ export const invalidateMeCache = (token = '') => {
     meResponseCache.clear();
 };
 
-// Non-httpOnly hint cookie set alongside auth_token on login. When absent we
-// know there's no session to restore, so we can skip the /auth/session call.
-// This saves a PHP worker on every anonymous homepage load.
-const hasSessionHintCookie = () => {
-    if (typeof document === 'undefined') return false;
-    return /(?:^|;\s*)has_session=1(?:;|$)/.test(document.cookie);
-};
-
 export const bootstrapAuthSession = async (options = {}) => {
     const timeoutMs = Number.isFinite(options?.timeoutMs) ? Number(options.timeoutMs) : 8000;
     const token = getStoredAuthToken();
@@ -456,17 +448,6 @@ export const bootstrapAuthSession = async (options = {}) => {
 
     if (_authBootstrapPromise && _authBootstrapPromiseKey === cacheKey) {
         return _authBootstrapPromise;
-    }
-
-    // Fast-path: no stored token and no hint cookie means no session exists.
-    // Skip the PHP call entirely — anonymous visitors never touch the backend.
-    if (!token && !hasSessionHintCookie()) {
-        _authBootstrapCache = {
-            key: cacheKey,
-            createdAt: Date.now(),
-            value: null,
-        };
-        return null;
     }
 
     _authBootstrapPromiseKey = cacheKey;

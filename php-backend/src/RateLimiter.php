@@ -1,76 +1,102 @@
 <?php declare(strict_types=1);
 
-// In-memory rate limiter backed by APCu. Previously stored counters in MySQL,
-// which forced two DB round-trips (SELECT + UPDATE/INSERT) on every enforced
-// endpoint — a serious bottleneck on shared hosting where the MySQL pool is
-// the scarcest resource. APCu lives in PHP shared memory, so each check is
-// a single in-process memory op with no I/O.
 class RateLimiter
 {
     /**
-     * Check if a request is allowed.
+     * Check if a request is allowed based on rate limiting rules
      *
-     * @param SqlRepository|null $db   Legacy parameter, unused. Kept so
-     *                                 existing call-sites don't have to change.
-     * @param string $ip
-     * @param string $endpoint
-     * @param int $maxAttempts
-     * @param int $windowSeconds
-     * @return bool True if allowed, false if rate-limited.
+     * @param SqlRepository $db Database repository instance
+     * @param string $ip IP address of the requester
+     * @param string $endpoint Endpoint being accessed
+     * @param int $maxAttempts Maximum number of attempts allowed in the window
+     * @param int $windowSeconds Time window in seconds
+     * @return bool True if request is allowed, false if rate limited
      */
     public static function checkLimit(
-        ?SqlRepository $db,
+        SqlRepository $db,
         string $ip,
         string $endpoint,
         int $maxAttempts,
         int $windowSeconds
     ): bool {
-        // Fail-open when APCu isn't available — losing rate limiting on this
-        // endpoint is safer than blocking legitimate traffic from a crashed
-        // cache. Warn once per process.
-        if (!self::apcuAvailable()) {
-            static $warned = false;
-            if (!$warned) {
-                Logger::warning('APCu not available — rate limiting disabled', [
-                    'endpoint' => $endpoint,
-                ], 'error');
-                $warned = true;
+        $collection = 'rate_limits';
+        
+        $entries = $db->findMany($collection, [
+            'ip' => $ip,
+            'endpoint' => $endpoint,
+        ], ['limit' => 1]);
+
+        $now = SqlRepository::nowUtc();
+        $nowTimestamp = strtotime($now);
+
+        if (!empty($entries)) {
+            $entry = $entries[0];
+            $windowStartTimestamp = strtotime($entry['windowStart']);
+            $windowEndTimestamp = $windowStartTimestamp + $windowSeconds;
+
+            if ($nowTimestamp < $windowEndTimestamp) {
+                $currentCount = (int) $entry['count'];
+                if ($currentCount >= $maxAttempts) {
+                    return false;
+                }
+                $db->updateOne($collection, ['id' => $entry['id']], [
+                    'count' => $currentCount + 1,
+                ]);
+                return true;
             }
+
+            $db->updateOne($collection, ['id' => $entry['id']], [
+                'count' => 1,
+                'windowStart' => $now,
+            ]);
             return true;
         }
 
-        $key = self::keyFor($ip, $endpoint);
-        $success = false;
-
-        // apcu_inc with a TTL atomically creates the counter at 1 (TTL applied
-        // on creation) or increments an existing counter (TTL preserved). The
-        // natural expiry gives us a rolling window with zero cleanup.
-        $count = apcu_inc($key, 1, $success, $windowSeconds);
-
-        if ($count === false || !$success) {
-            // Race with another process that just deleted the key — retry once.
-            apcu_store($key, 1, $windowSeconds);
-            return true;
-        }
-
-        return $count <= $maxAttempts;
+        $db->insertOne($collection, [
+            'ip' => $ip,
+            'endpoint' => $endpoint,
+            'count' => 1,
+            'windowStart' => $now,
+        ]);
+        return true;
     }
-
+    
     /**
-     * Seconds remaining in the current window, or 0 if no window is active.
-     * APCu doesn't expose per-key TTL cheaply, so we return $windowSeconds as
-     * a safe upper bound — clients won't retry sooner than the window allows.
+     * Get the number of seconds remaining in the current rate limit window
+     *
+     * @param SqlRepository $db Database repository instance
+     * @param string $ip IP address of the requester
+     * @param string $endpoint Endpoint being accessed
+     * @param int $windowSeconds Time window in seconds
+     * @return int Seconds remaining in the current window (0 if no active window)
      */
     public static function getRemainingSeconds(
-        ?SqlRepository $db,
+        SqlRepository $db,
         string $ip,
         string $endpoint,
         int $windowSeconds
     ): int {
-        if (!self::apcuAvailable()) {
+        $collection = 'rate_limits';
+        
+        $entries = $db->findMany($collection, [
+            'ip' => $ip,
+            'endpoint' => $endpoint,
+        ], ['limit' => 1]);
+        
+        if (empty($entries)) {
             return 0;
         }
-        return apcu_exists(self::keyFor($ip, $endpoint)) ? $windowSeconds : 0;
+        
+        $entry = $entries[0];
+        $now = SqlRepository::nowUtc();
+        $nowTimestamp = strtotime($now);
+        $windowStartTimestamp = strtotime($entry['windowStart']);
+        $windowEndTimestamp = $windowStartTimestamp + $windowSeconds;
+        
+        // Calculate remaining seconds in the window
+        $remainingSeconds = $windowEndTimestamp - $nowTimestamp;
+        
+        return max(0, $remainingSeconds);
     }
 
     /**
@@ -78,7 +104,7 @@ class RateLimiter
      * Returns true if the request is blocked (caller should return early).
      */
     public static function enforce(
-        ?SqlRepository $db,
+        SqlRepository $db,
         string $endpoint,
         int $maxAttempts,
         int $windowSeconds
@@ -93,22 +119,6 @@ class RateLimiter
         }
 
         return false;
-    }
-
-    private static function apcuAvailable(): bool
-    {
-        static $available = null;
-        if ($available === null) {
-            $available = function_exists('apcu_enabled') && apcu_enabled();
-        }
-        return $available;
-    }
-
-    private static function keyFor(string $ip, string $endpoint): string
-    {
-        // Compact deterministic key — the raw IP + endpoint could be long and
-        // APCu keeps the key in memory for every counter.
-        return 'rl:' . substr(hash('sha256', $endpoint . '|' . $ip), 0, 20);
     }
 
     private static function resolveClientKey(string $endpoint): string

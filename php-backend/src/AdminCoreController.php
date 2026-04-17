@@ -1792,7 +1792,6 @@ final class AdminCoreController
                     $csrfOpts['secure'] = true;
                 }
                 setcookie('csrf_token', $csrfToken, $csrfOpts);
-                AuthController::issueAuthHintCookie($ttl, $isHttps);
             }
 
             // Audit log: record every impersonation event
