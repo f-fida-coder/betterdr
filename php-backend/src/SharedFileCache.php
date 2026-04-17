@@ -35,6 +35,26 @@ final class SharedFileCache
     }
 
     /**
+     * Read cached data without enforcing TTL or deleting the file.
+     * Useful as a stale-cache fallback when fresh data is unavailable.
+     *
+     * @return array<string, mixed>|null
+     */
+    public static function peek(string $namespace, string $key): ?array
+    {
+        $cacheFile = self::cacheFile($namespace, $key);
+        if (!is_file($cacheFile)) {
+            return null;
+        }
+        $raw = @file_get_contents($cacheFile);
+        if (!is_string($raw) || $raw === '') {
+            return null;
+        }
+        $decoded = json_decode($raw, true);
+        return is_array($decoded) ? $decoded : null;
+    }
+
+    /**
      * @param callable(): array<string, mixed> $callback
      * @return array<string, mixed>
      */
@@ -52,10 +72,20 @@ final class SharedFileCache
         }
 
         try {
-            if (!@flock($lockHandle, LOCK_EX)) {
-                return self::store($namespace, $key, $callback());
+            // Non-blocking attempt first: if another worker already holds the lock,
+            // return stale data immediately rather than queuing all workers behind one DB query.
+            if (!@flock($lockHandle, LOCK_EX | LOCK_NB)) {
+                $stale = self::peek($namespace, $key);
+                if (is_array($stale)) {
+                    return $stale;
+                }
+                // Cold start — no stale data exists yet. Block-wait for the first worker.
+                if (!@flock($lockHandle, LOCK_EX)) {
+                    return self::store($namespace, $key, $callback());
+                }
             }
 
+            // Double-check: another worker may have written while we waited.
             $cached = self::get($namespace, $key, $ttlSeconds);
             if (is_array($cached)) {
                 return $cached;

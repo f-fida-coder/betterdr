@@ -10,7 +10,7 @@ final class MatchesController
     private const DEFAULT_PUBLIC_CACHE_TTL_SECONDS = 120;
     private const DEFAULT_PUBLIC_REFRESH_COOLDOWN_SECONDS = 120;
     private const DEFAULT_PUBLIC_REFRESH_LOCK_SECONDS = 30;
-    private const DEFAULT_SHARED_MATCHES_CACHE_TTL_SECONDS = 30;
+    private const DEFAULT_SHARED_MATCHES_CACHE_TTL_SECONDS = 120;
     private const DEFAULT_SHARED_SPORTS_CACHE_TTL_SECONDS = 60;
 
     private SqlRepository $db;
@@ -59,6 +59,9 @@ final class MatchesController
         $sharedCacheTtl = $this->envInt('SPORTSBOOK_MATCHES_CACHE_TTL_SECONDS', self::DEFAULT_SHARED_MATCHES_CACHE_TTL_SECONDS);
         $cacheNamespace = SportsbookCache::publicMatchesNamespace();
         $cacheKey = SportsbookCache::publicMatchesKey($status, $active);
+        // Read stale data NOW before any TTL-enforcing get() may delete the expired file.
+        // This is the fallback used if the fresh-data path throws an exception under load.
+        $staleForFallback = SharedFileCache::peek($cacheNamespace, $cacheKey);
 
         try {
             $cacheMeta = $this->maybeRefreshPublicMatches();
@@ -82,10 +85,9 @@ final class MatchesController
         } catch (Throwable $e) {
             // Fallback to stale cache to keep the public matches endpoint available
             // during transient database contention and avoid 5xx spikes.
-            $stale = SharedFileCache::get($cacheNamespace, $cacheKey, 86400);
-            if (is_array($stale)) {
+            if (is_array($staleForFallback)) {
                 header('X-Matches-Fallback: stale-cache');
-                Response::json($stale, 200, 'public, max-age=5, stale-while-revalidate=60');
+                Response::json($staleForFallback, 200, 'public, max-age=5, stale-while-revalidate=60');
                 return;
             }
             Response::json(['message' => 'Server Error fetching matches'], 500);
