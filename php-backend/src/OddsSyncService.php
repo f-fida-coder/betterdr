@@ -5,6 +5,9 @@ declare(strict_types=1);
 
 final class OddsSyncService
 {
+    private static array $apiCache = [];
+    private const CACHE_TTL_SECONDS = 1800; // 30 minutes
+
     public static function handleMatchesFallbackRoute(string $method, string $path): bool
     {
         if ($method === 'GET' && $path === '/api/matches') {
@@ -50,6 +53,16 @@ final class OddsSyncService
      */
     public static function fetchMatchesSnapshotFromApi(): array
     {
+        $cacheKey = 'matches_snapshot';
+        $now = time();
+
+        if (isset(self::$apiCache[$cacheKey]) && 
+            isset(self::$apiCache[$cacheKey]['data']) && 
+            isset(self::$apiCache[$cacheKey]['timestamp']) &&
+            ($now - self::$apiCache[$cacheKey]['timestamp']) < self::CACHE_TTL_SECONDS) {
+            return self::$apiCache[$cacheKey]['data'];
+        }
+
         $sportsApiEnabled = strtolower((string) Env::get('SPORTS_API_ENABLED', 'true')) === 'true';
         $apiKey = (string) Env::get('ODDS_API_KEY', '');
         if (!$sportsApiEnabled || $apiKey === '') {
@@ -175,6 +188,12 @@ final class OddsSyncService
         usort($snapshot, static function (array $a, array $b): int {
             return strcmp((string) ($a['startTime'] ?? ''), (string) ($b['startTime'] ?? ''));
         });
+
+        // Cache the result
+        self::$apiCache[$cacheKey] = [
+            'data' => $snapshot,
+            'timestamp' => $now,
+        ];
 
         return $snapshot;
     }

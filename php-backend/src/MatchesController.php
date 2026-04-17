@@ -56,55 +56,89 @@ final class MatchesController
             $cacheMeta = $this->maybeRefreshPublicMatches();
             $status = isset($_GET['status']) ? strtolower(trim((string) $_GET['status'])) : '';
             $active = isset($_GET['active']) ? strtolower(trim((string) $_GET['active'])) : '';
-            $matches = $this->db->findMany('matches', [], ['sort' => ['startTime' => 1]]);
-            $snapshot = SportsbookHealth::sportsbookSnapshot($this->db);
-            $annotated = [];
-            foreach ($matches as $match) {
-                if (!is_array($match)) {
-                    continue;
-                }
-                $row = SportsbookHealth::applyBettingAvailability($this->db, $match, $snapshot);
-                if (($row['isPublicVisible'] ?? false) !== true) {
-                    continue;
-                }
-                $annotated[] = $row;
-            }
-
-            $desiredStatus = $status === 'active' ? 'live' : $status;
-            if ($desiredStatus === 'upcoming') {
-                $now = time();
-                $annotated = array_values(array_filter($annotated, static function (array $match) use ($now): bool {
-                    $status = strtolower((string) ($match['status'] ?? ''));
-                    if ($status !== 'scheduled') {
-                        return false;
-                    }
-                    $startTime = (string) ($match['startTime'] ?? '');
-                    $parsed = $startTime !== '' ? strtotime($startTime) : false;
-                    return $parsed === false || $parsed > $now;
-                }));
-            } elseif ($desiredStatus === 'live-upcoming') {
-                $annotated = array_values(array_filter($annotated, static function (array $match): bool {
-                    $status = strtolower((string) ($match['status'] ?? ''));
-                    return in_array($status, ['scheduled', 'live'], true);
-                }));
-            } elseif ($desiredStatus !== '' && $desiredStatus !== 'all') {
-                $annotated = array_values(array_filter($annotated, static function (array $match) use ($desiredStatus): bool {
-                    return strtolower((string) ($match['status'] ?? '')) === $desiredStatus;
-                }));
-            } elseif ($active === 'true') {
-                $annotated = array_values(array_filter($annotated, static fn (array $match): bool => strtolower((string) ($match['status'] ?? '')) === 'live'));
-            } else {
-                $annotated = array_values(array_filter($annotated, static function (array $match): bool {
-                    $status = strtolower((string) ($match['status'] ?? ''));
-                    return in_array($status, ['scheduled', 'live'], true);
-                }));
+            
+            // Generate cache key based on query parameters
+            $cacheKey = 'matches:' . ($status ?: 'all') . ':' . ($active ?: '0');
+            $cacheTtl = 15; // 15 second cache for frequently accessed data
+            
+            // Try to get from cache first
+            $cache = QueryCache::getInstance();
+            $annotated = $cache->get($cacheKey);
+            
+            if ($annotated === null) {
+                // Use request deduplication to prevent redundant computation
+                // when multiple concurrent requests hit same endpoint
+                $dedup = RequestDeduplicator::getInstance();
+                $annotated = $dedup->coalesce($cacheKey . ':compute', fn() => $this->computeMatches($status, $active));
+                
+                // Store in cache
+                $cache->set($cacheKey, $annotated, $cacheTtl);
             }
 
             $this->emitPublicCacheHeaders($cacheMeta);
-            Response::json($annotated);
+            $ttl = (int) ($cacheMeta['cacheTtlSeconds'] ?? self::DEFAULT_PUBLIC_CACHE_TTL_SECONDS);
+            Response::json($annotated, 200, "public, max-age={$ttl}");
         } catch (Throwable $e) {
             Response::json(['message' => 'Server Error fetching matches'], 500);
         }
+    }
+
+    private function computeMatches(string $status, string $active): array
+    {
+        $dbFilter = [];
+        $desiredStatus = $status === 'active' ? 'live' : $status;
+        
+        if ($desiredStatus === 'live') {
+            $dbFilter['status'] = 'live';
+        } elseif ($desiredStatus === 'scheduled') {
+            $dbFilter['status'] = 'scheduled';
+        } elseif ($desiredStatus === 'finished') {
+            $dbFilter['status'] = 'finished';
+        } elseif ($desiredStatus === 'upcoming') {
+            $dbFilter['status'] = 'scheduled';
+        }
+        
+        $matches = $this->db->findMany('matches', $dbFilter, ['sort' => ['startTime' => 1]]);
+        $snapshot = SportsbookHealth::sportsbookSnapshot($this->db);
+        $annotated = [];
+        foreach ($matches as $match) {
+            if (!is_array($match)) {
+                continue;
+            }
+            $row = SportsbookHealth::applyBettingAvailability($this->db, $match, $snapshot);
+            if (($row['isPublicVisible'] ?? false) !== true) {
+                continue;
+            }
+            $annotated[] = $row;
+        }
+
+        // Apply remaining filters in PHP
+        if ($desiredStatus === 'upcoming') {
+            $now = time();
+            $annotated = array_values(array_filter($annotated, static function (array $match) use ($now): bool {
+                $startTime = (string) ($match['startTime'] ?? '');
+                $parsed = $startTime !== '' ? strtotime($startTime) : false;
+                return $parsed === false || $parsed > $now;
+            }));
+        } elseif ($desiredStatus === 'live-upcoming') {
+            $annotated = array_values(array_filter($annotated, static function (array $match): bool {
+                $matchStatus = strtolower((string) ($match['status'] ?? ''));
+                return in_array($matchStatus, ['scheduled', 'live'], true);
+            }));
+        } elseif ($desiredStatus !== '' && $desiredStatus !== 'all' && !isset($dbFilter['status'])) {
+            $annotated = array_values(array_filter($annotated, static function (array $match) use ($desiredStatus): bool {
+                return strtolower((string) ($match['status'] ?? '')) === $desiredStatus;
+            }));
+        } elseif ($active === 'true') {
+            $annotated = array_values(array_filter($annotated, static fn (array $match): bool => strtolower((string) ($match['status'] ?? '')) === 'live'));
+        } elseif ($status === '' && $active === '') {
+            $annotated = array_values(array_filter($annotated, static function (array $match): bool {
+                $matchStatus = strtolower((string) ($match['status'] ?? ''));
+                return in_array($matchStatus, ['scheduled', 'live'], true);
+            }));
+        }
+        
+        return $annotated;
     }
 
     private function getMatchById(string $id): void

@@ -136,4 +136,4 @@ const DashboardMain = ({ selectedSports = [], activeBetMode = 'straight' }) => {
     );
 };
 
-export default DashboardMain;
+export default React.memo(DashboardMain);

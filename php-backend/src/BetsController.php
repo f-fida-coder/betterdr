@@ -396,6 +396,9 @@ final class BetsController
             ]);
             $requestDocOwned = false;
 
+            // Invalidate user's bet history cache after successful bet placement
+            QueryCache::getInstance()->forgetPattern('bets:' . $userId . ':*');
+
             Response::json($responsePayload, 201);
         } catch (ApiException $e) {
             if ($requestDocOwned && $requestDocId !== '') {
@@ -606,72 +609,92 @@ final class BetsController
             $limit = isset($_GET['limit']) ? (int) $_GET['limit'] : 50;
             $limit = $limit > 0 ? $limit : 50;
 
-            $query = ['userId' => SqlRepository::id((string) $user['id'])];
-            if ($status !== '' && $status !== 'all') {
-                $query['status'] = $status;
-            }
-
-            $bets = $this->db->findMany('bets', $query, [
-                'sort' => ['createdAt' => -1],
-                'limit' => $limit,
-            ]);
-
-            $formatted = [];
-            foreach ($bets as $bet) {
-                if (!is_array($bet)) {
-                    continue;
-                }
-                $formatted[] = $this->enrichBetDocument($bet);
-            }
-
-            $casinoQuery = ['userId' => SqlRepository::id((string) $user['id'])];
-            $casinoBets = $this->db->findMany('casino_bets', $casinoQuery, [
-                'sort' => ['createdAt' => -1],
-                'limit' => $limit,
-            ]);
-
-            foreach ($casinoBets as $cbet) {
-                if (!is_array($cbet)) {
-                    continue;
-                }
-                $cStatus = ((float) ($cbet['totalReturn'] ?? 0)) > 0 ? 'won' : 'lost';
-                if (((float) ($cbet['totalWager'] ?? 0)) <= 0) {
-                    $cStatus = 'void';
-                }
-
-                if ($status !== '' && $status !== 'all' && $cStatus !== $status) {
-                    continue; // Skip if it doesn't match the frontend filter
-                }
-
-                $formatted[] = [
-                    'id' => $cbet['id'],
-                    'ticketId' => ltrim((string) ($cbet['roundId'] ?? ''), 'r_'),
-                    'type' => 'casino_' . ($cbet['game'] ?? 'game'),
-                    'status' => $cStatus,
-                    'createdAt' => $cbet['createdAt'] ?? '',
-                    'amount' => $cbet['totalWager'] ?? 0,
-                    'riskAmount' => $cbet['totalWager'] ?? 0,
-                    'potentialPayout' => max((float) ($cbet['totalWager'] ?? 0), (float) ($cbet['totalReturn'] ?? 0)),
-                    'description' => ucfirst($cbet['game'] ?? 'casino') . ' Round',
-                    'selections' => [],
-                    'combinedOdds' => 1.0,
-                ];
-            }
-
-            usort($formatted, function (array $a, array $b): int {
-                $aTime = strtotime($a['createdAt'] ?? '');
-                $bTime = strtotime($b['createdAt'] ?? '');
-                return $bTime <=> $aTime; // Descending
-            });
-
-            if (count($formatted) > $limit) {
-                $formatted = array_slice($formatted, 0, $limit);
+            // Cache user bet history per status filter
+            $userId = (string) $user['id'];
+            $cacheKey = 'bets:' . $userId . ':' . ($status ?: 'all') . ':' . $limit;
+            $cache = QueryCache::getInstance();
+            $formatted = $cache->get($cacheKey);
+            
+            if ($formatted === null) {
+                // Use request deduplication to prevent concurrent redundant queries
+                $dedup = RequestDeduplicator::getInstance();
+                $formatted = $dedup->coalesce($cacheKey . ':compute', fn() => $this->computeUserBets($userId, $status, $limit));
+                
+                // Cache for 10 seconds - user bet history changes frequently
+                $cache->set($cacheKey, $formatted, 10);
             }
 
             Response::json($formatted);
         } catch (Throwable $e) {
             Response::json(['message' => 'Error fetching bets'], 500);
         }
+    }
+
+    private function computeUserBets(string $userId, string $status, int $limit): array
+    {
+        $query = ['userId' => SqlRepository::id($userId)];
+        if ($status !== '' && $status !== 'all') {
+            $query['status'] = $status;
+        }
+
+        $bets = $this->db->findMany('bets', $query, [
+            'sort' => ['createdAt' => -1],
+            'limit' => $limit,
+        ]);
+
+        $formatted = [];
+        foreach ($bets as $bet) {
+            if (!is_array($bet)) {
+                continue;
+            }
+            $formatted[] = $this->enrichBetDocument($bet);
+        }
+
+        $casinoQuery = ['userId' => SqlRepository::id($userId)];
+        $casinoBets = $this->db->findMany('casino_bets', $casinoQuery, [
+            'sort' => ['createdAt' => -1],
+            'limit' => $limit,
+        ]);
+
+        foreach ($casinoBets as $cbet) {
+            if (!is_array($cbet)) {
+                continue;
+            }
+            $cStatus = ((float) ($cbet['totalReturn'] ?? 0)) > 0 ? 'won' : 'lost';
+            if (((float) ($cbet['totalWager'] ?? 0)) <= 0) {
+                $cStatus = 'void';
+            }
+
+            if ($status !== '' && $status !== 'all' && $cStatus !== $status) {
+                continue; // Skip if it doesn't match the frontend filter
+            }
+
+            $formatted[] = [
+                'id' => $cbet['id'],
+                'ticketId' => ltrim((string) ($cbet['roundId'] ?? ''), 'r_'),
+                'type' => 'casino_' . ($cbet['game'] ?? 'game'),
+                'status' => $cStatus,
+                'createdAt' => $cbet['createdAt'] ?? '',
+                'amount' => $cbet['totalWager'] ?? 0,
+                'riskAmount' => $cbet['totalWager'] ?? 0,
+                'potentialPayout' => max((float) ($cbet['totalWager'] ?? 0), (float) ($cbet['totalReturn'] ?? 0)),
+                'description' => ucfirst($cbet['game'] ?? 'casino') . ' Round',
+                'selections' => [],
+                'combinedOdds' => 1.0,
+            ];
+        }
+
+        usort($formatted, function (array $a, array $b): int {
+            $aTime = strtotime($a['createdAt'] ?? '');
+            $bTime = strtotime($b['createdAt'] ?? '');
+            return $bTime <=> $aTime; // Descending
+        });
+
+        if (count($formatted) > $limit) {
+            $formatted = array_slice($formatted, 0, $limit);
+        }
+        
+        return $formatted;
     }
 
     private function validateSelection(string $matchId, string $selection, mixed $odds, string $type): array

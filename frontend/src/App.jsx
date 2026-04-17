@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useRef, Suspense } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback, Suspense } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
 import {
   bootstrapAuthSession,
   clearAuthBootstrapCache,
@@ -34,6 +35,15 @@ const DEFAULT_BET_MODE_RULES = {
   reverse:  { minLegs: 2, maxLegs: 2,  teaserPointOptions: [], payoutProfile: { type: 'odds_product', multipliers: {} } },
 };
 
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 5 * 60 * 1000, // 5 minutes
+      gcTime: 10 * 60 * 1000, // 10 minutes
+    },
+  },
+});
+
 function App() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -55,19 +65,19 @@ function App() {
   const [showPromo, setShowPromo] = useState(false);
   // Mobile navigation state: true = user clicked Continue and is viewing results
   const [mobileResultsActive, setMobileResultsActive] = useState(false);
-  const isMobileViewport = typeof window !== 'undefined'
+  const isMobileViewport = useMemo(() => typeof window !== 'undefined'
     && window.matchMedia
-    && window.matchMedia('(max-width: 768px)').matches;
+    && window.matchMedia('(max-width: 768px)').matches, []);
 
   // Derived mobile state:
   //   'browsing'  — no actionable selection, showing sports menu
   //   'selected'  — child sport picked, showing Continue in header
   //   'results'   — Continue clicked, showing match results
-  const mobileViewState = mobileResultsActive && selectedSports.length > 0
+  const mobileViewState = useMemo(() => mobileResultsActive && selectedSports.length > 0
     ? 'results'
     : selectedSports.length > 0
       ? 'selected'
-      : 'browsing';
+      : 'browsing', [mobileResultsActive, selectedSports.length]);
 
   // Guard: if selection is emptied, always exit results mode
   useEffect(() => {
@@ -81,7 +91,7 @@ function App() {
   const [isUpdatingOddsFormat, setIsUpdatingOddsFormat] = useState(false);
   const [isSessionBootstrapping, setIsSessionBootstrapping] = useState(true);
 
-  const applyOddsFormat = (nextFormat, userId = '') => {
+  const applyOddsFormat = useCallback((nextFormat, userId = '') => {
     const normalized = normalizeOddsFormat(nextFormat);
     setOddsFormat(normalized);
     writeStoredOddsFormat(normalized, userId);
@@ -89,7 +99,7 @@ function App() {
       window.dispatchEvent(new CustomEvent('oddsFormat:change', { detail: normalized }));
     }
     return normalized;
-  };
+  }, []);
 
   // On mount: attempt to restore session from the httpOnly cookie.
   // If the cookie is valid the backend returns a fresh token + user data.
@@ -125,30 +135,27 @@ function App() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (!user?.id) return;
-    const preferredFormat = normalizeOddsFormat(user?.settings?.oddsFormat || readStoredOddsFormat(user.id));
-    applyOddsFormat(preferredFormat, user.id);
-  }, [user?.id, user?.settings?.oddsFormat]);
+    if (!currentUser?.id) return;
+    const preferredFormat = normalizeOddsFormat(currentUser?.settings?.oddsFormat || readStoredOddsFormat(currentUser.id));
+    applyOddsFormat(preferredFormat, currentUser.id);
+  }, [currentUser?.id, currentUser?.settings?.oddsFormat]);
 
-  useEffect(() => {
-    const loadBetModeRules = async () => {
-      if (!token) return;
-      try {
-        const payload = await getPublicBetModeRules(token);
-        const mapped = (payload?.rules || []).reduce((acc, rule) => {
-          acc[normalizeBetMode(rule.mode)] = rule;
-          return acc;
-        }, {});
-        if (Object.keys(mapped).length > 0) {
-          setBetModeRules(prev => ({ ...prev, ...mapped }));
-        }
-      } catch (error) {
-        console.warn('Failed to load bet mode rules:', error.message);
-      }
-    };
+  const { data: betModeRulesData } = useQuery({
+    queryKey: ['betModeRules', token],
+    queryFn: async () => {
+      if (!token) return DEFAULT_BET_MODE_RULES;
+      const payload = await getPublicBetModeRules(token);
+      const mapped = (payload?.rules || []).reduce((acc, rule) => {
+        acc[normalizeBetMode(rule.mode)] = rule;
+        return acc;
+      }, {});
+      return Object.keys(mapped).length > 0 ? { ...DEFAULT_BET_MODE_RULES, ...mapped } : DEFAULT_BET_MODE_RULES;
+    },
+    enabled: !!token,
+    staleTime: 10 * 60 * 1000, // 10 minutes
+  });
 
-    loadBetModeRules();
-  }, [token]);
+  const currentBetModeRules = betModeRulesData || betModeRules;
 
   useEffect(() => {
     const handleAddToSlip = (e) => {
@@ -175,22 +182,22 @@ function App() {
   // Redirect admins/agents who land on root "/" to their dashboard (once).
   // Only fires when on "/" to prevent redirect loops with ProtectedRoleRoute.
   useEffect(() => {
-    if (!user || hasRedirectedRole.current) return;
-    const isAdminLike = ['admin', 'agent', 'super_agent', 'master_agent'].includes(user.role);
+    if (!currentUser || hasRedirectedRole.current) return;
+    const isAdminLike = ['admin', 'agent', 'super_agent', 'master_agent'].includes(currentUser.role);
     if (!isAdminLike || location.pathname !== '/') return;
 
-    const targetPath = user.role === 'admin'
+    const targetPath = currentUser.role === 'admin'
       ? '/admin/dashboard'
-      : ((user.role === 'super_agent' || user.role === 'master_agent') ? '/super_agent/dashboard' : '/agent/dashboard');
+      : ((currentUser.role === 'super_agent' || currentUser.role === 'master_agent') ? '/super_agent/dashboard' : '/agent/dashboard');
     hasRedirectedRole.current = true;
     navigate(targetPath, { replace: true });
-  }, [user, navigate, location.pathname]);
+  }, [currentUser, navigate, location.pathname]);
 
   // Listen for user refresh events (e.g., after placing a bet)
   useEffect(() => {
     const handleUserRefresh = () => {
       if (token) {
-        fetchUserData(token);
+        refetchUser();
       }
     };
 
@@ -199,21 +206,29 @@ function App() {
     return () => {
       window.removeEventListener('user:refresh', handleUserRefresh);
     };
-  }, [token]);
+  }, [token, refetchUser]);
 
-  const fetchUserData = async (authToken) => {
-    try {
-      const userData = await getMe(authToken);
-      setUser(userData);
-      primeAuthBootstrapCache({ token: authToken, role: userData?.role, user: userData, source: 'user-refresh' });
-    } catch (e) {
-      console.error('Failed to fetch user data', e);
-      // Logout only when token is invalid/forbidden; keep session on transient errors.
-      if (e?.status === 401 || e?.status === 403) {
+  const { data: userData, refetch: refetchUser } = useQuery({
+    queryKey: ['user', token],
+    queryFn: async () => {
+      if (!token) return null;
+      const userData = await getMe(token);
+      primeAuthBootstrapCache({ token, role: userData?.role, user: userData, source: 'user-query' });
+      return userData;
+    },
+    enabled: !!token,
+    staleTime: 5 * 60 * 1000, // 5 minutes
+    onSuccess: (data) => {
+      setUser(data);
+    },
+    onError: (error) => {
+      if (error?.status === 401 || error?.status === 403) {
         handleLogout();
       }
-    }
-  };
+    },
+  });
+
+  const currentUser = userData || user;
 
   const handleLogin = async (username, password) => {
     try {
@@ -258,7 +273,7 @@ function App() {
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = useCallback(() => {
     const activeToken = token;
     setToken(null);
     setUser(null);
@@ -275,40 +290,52 @@ function App() {
     // Clear the httpOnly cookie server-side (best-effort, fire-and-forget)
     logoutSession();
     handleHomeClick();
-  };
+  }, [token]);
 
-  const handleViewChange = (view) => {
+  const handleViewChange = useCallback((view) => {
     setDashboardView(view);
     setMobileSidebarOpen(false);
     setMobileResultsActive(false);
-  };
+  }, []);
 
-  const handleBetModeChange = (mode) => {
+  const handleBetModeChange = useCallback((mode) => {
     const normalized = normalizeBetMode(mode);
     setBetMode(normalized);
     if (normalized === 'straight') {
       setSlipSelections(prev => (prev.length > 0 ? [prev[prev.length - 1]] : []));
     }
-  };
+  }, []);
 
-  const handleHomeClick = () => {
+  const handleHomeClick = useCallback(() => {
     setDashboardView('dashboard');
     setSelectedSports([]);
     setActiveLeague('all');
     setMobileSidebarOpen(false);
     setMobileResultsActive(false);
-  };
+  }, []);
 
-  const handleContinue = () => {
+  const handleContinue = useCallback(() => {
     setMobileResultsActive(true);
-  };
+  }, []);
 
   // Go back from results to selection menu, preserving current sport selection
-  const handleMobileBack = () => {
+  const handleMobileBack = useCallback(() => {
     setMobileResultsActive(false);
-  };
+  }, []);
 
-  const handleSportToggle = (sport) => {
+  const handleToggleSidebar = useCallback(() => {
+    setMobileSidebarOpen(prev => !prev);
+  }, []);
+
+  const handleCloseSidebar = useCallback(() => {
+    setMobileSidebarOpen(false);
+  }, []);
+
+  const handleBetPlaced = useCallback(() => {
+    refetchUser();
+  }, [refetchUser]);
+
+  const handleSportToggle = useCallback((sport) => {
     // When user changes selection, exit results state
     setMobileResultsActive(false);
     const quickFilters = new Set(['up-next', 'commercial-live']);
@@ -322,10 +349,10 @@ function App() {
       }
       return [...prev.filter(s => !quickFilters.has(s)), sport];
     });
-  };
+  }, []);
 
-  const handleOddsFormatChange = async (nextFormat) => {
-    const userId = user?.id || '';
+  const handleOddsFormatChange = useCallback(async (nextFormat) => {
+    const userId = currentUser?.id || '';
     const normalized = applyOddsFormat(nextFormat, userId);
 
     setUser(prev => (
@@ -365,57 +392,59 @@ function App() {
     } finally {
       setIsUpdatingOddsFormat(false);
     }
-  };
+  }, [currentUser?.id, token, applyOddsFormat, showToast]);
 
-  const oddsFormatContextValue = {
+  const oddsFormatContextValue = useMemo(() => ({
     oddsFormat,
     setOddsFormat: handleOddsFormatChange,
     isUpdatingOddsFormat,
-  };
+  }), [oddsFormat, handleOddsFormatChange, isUpdatingOddsFormat]);
 
 
   return (
-    <OddsFormatProvider value={oddsFormatContextValue}>
-      <div className="app-container">
-      {/* Standard User Interface */}
-      {isSessionBootstrapping ? (
-        <LoadingSpinner variant="overlay" label="Loading session..." />
-      ) : !isLoggedIn ? (
-        <LandingPage onLogin={handleLogin} isLoggedIn={isLoggedIn} />
-      ) : (
-        <Suspense fallback={<LoadingSpinner variant="overlay" label="Loading dashboard..." />}>
-          <UserDashboardShell
-            user={user}
-            token={token}
-            dashboardView={dashboardView}
-            selectedSports={selectedSports}
-            betMode={betMode}
-            mobileSidebarOpen={mobileSidebarOpen}
-            showPromo={showPromo}
-            mobileViewState={mobileViewState}
-            isMobileViewport={isMobileViewport}
-            slipSelections={slipSelections}
-            wager={wager}
-            teaserPoints={teaserPoints}
-            betModeRules={betModeRules}
-            onLogout={handleLogout}
-            onViewChange={handleViewChange}
-            onToggleSidebar={() => setMobileSidebarOpen(!mobileSidebarOpen)}
-            onContinue={handleContinue}
-            onMobileBack={handleMobileBack}
-            onHomeClick={handleHomeClick}
-            onSportToggle={handleSportToggle}
-            onBetModeChange={handleBetModeChange}
-            onCloseSidebar={() => setMobileSidebarOpen(false)}
-            onSelectionsChange={setSlipSelections}
-            onWagerChange={setWager}
-            onTeaserPointsChange={setTeaserPoints}
-            onBetPlaced={() => fetchUserData(token)}
-          />
-        </Suspense>
-      )}
-      </div>
-    </OddsFormatProvider>
+    <QueryClientProvider client={queryClient}>
+      <OddsFormatProvider value={oddsFormatContextValue}>
+        <div className="app-container">
+        {/* Standard User Interface */}
+        {isSessionBootstrapping ? (
+          <LoadingSpinner variant="overlay" label="Loading session..." />
+        ) : !isLoggedIn ? (
+          <LandingPage onLogin={handleLogin} isLoggedIn={isLoggedIn} />
+        ) : (
+          <Suspense fallback={<LoadingSpinner variant="overlay" label="Loading dashboard..." />}>
+            <UserDashboardShell
+              user={currentUser}
+              token={token}
+              dashboardView={dashboardView}
+              selectedSports={selectedSports}
+              betMode={betMode}
+              mobileSidebarOpen={mobileSidebarOpen}
+              showPromo={showPromo}
+              mobileViewState={mobileViewState}
+              isMobileViewport={isMobileViewport}
+              slipSelections={slipSelections}
+              wager={wager}
+              teaserPoints={teaserPoints}
+              betModeRules={currentBetModeRules}
+              onLogout={handleLogout}
+              onViewChange={handleViewChange}
+              onToggleSidebar={handleToggleSidebar}
+              onContinue={handleContinue}
+              onMobileBack={handleMobileBack}
+              onHomeClick={handleHomeClick}
+              onSportToggle={handleSportToggle}
+              onBetModeChange={handleBetModeChange}
+              onCloseSidebar={handleCloseSidebar}
+              onSelectionsChange={setSlipSelections}
+              onWagerChange={setWager}
+              onTeaserPointsChange={setTeaserPoints}
+              onBetPlaced={handleBetPlaced}
+            />
+          </Suspense>
+        )}
+        </div>
+      </OddsFormatProvider>
+    </QueryClientProvider>
   );
 }
 

@@ -177,4 +177,4 @@ function UserDashboardShell({
   );
 }
 
-export default UserDashboardShell;
+export default React.memo(UserDashboardShell);

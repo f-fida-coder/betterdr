@@ -404,4 +404,4 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
     );
 };
 
-export default SportContentView;
+export default React.memo(SportContentView);
