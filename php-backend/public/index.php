@@ -14,6 +14,8 @@ require_once __DIR__ . '/../src/SportsbookBetSupport.php';
 require_once __DIR__ . '/../src/SqlRepository.php';
 require_once __DIR__ . '/../src/QueryCache.php';
 require_once __DIR__ . '/../src/RequestDeduplicator.php';
+require_once __DIR__ . '/../src/ConnectionPool.php';
+require_once __DIR__ . '/../src/CircuitBreaker.php';
 require_once __DIR__ . '/../src/BetModeRules.php';
 require_once __DIR__ . '/../src/AgentSettlementRules.php';
 require_once __DIR__ . '/../src/BetSettlementService.php';

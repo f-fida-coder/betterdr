@@ -20,15 +20,59 @@ export default defineConfig({
   build: {
     outDir: '../dist',
     emptyOutDir: true,
+    minify: true, // Use default minifier (esbuild)
     rollupOptions: {
       output: {
         // Explicit content-hash filenames so browsers never serve stale JS/CSS.
         entryFileNames: 'assets/[name]-[hash].js',
         chunkFileNames: 'assets/[name]-[hash].js',
         assetFileNames: 'assets/[name]-[hash][extname]',
+        // Advanced code splitting for better caching
+        manualChunks: (id) => {
+          // Vendor chunk for node_modules
+          if (id.includes('node_modules')) {
+            if (id.includes('react')) {
+              return 'vendor-react';
+            }
+            if (id.includes('router') || id.includes('@tanstack')) {
+              return 'vendor-routing';
+            }
+            return 'vendor-common';
+          }
+          // Separate chunks for admin views
+          if (id.includes('admin-views')) {
+            return 'admin-views';
+          }
+          // Separate chunks for casino views
+          if (id.includes('Casino') || id.includes('LiveCasino')) {
+            return 'casino-views';
+          }
+        },
       },
     },
     // Optimize chunk splitting
     chunkSizeWarningLimit: 1000,
-  }
+    // Improved source maps for production debugging
+    sourcemap: 'hidden',
+    // Reduce JS parsing time with es2020 target
+    target: 'es2020',
+  },
+  // CSS optimization
+  css: {
+    postcss: {
+      plugins: [
+        {
+          postcssPlugin: 'inline-critical-css',
+          Once(root) {
+            // Mark critical CSS with special comment for inline extraction
+            root.walkComments(comment => {
+              if (comment.text.includes('critical')) {
+                comment.root().insertBefore(comment.prev(), comment);
+              }
+            });
+          },
+        },
+      ],
+    },
+  },
 })

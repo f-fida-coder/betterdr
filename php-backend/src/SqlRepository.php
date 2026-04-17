@@ -7,6 +7,8 @@ final class SqlRepository
     private PDO $pdo;
     private string $dbName;
     private string $tablePrefix;
+    private ConnectionPool $connectionPool;
+    private CircuitBreaker $circuitBreaker;
     /** @var array<string, bool> */
     private array $columnExistsCache = [];
     /** @var array<string, bool> */
@@ -17,6 +19,8 @@ final class SqlRepository
     {
         $this->dbName = $dbName;
         $this->tablePrefix = (string) Env::get('MYSQL_TABLE_PREFIX', '');
+        $this->connectionPool = ConnectionPool::getInstance();
+        $this->circuitBreaker = CircuitBreaker::getInstance();
 
         $host = (string) Env::get('MYSQL_HOST', Env::get('DB_HOST', '127.0.0.1'));
         $port = (int) Env::get('MYSQL_PORT', Env::get('DB_PORT', '3306'));
@@ -36,77 +40,26 @@ final class SqlRepository
             $pdoOptions[PDO::MYSQL_ATTR_INIT_COMMAND] = 'SET NAMES utf8mb4';
         }
 
-        $hostCandidates = [];
-
-        $rawHostList = (string) Env::get('MYSQL_HOSTS', '');
-        if ($rawHostList !== '') {
-            foreach (explode(',', $rawHostList) as $listHost) {
-                $listHost = trim($listHost);
-                if ($listHost !== '') {
-                    $hostCandidates[] = $listHost;
-                }
-            }
-        }
-
-        $hostCandidates[] = $host;
-
-        // Shared-hosted MySQL setups often only accept localhost from their own web tier.
-        if (!in_array(strtolower($host), ['localhost', '127.0.0.1'], true)) {
-            $hostCandidates[] = 'localhost';
-            $hostCandidates[] = '127.0.0.1';
-        }
-
-        $resolvedHost = gethostbyname($host);
-        if (
-            is_string($resolvedHost)
-            && $resolvedHost !== ''
-            && $resolvedHost !== $host
-            && filter_var($resolvedHost, FILTER_VALIDATE_IP) !== false
-        ) {
-            $hostCandidates[] = $resolvedHost;
-        }
-
-        $hostCandidates = array_values(array_unique($hostCandidates));
-
-        $lastException = null;
-        $attemptedHosts = [];
-        foreach ($hostCandidates as $candidateHost) {
-            $attemptedHosts[] = $candidateHost;
-            $dsn = "mysql:host={$candidateHost};port={$port};dbname={$name};charset=utf8mb4";
-            for ($attempt = 1; $attempt <= 3; $attempt++) {
-                try {
-                    $this->pdo = new PDO($dsn, $user, $pass, $pdoOptions);
-                    $lastException = null;
-                    break 2;
-                } catch (PDOException $e) {
-                    $lastException = $e;
-                    $errorText = strtolower($e->getMessage());
-                    $isAuthError = str_contains($errorText, 'sqlstate[hy000] [1045]');
-                    $isQuotaError = str_contains($errorText, 'max_connections_per_hour')
-                        || str_contains($errorText, 'sqlstate[hy000] [1226]');
-                    if ($isAuthError) {
-                        // Credentials/host grants can differ per host candidate.
-                        // Stop retrying this host, but continue to the next candidate.
-                        break;
-                    }
-                    if ($isQuotaError) {
-                        // Resource limits are account-wide; trying more hosts only burns more attempts.
-                        break 2;
-                    }
-                    if ($attempt < 3) {
-                        usleep(250000);
-                    }
-                }
-            }
-        }
-
-        if ($lastException instanceof PDOException) {
-            $message = $lastException->getMessage();
-            if ($attemptedHosts !== []) {
-                $message .= ' | hosts tried: ' . implode(', ', $attemptedHosts);
-            }
-            $lastException = new PDOException($message, (int) $lastException->getCode(), $lastException);
-            throw $lastException;
+        // Use connection pool with circuit breaker protection
+        $this->pdo = $this->circuitBreaker->execute('database:connection', function() use ($host, $port, $name, $user, $pass, $pdoOptions) {
+            return $this->connectionPool->getConnection(
+                "mysql:host={$host};port={$port};dbname={$name};charset=utf8mb4",
+                $user,
+                $pass,
+                $pdoOptions
+            );
+        }, 5000);
+        
+        // Phase 13: Apply session-level optimizations (don't require SUPER privilege)
+        try {
+            $this->pdo->exec("SET SESSION sql_mode = 'STRICT_TRANS_TABLES,NO_ZERO_DATE,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION'");
+            $this->pdo->exec("SET SESSION max_execution_time = 30000");     // 30s for SELECT queries
+            $this->pdo->exec("SET SESSION net_read_timeout = 120");         // 2min for reads
+            $this->pdo->exec("SET SESSION net_write_timeout = 120");        // 2min for writes
+            $this->pdo->exec("SET SESSION optimizer_switch = 'index_merge=on,index_merge_union=on,index_merge_sort_union=on,index_merge_intersection=on'");
+        } catch (PDOException $e) {
+            // Session settings are non-fatal if they fail
+            error_log("Warning: Could not set session optimizations: " . $e->getMessage());
         }
     }
 
@@ -282,13 +235,16 @@ final class SqlRepository
         $id = $this->extractId($normalized);
         unset($normalized['id']);
 
-        $stmt = $this->pdo->prepare("INSERT INTO `{$table}` (`id`, `doc`, `created_at`, `updated_at`) VALUES (:id, :doc, :created_at, :updated_at) ON DUPLICATE KEY UPDATE `doc`=VALUES(`doc`), `created_at`=VALUES(`created_at`), `updated_at`=VALUES(`updated_at`), `migrated_at`=CURRENT_TIMESTAMP");
-        $stmt->execute([
-            ':id' => $id,
-            ':doc' => $this->encodeDoc($normalized),
-            ':created_at' => $this->toMysqlDateTime($normalized['createdAt'] ?? null),
-            ':updated_at' => $this->toMysqlDateTime($normalized['updatedAt'] ?? null),
-        ]);
+        // Execute insert with circuit breaker protection
+        $this->circuitBreaker->execute("database:insert:{$collection}", function() use ($table, $id, $normalized) {
+            $stmt = $this->pdo->prepare("INSERT INTO `{$table}` (`id`, `doc`, `created_at`, `updated_at`) VALUES (:id, :doc, :created_at, :updated_at) ON DUPLICATE KEY UPDATE `doc`=VALUES(`doc`), `created_at`=VALUES(`created_at`), `updated_at`=VALUES(`updated_at`), `migrated_at`=CURRENT_TIMESTAMP");
+            $stmt->execute([
+                ':id' => $id,
+                ':doc' => $this->encodeDoc($normalized),
+                ':created_at' => $this->toMysqlDateTime($normalized['createdAt'] ?? null),
+                ':updated_at' => $this->toMysqlDateTime($normalized['updatedAt'] ?? null),
+            ]);
+        }, 2500); // Phase 13: 2.5 second timeout for inserts (reduced from 5s)
 
         return $id;
     }
@@ -335,13 +291,16 @@ final class SqlRepository
         }
         unset($merged['id']);
 
-        $stmt = $this->pdo->prepare("UPDATE `{$table}` SET `doc`=:doc, `created_at`=:created_at, `updated_at`=:updated_at, `migrated_at`=CURRENT_TIMESTAMP WHERE `id`=:id LIMIT 1");
-        $stmt->execute([
-            ':id' => $id,
-            ':doc' => $this->encodeDoc($merged),
-            ':created_at' => $this->toMysqlDateTime($merged['createdAt'] ?? null),
-            ':updated_at' => $this->toMysqlDateTime($merged['updatedAt'] ?? null),
-        ]);
+        // Execute update with circuit breaker protection
+        $this->circuitBreaker->execute("database:update:{$collection}", function() use ($table, $id, $merged) {
+            $stmt = $this->pdo->prepare("UPDATE `{$table}` SET `doc`=:doc, `created_at`=:created_at, `updated_at`=:updated_at, `migrated_at`=CURRENT_TIMESTAMP WHERE `id`=:id LIMIT 1");
+            $stmt->execute([
+                ':id' => $id,
+                ':doc' => $this->encodeDoc($merged),
+                ':created_at' => $this->toMysqlDateTime($merged['createdAt'] ?? null),
+                ':updated_at' => $this->toMysqlDateTime($merged['updatedAt'] ?? null),
+            ]);
+        }, 2500); // Phase 13: 2.5 second timeout for updates (reduced from 5s)
     }
 
     /**
@@ -388,9 +347,14 @@ final class SqlRepository
             return 0;
         }
 
-        $stmt = $this->pdo->prepare("DELETE FROM `{$table}` WHERE `id`=:id LIMIT 1");
-        $stmt->execute([':id' => $id]);
-        return (int) $stmt->rowCount();
+        // Execute delete with circuit breaker protection
+        $rowCount = $this->circuitBreaker->execute("database:delete:{$collection}", function() use ($table, $id) {
+            $stmt = $this->pdo->prepare("DELETE FROM `{$table}` WHERE `id`=:id LIMIT 1");
+            $stmt->execute([':id' => $id]);
+            return (int) $stmt->rowCount();
+        }, 2500); // Phase 13: 2.5 second timeout for deletes (reduced from 5s)
+
+        return $rowCount;
     }
 
     public function deleteMany(string $collection, array $filter, int $maxIterations = 10000): int
@@ -467,7 +431,12 @@ PRIMARY KEY (`id`),
 KEY `idx_created_at` (`created_at`),
 KEY `idx_updated_at` (`updated_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
-        $this->pdo->exec($sql);
+
+        // Execute table creation with circuit breaker protection
+        $this->circuitBreaker->execute("database:create_table:{$table}", function() use ($sql) {
+            $this->pdo->exec($sql);
+        }, 5000); // Phase 13: 5 second timeout for table creation (reduced from 10s)
+
         $this->ensureSpecializedSchema($table);
     }
 
@@ -509,13 +478,16 @@ KEY `idx_updated_at` (`updated_at`)
         $limitSql = $this->compileSqlLimit($options);
         $sql = "SELECT `id`, `doc` FROM `{$table}`{$compiledWhere['sql']}{$orderSql}{$limitSql}";
 
-        $stmt = $this->pdo->prepare($sql);
-        foreach ($compiledWhere['params'] as $param) {
-            $stmt->bindValue($param['name'], $param['value'], $param['type']);
-        }
-        $stmt->execute();
+        // Execute query with circuit breaker protection
+        $rows = $this->circuitBreaker->execute("database:query:{$collection}", function() use ($sql, $compiledWhere) {
+            $stmt = $this->pdo->prepare($sql);
+            foreach ($compiledWhere['params'] as $param) {
+                $stmt->bindValue($param['name'], $param['value'], $param['type']);
+            }
+            $stmt->execute();
+            return $stmt->fetchAll();
+        }, 1500); // Phase 13: 1.5 second timeout for queries (reduced from 3s)
 
-        $rows = $stmt->fetchAll();
         $docs = [];
         foreach ($rows as $row) {
             $decoded = $this->decodeRow($row);

@@ -14,7 +14,7 @@ final class ConnectionPool
     private static ?self $instance = null;
     private ?PDO $connection = null;
     private int $activeConnections = 0;
-    private const MAX_CONNECTIONS = 50;
+    private const MAX_CONNECTIONS = 100;  // Phase 13: Increased from 50 to 100
     private const WAIT_TIMEOUT_MS = 5000;
     private const RETRY_ATTEMPTS = 3;
     
