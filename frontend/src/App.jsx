@@ -44,7 +44,7 @@ const queryClient = new QueryClient({
   },
 });
 
-function App() {
+function AppInner() {
   const navigate = useNavigate();
   const location = useLocation();
   const { showToast } = useToast();
@@ -134,12 +134,6 @@ function App() {
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => {
-    if (!currentUser?.id) return;
-    const preferredFormat = normalizeOddsFormat(currentUser?.settings?.oddsFormat || readStoredOddsFormat(currentUser.id));
-    applyOddsFormat(preferredFormat, currentUser.id);
-  }, [currentUser?.id, currentUser?.settings?.oddsFormat]);
-
   const { data: betModeRulesData } = useQuery({
     queryKey: ['betModeRules', token],
     queryFn: async () => {
@@ -179,8 +173,35 @@ function App() {
     return () => window.removeEventListener('betslip:add', handleAddToSlip);
   }, [betMode]);
 
+  const { data: userData, refetch: refetchUser } = useQuery({
+    queryKey: ['user', token],
+    queryFn: async () => {
+      if (!token) return null;
+      const userData = await getMe(token);
+      primeAuthBootstrapCache({ token, role: userData?.role, user: userData, source: 'user-query' });
+      return userData;
+    },
+    enabled: !!token,
+    staleTime: 5 * 60 * 1000, // 5 minutes
+    onSuccess: (data) => {
+      setUser(data);
+    },
+    onError: (error) => {
+      if (error?.status === 401 || error?.status === 403) {
+        handleLogout();
+      }
+    },
+  });
+
+  const currentUser = userData || user;
+
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    const preferredFormat = normalizeOddsFormat(currentUser?.settings?.oddsFormat || readStoredOddsFormat(currentUser.id));
+    applyOddsFormat(preferredFormat, currentUser.id);
+  }, [currentUser?.id, currentUser?.settings?.oddsFormat, applyOddsFormat]);
+
   // Redirect admins/agents who land on root "/" to their dashboard (once).
-  // Only fires when on "/" to prevent redirect loops with ProtectedRoleRoute.
   useEffect(() => {
     if (!currentUser || hasRedirectedRole.current) return;
     const isAdminLike = ['admin', 'agent', 'super_agent', 'master_agent'].includes(currentUser.role);
@@ -207,28 +228,6 @@ function App() {
       window.removeEventListener('user:refresh', handleUserRefresh);
     };
   }, [token, refetchUser]);
-
-  const { data: userData, refetch: refetchUser } = useQuery({
-    queryKey: ['user', token],
-    queryFn: async () => {
-      if (!token) return null;
-      const userData = await getMe(token);
-      primeAuthBootstrapCache({ token, role: userData?.role, user: userData, source: 'user-query' });
-      return userData;
-    },
-    enabled: !!token,
-    staleTime: 5 * 60 * 1000, // 5 minutes
-    onSuccess: (data) => {
-      setUser(data);
-    },
-    onError: (error) => {
-      if (error?.status === 401 || error?.status === 403) {
-        handleLogout();
-      }
-    },
-  });
-
-  const currentUser = userData || user;
 
   const handleLogin = async (username, password) => {
     try {
@@ -402,48 +401,54 @@ function App() {
 
 
   return (
+    <OddsFormatProvider value={oddsFormatContextValue}>
+      <div className="app-container">
+      {/* Standard User Interface */}
+      {isSessionBootstrapping ? (
+        <LoadingSpinner variant="overlay" label="Loading session..." />
+      ) : !isLoggedIn ? (
+        <LandingPage onLogin={handleLogin} isLoggedIn={isLoggedIn} />
+      ) : (
+        <Suspense fallback={<LoadingSpinner variant="overlay" label="Loading dashboard..." />}>
+          <UserDashboardShell
+            user={currentUser}
+            token={token}
+            dashboardView={dashboardView}
+            selectedSports={selectedSports}
+            betMode={betMode}
+            mobileSidebarOpen={mobileSidebarOpen}
+            showPromo={showPromo}
+            mobileViewState={mobileViewState}
+            isMobileViewport={isMobileViewport}
+            slipSelections={slipSelections}
+            wager={wager}
+            teaserPoints={teaserPoints}
+            betModeRules={currentBetModeRules}
+            onLogout={handleLogout}
+            onViewChange={handleViewChange}
+            onToggleSidebar={handleToggleSidebar}
+            onContinue={handleContinue}
+            onMobileBack={handleMobileBack}
+            onHomeClick={handleHomeClick}
+            onSportToggle={handleSportToggle}
+            onBetModeChange={handleBetModeChange}
+            onCloseSidebar={handleCloseSidebar}
+            onSelectionsChange={setSlipSelections}
+            onWagerChange={setWager}
+            onTeaserPointsChange={setTeaserPoints}
+            onBetPlaced={handleBetPlaced}
+          />
+        </Suspense>
+      )}
+      </div>
+    </OddsFormatProvider>
+  );
+}
+
+function App() {
+  return (
     <QueryClientProvider client={queryClient}>
-      <OddsFormatProvider value={oddsFormatContextValue}>
-        <div className="app-container">
-        {/* Standard User Interface */}
-        {isSessionBootstrapping ? (
-          <LoadingSpinner variant="overlay" label="Loading session..." />
-        ) : !isLoggedIn ? (
-          <LandingPage onLogin={handleLogin} isLoggedIn={isLoggedIn} />
-        ) : (
-          <Suspense fallback={<LoadingSpinner variant="overlay" label="Loading dashboard..." />}>
-            <UserDashboardShell
-              user={currentUser}
-              token={token}
-              dashboardView={dashboardView}
-              selectedSports={selectedSports}
-              betMode={betMode}
-              mobileSidebarOpen={mobileSidebarOpen}
-              showPromo={showPromo}
-              mobileViewState={mobileViewState}
-              isMobileViewport={isMobileViewport}
-              slipSelections={slipSelections}
-              wager={wager}
-              teaserPoints={teaserPoints}
-              betModeRules={currentBetModeRules}
-              onLogout={handleLogout}
-              onViewChange={handleViewChange}
-              onToggleSidebar={handleToggleSidebar}
-              onContinue={handleContinue}
-              onMobileBack={handleMobileBack}
-              onHomeClick={handleHomeClick}
-              onSportToggle={handleSportToggle}
-              onBetModeChange={handleBetModeChange}
-              onCloseSidebar={handleCloseSidebar}
-              onSelectionsChange={setSlipSelections}
-              onWagerChange={setWager}
-              onTeaserPointsChange={setTeaserPoints}
-              onBetPlaced={handleBetPlaced}
-            />
-          </Suspense>
-        )}
-        </div>
-      </OddsFormatProvider>
+      <AppInner />
     </QueryClientProvider>
   );
 }

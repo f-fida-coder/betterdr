@@ -10759,3 +10759,9 @@
 [2026-04-17T08:52:16+00:00] [ERROR] [2026-04-17T08:52:16+00:00] update failed: Class "Logger" not found
 [2026-04-17T08:54:16+00:00] [ERROR] [2026-04-17T08:54:16+00:00] update failed: Class "Logger" not found
 [2026-04-17T08:56:16+00:00] [ERROR] [2026-04-17T08:56:16+00:00] update failed: Class "Logger" not found
+[2026-04-17T08:58:16+00:00] [ERROR] [2026-04-17T08:58:16+00:00] update failed: Class "Logger" not found
+[2026-04-17T09:00:17+00:00] [ERROR] [2026-04-17T09:00:17+00:00] update failed: Class "Logger" not found
+[2026-04-17T09:02:17+00:00] [ERROR] [2026-04-17T09:02:17+00:00] update failed: Class "Logger" not found
+[2026-04-17T09:03:51+00:00] [INFO] PHP odds worker started. interval=2m db=betterdr_local once=false
+[2026-04-17T09:03:51+00:00] [ERROR] [2026-04-17T09:03:51+00:00] update failed: Class "Logger" not found
+[2026-04-17T09:05:51+00:00] [ERROR] [2026-04-17T09:05:51+00:00] update failed: Class "Logger" not found
