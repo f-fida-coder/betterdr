@@ -3,6 +3,83 @@
  * Implements prefetching, route preloading, and performance monitoring
  */
 
+const EXTERNAL_PRESENTATION_HINTS = [
+  { id: 'hint-google-fonts', rel: 'preconnect', href: 'https://fonts.googleapis.com' },
+  { id: 'hint-google-fonts-static', rel: 'preconnect', href: 'https://fonts.gstatic.com', crossOrigin: 'anonymous' },
+];
+
+const EXTERNAL_PRESENTATION_STYLES = [
+  {
+    id: 'style-google-inter',
+    href: 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap',
+  },
+  {
+    id: 'style-font-awesome',
+    href: 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css',
+  },
+];
+
+let externalPresentationAssetsQueued = false;
+
+const appendHeadLink = ({ id, rel, href, as = '', crossOrigin = '' }) => {
+  if (typeof document === 'undefined' || !document.head || !href) return;
+  if (id && document.getElementById(id)) return;
+
+  const link = document.createElement('link');
+  if (id) link.id = id;
+  link.rel = rel;
+  link.href = href;
+  if (as) link.as = as;
+  if (crossOrigin) link.crossOrigin = crossOrigin;
+  document.head.appendChild(link);
+};
+
+const appendAsyncStylesheet = ({ id, href }) => {
+  if (typeof document === 'undefined' || !document.head || !href) return;
+  if (id && document.getElementById(id)) return;
+
+  const link = document.createElement('link');
+  if (id) link.id = id;
+  link.rel = 'stylesheet';
+  link.href = href;
+  link.media = 'print';
+  link.onload = () => {
+    link.media = 'all';
+  };
+  document.head.appendChild(link);
+};
+
+const injectExternalPresentationAssets = () => {
+  EXTERNAL_PRESENTATION_HINTS.forEach(appendHeadLink);
+  EXTERNAL_PRESENTATION_STYLES.forEach(appendAsyncStylesheet);
+};
+
+/**
+ * Load external presentation assets like icon fonts and web fonts without
+ * blocking the first HTML paint. Protected/auth-heavy routes can opt into
+ * immediate loading; public pages can defer to idle time.
+ */
+export function loadExternalPresentationAssets({ immediate = false } = {}) {
+  if (typeof window === 'undefined' || typeof document === 'undefined' || externalPresentationAssetsQueued) {
+    return;
+  }
+
+  externalPresentationAssetsQueued = true;
+
+  if (immediate) {
+    injectExternalPresentationAssets();
+    return;
+  }
+
+  const schedule = () => injectExternalPresentationAssets();
+  if (typeof window.requestIdleCallback === 'function') {
+    window.requestIdleCallback(schedule, { timeout: 1200 });
+    return;
+  }
+
+  window.setTimeout(schedule, 250);
+}
+
 /**
  * Prefetch route bundles before navigation
  * Reduces perceived load time when switching views

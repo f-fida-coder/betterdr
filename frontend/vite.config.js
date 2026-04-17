@@ -29,6 +29,11 @@ export default defineConfig({
         assetFileNames: 'assets/[name]-[hash][extname]',
         // Advanced code splitting for better caching
         manualChunks: (id) => {
+          // Keep shared app API/auth code out of admin-only chunks so the
+          // public landing page doesn't preload dashboard/admin bundles.
+          if (id.includes('/src/api.js')) {
+            return 'app-api';
+          }
           // Vendor chunk for node_modules
           if (id.includes('node_modules')) {
             if (id.includes('react')) {

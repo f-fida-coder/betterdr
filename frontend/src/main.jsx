@@ -16,6 +16,7 @@ import {
 } from './api'
 import { useEffect, useState } from 'react'
 import { ToastProvider } from './contexts/ToastContext.jsx'
+import { loadExternalPresentationAssets } from './utils/performanceOptimization.js'
 
 const AdminPanel = lazy(() => import('./components/AdminPanel.jsx'))
 
@@ -105,6 +106,14 @@ const handleExitToHome = async () => {
     window.location.replace('/');
   }
 };
+
+const storedBootstrapToken = getStoredAuthToken();
+const isProtectedPath = typeof window !== 'undefined'
+  && /^\/(?:admin|agent|super_agent)(?:\/|$)/.test(window.location.pathname);
+
+loadExternalPresentationAssets({
+  immediate: isProtectedPath || Boolean(storedBootstrapToken),
+});
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>

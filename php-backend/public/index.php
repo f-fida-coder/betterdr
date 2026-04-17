@@ -9,6 +9,8 @@ require_once __DIR__ . '/../src/IpUtils.php';
 require_once __DIR__ . '/../src/Jwt.php';
 require_once __DIR__ . '/../src/ApiException.php';
 require_once __DIR__ . '/../src/SportsMatchStatus.php';
+require_once __DIR__ . '/../src/SharedFileCache.php';
+require_once __DIR__ . '/../src/SportsbookCache.php';
 require_once __DIR__ . '/../src/SportsbookHealth.php';
 require_once __DIR__ . '/../src/SportsbookBetSupport.php';
 require_once __DIR__ . '/../src/SqlRepository.php';
@@ -245,6 +247,15 @@ if (str_starts_with($uriPath, '/api/index.php/')) {
     $uriPath = '/api' . substr($uriPath, strlen('/api/index.php'));
 } elseif ($uriPath === '/api/index.php') {
     $uriPath = '/api';
+}
+
+// Zero-cost liveness probe for uptime monitors (UptimeRobot, etc).
+// Must stay above any DB connect / SqlRepository::isAvailable() call so the
+// response time reflects only PHP boot + TLS, not database latency.
+if ($uriPath === '/api/ping') {
+    header('Cache-Control: no-store');
+    Response::json(['ok' => true, 'ts' => time()]);
+    exit;
 }
 
 $dbUri = 'mysql-native';

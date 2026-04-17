@@ -11828,6 +11828,7 @@ final class AdminCoreController
                 return;
             }
             $this->invalidateHeaderSummaryCache();
+            MatchesController::clearSharedPublicCaches();
             Response::json(['message' => 'Cache cleared']);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error clearing cache'], 500);

@@ -6,6 +6,8 @@ import {
   clearAuthBootstrapCache,
   getMe,
   getPublicBetModeRules,
+  getStoredAuthToken,
+  getStoredUserRole,
   invalidateMeCache,
   loginUser,
   logoutSession,
@@ -114,7 +116,27 @@ function AppInner() {
   const [user, setUser] = useState(null); // Store full user object
   const [oddsFormat, setOddsFormat] = useState(readStoredOddsFormat());
   const [isUpdatingOddsFormat, setIsUpdatingOddsFormat] = useState(false);
-  const [isSessionBootstrapping, setIsSessionBootstrapping] = useState(true);
+
+  const seedSessionState = useCallback(({ token: nextToken = '', user: nextUser = null, role: nextRole = '' } = {}) => {
+    const safeToken = String(nextToken || '').trim();
+    const safeRole = String(nextRole || '').toLowerCase().trim();
+    if (!safeToken) {
+      return false;
+    }
+
+    setToken(safeToken);
+    setIsLoggedIn(true);
+    document.body.classList.add('dashboard-mode');
+
+    if (nextUser && typeof nextUser === 'object') {
+      setUser(nextUser);
+    } else if (safeRole) {
+      // Seed the role so redirects and role-gated UI can recover while /auth/me retries.
+      setUser((prev) => prev || { role: safeRole });
+    }
+
+    return true;
+  }, []);
 
   const applyOddsFormat = useCallback((nextFormat, userId = '') => {
     const normalized = normalizeOddsFormat(nextFormat);
@@ -126,8 +148,9 @@ function AppInner() {
     return normalized;
   }, []);
 
-  // On mount: attempt to restore session from the httpOnly cookie.
-  // If the cookie is valid the backend returns a fresh token + user data.
+  // On mount: attempt to restore session from the httpOnly cookie in the background.
+  // The landing page renders immediately; if the cookie is valid, we swap to the
+  // dashboard once bootstrapAuthSession resolves with a fresh token + user data.
   useEffect(() => {
     let isMounted = true;
 
@@ -135,10 +158,11 @@ function AppInner() {
       try {
         const result = await bootstrapAuthSession({ timeoutMs: 8000 });
         if (isMounted && result?.token) {
-          setToken(result.token);
-          setIsLoggedIn(true);
-          document.body.classList.add('dashboard-mode');
-          setUser(result.user || null);
+          seedSessionState({
+            token: result.token,
+            user: result.user || null,
+            role: result.role || result.user?.role || '',
+          });
         }
       } catch (error) {
         if (error?.status === 401 || error?.status === 403) {
@@ -146,10 +170,14 @@ function AppInner() {
           localStorage.removeItem('token');
           localStorage.removeItem('userRole');
           document.body.classList.remove('dashboard-mode');
+          return;
         }
-      } finally {
-        if (isMounted) {
-          setIsSessionBootstrapping(false);
+
+        // Match ProtectedRoleRoute behavior: keep valid stored auth usable on transient failures.
+        const storedToken = getStoredAuthToken();
+        const storedRole = getStoredUserRole();
+        if (isMounted && storedToken) {
+          seedSessionState({ token: storedToken, role: storedRole });
         }
       }
     };
@@ -157,7 +185,7 @@ function AppInner() {
     return () => {
       isMounted = false;
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [seedSessionState]);
 
   const { data: betModeRulesData } = useQuery({
     queryKey: ['betModeRules', token],
@@ -428,10 +456,8 @@ function AppInner() {
   return (
     <OddsFormatProvider value={oddsFormatContextValue}>
       <div className="app-container">
-      {/* Standard User Interface */}
-      {isSessionBootstrapping ? (
-        <LoadingSpinner variant="overlay" label="Loading session..." />
-      ) : !isLoggedIn ? (
+      {/* Public landing renders immediately; session restore happens in the background. */}
+      {!isLoggedIn ? (
         <LandingPage onLogin={handleLogin} isLoggedIn={isLoggedIn} />
       ) : (
         <Suspense fallback={<LoadingSpinner variant="overlay" label="Loading dashboard..." />}>

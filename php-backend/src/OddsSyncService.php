@@ -387,6 +387,7 @@ final class OddsSyncService
             $result['settlementSweep'] = $sweep;
 
             SportsbookHealth::recordSyncSuccess($db, $runId, $source, $result);
+            SportsbookCache::invalidatePublicMatchCaches();
             return $result;
         } catch (Throwable $e) {
             SportsbookHealth::recordSyncFailure($db, $runId, $source, $e, $result);

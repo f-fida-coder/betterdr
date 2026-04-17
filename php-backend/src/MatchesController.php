@@ -10,6 +10,8 @@ final class MatchesController
     private const DEFAULT_PUBLIC_CACHE_TTL_SECONDS = 120;
     private const DEFAULT_PUBLIC_REFRESH_COOLDOWN_SECONDS = 120;
     private const DEFAULT_PUBLIC_REFRESH_LOCK_SECONDS = 30;
+    private const DEFAULT_SHARED_MATCHES_CACHE_TTL_SECONDS = 30;
+    private const DEFAULT_SHARED_SPORTS_CACHE_TTL_SECONDS = 60;
 
     private SqlRepository $db;
     private string $jwtSecret;
@@ -56,28 +58,26 @@ final class MatchesController
             $cacheMeta = $this->maybeRefreshPublicMatches();
             $status = isset($_GET['status']) ? strtolower(trim((string) $_GET['status'])) : '';
             $active = isset($_GET['active']) ? strtolower(trim((string) $_GET['active'])) : '';
-            
-            // Generate cache key based on query parameters
-            $cacheKey = 'matches:' . ($status ?: 'all') . ':' . ($active ?: '0');
-            $cacheTtl = 15; // 15 second cache for frequently accessed data
-                $cacheTtl = $this->envInt('SPORTSBOOK_MATCHES_CACHE_TTL_SECONDS', 30);
-            // Try to get from cache first
-            $cache = QueryCache::getInstance();
-            $annotated = $cache->get($cacheKey);
-            
-            if ($annotated === null) {
-                // Use request deduplication to prevent redundant computation
-                // when multiple concurrent requests hit same endpoint
-                $dedup = RequestDeduplicator::getInstance();
-                $annotated = $dedup->coalesce($cacheKey . ':compute', fn() => $this->computeMatches($status, $active));
-                
-                // Store in cache
-                $cache->set($cacheKey, $annotated, $cacheTtl);
+
+            $sharedCacheTtl = $this->envInt('SPORTSBOOK_MATCHES_CACHE_TTL_SECONDS', self::DEFAULT_SHARED_MATCHES_CACHE_TTL_SECONDS);
+            $cacheKey = SportsbookCache::publicMatchesKey($status, $active);
+            $annotated = SharedFileCache::get(SportsbookCache::publicMatchesNamespace(), $cacheKey, $sharedCacheTtl);
+            $sharedCacheState = is_array($annotated) ? 'hit' : 'miss';
+
+            if (!is_array($annotated)) {
+                $annotated = SharedFileCache::remember(
+                    SportsbookCache::publicMatchesNamespace(),
+                    $cacheKey,
+                    $sharedCacheTtl,
+                    fn(): array => $this->computeMatches($status, $active)
+                );
             }
 
+            header('X-Matches-Shared-Cache: ' . $sharedCacheState);
             $this->emitPublicCacheHeaders($cacheMeta);
-            $ttl = (int) ($cacheMeta['cacheTtlSeconds'] ?? self::DEFAULT_PUBLIC_CACHE_TTL_SECONDS);
-            Response::json($annotated, 200, "public, max-age={$ttl}");
+            $upstreamCacheTtl = (int) ($cacheMeta['cacheTtlSeconds'] ?? self::DEFAULT_PUBLIC_CACHE_TTL_SECONDS);
+            $responseCacheTtl = max(1, min($upstreamCacheTtl, $sharedCacheTtl));
+            Response::json($annotated, 200, "public, max-age={$responseCacheTtl}");
         } catch (Throwable $e) {
             Response::json(['message' => 'Server Error fetching matches'], 500);
         }
@@ -167,21 +167,62 @@ final class MatchesController
     private function getAvailableSports(): void
     {
         try {
-            $matches = $this->db->findMany('matches', [], ['projection' => ['sport' => 1, 'sportKey' => 1, 'status' => 1]]);
-            $sports = [];
-            foreach ($matches as $match) {
-                if (!is_array($match)) continue;
-                $status = strtolower((string) ($match['status'] ?? ''));
-                if (!in_array($status, ['scheduled', 'live'], true)) continue;
-                $sport = (string) ($match['sport'] ?? '');
-                $sportKey = (string) ($match['sportKey'] ?? '');
-                if ($sport !== '') $sports[$sport] = true;
-                if ($sportKey !== '') $sports[$sportKey] = true;
+            $sharedCacheTtl = $this->envInt('SPORTSBOOK_MATCHES_SPORTS_CACHE_TTL_SECONDS', self::DEFAULT_SHARED_SPORTS_CACHE_TTL_SECONDS);
+            $sports = SharedFileCache::get(
+                SportsbookCache::availableSportsNamespace(),
+                SportsbookCache::availableSportsKey(),
+                $sharedCacheTtl
+            );
+            $sharedCacheState = is_array($sports) ? 'hit' : 'miss';
+
+            if (!is_array($sports)) {
+                $sports = SharedFileCache::remember(
+                    SportsbookCache::availableSportsNamespace(),
+                    SportsbookCache::availableSportsKey(),
+                    $sharedCacheTtl,
+                    fn(): array => $this->computeAvailableSports()
+                );
             }
-            Response::json(array_keys($sports));
+
+            header('X-Matches-Sports-Shared-Cache: ' . $sharedCacheState);
+            Response::json($sports, 200, "public, max-age={$sharedCacheTtl}");
         } catch (Throwable $e) {
-            Response::json([], 200);
+            Response::json([], 200, 'public, max-age=5');
         }
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function computeAvailableSports(): array
+    {
+        $matches = $this->db->findMany('matches', [], ['projection' => ['sport' => 1, 'sportKey' => 1, 'status' => 1]]);
+        $sports = [];
+        foreach ($matches as $match) {
+            if (!is_array($match)) {
+                continue;
+            }
+            $status = strtolower((string) ($match['status'] ?? ''));
+            if (!in_array($status, ['scheduled', 'live'], true)) {
+                continue;
+            }
+            $sport = (string) ($match['sport'] ?? '');
+            $sportKey = (string) ($match['sportKey'] ?? '');
+            if ($sport !== '') {
+                $sports[$sport] = true;
+            }
+            if ($sportKey !== '') {
+                $sports[$sportKey] = true;
+            }
+        }
+
+        return array_values(array_keys($sports));
+    }
+
+    public static function clearSharedPublicCaches(): void
+    {
+        SportsbookCache::invalidatePublicMatchCaches();
+        SportsbookHealth::invalidateSnapshotCache();
     }
 
     private function fetchOddsPublic(): void

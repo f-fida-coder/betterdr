@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" aria-hidden="true">
+  <path d="M17 12h30l-4 40H21Z" fill="none" stroke="#000" stroke-width="3.5" stroke-linejoin="round" />
+  <path d="M19 18h26" fill="none" stroke="#000" stroke-width="3" stroke-linecap="round" />
+  <text x="32" y="38" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" text-anchor="middle" fill="#000">NHL</text>
+</svg>

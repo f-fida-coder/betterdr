@@ -8,6 +8,7 @@ final class SportsbookHealth
     private const AUDIT_COLLECTION = 'sportsbookauditlogs';
     private const SYNC_DOC_ID = 'sportsbook_odds_sync';
     private const SETTLEMENT_DOC_ID = 'sportsbook_settlement';
+    private const DEFAULT_SNAPSHOT_CACHE_TTL_SECONDS = 10;
 
     /**
      * @param array<string, mixed> $context
@@ -41,6 +42,7 @@ final class SportsbookHealth
             'consecutiveFailures' => 0,
             'consecutiveOddsFailures' => 0,
         ]);
+        self::invalidateSnapshotCache();
 
         // File-log only — no DB row. This event fires every 2 minutes and
         // generated 29,500+ rows in 41 days. The health doc already records
@@ -101,6 +103,7 @@ final class SportsbookHealth
             'consecutiveFailures' => 0,
             'consecutiveOddsFailures' => $oddsCallsOk > 0 ? 0 : 1,
         ]);
+        self::invalidateSnapshotCache();
 
         self::appendAudit($db, 'odds_sync_' . $status, [
             'runId' => $runId,
@@ -141,6 +144,7 @@ final class SportsbookHealth
             'consecutiveFailures' => 1,
             'consecutiveOddsFailures' => 1,
         ]);
+        self::invalidateSnapshotCache();
 
         // Rate-limit DB audit rows: log only the first failure in a streak
         // and every 15th consecutive failure. The health doc tracks every
@@ -189,6 +193,7 @@ final class SportsbookHealth
             'runCount' => $runCount,
             'consecutiveFailures' => 0,
         ]);
+        self::invalidateSnapshotCache();
 
         self::appendAudit($db, 'settlement_success', [
             'matchId' => $matchId,
@@ -222,6 +227,7 @@ final class SportsbookHealth
             'runCount' => $runCount,
             'consecutiveFailures' => 1,
         ]);
+        self::invalidateSnapshotCache();
 
         self::appendAudit($db, 'settlement_failed', [
             'matchId' => $matchId,
@@ -234,6 +240,24 @@ final class SportsbookHealth
      * @return array<string, mixed>
      */
     public static function sportsbookSnapshot(SqlRepository $db): array
+    {
+        return SharedFileCache::remember(
+            SportsbookCache::healthSnapshotNamespace(),
+            SportsbookCache::healthSnapshotKey(),
+            self::snapshotCacheTtlSeconds(),
+            static fn(): array => self::buildSportsbookSnapshot($db)
+        );
+    }
+
+    public static function invalidateSnapshotCache(): void
+    {
+        SportsbookCache::invalidateHealthSnapshotCache();
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private static function buildSportsbookSnapshot(SqlRepository $db): array
     {
         $sync = self::healthDoc($db, self::SYNC_DOC_ID);
         $settlement = self::healthDoc($db, self::SETTLEMENT_DOC_ID);
@@ -360,6 +384,12 @@ final class SportsbookHealth
     {
         $raw = Env::get('SPORTSBOOK_MAX_SYNC_AGE_SECONDS', '600');
         return is_numeric($raw) ? max(60, (int) $raw) : 600;
+    }
+
+    private static function snapshotCacheTtlSeconds(): int
+    {
+        $raw = Env::get('SPORTSBOOK_HEALTH_CACHE_TTL_SECONDS', (string) self::DEFAULT_SNAPSHOT_CACHE_TTL_SECONDS);
+        return is_numeric($raw) ? max(1, (int) $raw) : self::DEFAULT_SNAPSHOT_CACHE_TTL_SECONDS;
     }
 
     /**

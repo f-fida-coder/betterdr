@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" aria-hidden="true">
+  <path d="M32 8 50 15v14c0 13-7 21-18 27C21 50 14 42 14 29V15Z" fill="none" stroke="#000" stroke-width="3.5" stroke-linejoin="round" />
+  <path d="M22 18h20" fill="none" stroke="#000" stroke-width="3" stroke-linecap="round" />
+  <path d="M22 24h20" fill="none" stroke="#000" stroke-width="3" stroke-linecap="round" />
+  <text x="32" y="39" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" text-anchor="middle" fill="#000">NFL</text>
+</svg>

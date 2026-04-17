@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 
 const baseSpinnerStyle = {
   width: '32px',
@@ -18,8 +18,19 @@ const injectKeyframes = () => {
   document.head.appendChild(style);
 };
 
-const LoadingSpinner = ({ variant = 'inline', label = 'Loading...' }) => {
+// Spinners only appear after delayMs elapses. If the parent unmounts us
+// before then (fast load), nothing flashes. Pass delayMs={0} to opt out.
+const LoadingSpinner = ({ variant = 'inline', label = 'Loading...', delayMs = 120 }) => {
   injectKeyframes();
+
+  const [visible, setVisible] = useState(delayMs <= 0);
+  useEffect(() => {
+    if (delayMs <= 0) return undefined;
+    const timer = setTimeout(() => setVisible(true), delayMs);
+    return () => clearTimeout(timer);
+  }, [delayMs]);
+
+  if (!visible) return null;
 
   if (variant === 'overlay') {
     return (

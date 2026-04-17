@@ -2,26 +2,26 @@ import React, { useState, useEffect } from 'react';
 
 const BANNER_DATA = [
     {
-        png: '/hero-banner.png',
-        webp: '/hero-banner.webp',
+        fallback: '/hero-banner-home.jpg',
+        webp: '/hero-banner-home.webp',
         title: 'N.Y KNICKS VS DETROIT',
         subtitle: 'Tonight @ 7:00 P.M | Madison Square Garden'
     },
     {
-        png: '/arena-banner.png',
-        webp: '/arena-banner.webp',
+        fallback: '/arena-banner-home.jpg',
+        webp: '/arena-banner-home.webp',
         title: 'UPCOMING NFL SUNDAY',
         subtitle: 'Pre-game Analysis & Live Odds Starts @ 1PM'
     },
     {
-        png: '/football-banner.png',
-        webp: '/football-banner.webp',
+        fallback: '/football-banner-home.jpg',
+        webp: '/football-banner-home.webp',
         title: 'PREMIER LEAGUE ACTION',
         subtitle: 'Matchday 24: Liverpool vs Man City'
     }
 ];
 
-const IMAGE_DIMENSION = 1024;
+const IMAGE_DIMENSION = 800;
 
 const Hero = () => {
     const [currentIndex, setCurrentIndex] = useState(0);
@@ -33,9 +33,13 @@ const Hero = () => {
         }
 
         const preloadRemainingBanners = () => {
-            BANNER_DATA.slice(1).forEach(({ webp, png }) => {
+            if (navigator.connection?.saveData) {
+                return;
+            }
+
+            BANNER_DATA.slice(1).forEach(({ webp, fallback }) => {
                 const preloadedImage = new Image();
-                preloadedImage.src = webp || png;
+                preloadedImage.src = webp || fallback;
             });
         };
 
@@ -68,9 +72,9 @@ const Hero = () => {
                 <picture className="hero-banner-picture">
                     <source srcSet={currentBanner.webp} type="image/webp" />
                     <img
-                        key={currentBanner.png}
+                        key={currentBanner.fallback}
                         className={`hero-banner-image ${isImageReady ? 'is-ready' : ''}`}
-                        src={currentBanner.png}
+                        src={currentBanner.fallback}
                         alt="Sportsbook board"
                         id="heroImage"
                         width={IMAGE_DIMENSION}
@@ -103,9 +107,9 @@ const Hero = () => {
             <div className="promo-flex-row">
                 <div className="promo-card">
                     <picture>
-                        <source srcSet="/promo-football.webp" type="image/webp" />
+                        <source srcSet="/promo-football-home.webp" type="image/webp" />
                         <img
-                            src="/promo-football.png"
+                            src="/promo-football-home.jpg"
                             alt="NFL Promo"
                             width={IMAGE_DIMENSION}
                             height={IMAGE_DIMENSION}
@@ -121,9 +125,9 @@ const Hero = () => {
                 </div>
                 <div className="promo-card">
                     <picture>
-                        <source srcSet="/arena-banner.webp" type="image/webp" />
+                        <source srcSet="/arena-banner-home.webp" type="image/webp" />
                         <img
-                            src="/arena-banner.png"
+                            src="/arena-banner-home.jpg"
                             alt="Arena Promo"
                             width={IMAGE_DIMENSION}
                             height={IMAGE_DIMENSION}
