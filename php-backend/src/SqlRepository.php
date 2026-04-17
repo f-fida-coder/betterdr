@@ -10,9 +10,11 @@ final class SqlRepository
     private ConnectionPool $connectionPool;
     private CircuitBreaker $circuitBreaker;
     /** @var array<string, bool> */
-    private array $columnExistsCache = [];
+    private static array $columnExistsCache = [];
     /** @var array<string, bool> */
-    private array $indexExistsCache = [];
+    private static array $indexExistsCache = [];
+    /** @var array<string, bool> */
+    private static array $tableEnsuredCache = [];
 
     /** @param string $_dsn Unused legacy parameter (kept for call-site compatibility) */
     public function __construct(string $_dsn, string $dbName)
@@ -416,6 +418,10 @@ final class SqlRepository
 
     private function ensureTable(string $table): void
     {
+        if (isset(self::$tableEnsuredCache[$table])) {
+            return;
+        }
+
         $sql = "CREATE TABLE IF NOT EXISTS `{$table}` (
 `id` VARCHAR(64) NOT NULL,
 `doc` JSON NOT NULL,
@@ -433,6 +439,7 @@ KEY `idx_updated_at` (`updated_at`)
         }, 5000); // Phase 13: 5 second timeout for table creation (reduced from 10s)
 
         $this->ensureSpecializedSchema($table);
+        self::$tableEnsuredCache[$table] = true;
     }
 
     private function readCollection(string $collection): array
@@ -1162,14 +1169,14 @@ KEY `idx_updated_at` (`updated_at`)
     private function columnExists(string $table, string $column): bool
     {
         $cacheKey = $table . '.' . $column;
-        if (array_key_exists($cacheKey, $this->columnExistsCache)) {
-            return $this->columnExistsCache[$cacheKey];
+        if (array_key_exists($cacheKey, self::$columnExistsCache)) {
+            return self::$columnExistsCache[$cacheKey];
         }
 
         $stmt = $this->pdo->prepare("SELECT 1 FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = :table AND column_name = :column LIMIT 1");
         $stmt->execute([':table' => $table, ':column' => $column]);
         $exists = (bool) $stmt->fetchColumn();
-        $this->columnExistsCache[$cacheKey] = $exists;
+        self::$columnExistsCache[$cacheKey] = $exists;
 
         return $exists;
     }
@@ -1177,14 +1184,14 @@ KEY `idx_updated_at` (`updated_at`)
     private function indexExists(string $table, string $index): bool
     {
         $cacheKey = $table . '.' . $index;
-        if (array_key_exists($cacheKey, $this->indexExistsCache)) {
-            return $this->indexExistsCache[$cacheKey];
+        if (array_key_exists($cacheKey, self::$indexExistsCache)) {
+            return self::$indexExistsCache[$cacheKey];
         }
 
         $stmt = $this->pdo->prepare("SELECT 1 FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = :table AND index_name = :idx LIMIT 1");
         $stmt->execute([':table' => $table, ':idx' => $index]);
         $exists = (bool) $stmt->fetchColumn();
-        $this->indexExistsCache[$cacheKey] = $exists;
+        self::$indexExistsCache[$cacheKey] = $exists;
         return $exists;
     }
 
@@ -1211,7 +1218,7 @@ KEY `idx_updated_at` (`updated_at`)
             foreach ($columns as $column => $sql) {
                 if (!$this->columnExists($table, $column)) {
                     $this->pdo->exec($sql);
-                    $this->columnExistsCache[$table . '.' . $column] = true;
+                    self::$columnExistsCache[$table . '.' . $column] = true;
                 }
             }
 
@@ -1227,7 +1234,7 @@ KEY `idx_updated_at` (`updated_at`)
             foreach ($indexes as $index => $sql) {
                 if (!$this->indexExists($table, $index)) {
                     $this->pdo->exec($sql);
-                    $this->indexExistsCache[$table . '.' . $index] = true;
+                    self::$indexExistsCache[$table . '.' . $index] = true;
                 }
             }
             return;
@@ -1247,7 +1254,7 @@ KEY `idx_updated_at` (`updated_at`)
             foreach ($columns as $column => $sql) {
                 if (!$this->columnExists($table, $column)) {
                     $this->pdo->exec($sql);
-                    $this->columnExistsCache[$table . '.' . $column] = true;
+                    self::$columnExistsCache[$table . '.' . $column] = true;
                 }
             }
 
@@ -1263,7 +1270,7 @@ KEY `idx_updated_at` (`updated_at`)
             foreach ($indexes as $index => $sql) {
                 if (!$this->indexExists($table, $index)) {
                     $this->pdo->exec($sql);
-                    $this->indexExistsCache[$table . '.' . $index] = true;
+                    self::$indexExistsCache[$table . '.' . $index] = true;
                 }
             }
             return;
@@ -1278,7 +1285,7 @@ KEY `idx_updated_at` (`updated_at`)
             foreach ($columns as $column => $sql) {
                 if (!$this->columnExists($table, $column)) {
                     $this->pdo->exec($sql);
-                    $this->columnExistsCache[$table . '.' . $column] = true;
+                    self::$columnExistsCache[$table . '.' . $column] = true;
                 }
             }
 
@@ -1289,7 +1296,7 @@ KEY `idx_updated_at` (`updated_at`)
             foreach ($indexes as $index => $sql) {
                 if (!$this->indexExists($table, $index)) {
                     $this->pdo->exec($sql);
-                    $this->indexExistsCache[$table . '.' . $index] = true;
+                    self::$indexExistsCache[$table . '.' . $index] = true;
                 }
             }
         }

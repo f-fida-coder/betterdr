@@ -54,19 +54,20 @@ final class MatchesController
 
     private function getMatches(): void
     {
+        $status = isset($_GET['status']) ? strtolower(trim((string) $_GET['status'])) : '';
+        $active = isset($_GET['active']) ? strtolower(trim((string) $_GET['active'])) : '';
+        $sharedCacheTtl = $this->envInt('SPORTSBOOK_MATCHES_CACHE_TTL_SECONDS', self::DEFAULT_SHARED_MATCHES_CACHE_TTL_SECONDS);
+        $cacheNamespace = SportsbookCache::publicMatchesNamespace();
+        $cacheKey = SportsbookCache::publicMatchesKey($status, $active);
+
         try {
             $cacheMeta = $this->maybeRefreshPublicMatches();
-            $status = isset($_GET['status']) ? strtolower(trim((string) $_GET['status'])) : '';
-            $active = isset($_GET['active']) ? strtolower(trim((string) $_GET['active'])) : '';
-
-            $sharedCacheTtl = $this->envInt('SPORTSBOOK_MATCHES_CACHE_TTL_SECONDS', self::DEFAULT_SHARED_MATCHES_CACHE_TTL_SECONDS);
-            $cacheKey = SportsbookCache::publicMatchesKey($status, $active);
-            $annotated = SharedFileCache::get(SportsbookCache::publicMatchesNamespace(), $cacheKey, $sharedCacheTtl);
+            $annotated = SharedFileCache::get($cacheNamespace, $cacheKey, $sharedCacheTtl);
             $sharedCacheState = is_array($annotated) ? 'hit' : 'miss';
 
             if (!is_array($annotated)) {
                 $annotated = SharedFileCache::remember(
-                    SportsbookCache::publicMatchesNamespace(),
+                    $cacheNamespace,
                     $cacheKey,
                     $sharedCacheTtl,
                     fn(): array => $this->computeMatches($status, $active)
@@ -79,6 +80,14 @@ final class MatchesController
             $responseCacheTtl = max(1, min($upstreamCacheTtl, $sharedCacheTtl));
             Response::json($annotated, 200, "public, max-age={$responseCacheTtl}");
         } catch (Throwable $e) {
+            // Fallback to stale cache to keep the public matches endpoint available
+            // during transient database contention and avoid 5xx spikes.
+            $stale = SharedFileCache::get($cacheNamespace, $cacheKey, 86400);
+            if (is_array($stale)) {
+                header('X-Matches-Fallback: stale-cache');
+                Response::json($stale, 200, 'public, max-age=5, stale-while-revalidate=60');
+                return;
+            }
             Response::json(['message' => 'Server Error fetching matches'], 500);
         }
     }

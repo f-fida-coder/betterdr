@@ -19,8 +19,8 @@ final class CircuitBreaker
     private const STATE_OPEN = 'open';
     private const STATE_HALF_OPEN = 'half_open';
     
-    private const FAILURE_THRESHOLD = 5;      // Failures before opening
-    private const TIMEOUT_SECONDS = 30;       // How long circuit stays open
+    private const FAILURE_THRESHOLD = 10;     // Failures before opening
+    private const TIMEOUT_SECONDS = 8;        // How long circuit stays open
     private const HALF_OPEN_ATTEMPTS = 3;     // Requests to allow in HALF_OPEN state
     
     /** @var array<string, array{state: string, failures: int, last_failure: int, half_open_attempts: int}> */
@@ -56,17 +56,18 @@ final class CircuitBreaker
         }
 
         try {
-            // Execute with timeout (approximate using usleep check)
+            // Run the callback and track elapsed time for observability only.
             $start = microtime(true);
             $result = $callback();
-            
-            // Check if execution exceeded timeout
             $elapsed = (microtime(true) - $start) * 1000;
+
+            // Do not fail successful calls that exceeded the soft timeout.
+            // The previous behaviour converted slow-but-successful queries into
+            // exceptions, inflating 5xx rates under load.
             if ($elapsed > $timeoutMs) {
-                $this->recordFailure($key);
-                throw new Exception('Request timeout after ' . (int)$elapsed . 'ms');
+                error_log('CircuitBreaker soft-timeout key=' . $key . ' elapsedMs=' . (int) $elapsed . ' thresholdMs=' . $timeoutMs);
             }
-            
+
             // Success - reset failures
             $this->recordSuccess($key);
             return $result;
