@@ -74,7 +74,7 @@ const getCurrentQuarter = () => {
   return Math.floor(now.getMonth() / 3) + 1;
 };
 
-function AgentCutsTable({ onSelectAgent, onWeekChange }) {
+function AgentCutsTable({ onSelectAgent, onOpenOwedAgent, onWeekChange }) {
   const [tab, setTab] = useState('week');
   const weeks = useMemo(() => buildLast12Weeks(), []);
   const currentWeekIso = weeks[0]?.iso || '';
@@ -250,6 +250,20 @@ function AgentCutsTable({ onSelectAgent, onWeekChange }) {
     ? (data?.period?.label || selectedWeek?.label || 'Total')
     : 'PROFIT';
 
+  const handleRowActivate = (agentId) => {
+    if (typeof onSelectAgent === 'function' && agentId) {
+      onSelectAgent(agentId);
+    }
+  };
+
+  const handleRowKeyDown = (event, agentId) => {
+    if (event.key !== 'Enter' && event.key !== ' ') {
+      return;
+    }
+    event.preventDefault();
+    handleRowActivate(agentId);
+  };
+
   return (
     <div className="agent-cuts-panel">
       <div className="agent-cuts-tabs">
@@ -328,27 +342,45 @@ function AgentCutsTable({ onSelectAgent, onWeekChange }) {
         )}
         {!loading && visibleAgents.map((agent) => {
           return (
-            <button
+            <div
               key={agent.id}
-              type="button"
               className="agent-cuts-row"
-              onClick={() => {
-                if (typeof onSelectAgent === 'function' && agent.id) {
-                  onSelectAgent(agent.id);
-                }
-              }}
+              role="button"
+              tabIndex={0}
+              onClick={() => handleRowActivate(agent.id)}
+              onKeyDown={(event) => handleRowKeyDown(event, agent.id)}
             >
               <span className="acut-name">{agent.username}</span>
               <span className="acut-cut">{agent.myCut != null ? `${agent.myCut}%` : '—'}</span>
               {metricColumns.map((column) => {
                 const value = column.getValue(agent);
+                const toneClassName = `${column.className} ${column.getToneClass(value)}`;
+                if (column.key === 'owed' && typeof onOpenOwedAgent === 'function' && agent.id) {
+                  return (
+                    <button
+                      key={column.key}
+                      type="button"
+                      className={`${toneClassName} agent-cuts-cell-button`}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onOpenOwedAgent(agent.id, {
+                          owedAmount: value,
+                          username: agent.username ?? '',
+                        });
+                      }}
+                      aria-label={`Open ${String(agent.username || 'agent').toUpperCase()} transaction slip for owed balance ${column.formatter(value)}`}
+                    >
+                      {column.formatter(value)}
+                    </button>
+                  );
+                }
                 return (
-                  <span key={column.key} className={`${column.className} ${column.getToneClass(value)}`}>
+                  <span key={column.key} className={toneClassName}>
                     {column.formatter(value)}
                   </span>
                 );
               })}
-            </button>
+            </div>
           );
         })}
         {!loading && visibleAgents.length > 0 && (

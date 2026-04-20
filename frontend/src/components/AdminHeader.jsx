@@ -1089,6 +1089,14 @@ function AdminHeader({
                   onSwitchContext(agentId);
                 }
               }}
+              onOpenOwedAgent={(agentId) => {
+                if (typeof onViewChange === 'function' && agentId) {
+                  onViewChange('user-details', agentId, {
+                    autoOpenDeposit: true,
+                    backView: 'dashboard',
+                  });
+                }
+              }}
               onWeekChange={(weekIso, isCurrentWeek) => {
                 // null weekStart = "current week" (header uses live start-of-week).
                 // ISO string = historical week (header refetches with that param).

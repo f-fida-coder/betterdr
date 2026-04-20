@@ -1593,6 +1593,9 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
   const autoOpenDepositRequested = Boolean(viewContext?.autoOpenDeposit);
   const [autoOpenDone, setAutoOpenDone] = useState(false);
   useEffect(() => {
+    setAutoOpenDone(false);
+  }, [userId, autoOpenDepositRequested]);
+  useEffect(() => {
     if (!autoOpenDepositRequested || autoOpenDone) return;
     if (!customer?.id) return;
     if (!isAgent) return;

@@ -6983,7 +6983,7 @@ button.downline-flat-row:active {
   color: #94a3b8;
 }
 
-button.agent-cuts-row {
+.agent-cuts-row {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -6997,8 +6997,14 @@ button.agent-cuts-row {
   transition: background-color 0.15s;
 }
 
-button.agent-cuts-row:hover {
+.agent-cuts-row:hover,
+.agent-cuts-row:focus-within {
   background: #f8fafc;
+}
+
+.agent-cuts-row:focus-visible {
+  outline: 2px solid #1d4ed8;
+  outline-offset: -2px;
 }
 
 .agent-cuts-total {
@@ -7055,9 +7061,23 @@ button.agent-cuts-row:hover {
   color: #b91c1c;
 }
 
+.agent-cuts-cell-button {
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+}
+
+.agent-cuts-cell-button:hover,
+.agent-cuts-cell-button:focus-visible {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 @media (max-width: 480px) {
   .agent-cuts-header,
-  button.agent-cuts-row,
+  .agent-cuts-row,
   .agent-cuts-total {
     gap: 6px;
     padding-left: 10px;
