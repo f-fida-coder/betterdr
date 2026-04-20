@@ -121,7 +121,19 @@ export function prefetchApiEndpoint(url, options = {}) {
  * Includes fallback and error boundaries
  */
 export function lazyLoadWithRetry(importFunc, maxRetries = 3) {
-  return import(/* webpackRetry: 3 */ importFunc);
+  const executeImport = (attempt = 1) => {
+    return Promise.resolve()
+      .then(() => importFunc())
+      .catch((error) => {
+        if (attempt >= maxRetries) {
+          throw error;
+        }
+
+        return executeImport(attempt + 1);
+      });
+  };
+
+  return executeImport();
 }
 
 /**

@@ -327,10 +327,14 @@ final class AgentCutsController
                 $periodNet = round($periodNetByAgent[$aid] ?? 0.0, 2);
                 $ytdNet = round($ytdNetByAgent[$aid] ?? 0.0, 2);
                 $lifetimeNet = round($lifetimeNetByAgent[$aid] ?? 0.0, 2);
-                $periodAmount = round($cutPct / 100 * $periodNet, 2);
+                $settlement = $weeklySettlementByAgent[$aid] ?? [];
+                $weeklyCommissionableProfit = round($settlement['commissionableProfit'] ?? 0.0, 2);
+                $periodBasis = $periodType === 'week'
+                    ? $weeklyCommissionableProfit
+                    : $periodNet;
+                $periodAmount = round($cutPct / 100 * $periodBasis, 2);
                 $ytdAmount = round($cutPct / 100 * $ytdNet, 2);
                 $lifetimeAmount = round($cutPct / 100 * $lifetimeNet, 2);
-                $settlement = $weeklySettlementByAgent[$aid] ?? [];
                 $owedAmount = round($settlement['owedAmount'] ?? 0.0, 2);
                 $makeupAmount = round($settlement['makeupAmount'] ?? 0.0, 2);
                 $totalPeriodAmount += $periodAmount;
@@ -679,6 +683,7 @@ final class AgentCutsController
             $settlementByAgent[$agentId] = [
                 'owedAmount' => round($this->num($summary['balanceOwed'] ?? 0), 2),
                 'makeupAmount' => round($this->num($summary['cumulativeMakeup'] ?? 0), 2),
+                'commissionableProfit' => round($this->num($summary['commissionableProfit'] ?? 0), 2),
             ];
         }
 

@@ -3,7 +3,9 @@
  * Implements caching strategies and offline support
  */
 
-const CACHE_VERSION = 'v1.0';
+// Bump CACHE_VERSION to purge clients that were serving stale admin/auth
+// responses under the old blanket /api/* stale-while-revalidate rule.
+const CACHE_VERSION = 'v1.1';
 const RUNTIME_CACHE = `runtime-${CACHE_VERSION}`;
 const ASSETS_CACHE = `assets-${CACHE_VERSION}`;
 const API_CACHE = `api-${CACHE_VERSION}`;
@@ -14,16 +16,18 @@ const ASSETS_TO_CACHE = [
   '/manifest.json',
 ];
 
-const API_ENDPOINTS_TO_CACHE = [
+// Only these exact public read-only endpoints are safe to cache. Everything
+// else — /api/admin/**, /api/auth/**, /api/wallet/**, /api/bets/**, etc. —
+// MUST hit the network so balances and transactions reflect live DB state.
+const CACHEABLE_API_PATHS = [
   '/api/matches',
+  '/api/matches/sports',
   '/api/betting/rules',
 ];
 
-const CACHE_STRATEGY = {
-  networkFirst: ['GET'],
-  cacheFirst: ['fonts', 'images', 'css'],
-  staleWhileRevalidate: ['/api/'],
-};
+const isCacheableApi = (pathname) => (
+  CACHEABLE_API_PATHS.some((prefix) => pathname === prefix || pathname.startsWith(prefix + '/'))
+);
 
 // Install: Cache critical assets
 self.addEventListener('install', (event) => {
@@ -57,11 +61,16 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // API requests: Stale-While-Revalidate
+  // API requests: only the explicit public, read-only endpoints get SWR.
+  // Everything else under /api/ bypasses the SW entirely (authenticated and
+  // mutating-adjacent routes like /api/admin/**, /api/auth/**, /api/wallet/**,
+  // /api/bets/** must never serve a stale cache — real-time balance, pending,
+  // and session state depend on a live response).
   if (url.pathname.startsWith('/api/')) {
-    return event.respondWith(
-      staleWhileRevalidate(request, API_CACHE)
-    );
+    if (isCacheableApi(url.pathname)) {
+      return event.respondWith(staleWhileRevalidate(request, API_CACHE));
+    }
+    return; // fall through to default network handling
   }
 
   // Static assets: Cache First
