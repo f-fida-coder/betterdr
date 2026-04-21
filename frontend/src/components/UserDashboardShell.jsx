@@ -48,7 +48,7 @@ function UserDashboardShell({
   onBetPlaced,
 }) {
   return (
-    <div className="dashboard-layout">
+    <div className={`dashboard-layout ${mobileViewState === 'browsing' ? 'no-bet-tabs' : ''}`}>
       <DashboardHeader
         username={user?.username || 'Guest'}
         balance={user?.balance ?? null}
@@ -80,7 +80,11 @@ function UserDashboardShell({
         {dashboardView === 'dashboard' && (
           <>
             {isMobileViewport && mobileViewState === 'results' ? (
-              <MobileContentView selectedSports={selectedSports} />
+              <MobileContentView
+                selectedSports={selectedSports}
+                activeBetMode={betMode}
+                slipSelections={slipSelections}
+              />
             ) : isMobileViewport ? (
               <DashboardSidebar
                 selectedSports={selectedSports}

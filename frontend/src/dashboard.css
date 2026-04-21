@@ -3192,6 +3192,14 @@ body.dashboard-mode {
             z-index: 1000;
         }
 
+        .dashboard-content-area {
+            padding-top: 110px;
+        }
+
+        .dashboard-layout.no-bet-tabs .dashboard-content-area {
+            padding-top: 60px;
+        }
+
         .top-header {
             height: 60px;
         }

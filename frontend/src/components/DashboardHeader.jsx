@@ -231,24 +231,26 @@ const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, 
                     </div>
                 )}
 
-                <div className="tabs-bar">
-                    {[
-                        { id: 'straight', label: 'STRAIGHT', letter: 'S' },
-                        { id: 'parlay', label: 'PARLAY', letter: 'P' },
-                        { id: 'teaser', label: 'TEASER', letter: 'T' },
-                        { id: 'if_bet', label: 'IF BET', letter: 'I' },
-                        { id: 'reverse', label: 'REVERSE', letter: 'R' }
-                    ].map((mode) => (
-                        <div
-                            key={mode.id}
-                            className={`tab-item ${activeBetMode === mode.id ? 'active' : ''}`}
-                            onClick={() => onBetModeChange && onBetModeChange(mode.id)}
-                        >
-                            <span className="tab-letter">{mode.letter}</span>
-                            <span className="tab-text">{mode.label}</span>
-                        </div>
-                    ))}
-                </div>
+                {mobileViewState !== 'browsing' && (
+                    <div className="tabs-bar">
+                        {[
+                            { id: 'straight', label: 'STRAIGHT', letter: 'S' },
+                            { id: 'parlay', label: 'PARLAY', letter: 'P' },
+                            { id: 'teaser', label: 'TEASER', letter: 'T' },
+                            { id: 'if_bet', label: 'IF BET', letter: 'I' },
+                            { id: 'reverse', label: 'REVERSE', letter: 'R' }
+                        ].map((mode) => (
+                            <div
+                                key={mode.id}
+                                className={`tab-item ${activeBetMode === mode.id ? 'active' : ''}`}
+                                onClick={() => onBetModeChange && onBetModeChange(mode.id)}
+                            >
+                                <span className="tab-letter">{mode.letter}</span>
+                                <span className="tab-text">{mode.label}</span>
+                            </div>
+                        ))}
+                    </div>
+                )}
 
             </div>
 

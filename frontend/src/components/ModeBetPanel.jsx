@@ -34,6 +34,27 @@ const getTeaserMultiplier = (rule, legCount) => {
     return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
 };
 
+const MARKET_LABELS = {
+    h2h: 'Moneyline',
+    spreads: 'Spread',
+    totals: 'Total',
+    straight: 'Straight',
+};
+const marketLabelFor = (marketType = '', fallback = '') => {
+    const key = String(marketType || '').toLowerCase();
+    if (MARKET_LABELS[key]) return MARKET_LABELS[key];
+    return fallback ? String(fallback).toUpperCase() : (key.toUpperCase() || 'BET');
+};
+
+const legLabelFor = (mode, index, total) => {
+    if (total < 2) return null;
+    if (mode === 'if_bet') return index === 0 ? 'Leg 1 (Primary)' : index === 1 ? 'Leg 2 (If Win)' : null;
+    if (mode === 'reverse') return index === 0 ? 'Leg A' : index === 1 ? 'Leg B (Reverses)' : null;
+    return null;
+};
+
+const QUICK_STAKES = [10, 25, 50, 100];
+
 const ModeBetPanel = ({
     user,
     balance = 0,
@@ -141,6 +162,28 @@ const ModeBetPanel = ({
         }
         return 0;
     }, [wagerAmount, legCount, normalizedMode, selections, rule]);
+
+    const ticketDecimalOdds = useMemo(() => {
+        if (!legCount) return null;
+        if (normalizedMode === 'straight') {
+            const n = Number(selections[0]?.odds || 0);
+            return n > 0 ? n : null;
+        }
+        if (normalizedMode === 'parlay') {
+            return selections.reduce((acc, sel) => acc * Number(sel.odds || 1), 1);
+        }
+        if (normalizedMode === 'if_bet' || normalizedMode === 'reverse') {
+            const firstTwo = selections.slice(0, 2);
+            if (firstTwo.length < 2) return null;
+            return firstTwo.reduce((acc, sel) => acc * Number(sel.odds || 1), 1);
+        }
+        return null;
+    }, [normalizedMode, selections, legCount]);
+
+    const impliedProbability = useMemo(() => {
+        if (!Number.isFinite(ticketDecimalOdds) || ticketDecimalOdds <= 1) return null;
+        return (1 / ticketDecimalOdds) * 100;
+    }, [ticketDecimalOdds]);
 
     const totalRisk = normalizedMode === 'reverse'
         ? wagerAmount * 2
@@ -387,10 +430,17 @@ const ModeBetPanel = ({
                 </div>
             </div>
 
-            <div style={{ padding: 12, overflowY: 'auto' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                    <strong>Selections ({legCount})</strong>
-                    <button onClick={clearSlip} style={{ border: 'none', background: 'transparent', color: '#666', cursor: 'pointer' }}>Clear</button>
+            <div style={{ padding: 14, overflowY: 'auto' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                    <div style={{ fontSize: 16, fontWeight: 800, color: '#111' }}>Selections ({legCount})</div>
+                    {legCount > 0 && (
+                        <button
+                            onClick={clearSlip}
+                            style={{ border: 'none', background: 'transparent', color: '#c2272d', fontWeight: 700, fontSize: 13, cursor: 'pointer', padding: 0 }}
+                        >
+                            Clear
+                        </button>
+                    )}
                 </div>
 
                 {legCount === 0 && (
@@ -399,36 +449,114 @@ const ModeBetPanel = ({
                     </div>
                 )}
 
-                {selections.map((sel) => (
-                    <div key={sel.id} style={{ border: '1px solid #d7dbe3', borderRadius: 8, padding: 8, marginBottom: 8, background: '#fff' }}>
-                        <div style={{ fontSize: 12, color: '#555' }}>{sel.matchName}</div>
-                        <div style={{ fontSize: 13, fontWeight: 700 }}>{sel.selection}</div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4, fontSize: 12 }}>
-                            <span>{sel.marketLabel}</span>
-                            <span>{formatOdds(sel.odds, oddsFormat)}</span>
+                {legCount === 1 && normalizedMode === 'parlay' && (
+                    <div style={{ fontSize: 12, color: '#b45309', background: '#fffbeb', border: '1px solid #fde68a', padding: '6px 10px', marginBottom: 10 }}>
+                        Add more selections for parlay
+                    </div>
+                )}
+                {legCount < 2 && (normalizedMode === 'if_bet' || normalizedMode === 'reverse' || normalizedMode === 'teaser') && legCount > 0 && (
+                    <div style={{ fontSize: 12, color: '#b45309', background: '#fffbeb', border: '1px solid #fde68a', padding: '6px 10px', marginBottom: 10 }}>
+                        {(MODE_TABS.find(t => t.id === normalizedMode)?.label) || 'This mode'} requires at least 2 selections
+                    </div>
+                )}
+
+                {selections.map((sel, idx) => {
+                    const legLabel = legLabelFor(normalizedMode, idx, legCount);
+                    return (
+                        <div key={sel.id} style={{ border: '1px solid #d7dbe3', borderRadius: 8, padding: 10, marginBottom: 8, background: '#fff' }}>
+                            {legLabel && (
+                                <div style={{ fontSize: 10, fontWeight: 800, color: '#1e40af', letterSpacing: '0.3px', textTransform: 'uppercase', marginBottom: 4 }}>
+                                    {legLabel}
+                                </div>
+                            )}
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                    <div style={{ fontSize: 11, color: '#6b7280', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{sel.matchName}</div>
+                                    <div style={{ fontSize: 15, fontWeight: 800, color: '#111', marginTop: 1 }}>{sel.selection}</div>
+                                    <div style={{ marginTop: 6 }}>
+                                        <span style={{ display: 'inline-block', fontSize: 10, fontWeight: 700, letterSpacing: '0.3px', color: '#334155', background: '#e2e8f0', padding: '2px 7px', borderRadius: 999, textTransform: 'uppercase' }}>
+                                            {marketLabelFor(sel.marketType, sel.marketLabel)}
+                                        </span>
+                                    </div>
+                                </div>
+                                <div style={{ fontSize: 17, fontWeight: 800, color: '#111', whiteSpace: 'nowrap' }}>
+                                    {formatOdds(sel.odds, oddsFormat)}
+                                </div>
+                            </div>
+                            <div style={{ marginTop: 8 }}>
+                                <button
+                                    onClick={() => removeSelection(sel.id)}
+                                    style={{ border: 'none', background: 'transparent', color: '#c2272d', fontWeight: 700, cursor: 'pointer', fontSize: 11, padding: 0 }}
+                                >
+                                    Remove
+                                </button>
+                            </div>
                         </div>
-                        <div style={{ marginTop: 6 }}>
-                            <button
-                                onClick={() => removeSelection(sel.id)}
-                                style={{ border: 'none', background: '#f2f3f6', color: '#444', borderRadius: 5, padding: '3px 8px', cursor: 'pointer', fontSize: 11 }}
-                            >
-                                Remove
-                            </button>
+                    );
+                })}
+
+                {normalizedMode === 'teaser' && Array.isArray(rule.teaserPointOptions) && rule.teaserPointOptions.length > 0 && (
+                    <div style={{ marginTop: 12 }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.3px', marginBottom: 6 }}>Teaser Points</div>
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                            {rule.teaserPointOptions.map(point => {
+                                const selected = Number(teaserPoints) === Number(point);
+                                return (
+                                    <button
+                                        key={point}
+                                        onClick={() => onTeaserPointsChange(String(point))}
+                                        style={{
+                                            padding: '6px 12px',
+                                            border: selected ? '1px solid #0f5db3' : '1px solid #cbd5e1',
+                                            background: selected ? '#0f5db3' : '#fff',
+                                            color: selected ? '#fff' : '#1e293b',
+                                            fontSize: 12,
+                                            fontWeight: 700,
+                                            cursor: 'pointer',
+                                            borderRadius: 999,
+                                        }}
+                                    >
+                                        +{point} pts
+                                    </button>
+                                );
+                            })}
                         </div>
                     </div>
-                ))}
+                )}
 
-                <div style={{ marginTop: 10 }}>
-                    <label style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>Stake</label>
+                <div style={{ marginTop: 14 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.3px', marginBottom: 6 }}>Stake</div>
                     <input
                         type="number"
                         min="0"
                         value={wager}
                         onChange={(e) => onWagerChange(e.target.value)}
                         placeholder="0.00"
-                        style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid #cfd4dd' }}
+                        style={{ width: '100%', padding: '12px 14px', borderRadius: 8, border: '1px solid #cbd5e1', fontSize: 16, fontWeight: 600, boxSizing: 'border-box' }}
                     />
-                    <div style={{ fontSize: 11, color: '#666', marginTop: 4 }}>
+                    <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+                        {QUICK_STAKES.map(v => (
+                            <button
+                                key={v}
+                                onClick={() => onWagerChange(String(v))}
+                                style={{
+                                    flex: '1 1 0',
+                                    minWidth: 60,
+                                    padding: '8px 6px',
+                                    border: '1px solid #cbd5e1',
+                                    background: Number(wager) === v ? '#0f5db3' : '#fff',
+                                    color: Number(wager) === v ? '#fff' : '#1e293b',
+                                    fontSize: 13,
+                                    fontWeight: 700,
+                                    cursor: 'pointer',
+                                    borderRadius: 6,
+                                }}
+                            >
+                                ${v}
+                            </button>
+                        ))}
+                    </div>
+                    <div style={{ fontSize: 11, color: '#666', marginTop: 8 }}>
                         Balance: ${formatAmount(balance)}
                         {hasFreeplay && (
                             <span style={{ marginLeft: 8, color: '#0b6623' }}>
@@ -440,46 +568,42 @@ const ModeBetPanel = ({
                         )}
                     </div>
                     {hasFreeplay && (
-                        <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 12, cursor: 'pointer', userSelect: 'none' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, fontSize: 13, cursor: 'pointer', userSelect: 'none' }}>
                             <input
                                 type="checkbox"
                                 checked={useFreeplay}
                                 onChange={(e) => setUseFreeplay(e.target.checked)}
-                                style={{ width: 15, height: 15, cursor: 'pointer' }}
+                                style={{ width: 16, height: 16, cursor: 'pointer', accentColor: '#0b6623' }}
                             />
-                            <span style={{ color: useFreeplay ? '#0b6623' : '#444', fontWeight: useFreeplay ? 700 : 400 }}>
+                            <span style={{ color: useFreeplay ? '#0b6623' : '#334155', fontWeight: useFreeplay ? 700 : 500 }}>
                                 Use Freeplay Credits
-                                {useFreeplay && ' (profit only credited on win)'}
+                                {useFreeplay && <span style={{ color: '#64748b', fontWeight: 400 }}> (profit-only on win)</span>}
                             </span>
                         </label>
                     )}
                 </div>
 
-                {normalizedMode === 'teaser' && Array.isArray(rule.teaserPointOptions) && rule.teaserPointOptions.length > 0 && (
-                    <div style={{ marginTop: 10 }}>
-                        <label style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>Teaser Points</label>
-                        <select
-                            value={teaserPoints}
-                            onChange={(e) => onTeaserPointsChange(e.target.value)}
-                            style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid #cfd4dd' }}
-                        >
-                            <option value="">Select points</option>
-                            {rule.teaserPointOptions.map(point => (
-                                <option key={point} value={point}>{point}</option>
-                            ))}
-                        </select>
+                <div style={{ marginTop: 14, padding: 12, borderRadius: 8, background: '#f1f5f9', fontSize: 13 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                        <span style={{ color: '#475569' }}>Total Risk</span>
+                        <strong style={{ fontSize: 16, color: '#111' }}>${formatAmount(totalRisk)}</strong>
                     </div>
-                )}
-
-                <div style={{ marginTop: 10, padding: 10, borderRadius: 8, background: '#eef3fa', fontSize: 12 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <span>Total Risk</span>
-                        <strong>${formatAmount(totalRisk)}</strong>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 6 }}>
+                        <span style={{ color: '#475569' }}>Potential Payout</span>
+                        <strong style={{ fontSize: 16, color: '#0b6623' }}>${formatAmount(potentialPayout)}</strong>
                     </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}>
-                        <span>Potential Payout</span>
-                        <strong>${formatAmount(potentialPayout)}</strong>
-                    </div>
+                    {ticketDecimalOdds !== null && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 12, color: '#475569' }}>
+                            <span>{normalizedMode === 'straight' ? 'Odds' : 'Combined Odds'}</span>
+                            <span style={{ fontWeight: 700, color: '#1e293b' }}>{formatOdds(ticketDecimalOdds, oddsFormat)}</span>
+                        </div>
+                    )}
+                    {impliedProbability !== null && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4, fontSize: 12, color: '#475569' }}>
+                            <span>Implied Probability</span>
+                            <span style={{ fontWeight: 700, color: '#1e293b' }}>{impliedProbability.toFixed(1)}%</span>
+                        </div>
+                    )}
                 </div>
 
                 {validationErrors.map(err => (
@@ -496,17 +620,20 @@ const ModeBetPanel = ({
                     disabled={!canPlace}
                     style={{
                         width: '100%',
-                        marginTop: 12,
+                        marginTop: 14,
                         border: 'none',
                         borderRadius: 8,
-                        padding: '12px 10px',
+                        padding: '14px 10px',
                         fontWeight: 800,
+                        fontSize: 15,
+                        letterSpacing: '0.3px',
                         color: 'white',
-                        background: canPlace ? '#0f5db3' : '#9ca5b3',
-                        cursor: canPlace ? 'pointer' : 'not-allowed'
+                        background: canPlace ? '#16a34a' : '#94a3b8',
+                        cursor: canPlace ? 'pointer' : 'not-allowed',
+                        textTransform: 'uppercase'
                     }}
                 >
-                    {placing ? 'Placing...' : 'Place Bet'}
+                    {placing ? 'Placing…' : 'Place Bet'}
                 </button>
             </div>
             <BetConfirmationModal

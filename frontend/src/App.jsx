@@ -73,9 +73,26 @@ function AppInner() {
   const [showPromo, setShowPromo] = useState(false);
   // Mobile navigation state: true = user clicked Continue and is viewing results
   const [mobileResultsActive, setMobileResultsActive] = useState(false);
-  const isMobileViewport = useMemo(() => typeof window !== 'undefined'
-    && window.matchMedia
-    && window.matchMedia('(max-width: 768px)').matches, []);
+  // Live-updating viewport flag. useMemo([]) froze this at initial mount,
+  // so if the user loaded on desktop and then resized / switched to mobile
+  // (dev tools, real rotate, or responsive testing), the value stayed false
+  // and Continue never routed to <MobileContentView>. Listen to matchMedia
+  // so the flag flips whenever the viewport crosses 768px.
+  const [isMobileViewport, setIsMobileViewport] = useState(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return false;
+    return window.matchMedia('(max-width: 768px)').matches;
+  });
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return undefined;
+    const mql = window.matchMedia('(max-width: 768px)');
+    const handler = (e) => setIsMobileViewport(e.matches);
+    if (mql.addEventListener) mql.addEventListener('change', handler);
+    else mql.addListener(handler); // Safari < 14 fallback
+    return () => {
+      if (mql.removeEventListener) mql.removeEventListener('change', handler);
+      else mql.removeListener(handler);
+    };
+  }, []);
 
   // Derived mobile state:
   //   'browsing'  — no actionable selection, showing sports menu
