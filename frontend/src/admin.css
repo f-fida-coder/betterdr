@@ -7032,7 +7032,7 @@ button.downline-flat-row:active {
   flex: 0 0 55px;
   text-align: right;
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 500;
   color: #1e293b;
 }
 
@@ -7043,8 +7043,21 @@ button.downline-flat-row:active {
   flex: 0 0 72px;
   text-align: right;
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 500;
   color: #1e293b;
+}
+
+.agent-cuts-row .acut-name {
+  font-weight: 500;
+}
+
+.agent-cuts-total .acut-name,
+.agent-cuts-total .acut-cut,
+.agent-cuts-total .acut-owed,
+.agent-cuts-total .acut-period,
+.agent-cuts-total .acut-secondary,
+.agent-cuts-total .acut-lifetime {
+  font-weight: 800;
 }
 
 .acut-owed.positive,
@@ -7067,7 +7080,6 @@ button.downline-flat-row:active {
   padding: 0;
   cursor: pointer;
   font: inherit;
-  font-weight: 700;
 }
 
 .agent-cuts-cell-button:hover,

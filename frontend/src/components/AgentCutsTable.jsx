@@ -166,7 +166,6 @@ function AgentCutsTable({ onSelectAgent, onOpenOwedAgent, onWeekChange }) {
   const ytdTotal = Number(data?.totals?.ytdAmount ?? 0);
   const lifetimeTotal = Number(data?.totals?.lifetimeAmount ?? 0);
   const makeupTotal = Number(data?.totals?.makeupAmount ?? 0);
-  const selectedWeek = weeks.find((x) => x.iso === selectedWeekIso);
   const useYtdForSecondColumn = tab === 'quarter' && quarterlyChoice !== 'year';
 
   const periodColumnHeader = useMemo(() => {
@@ -253,9 +252,7 @@ function AgentCutsTable({ onSelectAgent, onOpenOwedAgent, onWeekChange }) {
     return all.filter((agent) => metricColumns.some((column) => Math.abs(Math.round(column.getValue(agent))) > 0));
   }, [data, hideZero, metricColumns]);
 
-  const totalLabel = tab === 'week'
-    ? (data?.period?.label || selectedWeek?.label || 'Total')
-    : 'PROFIT';
+  const totalLabel = tab === 'week' ? 'Total' : 'PROFIT';
 
   const handleRowActivate = (agentId) => {
     if (typeof onSelectAgent === 'function' && agentId) {
