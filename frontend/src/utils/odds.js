@@ -1,16 +1,34 @@
-export const DEFAULT_ODDS_FORMAT = 'decimal';
+export const DEFAULT_ODDS_FORMAT = 'american';
 const ODDS_FORMAT_STORAGE_KEY = 'sportsbook.oddsFormat';
+const ODDS_FORMAT_MIGRATION_KEY = 'sportsbook.oddsFormat.defaultMigration';
+const ODDS_FORMAT_MIGRATION_VERSION = 'american-default-v1';
 
 export const normalizeOddsFormat = (value) => {
     const normalized = String(value || '').trim().toLowerCase();
-    return normalized === 'american' ? 'american' : DEFAULT_ODDS_FORMAT;
+    if (normalized === 'american') return 'american';
+    if (normalized === 'decimal') return 'decimal';
+    return DEFAULT_ODDS_FORMAT;
 };
 
 const buildStorageKey = (userId = '') =>
     userId ? `${ODDS_FORMAT_STORAGE_KEY}.${String(userId).trim()}` : ODDS_FORMAT_STORAGE_KEY;
 
+const runDefaultMigration = () => {
+    if (typeof window === 'undefined') return;
+    const storage = window.localStorage;
+    if (storage.getItem(ODDS_FORMAT_MIGRATION_KEY) === ODDS_FORMAT_MIGRATION_VERSION) return;
+    for (let i = storage.length - 1; i >= 0; i -= 1) {
+        const key = storage.key(i);
+        if (key === ODDS_FORMAT_STORAGE_KEY || (key && key.startsWith(`${ODDS_FORMAT_STORAGE_KEY}.`))) {
+            storage.removeItem(key);
+        }
+    }
+    storage.setItem(ODDS_FORMAT_MIGRATION_KEY, ODDS_FORMAT_MIGRATION_VERSION);
+};
+
 export const readStoredOddsFormat = (userId = '') => {
     if (typeof window === 'undefined') return DEFAULT_ODDS_FORMAT;
+    runDefaultMigration();
     const key = buildStorageKey(userId);
     const stored = window.localStorage.getItem(key);
     if (stored) {
