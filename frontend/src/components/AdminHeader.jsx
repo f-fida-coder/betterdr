@@ -196,6 +196,12 @@ function AdminHeader({
     }).format(rounded);
   };
 
+  const formatAbsoluteCurrency = (value) => {
+    const rounded = roundForDisplay(value);
+    if (rounded === null) return '—';
+    return formatCurrency(Math.abs(rounded));
+  };
+
   const getSignedValueClass = (value) => {
     const rounded = roundForDisplay(value);
     if (rounded === null || rounded === 0) return 'neutral';
@@ -912,7 +918,7 @@ function AdminHeader({
                     {previousMakeupValue > 0 && cumulativeMakeupValue > 0 && (
                       <div className="stat-row">
                         <span className="stat-label">Previous Makeup</span>
-                        <span className="stat-value negative">{formatCurrency(-previousMakeupValue)}</span>
+                        <span className="stat-value negative">{formatAbsoluteCurrency(previousMakeupValue)}</span>
                       </div>
                     )}
                   </div>
@@ -925,7 +931,7 @@ function AdminHeader({
                         </div>
                         <div className="stat-row">
                           <span className="stat-label">Previous Makeup</span>
-                          <span className="stat-value negative">{formatCurrency(-makeupReductionValue)}</span>
+                          <span className="stat-value negative">{formatAbsoluteCurrency(makeupReductionValue)}</span>
                         </div>
                         <div className="stat-row">
                           <span className="stat-label">Net Collections</span>
@@ -974,7 +980,7 @@ function AdminHeader({
                     {cumulativeMakeupValue > 0 && (
                       <div className="stat-row">
                         <span className="stat-label">Remaining Makeup</span>
-                        <span className="stat-value negative">{formatCurrency(-cumulativeMakeupValue)}</span>
+                        <span className="stat-value negative">{formatAbsoluteCurrency(cumulativeMakeupValue)}</span>
                       </div>
                     )}
                     {previousBalanceOwedValue !== 0 && (

@@ -493,6 +493,12 @@ final class AgentCutsController
             return $settlementByAgent;
         }
 
+        (new AgentSettlementSnapshotService($this->db))->ensurePreviousWeekSnapshotsForAgentRows(
+            $allAgents,
+            $userIdToAgentId,
+            $weekStart
+        );
+
         $weekTx = $this->db->findMany('transactions', [
             'status' => 'completed',
             'createdAt' => [

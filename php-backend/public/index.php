@@ -20,6 +20,7 @@ require_once __DIR__ . '/../src/ConnectionPool.php';
 require_once __DIR__ . '/../src/CircuitBreaker.php';
 require_once __DIR__ . '/../src/BetModeRules.php';
 require_once __DIR__ . '/../src/AgentSettlementRules.php';
+require_once __DIR__ . '/../src/AgentSettlementSnapshotService.php';
 require_once __DIR__ . '/../src/BetSettlementService.php';
 require_once __DIR__ . '/../src/OddsSyncService.php';
 require_once __DIR__ . '/../src/AuthController.php';

@@ -32,6 +32,13 @@ const formatLiabilityCurrency = (value) => {
   return `${sign}$${Math.abs(rounded).toLocaleString('en-US')}`;
 };
 
+const formatMakeupCurrency = (value) => {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return '$0';
+  const rounded = Math.round(Math.abs(num));
+  return `$${rounded.toLocaleString('en-US')}`;
+};
+
 const toIsoDate = (d) => {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -197,7 +204,7 @@ function AgentCutsTable({ onSelectAgent, onOpenOwedAgent, onWeekChange }) {
           className: 'acut-secondary',
           totalValue: makeupTotal,
           getValue: (agent) => Number(agent?.makeupAmount ?? 0),
-          formatter: formatLiabilityCurrency,
+          formatter: formatMakeupCurrency,
           getToneClass: liabilityToneClass,
         },
       ];

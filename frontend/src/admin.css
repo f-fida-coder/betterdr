@@ -7067,6 +7067,7 @@ button.downline-flat-row:active {
   padding: 0;
   cursor: pointer;
   font: inherit;
+  font-weight: 700;
 }
 
 .agent-cuts-cell-button:hover,
