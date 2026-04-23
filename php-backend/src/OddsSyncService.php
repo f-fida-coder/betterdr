@@ -7,6 +7,8 @@ final class OddsSyncService
 {
     private static array $apiCache = [];
     private const CACHE_TTL_SECONDS = 1800; // 30 minutes
+    private const EVENT_PROPS_TTL_SECONDS = 300; // 5 minutes per-event refresh threshold
+    private const EVENT_PROPS_MAX_CONCURRENT = 8; // curl_multi fan-out per batch
 
     public static function handleMatchesFallbackRoute(string $method, string $path): bool
     {
@@ -157,14 +159,7 @@ final class OddsSyncService
 
                 $statusAndScore = self::extractScoreAndStatus($mergedEvent, $homeTeam, $awayTeam);
 
-                $oddsData = [];
-                if (isset($event['bookmakers']) && is_array($event['bookmakers']) && count($event['bookmakers']) > 0 && is_array($event['bookmakers'][0])) {
-                    $main = $event['bookmakers'][0];
-                    $oddsData = [
-                        'bookmaker' => $main['title'] ?? null,
-                        'markets' => $main['markets'] ?? [],
-                    ];
-                }
+                $oddsData = self::pickPrimaryBookmakerOdds($event['bookmakers'] ?? null);
 
                 $snapshot[] = [
                     'id' => $externalId,
@@ -386,6 +381,17 @@ final class OddsSyncService
             $sweep = BetSettlementService::settlePendingMatches($db, 250, 'system');
             $result['settlementSweep'] = $sweep;
 
+            $extendedEnabled = strtolower((string) Env::get('ODDS_EXTENDED_SYNC_ENABLED', 'false')) === 'true';
+            if ($extendedEnabled) {
+                $activeMatches = $db->findMany(
+                    'matches',
+                    ['status' => ['$in' => ['scheduled', 'live']]],
+                    ['projection' => ['id' => 1, 'externalId' => 1, 'sportKey' => 1, 'odds' => 1, 'playerProps' => 1, 'lastPropsSyncAt' => 1]]
+                );
+                $extendedResult = self::syncEventExtendedForMatches($db, $activeMatches);
+                $result['extended'] = $extendedResult;
+            }
+
             SportsbookHealth::recordSyncSuccess($db, $runId, $source, $result);
             SportsbookCache::invalidatePublicMatchCaches();
             return $result;
@@ -396,20 +402,250 @@ final class OddsSyncService
     }
 
     /**
+     * Fetch extended markets + player props for a single event via per-event endpoint.
+     * Returns ['markets' => [...], 'playerProps' => [...], 'quota' => [...]].
+     *
+     * @return array<string, mixed>
+     */
+    public static function fetchEventExtendedOdds(string $sportKey, string $externalId): array
+    {
+        $apiKey = (string) Env::get('ODDS_API_KEY', '');
+        $sportsApiEnabled = strtolower((string) Env::get('SPORTS_API_ENABLED', 'true')) === 'true';
+        if (!$sportsApiEnabled || $apiKey === '' || $externalId === '') {
+            return ['markets' => [], 'playerProps' => [], 'quota' => []];
+        }
+
+        $regions = (string) Env::get('ODDS_API_REGIONS', 'us');
+        $oddsFormat = (string) Env::get('ODDS_API_ODDS_FORMAT', 'american');
+        $bookmakers = (string) Env::get('ODDS_API_BOOKMAKERS', '');
+        $apiBase = 'https://api.the-odds-api.com/v4';
+
+        $perEventMarkets = OddsMarketCatalog::perEventMarkets($sportKey);
+        if ($perEventMarkets === []) {
+            return ['markets' => [], 'playerProps' => [], 'quota' => []];
+        }
+
+        // The Odds API accepts many markets per request but splitting keeps payloads
+        // sane and avoids the 10-market-per-call recommendation for props.
+        $chunks = array_chunk($perEventMarkets, 10);
+        $urls = [];
+        foreach ($chunks as $idx => $chunk) {
+            $query = [
+                'apiKey' => $apiKey,
+                'regions' => $regions,
+                'markets' => implode(',', $chunk),
+                'oddsFormat' => $oddsFormat,
+            ];
+            if ($bookmakers !== '') {
+                $query['bookmakers'] = $bookmakers;
+            }
+            $urls['chunk_' . $idx] = $apiBase . '/sports/' . rawurlencode($sportKey)
+                . '/events/' . rawurlencode($externalId) . '/odds?' . http_build_query($query);
+        }
+
+        $responses = self::httpGetManyDetailed($urls);
+
+        $mergedMarkets = [];
+        $quota = [];
+        foreach ($responses as $chunkKey => $response) {
+            $headers = is_array($response['headers'] ?? null) ? $response['headers'] : [];
+            if (isset($headers['x-requests-remaining'])) {
+                $quota['remaining'] = (int) $headers['x-requests-remaining'];
+            }
+            if (isset($headers['x-requests-used'])) {
+                $quota['used'] = (int) $headers['x-requests-used'];
+            }
+
+            $body = $response['body'] ?? null;
+            if (!is_string($body) || $body === '') {
+                continue;
+            }
+            $decoded = json_decode($body, true);
+            if (!is_array($decoded) || !isset($decoded['bookmakers']) || !is_array($decoded['bookmakers'])) {
+                continue;
+            }
+            $primary = $decoded['bookmakers'][0] ?? null;
+            if (!is_array($primary) || !isset($primary['markets']) || !is_array($primary['markets'])) {
+                continue;
+            }
+            foreach ($primary['markets'] as $market) {
+                if (!is_array($market) || !isset($market['key'])) {
+                    continue;
+                }
+                $key = (string) $market['key'];
+                // Dedupe: last write wins (later chunks may include more bookmakers)
+                $mergedMarkets[$key] = $market;
+            }
+        }
+
+        $markets = [];
+        $playerProps = [];
+        foreach ($mergedMarkets as $key => $market) {
+            if (OddsMarketCatalog::isPropMarket((string) $key)) {
+                $playerProps[] = $market;
+            } else {
+                $markets[] = $market;
+            }
+        }
+
+        return [
+            'markets' => $markets,
+            'playerProps' => $playerProps,
+            'quota' => $quota,
+        ];
+    }
+
+    /**
+     * Sync extended markets + player props for a batch of match documents.
+     * Updates each match doc's odds.extendedMarkets and playerProps fields.
+     *
+     * @param list<array<string, mixed>> $matches
+     * @return array{updated: int, apiCalls: int, quotaRemaining: ?int}
+     */
+    public static function syncEventExtendedForMatches(SqlRepository $db, array $matches): array
+    {
+        $updated = 0;
+        $apiCalls = 0;
+        $quotaRemaining = null;
+
+        foreach ($matches as $match) {
+            if (!is_array($match)) {
+                continue;
+            }
+            $matchId = (string) ($match['id'] ?? '');
+            $sportKey = (string) ($match['sportKey'] ?? '');
+            $externalId = (string) ($match['externalId'] ?? '');
+            if ($matchId === '' || $sportKey === '' || $externalId === '') {
+                continue;
+            }
+
+            $result = self::fetchEventExtendedOdds($sportKey, $externalId);
+            $apiCalls += count(OddsMarketCatalog::perEventMarkets($sportKey)) > 0
+                ? max(1, (int) ceil(count(OddsMarketCatalog::perEventMarkets($sportKey)) / 10))
+                : 0;
+            $quota = is_array($result['quota'] ?? null) ? $result['quota'] : [];
+            if (isset($quota['remaining']) && is_numeric($quota['remaining'])) {
+                $remaining = (int) $quota['remaining'];
+                $quotaRemaining = $quotaRemaining === null ? $remaining : min($quotaRemaining, $remaining);
+            }
+
+            $extendedMarkets = is_array($result['markets'] ?? null) ? $result['markets'] : [];
+            $playerProps = is_array($result['playerProps'] ?? null) ? $result['playerProps'] : [];
+
+            $now = SqlRepository::nowUtc();
+            $existingOdds = is_array($match['odds'] ?? null) ? $match['odds'] : [];
+            $existingOdds['extendedMarkets'] = $extendedMarkets;
+
+            try {
+                $db->updateOne('matches', ['id' => SqlRepository::id($matchId)], [
+                    'odds' => $existingOdds,
+                    'playerProps' => $playerProps,
+                    'lastPropsSyncAt' => $now,
+                    'updatedAt' => $now,
+                ]);
+                $updated++;
+            } catch (Throwable $_e) {
+                // swallow — individual failures shouldn't halt the batch
+            }
+        }
+
+        return ['updated' => $updated, 'apiCalls' => $apiCalls, 'quotaRemaining' => $quotaRemaining];
+    }
+
+    /**
+     * Fetch + cache extended odds for a single match on-demand. Returns cached
+     * props if they were synced within EVENT_PROPS_TTL_SECONDS, otherwise hits
+     * the API and persists fresh data.
+     *
+     * @return array{markets: list<array<string, mixed>>, playerProps: list<array<string, mixed>>, cached: bool}
+     */
+    public static function ensureEventExtendedOdds(SqlRepository $db, string $matchId): array
+    {
+        $match = $db->findOne('matches', ['id' => SqlRepository::id($matchId)]);
+        if ($match === null) {
+            return ['markets' => [], 'playerProps' => [], 'cached' => false];
+        }
+
+        $lastSync = (string) ($match['lastPropsSyncAt'] ?? '');
+        $fresh = false;
+        if ($lastSync !== '') {
+            $syncedAt = strtotime($lastSync);
+            if ($syncedAt !== false && (time() - $syncedAt) < self::EVENT_PROPS_TTL_SECONDS) {
+                $fresh = true;
+            }
+        }
+
+        if ($fresh) {
+            $odds = is_array($match['odds'] ?? null) ? $match['odds'] : [];
+            return [
+                'markets' => is_array($odds['extendedMarkets'] ?? null) ? $odds['extendedMarkets'] : [],
+                'playerProps' => is_array($match['playerProps'] ?? null) ? $match['playerProps'] : [],
+                'cached' => true,
+            ];
+        }
+
+        self::syncEventExtendedForMatches($db, [$match]);
+        $refreshed = $db->findOne('matches', ['id' => SqlRepository::id($matchId)]);
+        $odds = is_array($refreshed['odds'] ?? null) ? $refreshed['odds'] : [];
+        return [
+            'markets' => is_array($odds['extendedMarkets'] ?? null) ? $odds['extendedMarkets'] : [],
+            'playerProps' => is_array($refreshed['playerProps'] ?? null) ? $refreshed['playerProps'] : [],
+            'cached' => false,
+        ];
+    }
+
+    /**
+     * Pick the first bookmaker that is actually offering lines for this
+     * event. The Odds API sometimes orders bookmakers by freshness rather
+     * than by market coverage, so `bookmakers[0]` can legitimately have an
+     * empty `markets` array — particularly on in-play games where a single
+     * book has pulled its lines. Falling back through the list avoids
+     * rendering a full row of "—" dashes when another book has data.
+     *
+     * @param mixed $bookmakers
+     * @return array{bookmaker: ?string, markets: array<int, mixed>}
+     */
+    private static function pickPrimaryBookmakerOdds(mixed $bookmakers): array
+    {
+        if (!is_array($bookmakers) || $bookmakers === []) {
+            return ['bookmaker' => null, 'markets' => []];
+        }
+
+        $fallback = null;
+        foreach ($bookmakers as $book) {
+            if (!is_array($book)) {
+                continue;
+            }
+            if ($fallback === null) {
+                $fallback = $book;
+            }
+            $markets = $book['markets'] ?? null;
+            if (is_array($markets) && $markets !== []) {
+                return [
+                    'bookmaker' => isset($book['title']) ? (string) $book['title'] : null,
+                    'markets' => $markets,
+                ];
+            }
+        }
+
+        // Every bookmaker came back with empty markets. Preserve the
+        // primary book's title so downstream UI still shows "N/A via
+        // <book>" rather than null — and so we don't mask a feed issue
+        // as a data issue.
+        return [
+            'bookmaker' => is_array($fallback) && isset($fallback['title']) ? (string) $fallback['title'] : null,
+            'markets' => [],
+        ];
+    }
+
+    /**
      * @param array<string, mixed> $event
      * @param array<string, mixed> $statusAndScore
      * @return array<string, mixed>
      */
     private static function buildOddsDocument(array $event, string $sportKey, string $externalId, string $homeTeam, string $awayTeam, array $statusAndScore): array
     {
-        $oddsData = [];
-        if (isset($event['bookmakers']) && is_array($event['bookmakers']) && count($event['bookmakers']) > 0 && is_array($event['bookmakers'][0])) {
-            $main = $event['bookmakers'][0];
-            $oddsData = [
-                'bookmaker' => $main['title'] ?? null,
-                'markets' => $main['markets'] ?? [],
-            ];
-        }
+        $oddsData = self::pickPrimaryBookmakerOdds($event['bookmakers'] ?? null);
 
         $now = SqlRepository::nowUtc();
         return [

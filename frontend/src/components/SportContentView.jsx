@@ -12,11 +12,15 @@ import {
     getMarketOutcomeByName,
     parseOddsNumber,
 } from '../utils/odds';
+import PropBuilderModal from './PropBuilderModal';
+import MatchDetailView from './MatchDetailView';
 
 const SportContentView = ({ sportId, selectedItems = [], filter = null, status = 'live-upcoming', activeBetMode = 'straight' }) => {
     const { oddsFormat } = useOddsFormat();
     const [activeTab] = useState('matches');
     const [teamLogos, setTeamLogos] = useState({});
+    const [propsOpenMatch, setPropsOpenMatch] = useState(null);
+    const [detailOpenMatch, setDetailOpenMatch] = useState(null);
     const attemptedLogoFetchesRef = React.useRef(new Set());
 
     const [content, setContent] = useState({ name: '', icon: '', matches: [] });
@@ -154,8 +158,8 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                     id: match.id || match.externalId,
                     time: match.startTime ? new Date(match.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
                     date: match.startTime ? new Date(match.startTime).toLocaleDateString() : '',
-                    team1: { name: homeName, abbr: homeName.substring(0, 3).toUpperCase() },
-                    team2: { name: awayName, abbr: awayName.substring(0, 3).toUpperCase() },
+                    team1: { name: awayName, abbr: awayName.substring(0, 3).toUpperCase() },
+                    team2: { name: homeName, abbr: homeName.substring(0, 3).toUpperCase() },
                     score1: displayScore1,
                     score2: displayScore2,
                     period: match.score?.period, // e.g. 'Q1', '2nd Half'
@@ -270,7 +274,63 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                         <span className="time">{match.time}</span>
                                         <span className="date">{match.date}</span>
                                     </div>
-                                    <span className={`match-status ${match.status === 'LIVE' ? 'live' : ''}`}>{match.status}</span>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                        <button
+                                            type="button"
+                                            className="main-bets-btn"
+                                            onClick={() => setDetailOpenMatch({
+                                                id: match.id,
+                                                externalId: match.rawMatch?.externalId,
+                                                homeTeam: match.team2.name,
+                                                awayTeam: match.team1.name,
+                                                odds: match.rawMatch?.odds,
+                                            })}
+                                            disabled={match.rawMatch?.isBettable === false}
+                                            style={{
+                                                background: '#d0451b',
+                                                color: '#fff',
+                                                border: 'none',
+                                                borderRadius: 6,
+                                                padding: '4px 10px',
+                                                fontSize: 13,
+                                                fontWeight: 700,
+                                                lineHeight: 1,
+                                                cursor: match.rawMatch?.isBettable === false ? 'not-allowed' : 'pointer',
+                                                opacity: match.rawMatch?.isBettable === false ? 0.5 : 1,
+                                            }}
+                                            aria-label="Open all markets"
+                                        >
+                                            +
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="prop-builder-btn"
+                                            onClick={() => setPropsOpenMatch({
+                                                id: match.id,
+                                                externalId: match.rawMatch?.externalId,
+                                                homeTeam: match.team2.name,
+                                                awayTeam: match.team1.name,
+                                                odds: match.rawMatch?.odds,
+                                            })}
+                                            disabled={match.rawMatch?.isBettable === false}
+                                            style={{
+                                                background: 'linear-gradient(135deg, #a020f0, #d946ef)',
+                                                color: '#fff',
+                                                border: 'none',
+                                                borderRadius: 6,
+                                                padding: '4px 10px',
+                                                fontSize: 11,
+                                                fontWeight: 700,
+                                                letterSpacing: 0.4,
+                                                cursor: match.rawMatch?.isBettable === false ? 'not-allowed' : 'pointer',
+                                                opacity: match.rawMatch?.isBettable === false ? 0.5 : 1,
+                                            }}
+                                            aria-label="Open prop builder"
+                                        >
+                                            P+
+                                        </button>
+                                        <span className={`match-status ${match.status === 'LIVE' ? 'live' : ''}`}>{match.status}</span>
+                                    </div>
                                 </div>
 
                                 <div className="match-body">
@@ -325,16 +385,16 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                     <span className="odds-label">Spread</span>
                                                     <div className="odds-values-group">
                                                         {renderOddsButton({
-                                                            label: formatSpreadDisplay(match.odds.spread.homePoint, match.odds.spread.homeOdds, oddsFormat),
-                                                            onClick: () => handleAddToSlip(match.id, match.team1.name, 'spreads', match.odds.spread.homeOdds, `${match.team1.name} vs ${match.team2.name}`, 'Spread'),
-                                                            available: match.odds.spread.homePoint !== null && hasValidOdds(match.odds.spread.homeOdds),
+                                                            label: formatSpreadDisplay(match.odds.spread.awayPoint, match.odds.spread.awayOdds, oddsFormat),
+                                                            onClick: () => handleAddToSlip(match.id, match.team1.name, 'spreads', match.odds.spread.awayOdds, `${match.team1.name} vs ${match.team2.name}`, 'Spread'),
+                                                            available: match.odds.spread.awayPoint !== null && hasValidOdds(match.odds.spread.awayOdds),
                                                             disabled: match.rawMatch?.isBettable === false,
                                                             reason: match.rawMatch?.bettingBlockedReason || 'Betting unavailable',
                                                         })}
                                                         {renderOddsButton({
-                                                            label: formatSpreadDisplay(match.odds.spread.awayPoint, match.odds.spread.awayOdds, oddsFormat),
-                                                            onClick: () => handleAddToSlip(match.id, match.team2.name, 'spreads', match.odds.spread.awayOdds, `${match.team1.name} vs ${match.team2.name}`, 'Spread'),
-                                                            available: match.odds.spread.awayPoint !== null && hasValidOdds(match.odds.spread.awayOdds),
+                                                            label: formatSpreadDisplay(match.odds.spread.homePoint, match.odds.spread.homeOdds, oddsFormat),
+                                                            onClick: () => handleAddToSlip(match.id, match.team2.name, 'spreads', match.odds.spread.homeOdds, `${match.team1.name} vs ${match.team2.name}`, 'Spread'),
+                                                            available: match.odds.spread.homePoint !== null && hasValidOdds(match.odds.spread.homeOdds),
                                                             disabled: match.rawMatch?.isBettable === false,
                                                             reason: match.rawMatch?.bettingBlockedReason || 'Betting unavailable',
                                                         })}
@@ -346,16 +406,16 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                     <span className="odds-label">Moneyline</span>
                                                     <div className="odds-values-group">
                                                         {renderOddsButton({
-                                                            label: formatOdds(match.odds.moneyline.homeOdds, oddsFormat),
-                                                            onClick: () => handleAddToSlip(match.id, match.team1.name, 'h2h', match.odds.moneyline.homeOdds, `${match.team1.name} vs ${match.team2.name}`, 'Moneyline'),
-                                                            available: hasValidOdds(match.odds.moneyline.homeOdds),
+                                                            label: formatOdds(match.odds.moneyline.awayOdds, oddsFormat),
+                                                            onClick: () => handleAddToSlip(match.id, match.team1.name, 'h2h', match.odds.moneyline.awayOdds, `${match.team1.name} vs ${match.team2.name}`, 'Moneyline'),
+                                                            available: hasValidOdds(match.odds.moneyline.awayOdds),
                                                             disabled: match.rawMatch?.isBettable === false,
                                                             reason: match.rawMatch?.bettingBlockedReason || 'Betting unavailable',
                                                         })}
                                                         {renderOddsButton({
-                                                            label: formatOdds(match.odds.moneyline.awayOdds, oddsFormat),
-                                                            onClick: () => handleAddToSlip(match.id, match.team2.name, 'h2h', match.odds.moneyline.awayOdds, `${match.team1.name} vs ${match.team2.name}`, 'Moneyline'),
-                                                            available: hasValidOdds(match.odds.moneyline.awayOdds),
+                                                            label: formatOdds(match.odds.moneyline.homeOdds, oddsFormat),
+                                                            onClick: () => handleAddToSlip(match.id, match.team2.name, 'h2h', match.odds.moneyline.homeOdds, `${match.team1.name} vs ${match.team2.name}`, 'Moneyline'),
+                                                            available: hasValidOdds(match.odds.moneyline.homeOdds),
                                                             disabled: match.rawMatch?.isBettable === false,
                                                             reason: match.rawMatch?.bettingBlockedReason || 'Betting unavailable',
                                                         })}
@@ -400,6 +460,12 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                 </div>
             )}
 
+            {propsOpenMatch && (
+                <PropBuilderModal match={propsOpenMatch} onClose={() => setPropsOpenMatch(null)} />
+            )}
+            {detailOpenMatch && (
+                <MatchDetailView match={detailOpenMatch} onClose={() => setDetailOpenMatch(null)} />
+            )}
         </div>
     );
 };

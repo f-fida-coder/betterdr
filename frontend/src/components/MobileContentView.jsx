@@ -11,6 +11,8 @@ import {
     parseOddsNumber,
 } from '../utils/odds';
 import { logoUrlForTeam } from '../utils/teamLogos';
+import PropBuilderModal from './PropBuilderModal';
+import MatchDetailView from './MatchDetailView';
 
 const WEEKDAYS_LONG = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
 const MONTHS_SHORT = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
@@ -69,17 +71,55 @@ const dayLabelOf = (d) => (d ? `${WEEKDAYS_LONG[d.getDay()]}, ${MONTHS_SHORT[d.g
 const STALE_MS = 5 * 60 * 1000;
 const TICK_MS = 30 * 1000;
 
-const FULL_PERIOD = { id: 'full', label: 'Full Game', suffix: '' };
+const FULL_PERIOD = { id: 'full', label: 'Game', suffix: '' };
 
 // Periods available per sport. Suffixes match Odds API market key conventions
-// (e.g. `h2h_h1`, `spreads_q1`). Only list periods whose market keys are
-// enabled in ODDS_API_MARKETS — unlisted periods render as disabled cells.
+// (e.g. `h2h_h1`, `spreads_q1`, `totals_1st_5_innings`). Entries whose
+// suffix doesn't appear in returned markets are filtered out before render.
+const BASKETBALL_PERIODS = [
+    FULL_PERIOD,
+    { id: '1h', label: '1H', suffix: '_h1' },
+    { id: '2h', label: '2H', suffix: '_h2' },
+    { id: '1q', label: '1Q', suffix: '_q1' },
+    { id: '2q', label: '2Q', suffix: '_q2' },
+    { id: '3q', label: '3Q', suffix: '_q3' },
+    { id: '4q', label: '4Q', suffix: '_q4' },
+];
+const FOOTBALL_PERIODS = [
+    FULL_PERIOD,
+    { id: '1h', label: '1H', suffix: '_h1' },
+    { id: '2h', label: '2H', suffix: '_h2' },
+    { id: '1q', label: '1Q', suffix: '_q1' },
+    { id: '2q', label: '2Q', suffix: '_q2' },
+    { id: '3q', label: '3Q', suffix: '_q3' },
+    { id: '4q', label: '4Q', suffix: '_q4' },
+];
+const BASEBALL_PERIODS = [
+    FULL_PERIOD,
+    { id: 'f1', label: 'F1', suffix: '_1st_1_innings' },
+    { id: 'f3', label: 'F3', suffix: '_1st_3_innings' },
+    { id: 'f5', label: 'F5', suffix: '_1st_5_innings' },
+    { id: 'f7', label: 'F7', suffix: '_1st_7_innings' },
+];
+const HOCKEY_PERIODS = [
+    FULL_PERIOD,
+    { id: 'p1', label: 'P1', suffix: '_p1' },
+    { id: 'p2', label: 'P2', suffix: '_p2' },
+    { id: 'p3', label: 'P3', suffix: '_p3' },
+];
+const SOCCER_PERIODS = [
+    FULL_PERIOD,
+    { id: '1h', label: '1H', suffix: '_h1' },
+];
+
 const PERIOD_CONFIG = {
-    nba: [FULL_PERIOD, { id: 'h1', label: '1st Half', suffix: '_h1' }, { id: 'q1', label: '1st Qtr', suffix: '_q1' }],
-    nfl: [FULL_PERIOD, { id: 'h1', label: '1st Half', suffix: '_h1' }, { id: 'q1', label: '1st Qtr', suffix: '_q1' }],
-    'ncaa-basketball': [FULL_PERIOD, { id: 'h1', label: '1st Half', suffix: '_h1' }, { id: 'q1', label: '1st Qtr', suffix: '_q1' }],
-    'ncaa-football': [FULL_PERIOD, { id: 'h1', label: '1st Half', suffix: '_h1' }, { id: 'q1', label: '1st Qtr', suffix: '_q1' }],
-    mlb: [FULL_PERIOD, { id: 'h1', label: '1st Half', suffix: '_h1' }],
+    nba: BASKETBALL_PERIODS,
+    'ncaa-basketball': BASKETBALL_PERIODS,
+    nfl: FOOTBALL_PERIODS,
+    'ncaa-football': FOOTBALL_PERIODS,
+    mlb: BASEBALL_PERIODS,
+    nhl: HOCKEY_PERIODS,
+    soccer: SOCCER_PERIODS,
 };
 
 const getPeriodsForSport = (sportId) => PERIOD_CONFIG[sportId] || [FULL_PERIOD];
@@ -131,12 +171,16 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
     // periods the Odds API isn't returning right now.
     const availableSuffixes = React.useMemo(() => {
         const set = new Set(['']);
-        (rawMatches || []).forEach(match => {
-            const markets = match?.odds?.markets || [];
+        const scan = (markets) => {
+            if (!Array.isArray(markets)) return;
             markets.forEach(m => {
                 const matched = String(m?.key || '').match(/^(?:h2h|spreads|totals)(_[a-z0-9_]+)$/);
                 if (matched) set.add(matched[1]);
             });
+        };
+        (rawMatches || []).forEach(match => {
+            scan(match?.odds?.markets);
+            scan(match?.odds?.extendedMarkets);
         });
         return set;
     }, [rawMatches]);
@@ -191,8 +235,8 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
             return {
                 id: match.id || match.externalId,
                 sport: match.sport || '',
-                team1: homeName,
-                team2: awayName,
+                team1: awayName,
+                team2: homeName,
                 odds: extractOdds(match, homeName, awayName, activePeriod.suffix),
                 isLive,
                 isBettable: match.isBettable !== false,
@@ -382,20 +426,77 @@ const MatchCard = ({ match, oddsFormat, onAddToSlip, selectedKeys, visibleMarket
         if (blocked) return;
         onAddToSlip(...args);
     };
+    const [propsOpen, setPropsOpen] = React.useState(false);
+    const [detailOpen, setDetailOpen] = React.useState(false);
+    const modalMatch = React.useMemo(() => ({
+        id: match.id,
+        externalId: match.externalId,
+        homeTeam: match.team2,
+        awayTeam: match.team1,
+        odds: match.odds,
+    }), [match.id, match.externalId, match.team1, match.team2, match.odds]);
     return (
         <div style={matchCardStyle}>
             <div style={matchHeaderStyle}>
                 <span style={matchTimeStyle}>{match.time}</span>
-                <span style={match.isLive ? liveBadgeStyle : upcomingBadgeStyle}>
-                    {match.isLive ? 'LIVE' : 'UPCOMING'}
-                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <button
+                        type="button"
+                        onClick={() => setDetailOpen(true)}
+                        disabled={blocked}
+                        style={{
+                            background: blocked ? '#444' : '#d0451b',
+                            color: '#fff',
+                            border: 'none',
+                            borderRadius: 6,
+                            padding: '4px 10px',
+                            fontSize: 13,
+                            fontWeight: 700,
+                            lineHeight: 1,
+                            cursor: blocked ? 'not-allowed' : 'pointer',
+                            opacity: blocked ? 0.6 : 1,
+                        }}
+                        aria-label="Open all markets"
+                    >
+                        +
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setPropsOpen(true)}
+                        disabled={blocked}
+                        style={{
+                            background: blocked ? '#444' : 'linear-gradient(135deg, #a020f0, #d946ef)',
+                            color: '#fff',
+                            border: 'none',
+                            borderRadius: 6,
+                            padding: '4px 10px',
+                            fontSize: 11,
+                            fontWeight: 700,
+                            letterSpacing: 0.4,
+                            cursor: blocked ? 'not-allowed' : 'pointer',
+                            opacity: blocked ? 0.6 : 1,
+                        }}
+                        aria-label="Open prop builder"
+                    >
+                        P+
+                    </button>
+                    <span style={match.isLive ? liveBadgeStyle : upcomingBadgeStyle}>
+                        {match.isLive ? 'LIVE' : 'UPCOMING'}
+                    </span>
+                </div>
             </div>
+            {propsOpen && (
+                <PropBuilderModal match={modalMatch} onClose={() => setPropsOpen(false)} />
+            )}
+            {detailOpen && (
+                <MatchDetailView match={modalMatch} onClose={() => setDetailOpen(false)} />
+            )}
 
             <TeamRow
                 team={match.team1}
-                spreadLine={match.odds.spreadHomePoint}
-                spreadPrice={match.odds.spreadHomePrice}
-                moneyline={match.odds.moneylineHome}
+                spreadLine={match.odds.spreadAwayPoint}
+                spreadPrice={match.odds.spreadAwayPrice}
+                moneyline={match.odds.moneylineAway}
                 totalLabel="O"
                 totalLine={match.odds.totalPoint}
                 totalPrice={match.odds.totalOverPrice}
@@ -406,15 +507,15 @@ const MatchCard = ({ match, oddsFormat, onAddToSlip, selectedKeys, visibleMarket
                 totalSelected={isSelected('totals', 'Over')}
                 visibleMarkets={visibleMarkets}
                 marketCount={marketCount}
-                onSpreadClick={() => addIfAllowed(match.id, match.team1, 'spreads', match.odds.spreadHomePrice, matchName, 'Spread')}
-                onMoneylineClick={() => addIfAllowed(match.id, match.team1, 'h2h', match.odds.moneylineHome, matchName, 'Moneyline')}
+                onSpreadClick={() => addIfAllowed(match.id, match.team1, 'spreads', match.odds.spreadAwayPrice, matchName, 'Spread')}
+                onMoneylineClick={() => addIfAllowed(match.id, match.team1, 'h2h', match.odds.moneylineAway, matchName, 'Moneyline')}
                 onTotalClick={() => addIfAllowed(match.id, 'Over', 'totals', match.odds.totalOverPrice, matchName, 'Total')}
             />
             <TeamRow
                 team={match.team2}
-                spreadLine={match.odds.spreadAwayPoint}
-                spreadPrice={match.odds.spreadAwayPrice}
-                moneyline={match.odds.moneylineAway}
+                spreadLine={match.odds.spreadHomePoint}
+                spreadPrice={match.odds.spreadHomePrice}
+                moneyline={match.odds.moneylineHome}
                 totalLabel="U"
                 totalLine={match.odds.totalPoint}
                 totalPrice={match.odds.totalUnderPrice}
@@ -425,8 +526,8 @@ const MatchCard = ({ match, oddsFormat, onAddToSlip, selectedKeys, visibleMarket
                 totalSelected={isSelected('totals', 'Under')}
                 visibleMarkets={visibleMarkets}
                 marketCount={marketCount}
-                onSpreadClick={() => addIfAllowed(match.id, match.team2, 'spreads', match.odds.spreadAwayPrice, matchName, 'Spread')}
-                onMoneylineClick={() => addIfAllowed(match.id, match.team2, 'h2h', match.odds.moneylineAway, matchName, 'Moneyline')}
+                onSpreadClick={() => addIfAllowed(match.id, match.team2, 'spreads', match.odds.spreadHomePrice, matchName, 'Spread')}
+                onMoneylineClick={() => addIfAllowed(match.id, match.team2, 'h2h', match.odds.moneylineHome, matchName, 'Moneyline')}
                 onTotalClick={() => addIfAllowed(match.id, 'Under', 'totals', match.odds.totalUnderPrice, matchName, 'Total')}
             />
 

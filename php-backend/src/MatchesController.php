@@ -34,6 +34,11 @@ final class MatchesController
             return true;
         }
 
+        if ($method === 'GET' && preg_match('#^/api/matches/([a-fA-F0-9]{24})/props$#', $path, $m) === 1) {
+            $this->getMatchProps($m[1]);
+            return true;
+        }
+
         if ($method === 'POST' && $path === '/api/matches/fetch-odds') {
             $this->fetchOddsPublic();
             return true;
@@ -168,6 +173,27 @@ final class MatchesController
             Response::json($annotated);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server Error fetching match'], 500);
+        }
+    }
+
+    /**
+     * Lazy-load extended markets + player props for a single match. Triggers a
+     * per-event fetch against The Odds API if the cached props are stale.
+     */
+    private function getMatchProps(string $id): void
+    {
+        try {
+            $result = OddsSyncService::ensureEventExtendedOdds($this->db, $id);
+            $payload = [
+                'matchId' => $id,
+                'cached' => (bool) ($result['cached'] ?? false),
+                'extendedMarkets' => is_array($result['markets'] ?? null) ? $result['markets'] : [],
+                'playerProps' => is_array($result['playerProps'] ?? null) ? $result['playerProps'] : [],
+            ];
+            $ttl = (bool) ($result['cached'] ?? false) ? 60 : 30;
+            Response::json($payload, 200, "public, max-age={$ttl}");
+        } catch (Throwable $e) {
+            Response::json(['message' => 'Server Error fetching props'], 500);
         }
     }
 

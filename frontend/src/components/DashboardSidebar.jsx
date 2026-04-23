@@ -1,24 +1,59 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { sportsData, isChildActive } from '../data/sportsData';
+import { sportsData } from '../data/sportsData';
 import { getAvailableSports } from '../api';
 
-/**
- * Filter a sport's children to only include items backed by configured
- * Odds API sport keys OR items whose sportKeys match available data.
- * If `liveSet` is provided (from /api/matches/sports), it supplements
- * the static config check.
- */
+// Return only children whose sport keys currently have data per
+// /api/matches/sports. When `liveSet` is null (probe pending or
+// failed), fall back to showing the static catalog so the sidebar
+// stays usable instead of rendering empty. Children with no
+// `sportKeys` metadata (UI-only meta items) always pass through.
 const filterActiveChildren = (children, liveSet) => {
-    if (!children) return [];
-    return children.filter(child => {
-        // Static check: is at least one sportKey in CONFIGURED_SPORT_KEYS?
-        if (isChildActive(child)) return true;
-        // Dynamic check: does the live data set include any of this child's sportKeys or keywords?
-        if (liveSet && child.sportKeys) {
-            return child.sportKeys.some(k => liveSet.has(k.toLowerCase()));
-        }
-        return false;
+    if (!Array.isArray(children)) return [];
+    if (!liveSet) return children;
+    return children.filter((child) => {
+        if (!Array.isArray(child.sportKeys) || child.sportKeys.length === 0) return true;
+        return child.sportKeys.some((k) => liveSet.has(String(k).toLowerCase()));
     });
+};
+
+// An Odds API sport key looks like `<category>_<suffix>` (e.g.
+// `basketball_nba`, `soccer_france_ligue_one`). /api/matches/sports
+// returns BOTH the key and the human-readable title, so we filter down
+// to just keys before deciding what to inject.
+const ODDS_API_SPORT_KEY_RE = /^[a-z]+_[a-z0-9_]+$/;
+
+const prettifySportKey = (key) => {
+    // `basketball_nba` -> `Basketball NBA`. Leagues themselves (NBA, NFL,
+    // etc.) stay upper-cased because The Odds API suffixes are mostly
+    // short acronyms; any all-caps token is left alone.
+    return String(key || '')
+        .split('_')
+        .filter(Boolean)
+        .map((part) => (part === part.toUpperCase() ? part : part.charAt(0).toUpperCase() + part.slice(1)))
+        .join(' ');
+};
+
+const ICON_BY_CATEGORY = {
+    basketball: 'fa-solid fa-basketball',
+    americanfootball: 'fa-solid fa-football',
+    baseball: 'fa-solid fa-baseball-bat-ball',
+    icehockey: 'fa-solid fa-hockey-puck',
+    soccer: 'fa-solid fa-futbol',
+    tennis: 'fa-solid fa-table-tennis-paddle-ball',
+    golf: 'fa-solid fa-golf-ball-tee',
+    mma: 'fa-solid fa-hand-fist',
+    boxing: 'fa-solid fa-mitten',
+    cricket: 'fa-solid fa-baseball',
+    rugbyleague: 'fa-solid fa-football',
+    rugbyunion: 'fa-solid fa-football',
+    aussierules: 'fa-solid fa-football',
+    motorsport: 'fa-solid fa-flag-checkered',
+    lacrosse: 'fa-solid fa-shield',
+    politics: 'fa-solid fa-landmark',
+};
+const iconForSportKey = (key) => {
+    const category = String(key || '').split('_')[0];
+    return ICON_BY_CATEGORY[category] || 'fa-solid fa-trophy';
 };
 
 const SidebarItem = ({
@@ -35,7 +70,6 @@ const SidebarItem = ({
     const isExpanded = expandedIds.has(item.id);
     const isSelected = selectedIds.includes(item.id);
 
-    // Filter children to only show active ones
     const activeChildren = useMemo(
         () => filterActiveChildren(item.children, liveSet),
         [item.children, liveSet],
@@ -58,13 +92,17 @@ const SidebarItem = ({
     const showBlueArrow = level > 0 && hasChildren && !isMarketGroup;
     const showBlackArrow = level > 0 && isMarketGroup;
 
+    // Mobile rows have no checkboxes, so the UI is visually single-select.
+    // Pass `replace` so App.jsx drops any stale prior selection instead of
+    // leaving it at `selectedSports[0]`, which drives the match-list title
+    // and filter. Desktop checkbox path stays additive.
     const handleClick = () => {
         if (hasChildren) {
             onToggleExpand(item.id);
-            if (isSelectable) onToggle(item.id);
+            if (isSelectable) onToggle(item.id, { replace: isMobile });
             return;
         }
-        if (isSelectable) onToggle(item.id);
+        if (isSelectable) onToggle(item.id, { replace: isMobile });
     };
 
     const handleCheckbox = (e) => {
@@ -162,13 +200,29 @@ const DashboardSidebar = ({
     const [liveSet, setLiveSet] = useState(null);
     const [searchQuery, setSearchQuery] = useState('');
 
-    // Fetch which sport values currently have data
+    // Health-probe the sports feed. Hard 5s budget: if the backend or
+    // upstream API is slow/unavailable, we abort and leave liveSet=null,
+    // which makes `filterActiveChildren` fall back to showing the full
+    // static catalog so the sidebar never renders empty under failure.
     useEffect(() => {
-        getAvailableSports().then((sports) => {
+        let cancelled = false;
+        const controller = new AbortController();
+        (async () => {
+            const sports = await getAvailableSports({ signal: controller.signal, timeoutMs: 5000 });
+            if (cancelled) return;
             if (Array.isArray(sports) && sports.length > 0) {
-                setLiveSet(new Set(sports.map(s => s.toLowerCase())));
+                setLiveSet(new Set(sports.map((s) => String(s).toLowerCase())));
             }
-        });
+            // On [] response (empty array = no sports have data right now),
+            // leave liveSet as null rather than an empty Set. An empty Set
+            // would filter the entire sidebar to nothing, and users would
+            // assume the app is broken. A pending/null liveSet shows the
+            // static catalog as a safer fallback.
+        })();
+        return () => {
+            cancelled = true;
+            controller.abort();
+        };
     }, []);
 
     const toggleExpand = (id) => {
@@ -186,24 +240,65 @@ const DashboardSidebar = ({
         ? sportsData.filter(s => parlaySportsIds.has(s.id))
         : sportsData;
 
-    // Filter: remove parent sports that have zero visible children after active-check,
-    // then optionally filter by search query.
-    const filteredSports = useMemo(() => {
-        // First pass: hide parents with no active children
-        const withActiveChildren = displaySports.filter(s => {
-            if (!s.children) return true; // top-level links (UP NEXT, LIVE NOW)
-            const active = filterActiveChildren(s.children, liveSet);
-            return active.length > 0;
+    // Anything the API is returning that isn't already covered by the static
+    // taxonomy gets surfaced as a top-level standalone entry. Keeps the
+    // sidebar in sync with backend config without requiring a code change
+    // every time ODDS_ALLOWED_SPORTS gains a new sport key.
+    const extraSports = useMemo(() => {
+        if (!liveSet || liveSet.size === 0 || isRestrictedMode) return [];
+
+        const covered = new Set();
+        const walk = (items) => {
+            items.forEach((item) => {
+                if (Array.isArray(item.sportKeys)) {
+                    item.sportKeys.forEach((k) => covered.add(String(k).toLowerCase()));
+                }
+                if (Array.isArray(item.children)) walk(item.children);
+            });
+        };
+        walk(sportsData);
+
+        const extras = [];
+        liveSet.forEach((value) => {
+            const key = String(value || '').toLowerCase();
+            if (!ODDS_API_SPORT_KEY_RE.test(key)) return;
+            if (covered.has(key)) return;
+            extras.push({
+                id: `api-${key.replace(/_/g, '-')}`,
+                label: prettifySportKey(key),
+                icon: iconForSportKey(key),
+                selectable: true,
+                sportKeys: [key],
+            });
+            covered.add(key);
         });
+        // Stable order so the list doesn't shuffle on each refresh.
+        extras.sort((a, b) => a.label.localeCompare(b.label));
+        return extras;
+    }, [liveSet, isRestrictedMode]);
+
+    const filteredSports = useMemo(() => {
+        const combined = [...displaySports, ...extraSports];
+
+        // Hide a parent category if every one of its children was filtered
+        // out by the liveSet health check. Parents with no `children`
+        // array (UP NEXT, LIVE NOW, auto-injected API extras) always pass.
+        const hasVisibleChildren = (item) => {
+            if (!Array.isArray(item.children)) return true;
+            return filterActiveChildren(item.children, liveSet).length > 0;
+        };
+        const live = combined.filter(hasVisibleChildren);
 
         const q = searchQuery.trim().toLowerCase();
-        if (!q) return withActiveChildren;
-        return withActiveChildren.filter(s => {
+        if (!q) return live;
+        return live.filter((s) => {
             if (s.label.toLowerCase().includes(q)) return true;
-            if (s.children) return s.children.some(c => c.label.toLowerCase().includes(q));
+            if (Array.isArray(s.children)) {
+                return s.children.some((c) => c.label.toLowerCase().includes(q));
+            }
             return false;
         });
-    }, [displaySports, searchQuery, liveSet]);
+    }, [displaySports, extraSports, liveSet, searchQuery]);
 
     return (
         <aside className={`dash-sidebar ${isOpen ? 'open' : ''} ${isMobileSportsSelectionMode ? 'mobile-sports-selection-mode' : ''}`}>

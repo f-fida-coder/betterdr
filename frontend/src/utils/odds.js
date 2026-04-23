@@ -126,8 +126,11 @@ export const formatTotalDisplay = (sideLabel, point, price, oddsFormat) => {
     return `${sideLabel} ${pointLabel} (${priceLabel})`;
 };
 
-export const getMatchMarkets = (match) =>
-    (Array.isArray(match?.odds?.markets) ? match.odds.markets : []);
+export const getMatchMarkets = (match) => {
+    const base = Array.isArray(match?.odds?.markets) ? match.odds.markets : [];
+    const extended = Array.isArray(match?.odds?.extendedMarkets) ? match.odds.extendedMarkets : [];
+    return base.concat(extended);
+};
 
 export const getMatchMarket = (match, key) =>
     getMatchMarkets(match).find((market) => String(market?.key || '').toLowerCase() === String(key || '').toLowerCase()) || null;

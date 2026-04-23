@@ -12,7 +12,15 @@ const buildRefreshRequestId = () => {
     return `matches-refresh-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 };
 
+// 'up-next' / 'commercial-live' are top-of-list meta filters, not a sport
+// pick. Showing Continue just because one of them is toggled is confusing:
+// users expect Continue to appear only after they've actually picked a sport
+// or league from the list below.
+const META_SPORT_FILTERS = new Set(['up-next', 'commercial-live', 'featured']);
+
 const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, onViewChange, activeBetMode = 'straight', onBetModeChange, currentView, onToggleSidebar, selectedSports = [], onContinue, onMobileBack, onLogout, mobileViewState = 'browsing', onHomeClick, role, unlimitedBalance }) => {
+    const hasRealSportSelection = selectedSports.some((id) => !META_SPORT_FILTERS.has(id));
+    const showContinueButton = mobileViewState === 'selected' && hasRealSportSelection;
     const { oddsFormat, setOddsFormat, isUpdatingOddsFormat } = useOddsFormat();
     const [showLiveMenu, setShowLiveMenu] = useState(false);
     const [showMoreMenu, setShowMoreMenu] = useState(false);
@@ -169,7 +177,7 @@ const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, 
                     </div>
 
                     <div className="right-section">
-                        {mobileViewState === 'selected' ? (
+                        {showContinueButton ? (
                             <div className="continue-btn-container" onClick={onContinue}>
                                 <button className="mobile-continue-btn">
                                     Continue <i className="fa-solid fa-chevron-right"></i>
@@ -488,8 +496,10 @@ const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, 
                             </button>
                             <button
                                 className="action-btn green continue-btn"
-                                title="Continue"
+                                title={hasRealSportSelection ? 'Continue' : 'Select a sport below to continue'}
                                 onClick={onContinue || onToggleSidebar}
+                                disabled={!hasRealSportSelection}
+                                style={!hasRealSportSelection ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
                             >
                                 <i className="fa-solid fa-chevron-right" style={{ fontSize: '16px' }}></i>
                                 <span>CONTINUE</span>

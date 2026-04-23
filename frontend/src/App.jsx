@@ -404,16 +404,25 @@ function AppInner() {
     refetchUser();
   }, [refetchUser]);
 
-  const handleSportToggle = useCallback((sport) => {
+  const handleSportToggle = useCallback((sport, options = {}) => {
     // When user changes selection, exit results state
     setMobileResultsActive(false);
     const quickFilters = new Set(['up-next', 'commercial-live']);
+    // `replace` is set by the mobile row click path (no checkboxes →
+    // visually single-select). When true, any prior real-sport
+    // selection is dropped so `selectedSports[0]` always reflects the
+    // sport the user just tapped. Desktop checkbox path leaves it
+    // undefined and keeps the additive behavior.
+    const replace = options.replace === true;
     setSelectedSports(prev => {
       const isSelected = prev.includes(sport);
       if (isSelected) {
         return prev.filter(s => s !== sport);
       }
       if (quickFilters.has(sport)) {
+        return [sport];
+      }
+      if (replace) {
         return [sport];
       }
       return [...prev.filter(s => !quickFilters.has(s)), sport];

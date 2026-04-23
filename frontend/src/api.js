@@ -607,14 +607,42 @@ export const getUpcomingMatches = async (options = {}) => getMatches('upcoming',
  * Fetch distinct sport values that currently have active/scheduled matches.
  * Returns an array of strings (sport titles and sportKeys).
  */
-export const getAvailableSports = async () => {
+// Returns the list of sport keys / titles that currently have at least one
+// scheduled or live match on the backend. Hard-capped at `timeoutMs` so a
+// slow feed can't stall the sidebar's health-filter from rendering. On
+// failure or timeout, resolves to [] — callers decide how to fall back.
+export const getAvailableSports = async ({ signal, timeoutMs = 5000 } = {}) => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    const onExternalAbort = () => controller.abort();
+    if (signal) {
+        if (signal.aborted) controller.abort();
+        else signal.addEventListener('abort', onExternalAbort);
+    }
     try {
-        const response = await fetch(buildApiUrl('/matches/sports'), { headers: getHeaders() });
+        const response = await fetch(buildApiUrl('/matches/sports'), {
+            headers: getHeaders(),
+            signal: controller.signal,
+        });
         if (!response.ok) return [];
-        return response.json();
+        return await response.json();
     } catch {
         return [];
+    } finally {
+        clearTimeout(timeoutId);
+        if (signal) signal.removeEventListener('abort', onExternalAbort);
     }
+};
+
+/**
+ * Lazy-load player props + extended markets for a single match. Triggers a
+ * per-event Odds API fetch on the backend if the cached payload is stale.
+ */
+export const getMatchProps = async (matchId) => {
+    if (!matchId) return { extendedMarkets: [], playerProps: [], cached: false };
+    const response = await fetch(buildApiUrl(`/matches/${encodeURIComponent(matchId)}/props`), { headers: getHeaders() });
+    if (!response.ok) throw new Error('Failed to fetch match props');
+    return response.json();
 };
 
 export const placeBet = async (betData, token, { requestId = '' } = {}) => {

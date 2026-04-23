@@ -99,6 +99,18 @@ final class SportsMatchStatus
                 if (($startTs + $expiryGrace) < $now) {
                     return 'expired';
                 }
+                // The upstream feed hasn't flipped event_status to IN_PROGRESS
+                // yet, but the match's start time has passed. If odds are
+                // still being actively synced (i.e. the match is real and
+                // in-play), auto-promote to 'live' so users can bet live
+                // lines instead of getting the "betting is closed" gate.
+                // We require a fresh sync signal so we don't falsely
+                // promote postponed/abandoned games the feed has stopped
+                // updating — those fall through to the expiry grace path.
+                $staleAfter = self::envInt('MATCH_LIVE_STALE_AFTER_SECONDS', 45 * 60);
+                if ($lastUpdatedTs !== null && ($lastUpdatedTs + $staleAfter) >= $now) {
+                    return 'live';
+                }
             }
             return 'scheduled';
         }
