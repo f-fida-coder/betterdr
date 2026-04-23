@@ -12095,3 +12095,26 @@
 [2026-04-23T16:30:23+00:00] [INFO] [2026-04-23T16:30:20+00:00] update ok created=0 updated=64 scoreOnly=21 settled=0 calls=10 failed=0 blocked=false
 [2026-04-23T16:30:51+00:00] [INFO] PHP odds worker started. interval=2m db=betterdr_local once=false
 [2026-04-23T16:31:05+00:00] [INFO] [2026-04-23T16:30:51+00:00] update ok created=41 updated=799 scoreOnly=128 settled=0 calls=172 failed=53 blocked=false
+[2026-04-23T16:33:00+00:00] [INFO] [2026-04-23T16:32:51+00:00] update ok created=19 updated=847 scoreOnly=35 settled=0 calls=172 failed=49 blocked=false
+[2026-04-23T16:35:02+00:00] [INFO] [2026-04-23T16:34:51+00:00] update ok created=0 updated=765 scoreOnly=144 settled=0 calls=172 failed=64 blocked=false
+[2026-04-23T16:37:07+00:00] [INFO] [2026-04-23T16:36:51+00:00] update ok created=1 updated=778 scoreOnly=20 settled=0 calls=172 failed=82 blocked=false
+[2026-04-23T16:39:04+00:00] [INFO] [2026-04-23T16:38:51+00:00] update ok created=0 updated=906 scoreOnly=19 settled=0 calls=172 failed=45 blocked=false
+[2026-04-23T16:41:09+00:00] [INFO] [2026-04-23T16:40:50+00:00] update ok created=0 updated=870 scoreOnly=18 settled=0 calls=172 failed=68 blocked=false
+[2026-04-23T16:43:04+00:00] [INFO] [2026-04-23T16:42:50+00:00] update ok created=0 updated=838 scoreOnly=66 settled=0 calls=172 failed=59 blocked=false
+[2026-04-23T16:45:03+00:00] [INFO] [2026-04-23T16:44:51+00:00] update ok created=0 updated=857 scoreOnly=83 settled=0 calls=172 failed=57 blocked=false
+[2026-04-23T16:47:05+00:00] [INFO] [2026-04-23T16:46:51+00:00] update ok created=0 updated=153 scoreOnly=0 settled=0 calls=172 failed=152 blocked=false
+[2026-04-23T16:49:06+00:00] [INFO] [2026-04-23T16:48:51+00:00] update ok created=0 updated=905 scoreOnly=21 settled=0 calls=172 failed=44 blocked=false
+[2026-04-23T16:51:03+00:00] [INFO] [2026-04-23T16:50:50+00:00] update ok created=0 updated=906 scoreOnly=22 settled=0 calls=172 failed=25 blocked=false
+[2026-04-23T16:53:02+00:00] [INFO] [2026-04-23T16:52:51+00:00] update ok created=0 updated=888 scoreOnly=11 settled=0 calls=172 failed=47 blocked=false
+[2026-04-23T16:55:05+00:00] [INFO] [2026-04-23T16:54:51+00:00] update ok created=0 updated=844 scoreOnly=21 settled=0 calls=172 failed=73 blocked=false
+[2026-04-23T16:57:08+00:00] [INFO] [2026-04-23T16:56:52+00:00] update ok created=0 updated=883 scoreOnly=0 settled=0 calls=172 failed=81 blocked=false
+[2026-04-23T16:59:02+00:00] [INFO] [2026-04-23T16:58:51+00:00] update ok created=0 updated=527 scoreOnly=0 settled=0 calls=172 failed=127 blocked=false
+[2026-04-23T17:01:04+00:00] [INFO] [2026-04-23T17:00:51+00:00] update ok created=0 updated=808 scoreOnly=78 settled=0 calls=172 failed=59 blocked=false
+[2026-04-23T17:03:05+00:00] [INFO] [2026-04-23T17:02:51+00:00] update ok created=0 updated=589 scoreOnly=0 settled=0 calls=172 failed=120 blocked=false
+[2026-04-23T17:05:02+00:00] [INFO] [2026-04-23T17:04:51+00:00] update ok created=0 updated=721 scoreOnly=0 settled=0 calls=172 failed=109 blocked=false
+[2026-04-23T17:07:10+00:00] [INFO] [2026-04-23T17:06:51+00:00] update ok created=1 updated=876 scoreOnly=20 settled=0 calls=172 failed=48 blocked=false
+[2026-04-23T17:09:04+00:00] [INFO] [2026-04-23T17:08:51+00:00] update ok created=1 updated=897 scoreOnly=37 settled=0 calls=172 failed=48 blocked=false
+[2026-04-23T17:11:04+00:00] [INFO] [2026-04-23T17:10:51+00:00] update ok created=0 updated=877 scoreOnly=32 settled=0 calls=172 failed=46 blocked=false
+[2026-04-23T17:13:16+00:00] [INFO] [2026-04-23T17:12:51+00:00] update ok created=0 updated=576 scoreOnly=109 settled=0 calls=172 failed=125 blocked=false
+[2026-04-23T17:14:59+00:00] [INFO] [2026-04-23T17:14:50+00:00] update ok created=1 updated=870 scoreOnly=25 settled=0 calls=172 failed=51 blocked=false
+[2026-04-23T17:17:07+00:00] [INFO] [2026-04-23T17:16:50+00:00] update ok created=5 updated=876 scoreOnly=0 settled=0 calls=172 failed=81 blocked=false

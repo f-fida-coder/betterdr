@@ -60,6 +60,7 @@ const ICON_BY_CATEGORY = {
     aussierules: 'fa-solid fa-football',
     motorsport: 'fa-solid fa-flag-checkered',
     lacrosse: 'fa-solid fa-shield',
+    handball: 'fa-solid fa-volleyball',
     politics: 'fa-solid fa-landmark',
 };
 const iconForSportKey = (key) => {

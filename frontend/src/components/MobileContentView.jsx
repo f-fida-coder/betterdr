@@ -10,7 +10,7 @@ import {
     getMarketOutcomeByName,
     parseOddsNumber,
 } from '../utils/odds';
-import { logoUrlForTeam } from '../utils/teamLogos';
+import { logoUrlForTeam, fetchTeamBadgeUrl } from '../utils/teamLogos';
 import PropBuilderModal from './PropBuilderModal';
 import MatchDetailView from './MatchDetailView';
 
@@ -570,69 +570,9 @@ const MatchCard = ({ match, oddsFormat, onAddToSlip, selectedKeys, visibleMarket
                     )}
                     <span style={matchTimeStyle}>{match.timeDisplay || match.time}</span>
                 </span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <button
-                        type="button"
-                        onClick={() => { setDetailSgpMode(false); setDetailOpen(true); }}
-                        disabled={blocked}
-                        aria-label="Open all markets"
-                        title="All game markets"
-                        style={{
-                            background: blocked ? '#444' : '#d0451b',
-                            color: '#fff',
-                            border: 'none',
-                            borderRadius: 6,
-                            width: 28,
-                            height: 22,
-                            fontSize: 13,
-                            fontWeight: 700,
-                            lineHeight: 1,
-                            cursor: blocked ? 'not-allowed' : 'pointer',
-                            opacity: blocked ? 0.5 : 1,
-                        }}
-                    >+</button>
-                    <button
-                        type="button"
-                        onClick={() => setPropsOpen(true)}
-                        disabled={blocked}
-                        aria-label="Open prop builder"
-                        title="Player props"
-                        style={{
-                            background: blocked ? '#444' : 'linear-gradient(135deg, #a020f0, #d946ef)',
-                            color: '#fff',
-                            border: 'none',
-                            borderRadius: 6,
-                            width: 28,
-                            height: 22,
-                            fontSize: 10,
-                            fontWeight: 800,
-                            letterSpacing: 0.3,
-                            cursor: blocked ? 'not-allowed' : 'pointer',
-                            opacity: blocked ? 0.5 : 1,
-                        }}
-                    >P+</button>
-                    {match.hasSgp && (
-                        <button
-                            type="button"
-                            onClick={() => { setDetailSgpMode(true); setDetailOpen(true); }}
-                            disabled={blocked}
-                            title="Single-Game Parlay — add 2+ legs from this game, then switch to PARLAY in your slip"
-                            aria-label="Build Single Game Parlay"
-                            style={{
-                                background: blocked ? '#e5e7eb' : '#e6f7ec',
-                                color: blocked ? '#9ca3af' : '#15803d',
-                                border: `1px solid ${blocked ? '#d1d5db' : '#22c55e'}`,
-                                borderRadius: 4,
-                                padding: '3px 8px',
-                                fontSize: 10,
-                                fontWeight: 800,
-                                letterSpacing: 0.4,
-                                cursor: blocked ? 'not-allowed' : 'pointer',
-                                lineHeight: 1,
-                            }}
-                        >SGP</button>
-                    )}
-                </div>
+                {/* Action buttons (+, SGP) moved to the right column of
+                    the odds body, aligned with the two team rows. Header
+                    stays clean with only time + live indicator. */}
             </div>
             {propsOpen && (
                 <PropBuilderModal match={modalMatch} onClose={() => setPropsOpen(false)} />
@@ -645,17 +585,34 @@ const MatchCard = ({ match, oddsFormat, onAddToSlip, selectedKeys, visibleMarket
                 />
             )}
 
-            {/* Body: team info on the left, odds cells flush to the
-                right. Action buttons (+, P+, SGP) moved into the header
-                so the odds grid uses the full right side. */}
+            {/* Per-match column header (SPREAD / ML / TOTAL) aligned
+                with the odds grid below. Trailing empty slot accounts
+                for the action column on the right (+/SGP). */}
             <div style={{
                 display: 'grid',
-                gridTemplateColumns: `minmax(0, 1fr) ${Array.from({ length: marketCount }, () => '54px').join(' ')}`,
+                gridTemplateColumns: `minmax(0, 1fr) ${Array.from({ length: marketCount }, () => '54px').join(' ')} 48px`,
+                columnGap: 6,
+                padding: '4px 0 2px',
+                alignItems: 'center',
+            }}>
+                <span />
+                {visibleMarkets.showSpread && <span style={columnLabelStyle}>Spread</span>}
+                {visibleMarkets.showMoneyline && <span style={columnLabelStyle}>ML</span>}
+                {visibleMarkets.showTotals && <span style={columnLabelStyle}>Total</span>}
+                <span />
+            </div>
+
+            {/* Body: team info | odds | [+ / SGP] action column. Action
+                cells are placed on rows 1 and 2 so `+` sits next to the
+                away team and `SGP` next to the home team. */}
+            <div style={{
+                display: 'grid',
+                gridTemplateColumns: `minmax(0, 1fr) ${Array.from({ length: marketCount }, () => '54px').join(' ')} 48px`,
                 gridTemplateRows: 'auto auto',
                 columnGap: 6,
                 rowGap: 4,
                 alignItems: 'center',
-                padding: '6px 0 8px',
+                padding: '2px 0 8px',
             }}>
                 <div style={{ ...teamCellStyle, gridColumn: 1, gridRow: 1 }}>
                     <TeamAvatar team={match.team1} />
@@ -695,6 +652,30 @@ const MatchCard = ({ match, oddsFormat, onAddToSlip, selectedKeys, visibleMarket
                     />
                 )}
 
+                {/* Right-column action — row 1: `+` opens all-markets view */}
+                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                    <button
+                        type="button"
+                        onClick={() => { setDetailSgpMode(false); setDetailOpen(true); }}
+                        disabled={blocked}
+                        aria-label="Open all markets"
+                        title="All game markets"
+                        style={{
+                            background: blocked ? '#444' : '#d0451b',
+                            color: '#fff',
+                            border: 'none',
+                            borderRadius: 6,
+                            width: 44,
+                            height: 28,
+                            fontSize: 14,
+                            fontWeight: 700,
+                            lineHeight: 1,
+                            cursor: blocked ? 'not-allowed' : 'pointer',
+                            opacity: blocked ? 0.5 : 1,
+                        }}
+                    >+</button>
+                </div>
+
                 <div style={{ ...teamCellStyle, gridColumn: 1, gridRow: 2 }}>
                     <TeamAvatar team={match.team2} />
                     <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
@@ -732,6 +713,32 @@ const MatchCard = ({ match, oddsFormat, onAddToSlip, selectedKeys, visibleMarket
                         onClick={() => addIfAllowed(match.id, 'Under', 'totals', match.odds.totalUnderPrice, matchName, 'Total')}
                     />
                 )}
+
+                {/* Right-column action — row 2: SGP opens the all-markets
+                    view with the SGP hint banner. Always available — props
+                    lazy-load when the user taps through. */}
+                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                    <button
+                        type="button"
+                        onClick={() => { setDetailSgpMode(true); setDetailOpen(true); }}
+                        disabled={blocked}
+                        aria-label="Build Single Game Parlay"
+                        title="Single-Game Parlay — pick 2+ legs from this game, then switch to PARLAY in your slip"
+                        style={{
+                            background: blocked ? '#e5e7eb' : '#e6f7ec',
+                            color: blocked ? '#9ca3af' : '#15803d',
+                            border: `1px solid ${blocked ? '#d1d5db' : '#22c55e'}`,
+                            borderRadius: 6,
+                            width: 44,
+                            height: 28,
+                            fontSize: 10,
+                            fontWeight: 800,
+                            letterSpacing: 0.4,
+                            lineHeight: 1,
+                            cursor: blocked ? 'not-allowed' : 'pointer',
+                        }}
+                    >SGP</button>
+                </div>
             </div>
 
             {blocked && (
@@ -745,8 +752,32 @@ const MatchCard = ({ match, oddsFormat, onAddToSlip, selectedKeys, visibleMarket
 };
 
 const TeamAvatar = ({ team }) => {
-    const logoUrl = logoUrlForTeam(team);
+    // Start with whatever the synchronous map / warm cache knows about this
+    // team. If it comes back null, kick off the async TheSportsDB lookup —
+    // which covers virtually every pro team/athlete worldwide — and swap
+    // the img src in once it resolves. Result is cached for 24h in
+    // localStorage, so subsequent renders for the same team are instant.
+    const [logoUrl, setLogoUrl] = React.useState(() => logoUrlForTeam(team));
     const [imgFailed, setImgFailed] = React.useState(false);
+
+    React.useEffect(() => {
+        let cancelled = false;
+        setImgFailed(false);
+        const sync = logoUrlForTeam(team);
+        if (sync) {
+            setLogoUrl(sync);
+            return undefined;
+        }
+        setLogoUrl(null);
+        fetchTeamBadgeUrl(team).then((url) => {
+            if (cancelled) return;
+            // TheSportsDB misses fall back to the initials data-URI;
+            // leave the colored circle for those to keep load times snappy.
+            if (url && !url.startsWith('data:')) setLogoUrl(url);
+        }).catch(() => { /* swallow — already falls back below */ });
+        return () => { cancelled = true; };
+    }, [team]);
+
     const showImage = logoUrl && !imgFailed;
     if (showImage) {
         return (
