@@ -70,7 +70,7 @@ const SECTION_DEFS = [
     { key: 'double_chance', label: 'Double Chance', kind: 'alt-lines' },
 ];
 
-const MatchDetailView = ({ match, onClose }) => {
+const MatchDetailView = ({ match, onClose, sgpMode = false }) => {
     const { oddsFormat } = useOddsFormat();
     const [loading, setLoading] = React.useState(true);
     const [error, setError] = React.useState('');
@@ -394,6 +394,26 @@ const MatchDetailView = ({ match, onClose }) => {
                 </div>
 
                 <div style={bodyStyle}>
+                    {sgpMode && (
+                        <div style={{
+                            margin: '10px 14px 2px',
+                            padding: '10px 12px',
+                            background: '#e6f7ec',
+                            border: '1px solid #22c55e',
+                            borderRadius: 8,
+                            color: '#15803d',
+                            fontSize: 12,
+                            lineHeight: 1.4,
+                        }}>
+                            <div style={{ fontWeight: 800, letterSpacing: 0.4, marginBottom: 4 }}>
+                                <i className="fa-solid fa-layer-group" style={{ marginRight: 6 }} />
+                                Single-Game Parlay
+                            </div>
+                            Pick 2 or more selections from this game below. When you&rsquo;re
+                            done, open your bet slip and switch mode to <strong>Parlay</strong>
+                            {' '}to combine them into one ticket.
+                        </div>
+                    )}
                     {loading && (
                         <div style={{ padding: 30, textAlign: 'center', color: '#aaa' }}>
                             <i className="fa-solid fa-spinner fa-spin" style={{ marginRight: 8 }} />

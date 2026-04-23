@@ -228,19 +228,25 @@ function AppInner() {
       const dedupeKey = `${item.matchId}-${item.marketType}-${item.selection}`;
 
       let didAdd = false;
+      let didRemove = false;
       setSlipSelections(prev => {
         const existing = prev.find(sel => sel.dedupeKey === dedupeKey);
-        if (existing) return prev;
+        if (existing) {
+          // Toggle: tapping an already-selected cell removes it from the
+          // slip. Each odds cell now acts as a checkbox rather than a
+          // one-way add, which matches user expectation on mobile.
+          didRemove = true;
+          return prev.filter(sel => sel.dedupeKey !== dedupeKey);
+        }
         didAdd = true;
-        // Always append — straight mode treats each selection as an
-        // independent wager (not a replacement). The ModeBetPanel loops
-        // through all selections on submit in straight mode.
         return [...prev, { ...item, id: Date.now() + Math.random(), dedupeKey }];
       });
       // Defer toast to next tick so the state update commits first (avoids
       // setState-during-render warnings if the dispatcher is in a render path).
       if (didAdd) {
         queueMicrotask(() => showToast('Added to Betslip', 'success'));
+      } else if (didRemove) {
+        queueMicrotask(() => showToast('Removed from Betslip', 'info'));
       }
     };
 

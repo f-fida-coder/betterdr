@@ -9,6 +9,80 @@ final class OddsSyncService
     private const CACHE_TTL_SECONDS = 1800; // 30 minutes
     private const EVENT_PROPS_TTL_SECONDS = 300; // 5 minutes per-event refresh threshold
     private const EVENT_PROPS_MAX_CONCURRENT = 8; // curl_multi fan-out per batch
+    private const SPORT_DISCOVERY_TTL_SECONDS = 3600; // 1 hour — in-process cache for /sports
+
+    /**
+     * Returns the list of Odds API sport keys this sync should cover.
+     *
+     * When ODDS_AUTO_DISCOVER_SPORTS=true, we call the /v4/sports endpoint
+     * (filtered to currently-active sports) and use whatever it returns —
+     * so new seasons auto-appear in the sidebar with zero config change.
+     * The list is cached in-process for 1 hour so we don't spam /sports.
+     *
+     * When false (default), falls back to the static ODDS_ALLOWED_SPORTS
+     * env var, preserving previous behaviour for anyone who wants an
+     * explicit whitelist.
+     *
+     * @return list<string>
+     */
+    private static function resolveSportsList(string $apiKey, string $apiBase): array
+    {
+        $autoDiscover = strtolower((string) Env::get('ODDS_AUTO_DISCOVER_SPORTS', 'false')) === 'true';
+        if (!$autoDiscover || $apiKey === '') {
+            $raw = (string) Env::get('ODDS_ALLOWED_SPORTS', 'basketball_nba,americanfootball_nfl,soccer_epl,baseball_mlb,icehockey_nhl');
+            return array_values(array_filter(array_map('trim', explode(',', $raw)), static fn($v) => $v !== ''));
+        }
+
+        $cacheKey = 'sports_discovery';
+        $now = time();
+        if (isset(self::$apiCache[$cacheKey])
+            && isset(self::$apiCache[$cacheKey]['timestamp'])
+            && ($now - self::$apiCache[$cacheKey]['timestamp']) < self::SPORT_DISCOVERY_TTL_SECONDS
+            && is_array(self::$apiCache[$cacheKey]['data'] ?? null)
+        ) {
+            return self::$apiCache[$cacheKey]['data'];
+        }
+
+        // Pull only currently-active sports. Passing all=false avoids
+        // hammering the API with off-season keys that return nothing.
+        $url = $apiBase . '/sports?' . http_build_query(['apiKey' => $apiKey, 'all' => 'false']);
+        $response = self::httpGetDetailed($url);
+        $body = $response['body'] ?? null;
+        if (!is_string($body) || $body === '') {
+            // Discovery failed — fall back to env list so sync still runs.
+            $raw = (string) Env::get('ODDS_ALLOWED_SPORTS', 'basketball_nba,americanfootball_nfl,soccer_epl,baseball_mlb,icehockey_nhl');
+            return array_values(array_filter(array_map('trim', explode(',', $raw)), static fn($v) => $v !== ''));
+        }
+
+        $decoded = json_decode($body, true);
+        if (!is_array($decoded)) {
+            $raw = (string) Env::get('ODDS_ALLOWED_SPORTS', 'basketball_nba,americanfootball_nfl,soccer_epl,baseball_mlb,icehockey_nhl');
+            return array_values(array_filter(array_map('trim', explode(',', $raw)), static fn($v) => $v !== ''));
+        }
+
+        $keys = [];
+        foreach ($decoded as $row) {
+            if (!is_array($row)) continue;
+            // Outright-only markets (championship winners, futures, etc.)
+            // don't return match-style events, so they'd sync as empty.
+            // Skip them unless explicitly requested.
+            if (!empty($row['has_outrights']) && empty($row['has_markets'])) {
+                // Some rows don't expose has_markets — keep by default.
+            }
+            $k = isset($row['key']) ? (string) $row['key'] : '';
+            if ($k !== '') $keys[] = $k;
+        }
+        // Optional exclusion list for sports you never want synced
+        // (e.g. politics) even in auto-discover mode.
+        $excludeRaw = (string) Env::get('ODDS_DISCOVERY_EXCLUDE', '');
+        if ($excludeRaw !== '') {
+            $excludes = array_flip(array_map('trim', explode(',', strtolower($excludeRaw))));
+            $keys = array_values(array_filter($keys, static fn($k) => !isset($excludes[strtolower($k)])));
+        }
+
+        self::$apiCache[$cacheKey] = ['data' => $keys, 'timestamp' => $now];
+        return $keys;
+    }
 
     public static function handleMatchesFallbackRoute(string $method, string $path): bool
     {
@@ -71,7 +145,6 @@ final class OddsSyncService
             return [];
         }
 
-        $allowedSportsRaw = (string) Env::get('ODDS_ALLOWED_SPORTS', 'basketball_nba,americanfootball_nfl,soccer_epl,baseball_mlb,icehockey_nhl');
         $regions = (string) Env::get('ODDS_API_REGIONS', 'us');
         $markets = (string) Env::get('ODDS_API_MARKETS', 'h2h,spreads,totals');
         $oddsFormat = (string) Env::get('ODDS_API_ODDS_FORMAT', 'american');
@@ -80,7 +153,7 @@ final class OddsSyncService
         $scoresDaysFrom = self::scoresDaysFrom();
         $apiBase = 'https://api.the-odds-api.com/v4';
 
-        $sports = array_values(array_filter(array_map('trim', explode(',', $allowedSportsRaw)), static fn($v) => $v !== ''));
+        $sports = self::resolveSportsList($apiKey, $apiBase);
         if ($sports === []) {
             return [];
         }
@@ -197,7 +270,6 @@ final class OddsSyncService
     {
         $sportsApiEnabled = strtolower((string) Env::get('SPORTS_API_ENABLED', 'true')) === 'true';
         $apiKey = (string) Env::get('ODDS_API_KEY', '');
-        $allowedSportsRaw = (string) Env::get('ODDS_ALLOWED_SPORTS', 'basketball_nba,americanfootball_nfl,soccer_epl,baseball_mlb,icehockey_nhl');
         $regions = (string) Env::get('ODDS_API_REGIONS', 'us');
         $markets = (string) Env::get('ODDS_API_MARKETS', 'h2h,spreads,totals');
         $oddsFormat = (string) Env::get('ODDS_API_ODDS_FORMAT', 'american');
@@ -236,7 +308,7 @@ final class OddsSyncService
                 return $result;
             }
 
-            $sports = array_values(array_filter(array_map('trim', explode(',', $allowedSportsRaw)), static fn($v) => $v !== ''));
+            $sports = self::resolveSportsList($apiKey, $apiBase);
             $scoresByExternalId = [];
             $processedExternalIds = [];
 

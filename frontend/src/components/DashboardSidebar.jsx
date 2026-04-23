@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { sportsData } from '../data/sportsData';
+import { sportsData, getSportKeywords } from '../data/sportsData';
 import { getAvailableSports } from '../api';
 
 // Return only children whose sport keys currently have data per
@@ -7,12 +7,23 @@ import { getAvailableSports } from '../api';
 // failed), fall back to showing the static catalog so the sidebar
 // stays usable instead of rendering empty. Children with no
 // `sportKeys` metadata (UI-only meta items) always pass through.
+//
+// Match is a union of three sources: the child's explicit sportKeys,
+// the child's id, and its keyword aliases (via getSportKeywords).
+// The backend's /api/matches/sports returns both human titles (e.g.
+// "NFL") and API keys (e.g. "americanfootball_nfl") mixed together —
+// and not every match has both populated — so the widest match wins.
 const filterActiveChildren = (children, liveSet) => {
     if (!Array.isArray(children)) return [];
     if (!liveSet) return children;
     return children.filter((child) => {
-        if (!Array.isArray(child.sportKeys) || child.sportKeys.length === 0) return true;
-        return child.sportKeys.some((k) => liveSet.has(String(k).toLowerCase()));
+        const candidates = new Set();
+        if (Array.isArray(child.sportKeys)) child.sportKeys.forEach((k) => candidates.add(String(k).toLowerCase()));
+        if (child.id) candidates.add(String(child.id).toLowerCase());
+        getSportKeywords(child.id).forEach((k) => candidates.add(String(k).toLowerCase()));
+        if (candidates.size === 0) return true;
+        for (const c of candidates) if (liveSet.has(c)) return true;
+        return false;
     });
 };
 

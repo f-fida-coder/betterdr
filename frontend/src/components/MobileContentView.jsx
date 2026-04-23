@@ -536,6 +536,9 @@ const MatchCard = ({ match, oddsFormat, onAddToSlip, selectedKeys, visibleMarket
     };
     const [propsOpen, setPropsOpen] = React.useState(false);
     const [detailOpen, setDetailOpen] = React.useState(false);
+    // Track whether detail view was opened via SGP tap so the modal can
+    // surface a hint about switching to parlay mode.
+    const [detailSgpMode, setDetailSgpMode] = React.useState(false);
     const modalMatch = React.useMemo(() => ({
         id: match.id,
         externalId: match.externalId,
@@ -545,9 +548,10 @@ const MatchCard = ({ match, oddsFormat, onAddToSlip, selectedKeys, visibleMarket
     }), [match.id, match.externalId, match.team1, match.team2, match.odds]);
     return (
         <div style={matchCardStyle}>
-            {/* Slim header — time, LIVE dot (if applicable), SGP badge, star.
-                `+` and `P+` have moved to the action column on the right of
-                the odds grid, adjacent to the spread/ML/total cells. */}
+            {/* Slim header — time + live dot on the left; `+`, `P+`, and
+                (when available) SGP badge-button on the right. Tapping
+                SGP opens the full markets sheet with a hint banner so
+                the user knows to add 2+ legs and parlay them. */}
             <div style={matchHeaderStyle}>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                     {match.isLive && (
@@ -567,56 +571,20 @@ const MatchCard = ({ match, oddsFormat, onAddToSlip, selectedKeys, visibleMarket
                     <span style={matchTimeStyle}>{match.timeDisplay || match.time}</span>
                 </span>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    {match.hasSgp && (
-                        <span
-                            title="Same-Game Parlay available"
-                            style={{
-                                background: '#e6f7ec',
-                                color: '#15803d',
-                                border: '1px solid #22c55e',
-                                borderRadius: 4,
-                                padding: '2px 6px',
-                                fontSize: 10,
-                                fontWeight: 800,
-                                letterSpacing: 0.4,
-                            }}
-                        >SGP</span>
-                    )}
-                </div>
-            </div>
-            {propsOpen && (
-                <PropBuilderModal match={modalMatch} onClose={() => setPropsOpen(false)} />
-            )}
-            {detailOpen && (
-                <MatchDetailView match={modalMatch} onClose={() => setDetailOpen(false)} />
-            )}
-
-            {/* Body: vertical [+ / P+] actions on the LEFT, odds grid on
-                the right. Action column spans the column header and both
-                team rows so one tap covers the whole matchup. */}
-            <div style={{ display: 'flex', alignItems: 'stretch', gap: 8 }}>
-                {/* Left-side vertical action column: `+` opens all-markets
-                    detail view, `P+` opens the prop builder. */}
-                <div style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    justifyContent: 'center',
-                    gap: 6,
-                    paddingLeft: 4,
-                }}>
                     <button
                         type="button"
-                        onClick={() => setDetailOpen(true)}
+                        onClick={() => { setDetailSgpMode(false); setDetailOpen(true); }}
                         disabled={blocked}
                         aria-label="Open all markets"
+                        title="All game markets"
                         style={{
                             background: blocked ? '#444' : '#d0451b',
                             color: '#fff',
                             border: 'none',
                             borderRadius: 6,
-                            width: 32,
-                            height: 26,
-                            fontSize: 14,
+                            width: 28,
+                            height: 22,
+                            fontSize: 13,
                             fontWeight: 700,
                             lineHeight: 1,
                             cursor: blocked ? 'not-allowed' : 'pointer',
@@ -628,13 +596,14 @@ const MatchCard = ({ match, oddsFormat, onAddToSlip, selectedKeys, visibleMarket
                         onClick={() => setPropsOpen(true)}
                         disabled={blocked}
                         aria-label="Open prop builder"
+                        title="Player props"
                         style={{
                             background: blocked ? '#444' : 'linear-gradient(135deg, #a020f0, #d946ef)',
                             color: '#fff',
                             border: 'none',
                             borderRadius: 6,
-                            width: 32,
-                            height: 26,
+                            width: 28,
+                            height: 22,
                             fontSize: 10,
                             fontWeight: 800,
                             letterSpacing: 0.3,
@@ -642,58 +611,127 @@ const MatchCard = ({ match, oddsFormat, onAddToSlip, selectedKeys, visibleMarket
                             opacity: blocked ? 0.5 : 1,
                         }}
                     >P+</button>
+                    {match.hasSgp && (
+                        <button
+                            type="button"
+                            onClick={() => { setDetailSgpMode(true); setDetailOpen(true); }}
+                            disabled={blocked}
+                            title="Single-Game Parlay — add 2+ legs from this game, then switch to PARLAY in your slip"
+                            aria-label="Build Single Game Parlay"
+                            style={{
+                                background: blocked ? '#e5e7eb' : '#e6f7ec',
+                                color: blocked ? '#9ca3af' : '#15803d',
+                                border: `1px solid ${blocked ? '#d1d5db' : '#22c55e'}`,
+                                borderRadius: 4,
+                                padding: '3px 8px',
+                                fontSize: 10,
+                                fontWeight: 800,
+                                letterSpacing: 0.4,
+                                cursor: blocked ? 'not-allowed' : 'pointer',
+                                lineHeight: 1,
+                            }}
+                        >SGP</button>
+                    )}
                 </div>
+            </div>
+            {propsOpen && (
+                <PropBuilderModal match={modalMatch} onClose={() => setPropsOpen(false)} />
+            )}
+            {detailOpen && (
+                <MatchDetailView
+                    match={modalMatch}
+                    sgpMode={detailSgpMode}
+                    onClose={() => setDetailOpen(false)}
+                />
+            )}
 
-                <div style={{ flex: 1, minWidth: 0 }}>
-                    {/* Per-match column header */}
-                    <div style={columnHeaderStyleFor(marketCount)}>
-                        <span />
-                        {visibleMarkets.showSpread && <span style={columnLabelStyle}>Spread</span>}
-                        {visibleMarkets.showMoneyline && <span style={columnLabelStyle}>ML</span>}
-                        {visibleMarkets.showTotals && <span style={columnLabelStyle}>Total</span>}
+            {/* Body: team info on the left, odds cells flush to the
+                right. Action buttons (+, P+, SGP) moved into the header
+                so the odds grid uses the full right side. */}
+            <div style={{
+                display: 'grid',
+                gridTemplateColumns: `minmax(0, 1fr) ${Array.from({ length: marketCount }, () => '54px').join(' ')}`,
+                gridTemplateRows: 'auto auto',
+                columnGap: 6,
+                rowGap: 4,
+                alignItems: 'center',
+                padding: '6px 0 8px',
+            }}>
+                <div style={{ ...teamCellStyle, gridColumn: 1, gridRow: 1 }}>
+                    <TeamAvatar team={match.team1} />
+                    <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                        {rotationAway != null && (
+                            <span style={{ fontSize: 10, fontWeight: 700, color: '#9aa' }}>{rotationAway}</span>
+                        )}
+                        <span style={teamNameStyle}>{match.team1}</span>
                     </div>
-
-                    <TeamRow
-                        team={match.team1}
-                        rotation={rotationAway}
-                        spreadLine={match.odds.spreadAwayPoint}
-                        spreadPrice={match.odds.spreadAwayPrice}
-                        moneyline={match.odds.moneylineAway}
-                        totalLabel="O"
-                        totalLine={match.odds.totalPoint}
-                        totalPrice={match.odds.totalOverPrice}
-                        oddsFormat={oddsFormat}
-                        forceDisabled={blocked}
-                        spreadSelected={isSelected('spreads', match.team1)}
-                        mlSelected={isSelected('h2h', match.team1)}
-                        totalSelected={isSelected('totals', 'Over')}
-                        visibleMarkets={visibleMarkets}
-                        marketCount={marketCount}
-                        onSpreadClick={() => addIfAllowed(match.id, match.team1, 'spreads', match.odds.spreadAwayPrice, matchName, 'Spread')}
-                        onMoneylineClick={() => addIfAllowed(match.id, match.team1, 'h2h', match.odds.moneylineAway, matchName, 'Moneyline')}
-                        onTotalClick={() => addIfAllowed(match.id, 'Over', 'totals', match.odds.totalOverPrice, matchName, 'Total')}
-                    />
-                    <TeamRow
-                        team={match.team2}
-                        rotation={rotationHome}
-                        spreadLine={match.odds.spreadHomePoint}
-                        spreadPrice={match.odds.spreadHomePrice}
-                        moneyline={match.odds.moneylineHome}
-                        totalLabel="U"
-                        totalLine={match.odds.totalPoint}
-                        totalPrice={match.odds.totalUnderPrice}
-                        oddsFormat={oddsFormat}
-                        forceDisabled={blocked}
-                        spreadSelected={isSelected('spreads', match.team2)}
-                        mlSelected={isSelected('h2h', match.team2)}
-                        totalSelected={isSelected('totals', 'Under')}
-                        visibleMarkets={visibleMarkets}
-                        marketCount={marketCount}
-                        onSpreadClick={() => addIfAllowed(match.id, match.team2, 'spreads', match.odds.spreadHomePrice, matchName, 'Spread')}
-                        onMoneylineClick={() => addIfAllowed(match.id, match.team2, 'h2h', match.odds.moneylineHome, matchName, 'Moneyline')}
-                        onTotalClick={() => addIfAllowed(match.id, 'Under', 'totals', match.odds.totalUnderPrice, matchName, 'Total')}
-                    />
                 </div>
+
+                {visibleMarkets.showSpread && (
+                    <OddsCell
+                        disabled={blocked || match.odds.spreadAwayPrice === null}
+                        selected={isSelected('spreads', match.team1) && !blocked}
+                        main={formatLineValue(match.odds.spreadAwayPoint, { signed: true })}
+                        juice={formatOdds(match.odds.spreadAwayPrice, oddsFormat)}
+                        onClick={() => addIfAllowed(match.id, match.team1, 'spreads', match.odds.spreadAwayPrice, matchName, 'Spread')}
+                    />
+                )}
+                {visibleMarkets.showMoneyline && (
+                    <OddsCell
+                        disabled={blocked || match.odds.moneylineAway === null}
+                        selected={isSelected('h2h', match.team1) && !blocked}
+                        main={formatOdds(match.odds.moneylineAway, oddsFormat)}
+                        juice=""
+                        onClick={() => addIfAllowed(match.id, match.team1, 'h2h', match.odds.moneylineAway, matchName, 'Moneyline')}
+                    />
+                )}
+                {visibleMarkets.showTotals && (
+                    <OddsCell
+                        disabled={blocked || match.odds.totalOverPrice === null}
+                        selected={isSelected('totals', 'Over') && !blocked}
+                        main={match.odds.totalPoint === null ? '—' : `O ${formatLineValue(match.odds.totalPoint)}`}
+                        juice={formatOdds(match.odds.totalOverPrice, oddsFormat)}
+                        onClick={() => addIfAllowed(match.id, 'Over', 'totals', match.odds.totalOverPrice, matchName, 'Total')}
+                    />
+                )}
+
+                <div style={{ ...teamCellStyle, gridColumn: 1, gridRow: 2 }}>
+                    <TeamAvatar team={match.team2} />
+                    <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                        {rotationHome != null && (
+                            <span style={{ fontSize: 10, fontWeight: 700, color: '#9aa' }}>{rotationHome}</span>
+                        )}
+                        <span style={teamNameStyle}>{match.team2}</span>
+                    </div>
+                </div>
+
+                {visibleMarkets.showSpread && (
+                    <OddsCell
+                        disabled={blocked || match.odds.spreadHomePrice === null}
+                        selected={isSelected('spreads', match.team2) && !blocked}
+                        main={formatLineValue(match.odds.spreadHomePoint, { signed: true })}
+                        juice={formatOdds(match.odds.spreadHomePrice, oddsFormat)}
+                        onClick={() => addIfAllowed(match.id, match.team2, 'spreads', match.odds.spreadHomePrice, matchName, 'Spread')}
+                    />
+                )}
+                {visibleMarkets.showMoneyline && (
+                    <OddsCell
+                        disabled={blocked || match.odds.moneylineHome === null}
+                        selected={isSelected('h2h', match.team2) && !blocked}
+                        main={formatOdds(match.odds.moneylineHome, oddsFormat)}
+                        juice=""
+                        onClick={() => addIfAllowed(match.id, match.team2, 'h2h', match.odds.moneylineHome, matchName, 'Moneyline')}
+                    />
+                )}
+                {visibleMarkets.showTotals && (
+                    <OddsCell
+                        disabled={blocked || match.odds.totalUnderPrice === null}
+                        selected={isSelected('totals', 'Under') && !blocked}
+                        main={match.odds.totalPoint === null ? '—' : `U ${formatLineValue(match.odds.totalPoint)}`}
+                        juice={formatOdds(match.odds.totalUnderPrice, oddsFormat)}
+                        onClick={() => addIfAllowed(match.id, 'Under', 'totals', match.odds.totalUnderPrice, matchName, 'Total')}
+                    />
+                )}
             </div>
 
             {blocked && (
