@@ -54,6 +54,7 @@ function UserDashboardShell({
         balance={user?.balance ?? null}
         pendingBalance={user?.pendingBalance ?? null}
         availableBalance={user?.availableBalance ?? user?.balance ?? null}
+        freeplayBalance={user?.freeplayBalance ?? 0}
         role={user?.role}
         unlimitedBalance={user?.unlimitedBalance}
         onLogout={onLogout}
@@ -67,6 +68,7 @@ function UserDashboardShell({
         onContinue={onContinue}
         onMobileBack={onMobileBack}
         onHomeClick={onHomeClick}
+        slipCount={Array.isArray(slipSelections) ? slipSelections.length : 0}
       />
 
       <div className="dashboard-content-area" style={{ position: 'relative', marginTop: '0' }}>

@@ -145,6 +145,49 @@ const BET_MODE_LABELS = {
 
 const selectionKey = (matchId, marketType, selection) => `${matchId}|${marketType}|${selection}`;
 
+// Rotation number ranges by sport — mirrors standard sportsbook ranges so the
+// numbering feels native rather than invented. Each event gets a deterministic
+// even/odd pair (away=even, home=even+1... actually home=odd below away). Keyed
+// off the match id + sport so numbers stay stable across renders.
+const ROTATION_BASE_BY_SPORT = {
+    basketball_nba: 501,
+    basketball_ncaab: 551,
+    basketball_wncaab: 571,
+    americanfootball_nfl: 251,
+    americanfootball_ncaaf: 301,
+    baseball_mlb: 901,
+    icehockey_nhl: 601,
+    soccer_epl: 7101,
+    soccer_usa_mls: 7201,
+    tennis_atp: 8001,
+    tennis_wta: 8101,
+};
+const rotationForMatch = (match, index) => {
+    const sportKey = String(match?.sportKey || match?.sport || '').toLowerCase();
+    const base = ROTATION_BASE_BY_SPORT[sportKey] ?? 101;
+    // 2 numbers per matchup (away / home). Index is the ordered position of
+    // the match within the current list, so numbering matches list order.
+    const away = base + index * 2;
+    return { away, home: away + 1 };
+};
+
+const FAVORITES_STORAGE_KEY = 'betterdr:favoriteMatches:v1';
+const readFavoriteIds = () => {
+    try {
+        const raw = localStorage.getItem(FAVORITES_STORAGE_KEY);
+        if (!raw) return new Set();
+        const parsed = JSON.parse(raw);
+        return new Set(Array.isArray(parsed) ? parsed : []);
+    } catch {
+        return new Set();
+    }
+};
+const writeFavoriteIds = (set) => {
+    try {
+        localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(Array.from(set)));
+    } catch { /* quota / privacy — ignore */ }
+};
+
 const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', slipSelections = [] }) => {
     const { oddsFormat } = useOddsFormat();
     const normalizedBetMode = normalizeMode(activeBetMode);
@@ -235,6 +278,7 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
             return {
                 id: match.id || match.externalId,
                 sport: match.sport || '',
+                sportKey: match.sportKey || '',
                 team1: awayName,
                 team2: homeName,
                 odds: extractOdds(match, homeName, awayName, activePeriod.suffix),
@@ -245,6 +289,9 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
                 time: startDate ? startDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
                 dayKey: dayKeyOf(startDate),
                 dayLabel: dayLabelOf(startDate),
+                // SGP is offered when the match has any player-prop markets
+                // cached — /api/matches/{id}/props triggers the actual fetch.
+                hasSgp: Array.isArray(match.playerProps) && match.playerProps.length > 0,
             };
         });
 
@@ -258,6 +305,32 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
     const selectedKeys = React.useMemo(() => {
         return new Set((slipSelections || []).map(sel => selectionKey(sel.matchId, sel.marketType, sel.selection)));
     }, [slipSelections]);
+
+    const [favoriteIds, setFavoriteIds] = React.useState(() => readFavoriteIds());
+    const toggleFavorite = React.useCallback((matchId) => {
+        setFavoriteIds((prev) => {
+            const next = new Set(prev);
+            if (next.has(matchId)) next.delete(matchId);
+            else next.add(matchId);
+            writeFavoriteIds(next);
+            return next;
+        });
+    }, []);
+
+    // Sort: favorites first (stable order otherwise) and build a deterministic
+    // rotation number per match position within the sorted list.
+    const orderedMatches = React.useMemo(() => {
+        const favFirst = [...matches].sort((a, b) => {
+            const aFav = favoriteIds.has(a.id) ? 0 : 1;
+            const bFav = favoriteIds.has(b.id) ? 0 : 1;
+            return aFav - bFav;
+        });
+        return favFirst.map((m, idx) => ({
+            ...m,
+            rotation: rotationForMatch(m, idx),
+            isFavorite: favoriteIds.has(m.id),
+        }));
+    }, [matches, favoriteIds]);
 
     const [lastFetchTime, setLastFetchTime] = React.useState(() => Date.now());
     const [isRefreshing, setIsRefreshing] = React.useState(true);
@@ -318,7 +391,7 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
     const groupedEntries = React.useMemo(() => {
         const entries = [];
         let currentDayKey = null;
-        matches.forEach(match => {
+        orderedMatches.forEach(match => {
             if (match.dayKey && match.dayKey !== currentDayKey) {
                 currentDayKey = match.dayKey;
                 entries.push({ type: 'day', id: `day-${currentDayKey}`, label: match.dayLabel });
@@ -326,7 +399,7 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
             entries.push({ type: 'match', id: `match-${match.id}`, match });
         });
         return entries;
-    }, [matches]);
+    }, [orderedMatches]);
 
     return (
         <div style={containerStyle}>
@@ -407,6 +480,7 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
                             selectedKeys={selectedKeys}
                             visibleMarkets={visibleMarkets}
                             marketCount={marketCount}
+                            onToggleFavorite={toggleFavorite}
                         />
                     );
                 })}
@@ -415,9 +489,11 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
     );
 };
 
-const MatchCard = ({ match, oddsFormat, onAddToSlip, selectedKeys, visibleMarkets, marketCount }) => {
+const MatchCard = ({ match, oddsFormat, onAddToSlip, selectedKeys, visibleMarkets, marketCount, onToggleFavorite }) => {
     const matchName = `${match.team1} vs ${match.team2}`;
     const blocked = match.isBettable === false;
+    const rotationAway = match.rotation?.away;
+    const rotationHome = match.rotation?.home;
     const blockedReason = blocked
         ? (match.bettingBlockedReason || 'Betting is temporarily unavailable for this event.')
         : null;
@@ -480,6 +556,37 @@ const MatchCard = ({ match, oddsFormat, onAddToSlip, selectedKeys, visibleMarket
                     >
                         P+
                     </button>
+                    {match.hasSgp && (
+                        <span
+                            title="Same-Game Parlay available"
+                            style={{
+                                background: '#e6f7ec',
+                                color: '#15803d',
+                                border: '1px solid #22c55e',
+                                borderRadius: 4,
+                                padding: '2px 6px',
+                                fontSize: 10,
+                                fontWeight: 800,
+                                letterSpacing: 0.4,
+                            }}
+                        >SGP</span>
+                    )}
+                    <button
+                        type="button"
+                        onClick={() => onToggleFavorite?.(match.id)}
+                        aria-label={match.isFavorite ? 'Remove favorite' : 'Add to favorites'}
+                        style={{
+                            background: 'transparent',
+                            border: 'none',
+                            padding: 4,
+                            cursor: 'pointer',
+                            color: match.isFavorite ? '#f5b63f' : '#bbb',
+                            fontSize: 16,
+                            lineHeight: 1,
+                        }}
+                    >
+                        <i className={`${match.isFavorite ? 'fa-solid' : 'fa-regular'} fa-star`} />
+                    </button>
                     <span style={match.isLive ? liveBadgeStyle : upcomingBadgeStyle}>
                         {match.isLive ? 'LIVE' : 'UPCOMING'}
                     </span>
@@ -494,6 +601,7 @@ const MatchCard = ({ match, oddsFormat, onAddToSlip, selectedKeys, visibleMarket
 
             <TeamRow
                 team={match.team1}
+                rotation={rotationAway}
                 spreadLine={match.odds.spreadAwayPoint}
                 spreadPrice={match.odds.spreadAwayPrice}
                 moneyline={match.odds.moneylineAway}
@@ -513,6 +621,7 @@ const MatchCard = ({ match, oddsFormat, onAddToSlip, selectedKeys, visibleMarket
             />
             <TeamRow
                 team={match.team2}
+                rotation={rotationHome}
                 spreadLine={match.odds.spreadHomePoint}
                 spreadPrice={match.odds.spreadHomePrice}
                 moneyline={match.odds.moneylineHome}
@@ -564,11 +673,16 @@ const TeamAvatar = ({ team }) => {
     );
 };
 
-const TeamRow = ({ team, spreadLine, spreadPrice, moneyline, totalLabel, totalLine, totalPrice, oddsFormat, forceDisabled, spreadSelected, mlSelected, totalSelected, visibleMarkets, marketCount, onSpreadClick, onMoneylineClick, onTotalClick }) => (
+const TeamRow = ({ team, rotation, spreadLine, spreadPrice, moneyline, totalLabel, totalLine, totalPrice, oddsFormat, forceDisabled, spreadSelected, mlSelected, totalSelected, visibleMarkets, marketCount, onSpreadClick, onMoneylineClick, onTotalClick }) => (
     <div style={teamRowStyleFor(marketCount)}>
         <div style={teamCellStyle}>
             <TeamAvatar team={team} />
-            <span style={teamNameStyle}>{team}</span>
+            <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                {rotation != null && (
+                    <span style={{ fontSize: 10, fontWeight: 700, color: '#9aa' }}>{rotation}</span>
+                )}
+                <span style={teamNameStyle}>{team}</span>
+            </div>
         </div>
         {visibleMarkets.showSpread && (
             <OddsCell

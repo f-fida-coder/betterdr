@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import ScoreboardSidebar from './ScoreboardSidebar';
 import SettingsModal from './SettingsModal';
 import PersonalizeSidebar from './PersonalizeSidebar';
+import AccountPanel from './AccountPanel';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 
 const buildRefreshRequestId = () => {
@@ -12,15 +13,25 @@ const buildRefreshRequestId = () => {
     return `matches-refresh-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 };
 
-// 'up-next' / 'commercial-live' are top-of-list meta filters, not a sport
-// pick. Showing Continue just because one of them is toggled is confusing:
-// users expect Continue to appear only after they've actually picked a sport
-// or league from the list below.
-const META_SPORT_FILTERS = new Set(['up-next', 'commercial-live', 'featured']);
+// UP NEXT / FEATURED are tab-style filters that sit above the sport list
+// and shouldn't enable Continue on their own — the user still needs to
+// pick a sport below. LIVE NOW is NOT in here because it's a standalone
+// destination (all live matches across sports) and tapping it should
+// proceed directly via Continue.
+const META_SPORT_FILTERS = new Set(['up-next', 'featured']);
 
-const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, onViewChange, activeBetMode = 'straight', onBetModeChange, currentView, onToggleSidebar, selectedSports = [], onContinue, onMobileBack, onLogout, mobileViewState = 'browsing', onHomeClick, role, unlimitedBalance }) => {
+const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, freeplayBalance, onViewChange, activeBetMode = 'straight', onBetModeChange, currentView, onToggleSidebar, selectedSports = [], onContinue, onMobileBack, onLogout, mobileViewState = 'browsing', onHomeClick, role, unlimitedBalance, slipCount = 0 }) => {
     const hasRealSportSelection = selectedSports.some((id) => !META_SPORT_FILTERS.has(id));
     const showContinueButton = mobileViewState === 'selected' && hasRealSportSelection;
+    const [showAccountPanel, setShowAccountPanel] = useState(false);
+    const accountUser = {
+        username,
+        role,
+        balance,
+        pendingBalance,
+        availableBalance,
+        freeplayBalance,
+    };
     const { oddsFormat, setOddsFormat, isUpdatingOddsFormat } = useOddsFormat();
     const [showLiveMenu, setShowLiveMenu] = useState(false);
     const [showMoreMenu, setShowMoreMenu] = useState(false);
@@ -144,6 +155,19 @@ const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, 
                             <i className="fa-solid fa-bars"></i>
                         </div>
 
+                        {/* Account sits first, immediately left of Search,
+                            matching the requested header order:
+                            ☰ | ACCOUNT | SEARCH | CASHIER. */}
+                        <div
+                            className="icon-btn"
+                            onClick={() => setShowAccountPanel(true)}
+                            role="button"
+                            aria-label="Open account panel"
+                        >
+                            <i className="fa-solid fa-user"></i>
+                            <span>ACCOUNT</span>
+                        </div>
+
                         {currentView !== 'dashboard' ? (
                             <div className="icon-btn" onClick={() => onHomeClick && onHomeClick()}>
                                 <i className="fa-solid fa-house"></i>
@@ -189,9 +213,6 @@ const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, 
                                 <div className="balance-label">BALANCE</div>
                             </div>
                         )}
-                        <div className="dropdown-chevron" onClick={() => setShowUserMenu(!showUserMenu)}>
-                            <i className={`fa-solid ${showUserMenu ? 'fa-chevron-up' : 'fa-chevron-down'}`}></i>
-                        </div>
                     </div>
                 </div>
 
@@ -711,6 +732,14 @@ const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, 
             }
 
             {showPersonalizeSidebar && <PersonalizeSidebar onClose={() => setShowPersonalizeSidebar(false)} />}
+
+            <AccountPanel
+                open={showAccountPanel}
+                onClose={() => setShowAccountPanel(false)}
+                user={accountUser}
+                onViewChange={onViewChange}
+                onLogout={onLogout}
+            />
         </>
     );
 };

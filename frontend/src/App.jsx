@@ -225,23 +225,28 @@ function AppInner() {
     const handleAddToSlip = (e) => {
       const item = e.detail || {};
       if (!item.matchId || !item.selection) return;
-      const normalizedMode = normalizeBetMode(betMode);
       const dedupeKey = `${item.matchId}-${item.marketType}-${item.selection}`;
 
+      let didAdd = false;
       setSlipSelections(prev => {
         const existing = prev.find(sel => sel.dedupeKey === dedupeKey);
         if (existing) return prev;
-        const next = [...prev, { ...item, id: Date.now() + Math.random(), dedupeKey }];
-        if (normalizedMode === 'straight') {
-          return [next[next.length - 1]];
-        }
-        return next;
+        didAdd = true;
+        // Always append — straight mode treats each selection as an
+        // independent wager (not a replacement). The ModeBetPanel loops
+        // through all selections on submit in straight mode.
+        return [...prev, { ...item, id: Date.now() + Math.random(), dedupeKey }];
       });
+      // Defer toast to next tick so the state update commits first (avoids
+      // setState-during-render warnings if the dispatcher is in a render path).
+      if (didAdd) {
+        queueMicrotask(() => showToast('Added to Betslip', 'success'));
+      }
     };
 
     window.addEventListener('betslip:add', handleAddToSlip);
     return () => window.removeEventListener('betslip:add', handleAddToSlip);
-  }, [betMode]);
+  }, [betMode, showToast]);
 
   const { data: userData, refetch: refetchUser } = useQuery({
     queryKey: ['user', token],
