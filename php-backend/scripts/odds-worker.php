@@ -20,6 +20,7 @@ require_once __DIR__ . '/../src/SportsMatchStatus.php';
 require_once __DIR__ . '/../src/SportsbookHealth.php';
 require_once __DIR__ . '/../src/SportsbookBetSupport.php';
 require_once __DIR__ . '/../src/BetSettlementService.php';
+require_once __DIR__ . '/../src/OddsMarketCatalog.php';
 require_once __DIR__ . '/../src/OddsSyncService.php';
 
 $projectRoot = dirname(__DIR__, 2);

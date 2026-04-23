@@ -103,9 +103,97 @@ export const TEAM_LOGO_MAP = {
     'tennessee titans': ESPN_LOGO('nfl', 'ten'),
     'washington commanders': ESPN_LOGO('nfl', 'wsh'),
 
-    // EPL (Wikipedia fallbacks for teams not on ESPN CDN)
+    // EPL (Wikipedia fallbacks — stable Commons SVGs)
+    'arsenal': 'https://upload.wikimedia.org/wikipedia/en/5/53/Arsenal_FC.svg',
+    'aston villa': 'https://upload.wikimedia.org/wikipedia/en/f/f9/Aston_Villa_FC_crest_%282016%29.svg',
+    'afc bournemouth': 'https://upload.wikimedia.org/wikipedia/en/e/e5/AFC_Bournemouth_%282013%29.svg',
+    'bournemouth': 'https://upload.wikimedia.org/wikipedia/en/e/e5/AFC_Bournemouth_%282013%29.svg',
+    'brentford': 'https://upload.wikimedia.org/wikipedia/en/2/2a/Brentford_FC_crest.svg',
+    'brighton and hove albion': 'https://upload.wikimedia.org/wikipedia/en/f/fd/Brighton_%26_Hove_Albion_logo.svg',
+    'brighton': 'https://upload.wikimedia.org/wikipedia/en/f/fd/Brighton_%26_Hove_Albion_logo.svg',
+    'chelsea': 'https://upload.wikimedia.org/wikipedia/en/c/cc/Chelsea_FC.svg',
+    'crystal palace': 'https://upload.wikimedia.org/wikipedia/en/0/0c/Crystal_Palace_FC_logo_%282022%29.svg',
+    'everton': 'https://upload.wikimedia.org/wikipedia/en/7/7c/Everton_FC_logo.svg',
+    'fulham': 'https://upload.wikimedia.org/wikipedia/en/e/eb/Fulham_FC_%28shield%29.svg',
+    'ipswich town': 'https://upload.wikimedia.org/wikipedia/en/4/43/Ipswich_Town.svg',
     'leeds united': 'https://upload.wikimedia.org/wikipedia/en/5/54/Leeds_United_F.C._logo.svg',
+    'leicester city': 'https://upload.wikimedia.org/wikipedia/en/2/2d/Leicester_City_crest.svg',
+    'liverpool': 'https://upload.wikimedia.org/wikipedia/en/0/0c/Liverpool_FC.svg',
+    'manchester city': 'https://upload.wikimedia.org/wikipedia/en/e/eb/Manchester_City_FC_badge.svg',
+    'manchester united': 'https://upload.wikimedia.org/wikipedia/en/7/7a/Manchester_United_FC_crest.svg',
+    'newcastle united': 'https://upload.wikimedia.org/wikipedia/en/5/56/Newcastle_United_Logo.svg',
     'nottingham forest': 'https://upload.wikimedia.org/wikipedia/en/e/e5/Nottingham_Forest_F.C._logo.svg',
+    'southampton': 'https://upload.wikimedia.org/wikipedia/en/c/c9/FC_Southampton.svg',
+    'tottenham hotspur': 'https://upload.wikimedia.org/wikipedia/en/b/b4/Tottenham_Hotspur.svg',
+    'tottenham': 'https://upload.wikimedia.org/wikipedia/en/b/b4/Tottenham_Hotspur.svg',
+    'west ham united': 'https://upload.wikimedia.org/wikipedia/en/c/c2/West_Ham_United_FC_logo.svg',
+    'west ham': 'https://upload.wikimedia.org/wikipedia/en/c/c2/West_Ham_United_FC_logo.svg',
+    'wolverhampton wanderers': 'https://upload.wikimedia.org/wikipedia/en/f/fc/Wolverhampton_Wanderers.svg',
+    'wolves': 'https://upload.wikimedia.org/wikipedia/en/f/fc/Wolverhampton_Wanderers.svg',
+
+    // La Liga (Spain) — top sides
+    'real madrid': 'https://upload.wikimedia.org/wikipedia/en/5/56/Real_Madrid_CF.svg',
+    'fc barcelona': 'https://upload.wikimedia.org/wikipedia/en/4/47/FC_Barcelona_%28crest%29.svg',
+    'barcelona': 'https://upload.wikimedia.org/wikipedia/en/4/47/FC_Barcelona_%28crest%29.svg',
+    'atletico madrid': 'https://upload.wikimedia.org/wikipedia/en/f/f4/Atletico_Madrid_2017_logo.svg',
+    'atlético madrid': 'https://upload.wikimedia.org/wikipedia/en/f/f4/Atletico_Madrid_2017_logo.svg',
+    'athletic bilbao': 'https://upload.wikimedia.org/wikipedia/en/9/98/Club_Athletic_Bilbao_logo.svg',
+    'real sociedad': 'https://upload.wikimedia.org/wikipedia/en/f/f1/Real_Sociedad_logo.svg',
+    'villarreal': 'https://upload.wikimedia.org/wikipedia/en/b/b9/Villarreal_CF_logo-en.svg',
+    'real betis': 'https://upload.wikimedia.org/wikipedia/en/1/13/Real_betis_logo.svg',
+    'sevilla': 'https://upload.wikimedia.org/wikipedia/en/3/3b/Sevilla_FC_logo.svg',
+    'valencia': 'https://upload.wikimedia.org/wikipedia/en/c/ce/Valenciacf.svg',
+
+    // Serie A (Italy)
+    'juventus': 'https://upload.wikimedia.org/wikipedia/commons/1/15/Juventus_FC_2017_logo.svg',
+    'ac milan': 'https://upload.wikimedia.org/wikipedia/commons/d/d0/Logo_of_AC_Milan.svg',
+    'inter milan': 'https://upload.wikimedia.org/wikipedia/commons/0/05/FC_Internazionale_Milano_2021.svg',
+    'internazionale': 'https://upload.wikimedia.org/wikipedia/commons/0/05/FC_Internazionale_Milano_2021.svg',
+    'napoli': 'https://upload.wikimedia.org/wikipedia/commons/2/2d/SSC_Neapel.svg',
+    'roma': 'https://upload.wikimedia.org/wikipedia/en/f/f7/AS_Roma_logo_%282017%29.svg',
+    'as roma': 'https://upload.wikimedia.org/wikipedia/en/f/f7/AS_Roma_logo_%282017%29.svg',
+    'lazio': 'https://upload.wikimedia.org/wikipedia/en/c/ce/S.S._Lazio_badge.svg',
+    'atalanta': 'https://upload.wikimedia.org/wikipedia/en/6/66/AtalantaBC.svg',
+    'fiorentina': 'https://upload.wikimedia.org/wikipedia/en/f/fe/Logo_of_ACF_Fiorentina.svg',
+    'bologna': 'https://upload.wikimedia.org/wikipedia/en/5/54/Bologna_F.C._1909_logo.svg',
+
+    // Bundesliga (Germany)
+    'bayern munich': 'https://upload.wikimedia.org/wikipedia/commons/1/1b/FC_Bayern_M%C3%BCnchen_logo_%282017%29.svg',
+    'fc bayern munich': 'https://upload.wikimedia.org/wikipedia/commons/1/1b/FC_Bayern_M%C3%BCnchen_logo_%282017%29.svg',
+    'borussia dortmund': 'https://upload.wikimedia.org/wikipedia/commons/6/67/Borussia_Dortmund_logo.svg',
+    'rb leipzig': 'https://upload.wikimedia.org/wikipedia/en/0/04/RB_Leipzig_2014_logo.svg',
+    'bayer leverkusen': 'https://upload.wikimedia.org/wikipedia/en/5/59/Bayer_04_Leverkusen_logo.svg',
+    'vfb stuttgart': 'https://upload.wikimedia.org/wikipedia/commons/e/eb/VfB_Stuttgart_1893_Logo.svg',
+    'eintracht frankfurt': 'https://upload.wikimedia.org/wikipedia/commons/0/04/Eintracht_Frankfurt_Logo.svg',
+    'vfl wolfsburg': 'https://upload.wikimedia.org/wikipedia/commons/f/f3/Logo-VfL-Wolfsburg.svg',
+    'wolfsburg': 'https://upload.wikimedia.org/wikipedia/commons/f/f3/Logo-VfL-Wolfsburg.svg',
+    'union berlin': 'https://upload.wikimedia.org/wikipedia/commons/4/44/1._FC_Union_Berlin_Logo.svg',
+    'sc freiburg': 'https://upload.wikimedia.org/wikipedia/commons/f/ff/SC_Freiburg_logo.svg',
+    'freiburg': 'https://upload.wikimedia.org/wikipedia/commons/f/ff/SC_Freiburg_logo.svg',
+    'werder bremen': 'https://upload.wikimedia.org/wikipedia/commons/b/be/SV-Werder-Bremen-Logo.svg',
+    'fc heidenheim': 'https://upload.wikimedia.org/wikipedia/commons/8/82/1._FC_Heidenheim_1846.svg',
+    '1. fc heidenheim': 'https://upload.wikimedia.org/wikipedia/commons/8/82/1._FC_Heidenheim_1846.svg',
+
+    // Ligue 1 (France)
+    'paris saint-germain': 'https://upload.wikimedia.org/wikipedia/en/a/a7/Paris_Saint-Germain_F.C..svg',
+    'psg': 'https://upload.wikimedia.org/wikipedia/en/a/a7/Paris_Saint-Germain_F.C..svg',
+    'as monaco': 'https://upload.wikimedia.org/wikipedia/en/b/ba/AS_Monaco_FC.svg',
+    'monaco': 'https://upload.wikimedia.org/wikipedia/en/b/ba/AS_Monaco_FC.svg',
+    'olympique de marseille': 'https://upload.wikimedia.org/wikipedia/commons/d/d8/Olympique_Marseille_logo.svg',
+    'marseille': 'https://upload.wikimedia.org/wikipedia/commons/d/d8/Olympique_Marseille_logo.svg',
+    'olympique lyonnais': 'https://upload.wikimedia.org/wikipedia/en/c/c6/Olympique_Lyonnais.svg',
+    'lyon': 'https://upload.wikimedia.org/wikipedia/en/c/c6/Olympique_Lyonnais.svg',
+    'lille': 'https://upload.wikimedia.org/wikipedia/en/3/3f/LOSC_Lille_%28logo%29.svg',
+    'stade rennais': 'https://upload.wikimedia.org/wikipedia/en/9/95/Stade_Rennais_FC.svg',
+    'rennes': 'https://upload.wikimedia.org/wikipedia/en/9/95/Stade_Rennais_FC.svg',
+    'ogc nice': 'https://upload.wikimedia.org/wikipedia/en/d/da/OGCNice.svg',
+    'nice': 'https://upload.wikimedia.org/wikipedia/en/d/da/OGCNice.svg',
+    'rc strasbourg': 'https://upload.wikimedia.org/wikipedia/en/f/f6/Racing_Club_de_Strasbourg_logo.svg',
+    'strasbourg': 'https://upload.wikimedia.org/wikipedia/en/f/f6/Racing_Club_de_Strasbourg_logo.svg',
+    'rc lens': 'https://upload.wikimedia.org/wikipedia/en/4/40/Racing_Club_de_Lens_logo.svg',
+    'lens': 'https://upload.wikimedia.org/wikipedia/en/4/40/Racing_Club_de_Lens_logo.svg',
+    'stade brestois': 'https://upload.wikimedia.org/wikipedia/en/d/d4/Stade_Brestois_29.svg',
+    'brest': 'https://upload.wikimedia.org/wikipedia/en/d/d4/Stade_Brestois_29.svg',
 
     // NHL
     'anaheim ducks': ESPN_LOGO('nhl', 'ana'),
@@ -261,12 +349,14 @@ export const logoUrlForTeam = (teamName = '') => {
 // A `url: null` entry is a negative cache — still valid for the TTL to
 // avoid hammering the API for teams it doesn't know (e.g. minor-league
 // opponents, unknown athletes).
-// v2 bump: v1 cached too many misses because we weren't trying name
-// variations. Everything in v1 expires on 24h TTL anyway, but the
-// renamed key skips that wait for users who've been testing.
-const LOGO_CACHE_KEY = 'betterdr:teamLogos:v2';
+// v3 bump: adds player-search fallback for athletes (MMA fighters,
+// boxers, tennis players) that never had team badges. Bumping the
+// cache key forces any previously-missed entity to be re-resolved
+// through the new code path.
+const LOGO_CACHE_KEY = 'betterdr:teamLogos:v3';
 const LOGO_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
-const THE_SPORTS_DB_SEARCH = 'https://www.thesportsdb.com/api/v1/json/3/searchteams.php?t=';
+const THE_SPORTS_DB_TEAM_SEARCH = 'https://www.thesportsdb.com/api/v1/json/3/searchteams.php?t=';
+const THE_SPORTS_DB_PLAYER_SEARCH = 'https://www.thesportsdb.com/api/v1/json/3/searchplayers.php?p=';
 
 // Common prefixes/suffixes that different feeds disagree on. Stripping
 // them creates variations that TheSportsDB tends to resolve (e.g.
@@ -348,6 +438,45 @@ const setCachedLogo = (normalizedName, url) => {
 //   2. localStorage cache (positive hit → URL; negative hit → fallback SVG)
 //   3. TheSportsDB search (one call per team per 24h, deduplicated)
 //   4. Fallback initials data URI
+/**
+ * Pre-warm the logo cache for a list of team/athlete names in parallel
+ * with bounded concurrency. Call from list screens (e.g. MobileContentView)
+ * right after matches arrive so every logo is already resolved by the
+ * time TeamAvatar mounts — removes the "initials flash" on first visit.
+ *
+ * Bounded to 6 concurrent in-flight requests so we don't clobber
+ * TheSportsDB's free tier. Already-cached names are skipped entirely.
+ */
+export const prewarmTeamBadges = (names = []) => {
+    if (!Array.isArray(names) || names.length === 0) return;
+    const unique = [];
+    const seen = new Set();
+    for (const n of names) {
+        const normalized = normalizeTeamName(n || '');
+        if (!normalized || seen.has(normalized)) continue;
+        seen.add(normalized);
+        // Skip if already mapped or cached (positive or negative).
+        if (TEAM_LOGO_MAP[normalized]) continue;
+        if (getCachedLogo(normalized)) continue;
+        unique.push(n);
+    }
+    if (unique.length === 0) return;
+
+    const concurrency = 6;
+    let index = 0;
+    const worker = async () => {
+        while (index < unique.length) {
+            const i = index++;
+            try {
+                await fetchTeamBadgeUrl(unique[i]);
+            } catch { /* fetchTeamBadgeUrl already handles its own errors */ }
+        }
+    };
+    for (let i = 0; i < Math.min(concurrency, unique.length); i++) {
+        worker();
+    }
+};
+
 export const fetchTeamBadgeUrl = async (teamName = '') => {
     const normalized = normalizeTeamName(teamName);
     if (!normalized) return createFallbackTeamLogoDataUri(teamName);
@@ -363,29 +492,29 @@ export const fetchTeamBadgeUrl = async (teamName = '') => {
     // only fire one request.
     if (inFlight.has(normalized)) return inFlight.get(normalized);
 
+    const fetchJson = async (url) => {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+        try {
+            const resp = await fetch(url, { signal: controller.signal });
+            clearTimeout(timeoutId);
+            if (!resp.ok) return null;
+            return await resp.json();
+        } catch {
+            clearTimeout(timeoutId);
+            return null;
+        }
+    };
+
     const promise = (async () => {
         try {
-            // Try up to 5 name variations. First hit wins.
+            // 1) Try up to 5 name variations on the TEAM-search endpoint.
+            //    First hit with a badge wins.
             const variations = buildNameVariations(teamName).slice(0, 5);
             for (const variant of variations) {
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 5000);
-                let data = null;
-                try {
-                    const resp = await fetch(THE_SPORTS_DB_SEARCH + encodeURIComponent(variant), {
-                        signal: controller.signal,
-                    });
-                    clearTimeout(timeoutId);
-                    if (!resp.ok) continue;
-                    data = await resp.json();
-                } catch {
-                    clearTimeout(timeoutId);
-                    continue;
-                }
+                const data = await fetchJson(THE_SPORTS_DB_TEAM_SEARCH + encodeURIComponent(variant));
                 const teams = Array.isArray(data?.teams) ? data.teams : [];
                 if (teams.length === 0) continue;
-                // Prefer an exact-ish name match before falling back to
-                // the first result — the search endpoint is pretty loose.
                 const variantNorm = normalizeTeamName(variant);
                 const exact = teams.find((t) => {
                     const candidate = normalizeTeamName(t?.strTeam || '');
@@ -398,8 +527,30 @@ export const fetchTeamBadgeUrl = async (teamName = '') => {
                     return badge;
                 }
             }
-            // No variation returned a badge — remember this for 24h
-            // so we don't re-fire all variations on every render.
+
+            // 2) Team search struck out — try PLAYER search for athletes
+            //    (MMA fighters, boxers, tennis players, etc.). Player
+            //    entries carry headshots in strThumb/strCutout. Only try
+            //    the original name — player-name variations like "FC"
+            //    stripping don't help here.
+            const playerData = await fetchJson(THE_SPORTS_DB_PLAYER_SEARCH + encodeURIComponent(teamName));
+            const players = Array.isArray(playerData?.player) ? playerData.player : [];
+            if (players.length > 0) {
+                const exactPlayer = players.find((p) =>
+                    normalizeTeamName(p?.strPlayer || '') === normalized
+                );
+                const playerMatch = exactPlayer || players[0];
+                const thumb = playerMatch?.strCutout
+                    || playerMatch?.strThumb
+                    || playerMatch?.strRender
+                    || null;
+                if (thumb) {
+                    setCachedLogo(normalized, thumb);
+                    return thumb;
+                }
+            }
+
+            // Nothing matched — negative cache the miss for 24h.
             setCachedLogo(normalized, null);
             return createFallbackTeamLogoDataUri(teamName);
         } catch {

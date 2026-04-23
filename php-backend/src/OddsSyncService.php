@@ -407,7 +407,7 @@ final class OddsSyncService
                     $statusAndScore = self::extractScoreAndStatus($mergedEvent, $homeTeam, $awayTeam);
                     $doc = self::buildOddsDocument($event, $sportKey, $externalId, $homeTeam, $awayTeam, $statusAndScore);
 
-                    $existing = $db->findOne('matches', ['externalId' => $externalId], ['projection' => ['id' => 1, 'status' => 1]]);
+                    $existing = $db->findOne('matches', ['externalId' => $externalId], ['projection' => ['id' => 1, 'status' => 1, 'odds' => 1, 'playerProps' => 1, 'lastPropsSyncAt' => 1]]);
                     if ($existing === null) {
                         $doc['createdAt'] = SqlRepository::nowUtc();
                         $createdId = $db->insertOne('matches', $doc);
@@ -415,6 +415,15 @@ final class OddsSyncService
                         $result['settled'] += self::maybeSettleMatch($db, $createdId, $doc['status'] ?? '');
                     } else {
                         $oldStatus = (string) ($existing['status'] ?? '');
+                        // Preserve extendedMarkets (period markets, alt
+                        // lines, team totals) that the per-event sync
+                        // populated — the bulk /odds feed never returns
+                        // these, so replacing the whole `odds` field
+                        // with just h2h/spreads/totals would wipe them.
+                        $existingOdds = is_array($existing['odds'] ?? null) ? $existing['odds'] : [];
+                        if (isset($existingOdds['extendedMarkets']) && is_array($existingOdds['extendedMarkets'])) {
+                            $doc['odds']['extendedMarkets'] = $existingOdds['extendedMarkets'];
+                        }
                         $db->updateOne('matches', ['id' => SqlRepository::id((string) $existing['id'])], $doc);
                         $result['updated']++;
                         if (($doc['status'] ?? '') === 'finished' || $oldStatus === 'finished') {

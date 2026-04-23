@@ -10,7 +10,7 @@ import {
     getMarketOutcomeByName,
     parseOddsNumber,
 } from '../utils/odds';
-import { logoUrlForTeam, fetchTeamBadgeUrl } from '../utils/teamLogos';
+import { logoUrlForTeam, fetchTeamBadgeUrl, prewarmTeamBadges } from '../utils/teamLogos';
 import PropBuilderModal from './PropBuilderModal';
 import MatchDetailView from './MatchDetailView';
 
@@ -371,6 +371,18 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
         }));
     }, [matches, favoriteIds]);
 
+    // Pre-warm team/athlete badge cache so the first paint of any card
+    // shows the real logo instead of an initials placeholder that
+    // swaps in ~300ms later. Concurrency-limited inside prewarmTeamBadges.
+    React.useEffect(() => {
+        const names = [];
+        matches.forEach((m) => {
+            if (m.team1) names.push(m.team1);
+            if (m.team2) names.push(m.team2);
+        });
+        prewarmTeamBadges(names);
+    }, [matches]);
+
     const [lastFetchTime, setLastFetchTime] = React.useState(() => Date.now());
     const [isRefreshing, setIsRefreshing] = React.useState(true);
     const [hasLoadedOnce, setHasLoadedOnce] = React.useState(false);
@@ -461,7 +473,7 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
                 </button>
             </div>
 
-            {periods.length > 1 && (
+            {periods.length >= 1 && (
                 <div style={periodTabBarStyle}>
                     {periods.map(p => (
                         <button
@@ -587,11 +599,11 @@ const MatchCard = ({ match, oddsFormat, onAddToSlip, selectedKeys, visibleMarket
 
             {/* Per-match column header (SPREAD / ML / TOTAL) aligned
                 with the odds grid below. Trailing empty slot accounts
-                for the action column on the right (+/SGP). */}
+                for the compact action column on the right. */}
             <div style={{
                 display: 'grid',
-                gridTemplateColumns: `minmax(0, 1fr) ${Array.from({ length: marketCount }, () => '54px').join(' ')} 48px`,
-                columnGap: 6,
+                gridTemplateColumns: `minmax(0, 1fr) ${Array.from({ length: marketCount }, () => '54px').join(' ')} 30px`,
+                columnGap: 4,
                 padding: '4px 0 2px',
                 alignItems: 'center',
             }}>
@@ -602,14 +614,14 @@ const MatchCard = ({ match, oddsFormat, onAddToSlip, selectedKeys, visibleMarket
                 <span />
             </div>
 
-            {/* Body: team info | odds | [+ / SGP] action column. Action
-                cells are placed on rows 1 and 2 so `+` sits next to the
-                away team and `SGP` next to the home team. */}
+            {/* Body: team info | odds | [+ / P+ / SGP] compact action
+                column. Action column is narrow (30px) so the three odds
+                columns never get squeezed. */}
             <div style={{
                 display: 'grid',
-                gridTemplateColumns: `minmax(0, 1fr) ${Array.from({ length: marketCount }, () => '54px').join(' ')} 48px`,
+                gridTemplateColumns: `minmax(0, 1fr) ${Array.from({ length: marketCount }, () => '54px').join(' ')} 30px`,
                 gridTemplateRows: 'auto auto',
-                columnGap: 6,
+                columnGap: 4,
                 rowGap: 4,
                 alignItems: 'center',
                 padding: '2px 0 8px',
@@ -652,8 +664,25 @@ const MatchCard = ({ match, oddsFormat, onAddToSlip, selectedKeys, visibleMarket
                     />
                 )}
 
-                {/* Right-column action — row 1: `+` opens all-markets view */}
-                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                {/* Right-column action stack — spans both team rows so
+                    all three buttons sit vertically centered against the
+                    odds grid: `+` (all markets), `P+` (player props),
+                    `SGP` (single-game parlay). Grid auto-placement fills
+                    the cell left over after team1's odds, so we anchor
+                    with grid-row 1 / span 2 to reserve the full column. */}
+                <div style={{
+                    // Column 1 = team info, cols 2..(2+marketCount-1) = odds,
+                    // col (marketCount + 2) = action stack. Using an
+                    // explicit number (not `-1`) so auto-placement of the
+                    // odds cells doesn't leak into the action slot.
+                    gridColumn: marketCount + 2,
+                    gridRow: '1 / span 2',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    gap: 3,
+                }}>
                     <button
                         type="button"
                         onClick={() => { setDetailSgpMode(false); setDetailOpen(true); }}
@@ -664,16 +693,60 @@ const MatchCard = ({ match, oddsFormat, onAddToSlip, selectedKeys, visibleMarket
                             background: blocked ? '#444' : '#d0451b',
                             color: '#fff',
                             border: 'none',
-                            borderRadius: 6,
-                            width: 44,
-                            height: 28,
-                            fontSize: 14,
+                            borderRadius: 4,
+                            width: 28,
+                            height: 18,
+                            fontSize: 11,
                             fontWeight: 700,
                             lineHeight: 1,
                             cursor: blocked ? 'not-allowed' : 'pointer',
                             opacity: blocked ? 0.5 : 1,
+                            padding: 0,
                         }}
                     >+</button>
+                    <button
+                        type="button"
+                        onClick={() => setPropsOpen(true)}
+                        disabled={blocked}
+                        aria-label="Open prop builder"
+                        title="Player props"
+                        style={{
+                            background: blocked ? '#444' : 'linear-gradient(135deg, #a020f0, #d946ef)',
+                            color: '#fff',
+                            border: 'none',
+                            borderRadius: 4,
+                            width: 28,
+                            height: 18,
+                            fontSize: 9,
+                            fontWeight: 800,
+                            letterSpacing: 0.2,
+                            lineHeight: 1,
+                            cursor: blocked ? 'not-allowed' : 'pointer',
+                            opacity: blocked ? 0.5 : 1,
+                            padding: 0,
+                        }}
+                    >P+</button>
+                    <button
+                        type="button"
+                        onClick={() => { setDetailSgpMode(true); setDetailOpen(true); }}
+                        disabled={blocked}
+                        aria-label="Build Single Game Parlay"
+                        title="Single-Game Parlay — pick 2+ legs from this game, then switch to PARLAY in your slip"
+                        style={{
+                            background: blocked ? '#e5e7eb' : '#e6f7ec',
+                            color: blocked ? '#9ca3af' : '#15803d',
+                            border: `1px solid ${blocked ? '#d1d5db' : '#22c55e'}`,
+                            borderRadius: 4,
+                            width: 28,
+                            height: 18,
+                            fontSize: 8,
+                            fontWeight: 800,
+                            letterSpacing: 0.3,
+                            lineHeight: 1,
+                            cursor: blocked ? 'not-allowed' : 'pointer',
+                            padding: 0,
+                        }}
+                    >SGP</button>
                 </div>
 
                 <div style={{ ...teamCellStyle, gridColumn: 1, gridRow: 2 }}>
@@ -713,32 +786,8 @@ const MatchCard = ({ match, oddsFormat, onAddToSlip, selectedKeys, visibleMarket
                         onClick={() => addIfAllowed(match.id, 'Under', 'totals', match.odds.totalUnderPrice, matchName, 'Total')}
                     />
                 )}
-
-                {/* Right-column action — row 2: SGP opens the all-markets
-                    view with the SGP hint banner. Always available — props
-                    lazy-load when the user taps through. */}
-                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-                    <button
-                        type="button"
-                        onClick={() => { setDetailSgpMode(true); setDetailOpen(true); }}
-                        disabled={blocked}
-                        aria-label="Build Single Game Parlay"
-                        title="Single-Game Parlay — pick 2+ legs from this game, then switch to PARLAY in your slip"
-                        style={{
-                            background: blocked ? '#e5e7eb' : '#e6f7ec',
-                            color: blocked ? '#9ca3af' : '#15803d',
-                            border: `1px solid ${blocked ? '#d1d5db' : '#22c55e'}`,
-                            borderRadius: 6,
-                            width: 44,
-                            height: 28,
-                            fontSize: 10,
-                            fontWeight: 800,
-                            letterSpacing: 0.4,
-                            lineHeight: 1,
-                            cursor: blocked ? 'not-allowed' : 'pointer',
-                        }}
-                    >SGP</button>
-                </div>
+                {/* SGP cell for row 2 is covered by the spanning action
+                    stack anchored above. */}
             </div>
 
             {blocked && (
@@ -921,8 +970,8 @@ const refreshButtonStaleStyle = {
 
 const periodTabBarStyle = {
     display: 'flex',
-    gap: '6px',
-    padding: '10px 12px',
+    gap: 8,
+    padding: '12px 14px',
     background: '#fff',
     borderBottom: '1px solid #e5e7eb',
     overflowX: 'auto',
@@ -934,22 +983,24 @@ const periodTabBarStyle = {
     boxShadow: '0 1px 2px rgba(15,23,42,0.04)',
 };
 const periodTabStyle = {
-    padding: '6px 12px',
-    border: '1px solid #334155',
-    background: '#fff',
-    color: '#1f2937',
-    fontSize: '12px',
+    padding: '8px 18px',
+    border: 'none',
+    background: '#f1f5f9',
+    color: '#475569',
+    fontSize: 13,
     fontWeight: 700,
     cursor: 'pointer',
     whiteSpace: 'nowrap',
     flexShrink: 0,
-    transition: 'background-color 0.15s, border-color 0.15s, color 0.15s',
+    borderRadius: 999,
+    letterSpacing: 0.3,
+    transition: 'background-color 120ms ease, color 120ms ease, transform 120ms ease',
 };
 const periodTabActiveStyle = {
     ...periodTabStyle,
-    background: '#f97316',
-    borderColor: '#f97316',
+    background: '#0f172a',
     color: '#fff',
+    boxShadow: '0 4px 12px -6px rgba(15,23,42,0.4)',
 };
 
 const dayHeaderStyle = {
