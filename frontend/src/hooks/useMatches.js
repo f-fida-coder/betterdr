@@ -246,6 +246,18 @@ export default function useMatches(options = {}) {
             fetchMatches({ trigger, refresh: true, requestId });
         };
 
+        // Sibling event for cases where the caller has ALREADY persisted fresh
+        // data backend-side (e.g. the /api/odds/refresh/{sport} endpoint) and
+        // just wants the UI to re-read. Skips the refresh=true query param so
+        // the backend doesn't kick a second sync-defer round-trip; just busts
+        // the local 15s cache and pulls a fresh snapshot immediately.
+        const handleForceRefetch = (event) => {
+            const detail = event?.detail ?? {};
+            const trigger = detail.reason ? String(detail.reason) : 'force-refetch';
+            matchesResponseCache.delete(createMatchesCacheKey(statusFilter, scopeKey || 'global'));
+            fetchMatches({ trigger, refresh: false });
+        };
+
         // When the backend returned the pre-sync snapshot and kicked the odds
         // sync off in the background (X-Sportsbook-Sync-Deferred), do a silent
         // refetch a few seconds later to pick up the freshly synced odds. One
@@ -264,6 +276,7 @@ export default function useMatches(options = {}) {
         if (typeof window !== 'undefined') {
             window.addEventListener('matches:refresh', handleRefresh);
             window.addEventListener('matches:sync-deferred', handleSyncDeferred);
+            window.addEventListener('matches:force-refetch', handleForceRefetch);
         }
 
         return () => {
@@ -272,6 +285,7 @@ export default function useMatches(options = {}) {
             if (typeof window !== 'undefined') {
                 window.removeEventListener('matches:refresh', handleRefresh);
                 window.removeEventListener('matches:sync-deferred', handleSyncDeferred);
+                window.removeEventListener('matches:force-refetch', handleForceRefetch);
             }
         };
     }, [scopeKey, statusFilter]);

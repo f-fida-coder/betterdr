@@ -40,8 +40,11 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
     const handleRefreshClick = React.useCallback(() => {
         triggerRefresh({
             onSuccess: () => {
-                window.dispatchEvent(new CustomEvent('matches:refresh', {
-                    detail: { reason: 'user-odds-refresh', sportKey: primarySportKey, requestId: `sport-${Date.now()}` },
+                // DB already updated by /api/odds/refresh/{sport}; just force
+                // the UI to re-read. matches:force-refetch bypasses the
+                // backend sync-defer path that matches:refresh triggers.
+                window.dispatchEvent(new CustomEvent('matches:force-refetch', {
+                    detail: { reason: 'user-odds-refresh', sportKey: primarySportKey },
                 }));
             },
         });

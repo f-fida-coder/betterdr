@@ -498,18 +498,24 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
     const handleManualRefresh = React.useCallback(() => {
         if (isRefreshing || isSportRefreshing || cooldownRemainingSec > 0) return;
         setIsRefreshing(true);
-        const fireMatchesRefetch = () => {
-            window.dispatchEvent(new CustomEvent('matches:refresh', {
-                detail: { reason: 'user', sportKey: primarySportKey, requestId: `mobile-${Date.now()}` },
-            }));
-        };
         if (primarySportKey) {
-            // Per-sport upstream refresh, then refetch local matches from the
-            // now-updated cache. If the upstream call fails the hook already
-            // surfaces a toast; we still fetch locally to keep UI responsive.
-            triggerSportRefresh({ onSuccess: fireMatchesRefetch });
+            // Per-sport upstream fetch lands fresh data in the DB and
+            // invalidates the public cache. After success, just re-read
+            // — matches:force-refetch skips the backend's refresh=true
+            // code path that would otherwise return the pre-sync snapshot
+            // with a deferred-sync header and delay the UI update by ~5s.
+            triggerSportRefresh({
+                onSuccess: () => {
+                    window.dispatchEvent(new CustomEvent('matches:force-refetch', {
+                        detail: { reason: 'user-odds-refresh', sportKey: primarySportKey },
+                    }));
+                },
+            });
         } else {
-            fireMatchesRefetch();
+            // No sport known — fall back to the generic backend-sync path.
+            window.dispatchEvent(new CustomEvent('matches:refresh', {
+                detail: { reason: 'user', requestId: `mobile-${Date.now()}` },
+            }));
         }
     }, [isRefreshing, isSportRefreshing, cooldownRemainingSec, primarySportKey, triggerSportRefresh]);
 
