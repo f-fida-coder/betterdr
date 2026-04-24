@@ -78,6 +78,33 @@ const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, 
         return `$ ${Math.round(num)}`;
     };
 
+    // Color the balance amount by sign — green positive, red negative, white
+    // zero. The previous implementation rendered -997 in green (success color)
+    // which inverted the meaning of "how much you can bet".
+    const balanceColor = (() => {
+        if (unlimitedBalance) return '#10b981';
+        const num = Number(balance);
+        if (!Number.isFinite(num) || num === 0) return '#ffffff';
+        return num > 0 ? '#10b981' : '#ef4444';
+    })();
+
+    // Single source of truth for mobile header icon buttons. 44px tap target
+    // per the accessibility spec, 24px centered icon inside.
+    const headerIconBtnStyle = {
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        border: '1px solid rgba(255,255,255,0.12)',
+        background: 'transparent',
+        color: '#fff',
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        cursor: 'pointer',
+        padding: 0,
+        flex: '0 0 auto',
+    };
+
     const handleRefreshRequest = () => {
         if (isRefreshing || activeRefreshRef.current.requestId) return;
         const requestId = buildRefreshRequestId();
@@ -167,155 +194,153 @@ const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, 
     return (
         <>
             <div className="mobile-header-container mobile-only">
-                <div className="top-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                    {/* Left cluster: hamburger + context action (HOME/BACK/SEARCH)
-                        + CASHIER. Kept compact so the middle balance block and
-                        the right account/betslip have room. */}
-                    <div className="header-icon-group" style={{ display: 'flex', alignItems: 'center', gap: 6, flex: '0 0 auto' }}>
-                        <div className="menu-circle" onClick={onToggleSidebar}>
-                            <i className="fa-solid fa-bars"></i>
-                        </div>
-
-                        {currentView !== 'dashboard' ? (
-                            <div className="icon-btn" onClick={() => onHomeClick && onHomeClick()}>
-                                <i className="fa-solid fa-house"></i>
-                                <span>HOME</span>
-                            </div>
-                        ) : mobileViewState === 'results' ? (
-                            <div className="icon-btn" onClick={onMobileBack}>
-                                <i className="fa-solid fa-arrow-left"></i>
-                                <span>BACK</span>
-                            </div>
-                        ) : (
-                            <div className="icon-btn">
-                                <i className="fa-solid fa-magnifying-glass"></i>
-                                <span>SEARCH</span>
-                            </div>
-                        )}
-
-                        <div
-                            className={`icon-btn ${currentView === 'bonus' ? 'active-bonus' : ''}`}
-                            onClick={() => {
-                                if (role === 'user') {
-                                    alert('Deposits and Withdrawals are managed by your Agent. Please contact them to update your balance.');
-                                    return;
-                                }
-                                onViewChange && onViewChange('bonus');
-                            }}
+                {/* 60px header — balance is the focal point. Left cluster is
+                    hamburger + search (cashier moved out per spec), balance
+                    centers the bar with sign-based color, right has profile
+                    and cart. No Continue button in the header anymore; it
+                    lives as a floating FAB attached elsewhere. */}
+                <div
+                    className="top-header"
+                    style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 16,
+                        padding: '8px 14px',
+                        minHeight: 60,
+                    }}
+                >
+                    {/* Left: hamburger + search/back/home */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: '0 0 auto' }}>
+                        <button
+                            type="button"
+                            onClick={onToggleSidebar}
+                            aria-label="Open sidebar menu"
+                            style={headerIconBtnStyle}
                         >
-                            <i className="fa-solid fa-cash-register"></i>
-                            <span>CASHIER</span>
-                        </div>
+                            <i className="fa-solid fa-bars" style={{ fontSize: 18 }}></i>
+                        </button>
+                        {currentView !== 'dashboard' ? (
+                            <button
+                                type="button"
+                                onClick={() => onHomeClick && onHomeClick()}
+                                aria-label="Go home"
+                                style={headerIconBtnStyle}
+                            >
+                                <i className="fa-solid fa-house" style={{ fontSize: 18 }}></i>
+                            </button>
+                        ) : mobileViewState === 'results' ? (
+                            <button
+                                type="button"
+                                onClick={onMobileBack}
+                                aria-label="Back"
+                                style={headerIconBtnStyle}
+                            >
+                                <i className="fa-solid fa-arrow-left" style={{ fontSize: 18 }}></i>
+                            </button>
+                        ) : (
+                            <button
+                                type="button"
+                                aria-label="Search"
+                                style={headerIconBtnStyle}
+                            >
+                                <i className="fa-solid fa-magnifying-glass" style={{ fontSize: 18 }}></i>
+                            </button>
+                        )}
                     </div>
 
-                    {/* Middle: seamless two-line balance block. Tight line-height
-                        and small caps labels make it read as a single unit
-                        rather than two separate rows. */}
+                    {/* Center: balance hero. Small "Balance" label, prominent
+                        amount below, then "Available: $X" on a third line at
+                        lower emphasis. Sign-based color on the amount. */}
                     <div
                         style={{
                             flex: '1 1 auto',
                             display: 'flex',
                             flexDirection: 'column',
-                            alignItems: 'flex-end',
+                            alignItems: 'center',
                             justifyContent: 'center',
                             minWidth: 0,
-                            paddingRight: 4,
                             lineHeight: 1.05,
-                            gap: 1,
                         }}
                     >
-                        <div style={{ display: 'inline-flex', alignItems: 'baseline', gap: 5, whiteSpace: 'nowrap' }}>
-                            <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.55)', letterSpacing: 0.6, textTransform: 'uppercase' }}>Bal</span>
-                            <span style={{ fontSize: 15, fontWeight: 700, color: '#49d17d', fontVariantNumeric: 'tabular-nums' }}>{formatMoney(balance)}</span>
+                        <div
+                            style={{
+                                fontSize: 11,
+                                fontWeight: 500,
+                                color: 'rgba(255,255,255,0.7)',
+                                letterSpacing: 0.4,
+                            }}
+                        >
+                            Balance
                         </div>
-                        <div style={{ display: 'inline-flex', alignItems: 'baseline', gap: 5, whiteSpace: 'nowrap' }}>
-                            <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.45)', letterSpacing: 0.6, textTransform: 'uppercase' }}>Avail</span>
-                            <span style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.78)', fontVariantNumeric: 'tabular-nums' }}>{formatMoney(availableBalance)}</span>
+                        <div
+                            style={{
+                                fontSize: 19,
+                                fontWeight: 800,
+                                color: balanceColor,
+                                fontVariantNumeric: 'tabular-nums',
+                                marginTop: 1,
+                            }}
+                        >
+                            {formatMoney(balance)}
+                        </div>
+                        <div
+                            style={{
+                                fontSize: 12,
+                                fontWeight: 500,
+                                color: 'rgba(255,255,255,0.7)',
+                                marginTop: 2,
+                                fontVariantNumeric: 'tabular-nums',
+                            }}
+                        >
+                            Available: {formatMoney(availableBalance)}
                         </div>
                     </div>
 
-                    {/* Right cluster: ACCOUNT then BETSLIP on the far right.
-                        Icons only — text labels were noisy. Slip count sits
-                        inline as a pill next to the cart when >0, which is
-                        quieter than the floating dot badge but still legible. */}
-                    <div className="right-section" style={{ display: 'flex', alignItems: 'center', gap: 4, flex: '0 0 auto' }}>
+                    {/* Right: profile + cart. Cart badge hides at zero. */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: '0 0 auto' }}>
                         <button
                             type="button"
                             onClick={() => setShowAccountPanel(true)}
                             aria-label="Open account panel"
-                            style={{
-                                width: 36, height: 36, borderRadius: 18,
-                                border: '1px solid rgba(255,255,255,0.15)',
-                                background: 'transparent', color: '#fff',
-                                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                                cursor: 'pointer', padding: 0,
-                            }}
+                            style={headerIconBtnStyle}
                         >
-                            <i className="fa-solid fa-user" style={{ fontSize: 15 }}></i>
+                            <i className="fa-solid fa-user" style={{ fontSize: 18 }}></i>
                         </button>
                         <button
                             type="button"
                             onClick={() => window.dispatchEvent(new CustomEvent('betslip:open', { detail: { source: 'header' } }))}
                             aria-label={`Open bet slip${slipCount ? ` — ${slipCount} selection${slipCount === 1 ? '' : 's'}` : ''}`}
-                            style={{
-                                height: 36,
-                                borderRadius: 18,
-                                border: '1px solid rgba(255,255,255,0.15)',
-                                background: slipCount > 0 ? '#ef4444' : 'transparent',
-                                color: '#fff',
-                                display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4,
-                                padding: slipCount > 0 ? '0 10px 0 8px' : 0,
-                                width: slipCount > 0 ? 'auto' : 36,
-                                minWidth: 36,
-                                cursor: 'pointer',
-                                fontWeight: 700,
-                                fontSize: 13,
-                                fontVariantNumeric: 'tabular-nums',
-                            }}
+                            style={{ ...headerIconBtnStyle, position: 'relative' }}
                         >
-                            <i className="fa-solid fa-cart-shopping" style={{ fontSize: 15 }}></i>
-                            {slipCount > 0 && <span>{slipCount > 99 ? '99+' : slipCount}</span>}
+                            <i className="fa-solid fa-cart-shopping" style={{ fontSize: 18 }}></i>
+                            {slipCount > 0 && (
+                                <span
+                                    aria-hidden="true"
+                                    style={{
+                                        position: 'absolute',
+                                        top: -2,
+                                        right: -2,
+                                        minWidth: 18,
+                                        height: 18,
+                                        padding: '0 5px',
+                                        borderRadius: 999,
+                                        background: '#ef4444',
+                                        color: '#fff',
+                                        fontSize: 10,
+                                        fontWeight: 700,
+                                        lineHeight: '18px',
+                                        textAlign: 'center',
+                                        boxShadow: '0 0 0 2px #000',
+                                        fontVariantNumeric: 'tabular-nums',
+                                    }}
+                                >
+                                    {slipCount > 99 ? '99+' : slipCount}
+                                </span>
+                            )}
                         </button>
                     </div>
                 </div>
-
-                {/* Second row, only visible once a sport is chosen. A thin
-                    Continue pill separate from the top row so the main
-                    header never loses its account/balance/slip affordances. */}
-                {showContinueButton && (
-                    <div
-                        style={{
-                            display: 'flex',
-                            justifyContent: 'flex-end',
-                            padding: '6px 10px',
-                            background: 'rgba(0,0,0,0.35)',
-                            borderTop: '1px solid rgba(255,255,255,0.05)',
-                        }}
-                    >
-                        <button
-                            type="button"
-                            onClick={onContinue}
-                            aria-label="Continue to selected sports"
-                            style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: 6,
-                                padding: '6px 14px',
-                                borderRadius: 999,
-                                border: 'none',
-                                background: '#16a34a',
-                                color: '#fff',
-                                fontWeight: 700,
-                                fontSize: 13,
-                                cursor: 'pointer',
-                                boxShadow: '0 2px 8px rgba(22,163,74,0.35)',
-                            }}
-                        >
-                            Continue
-                            <i className="fa-solid fa-chevron-right" style={{ fontSize: 12 }}></i>
-                        </button>
-                    </div>
-                )}
 
                 {showUserMenu && (
                     <div className="user-settings-dropdown mobile-usd" onClick={(e) => e.stopPropagation()}>

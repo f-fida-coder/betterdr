@@ -468,6 +468,9 @@ const ModeBetPanel = ({
         };
 
     if (!isOpen) {
+        // Mobile has a betslip button in the header (DashboardHeader). Rendering
+        // the floating FAB too would be two triggers for the same panel.
+        if (isMobile) return null;
         return (
             <button
                 onClick={() => setIsOpen(true)}
