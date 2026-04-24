@@ -105,10 +105,12 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                 const keywords = getSportKeywords(resolvedSportId);
 
             let filteredMatches = matchesData.filter(m => {
-                // Hide unbettable games — no value in showing an empty row
-                // with a "Betting is closed" banner when the book has no
-                // open markets. Matches the DK/FanDuel approach.
-                if (m?.isBettable === false) return false;
+                // Only hide matches that have no odds markets at all. Stale
+                // or temporarily suspended lines still render with the
+                // `match-card-closed` class and disabled bet buttons so the
+                // sport page stays populated when a few sync cycles fail.
+                const markets = m?.odds?.markets;
+                if (!Array.isArray(markets) || markets.length === 0) return false;
                 if (!resolvedSportId) return true;
                 const sportValue = String(m?.sport || '').toLowerCase();
                 const sportKeyValue = String(m?.sportKey || '').toLowerCase();

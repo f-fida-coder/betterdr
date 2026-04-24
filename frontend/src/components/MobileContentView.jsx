@@ -304,7 +304,14 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
         //      these rather than showing empty rows with a red banner.
         //   2. Matches outside the selected sport.
         const filteredRaw = (rawMatches || []).filter((match) => {
-            if (match?.isBettable === false) return false;
+            // Only hide matches with no odds markets at all. Stale odds
+            // (book between sync cycles) still render — the MatchCard
+            // disables bet buttons and shows the blocked reason. Hiding
+            // on `isBettable===false` caused whole sports to vanish when
+            // upstream API calls failed, which is worse UX than showing
+            // the match with a "Lines updating" indicator.
+            const markets = match?.odds?.markets;
+            if (!Array.isArray(markets) || markets.length === 0) return false;
             if (sportKeywords) {
                 const sport = String(match?.sport || '').toLowerCase();
                 const sportKey = String(match?.sportKey || '').toLowerCase();
@@ -329,8 +336,10 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
                 team2: homeName,
                 odds: extractOdds(match, homeName, awayName, activePeriod.suffix),
                 isLive,
-                isBettable: true,
-                bettingBlockedReason: '',
+                // Preserve backend flag: MatchCard reads this to disable
+                // bet buttons when the book has stale or suspended lines.
+                isBettable: match.isBettable !== false,
+                bettingBlockedReason: match.bettingBlockedReason || '',
                 startDate,
                 time: startDate ? startDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
                 // Self-describing "Today 4/23 6:10pm" variant for each row
