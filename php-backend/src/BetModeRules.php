@@ -8,7 +8,7 @@ final class BetModeRules
         [
             'mode' => 'straight',
             'minLegs' => 1,
-            'maxLegs' => 12,
+            'maxLegs' => 1,
             'teaserPointOptions' => [],
             'payoutProfile' => ['type' => 'odds_product'],
             'isActive' => true,
