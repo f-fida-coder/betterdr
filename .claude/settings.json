@@ -10,7 +10,12 @@
       "Bash(curl -s \"http://localhost:5173/api/matches?payload=core&trigger=scoreboard\")",
       "Bash(grep -rn -iE \"live.{0,3}spor\" /Users/mac/Desktop/betterdr/frontend/src/ --include=\"*.jsx\" --include=\"*.js\")",
       "Bash(grep -rn -iE \"in.{0,2}play|live\\\\s*match|live\\\\s*bet\" /Users/mac/Desktop/betterdr/frontend/src/components/ --include=\"*.jsx\")",
-      "Bash(curl -s \"http://localhost:5173/api/matches?status=live&payload=core&trigger=view\")"
+      "Bash(curl -s \"http://localhost:5173/api/matches?status=live&payload=core&trigger=view\")",
+      "Bash(curl -sI \"http://localhost:5173/api/matches?status=live&payload=core\")",
+      "Bash(time curl *)",
+      "Bash(python3 -c \"import json; d=json.load\\(open\\('/tmp/live.json'\\)\\); print\\('matches:', len\\(d\\)\\)\")",
+      "Bash(curl -s \"http://localhost:5000/api/matches?status=live&payload=core\")",
+      "Bash(curl -s -w \"\\\\nHTTP %{http_code}\\\\n\" \"http://localhost:5000/api/matches/sports\")"
     ]
   }
 }

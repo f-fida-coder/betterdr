@@ -319,7 +319,11 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
     }, []);
 
     const matches = React.useMemo(() => {
-        const sportKeywords = primarySport ? getSportKeywords(primarySport) : null;
+        // commercial-live / up-next are virtual buckets (status-based, not
+        // sport-based) — skip the sport-keyword filter for them or every
+        // real match gets dropped.
+        const isVirtualBucket = primarySport === 'commercial-live' || primarySport === 'up-next';
+        const sportKeywords = primarySport && !isVirtualBucket ? getSportKeywords(primarySport) : null;
         // Filter raw matches BEFORE the expensive map (extractOdds / date
         // formatting). Drops:
         //   1. Non-bettable matches — book pulled lines, game past start
