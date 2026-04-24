@@ -36,7 +36,7 @@ const UserDashboardShell = React.lazy(() => import('./components/UserDashboardSh
 // Structural placeholder only — no hardcoded multipliers.
 // Real values are loaded from /api/betting/rules (DB) on login and merged in below.
 const DEFAULT_BET_MODE_RULES = {
-  straight: { minLegs: 1, maxLegs: 1, teaserPointOptions: [], payoutProfile: { type: 'odds_product', multipliers: {} } },
+  straight: { minLegs: 1, maxLegs: 12, teaserPointOptions: [], payoutProfile: { type: 'odds_product', multipliers: {} } },
   parlay:   { minLegs: 2, maxLegs: 12, teaserPointOptions: [], payoutProfile: { type: 'odds_product', multipliers: {} } },
   teaser:   { minLegs: 2, maxLegs: 6,  teaserPointOptions: [], payoutProfile: { type: 'table_multiplier', multipliers: {} } },
   if_bet:   { minLegs: 2, maxLegs: 2,  teaserPointOptions: [], payoutProfile: { type: 'odds_product', multipliers: {} } },
@@ -381,9 +381,6 @@ function AppInner() {
   const handleBetModeChange = useCallback((mode) => {
     const normalized = normalizeBetMode(mode);
     setBetMode(normalized);
-    if (normalized === 'straight') {
-      setSlipSelections(prev => (prev.length > 0 ? [prev[prev.length - 1]] : []));
-    }
   }, []);
 
   const handleHomeClick = useCallback(() => {

@@ -12156,3 +12156,8 @@
 [2026-04-23T18:17:06+00:00] [INFO] [2026-04-23T18:16:52+00:00] update ok created=1 updated=807 scoreOnly=61 settled=0 calls=172 failed=85 blocked=false
 [2026-04-23T18:19:04+00:00] [INFO] [2026-04-23T18:18:52+00:00] update ok created=0 updated=888 scoreOnly=139 settled=0 calls=172 failed=46 blocked=false
 [2026-04-23T18:20:51+00:00] [INFO] PHP odds worker started. interval=2m db=betterdr_local once=false
+[2026-04-23T18:34:18+00:00] [INFO] [2026-04-23T18:20:51+00:00] update ok created=0 updated=907 scoreOnly=46 settled=0 calls=172 failed=48 blocked=false
+[2026-04-23T21:38:53+00:00] [INFO] [2026-04-23T18:34:19+00:00] update ok created=1 updated=894 scoreOnly=21 settled=0 calls=172 failed=41 blocked=false
+[2026-04-23T21:38:54+00:00] [ERROR] [2026-04-23T21:38:54+00:00] update failed: Odds sync failed: all upstream API requests failed
+[2026-04-24T04:34:05+00:00] [INFO] [2026-04-24T04:22:37+00:00] update ok created=9 updated=700 scoreOnly=418 settled=0 calls=168 failed=86 blocked=false
+[2026-04-24T04:45:24+00:00] [INFO] [2026-04-24T04:34:06+00:00] update ok created=13 updated=695 scoreOnly=381 settled=0 calls=168 failed=89 blocked=false

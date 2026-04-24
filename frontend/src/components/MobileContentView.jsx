@@ -237,7 +237,8 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
     // Derive the set of period market-suffixes actually present in the fetched
     // matches (e.g. '_h1' if any match carries `h2h_h1`/`spreads_h1`/`totals_h1`).
     // Full-game ('') is always present. We use this to hide period tabs for
-    // periods the Odds API isn't returning right now.
+    // periods the Odds API isn't returning right now. Skip unbettable matches
+    // so a period tab never appears with zero playable games behind it.
     const availableSuffixes = React.useMemo(() => {
         const set = new Set(['']);
         const scan = (markets) => {
@@ -248,6 +249,7 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
             });
         };
         (rawMatches || []).forEach(match => {
+            if (match?.isBettable === false) return;
             scan(match?.odds?.markets);
             scan(match?.odds?.extendedMarkets);
         });
@@ -294,7 +296,23 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
     }, []);
 
     const matches = React.useMemo(() => {
-        const formatted = (rawMatches || []).map(match => {
+        const sportKeywords = primarySport ? getSportKeywords(primarySport) : null;
+        // Filter raw matches BEFORE the expensive map (extractOdds / date
+        // formatting). Drops:
+        //   1. Non-bettable matches — book pulled lines, game past start
+        //      with no live markets, etc. Pro books (DK/FanDuel/MGM) hide
+        //      these rather than showing empty rows with a red banner.
+        //   2. Matches outside the selected sport.
+        const filteredRaw = (rawMatches || []).filter((match) => {
+            if (match?.isBettable === false) return false;
+            if (sportKeywords) {
+                const sport = String(match?.sport || '').toLowerCase();
+                if (!sport || !sportKeywords.some((k) => sport.includes(k))) return false;
+            }
+            return true;
+        });
+
+        const formatted = filteredRaw.map(match => {
             const homeName = match.homeTeam || match.home_team || '';
             const awayName = match.awayTeam || match.away_team || '';
             const eventStatus = (match.score?.event_status || '').toString().toUpperCase();
@@ -309,8 +327,8 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
                 team2: homeName,
                 odds: extractOdds(match, homeName, awayName, activePeriod.suffix),
                 isLive,
-                isBettable: match.isBettable !== false,
-                bettingBlockedReason: match.bettingBlockedReason || '',
+                isBettable: true,
+                bettingBlockedReason: '',
                 startDate,
                 time: startDate ? startDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
                 // Self-describing "Today 4/23 6:10pm" variant for each row
@@ -324,22 +342,16 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
             };
         });
 
-        const filtered = !primarySport
-            ? formatted
-            : formatted.filter((m) => {
-                const keywords = getSportKeywords(primarySport);
-                return m.sport && keywords.some((k) => m.sport.toLowerCase().includes(k));
-            });
         // Chronological order is the contract the day-divider grouping
         // depends on. Sort here as a client-side safety belt: even if
         // the backend hands us events in a different order, the list
         // never renders a future day before an earlier one.
-        filtered.sort((a, b) => {
+        formatted.sort((a, b) => {
             const aTs = a.startDate ? a.startDate.getTime() : Number.POSITIVE_INFINITY;
             const bTs = b.startDate ? b.startDate.getTime() : Number.POSITIVE_INFINITY;
             return aTs - bTs;
         });
-        return filtered;
+        return formatted;
     }, [rawMatches, primarySport, extractOdds, activePeriod.suffix]);
 
     const visibleMarkets = React.useMemo(() => getVisibleMarketsForMode(activeBetMode), [activeBetMode]);
@@ -560,12 +572,18 @@ const MatchCard = ({ match, oddsFormat, onAddToSlip, selectedKeys, visibleMarket
     }), [match.id, match.externalId, match.team1, match.team2, match.odds]);
     return (
         <div style={matchCardStyle}>
-            {/* Slim header — time + live dot on the left; `+`, `P+`, and
-                (when available) SGP badge-button on the right. Tapping
-                SGP opens the full markets sheet with a hint banner so
-                the user knows to add 2+ legs and parlay them. */}
-            <div style={matchHeaderStyle}>
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            {/* Combined header row: live dot + date on the left,
+                SPREAD / ML / TOTAL labels aligned with the odds
+                columns below. Trailing empty slot matches the
+                compact action column on the right. */}
+            <div style={{
+                display: 'grid',
+                gridTemplateColumns: `minmax(0, 1fr) ${Array.from({ length: marketCount }, () => '54px').join(' ')} 30px`,
+                columnGap: 4,
+                padding: '0 0 4px',
+                alignItems: 'center',
+            }}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
                     {match.isLive && (
                         <span
                             aria-label="Live"
@@ -582,9 +600,10 @@ const MatchCard = ({ match, oddsFormat, onAddToSlip, selectedKeys, visibleMarket
                     )}
                     <span style={matchTimeStyle}>{match.timeDisplay || match.time}</span>
                 </span>
-                {/* Action buttons (+, SGP) moved to the right column of
-                    the odds body, aligned with the two team rows. Header
-                    stays clean with only time + live indicator. */}
+                {visibleMarkets.showSpread && <span style={columnLabelStyle}>Spread</span>}
+                {visibleMarkets.showMoneyline && <span style={columnLabelStyle}>ML</span>}
+                {visibleMarkets.showTotals && <span style={columnLabelStyle}>Total</span>}
+                <span />
             </div>
             {propsOpen && (
                 <PropBuilderModal match={modalMatch} onClose={() => setPropsOpen(false)} />
@@ -596,23 +615,6 @@ const MatchCard = ({ match, oddsFormat, onAddToSlip, selectedKeys, visibleMarket
                     onClose={() => setDetailOpen(false)}
                 />
             )}
-
-            {/* Per-match column header (SPREAD / ML / TOTAL) aligned
-                with the odds grid below. Trailing empty slot accounts
-                for the compact action column on the right. */}
-            <div style={{
-                display: 'grid',
-                gridTemplateColumns: `minmax(0, 1fr) ${Array.from({ length: marketCount }, () => '54px').join(' ')} 30px`,
-                columnGap: 4,
-                padding: '4px 0 2px',
-                alignItems: 'center',
-            }}>
-                <span />
-                {visibleMarkets.showSpread && <span style={columnLabelStyle}>Spread</span>}
-                {visibleMarkets.showMoneyline && <span style={columnLabelStyle}>ML</span>}
-                {visibleMarkets.showTotals && <span style={columnLabelStyle}>Total</span>}
-                <span />
-            </div>
 
             {/* Body: team info | odds | [+ / P+ / SGP] compact action
                 column. Action column is narrow (30px) so the three odds

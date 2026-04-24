@@ -247,13 +247,7 @@ const ModeBetPanel = ({
         : (Number.isFinite(parsedAvailableBalance) ? parsedAvailableBalance : 0);
     const canPlace = validationErrors.length === 0 && !placing;
     const hasSelections = legCount > 0;
-    const [isOpen, setIsOpen] = useState(hasSelections);
-
-    useEffect(() => {
-        if (hasSelections) {
-            setIsOpen(true);
-        }
-    }, [hasSelections]);
+    const [isOpen, setIsOpen] = useState(false);
 
     // External open signal (fired by the Betslip button in DashboardHeader).
     // Using an event keeps this component's state encapsulated so the

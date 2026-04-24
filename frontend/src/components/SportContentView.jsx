@@ -92,6 +92,10 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                 const keywords = getSportKeywords(resolvedSportId);
 
             let filteredMatches = matchesData.filter(m => {
+                // Hide unbettable games — no value in showing an empty row
+                // with a "Betting is closed" banner when the book has no
+                // open markets. Matches the DK/FanDuel approach.
+                if (m?.isBettable === false) return false;
                 if (!resolvedSportId) return true;
                 if (!m.sport) return false;
                 const sportValue = m.sport.toString().toLowerCase();
