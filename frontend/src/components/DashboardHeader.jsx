@@ -167,24 +167,13 @@ const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, 
     return (
         <>
             <div className="mobile-header-container mobile-only">
-                <div className="top-header">
-                    <div className="header-icon-group">
-                        {/* Hamburger menu — always available */}
+                <div className="top-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                    {/* Left cluster: hamburger + context action (HOME/BACK/SEARCH)
+                        + CASHIER. Kept compact so the middle balance block and
+                        the right account/betslip have room. */}
+                    <div className="header-icon-group" style={{ display: 'flex', alignItems: 'center', gap: 6, flex: '0 0 auto' }}>
                         <div className="menu-circle" onClick={onToggleSidebar}>
                             <i className="fa-solid fa-bars"></i>
-                        </div>
-
-                        {/* Account sits first, immediately left of Search,
-                            matching the requested header order:
-                            ☰ | ACCOUNT | SEARCH | CASHIER. */}
-                        <div
-                            className="icon-btn"
-                            onClick={() => setShowAccountPanel(true)}
-                            role="button"
-                            aria-label="Open account panel"
-                        >
-                            <i className="fa-solid fa-user"></i>
-                            <span>ACCOUNT</span>
                         </div>
 
                         {currentView !== 'dashboard' ? (
@@ -219,7 +208,34 @@ const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, 
                         </div>
                     </div>
 
-                    <div className="right-section">
+                    {/* Middle: stacked balance display — Balance on top row,
+                        Available (or Pending) below. Flexes to fill space and
+                        right-aligns so numbers sit next to the action icons. */}
+                    <div
+                        style={{
+                            flex: '1 1 auto',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'flex-end',
+                            minWidth: 0,
+                            paddingRight: 6,
+                            lineHeight: 1.1,
+                        }}
+                    >
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, whiteSpace: 'nowrap' }}>
+                            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.65)', letterSpacing: 0.5 }}>BAL</span>
+                            <span style={{ fontSize: 14, fontWeight: 700, color: '#49d17d' }}>{formatMoney(balance)}</span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, whiteSpace: 'nowrap' }}>
+                            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.55)', letterSpacing: 0.5 }}>AVAIL</span>
+                            <span style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.85)' }}>{formatMoney(availableBalance)}</span>
+                        </div>
+                    </div>
+
+                    {/* Right cluster: ACCOUNT then BETSLIP on the far right.
+                        Matches the reference layout — betslip is the final
+                        touch target, account sits directly to its left. */}
+                    <div className="right-section" style={{ display: 'flex', alignItems: 'center', gap: 6, flex: '0 0 auto' }}>
                         {showContinueButton ? (
                             <div className="continue-btn-container" onClick={onContinue}>
                                 <button className="mobile-continue-btn">
@@ -227,10 +243,53 @@ const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, 
                                 </button>
                             </div>
                         ) : (
-                            <div className="balance-container">
-                                <div className="balance-amount">{formatMoney(balance)}</div>
-                                <div className="balance-label">BALANCE</div>
-                            </div>
+                            <>
+                                <div
+                                    className="icon-btn"
+                                    onClick={() => setShowAccountPanel(true)}
+                                    role="button"
+                                    aria-label="Open account panel"
+                                >
+                                    <i className="fa-solid fa-user"></i>
+                                    <span>ACCOUNT</span>
+                                </div>
+                                <div
+                                    className="icon-btn"
+                                    onClick={() => {
+                                        // ModeBetPanel listens for this and opens the slip.
+                                        window.dispatchEvent(new CustomEvent('betslip:open', { detail: { source: 'header' } }));
+                                    }}
+                                    role="button"
+                                    aria-label={`Open bet slip${slipCount ? ` — ${slipCount} selection${slipCount === 1 ? '' : 's'}` : ''}`}
+                                    style={{ position: 'relative' }}
+                                >
+                                    <i className="fa-solid fa-cart-shopping"></i>
+                                    <span>SLIP</span>
+                                    {slipCount > 0 && (
+                                        <span
+                                            aria-hidden="true"
+                                            style={{
+                                                position: 'absolute',
+                                                top: -2,
+                                                right: -2,
+                                                minWidth: 16,
+                                                height: 16,
+                                                padding: '0 4px',
+                                                borderRadius: 999,
+                                                background: '#ef4444',
+                                                color: '#fff',
+                                                fontSize: 10,
+                                                fontWeight: 700,
+                                                lineHeight: '16px',
+                                                textAlign: 'center',
+                                                boxShadow: '0 0 0 2px #000',
+                                            }}
+                                        >
+                                            {slipCount > 99 ? '99+' : slipCount}
+                                        </span>
+                                    )}
+                                </div>
+                            </>
                         )}
                     </div>
                 </div>
