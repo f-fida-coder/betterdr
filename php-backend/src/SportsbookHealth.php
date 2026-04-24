@@ -267,6 +267,13 @@ final class SportsbookHealth
         $oddsAgeSeconds = self::ageSeconds($lastOddsSuccessAt);
         $scoresAgeSeconds = self::ageSeconds($lastScoresSuccessAt);
         $oddsFeedStale = $oddsAgeSeconds === null || $oddsAgeSeconds > $staleAfterSeconds;
+        $lastResult = is_array($sync['lastResult'] ?? null) ? $sync['lastResult'] : [];
+        $circuit = is_array($lastResult['circuitBreaker'] ?? null) ? $lastResult['circuitBreaker'] : [
+            'state' => 'unknown',
+            'failureCount' => 0,
+            'threshold' => 0,
+            'openUntil' => null,
+        ];
 
         return [
             'oddsSync' => [
@@ -279,7 +286,7 @@ final class SportsbookHealth
                 'lastRunStatus' => $sync['lastRunStatus'] ?? 'unknown',
                 'lastSource' => $sync['lastSource'] ?? null,
                 'lastError' => $sync['lastError'] ?? null,
-                'lastResult' => is_array($sync['lastResult'] ?? null) ? $sync['lastResult'] : new stdClass(),
+                'lastResult' => $lastResult !== [] ? $lastResult : new stdClass(),
                 'runCount' => (int) ($sync['runCount'] ?? 0),
                 'consecutiveFailures' => (int) ($sync['consecutiveFailures'] ?? 0),
                 'consecutiveOddsFailures' => (int) ($sync['consecutiveOddsFailures'] ?? 0),
@@ -288,6 +295,7 @@ final class SportsbookHealth
                 'staleAfterSeconds' => $staleAfterSeconds,
                 'isStale' => $oddsFeedStale,
                 'bettingSuspended' => $oddsFeedStale,
+                'circuitBreaker' => $circuit,
             ],
             'settlement' => [
                 'lastFinishedAt' => $settlement['lastFinishedAt'] ?? null,

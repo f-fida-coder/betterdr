@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { getAdminHeaderSummary, getAgents, getDownlineSummary, getMe, getMyPlayers, getUsersAdmin, linkedAgentName } from '../api';
+import { getAdminHeaderSummary, getAgents, getDownlineSummary, getGatewayHealth, getMe, getMyPlayers, getUsersAdmin, linkedAgentName } from '../api';
 import AgentTreeView from './admin-views/AgentTreeView';
 import AgentCutsTable from './AgentCutsTable';
 import { annotateDuplicatePlayers } from '../utils/duplicatePlayers';
@@ -89,6 +89,8 @@ function AdminHeader({
   const [allAgents, setAllAgents] = useState([]);
   const [selectedSearchPlayer, setSelectedSearchPlayer] = useState(null);
   const [summary, setSummary] = useState(createDefaultHeaderSummary);
+  const [gatewayAlerts, setGatewayAlerts] = useState([]);
+  const [gatewayAlertLevel, setGatewayAlertLevel] = useState('ok');
   const [profile, setProfile] = useState(null);
   const [downlineAgents, setDownlineAgents] = useState([]);
   // When set, the admin has selected a non-current week in the agent-cuts
@@ -107,6 +109,21 @@ function AdminHeader({
     setSummary(normalizeHeaderSummary(headerData));
   };
 
+  const applyGatewayHealth = (healthPayload) => {
+    const alerts = Array.isArray(healthPayload?.observability?.alerts)
+      ? healthPayload.observability.alerts.filter((item) => item && typeof item === 'object')
+      : [];
+    setGatewayAlerts(alerts.slice(0, 3));
+    const hasCritical = alerts.some((item) => String(item?.severity || '').toLowerCase() === 'critical');
+    if (hasCritical) {
+      setGatewayAlertLevel('critical');
+    } else if (alerts.length > 0) {
+      setGatewayAlertLevel('warning');
+    } else {
+      setGatewayAlertLevel('ok');
+    }
+  };
+
   useEffect(() => {
     let cancelled = false;
     const token = localStorage.getItem('token');
@@ -117,9 +134,15 @@ function AdminHeader({
     const refreshHeaderSummary = async () => {
       if (document.hidden) return;
       try {
-        const headerData = await getAdminHeaderSummary(token, summaryParams);
+        const [headerData, healthData] = await Promise.all([
+          getAdminHeaderSummary(token, summaryParams),
+          getGatewayHealth().catch(() => null),
+        ]);
         if (cancelled) return;
         applyHeaderSummary(headerData);
+        if (healthData) {
+          applyGatewayHealth(healthData);
+        }
       } catch (error) {
         if (!cancelled) {
           console.error('Failed to refresh admin header summary:', error);
@@ -129,13 +152,17 @@ function AdminHeader({
 
     const loadHeaderContext = async () => {
       try {
-        const [headerData, meData] = await Promise.all([
+        const [headerData, meData, healthData] = await Promise.all([
           getAdminHeaderSummary(token, summaryParams),
-          getMe(token)
+          getMe(token),
+          getGatewayHealth().catch(() => null),
         ]);
         if (cancelled) return;
         applyHeaderSummary(headerData);
         setProfile(meData || null);
+        if (healthData) {
+          applyGatewayHealth(healthData);
+        }
 
         const roleKey = String(meData?.role || role || '').toLowerCase();
         const isAgentRole = roleKey === 'agent';

@@ -5,7 +5,7 @@
 
 // Bump CACHE_VERSION to purge clients that were serving stale admin/auth
 // responses under the old blanket /api/* stale-while-revalidate rule.
-const CACHE_VERSION = 'v1.1';
+const CACHE_VERSION = 'v1.3';
 const RUNTIME_CACHE = `runtime-${CACHE_VERSION}`;
 const ASSETS_CACHE = `assets-${CACHE_VERSION}`;
 const API_CACHE = `api-${CACHE_VERSION}`;
@@ -14,20 +14,27 @@ const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
   '/manifest.json',
+  '/logo.png',
 ];
 
 // Only these exact public read-only endpoints are safe to cache. Everything
 // else — /api/admin/**, /api/auth/**, /api/wallet/**, /api/bets/**, etc. —
 // MUST hit the network so balances and transactions reflect live DB state.
-const CACHEABLE_API_PATHS = [
+// Odds endpoints use network-first (see NETWORK_FIRST_API_PATHS) so live
+// odds are served when online and cached only as an offline fallback.
+const NETWORK_FIRST_API_PATHS = [
   '/api/matches',
   '/api/matches/sports',
+];
+const CACHEABLE_API_PATHS = [
   '/api/betting/rules',
 ];
 
-const isCacheableApi = (pathname) => (
-  CACHEABLE_API_PATHS.some((prefix) => pathname === prefix || pathname.startsWith(prefix + '/'))
+const matchesApiPath = (pathname, list) => (
+  list.some((prefix) => pathname === prefix || pathname.startsWith(prefix + '/'))
 );
+const isNetworkFirstApi = (pathname) => matchesApiPath(pathname, NETWORK_FIRST_API_PATHS);
+const isCacheableApi = (pathname) => matchesApiPath(pathname, CACHEABLE_API_PATHS);
 
 // Install: Cache critical assets
 self.addEventListener('install', (event) => {
@@ -51,6 +58,13 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+self.addEventListener('message', (event) => {
+  const type = event?.data?.type;
+  if (type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+});
+
 // Fetch: Implement caching strategies
 self.addEventListener('fetch', (event) => {
   const { request } = event;
@@ -67,10 +81,18 @@ self.addEventListener('fetch', (event) => {
   // /api/bets/** must never serve a stale cache — real-time balance, pending,
   // and session state depend on a live response).
   if (url.pathname.startsWith('/api/')) {
+    if (isNetworkFirstApi(url.pathname)) {
+      return event.respondWith(networkFirst(request, API_CACHE));
+    }
     if (isCacheableApi(url.pathname)) {
       return event.respondWith(staleWhileRevalidate(request, API_CACHE));
     }
     return; // fall through to default network handling
+  }
+
+  // Navigation requests: App Shell network-first with offline fallback.
+  if (request.mode === 'navigate') {
+    return event.respondWith(navigationNetworkFirst(request));
   }
 
   // Static assets: Cache First
@@ -85,6 +107,28 @@ self.addEventListener('fetch', (event) => {
     networkFirst(request, RUNTIME_CACHE)
   );
 });
+
+async function navigationNetworkFirst(request) {
+  const cache = await caches.open(RUNTIME_CACHE);
+  try {
+    const response = await fetch(request);
+    if (response && response.ok) {
+      cache.put('/index.html', response.clone());
+    }
+    return response;
+  } catch (error) {
+    const appShell = await cache.match('/index.html');
+    if (appShell) {
+      return appShell;
+    }
+    const assetsCache = await caches.open(ASSETS_CACHE);
+    const fallbackShell = await assetsCache.match('/index.html');
+    if (fallbackShell) {
+      return fallbackShell;
+    }
+    return new Response('Offline - App shell unavailable', { status: 503 });
+  }
+}
 
 /**
  * Network First strategy
@@ -134,7 +178,7 @@ async function staleWhileRevalidate(request, cacheName) {
   const cached = await cache.match(request);
 
   const fetchPromise = fetch(request).then(response => {
-    if (response.ok) {
+    if (response && response.ok) {
       cache.put(request, response.clone());
     }
     return response;

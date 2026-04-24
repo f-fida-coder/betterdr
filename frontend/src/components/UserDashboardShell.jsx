@@ -22,6 +22,8 @@ const MyBetsView = React.lazy(() => import('./MyBetsView'));
 
 function UserDashboardShell({
   user,
+  realtimeConnectionState,
+  lastRealtimeEventAt,
   dashboardView,
   selectedSports,
   betMode,
@@ -51,6 +53,8 @@ function UserDashboardShell({
     <div className={`dashboard-layout ${mobileViewState === 'browsing' ? 'no-bet-tabs' : ''}`}>
       <DashboardHeader
         username={user?.username || 'Guest'}
+        realtimeConnectionState={realtimeConnectionState}
+        lastRealtimeEventAt={lastRealtimeEventAt}
         balance={user?.balance ?? null}
         pendingBalance={user?.pendingBalance ?? null}
         availableBalance={user?.availableBalance ?? user?.balance ?? null}

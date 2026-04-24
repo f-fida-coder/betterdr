@@ -15,6 +15,7 @@ final class MatchesController
 
     private SqlRepository $db;
     private string $jwtSecret;
+    private ?Closure $deferredSyncRunner = null;
 
     public function __construct(SqlRepository $db, string $jwtSecret)
     {
@@ -61,9 +62,10 @@ final class MatchesController
     {
         $status = isset($_GET['status']) ? strtolower(trim((string) $_GET['status'])) : '';
         $active = isset($_GET['active']) ? strtolower(trim((string) $_GET['active'])) : '';
+        $payloadMode = $this->normalizePayloadMode((string) ($_GET['payload'] ?? 'full'));
         $sharedCacheTtl = $this->envInt('SPORTSBOOK_MATCHES_CACHE_TTL_SECONDS', self::DEFAULT_SHARED_MATCHES_CACHE_TTL_SECONDS);
         $cacheNamespace = SportsbookCache::publicMatchesNamespace();
-        $cacheKey = SportsbookCache::publicMatchesKey($status, $active);
+        $cacheKey = SportsbookCache::publicMatchesKey($status . '|payload:' . $payloadMode, $active);
         // Read stale data NOW before any TTL-enforcing get() may delete the expired file.
         // This is the fallback used if the fresh-data path throws an exception under load.
         $staleForFallback = SharedFileCache::peek($cacheNamespace, $cacheKey);
@@ -78,20 +80,31 @@ final class MatchesController
                     $cacheNamespace,
                     $cacheKey,
                     $sharedCacheTtl,
-                    fn(): array => $this->computeMatches($status, $active)
+                    fn(): array => $this->computeMatches($status, $active, $payloadMode)
                 );
             }
 
             header('X-Matches-Shared-Cache: ' . $sharedCacheState);
+            header('X-Cache: ' . ($sharedCacheState === 'hit' ? 'HIT' : 'MISS'));
+            header('X-Matches-Payload-Mode: ' . $payloadMode);
             $this->emitPublicCacheHeaders($cacheMeta);
-            $upstreamCacheTtl = (int) ($cacheMeta['cacheTtlSeconds'] ?? self::DEFAULT_PUBLIC_CACHE_TTL_SECONDS);
-            $responseCacheTtl = max(1, min($upstreamCacheTtl, $sharedCacheTtl));
-            Response::json($annotated, 200, "public, max-age={$responseCacheTtl}");
+            // Manual-refresh paths are uncacheable by intermediaries: the payload
+            // is intentionally the pre-sync snapshot, and a follow-up refetch will
+            // pick up the freshly-synced odds.
+            if (!empty($cacheMeta['syncDeferred'])) {
+                Response::json($annotated, 200, 'private, no-cache, no-store, must-revalidate');
+            } else {
+                $upstreamCacheTtl = (int) ($cacheMeta['cacheTtlSeconds'] ?? self::DEFAULT_PUBLIC_CACHE_TTL_SECONDS);
+                $responseCacheTtl = max(1, min($upstreamCacheTtl, $sharedCacheTtl));
+                Response::json($annotated, 200, "public, max-age={$responseCacheTtl}");
+            }
+            $this->runDeferredSync();
         } catch (Throwable $e) {
             // Fallback to stale cache to keep the public matches endpoint available
             // during transient database contention and avoid 5xx spikes.
             if (is_array($staleForFallback)) {
                 header('X-Matches-Fallback: stale-cache');
+                header('X-Cache: STALE');
                 Response::json($staleForFallback, 200, 'public, max-age=5, stale-while-revalidate=60');
                 return;
             }
@@ -99,10 +112,11 @@ final class MatchesController
         }
     }
 
-    private function computeMatches(string $status, string $active): array
+    private function computeMatches(string $status, string $active, string $payloadMode = 'full'): array
     {
         $dbFilter = [];
         $desiredStatus = $status === 'active' ? 'live' : $status;
+        $defaultPublicView = ($status === '' && $active === '');
         
         if ($desiredStatus === 'live') {
             $dbFilter['status'] = 'live';
@@ -112,9 +126,35 @@ final class MatchesController
             $dbFilter['status'] = 'finished';
         } elseif ($desiredStatus === 'upcoming') {
             $dbFilter['status'] = 'scheduled';
+        } elseif ($desiredStatus === 'live-upcoming' || $desiredStatus === 'active-upcoming') {
+            $dbFilter['status'] = ['$in' => ['scheduled', 'live']];
+        } elseif ($defaultPublicView) {
+            $dbFilter['status'] = ['$in' => ['scheduled', 'live']];
         }
         
-        $matches = $this->db->findMany('matches', $dbFilter, ['sort' => ['startTime' => 1]]);
+        $queryOptions = ['sort' => ['startTime' => 1]];
+        $coreSqlProjectionEnabled = $this->isTruthy(Env::get('SPORTSBOOK_CORE_SQL_PROJECTION', 'false'));
+        if ($payloadMode === 'core' && $coreSqlProjectionEnabled) {
+            $queryOptions['projection'] = [
+                'id' => 1,
+                'externalId' => 1,
+                'homeTeam' => 1,
+                'awayTeam' => 1,
+                'startTime' => 1,
+                'sport' => 1,
+                'sportKey' => 1,
+                'status' => 1,
+                'odds' => 1,
+                'score' => 1,
+                'lastUpdated' => 1,
+                'lastOddsSyncAt' => 1,
+                'lastScoreSyncAt' => 1,
+                'updatedAt' => 1,
+                'createdAt' => 1,
+            ];
+        }
+
+        $matches = $this->db->findMany('matches', $dbFilter, $queryOptions);
         $snapshot = SportsbookHealth::sportsbookSnapshot($this->db);
         $annotated = [];
         foreach ($matches as $match) {
@@ -147,11 +187,15 @@ final class MatchesController
             }));
         } elseif ($active === 'true') {
             $annotated = array_values(array_filter($annotated, static fn (array $match): bool => strtolower((string) ($match['status'] ?? '')) === 'live'));
-        } elseif ($status === '' && $active === '') {
+        } elseif ($defaultPublicView && !isset($dbFilter['status'])) {
             $annotated = array_values(array_filter($annotated, static function (array $match): bool {
                 $matchStatus = strtolower((string) ($match['status'] ?? ''));
                 return in_array($matchStatus, ['scheduled', 'live'], true);
             }));
+        }
+
+        if ($payloadMode === 'core') {
+            $annotated = array_map(fn(array $match): array => $this->coreMatchPayload($match), $annotated);
         }
         
         return $annotated;
@@ -222,6 +266,7 @@ final class MatchesController
             }
 
             header('X-Matches-Sports-Shared-Cache: ' . $sharedCacheState);
+            header('X-Cache: ' . ($sharedCacheState === 'hit' ? 'HIT' : 'MISS'));
             Response::json($sports, 200, "public, max-age={$sharedCacheTtl}");
         } catch (Throwable $e) {
             Response::json([], 200, 'public, max-age=5');
@@ -233,7 +278,7 @@ final class MatchesController
      */
     private function computeAvailableSports(): array
     {
-        $matches = $this->db->findMany('matches', [], ['projection' => ['sport' => 1, 'sportKey' => 1, 'status' => 1]]);
+        $matches = $this->db->findMany('matches', ['status' => ['$in' => ['scheduled', 'live']]], ['projection' => ['sport' => 1, 'sportKey' => 1, 'status' => 1]]);
         $sports = [];
         foreach ($matches as $match) {
             if (!is_array($match)) {
@@ -426,6 +471,73 @@ final class MatchesController
 
             $meta['attempted'] = true;
 
+            // Manual refresh path: respond immediately with current data and run
+            // the (slow) upstream odds sync after the response has been flushed.
+            // Hands the named lock off to the deferred runner so a concurrent
+            // manual refresh still sees refresh_in_progress until this one ends.
+            if ($manualRefresh) {
+                $lockHandoff = $ownsLock;
+                $ownsLock = false;
+                $db = $this->db;
+                $this->deferredSyncRunner = function () use (
+                    $db,
+                    $state,
+                    $attemptedAt,
+                    $trigger,
+                    $cacheTtl,
+                    $cooldownSeconds,
+                    $lockName,
+                    $lockHandoff
+                ): void {
+                    try {
+                        OddsSyncService::updateMatches($db, 'public_matches_async');
+                        $finishedAt = SqlRepository::nowUtc();
+                        $this->writePublicRefreshState($state, [
+                            'lastRefreshAttemptAt' => $attemptedAt,
+                            'lastRefreshFinishedAt' => $finishedAt,
+                            'lastRefreshSuccessAt' => $finishedAt,
+                            'lastRefreshStatus' => 'success',
+                            'lastRefreshTrigger' => $trigger,
+                            'lastRefreshSource' => 'public_matches_async',
+                            'lastRefreshError' => null,
+                            'refreshInProgress' => false,
+                            'cacheTtlSeconds' => $cacheTtl,
+                            'cooldownSeconds' => $cooldownSeconds,
+                            'updatedAt' => $finishedAt,
+                        ]);
+                        // Bust shared caches so the client's follow-up refetch
+                        // (scheduled ~4s after the initial response) returns the
+                        // newly synced odds instead of the stale cached payload.
+                        self::clearSharedPublicCaches();
+                    } catch (Throwable $e) {
+                        $finishedAt = SqlRepository::nowUtc();
+                        $this->writePublicRefreshState($state, [
+                            'lastRefreshAttemptAt' => $attemptedAt,
+                            'lastRefreshFinishedAt' => $finishedAt,
+                            'lastRefreshSuccessAt' => $state['lastRefreshSuccessAt'] ?? null,
+                            'lastRefreshStatus' => 'failed',
+                            'lastRefreshTrigger' => $trigger,
+                            'lastRefreshSource' => 'public_matches_async',
+                            'lastRefreshError' => $e->getMessage(),
+                            'refreshInProgress' => false,
+                            'cacheTtlSeconds' => $cacheTtl,
+                            'cooldownSeconds' => $cooldownSeconds,
+                            'updatedAt' => $finishedAt,
+                        ]);
+                        Logger::exception($e, 'Deferred odds sync failed');
+                    } finally {
+                        if ($lockHandoff) {
+                            $db->releaseNamedLock($lockName);
+                        }
+                    }
+                };
+
+                $meta['state'] = 'refresh_deferred';
+                $meta['syncDeferred'] = true;
+                $meta['refreshed'] = false;
+                return $meta;
+            }
+
             try {
                 OddsSyncService::updateMatches($this->db, 'public_matches');
                 $finishedAt = SqlRepository::nowUtc();
@@ -570,8 +682,54 @@ final class MatchesController
         header('X-Sportsbook-Refresh-Cooldown: ' . (int) ($meta['cooldownRemainingSeconds'] ?? 0));
         header('X-Sportsbook-Refresh-Attempted: ' . (($meta['attempted'] ?? false) ? 'true' : 'false'));
         header('X-Sportsbook-Refresh-Trigger: ' . (string) ($meta['trigger'] ?? 'view'));
+        if (!empty($meta['syncDeferred'])) {
+            header('X-Sportsbook-Sync-Deferred: true');
+            // CORS preflight already exposes the other X-Sportsbook-* headers,
+            // but browsers also need to see this one from a cross-origin fetch.
+            header('Access-Control-Expose-Headers: X-Sportsbook-Cache-State, X-Sportsbook-Cache-TTL, X-Sportsbook-Refresh-Cooldown, X-Sportsbook-Refresh-Attempted, X-Sportsbook-Refresh-Trigger, X-Sportsbook-Sync-Age, X-Sportsbook-Sync-Deferred', false);
+        }
         if (isset($meta['syncAgeSeconds']) && $meta['syncAgeSeconds'] !== null) {
             header('X-Sportsbook-Sync-Age: ' . (int) $meta['syncAgeSeconds']);
+        }
+    }
+
+    private function runDeferredSync(): void
+    {
+        if ($this->deferredSyncRunner === null) {
+            return;
+        }
+        $runner = $this->deferredSyncRunner;
+        $this->deferredSyncRunner = null;
+
+        // The PHP built-in server (SAPI "cli-server") buffers the response
+        // until the script exits, so there's nothing to gain from "flushing
+        // first then syncing" — the client would wait anyway. Run the sync
+        // inline in that case so dev behavior stays correct.
+        $canFlushEarly = function_exists('fastcgi_finish_request')
+            || function_exists('litespeed_finish_request');
+
+        if (!$canFlushEarly) {
+            try {
+                $runner();
+            } catch (Throwable $e) {
+                Logger::exception($e, 'Inline sync fallback failed');
+            }
+            return;
+        }
+
+        @ignore_user_abort(true);
+        @set_time_limit(0);
+
+        if (function_exists('fastcgi_finish_request')) {
+            @fastcgi_finish_request();
+        } else {
+            @litespeed_finish_request();
+        }
+
+        try {
+            $runner();
+        } catch (Throwable $e) {
+            Logger::exception($e, 'Deferred sync runner crashed');
         }
     }
 
@@ -601,6 +759,33 @@ final class MatchesController
     private function isTruthy(mixed $value): bool
     {
         return in_array(strtolower(trim((string) $value)), ['1', 'true', 'yes', 'on'], true);
+    }
+
+    private function normalizePayloadMode(string $value): string
+    {
+        $mode = strtolower(trim($value));
+        return $mode === 'core' ? 'core' : 'full';
+    }
+
+    /**
+     * Drop heavy fields for list views while preserving the shape needed by UI cards.
+     *
+     * @param array<string, mixed> $match
+     * @return array<string, mixed>
+     */
+    private function coreMatchPayload(array $match): array
+    {
+        unset($match['playerProps']);
+
+        if (is_array($match['odds'] ?? null)) {
+            $odds = $match['odds'];
+            if (is_array($odds)) {
+                unset($odds['extendedMarkets']);
+                $match['odds'] = $odds;
+            }
+        }
+
+        return $match;
     }
 
     private function streamMatches(): void

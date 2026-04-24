@@ -20,64 +20,78 @@ export default defineConfig({
   build: {
     outDir: '../dist',
     emptyOutDir: true,
-    minify: true, // Use default minifier (esbuild)
+    minify: 'esbuild',
+    sourcemap: 'hidden', // Debugging without exposing source
+    target: 'es2020',
     rollupOptions: {
       output: {
-        // Explicit content-hash filenames so browsers never serve stale JS/CSS.
+        // Explicit content-hash filenames for aggressive caching
         entryFileNames: 'assets/[name]-[hash].js',
-        chunkFileNames: 'assets/[name]-[hash].js',
+        chunkFileNames: 'assets/chunks/[name]-[hash].js',
         assetFileNames: 'assets/[name]-[hash][extname]',
-        // Advanced code splitting for better caching
+        
+        // Phase 3A: Aggressive code splitting for faster TTI
         manualChunks: (id) => {
-          // Keep shared app API/auth code out of admin-only chunks so the
-          // public landing page doesn't preload dashboard/admin bundles.
-          if (id.includes('/src/api.js')) {
-            return 'app-api';
-          }
-          // Vendor chunk for node_modules
+          // Core framework chunks
           if (id.includes('node_modules')) {
-            if (id.includes('react')) {
+            if (id.includes('react') && id.includes('react-dom')) {
               return 'vendor-react';
             }
-            if (id.includes('router') || id.includes('@tanstack')) {
+            if (id.includes('react-router') || id.includes('@tanstack/react-query')) {
               return 'vendor-routing';
+            }
+            if (id.includes('axios') || id.includes('fetch')) {
+              return 'vendor-http';
+            }
+            if (id.includes('recharts') || id.includes('chart.js')) {
+              return 'vendor-charts';
             }
             return 'vendor-common';
           }
-          // Separate chunks for admin views
-          if (id.includes('admin-views')) {
+          
+          // Shared utilities & contexts (loaded early)
+          if (id.includes('src/utils/') || id.includes('src/hooks/')) {
+            return 'utils-shared';
+          }
+          if (id.includes('src/contexts/')) {
+            return 'contexts-shared';
+          }
+          if (id.includes('src/api.js')) {
+            return 'app-api';
+          }
+          
+          // Route-specific chunks (lazy loaded on demand)
+          if (id.includes('Admin')) {
             return 'admin-views';
           }
-          // Separate chunks for casino views
           if (id.includes('Casino') || id.includes('LiveCasino')) {
             return 'casino-views';
+          }
+          if (id.includes('Dashboard')) {
+            return 'dashboard-views';
+          }
+          if (id.includes('Scoreboard')) {
+            return 'scoreboard-views';
+          }
+          if (id.includes('MyBets')) {
+            return 'mybets-views';
+          }
+          if (id.includes('Support')) {
+            return 'support-views';
           }
         },
       },
     },
-    // Optimize chunk splitting
-    chunkSizeWarningLimit: 1000,
-    // Improved source maps for production debugging
-    sourcemap: 'hidden',
-    // Reduce JS parsing time with es2020 target
-    target: 'es2020',
+    // Warning thresholds (helps identify bloated chunks)
+    chunkSizeWarningLimit: 600,
+    // Report compression savings
+    reportCompressedSize: true,
+    // Inline small static assets
+    assetsInlineLimit: 8192,
   },
-  // CSS optimization
+  // Optimize CSS
   css: {
-    postcss: {
-      plugins: [
-        {
-          postcssPlugin: 'inline-critical-css',
-          Once(root) {
-            // Mark critical CSS with special comment for inline extraction
-            root.walkComments(comment => {
-              if (comment.text.includes('critical')) {
-                comment.root().insertBefore(comment.prev(), comment);
-              }
-            });
-          },
-        },
-      ],
-    },
+    minify: true,
   },
 })
+

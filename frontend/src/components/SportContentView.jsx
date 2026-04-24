@@ -27,6 +27,19 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
     const [isLoading, setIsLoading] = useState(true);
     const loadGenRef = React.useRef(0);
     const rawMatches = useMatches({ status, scopeKey: `${sportId || 'all'}:${filter || ''}` });
+    const degradedSummary = React.useMemo(() => {
+        const all = Array.isArray(rawMatches) ? rawMatches : [];
+        const blocked = all.filter((m) => m?.isBettable === false);
+        const staleBlocked = blocked.filter((m) => {
+            const reason = String(m?.bettingBlockedReason || '').toLowerCase();
+            return m?.oddsFeedStale === true || reason.includes('stale') || reason.includes('suspend');
+        });
+        return {
+            blockedCount: blocked.length,
+            staleBlockedCount: staleBlocked.length,
+            sampleReason: String(staleBlocked[0]?.bettingBlockedReason || blocked[0]?.bettingBlockedReason || '').trim(),
+        };
+    }, [rawMatches]);
 
     // Clear stale content immediately when sportId changes
     React.useEffect(() => {

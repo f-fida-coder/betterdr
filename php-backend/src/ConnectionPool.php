@@ -14,11 +14,16 @@ final class ConnectionPool
     private static ?self $instance = null;
     private ?PDO $connection = null;
     private int $activeConnections = 0;
-    private const MAX_CONNECTIONS = 100;  // Phase 13: Increased from 50 to 100
+    private int $maxConnections;
     private const WAIT_TIMEOUT_MS = 5000;
     private const RETRY_ATTEMPTS = 3;
+
+    private function __construct()
+    {
+        $this->maxConnections = max(10, min(500, (int) Env::get('MAX_DB_CONNECTIONS', '100')));
+    }
     
-    private function __construct() {}
+
 
     public static function getInstance(): self
     {
@@ -54,14 +59,14 @@ final class ConnectionPool
                 }
 
                 // Check if pool is at capacity
-                if ($this->activeConnections >= self::MAX_CONNECTIONS) {
+                if ($this->activeConnections >= $this->maxConnections) {
                     if ($attempt < self::RETRY_ATTEMPTS - 1) {
                         // Wait and retry
                         usleep(100000); // 100ms wait
                         continue;
                     }
                     throw new PDOException(
-                        'Connection pool exhausted: ' . self::MAX_CONNECTIONS . ' active connections'
+                        'Connection pool exhausted: ' . $this->maxConnections . ' active connections'
                     );
                 }
 
@@ -104,9 +109,9 @@ final class ConnectionPool
     {
         return [
             'active_connections' => $this->activeConnections,
-            'max_connections' => self::MAX_CONNECTIONS,
-            'available_capacity' => self::MAX_CONNECTIONS - $this->activeConnections,
-            'pool_utilization' => round(($this->activeConnections / self::MAX_CONNECTIONS) * 100, 2),
+            'max_connections' => $this->maxConnections,
+            'available_capacity' => $this->maxConnections - $this->activeConnections,
+            'pool_utilization' => round(($this->activeConnections / max(1, $this->maxConnections)) * 100, 2),
             'has_connection' => $this->connection !== null,
         ];
     }

@@ -22,6 +22,7 @@ require_once __DIR__ . '/../src/SportsbookBetSupport.php';
 require_once __DIR__ . '/../src/BetSettlementService.php';
 require_once __DIR__ . '/../src/OddsMarketCatalog.php';
 require_once __DIR__ . '/../src/OddsSyncService.php';
+require_once __DIR__ . '/../src/RealtimeEventBus.php';
 
 $projectRoot = dirname(__DIR__, 2);
 $phpBackendDir = dirname(__DIR__);

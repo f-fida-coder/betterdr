@@ -75,7 +75,7 @@ final class AuthController
     private function registerUser(): void
     {
         try {
-            if (RateLimiter::enforce($this->db, 'register', 3, 60)) {
+            if (RateLimiter::fromEnv($this->db, 'register')) {
                 return;
             }
 
@@ -155,7 +155,7 @@ final class AuthController
     private function loginUser(): void
     {
         try {
-            if (RateLimiter::enforce($this->db, 'login', 3, 60)) {
+            if (RateLimiter::fromEnv($this->db, 'login')) {
                 return;
             }
 
@@ -239,7 +239,7 @@ final class AuthController
     private function loginAdmin(): void
     {
         try {
-            if (RateLimiter::enforce($this->db, 'admin_login', 3, 60)) {
+            if (RateLimiter::fromEnv($this->db, 'admin_login')) {
                 return;
             }
 
@@ -305,7 +305,7 @@ final class AuthController
     private function loginAgent(): void
     {
         try {
-            if (RateLimiter::enforce($this->db, 'agent_login', 3, 60)) {
+            if (RateLimiter::fromEnv($this->db, 'agent_login')) {
                 return;
             }
 
@@ -611,6 +611,19 @@ final class AuthController
         if ($user === null) {
             Response::json(['message' => 'Not authorized, user not found'], 403);
             return null;
+        }
+
+        // Token revocation: reject tokens issued before the last password change.
+        // When an admin force-resets a user's password, passwordChangedAt is updated
+        // so any previously issued tokens are immediately invalidated.
+        $passwordChangedAt = $user['passwordChangedAt'] ?? null;
+        if ($passwordChangedAt !== null && $passwordChangedAt !== '') {
+            $changedTs = is_numeric($passwordChangedAt) ? (int) $passwordChangedAt : strtotime((string) $passwordChangedAt);
+            $issuedAt = (int) ($decoded['iat'] ?? 0);
+            if ($changedTs !== false && $changedTs > 0 && $issuedAt > 0 && $issuedAt < $changedTs) {
+                Response::json(['message' => 'Session expired due to a password change. Please log in again.'], 401);
+                return null;
+            }
         }
 
         if (($user['status'] ?? '') === 'suspended') {

@@ -28,6 +28,9 @@ import {
   optimizeImageLoading,
   addResourceHints,
 } from './utils/performanceOptimization';
+import useWebSocket from './hooks/useWebSocket';
+import useNetworkStatus from './hooks/useNetworkStatus';
+import NetworkStatusBanner from './components/NetworkStatusBanner';
 import './index.css';
 import './dashboard.css';
 
@@ -56,6 +59,7 @@ function AppInner() {
   const navigate = useNavigate();
   const location = useLocation();
   const { showToast } = useToast();
+  const { isOnline } = useNetworkStatus();
   const hasRedirectedRole = useRef(false);
   // Token lives in React memory only — never written to localStorage (XSS protection).
   // On page load we restore it from the httpOnly cookie via getSession().
@@ -133,6 +137,52 @@ function AppInner() {
   const [user, setUser] = useState(null); // Store full user object
   const [oddsFormat, setOddsFormat] = useState(readStoredOddsFormat());
   const [isUpdatingOddsFormat, setIsUpdatingOddsFormat] = useState(false);
+  const lastRealtimeRefreshRef = useRef(0);
+  const [lastRealtimeEventAt, setLastRealtimeEventAt] = useState(null);
+
+  const handleRealtimeMessage = useCallback((message) => {
+    if (!message || message.type !== 'update') {
+      return;
+    }
+
+    const channel = String(message.channel || '').trim();
+    if (channel !== 'odds:sync' && channel !== 'odds:sync:error') {
+      return;
+    }
+
+    setLastRealtimeEventAt(Date.now());
+
+    const now = Date.now();
+    if ((now - lastRealtimeRefreshRef.current) < 1200) {
+      return;
+    }
+    lastRealtimeRefreshRef.current = now;
+
+    if (typeof window !== 'undefined') {
+      const requestId = `realtime-${now}`;
+      window.dispatchEvent(new CustomEvent('matches:refresh', {
+        detail: {
+          reason: 'realtime',
+          channel,
+          requestId,
+        },
+      }));
+
+      // Scoreboard has its own fetch path; keep it aligned with live updates.
+      window.dispatchEvent(new CustomEvent('scoreboard:refresh', {
+        detail: {
+          reason: 'realtime',
+          channel,
+        },
+      }));
+    }
+  }, []);
+
+  const { connectionState: realtimeConnectionState, isConnected: realtimeConnected } = useWebSocket({
+    channel: '*',
+    onMessage: handleRealtimeMessage,
+    enabled: isLoggedIn,
+  });
 
   const seedSessionState = useCallback(({ token: nextToken = '', user: nextUser = null, role: nextRole = '' } = {}) => {
     const safeToken = String(nextToken || '').trim();
@@ -499,6 +549,7 @@ function AppInner() {
 
   return (
     <OddsFormatProvider value={oddsFormatContextValue}>
+      <NetworkStatusBanner isOnline={isOnline} />
       <div className="app-container">
       {/* Public landing renders immediately; session restore happens in the background. */}
       {!isLoggedIn ? (
@@ -508,6 +559,8 @@ function AppInner() {
           <UserDashboardShell
             user={currentUser}
             token={token}
+            realtimeConnectionState={realtimeConnected ? 'open' : realtimeConnectionState}
+            lastRealtimeEventAt={lastRealtimeEventAt}
             dashboardView={dashboardView}
             selectedSports={selectedSports}
             betMode={betMode}

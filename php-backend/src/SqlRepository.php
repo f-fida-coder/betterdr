@@ -9,12 +9,15 @@ final class SqlRepository
     private string $tablePrefix;
     private ConnectionPool $connectionPool;
     private CircuitBreaker $circuitBreaker;
-    /** @var array<string, bool> */
+    /** @var array<string, array{value: bool, timestamp: int}> */
     private static array $columnExistsCache = [];
-    /** @var array<string, bool> */
+    /** @var array<string, array{value: bool, timestamp: int}> */
     private static array $indexExistsCache = [];
-    /** @var array<string, bool> */
+    /** @var array<string, array{value: bool, timestamp: int}> */
     private static array $tableEnsuredCache = [];
+    
+    // Phase 2A: Schema metadata cache TTL (1 hour)
+    private const SCHEMA_CACHE_TTL = 3600;
 
     /** @param string $_dsn Unused legacy parameter (kept for call-site compatibility) */
     public function __construct(string $_dsn, string $dbName)
@@ -397,9 +400,93 @@ final class SqlRepository
 
     public function tableExists(string $table): bool
     {
-        $stmt = $this->pdo->prepare("SELECT 1 FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = :table LIMIT 1");
-        $stmt->execute([':table' => $table]);
-        return (bool) $stmt->fetchColumn();
+        $cacheKey = "table_exists_{$table}";
+        
+        // Tier 1: In-process cache with TTL check
+        if (isset(self::$tableEnsuredCache[$cacheKey])) {
+            $cached = self::$tableEnsuredCache[$cacheKey];
+            if (time() - $cached['timestamp'] < self::SCHEMA_CACHE_TTL) {
+                return $cached['value'];
+            }
+            unset(self::$tableEnsuredCache[$cacheKey]);
+        }
+        
+        // Tier 2: APCu (if available)
+        if (extension_loaded('apcu')) {
+            $apcKey = "schema_tbl_{$cacheKey}";
+            $data = apcu_fetch($apcKey);
+            if ($data !== false) {
+                self::$tableEnsuredCache[$cacheKey] = [
+                    'value' => $data,
+                    'timestamp' => time()
+                ];
+                return $data;
+            }
+        }
+        
+        // Tier 3: Information schema query
+        try {
+            $stmt = $this->pdo->prepare(
+                "SELECT 1 FROM information_schema.tables 
+                 WHERE table_schema = DATABASE() AND table_name = :table LIMIT 1"
+            );
+            $stmt->execute([':table' => $table]);
+            $exists = (bool) $stmt->fetchColumn();
+            
+            // Store in both caches
+            self::$tableEnsuredCache[$cacheKey] = [
+                'value' => $exists,
+                'timestamp' => time()
+            ];
+            if (extension_loaded('apcu')) {
+                apcu_store("schema_tbl_{$cacheKey}", $exists, self::SCHEMA_CACHE_TTL);
+            }
+            
+            return $exists;
+        } catch (Exception $e) {
+            error_log("Error checking table existence: " . $e->getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Phase 2A: Invalidate schema metadata cache for a table.
+     * Call after ALTER TABLE operations to clear cached column/index checks.
+     */
+    public function invalidateSchemaCacheForTable(string $table): void
+    {
+        // Invalidate in-process cache
+        $toDelete = [];
+        foreach (array_keys(self::$columnExistsCache) as $key) {
+            if (str_starts_with($key, $table . '.')) {
+                $toDelete[] = $key;
+            }
+        }
+        foreach ($toDelete as $key) {
+            unset(self::$columnExistsCache[$key]);
+        }
+        
+        $toDelete = [];
+        foreach (array_keys(self::$indexExistsCache) as $key) {
+            if (str_starts_with($key, $table . '.')) {
+                $toDelete[] = $key;
+            }
+        }
+        foreach ($toDelete as $key) {
+            unset(self::$indexExistsCache[$key]);
+        }
+        
+        $cacheKey = "table_exists_{$table}";
+        unset(self::$tableEnsuredCache[$cacheKey]);
+        unset(self::$tableEnsuredCache[$table]);
+        
+        // Invalidate in APCu
+        if (extension_loaded('apcu')) {
+            apcu_delete("schema_tbl_table_exists_{$table}");
+            apcu_delete("schema_tbl_{$cacheKey}");
+            // Delete pattern for columns and indexes is not available in APCu,
+            // so we rely on TTL expiration for those
+        }
     }
 
     private function tableName(string $collection): string
@@ -418,8 +505,13 @@ final class SqlRepository
 
     private function ensureTable(string $table): void
     {
+        // Check cache with TTL (Phase 2A: Schema metadata caching)
         if (isset(self::$tableEnsuredCache[$table])) {
-            return;
+            $cached = self::$tableEnsuredCache[$table];
+            if (time() - $cached['timestamp'] < self::SCHEMA_CACHE_TTL) {
+                return;
+            }
+            unset(self::$tableEnsuredCache[$table]);
         }
 
         $sql = "CREATE TABLE IF NOT EXISTS `{$table}` (
@@ -439,7 +531,10 @@ KEY `idx_updated_at` (`updated_at`)
         }, 5000); // Phase 13: 5 second timeout for table creation (reduced from 10s)
 
         $this->ensureSpecializedSchema($table);
-        self::$tableEnsuredCache[$table] = true;
+        self::$tableEnsuredCache[$table] = [
+            'value' => true,
+            'timestamp' => time()
+        ];
     }
 
     private function readCollection(string $collection): array
@@ -478,7 +573,8 @@ KEY `idx_updated_at` (`updated_at`)
         }
 
         $limitSql = $this->compileSqlLimit($options);
-        $sql = "SELECT `id`, `doc` FROM `{$table}`{$compiledWhere['sql']}{$orderSql}{$limitSql}";
+        $selectDocSql = $this->compileSqlProjectedDoc($collection, $options['projection'] ?? null);
+        $sql = "SELECT `id`, {$selectDocSql} AS `doc` FROM `{$table}`{$compiledWhere['sql']}{$orderSql}{$limitSql}";
 
         // Execute query with circuit breaker protection
         $rows = $this->circuitBreaker->execute("database:query:{$collection}", function() use ($sql, $compiledWhere) {
@@ -503,6 +599,42 @@ KEY `idx_updated_at` (`updated_at`)
         }
 
         return $docs;
+    }
+
+    private function compileSqlProjectedDoc(string $collection, mixed $projectionRaw): string
+    {
+        if (!is_array($projectionRaw) || $projectionRaw === [] || $collection !== 'matches') {
+            return '`doc`';
+        }
+
+        $fields = [];
+        foreach ($projectionRaw as $field => $enabled) {
+            if ((int) $enabled !== 1) {
+                continue;
+            }
+            $name = (string) $field;
+            if ($name === 'id') {
+                continue;
+            }
+
+            // Keep SQL projection strict and predictable: top-level safe keys only.
+            if (!preg_match('/^[A-Za-z0-9_]+$/', $name)) {
+                return '`doc`';
+            }
+            $fields[] = $name;
+        }
+
+        if ($fields === []) {
+            return '`doc`';
+        }
+
+        $pairs = [];
+        foreach ($fields as $fieldName) {
+            $pairs[] = "'" . $fieldName . "'";
+            $pairs[] = "JSON_EXTRACT(`doc`, '$." . $fieldName . "')";
+        }
+
+        return 'JSON_OBJECT(' . implode(', ', $pairs) . ')';
     }
 
     private function countDocumentsViaSql(string $collection, array $filter): ?int
@@ -1169,30 +1301,103 @@ KEY `idx_updated_at` (`updated_at`)
     private function columnExists(string $table, string $column): bool
     {
         $cacheKey = $table . '.' . $column;
-        if (array_key_exists($cacheKey, self::$columnExistsCache)) {
-            return self::$columnExistsCache[$cacheKey];
+        
+        // Tier 1: In-process cache with TTL check
+        if (isset(self::$columnExistsCache[$cacheKey])) {
+            $cached = self::$columnExistsCache[$cacheKey];
+            if (time() - $cached['timestamp'] < self::SCHEMA_CACHE_TTL) {
+                return $cached['value'];
+            }
+            unset(self::$columnExistsCache[$cacheKey]);
         }
-
-        $stmt = $this->pdo->prepare("SELECT 1 FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = :table AND column_name = :column LIMIT 1");
-        $stmt->execute([':table' => $table, ':column' => $column]);
-        $exists = (bool) $stmt->fetchColumn();
-        self::$columnExistsCache[$cacheKey] = $exists;
-
-        return $exists;
+        
+        // Tier 2: APCu (if available)
+        if (extension_loaded('apcu')) {
+            $apcKey = "schema_col_{$cacheKey}";
+            $data = apcu_fetch($apcKey);
+            if ($data !== false) {
+                self::$columnExistsCache[$cacheKey] = [
+                    'value' => $data,
+                    'timestamp' => time()
+                ];
+                return $data;
+            }
+        }
+        
+        // Tier 3: Information schema query
+        try {
+            $stmt = $this->pdo->prepare(
+                "SELECT 1 FROM information_schema.columns 
+                 WHERE table_schema = DATABASE() AND table_name = :table AND column_name = :column LIMIT 1"
+            );
+            $stmt->execute([':table' => $table, ':column' => $column]);
+            $exists = (bool) $stmt->fetchColumn();
+            
+            // Store in both caches
+            self::$columnExistsCache[$cacheKey] = [
+                'value' => $exists,
+                'timestamp' => time()
+            ];
+            if (extension_loaded('apcu')) {
+                apcu_store("schema_col_{$cacheKey}", $exists, self::SCHEMA_CACHE_TTL);
+            }
+            
+            return $exists;
+        } catch (Exception $e) {
+            error_log("Error checking column existence: " . $e->getMessage());
+            return false;
+        }
     }
 
     private function indexExists(string $table, string $index): bool
     {
         $cacheKey = $table . '.' . $index;
-        if (array_key_exists($cacheKey, self::$indexExistsCache)) {
-            return self::$indexExistsCache[$cacheKey];
+        
+        // Tier 1: In-process cache with TTL check
+        if (isset(self::$indexExistsCache[$cacheKey])) {
+            $cached = self::$indexExistsCache[$cacheKey];
+            if (time() - $cached['timestamp'] < self::SCHEMA_CACHE_TTL) {
+                return $cached['value'];
+            }
+            unset(self::$indexExistsCache[$cacheKey]);
         }
-
-        $stmt = $this->pdo->prepare("SELECT 1 FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = :table AND index_name = :idx LIMIT 1");
-        $stmt->execute([':table' => $table, ':idx' => $index]);
-        $exists = (bool) $stmt->fetchColumn();
-        self::$indexExistsCache[$cacheKey] = $exists;
-        return $exists;
+        
+        // Tier 2: APCu (if available)
+        if (extension_loaded('apcu')) {
+            $apcKey = "schema_idx_{$cacheKey}";
+            $data = apcu_fetch($apcKey);
+            if ($data !== false) {
+                self::$indexExistsCache[$cacheKey] = [
+                    'value' => $data,
+                    'timestamp' => time()
+                ];
+                return $data;
+            }
+        }
+        
+        // Tier 3: Information schema query
+        try {
+            $stmt = $this->pdo->prepare(
+                "SELECT 1 FROM information_schema.statistics 
+                 WHERE table_schema = DATABASE() AND table_name = :table AND index_name = :idx LIMIT 1"
+            );
+            $stmt->execute([':table' => $table, ':idx' => $index]);
+            $exists = (bool) $stmt->fetchColumn();
+            
+            // Store in both caches
+            self::$indexExistsCache[$cacheKey] = [
+                'value' => $exists,
+                'timestamp' => time()
+            ];
+            if (extension_loaded('apcu')) {
+                apcu_store("schema_idx_{$cacheKey}", $exists, self::SCHEMA_CACHE_TTL);
+            }
+            
+            return $exists;
+        } catch (Exception $e) {
+            error_log("Error checking index existence: " . $e->getMessage());
+            return false;
+        }
     }
 
     private function ensureSpecializedSchema(string $table): void

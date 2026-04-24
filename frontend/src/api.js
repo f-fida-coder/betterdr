@@ -584,6 +584,9 @@ const buildMatchesParams = (status = '', options = {}) => {
     if (status) {
         params.status = status;
     }
+    if (options?.payload && ['core', 'full'].includes(String(options.payload).toLowerCase())) {
+        params.payload = String(options.payload).toLowerCase();
+    }
     if (options?.trigger) {
         params.trigger = String(options.trigger);
     }
@@ -596,6 +599,15 @@ const buildMatchesParams = (status = '', options = {}) => {
 export const getMatches = async (status = '', options = {}) => {
     const response = await fetch(buildApiUrl('/matches', buildMatchesParams(status, options)), { headers: getHeaders() });
     if (!response.ok) throw new Error('Failed to fetch matches');
+    // Backend signals a background odds sync on manual refresh: the response
+    // body is the pre-sync snapshot; fresh odds land a few seconds later.
+    // Surface that to the caller via a one-shot window event so useMatches
+    // can schedule a silent refetch without having to parse headers itself.
+    if (options?.refresh && response.headers?.get?.('X-Sportsbook-Sync-Deferred') === 'true' && typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('matches:sync-deferred', {
+            detail: { status: String(status || '') },
+        }));
+    }
     return response.json();
 };
 
@@ -995,6 +1007,40 @@ export const getAdminEntityCatalog = async (token) => {
     return response.json();
 };
 
+export const getCostMetrics = async ({ day = '', days = 7 } = {}) => {
+    const query = {};
+    if (day && String(day).trim() !== '') {
+        query.day = String(day).trim();
+    }
+    if (Number.isFinite(days)) {
+        query.days = String(Math.max(1, Math.min(30, Number(days))));
+    }
+    const response = await fetch(buildApiUrl('/_php/costs', query), {
+        headers: {
+            'Content-Type': 'application/json',
+            'Bypass-Tunnel-Remainder': 'true',
+        }
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || 'Failed to fetch cost metrics');
+    }
+    return response.json();
+};
+
+export const getGatewayHealth = async () => {
+    const response = await fetch(buildApiUrl('/_php/health'), {
+        headers: {
+            'Content-Type': 'application/json',
+            'Bypass-Tunnel-Remainder': 'true',
+        }
+    });
+    if (!response.ok) {
+        throw new Error('Failed to fetch gateway health');
+    }
+    return response.json();
+};
+
 export const getWeeklyFigures = async (period, token) => {
     const safePeriod = encodeURIComponent(String(period || 'week'));
     const response = await fetch(buildApiUrl('/admin/weekly-figures', { period: safePeriod }), {
@@ -1361,6 +1407,57 @@ export const refreshOdds = async (token) => {
     if (!response.ok) {
         const error = await response.json().catch(() => ({}));
         throw new Error(error.message || 'Failed to refresh odds');
+    }
+    return response.json();
+};
+
+export const getOddsCircuitBreaker = async (token) => {
+    const response = await fetch(buildApiUrl('/admin/odds-circuit-breaker'), {
+        headers: getHeaders(token)
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || 'Failed to fetch circuit breaker state');
+    }
+    return response.json();
+};
+
+export const openOddsCircuitBreaker = async ({ token, cooldownSeconds = 180, reason = 'manual_admin_open' } = {}) => {
+    const response = await fetch(buildApiUrl('/admin/odds-circuit-breaker/open'), {
+        method: 'POST',
+        headers: getHeaders(token),
+        body: JSON.stringify({ cooldownSeconds, reason })
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || 'Failed to open circuit breaker');
+    }
+    return response.json();
+};
+
+export const resetOddsCircuitBreaker = async ({ token, reason = 'manual_admin_reset' } = {}) => {
+    const response = await fetch(buildApiUrl('/admin/odds-circuit-breaker/reset'), {
+        method: 'POST',
+        headers: getHeaders(token),
+        body: JSON.stringify({ reason })
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || 'Failed to reset circuit breaker');
+    }
+    return response.json();
+};
+
+export const getAdminAuditLog = async ({ token, page = 1, limit = 50, action = '', actorId = '' } = {}) => {
+    const params = new URLSearchParams({ page, limit });
+    if (action) params.set('action', action);
+    if (actorId) params.set('actorId', actorId);
+    const response = await fetch(buildApiUrl(`/admin/audit-log?${params.toString()}`), {
+        headers: getHeaders(token)
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || 'Failed to fetch audit log');
     }
     return response.json();
 };

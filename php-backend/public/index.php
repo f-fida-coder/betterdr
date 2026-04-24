@@ -40,6 +40,9 @@ require_once __DIR__ . '/../src/AdminEntityCatalog.php';
 require_once __DIR__ . '/../src/DebugController.php';
 require_once __DIR__ . '/../src/RateLimiter.php';
 require_once __DIR__ . '/../src/Response.php';
+require_once __DIR__ . '/../src/RuntimeMetrics.php';
+require_once __DIR__ . '/../src/RealtimeEventBus.php';
+require_once __DIR__ . '/../src/CostMonitor.php';
 
 $projectRoot = dirname(__DIR__, 2);
 $phpBackendDir = dirname(__DIR__);
@@ -54,15 +57,48 @@ header('X-Request-Id: ' . Logger::getRequestId());
 register_shutdown_function(static function () use (&$_requestStartTime): void {
     $status = http_response_code();
     $status = is_int($status) ? $status : 200;
+    $method = (string) ($_SERVER['REQUEST_METHOD'] ?? 'GET');
+    $path = Http::path();
+    $metricsPath = $path;
+    if ($path === '/api/matches') {
+        $payloadMode = strtolower(trim((string) ($_GET['payload'] ?? '')));
+        if ($payloadMode === 'core' || $payloadMode === 'full') {
+            $metricsPath .= ';payload=' . $payloadMode;
+        }
+    }
+    $duration = microtime(true) - $_requestStartTime;
+    $headers = function_exists('headers_list') ? headers_list() : [];
+
+    $cacheHit = false;
+    $cacheMiss = false;
+    foreach ($headers as $headerLine) {
+        $line = strtolower((string) $headerLine);
+        if (!str_starts_with($line, 'x-cache:')) {
+            continue;
+        }
+        if (str_contains($line, 'hit')) {
+            $cacheHit = true;
+        }
+        if (str_contains($line, 'miss')) {
+            $cacheMiss = true;
+        }
+    }
+
+    RuntimeMetrics::recordRequest($method, $metricsPath, $status, $duration);
+    CostMonitor::recordRequest($method, $metricsPath, $status, $duration, [
+        'cacheHit' => $cacheHit,
+        'cacheMiss' => $cacheMiss,
+    ]);
+
     // Skip OPTIONS preflights from access log to reduce noise
-    if (($_SERVER['REQUEST_METHOD'] ?? '') === 'OPTIONS') {
+    if ($method === 'OPTIONS') {
         return;
     }
     Logger::request(
-        (string) ($_SERVER['REQUEST_METHOD'] ?? 'GET'),
-        Http::path(),
+        $method,
+        $path,
         $status,
-        microtime(true) - $_requestStartTime
+        $duration
     );
 });
 // ─────────────────────────────────────────────────────────────────────────────
@@ -268,7 +304,43 @@ if ($dbName === '') {
 
 $authNativeEnabled = SqlRepository::isAvailable();
 
+$resolveCostAlertThresholds = static function () use ($authNativeEnabled, $dbUri, $dbName): array {
+    if (!$authNativeEnabled) {
+        return [];
+    }
+    try {
+        $repo = new SqlRepository($dbUri, $dbName);
+        $settings = $repo->findOne('platformsettings', []);
+        if (!is_array($settings)) {
+            return [];
+        }
+        $keys = [
+            'alertCostDailySpikePercent',
+            'alertCostAboveAvgMultiplier',
+            'alertCostDailyMaxDollars',
+            'alertMinRequestsForCostAlert',
+        ];
+        $result = [];
+        foreach ($keys as $key) {
+            if (array_key_exists($key, $settings) && is_numeric($settings[$key])) {
+                $result[$key] = $settings[$key] + 0;
+            }
+        }
+        return $result;
+    } catch (Throwable $e) {
+        return [];
+    }
+};
+
 if ($uriPath === '/api/_php/health') {
+    $runtimeMetrics = RuntimeMetrics::snapshot();
+    $thresholds = [
+        'apiP95Ms' => (int) Env::get('ALERT_API_P95_MS', '700'),
+        'api5xxRatePercent' => (float) Env::get('ALERT_API_5XX_RATE_PERCENT', '2'),
+        'oddsSyncAgeSeconds' => (int) Env::get('ALERT_ODDS_SYNC_AGE_SECONDS', '300'),
+        'workerFailRatePercent' => (float) Env::get('ALERT_WORKER_FAIL_RATE_PERCENT', '40'),
+    ];
+
     $sportsbookHealth = null;
     if ($authNativeEnabled) {
         try {
@@ -278,6 +350,78 @@ if ($uriPath === '/api/_php/health') {
             $sportsbookHealth = ['error' => $e->getMessage()];
         }
     }
+
+    $alerts = [];
+    $apiP95 = (int) ($runtimeMetrics['last5m']['p95DurationMs'] ?? 0);
+    if ($apiP95 > $thresholds['apiP95Ms']) {
+        $alerts[] = [
+            'code' => 'api_p95_high',
+            'severity' => 'warning',
+            'message' => 'API p95 latency over threshold',
+            'value' => $apiP95,
+            'threshold' => $thresholds['apiP95Ms'],
+        ];
+    }
+
+    $api5xxRate = (float) ($runtimeMetrics['last5m']['error5xxRatePercent'] ?? 0.0);
+    if ($api5xxRate > $thresholds['api5xxRatePercent']) {
+        $alerts[] = [
+            'code' => 'api_5xx_rate_high',
+            'severity' => 'critical',
+            'message' => 'API 5xx rate over threshold',
+            'value' => $api5xxRate,
+            'threshold' => $thresholds['api5xxRatePercent'],
+        ];
+    }
+
+    $syncAge = (int) (($sportsbookHealth['oddsSync']['syncAgeSeconds'] ?? 0) ?: 0);
+    if ($syncAge > $thresholds['oddsSyncAgeSeconds']) {
+        $alerts[] = [
+            'code' => 'odds_sync_stale',
+            'severity' => 'critical',
+            'message' => 'Odds sync age over threshold',
+            'value' => $syncAge,
+            'threshold' => $thresholds['oddsSyncAgeSeconds'],
+        ];
+    }
+
+    $lastResult = is_array($sportsbookHealth['oddsSync']['lastResult'] ?? null)
+        ? $sportsbookHealth['oddsSync']['lastResult']
+        : [];
+    $failedCalls = (int) ($lastResult['failedCalls'] ?? 0);
+    $apiCalls = max(1, (int) ($lastResult['apiCalls'] ?? 0));
+    $workerFailRate = round(($failedCalls / $apiCalls) * 100, 2);
+    if ($workerFailRate > $thresholds['workerFailRatePercent']) {
+        $alerts[] = [
+            'code' => 'worker_fail_rate_high',
+            'severity' => 'warning',
+            'message' => 'Worker upstream fail ratio over threshold',
+            'value' => $workerFailRate,
+            'threshold' => $thresholds['workerFailRatePercent'],
+        ];
+    }
+
+    $circuitState = (string) ($sportsbookHealth['oddsSync']['circuitBreaker']['state'] ?? '');
+    if ($circuitState === 'open') {
+        $alerts[] = [
+            'code' => 'odds_upstream_circuit_open',
+            'severity' => 'critical',
+            'message' => 'Odds upstream circuit breaker is open',
+            'value' => $sportsbookHealth['oddsSync']['circuitBreaker'] ?? new stdClass(),
+            'threshold' => 'closed',
+        ];
+    }
+
+    $costThresholds = $resolveCostAlertThresholds();
+    $costSummary = CostMonitor::summary(null, 7, $costThresholds);
+    $costAlerts = is_array($costSummary['alerts'] ?? null) ? $costSummary['alerts'] : [];
+    foreach ($costAlerts as $costAlert) {
+        if (!is_array($costAlert)) {
+            continue;
+        }
+        $alerts[] = $costAlert;
+    }
+
     Response::json([
         'ok' => true,
         'mode' => 'core-php-gateway',
@@ -285,8 +429,119 @@ if ($uriPath === '/api/_php/health') {
         'databaseName' => $dbName,
         'databaseEngine' => 'mysql',
         'sportsbook' => $sportsbookHealth,
+        'observability' => [
+            'runtime' => [
+                'last5m' => $runtimeMetrics['last5m'] ?? new stdClass(),
+                'last15m' => $runtimeMetrics['last15m'] ?? new stdClass(),
+                'totals' => $runtimeMetrics['totals'] ?? new stdClass(),
+                'matchesPayloadModes' => $runtimeMetrics['matchesPayloadModes'] ?? new stdClass(),
+            ],
+            'thresholds' => $thresholds,
+            'alerts' => $alerts,
+        ],
         'time' => gmdate(DATE_ATOM),
-    ]);
+    ], 200, 'no-store');
+    exit;
+}
+
+if ($uriPath === '/api/_php/metrics') {
+    $metricsKey = (string) Env::get('METRICS_API_KEY', '');
+    $presentedKey = (string) ($_SERVER['HTTP_X_METRICS_KEY'] ?? ($_GET['key'] ?? ''));
+    $isProd = strtolower((string) Env::get('APP_ENV', 'production')) === 'production';
+
+    if ($isProd && $metricsKey !== '' && !hash_equals($metricsKey, $presentedKey)) {
+        Response::json(['message' => 'Forbidden'], 403, 'no-store');
+        exit;
+    }
+
+    Response::json([
+        'ok' => true,
+        'metrics' => RuntimeMetrics::snapshot(),
+        'time' => gmdate(DATE_ATOM),
+    ], 200, 'no-store');
+    exit;
+}
+
+if ($uriPath === '/api/_php/costs') {
+    $metricsKey = (string) Env::get('METRICS_API_KEY', '');
+    $presentedKey = (string) ($_SERVER['HTTP_X_METRICS_KEY'] ?? ($_GET['key'] ?? ''));
+    $isProd = strtolower((string) Env::get('APP_ENV', 'production')) === 'production';
+
+    if ($isProd && $metricsKey !== '' && !hash_equals($metricsKey, $presentedKey)) {
+        Response::json(['message' => 'Forbidden'], 403, 'no-store');
+        exit;
+    }
+
+    $day = isset($_GET['day']) ? (string) $_GET['day'] : null;
+    $days = isset($_GET['days']) ? (int) $_GET['days'] : 7;
+    $costThresholds = $resolveCostAlertThresholds();
+    Response::json([
+        'ok' => true,
+        'costs' => CostMonitor::summary($day, $days, $costThresholds),
+        'time' => gmdate(DATE_ATOM),
+    ], 200, 'no-store');
+    exit;
+}
+
+if ($uriPath === '/api/realtime/health') {
+    Response::json([
+        'ok' => true,
+        'realtime' => [
+            'enabled' => strtolower((string) Env::get('WS_ENABLED', 'true')) === 'true',
+            'host' => (string) Env::get('WS_HOST', '0.0.0.0'),
+            'port' => (int) Env::get('WS_PORT', '5001'),
+            'eventLogPath' => RealtimeEventBus::eventLogPath(),
+        ],
+        'time' => gmdate(DATE_ATOM),
+    ], 200, 'no-store');
+    exit;
+}
+
+if ($uriPath === '/api/realtime/publish' && $method === 'POST') {
+    $isEnabled = strtolower((string) Env::get('WS_ENABLED', 'true')) === 'true';
+    if (!$isEnabled) {
+        Response::json(['message' => 'Realtime service disabled'], 503, 'no-store');
+        exit;
+    }
+
+    $rawBody = file_get_contents('php://input');
+    $data = is_string($rawBody) && $rawBody !== '' ? json_decode($rawBody, true) : null;
+    if (!is_array($data)) {
+        Response::json(['message' => 'Invalid JSON body'], 400, 'no-store');
+        exit;
+    }
+
+    $channel = trim((string) ($data['channel'] ?? ''));
+    if ($channel === '') {
+        Response::json(['message' => 'channel is required'], 422, 'no-store');
+        exit;
+    }
+
+    $payload = is_array($data['data'] ?? null) ? $data['data'] : ['value' => $data['data'] ?? null];
+
+    $publishKey = (string) Env::get('WS_PUBLISH_KEY', '');
+    $presentedKey = (string) ($_SERVER['HTTP_X_REALTIME_KEY'] ?? '');
+    $isDev = strtolower((string) Env::get('APP_ENV', 'production')) === 'development';
+    if ($publishKey !== '' && !hash_equals($publishKey, $presentedKey)) {
+        Response::json(['message' => 'Forbidden'], 403, 'no-store');
+        exit;
+    }
+    if ($publishKey === '' && !$isDev) {
+        Response::json(['message' => 'WS_PUBLISH_KEY must be set in production'], 500, 'no-store');
+        exit;
+    }
+
+    $ok = RealtimeEventBus::publish($channel, $payload);
+    if (!$ok) {
+        Response::json(['message' => 'Failed to enqueue realtime message'], 500, 'no-store');
+        exit;
+    }
+
+    Response::json([
+        'ok' => true,
+        'channel' => $channel,
+        'queuedAt' => gmdate(DATE_ATOM),
+    ], 202, 'no-store');
     exit;
 }
 
@@ -363,6 +618,31 @@ if (
                 || $paymentsController->handle($method, $uriPath)
                 || $adminCoreController->handle($method, $uriPath)
                 || $debugController->handle($method, $uriPath);
+
+            // Probabilistic query-cache warm-up: on ~2% of requests (non-warmup, non-admin)
+            // trigger a background warm-up after the response is sent so the next cold-start
+            // caller hits cache instead of the database.
+            if ($handled && !str_starts_with($uriPath, '/api/admin') && random_int(1, 50) === 1) {
+                register_shutdown_function(static function () use ($repo): void {
+                    try {
+                        if (function_exists('fastcgi_finish_request')) {
+                            fastcgi_finish_request(); // flush response to client first
+                        }
+                        // Re-fill the matches query cache for the most common sports
+                        $sports = $repo->findMany('sports', ['isActive' => true], ['limit' => 20, 'projection' => ['key' => 1]]);
+                        foreach ($sports as $sport) {
+                            $sportKey = (string) ($sport['key'] ?? '');
+                            if ($sportKey === '') continue;
+                            $repo->findMany('matches', ['sport' => $sportKey, 'status' => 'active'], [
+                                'limit' => 200,
+                                'projection' => ['id' => 1, 'sport' => 1, 'homeTeam' => 1, 'awayTeam' => 1, 'commenceTime' => 1],
+                            ]);
+                        }
+                    } catch (Throwable) {
+                        // Warm-up is best-effort — never log or rethrow
+                    }
+                });
+            }
 
             if ($handled) {
                 exit;

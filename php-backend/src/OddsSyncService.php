@@ -295,6 +295,7 @@ final class OddsSyncService
                 'maxUsed' => null,
                 'sports' => new stdClass(),
             ],
+            'circuitBreaker' => self::circuitSnapshot(),
         ];
         $runId = SportsbookHealth::recordSyncStart($db, $source, [
             'sportsEnabled' => $sportsApiEnabled,
@@ -304,6 +305,20 @@ final class OddsSyncService
         try {
             if (!$sportsApiEnabled || $apiKey === '') {
                 $result['blocked'] = true;
+                SportsbookHealth::recordSyncSuccess($db, $runId, $source, $result);
+                return $result;
+            }
+
+            $breaker = self::circuitSnapshot();
+            if (($breaker['state'] ?? 'closed') === 'open') {
+                $result['blocked'] = true;
+                $result['circuitBreaker'] = $breaker;
+                $result['upstreamErrors'][] = [
+                    'sport' => 'all',
+                    'feed' => 'odds',
+                    'status' => 0,
+                    'error' => 'Circuit breaker open; skipping upstream odds sync until cooldown ends',
+                ];
                 SportsbookHealth::recordSyncSuccess($db, $runId, $source, $result);
                 return $result;
             }
@@ -459,6 +474,9 @@ final class OddsSyncService
                 throw new RuntimeException('Odds sync failed: all upstream API requests failed');
             }
 
+            self::recordCircuitSuccess();
+            $result['circuitBreaker'] = self::circuitSnapshot();
+
             $sweep = BetSettlementService::settlePendingMatches($db, 250, 'system');
             $result['settlementSweep'] = $sweep;
 
@@ -473,13 +491,195 @@ final class OddsSyncService
                 $result['extended'] = $extendedResult;
             }
 
+            if (class_exists('RealtimeEventBus')) {
+                RealtimeEventBus::publish('odds:sync', [
+                    'source' => $source,
+                    'created' => (int) ($result['created'] ?? 0),
+                    'updated' => (int) ($result['updated'] ?? 0),
+                    'settled' => (int) ($result['settled'] ?? 0),
+                    'scoreOnlyUpdates' => (int) ($result['scoreOnlyUpdates'] ?? 0),
+                    'successfulCalls' => (int) ($result['successfulCalls'] ?? 0),
+                    'failedCalls' => (int) ($result['failedCalls'] ?? 0),
+                    'time' => gmdate(DATE_ATOM),
+                ]);
+            }
+
             SportsbookHealth::recordSyncSuccess($db, $runId, $source, $result);
             SportsbookCache::invalidatePublicMatchCaches();
             return $result;
         } catch (Throwable $e) {
+            self::recordCircuitFailure($e->getMessage());
+            $result['circuitBreaker'] = self::circuitSnapshot();
+            if (class_exists('RealtimeEventBus')) {
+                RealtimeEventBus::publish('odds:sync:error', [
+                    'source' => $source,
+                    'message' => $e->getMessage(),
+                    'time' => gmdate(DATE_ATOM),
+                ]);
+            }
             SportsbookHealth::recordSyncFailure($db, $runId, $source, $e, $result);
             throw $e;
         }
+    }
+
+    /**
+     * @return array<string,mixed>
+     */
+    private static function circuitSnapshot(): array
+    {
+        $state = self::readCircuitState();
+        $now = time();
+        $openUntil = (int) ($state['openUntilEpoch'] ?? 0);
+        $openedAt = (int) ($state['openedAtEpoch'] ?? 0);
+        $failureCount = (int) ($state['failureCount'] ?? 0);
+        $threshold = max(1, (int) Env::get('ODDS_CB_FAILURE_THRESHOLD', '5'));
+
+        $status = 'closed';
+        if ($openUntil > $now) {
+            $status = 'open';
+        } elseif ($openedAt > 0 && $openUntil > 0 && $openUntil <= $now) {
+            $status = 'half-open';
+        }
+
+        return [
+            'state' => $status,
+            'failureCount' => $failureCount,
+            'threshold' => $threshold,
+            'lastFailureAt' => isset($state['lastFailureAt']) ? (string) $state['lastFailureAt'] : null,
+            'openedAt' => $openedAt > 0 ? gmdate(DATE_ATOM, $openedAt) : null,
+            'openUntil' => $openUntil > 0 ? gmdate(DATE_ATOM, $openUntil) : null,
+            'cooldownSeconds' => max(10, (int) Env::get('ODDS_CB_COOLDOWN_SECONDS', '180')),
+        ];
+    }
+
+    /**
+     * @return array<string,mixed>
+     */
+    public static function getCircuitBreakerStatus(): array
+    {
+        return self::circuitSnapshot();
+    }
+
+    /**
+     * Force-open the upstream circuit breaker for manual operations.
+     *
+     * @return array<string,mixed>
+     */
+    public static function forceOpenCircuitBreaker(int $cooldownSeconds, string $reason = 'manual_open'): array
+    {
+        $now = time();
+        $threshold = max(1, (int) Env::get('ODDS_CB_FAILURE_THRESHOLD', '5'));
+        $seconds = max(30, min(86400, $cooldownSeconds));
+
+        self::writeCircuitState([
+            'failureCount' => $threshold,
+            'lastFailureAt' => gmdate(DATE_ATOM, $now),
+            'lastFailureMessage' => $reason,
+            'openedAtEpoch' => $now,
+            'openUntilEpoch' => $now + $seconds,
+        ]);
+
+        Logger::warning('Odds circuit breaker manually opened', [
+            'reason' => $reason,
+            'cooldownSeconds' => $seconds,
+            'openedAt' => gmdate(DATE_ATOM, $now),
+        ], 'sportsbook');
+
+        return self::circuitSnapshot();
+    }
+
+    /**
+     * @return array<string,mixed>
+     */
+    public static function resetCircuitBreaker(string $reason = 'manual_reset'): array
+    {
+        self::writeCircuitState([
+            'failureCount' => 0,
+            'lastFailureAt' => null,
+            'lastFailureMessage' => $reason,
+            'openedAtEpoch' => 0,
+            'openUntilEpoch' => 0,
+        ]);
+
+        Logger::info('Odds circuit breaker manually reset', [
+            'reason' => $reason,
+            'resetAt' => gmdate(DATE_ATOM),
+        ], 'sportsbook');
+
+        return self::circuitSnapshot();
+    }
+
+    private static function recordCircuitFailure(string $message): void
+    {
+        $state = self::readCircuitState();
+        $now = time();
+        $threshold = max(1, (int) Env::get('ODDS_CB_FAILURE_THRESHOLD', '5'));
+        $cooldownSeconds = max(10, (int) Env::get('ODDS_CB_COOLDOWN_SECONDS', '180'));
+
+        $nextFailures = max(0, (int) ($state['failureCount'] ?? 0)) + 1;
+        $openUntilEpoch = (int) ($state['openUntilEpoch'] ?? 0);
+        if ($nextFailures >= $threshold) {
+            $openUntilEpoch = $now + $cooldownSeconds;
+            $state['openedAtEpoch'] = $now;
+            $state['openUntilEpoch'] = $openUntilEpoch;
+        }
+
+        $state['failureCount'] = $nextFailures;
+        $state['lastFailureAt'] = gmdate(DATE_ATOM, $now);
+        $state['lastFailureMessage'] = $message;
+        self::writeCircuitState($state);
+    }
+
+    private static function recordCircuitSuccess(): void
+    {
+        self::writeCircuitState([
+            'failureCount' => 0,
+            'lastFailureAt' => null,
+            'lastFailureMessage' => null,
+            'openedAtEpoch' => 0,
+            'openUntilEpoch' => 0,
+            'updatedAt' => gmdate(DATE_ATOM),
+        ]);
+    }
+
+    /**
+     * @return array<string,mixed>
+     */
+    private static function readCircuitState(): array
+    {
+        $file = self::circuitStateFile();
+        if (!is_file($file)) {
+            return [];
+        }
+        $raw = @file_get_contents($file);
+        if (!is_string($raw) || $raw === '') {
+            return [];
+        }
+        $decoded = json_decode($raw, true);
+        return is_array($decoded) ? $decoded : [];
+    }
+
+    /**
+     * @param array<string,mixed> $state
+     */
+    private static function writeCircuitState(array $state): void
+    {
+        $file = self::circuitStateFile();
+        $dir = dirname($file);
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0775, true);
+        }
+        $state['updatedAt'] = gmdate(DATE_ATOM);
+        $encoded = json_encode($state, JSON_UNESCAPED_SLASHES);
+        if (!is_string($encoded)) {
+            return;
+        }
+        @file_put_contents($file, $encoded, LOCK_EX);
+    }
+
+    private static function circuitStateFile(): string
+    {
+        return dirname(__DIR__) . '/cache/odds-circuit-breaker.json';
     }
 
     /**

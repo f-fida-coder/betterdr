@@ -456,6 +456,22 @@ final class AdminCoreController
             $this->clearCache();
             return true;
         }
+        if ($method === 'GET' && $path === '/api/admin/odds-circuit-breaker') {
+            $this->getOddsCircuitBreaker();
+            return true;
+        }
+        if ($method === 'POST' && $path === '/api/admin/odds-circuit-breaker/open') {
+            $this->openOddsCircuitBreaker();
+            return true;
+        }
+        if ($method === 'POST' && $path === '/api/admin/odds-circuit-breaker/reset') {
+            $this->resetOddsCircuitBreaker();
+            return true;
+        }
+        if ($method === 'GET' && $path === '/api/admin/audit-log') {
+            $this->getAuditLog();
+            return true;
+        }
         if ($method === 'POST' && $path === '/api/admin/bulk-create-users') {
             $this->bulkCreateUsers();
             return true;
@@ -1551,6 +1567,34 @@ final class AdminCoreController
                 'status' => 'active',
                 'createdAt' => ['$lte' => $ipThreshold],
             ], 500);
+
+            // Purge admin_audit_log info entries older than 90 days
+            $adminAuditThreshold = SqlRepository::utcFromMillis((time() - 90 * 86400) * 1000);
+            $this->db->deleteMany('admin_audit_log', [
+                'createdAt' => ['$lte' => $adminAuditThreshold],
+            ], 500);
+
+            // Purge legacy rate_limits table rows older than 10 minutes (no longer written by RateLimiter,
+            // but may have old rows from before the file-backed upgrade).
+            $rateLimitThreshold = SqlRepository::utcFromMillis((time() - 600) * 1000);
+            try {
+                $this->db->deleteMany('rate_limits', [
+                    'windowStart' => ['$lte' => $rateLimitThreshold],
+                ], 2000);
+            } catch (Throwable) {
+                // Table may not exist on fresh installs — ignore
+            }
+
+            // Purge stale file-backed rate-limit counters older than 2× the longest window (10 min)
+            $rlDir = __DIR__ . '/../cache/rate-limits';
+            if (is_dir($rlDir)) {
+                $cutoff = time() - 600;
+                foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($rlDir, \FilesystemIterator::SKIP_DOTS)) as $file) {
+                    if ($file->isFile() && $file->getMTime() < $cutoff) {
+                        @unlink($file->getPathname());
+                    }
+                }
+            }
         } catch (Throwable $e) {
             // Cleanup is best-effort; never fail a real request
             error_log('[CLEANUP] Stale data cleanup error: ' . $e->getMessage());
@@ -2828,11 +2872,12 @@ final class AdminCoreController
                 // WARNING: displayPassword is for admin convenience only.
                 // It stores the last set password in plain text.
                 'displayPassword' => $newPassword,
+                'passwordChangedAt' => time(),
                 'updatedAt' => SqlRepository::nowUtc(),
             ]);
 
-            // Invalidate user's existing sessions by clearing their login_failures
-            // (future: implement token blacklist for immediate revocation)
+            // Invalidate user's existing sessions: tokens issued before passwordChangedAt
+            // will be rejected by protect() on their next request.
             $this->db->deleteMany('login_failures', ['userId' => $userId]);
 
             Logger::info('Password reset by admin', [
@@ -2900,6 +2945,7 @@ final class AdminCoreController
                 'password' => $passwordFields['password'],
                 'passwordCaseInsensitiveHash' => $passwordFields['passwordCaseInsensitiveHash'],
                 'displayPassword' => $newPassword,
+                'passwordChangedAt' => time(),
                 'updatedAt' => SqlRepository::nowUtc(),
             ]);
 
@@ -3236,6 +3282,10 @@ final class AdminCoreController
                     'maintenanceMode' => false,
                     'smsNotifications' => true,
                     'twoFactor' => true,
+                    'alertCostDailySpikePercent' => 35,
+                    'alertCostAboveAvgMultiplier' => 1.5,
+                    'alertCostDailyMaxDollars' => 10,
+                    'alertMinRequestsForCostAlert' => 150,
                     'createdAt' => SqlRepository::nowUtc(),
                     'updatedAt' => SqlRepository::nowUtc(),
                 ];
@@ -3269,6 +3319,10 @@ final class AdminCoreController
                     'maintenanceMode' => false,
                     'smsNotifications' => true,
                     'twoFactor' => true,
+                    'alertCostDailySpikePercent' => 35,
+                    'alertCostAboveAvgMultiplier' => 1.5,
+                    'alertCostDailyMaxDollars' => 10,
+                    'alertMinRequestsForCostAlert' => 150,
                     'createdAt' => SqlRepository::nowUtc(),
                     'updatedAt' => SqlRepository::nowUtc(),
                 ];
@@ -3287,16 +3341,86 @@ final class AdminCoreController
                 'maintenanceMode',
                 'smsNotifications',
                 'twoFactor',
+                'alertCostDailySpikePercent',
+                'alertCostAboveAvgMultiplier',
+                'alertCostDailyMaxDollars',
+                'alertMinRequestsForCostAlert',
             ];
 
             $updates = ['updatedAt' => SqlRepository::nowUtc()];
+            $validationErrors = [];
             foreach ($fields as $field) {
                 if (!array_key_exists($field, $body)) {
                     continue;
                 }
                 $value = $body[$field];
-                if (in_array($field, ['dailyBetLimit', 'weeklyBetLimit', 'maxOdds', 'minBet', 'maxBet'], true) && is_numeric($value)) {
+
+                if ($field === 'alertCostDailySpikePercent') {
+                    if (!is_numeric($value)) {
+                        $validationErrors[] = 'alertCostDailySpikePercent must be a number';
+                        continue;
+                    }
+                    $num = (float) $value;
+                    if ($num < 1 || $num > 1000) {
+                        $validationErrors[] = 'alertCostDailySpikePercent must be between 1 and 1000';
+                        continue;
+                    }
+                    $updates[$field] = $num;
+                    continue;
+                }
+
+                if ($field === 'alertCostAboveAvgMultiplier') {
+                    if (!is_numeric($value)) {
+                        $validationErrors[] = 'alertCostAboveAvgMultiplier must be a number';
+                        continue;
+                    }
+                    $num = (float) $value;
+                    if ($num < 1.1 || $num > 20) {
+                        $validationErrors[] = 'alertCostAboveAvgMultiplier must be between 1.1 and 20';
+                        continue;
+                    }
+                    $updates[$field] = $num;
+                    continue;
+                }
+
+                if ($field === 'alertCostDailyMaxDollars') {
+                    if (!is_numeric($value)) {
+                        $validationErrors[] = 'alertCostDailyMaxDollars must be a number';
+                        continue;
+                    }
+                    $num = (float) $value;
+                    if ($num < 0.01 || $num > 100000) {
+                        $validationErrors[] = 'alertCostDailyMaxDollars must be between 0.01 and 100000';
+                        continue;
+                    }
+                    $updates[$field] = $num;
+                    continue;
+                }
+
+                if ($field === 'alertMinRequestsForCostAlert') {
+                    if (!is_numeric($value)) {
+                        $validationErrors[] = 'alertMinRequestsForCostAlert must be an integer';
+                        continue;
+                    }
+                    $num = (float) $value;
+                    if ((int) $num !== $num) {
+                        $validationErrors[] = 'alertMinRequestsForCostAlert must be an integer';
+                        continue;
+                    }
+                    if ($num < 1 || $num > 1000000) {
+                        $validationErrors[] = 'alertMinRequestsForCostAlert must be between 1 and 1000000';
+                        continue;
+                    }
+                    $updates[$field] = (int) $num;
+                    continue;
+                }
+
+                if (in_array($field, ['dailyBetLimit', 'weeklyBetLimit', 'maxOdds', 'minBet', 'maxBet', 'alertCostDailySpikePercent', 'alertCostAboveAvgMultiplier', 'alertCostDailyMaxDollars'], true) && is_numeric($value)) {
                     $updates[$field] = (float) $value;
+                    continue;
+                }
+                if ($field === 'alertMinRequestsForCostAlert' && is_numeric($value)) {
+                    $updates[$field] = (int) $value;
                     continue;
                 }
                 if (in_array($field, ['maintenanceMode', 'smsNotifications', 'twoFactor'], true)) {
@@ -3304,6 +3428,14 @@ final class AdminCoreController
                     continue;
                 }
                 $updates[$field] = $value;
+            }
+
+            if ($validationErrors !== []) {
+                Response::json([
+                    'message' => 'Invalid settings payload',
+                    'errors' => $validationErrors,
+                ], 422);
+                return;
             }
 
             $settingsId = (string) ($settings['id'] ?? '');
@@ -11846,6 +11978,148 @@ final class AdminCoreController
         }
     }
 
+    private function getOddsCircuitBreaker(): void
+    {
+        try {
+            $actor = $this->protect(['admin']);
+            if ($actor === null) {
+                return;
+            }
+            Response::json([
+                'ok' => true,
+                'circuitBreaker' => OddsSyncService::getCircuitBreakerStatus(),
+            ]);
+        } catch (Throwable $e) {
+            Response::json(['message' => 'Server error fetching circuit breaker state'], 500);
+        }
+    }
+
+    private function openOddsCircuitBreaker(): void
+    {
+        try {
+            $actor = $this->protect(['admin']);
+            if ($actor === null) {
+                return;
+            }
+
+            $body = Http::jsonBody();
+            $seconds = isset($body['cooldownSeconds']) && is_numeric($body['cooldownSeconds'])
+                ? (int) $body['cooldownSeconds']
+                : (int) Env::get('ODDS_CB_COOLDOWN_SECONDS', '180');
+            $seconds = max(30, min(86400, $seconds));
+            $reason = trim((string) ($body['reason'] ?? 'manual_admin_open'));
+            if ($reason === '') {
+                $reason = 'manual_admin_open';
+            }
+
+            $snapshot = OddsSyncService::forceOpenCircuitBreaker($seconds, $reason);
+
+            $this->db->insertOne('admin_audit_log', [
+                'action' => 'odds_circuit_breaker_open',
+                'actorId' => (string) ($actor['id'] ?? ''),
+                'actorUsername' => (string) ($actor['username'] ?? ''),
+                'actorRole' => (string) ($actor['role'] ?? ''),
+                'reason' => $reason,
+                'cooldownSeconds' => $seconds,
+                'snapshot' => $snapshot,
+                'ip' => IpUtils::clientIp(),
+                'userAgent' => (string) ($_SERVER['HTTP_USER_AGENT'] ?? ''),
+                'timestamp' => time(),
+                'createdAt' => SqlRepository::nowUtc(),
+            ]);
+
+            Response::json([
+                'message' => 'Odds circuit breaker opened',
+                'circuitBreaker' => $snapshot,
+            ]);
+        } catch (Throwable $e) {
+            Response::json(['message' => 'Server error opening circuit breaker'], 500);
+        }
+    }
+
+    private function resetOddsCircuitBreaker(): void
+    {
+        try {
+            $actor = $this->protect(['admin']);
+            if ($actor === null) {
+                return;
+            }
+
+            $body = Http::jsonBody();
+            $reason = trim((string) ($body['reason'] ?? 'manual_admin_reset'));
+            if ($reason === '') {
+                $reason = 'manual_admin_reset';
+            }
+
+            $snapshot = OddsSyncService::resetCircuitBreaker($reason);
+
+            $this->db->insertOne('admin_audit_log', [
+                'action' => 'odds_circuit_breaker_reset',
+                'actorId' => (string) ($actor['id'] ?? ''),
+                'actorUsername' => (string) ($actor['username'] ?? ''),
+                'actorRole' => (string) ($actor['role'] ?? ''),
+                'reason' => $reason,
+                'snapshot' => $snapshot,
+                'ip' => IpUtils::clientIp(),
+                'userAgent' => (string) ($_SERVER['HTTP_USER_AGENT'] ?? ''),
+                'timestamp' => time(),
+                'createdAt' => SqlRepository::nowUtc(),
+            ]);
+
+            Response::json([
+                'message' => 'Odds circuit breaker reset',
+                'circuitBreaker' => $snapshot,
+            ]);
+        } catch (Throwable $e) {
+            Response::json(['message' => 'Server error resetting circuit breaker'], 500);
+        }
+    }
+
+    private function getAuditLog(): void
+    {
+        try {
+            $actor = $this->protect(['admin']);
+            if ($actor === null) {
+                return;
+            }
+
+            $page  = max(1, (int) ($_GET['page'] ?? 1));
+            $limit = min(200, max(1, (int) ($_GET['limit'] ?? 50)));
+            $skip  = ($page - 1) * $limit;
+
+            $filter = [];
+            $action = trim((string) ($_GET['action'] ?? ''));
+            if ($action !== '') {
+                $filter['action'] = $action;
+            }
+            $actorId = trim((string) ($_GET['actorId'] ?? ''));
+            if ($actorId !== '' && preg_match('/^[a-f0-9]{24}$/i', $actorId) === 1) {
+                $filter['actorId'] = $actorId;
+            }
+
+            $rows = $this->db->findMany('admin_audit_log', $filter, [
+                'sort'  => ['timestamp' => -1],
+                'limit' => $limit,
+                'skip'  => $skip,
+            ]);
+
+            // Strip any accidentally stored sensitive fields before returning
+            $safe = array_map(static function (array $row): array {
+                unset($row['snapshot'], $row['userAgent']);
+                return $row;
+            }, $rows);
+
+            Response::json([
+                'ok'    => true,
+                'page'  => $page,
+                'limit' => $limit,
+                'items' => $safe,
+            ]);
+        } catch (Throwable $e) {
+            Response::json(['message' => 'Server error fetching audit log'], 500);
+        }
+    }
+
     private function isPromotionalOrFreePlayTransaction(array $transaction): bool
     {
         $type = strtolower(trim((string) ($transaction['type'] ?? '')));
@@ -13419,6 +13693,17 @@ final class AdminCoreController
         if (($actor['status'] ?? '') === 'suspended') {
             Response::json(['message' => 'Not authorized, account suspended'], 403);
             return null;
+        }
+
+        // Token revocation: reject tokens issued before the last password change.
+        $passwordChangedAt = $actor['passwordChangedAt'] ?? null;
+        if ($passwordChangedAt !== null && $passwordChangedAt !== '') {
+            $changedTs = is_numeric($passwordChangedAt) ? (int) $passwordChangedAt : strtotime((string) $passwordChangedAt);
+            $issuedAt = (int) ($decoded['iat'] ?? 0);
+            if ($changedTs !== false && $changedTs > 0 && $issuedAt > 0 && $issuedAt < $changedTs) {
+                Response::json(['message' => 'Session expired due to a password change. Please log in again.'], 401);
+                return null;
+            }
         }
 
         return $actor;

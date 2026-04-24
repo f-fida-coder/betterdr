@@ -5,7 +5,7 @@
 
 // Bump CACHE_VERSION to purge clients that were serving stale admin/auth
 // responses under the old blanket /api/* stale-while-revalidate rule.
-const CACHE_VERSION = 'v1.1';
+const CACHE_VERSION = 'v1.2';
 const RUNTIME_CACHE = `runtime-${CACHE_VERSION}`;
 const ASSETS_CACHE = `assets-${CACHE_VERSION}`;
 const API_CACHE = `api-${CACHE_VERSION}`;
@@ -14,6 +14,7 @@ const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
   '/manifest.json',
+  '/logo.png',
 ];
 
 // Only these exact public read-only endpoints are safe to cache. Everything
@@ -51,6 +52,13 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+self.addEventListener('message', (event) => {
+  const type = event?.data?.type;
+  if (type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+});
+
 // Fetch: Implement caching strategies
 self.addEventListener('fetch', (event) => {
   const { request } = event;
@@ -73,6 +81,11 @@ self.addEventListener('fetch', (event) => {
     return; // fall through to default network handling
   }
 
+  // Navigation requests: App Shell network-first with offline fallback.
+  if (request.mode === 'navigate') {
+    return event.respondWith(navigationNetworkFirst(request));
+  }
+
   // Static assets: Cache First
   if (isStaticAsset(url.pathname)) {
     return event.respondWith(
@@ -85,6 +98,28 @@ self.addEventListener('fetch', (event) => {
     networkFirst(request, RUNTIME_CACHE)
   );
 });
+
+async function navigationNetworkFirst(request) {
+  const cache = await caches.open(RUNTIME_CACHE);
+  try {
+    const response = await fetch(request);
+    if (response && response.ok) {
+      cache.put('/index.html', response.clone());
+    }
+    return response;
+  } catch (error) {
+    const appShell = await cache.match('/index.html');
+    if (appShell) {
+      return appShell;
+    }
+    const assetsCache = await caches.open(ASSETS_CACHE);
+    const fallbackShell = await assetsCache.match('/index.html');
+    if (fallbackShell) {
+      return fallbackShell;
+    }
+    return new Response('Offline - App shell unavailable', { status: 503 });
+  }
+}
 
 /**
  * Network First strategy
@@ -134,7 +169,7 @@ async function staleWhileRevalidate(request, cacheName) {
   const cached = await cache.match(request);
 
   const fetchPromise = fetch(request).then(response => {
-    if (response.ok) {
+    if (response && response.ok) {
       cache.put(request, response.clone());
     }
     return response;

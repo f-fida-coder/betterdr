@@ -41,7 +41,7 @@ final class BetsController
         $requestDocId = '';
         $requestDocOwned = false;
         try {
-            if (RateLimiter::enforce($this->db, 'place_bet', 10, 60)) {
+            if (RateLimiter::fromEnv($this->db, 'place_bet')) {
                 return;
             }
 

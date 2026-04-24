@@ -4,11 +4,22 @@ declare(strict_types=1);
 
 final class SharedFileCache
 {
+    private const APCU_KEY_PREFIX = 'shared_file_cache:';
+
     /**
      * @return array<string, mixed>|null
      */
     public static function get(string $namespace, string $key, int $ttlSeconds): ?array
     {
+        $apcuKey = self::apcuKey($namespace, $key);
+        if ($apcuKey !== null) {
+            $ok = false;
+            $cached = apcu_fetch($apcuKey, $ok);
+            if ($ok && is_array($cached)) {
+                return $cached;
+            }
+        }
+
         $cacheFile = self::cacheFile($namespace, $key);
         if (!is_file($cacheFile)) {
             return null;
@@ -29,6 +40,10 @@ final class SharedFileCache
         if (!is_array($decoded)) {
             @unlink($cacheFile);
             return null;
+        }
+
+        if ($apcuKey !== null) {
+            @apcu_store($apcuKey, $decoded, max(1, $ttlSeconds));
         }
 
         return $decoded;
@@ -100,6 +115,10 @@ final class SharedFileCache
 
     public static function forget(string $namespace, string $key): void
     {
+        $apcuKey = self::apcuKey($namespace, $key);
+        if ($apcuKey !== null) {
+            @apcu_delete($apcuKey);
+        }
         @unlink(self::cacheFile($namespace, $key));
         @unlink(self::lockFile($namespace, $key));
     }
@@ -115,6 +134,16 @@ final class SharedFileCache
         foreach ($matches as $path) {
             if (is_string($path) && $path !== '') {
                 @unlink($path);
+            }
+        }
+
+        if (self::apcuEnabled()) {
+            $prefix = self::APCU_KEY_PREFIX . self::safeNamespace($namespace) . '__';
+            $iterator = new APCUIterator('/^' . preg_quote($prefix, '/') . '/');
+            foreach ($iterator as $entry) {
+                if (isset($entry['key']) && is_string($entry['key'])) {
+                    @apcu_delete($entry['key']);
+                }
             }
         }
     }
@@ -135,6 +164,12 @@ final class SharedFileCache
         $tempFile = $cacheFile . '.tmp.' . uniqid('', true);
         @file_put_contents($tempFile, $encoded, LOCK_EX);
         @rename($tempFile, $cacheFile);
+
+        $apcuKey = self::apcuKey($namespace, $key);
+        if ($apcuKey !== null) {
+            // Keep APCu reasonably fresh; authoritative source remains file cache.
+            @apcu_store($apcuKey, $payload, 120);
+        }
 
         return $payload;
     }
@@ -172,5 +207,18 @@ final class SharedFileCache
         $prefix = preg_replace('/[^a-zA-Z0-9._-]+/', '-', $key) ?: 'key';
         $prefix = substr($prefix, 0, 48);
         return $prefix . '__' . sha1($key);
+    }
+
+    private static function apcuKey(string $namespace, string $key): ?string
+    {
+        if (!self::apcuEnabled()) {
+            return null;
+        }
+        return self::APCU_KEY_PREFIX . self::safeNamespace($namespace) . '__' . self::safeKey($key);
+    }
+
+    private static function apcuEnabled(): bool
+    {
+        return function_exists('apcu_fetch') && function_exists('apcu_store') && function_exists('apcu_delete') && class_exists('APCUIterator');
     }
 }

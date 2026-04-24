@@ -133,7 +133,7 @@ final class WalletController
     private function requestDeposit(): void
     {
         try {
-            if (RateLimiter::enforce($this->db, 'deposit_request', 3, 60)) {
+            if (RateLimiter::fromEnv($this->db, 'deposit_request')) {
                 return;
             }
 
@@ -185,7 +185,7 @@ final class WalletController
     private function requestWithdrawal(): void
     {
         try {
-            if (RateLimiter::enforce($this->db, 'withdrawal_request', 3, 60)) {
+            if (RateLimiter::fromEnv($this->db, 'withdrawal_request')) {
                 return;
             }
 

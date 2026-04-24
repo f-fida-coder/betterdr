@@ -46,7 +46,7 @@ const ScoreboardSidebar = ({ onClose }) => {
 
         const fetchFromApis = async () => {
             const token = localStorage.getItem('token');
-            const publicReq = withTimeout(getMatches(), 5000, 'Loading matches');
+            const publicReq = withTimeout(getMatches('', { payload: 'core', trigger: 'scoreboard' }), 5000, 'Loading matches');
             const adminReq = token ? withTimeout(getAdminMatches(token), 5000, 'Loading admin matches') : Promise.resolve([]);
             const [publicRes, adminRes] = await Promise.allSettled([publicReq, adminReq]);
             const publicData = publicRes.status === 'fulfilled' && Array.isArray(publicRes.value) ? publicRes.value : [];
@@ -83,9 +83,15 @@ const ScoreboardSidebar = ({ onClose }) => {
         }, 20000);
         loadMatchesNow();
 
+        const handleRealtimeRefresh = () => {
+            loadMatchesNow({ silent: true });
+        };
+        window.addEventListener('scoreboard:refresh', handleRealtimeRefresh);
+
         return () => {
             mounted = false;
             window.clearTimeout(emptyStateGuard);
+            window.removeEventListener('scoreboard:refresh', handleRealtimeRefresh);
         };
     }, []);
 

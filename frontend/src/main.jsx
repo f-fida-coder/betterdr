@@ -16,7 +16,7 @@ import {
 } from './api'
 import { useEffect, useState } from 'react'
 import { ToastProvider } from './contexts/ToastContext.jsx'
-import { loadExternalPresentationAssets } from './utils/performanceOptimization.js'
+import { loadExternalPresentationAssets, initializePhase3AOptimizations } from './utils/performanceOptimization.js'
 
 const AdminPanel = lazy(() => import('./components/AdminPanel.jsx'))
 
@@ -165,6 +165,10 @@ const mountApp = () => {
   loadExternalPresentationAssets({
     immediate: isProtectedPath || Boolean(storedBootstrapToken),
   });
+
+  // Phase 3A: Initialize frontend performance optimizations
+  // Prefetches routes, preloads critical resources, monitors Web Vitals
+  initializePhase3AOptimizations();
 
   createRoot(document.getElementById('root')).render(
     <StrictMode>

@@ -20,7 +20,7 @@ const buildRefreshRequestId = () => {
 // proceed directly via Continue.
 const META_SPORT_FILTERS = new Set(['up-next', 'featured']);
 
-const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, freeplayBalance, onViewChange, activeBetMode = 'straight', onBetModeChange, currentView, onToggleSidebar, selectedSports = [], onContinue, onMobileBack, onLogout, mobileViewState = 'browsing', onHomeClick, role, unlimitedBalance, slipCount = 0 }) => {
+const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, freeplayBalance, onViewChange, activeBetMode = 'straight', onBetModeChange, currentView, onToggleSidebar, selectedSports = [], onContinue, onMobileBack, onLogout, mobileViewState = 'browsing', onHomeClick, role, unlimitedBalance, slipCount = 0, realtimeConnectionState = 'idle', lastRealtimeEventAt = null }) => {
     const hasRealSportSelection = selectedSports.some((id) => !META_SPORT_FILTERS.has(id));
     const showContinueButton = mobileViewState === 'selected' && hasRealSportSelection;
     const [showAccountPanel, setShowAccountPanel] = useState(false);
@@ -144,6 +144,25 @@ const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, 
 
     const [showMobileMenu, setShowMobileMenu] = useState(false);
     const withSidebarOffset = currentView === 'dashboard';
+
+    const realtimeStatus = React.useMemo(() => {
+        const state = String(realtimeConnectionState || 'idle').toLowerCase();
+        if (state === 'open') return { label: 'LIVE CONNECTED', color: '#2e7d32', dot: '#49d17d' };
+        if (state === 'connecting') return { label: 'CONNECTING', color: '#8a6d00', dot: '#ffbf00' };
+        if (state === 'error' || state === 'failed') return { label: 'LIVE ERROR', color: '#7f1d1d', dot: '#ef4444' };
+        return { label: 'RECONNECTING', color: '#374151', dot: '#9ca3af' };
+    }, [realtimeConnectionState]);
+
+    const lastRealtimeText = React.useMemo(() => {
+        if (!lastRealtimeEventAt) {
+            return 'No realtime event yet';
+        }
+        const dt = new Date(lastRealtimeEventAt);
+        if (Number.isNaN(dt.getTime())) {
+            return 'No realtime event yet';
+        }
+        return `Last update ${dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
+    }, [lastRealtimeEventAt]);
 
     return (
         <>

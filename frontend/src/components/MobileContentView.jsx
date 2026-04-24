@@ -354,6 +354,18 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
         return formatted;
     }, [rawMatches, primarySport, extractOdds, activePeriod.suffix]);
 
+    const degradedSummary = React.useMemo(() => {
+        const all = Array.isArray(rawMatches) ? rawMatches : [];
+        const blocked = all.filter((m) => m?.isBettable === false);
+        const staleBlocked = blocked.filter((m) => {
+            const reason = String(m?.bettingBlockedReason || '').toLowerCase();
+            return m?.oddsFeedStale === true || reason.includes('stale') || reason.includes('suspend');
+        });
+        return {
+            staleBlockedCount: staleBlocked.length,
+        };
+    }, [rawMatches]);
+
     const visibleMarkets = React.useMemo(() => getVisibleMarketsForMode(activeBetMode), [activeBetMode]);
     const marketCount = [visibleMarkets.showSpread, visibleMarkets.showMoneyline, visibleMarkets.showTotals].filter(Boolean).length;
     const selectedKeys = React.useMemo(() => {
@@ -1167,6 +1179,17 @@ const updatingBannerStyle = {
     background: '#eff6ff',
     borderBottom: '1px solid #dbeafe',
     color: '#1d4ed8',
+    fontSize: '11px',
+    fontWeight: 600,
+    display: 'flex',
+    alignItems: 'center',
+};
+
+const degradedBannerStyle = {
+    padding: '6px 12px',
+    background: '#fffbeb',
+    borderBottom: '1px solid #fbbf24',
+    color: '#92400e',
     fontSize: '11px',
     fontWeight: 600,
     display: 'flex',
