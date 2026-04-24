@@ -5,7 +5,7 @@
 
 // Bump CACHE_VERSION to purge clients that were serving stale admin/auth
 // responses under the old blanket /api/* stale-while-revalidate rule.
-const CACHE_VERSION = 'v1.2';
+const CACHE_VERSION = 'v1.3';
 const RUNTIME_CACHE = `runtime-${CACHE_VERSION}`;
 const ASSETS_CACHE = `assets-${CACHE_VERSION}`;
 const API_CACHE = `api-${CACHE_VERSION}`;
@@ -20,15 +20,21 @@ const ASSETS_TO_CACHE = [
 // Only these exact public read-only endpoints are safe to cache. Everything
 // else — /api/admin/**, /api/auth/**, /api/wallet/**, /api/bets/**, etc. —
 // MUST hit the network so balances and transactions reflect live DB state.
-const CACHEABLE_API_PATHS = [
+// Odds endpoints use network-first (see NETWORK_FIRST_API_PATHS) so live
+// odds are served when online and cached only as an offline fallback.
+const NETWORK_FIRST_API_PATHS = [
   '/api/matches',
   '/api/matches/sports',
+];
+const CACHEABLE_API_PATHS = [
   '/api/betting/rules',
 ];
 
-const isCacheableApi = (pathname) => (
-  CACHEABLE_API_PATHS.some((prefix) => pathname === prefix || pathname.startsWith(prefix + '/'))
+const matchesApiPath = (pathname, list) => (
+  list.some((prefix) => pathname === prefix || pathname.startsWith(prefix + '/'))
 );
+const isNetworkFirstApi = (pathname) => matchesApiPath(pathname, NETWORK_FIRST_API_PATHS);
+const isCacheableApi = (pathname) => matchesApiPath(pathname, CACHEABLE_API_PATHS);
 
 // Install: Cache critical assets
 self.addEventListener('install', (event) => {
@@ -69,12 +75,22 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Cache API only accepts http/https. Browser extensions and devtools
+  // routinely issue chrome-extension:// (or moz-extension://) requests
+  // through the page context, which would otherwise blow up cache.put().
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    return;
+  }
+
   // API requests: only the explicit public, read-only endpoints get SWR.
   // Everything else under /api/ bypasses the SW entirely (authenticated and
   // mutating-adjacent routes like /api/admin/**, /api/auth/**, /api/wallet/**,
   // /api/bets/** must never serve a stale cache — real-time balance, pending,
   // and session state depend on a live response).
   if (url.pathname.startsWith('/api/')) {
+    if (isNetworkFirstApi(url.pathname)) {
+      return event.respondWith(networkFirst(request, API_CACHE));
+    }
     if (isCacheableApi(url.pathname)) {
       return event.respondWith(staleWhileRevalidate(request, API_CACHE));
     }
