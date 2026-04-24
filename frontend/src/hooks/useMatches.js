@@ -60,7 +60,21 @@ const isFinishedMatch = (match) => {
     return eventStatus.includes('FINAL') || eventStatus.includes('COMPLETE') || eventStatus.includes('STATUS_CLOSED');
 };
 
+const isPastCommence = (match) => {
+    if (!match?.startTime) return false;
+    const start = new Date(match.startTime).getTime();
+    if (Number.isNaN(start)) return false;
+    return start <= Date.now();
+};
+
 const filterMatches = (normalized, statusFilter) => {
+    // Defensive: hide past-commence matches from pre-match listings even if
+    // the backend cache lagged or the client clock is slightly off. The
+    // `finished` view is an explicit historical listing and opts out.
+    if (statusFilter !== 'finished') {
+        normalized = normalized.filter((m) => !isPastCommence(m));
+    }
+
     if (statusFilter === 'live' || statusFilter === 'active') {
         const filtered = normalized.filter(isLiveMatch);
         return filtered.length === 0 && normalized.length > 0 ? normalized : filtered;

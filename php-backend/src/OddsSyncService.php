@@ -6,10 +6,13 @@ declare(strict_types=1);
 final class OddsSyncService
 {
     private static array $apiCache = [];
+    private static ?array $tierCache = null;
     private const CACHE_TTL_SECONDS = 1800; // 30 minutes
     private const EVENT_PROPS_TTL_SECONDS = 300; // 5 minutes per-event refresh threshold
     private const EVENT_PROPS_MAX_CONCURRENT = 8; // curl_multi fan-out per batch
+    private const UPSTREAM_MAX_CONCURRENT = 8; // cap on parallel /odds + /scores calls; higher triggers upstream 429s
     private const SPORT_DISCOVERY_TTL_SECONDS = 3600; // 1 hour — in-process cache for /sports
+    private const TIER_DUE_TOLERANCE_SECONDS = 30; // allow a cycle firing up to 30s early to still count as due
 
     /**
      * Returns the list of Odds API sport keys this sync should cover.
@@ -63,14 +66,15 @@ final class OddsSyncService
         $keys = [];
         foreach ($decoded as $row) {
             if (!is_array($row)) continue;
-            // Outright-only markets (championship winners, futures, etc.)
-            // don't return match-style events, so they'd sync as empty.
-            // Skip them unless explicitly requested.
-            if (!empty($row['has_outrights']) && empty($row['has_markets'])) {
-                // Some rows don't expose has_markets — keep by default.
-            }
             $k = isset($row['key']) ? (string) $row['key'] : '';
-            if ($k !== '') $keys[] = $k;
+            if ($k === '') continue;
+            // Outright-only markets (championship winners, futures, etc.)
+            // don't accept markets=h2h,spreads,totals and return HTTP 422.
+            // The discovery payload is inconsistent about has_markets, so
+            // match the key suffix as a reliable fallback.
+            if (preg_match('/_winner$/', $k) === 1) continue;
+            if (array_key_exists('has_markets', $row) && empty($row['has_markets']) && !empty($row['has_outrights'])) continue;
+            $keys[] = $k;
         }
         // Optional exclusion list for sports you never want synced
         // (e.g. politics) even in auto-discover mode.
@@ -82,6 +86,116 @@ final class OddsSyncService
 
         self::$apiCache[$cacheKey] = ['data' => $keys, 'timestamp' => $now];
         return $keys;
+    }
+
+    /**
+     * Tier configuration parsed from env.
+     * Returns sport→tier map, per-tier cadence in seconds, and tier3 extended-sync flag.
+     *
+     * Any sport not explicitly listed in ODDS_TIER1_SPORTS / ODDS_TIER2_SPORTS falls to tier3.
+     * If both lists are empty, tiering is effectively disabled and every sport is treated as tier3
+     * with the tier3 cadence — giving backwards compatibility with a blanket cron minutes setting.
+     *
+     * @return array{tier1: list<string>, tier2: list<string>, sportTier: array<string,string>, cadences: array{tier1:int,tier2:int,tier3:int}, tier3ExtendedSync: bool, tieringActive: bool}
+     */
+    private static function tierConfig(): array
+    {
+        if (self::$tierCache !== null) return self::$tierCache;
+
+        $parseList = static function (string $envKey): array {
+            $raw = (string) Env::get($envKey, '');
+            return array_values(array_filter(array_map('trim', explode(',', $raw)), static fn($v) => $v !== ''));
+        };
+
+        $tier1 = $parseList('ODDS_TIER1_SPORTS');
+        $tier2 = $parseList('ODDS_TIER2_SPORTS');
+
+        $sportTier = [];
+        foreach ($tier1 as $s) $sportTier[$s] = 'tier1';
+        foreach ($tier2 as $s) $sportTier[$s] = 'tier2';
+
+        self::$tierCache = [
+            'tier1' => $tier1,
+            'tier2' => $tier2,
+            'sportTier' => $sportTier,
+            'cadences' => [
+                'tier1' => max(1, (int) Env::get('ODDS_TIER1_CRON_MINUTES', '15')) * 60,
+                'tier2' => max(1, (int) Env::get('ODDS_TIER2_CRON_MINUTES', '15')) * 60,
+                'tier3' => max(1, (int) Env::get('ODDS_TIER3_CRON_MINUTES', '30')) * 60,
+            ],
+            'tier3ExtendedSync' => strtolower((string) Env::get('ODDS_TIER3_EXTENDED_SYNC', 'true')) === 'true',
+            'tieringActive' => ($tier1 !== [] || $tier2 !== []),
+        ];
+        return self::$tierCache;
+    }
+
+    private static function tierForSport(string $sportKey): string
+    {
+        $cfg = self::tierConfig();
+        return $cfg['sportTier'][$sportKey] ?? 'tier3';
+    }
+
+    private static function sportSyncStatePath(): string
+    {
+        return dirname(__DIR__) . '/cache/odds-tier-sync-state.json';
+    }
+
+    /** @return array<string,string> */
+    private static function loadSportSyncState(): array
+    {
+        $path = self::sportSyncStatePath();
+        if (!is_file($path)) return [];
+        $raw = @file_get_contents($path);
+        if (!is_string($raw) || $raw === '') return [];
+        $decoded = json_decode($raw, true);
+        return is_array($decoded) ? $decoded : [];
+    }
+
+    /** @param array<string,string> $state */
+    private static function saveSportSyncState(array $state): void
+    {
+        $path = self::sportSyncStatePath();
+        $dir = dirname($path);
+        if (!is_dir($dir)) @mkdir($dir, 0775, true);
+        @file_put_contents($path, json_encode($state, JSON_UNESCAPED_SLASHES), LOCK_EX);
+    }
+
+    /**
+     * From the full sport list, return only sports "due" this cycle based on their tier cadence.
+     * Also returns per-tier candidate/due counts for logging.
+     *
+     * @param list<string> $sports
+     * @return array{due: list<string>, counts: array<string, array{candidate:int, due:int}>}
+     */
+    private static function filterDueSports(array $sports): array
+    {
+        $cfg = self::tierConfig();
+        $state = self::loadSportSyncState();
+        $now = time();
+        $due = [];
+        $counts = [
+            'tier1' => ['candidate' => 0, 'due' => 0],
+            'tier2' => ['candidate' => 0, 'due' => 0],
+            'tier3' => ['candidate' => 0, 'due' => 0],
+        ];
+
+        foreach ($sports as $s) {
+            $tier = $cfg['sportTier'][$s] ?? 'tier3';
+            $counts[$tier]['candidate']++;
+            $cadenceSeconds = $cfg['cadences'][$tier];
+            $lastEpoch = 0;
+            $lastIso = $state[$s] ?? null;
+            if (is_string($lastIso) && $lastIso !== '') {
+                $ts = strtotime($lastIso);
+                if ($ts !== false) $lastEpoch = $ts;
+            }
+            if (($now - $lastEpoch) >= ($cadenceSeconds - self::TIER_DUE_TOLERANCE_SECONDS)) {
+                $counts[$tier]['due']++;
+                $due[] = $s;
+            }
+        }
+
+        return ['due' => $due, 'counts' => $counts];
     }
 
     public static function handleMatchesFallbackRoute(string $method, string $path): bool
@@ -290,6 +404,12 @@ final class OddsSyncService
             'scoresCallsOk' => 0,
             'scoreOnlyUpdates' => 0,
             'upstreamErrors' => [],
+            'emptyEventsBySport' => [],
+            'tiersFetched' => [
+                'tier1' => ['candidate' => 0, 'due' => 0],
+                'tier2' => ['candidate' => 0, 'due' => 0],
+                'tier3' => ['candidate' => 0, 'due' => 0],
+            ],
             'rateLimit' => [
                 'minRemaining' => null,
                 'maxUsed' => null,
@@ -324,12 +444,15 @@ final class OddsSyncService
             }
 
             $sports = self::resolveSportsList($apiKey, $apiBase);
+            $tierPlan = self::filterDueSports($sports);
+            $dueSports = $tierPlan['due'];
+            $result['tiersFetched'] = $tierPlan['counts'];
             $scoresByExternalId = [];
             $processedExternalIds = [];
 
             if ($scoresEnabled) {
                 $scoreUrlsBySport = [];
-                foreach ($sports as $sportKey) {
+                foreach ($dueSports as $sportKey) {
                     $scoreQuery = ['apiKey' => $apiKey, 'dateFormat' => 'iso'];
                     if ($scoresDaysFrom > 0) {
                         $scoreQuery['daysFrom'] = $scoresDaysFrom;
@@ -357,6 +480,9 @@ final class OddsSyncService
                         ];
                         continue;
                     }
+                    if ($scoreRows === [] && (int) ($scoreResponse['status'] ?? 0) === 200) {
+                        $result['emptyEventsBySport'][] = ['sport' => $sportKey, 'feed' => 'scores'];
+                    }
                     foreach ($scoreRows as $scoreEvent) {
                         if (!is_array($scoreEvent) || !isset($scoreEvent['id'])) {
                             continue;
@@ -368,7 +494,7 @@ final class OddsSyncService
             }
 
             $oddsUrlsBySport = [];
-            foreach ($sports as $sportKey) {
+            foreach ($dueSports as $sportKey) {
                 $query = [
                     'apiKey' => $apiKey,
                     'regions' => $regions,
@@ -400,6 +526,9 @@ final class OddsSyncService
                         'error' => 'Invalid JSON payload from odds feed',
                     ];
                     continue;
+                }
+                if ($events === [] && (int) ($oddsResponse['status'] ?? 0) === 200) {
+                    $result['emptyEventsBySport'][] = ['sport' => $sportKey, 'feed' => 'odds'];
                 }
 
                 foreach ($events as $event) {
@@ -461,7 +590,20 @@ final class OddsSyncService
                 $result['settled'] += (int) ($updated['settled'] ?? 0);
             }
 
-            if ((int) ($result['successfulCalls'] ?? 0) === 0) {
+            // Record successful attempts in the tier-sync state so the next cycle
+            // can skip them until their cadence elapses. We mark every attempted
+            // sport (regardless of outcome) — a 429 shouldn't trigger an immediate
+            // retry; the tier cadence is the retry gate.
+            if ($dueSports !== []) {
+                $state = self::loadSportSyncState();
+                $nowIso = gmdate(DATE_ATOM);
+                foreach ($dueSports as $s) {
+                    $state[$s] = $nowIso;
+                }
+                self::saveSportSyncState($state);
+            }
+
+            if ((int) ($result['apiCalls'] ?? 0) > 0 && (int) ($result['successfulCalls'] ?? 0) === 0) {
                 $result['settlementSweep'] = [
                     'skipped' => true,
                     'reason' => 'upstream_unavailable',
@@ -487,6 +629,15 @@ final class OddsSyncService
                     ['status' => ['$in' => ['scheduled', 'live']]],
                     ['projection' => ['id' => 1, 'externalId' => 1, 'sportKey' => 1, 'odds' => 1, 'playerProps' => 1, 'lastPropsSyncAt' => 1]]
                 );
+                $cfg = self::tierConfig();
+                if ($cfg['tieringActive'] && !$cfg['tier3ExtendedSync']) {
+                    $sportTier = $cfg['sportTier'];
+                    $activeMatches = array_values(array_filter($activeMatches, static function ($m) use ($sportTier) {
+                        $sk = (string) ($m['sportKey'] ?? '');
+                        $tier = $sportTier[$sk] ?? 'tier3';
+                        return $tier !== 'tier3';
+                    }));
+                }
                 $extendedResult = self::syncEventExtendedForMatches($db, $activeMatches);
                 $result['extended'] = $extendedResult;
             }
@@ -520,6 +671,133 @@ final class OddsSyncService
             SportsbookHealth::recordSyncFailure($db, $runId, $source, $e, $result);
             throw $e;
         }
+    }
+
+    /**
+     * Fetch odds + scores for a single sport and persist match rows. Intended
+     * for user-triggered on-demand refresh — lighter than updateMatches(): no
+     * settlement sweep, no extended-odds pass, no tier-sync-state updates, no
+     * circuit-breaker short-circuit. The main cron continues to own those.
+     *
+     * @return array{success:bool, sport_key:string, last_updated?:string, matches:list<array<string,mixed>>, error?:string, credits_used?:int, http_status?:array{odds:int, scores:int}}
+     */
+    public static function syncSingleSport(SqlRepository $db, string $sportKey): array
+    {
+        $apiKey = (string) Env::get('ODDS_API_KEY', '');
+        $sportsApiEnabled = strtolower((string) Env::get('SPORTS_API_ENABLED', 'true')) === 'true';
+        if (!$sportsApiEnabled || $apiKey === '' || $sportKey === '') {
+            return ['success' => false, 'sport_key' => $sportKey, 'matches' => [], 'error' => 'odds_api_disabled'];
+        }
+
+        $apiBase = 'https://api.the-odds-api.com/v4';
+        $regions = (string) Env::get('ODDS_API_REGIONS', 'us');
+        $markets = (string) Env::get('ODDS_API_MARKETS', 'h2h,spreads,totals');
+        $oddsFormat = (string) Env::get('ODDS_API_ODDS_FORMAT', 'decimal');
+        $bookmakers = (string) Env::get('ODDS_API_BOOKMAKERS', '');
+        $scoresEnabled = strtolower((string) Env::get('ODDS_SCORES_ENABLED', 'true')) === 'true';
+        $scoresDaysFrom = self::scoresDaysFrom();
+
+        $urls = [];
+        $oddsQuery = [
+            'apiKey' => $apiKey,
+            'regions' => $regions,
+            'markets' => $markets,
+            'oddsFormat' => $oddsFormat,
+        ];
+        if ($bookmakers !== '') $oddsQuery['bookmakers'] = $bookmakers;
+        $urls['odds'] = $apiBase . '/sports/' . rawurlencode($sportKey) . '/odds?' . http_build_query($oddsQuery);
+
+        if ($scoresEnabled) {
+            $scoreQuery = ['apiKey' => $apiKey, 'dateFormat' => 'iso'];
+            if ($scoresDaysFrom > 0) $scoreQuery['daysFrom'] = $scoresDaysFrom;
+            $urls['scores'] = $apiBase . '/sports/' . rawurlencode($sportKey) . '/scores?' . http_build_query($scoreQuery);
+        }
+
+        $responses = self::httpGetManyDetailed($urls);
+
+        $oddsResp = $responses['odds'] ?? null;
+        $oddsStatus = (int) ($oddsResp['status'] ?? 0);
+        if (!is_array($oddsResp) || $oddsStatus !== 200 || !is_string($oddsResp['body'] ?? null) || $oddsResp['body'] === '') {
+            return [
+                'success' => false,
+                'sport_key' => $sportKey,
+                'matches' => [],
+                'error' => $oddsStatus === 429 ? 'upstream_rate_limited' : 'upstream_fetch_failed',
+                'http_status' => ['odds' => $oddsStatus, 'scores' => (int) ($responses['scores']['status'] ?? 0)],
+            ];
+        }
+        $events = json_decode($oddsResp['body'], true);
+        if (!is_array($events)) {
+            return ['success' => false, 'sport_key' => $sportKey, 'matches' => [], 'error' => 'upstream_invalid_json'];
+        }
+
+        $scoresByExternalId = [];
+        $scoresStatus = 0;
+        if ($scoresEnabled && isset($responses['scores'])) {
+            $scoresStatus = (int) ($responses['scores']['status'] ?? 0);
+            if ($scoresStatus === 200 && is_string($responses['scores']['body'] ?? null)) {
+                $scoreRows = json_decode($responses['scores']['body'], true);
+                if (is_array($scoreRows)) {
+                    foreach ($scoreRows as $scoreEvent) {
+                        if (is_array($scoreEvent) && isset($scoreEvent['id'])) {
+                            $scoreEvent['_sportKey'] = $sportKey;
+                            $scoresByExternalId[(string) $scoreEvent['id']] = $scoreEvent;
+                        }
+                    }
+                }
+            }
+        }
+
+        $updated = [];
+        $now = time();
+        foreach ($events as $event) {
+            if (!is_array($event)) continue;
+            $homeTeam = (string) ($event['home_team'] ?? 'Unknown Home');
+            $awayTeam = (string) ($event['away_team'] ?? 'Unknown Away');
+            $externalId = (string) ($event['id'] ?? '');
+            if ($externalId === '') {
+                $externalId = sha1($sportKey . '|' . (string) ($event['commence_time'] ?? '') . '|' . $homeTeam . '|' . $awayTeam);
+            }
+            $mergedEvent = $event;
+            if (isset($scoresByExternalId[$externalId]) && is_array($scoresByExternalId[$externalId])) {
+                $mergedEvent = array_merge($mergedEvent, $scoresByExternalId[$externalId]);
+            }
+            $statusAndScore = self::extractScoreAndStatus($mergedEvent, $homeTeam, $awayTeam);
+            $doc = self::buildOddsDocument($event, $sportKey, $externalId, $homeTeam, $awayTeam, $statusAndScore);
+
+            $existing = $db->findOne('matches', ['externalId' => $externalId], ['projection' => ['id' => 1, 'odds' => 1]]);
+            if ($existing === null) {
+                $doc['createdAt'] = SqlRepository::nowUtc();
+                $db->insertOne('matches', $doc);
+            } else {
+                $existingOdds = is_array($existing['odds'] ?? null) ? $existing['odds'] : [];
+                if (isset($existingOdds['extendedMarkets']) && is_array($existingOdds['extendedMarkets'])) {
+                    $doc['odds']['extendedMarkets'] = $existingOdds['extendedMarkets'];
+                }
+                $db->updateOne('matches', ['id' => SqlRepository::id((string) $existing['id'])], $doc);
+            }
+            // Only surface future-commence matches to the caller — the frontend
+            // refresh button renders into the pre-match listing, which hides
+            // started matches (see Step 1 in MatchesController::computeMatches).
+            $parsed = isset($doc['startTime']) ? strtotime((string) $doc['startTime']) : false;
+            if ($parsed === false || $parsed > $now) {
+                $updated[] = $doc;
+            }
+        }
+
+        // Invalidate the public /api/matches cache so the next poll sees fresh rows.
+        SportsbookCache::invalidatePublicMatchCaches();
+
+        $creditsUsedBefore = isset($oddsResp['headers']['x-requests-used']) ? (int) $oddsResp['headers']['x-requests-used'] : null;
+        $scoresUsed = isset($responses['scores']['headers']['x-requests-used']) ? (int) $responses['scores']['headers']['x-requests-used'] : null;
+        return [
+            'success' => true,
+            'sport_key' => $sportKey,
+            'last_updated' => gmdate(DATE_ATOM),
+            'matches' => $updated,
+            'credits_used' => ($creditsUsedBefore !== null && $scoresUsed !== null) ? max($creditsUsedBefore, $scoresUsed) : null,
+            'http_status' => ['odds' => $oddsStatus, 'scores' => $scoresStatus],
+        ];
     }
 
     /**
@@ -1095,6 +1373,24 @@ final class OddsSyncService
      * @return array<string, array{body: ?string, status: int, error: ?string, headers: array<string, string>}>
      */
     private static function httpGetManyDetailed(array $urlsByKey): array
+    {
+        if ($urlsByKey === []) {
+            return [];
+        }
+        $responses = [];
+        foreach (array_chunk($urlsByKey, self::UPSTREAM_MAX_CONCURRENT, true) as $chunk) {
+            foreach (self::httpGetManyDetailedChunk($chunk) as $key => $response) {
+                $responses[$key] = $response;
+            }
+        }
+        return $responses;
+    }
+
+    /**
+     * @param array<string, string> $urlsByKey
+     * @return array<string, array{body: ?string, status: int, error: ?string, headers: array<string, string>}>
+     */
+    private static function httpGetManyDetailedChunk(array $urlsByKey): array
     {
         $responses = [];
         if ($urlsByKey === []) {

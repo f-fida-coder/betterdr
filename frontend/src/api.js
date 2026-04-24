@@ -616,6 +616,32 @@ export const getLiveMatches = async (options = {}) => getMatches('live', options
 export const getUpcomingMatches = async (options = {}) => getMatches('upcoming', options);
 
 /**
+ * Trigger a user-initiated on-demand refresh for a single sport. Backend
+ * rate-limits per-IP and per-user, and dedupes in-flight refreshes across
+ * simultaneous callers so only one upstream fetch fires.
+ *
+ * Throws with { status, error, retryAfterSeconds? } on non-success. Callers
+ * should branch on `error` to drive UX (login prompt vs. cooldown countdown
+ * vs. generic toast).
+ */
+export const refreshSportOdds = async (sportKey) => {
+    const token = getStoredAuthToken();
+    const response = await fetch(buildApiUrl(`/odds/refresh/${encodeURIComponent(String(sportKey || ''))}`), {
+        method: 'POST',
+        headers: getHeaders(token),
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        const err = new Error(body?.error || body?.message || `refresh_failed_${response.status}`);
+        err.status = response.status;
+        err.error = body?.error || '';
+        err.retryAfterSeconds = Number(body?.retry_after_seconds || 0);
+        throw err;
+    }
+    return body;
+};
+
+/**
  * Fetch distinct sport values that currently have active/scheduled matches.
  * Returns an array of strings (sport titles and sportKeys).
  */

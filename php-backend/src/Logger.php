@@ -194,6 +194,12 @@ final class Logger
             return ['exception' => get_class($value), 'message' => $value->getMessage()];
         }
         if (is_object($value)) {
+            if ($value instanceof stdClass) {
+                return self::sanitize(get_object_vars($value), $depth);
+            }
+            if ($value instanceof JsonSerializable) {
+                return self::sanitize($value->jsonSerialize(), $depth);
+            }
             if (method_exists($value, '__toString')) {
                 return (string) $value;
             }

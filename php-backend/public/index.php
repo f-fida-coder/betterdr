@@ -561,6 +561,7 @@ if (
     || str_starts_with($uriPath, '/api/betting')
     || str_starts_with($uriPath, '/api/admin/bet-mode-rules')
     || str_starts_with($uriPath, '/api/matches')
+    || str_starts_with($uriPath, '/api/odds')
     || str_starts_with($uriPath, '/api/content')
     || str_starts_with($uriPath, '/api/messages')
     || str_starts_with($uriPath, '/api/casino')

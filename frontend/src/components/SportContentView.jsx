@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import useMatches from '../hooks/useMatches';
+import useSportOddsRefresh from '../hooks/useSportOddsRefresh';
 import { createFallbackTeamLogoDataUri, fetchTeamBadgeUrl } from '../utils/teamLogos';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { getSportKeywords, findSportItemById } from '../data/sportsData';
@@ -14,6 +15,7 @@ import {
 } from '../utils/odds';
 import PropBuilderModal from './PropBuilderModal';
 import MatchDetailView from './MatchDetailView';
+import OddsAge from './OddsAge';
 
 const SportContentView = ({ sportId, selectedItems = [], filter = null, status = 'live-upcoming', activeBetMode = 'straight' }) => {
     const { oddsFormat } = useOddsFormat();
@@ -27,6 +29,21 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
     const [isLoading, setIsLoading] = useState(true);
     const loadGenRef = React.useRef(0);
     const rawMatches = useMatches({ status, scopeKey: `${sportId || 'all'}:${filter || ''}` });
+    // Derive an Odds API sportKey for the refresh button from whichever match
+    // is currently in view. Null if no matches — button stays disabled then.
+    const primarySportKey = (content.matches?.find?.((m) => m?.rawMatch?.sportKey || m?.sportKey)?.rawMatch?.sportKey)
+        || (content.matches?.find?.((m) => m?.rawMatch?.sportKey || m?.sportKey)?.sportKey)
+        || null;
+    const { trigger: triggerRefresh, isRefreshing, cooldownRemainingSec } = useSportOddsRefresh(primarySportKey);
+    const handleRefreshClick = React.useCallback(() => {
+        triggerRefresh({
+            onSuccess: () => {
+                window.dispatchEvent(new CustomEvent('matches:refresh', {
+                    detail: { reason: 'user-odds-refresh', sportKey: primarySportKey, requestId: `sport-${Date.now()}` },
+                }));
+            },
+        });
+    }, [triggerRefresh, primarySportKey]);
     const degradedSummary = React.useMemo(() => {
         const all = Array.isArray(rawMatches) ? rawMatches : [];
         const blocked = all.filter((m) => m?.isBettable === false);
@@ -266,6 +283,31 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                     <i className={content.icon}></i>
                     <span>{content.name} - Live & Upcoming</span>
                 </div>
+                <button
+                    type="button"
+                    className="sport-refresh-btn"
+                    onClick={handleRefreshClick}
+                    disabled={!primarySportKey || isRefreshing || cooldownRemainingSec > 0}
+                    aria-label="Refresh odds for this sport"
+                    title={!primarySportKey ? 'No matches to refresh' : cooldownRemainingSec > 0 ? `Wait ${cooldownRemainingSec}s` : 'Refresh odds'}
+                    style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        marginLeft: 12,
+                        padding: '6px 12px',
+                        minHeight: 36,
+                        borderRadius: 6,
+                        border: '1px solid #d0d7de',
+                        background: cooldownRemainingSec > 0 ? '#f0f0f0' : '#fff',
+                        color: !primarySportKey || cooldownRemainingSec > 0 ? '#888' : '#333',
+                        cursor: !primarySportKey || isRefreshing || cooldownRemainingSec > 0 ? 'not-allowed' : 'pointer',
+                        fontSize: 13,
+                    }}
+                >
+                    <i className={`fa-solid fa-arrows-rotate ${isRefreshing ? 'fa-spin' : ''}`} />
+                    <span>{isRefreshing ? 'Updating…' : cooldownRemainingSec > 0 ? `Wait ${cooldownRemainingSec}s` : 'Refresh'}</span>
+                </button>
                 <div className="content-tabs">
                     <button className="tab-btn active">Matches</button>
                     <button className="tab-btn" disabled>Scoreboards</button>
@@ -294,6 +336,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                     <div className="match-time">
                                         <span className="time">{match.time}</span>
                                         <span className="date">{match.date}</span>
+                                        <OddsAge timestamp={match.rawMatch?.lastOddsSyncAt || match.rawMatch?.lastUpdated} style={{ marginLeft: 8 }} />
                                     </div>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                         <button

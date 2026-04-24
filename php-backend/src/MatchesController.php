@@ -55,6 +55,11 @@ final class MatchesController
             return true;
         }
 
+        if ($method === 'POST' && preg_match('#^/api/odds/refresh/([a-z][a-z0-9_]{1,79})$#', $path, $m) === 1) {
+            $this->refreshSport($m[1]);
+            return true;
+        }
+
         return false;
     }
 
@@ -202,6 +207,20 @@ final class MatchesController
             $annotated = array_values(array_filter($annotated, static function (array $match): bool {
                 $matchStatus = strtolower((string) ($match['status'] ?? ''));
                 return in_array($matchStatus, ['scheduled', 'live'], true);
+            }));
+        }
+
+        // Once commence_time passes, hide the match from pre-match listings.
+        // We don't offer live betting, so a started match has no UI home.
+        // Settlement / scores polling runs on a separate path and is not
+        // affected. `status=finished` / `status=all` opt out so admin and
+        // audit tooling can still pull historical rows.
+        if (!in_array($desiredStatus, ['finished', 'all'], true)) {
+            $now = time();
+            $annotated = array_values(array_filter($annotated, static function (array $match) use ($now): bool {
+                $startTime = (string) ($match['startTime'] ?? '');
+                $parsed = $startTime !== '' ? strtotime($startTime) : false;
+                return $parsed === false || $parsed > $now;
             }));
         }
 
@@ -373,6 +392,134 @@ final class MatchesController
         } catch (Throwable $e) {
             Response::json(['message' => $e->getMessage() ?: 'Server error manual odds fetch'], 500);
         }
+    }
+
+    /**
+     * Resolve the authenticated actor (user / agent / admin) from the Bearer
+     * token. Sends 401/403 directly on failure and returns null.
+     *
+     * @return array<string,mixed>|null
+     */
+    private function protectAny(): ?array
+    {
+        $auth = Http::header('authorization');
+        if (!str_starts_with($auth, 'Bearer ')) {
+            Response::json(['success' => false, 'error' => 'login_required'], 401);
+            return null;
+        }
+        $token = trim(substr($auth, 7));
+        try {
+            $decoded = Jwt::decode($token, $this->jwtSecret);
+        } catch (Throwable $e) {
+            Response::json(['success' => false, 'error' => 'login_required'], 401);
+            return null;
+        }
+        $id = (string) ($decoded['id'] ?? '');
+        if ($id === '' || preg_match('/^[a-f0-9]{24}$/i', $id) !== 1) {
+            Response::json(['success' => false, 'error' => 'login_required'], 401);
+            return null;
+        }
+        $role = (string) ($decoded['role'] ?? 'user');
+        $collection = ($role === 'admin') ? 'admins' : (in_array($role, ['agent', 'master_agent', 'super_agent'], true) ? 'agents' : 'users');
+        $actor = $this->db->findOne($collection, ['id' => SqlRepository::id($id)]);
+        if ($actor === null) {
+            Response::json(['success' => false, 'error' => 'login_required'], 403);
+            return null;
+        }
+        if (($actor['status'] ?? '') === 'suspended') {
+            Response::json(['success' => false, 'error' => 'account_suspended'], 403);
+            return null;
+        }
+        $actor['_role'] = $role;
+        return $actor;
+    }
+
+    /**
+     * POST /api/odds/refresh/{sport_key}
+     * User-triggered on-demand refresh of a single sport's odds + scores.
+     *
+     * Rate limits (multi-layer, each sends 429 on block):
+     *   - per-IP: 15 per 60s (RATE_LIMIT_REFRESH_ODDS_IP_*)
+     *   - per-user: 10 per 60s (RATE_LIMIT_REFRESH_ODDS_USER_*)
+     *
+     * In-flight dedup: SharedFileCache::remember with a 20s TTL keyed on the
+     * sport. Concurrent callers during an in-flight refresh share the result
+     * from the first caller's upstream fetch — one credit-consuming call.
+     */
+    private function refreshSport(string $sportKey): void
+    {
+        $startedAt = microtime(true);
+
+        $actor = $this->protectAny();
+        if ($actor === null) return;
+        $userId = (string) ($actor['id'] ?? '');
+
+        $ipMax = max(1, (int) Env::get('ODDS_REFRESH_IP_LIMIT_MAX', '15'));
+        $ipWindow = max(1, (int) Env::get('ODDS_REFRESH_IP_LIMIT_WINDOW_SECONDS', '60'));
+        $userMax = max(1, (int) Env::get('ODDS_REFRESH_USER_LIMIT_MAX', '10'));
+        $userWindow = max(1, (int) Env::get('ODDS_REFRESH_USER_LIMIT_WINDOW_SECONDS', '60'));
+        $dedupWindow = max(1, (int) Env::get('ODDS_REFRESH_DEDUP_WINDOW_SECONDS', '20'));
+
+        $ipKey = $this->clientIpKey();
+        if (RateLimiter::enforce($this->db, 'refresh_odds_ip', $ipMax, $ipWindow)) {
+            return;
+        }
+        $userAllowed = RateLimiter::checkLimit($this->db, 'user:' . $userId, 'refresh_odds_user', $userMax, $userWindow);
+        if (!$userAllowed) {
+            $retry = RateLimiter::getRemainingSeconds($this->db, 'user:' . $userId, 'refresh_odds_user', $userWindow);
+            Response::json(['success' => false, 'error' => 'rate_limited', 'retry_after_seconds' => max(1, $retry)], 429);
+            return;
+        }
+
+        // In-flight dedup: first caller runs the upstream fetch; concurrent
+        // callers within the 20s window get the cached payload from that call.
+        $result = SharedFileCache::remember(
+            'sportsbook-on-demand-refresh',
+            $sportKey,
+            $dedupWindow,
+            fn(): array => OddsSyncService::syncSingleSport($this->db, $sportKey)
+        );
+
+        $elapsedMs = (int) round((microtime(true) - $startedAt) * 1000);
+        $dedupHit = $elapsedMs < 200; // cache hit returned instantly
+        $success = (bool) ($result['success'] ?? false);
+
+        Logger::info('odds_on_demand_refresh', [
+            'userId' => $userId,
+            'role' => (string) ($actor['_role'] ?? ''),
+            'sport' => $sportKey,
+            'ipHash' => substr(hash('sha256', $ipKey), 0, 16),
+            // 4 credits per refresh: odds call (3 markets × 1 region) + scores (1).
+            // Header `x-requests-used` reports the cumulative total; per-call cost
+            // is deterministic given our markets/regions config, so log that instead.
+            'creditsConsumed' => 4,
+            'creditsCumulativeAfter' => $result['credits_used'] ?? null,
+            'dedupHit' => $dedupHit,
+            'success' => $success,
+            'responseTimeMs' => $elapsedMs,
+            'error' => $result['error'] ?? null,
+        ], 'sportsbook');
+
+        $responseBody = [
+            'success' => $success,
+            'sport_key' => $sportKey,
+            'last_updated' => $result['last_updated'] ?? gmdate(DATE_ATOM),
+            'matches' => $result['matches'] ?? [],
+            'dedup_hit' => $dedupHit,
+        ];
+        if (!$success && isset($result['error'])) {
+            $responseBody['error'] = $result['error'];
+        }
+        Response::json($responseBody, $success ? 200 : 502);
+    }
+
+    private function clientIpKey(): string
+    {
+        foreach (['HTTP_CF_CONNECTING_IP', 'HTTP_X_REAL_IP', 'HTTP_X_FORWARDED_FOR', 'REMOTE_ADDR'] as $k) {
+            $v = (string) ($_SERVER[$k] ?? '');
+            if ($v !== '') return trim(explode(',', $v)[0]);
+        }
+        return 'unknown';
     }
 
     private function protectAdmin(): ?array

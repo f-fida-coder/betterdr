@@ -1,5 +1,6 @@
 import React from 'react';
 import useMatches from '../hooks/useMatches';
+import useSportOddsRefresh from '../hooks/useSportOddsRefresh';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { getSportKeywords, findSportItemById } from '../data/sportsData';
 import {
@@ -13,6 +14,7 @@ import {
 import { logoUrlForTeam, fetchTeamBadgeUrl, prewarmTeamBadges } from '../utils/teamLogos';
 import PropBuilderModal from './PropBuilderModal';
 import MatchDetailView from './MatchDetailView';
+import OddsAge from './OddsAge';
 
 const WEEKDAYS_LONG = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
 const MONTHS_SHORT = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
@@ -377,6 +379,9 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
                 // SGP is offered when the match has any player-prop markets
                 // cached — /api/matches/{id}/props triggers the actual fetch.
                 hasSgp: Array.isArray(match.playerProps) && match.playerProps.length > 0,
+                // Carried through so the MatchCard can render "Updated N min ago"
+                // without having to reach into rawMatch.
+                lastOddsSyncAt: match.lastOddsSyncAt || match.lastUpdated || null,
             };
         });
 
@@ -480,13 +485,31 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
         };
     }, []);
 
+    // Derive the visible sport's Odds API key so the button can trigger the
+    // per-sport upstream refresh. If no matches are visible (empty view), we
+    // fall back to the generic matches:refresh event only.
+    const primarySportKey = (orderedMatches?.find?.((m) => m?.rawMatch?.sportKey || m?.sportKey)?.rawMatch?.sportKey)
+        || (orderedMatches?.find?.((m) => m?.rawMatch?.sportKey || m?.sportKey)?.sportKey)
+        || null;
+    const { trigger: triggerSportRefresh, isRefreshing: isSportRefreshing, cooldownRemainingSec } = useSportOddsRefresh(primarySportKey);
+
     const handleManualRefresh = React.useCallback(() => {
-        if (isRefreshing) return;
+        if (isRefreshing || isSportRefreshing || cooldownRemainingSec > 0) return;
         setIsRefreshing(true);
-        window.dispatchEvent(new CustomEvent('matches:refresh', {
-            detail: { reason: 'user', requestId: `mobile-${Date.now()}` },
-        }));
-    }, [isRefreshing]);
+        const fireMatchesRefetch = () => {
+            window.dispatchEvent(new CustomEvent('matches:refresh', {
+                detail: { reason: 'user', sportKey: primarySportKey, requestId: `mobile-${Date.now()}` },
+            }));
+        };
+        if (primarySportKey) {
+            // Per-sport upstream refresh, then refetch local matches from the
+            // now-updated cache. If the upstream call fails the hook already
+            // surfaces a toast; we still fetch locally to keep UI responsive.
+            triggerSportRefresh({ onSuccess: fireMatchesRefetch });
+        } else {
+            fireMatchesRefetch();
+        }
+    }, [isRefreshing, isSportRefreshing, cooldownRemainingSec, primarySportKey, triggerSportRefresh]);
 
     const ageMs = nowTick - lastFetchTime;
     const isStale = ageMs >= STALE_MS;
@@ -526,12 +549,12 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
                 <button
                     type="button"
                     onClick={handleManualRefresh}
-                    disabled={isRefreshing}
+                    disabled={isRefreshing || isSportRefreshing || cooldownRemainingSec > 0}
                     style={isStale ? refreshButtonStaleStyle : refreshButtonStyle}
                     aria-label="Refresh odds"
                 >
-                    <i className={`fa-solid fa-arrows-rotate ${isRefreshing ? 'fa-spin' : ''}`} style={{ marginRight: 6 }} />
-                    {isRefreshing ? 'Updating…' : isStale ? 'Refresh for latest odds' : ageLabel}
+                    <i className={`fa-solid fa-arrows-rotate ${(isRefreshing || isSportRefreshing) ? 'fa-spin' : ''}`} style={{ marginRight: 6 }} />
+                    {(isRefreshing || isSportRefreshing) ? 'Updating…' : cooldownRemainingSec > 0 ? `Wait ${cooldownRemainingSec}s` : isStale ? 'Refresh for latest odds' : ageLabel}
                 </button>
             </div>
 
@@ -649,6 +672,7 @@ const MatchCard = ({ match, oddsFormat, onAddToSlip, selectedKeys, visibleMarket
                         />
                     )}
                     <span style={matchTimeStyle}>{match.timeDisplay || match.time}</span>
+                    <OddsAge timestamp={match.lastOddsSyncAt} />
                 </span>
                 {visibleMarkets.showSpread && <span style={columnLabelStyle}>Spread</span>}
                 {visibleMarkets.showMoneyline && <span style={columnLabelStyle}>ML</span>}
