@@ -290,12 +290,11 @@ function AppInner() {
         }
         didAdd = true;
         const next = { ...item, id: Date.now() + Math.random(), dedupeKey };
-        // Straight mode holds one selection at a time — clicking a new
-        // odds cell replaces the current pick instead of stacking, since
-        // a straight ticket resolves a single leg.
-        if (betMode === 'straight') {
-          return [next];
-        }
+        // Straight mode accumulates multiple selections. Each one is
+        // placed as an independent single-leg ticket by the placement
+        // loop in ModeBetPanel (per-selection amount + separate
+        // requestId), so a user can queue up N straight bets before
+        // submitting — the expected behavior in real sportsbooks.
         return [...prev, next];
       });
       // Defer toast to next tick so the state update commits first (avoids

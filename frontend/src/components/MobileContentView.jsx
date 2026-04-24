@@ -148,7 +148,27 @@ const PERIOD_CONFIG = {
     soccer: SOCCER_PERIODS,
 };
 
-const getPeriodsForSport = (sportId) => PERIOD_CONFIG[sportId] || [FULL_PERIOD];
+// Map Odds API sport slugs (from dynamic `api-*` sidebar items) to the
+// period preset. Without this, selecting "BASEBALL KBO" etc. from the
+// auto-injected sidebar entries would only show the "Game" tab even
+// when F1/F5 markets exist in the data.
+const PERIOD_CONFIG_BY_SLUG_PREFIX = {
+    basketball: BASKETBALL_PERIODS,
+    americanfootball: FOOTBALL_PERIODS,
+    baseball: BASEBALL_PERIODS,
+    icehockey: HOCKEY_PERIODS,
+    soccer: SOCCER_PERIODS,
+};
+
+const getPeriodsForSport = (sportId) => {
+    if (PERIOD_CONFIG[sportId]) return PERIOD_CONFIG[sportId];
+    const normalized = String(sportId || '').toLowerCase();
+    if (normalized.startsWith('api-')) {
+        const category = normalized.slice(4).split('-')[0];
+        if (PERIOD_CONFIG_BY_SLUG_PREFIX[category]) return PERIOD_CONFIG_BY_SLUG_PREFIX[category];
+    }
+    return [FULL_PERIOD];
+};
 
 const normalizeMode = (mode) => String(mode || 'straight').toLowerCase().replace(/-/g, '_');
 
@@ -249,7 +269,10 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
             });
         };
         (rawMatches || []).forEach(match => {
-            if (match?.isBettable === false) return;
+            // Scan every match regardless of isBettable: stale matches
+            // still render (with disabled buttons), and we want their
+            // period tabs (F1/F5, Q1-Q4, P1-P3, H1/H2) to appear so a
+            // bettor can see which periods exist before the sync refreshes.
             scan(match?.odds?.markets);
             scan(match?.odds?.extendedMarkets);
         });

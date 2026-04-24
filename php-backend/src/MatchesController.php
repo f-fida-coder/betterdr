@@ -813,16 +813,14 @@ final class MatchesController
      */
     private function coreMatchPayload(array $match): array
     {
+        // playerProps are large and only needed on the match-detail view
+        // (fetched via /api/matches/{id}/props). Keep them stripped.
         unset($match['playerProps']);
 
-        if (is_array($match['odds'] ?? null)) {
-            $odds = $match['odds'];
-            if (is_array($odds)) {
-                unset($odds['extendedMarkets']);
-                $match['odds'] = $odds;
-            }
-        }
-
+        // extendedMarkets contains period markets (F1/F5 for baseball,
+        // Q1-Q4 for basketball/football, P1-P3 for hockey, alt lines,
+        // team totals). The list view needs them so period tabs can
+        // render and switch instantly without a per-match fetch.
         return $match;
     }
 
