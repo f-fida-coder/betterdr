@@ -63,9 +63,14 @@ final class MatchesController
         $status = isset($_GET['status']) ? strtolower(trim((string) $_GET['status'])) : '';
         $active = isset($_GET['active']) ? strtolower(trim((string) $_GET['active'])) : '';
         $payloadMode = $this->normalizePayloadMode((string) ($_GET['payload'] ?? 'full'));
+        $sportFilter = isset($_GET['sport']) ? trim((string) $_GET['sport']) : '';
+        $sportKeyFilter = isset($_GET['sportKey']) ? trim((string) $_GET['sportKey']) : '';
         $sharedCacheTtl = $this->envInt('SPORTSBOOK_MATCHES_CACHE_TTL_SECONDS', self::DEFAULT_SHARED_MATCHES_CACHE_TTL_SECONDS);
         $cacheNamespace = SportsbookCache::publicMatchesNamespace();
-        $cacheKey = SportsbookCache::publicMatchesKey($status . '|payload:' . $payloadMode, $active);
+        $sportCacheSegment = ($sportFilter !== '' || $sportKeyFilter !== '')
+            ? '|sport:' . strtolower($sportFilter) . '|sportKey:' . strtolower($sportKeyFilter)
+            : '';
+        $cacheKey = SportsbookCache::publicMatchesKey($status . '|payload:' . $payloadMode . $sportCacheSegment, $active);
         // Read stale data NOW before any TTL-enforcing get() may delete the expired file.
         // This is the fallback used if the fresh-data path throws an exception under load.
         $staleForFallback = SharedFileCache::peek($cacheNamespace, $cacheKey);
@@ -80,7 +85,7 @@ final class MatchesController
                     $cacheNamespace,
                     $cacheKey,
                     $sharedCacheTtl,
-                    fn(): array => $this->computeMatches($status, $active, $payloadMode)
+                    fn(): array => $this->computeMatches($status, $active, $payloadMode, $sportFilter, $sportKeyFilter)
                 );
             }
 
@@ -112,7 +117,7 @@ final class MatchesController
         }
     }
 
-    private function computeMatches(string $status, string $active, string $payloadMode = 'full'): array
+    private function computeMatches(string $status, string $active, string $payloadMode = 'full', string $sportFilter = '', string $sportKeyFilter = ''): array
     {
         $dbFilter = [];
         $desiredStatus = $status === 'active' ? 'live' : $status;
@@ -191,6 +196,25 @@ final class MatchesController
             $annotated = array_values(array_filter($annotated, static function (array $match): bool {
                 $matchStatus = strtolower((string) ($match['status'] ?? ''));
                 return in_array($matchStatus, ['scheduled', 'live'], true);
+            }));
+        }
+
+        // Sport filter: matches either `sport` (title, e.g. "IPL") or
+        // `sportKey` (Odds API slug, e.g. "cricket_ipl"). Substring match
+        // is intentional so a single keyword catches title variants.
+        if ($sportFilter !== '' || $sportKeyFilter !== '') {
+            $needleSport = strtolower($sportFilter);
+            $needleSportKey = strtolower($sportKeyFilter);
+            $annotated = array_values(array_filter($annotated, static function (array $match) use ($needleSport, $needleSportKey): bool {
+                $sport = strtolower((string) ($match['sport'] ?? ''));
+                $sportKey = strtolower((string) ($match['sportKey'] ?? ''));
+                if ($needleSport !== '' && $sport !== '' && strpos($sport, $needleSport) !== false) {
+                    return true;
+                }
+                if ($needleSportKey !== '' && $sportKey !== '' && strpos($sportKey, $needleSportKey) !== false) {
+                    return true;
+                }
+                return false;
             }));
         }
 
@@ -278,7 +302,16 @@ final class MatchesController
      */
     private function computeAvailableSports(): array
     {
-        $matches = $this->db->findMany('matches', ['status' => ['$in' => ['scheduled', 'live']]], ['projection' => ['sport' => 1, 'sportKey' => 1, 'status' => 1]]);
+        // Only include sports whose matches have at least one posted odds
+        // market. Upstream (Odds API) frequently returns events for minor
+        // leagues with zero bookmaker coverage in the configured region;
+        // emitting those in the sidebar leads to empty "CRICKET PSL"
+        // style entries that click through to nothing.
+        $matches = $this->db->findMany(
+            'matches',
+            ['status' => ['$in' => ['scheduled', 'live']]],
+            ['projection' => ['sport' => 1, 'sportKey' => 1, 'status' => 1, 'odds' => 1]]
+        );
         $sports = [];
         foreach ($matches as $match) {
             if (!is_array($match)) {
@@ -286,6 +319,11 @@ final class MatchesController
             }
             $status = strtolower((string) ($match['status'] ?? ''));
             if (!in_array($status, ['scheduled', 'live'], true)) {
+                continue;
+            }
+            $odds = $match['odds'] ?? null;
+            $markets = is_array($odds) ? ($odds['markets'] ?? null) : null;
+            if (!is_array($markets) || count($markets) === 0) {
                 continue;
             }
             $sport = (string) ($match['sport'] ?? '');

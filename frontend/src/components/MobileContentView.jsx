@@ -307,7 +307,9 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
             if (match?.isBettable === false) return false;
             if (sportKeywords) {
                 const sport = String(match?.sport || '').toLowerCase();
-                if (!sport || !sportKeywords.some((k) => sport.includes(k))) return false;
+                const sportKey = String(match?.sportKey || '').toLowerCase();
+                const haystack = `${sport}|${sportKey}`;
+                if (!haystack.trim() || !sportKeywords.some((k) => haystack.includes(k))) return false;
             }
             return true;
         });

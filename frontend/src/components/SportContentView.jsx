@@ -110,9 +110,11 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                 // open markets. Matches the DK/FanDuel approach.
                 if (m?.isBettable === false) return false;
                 if (!resolvedSportId) return true;
-                if (!m.sport) return false;
-                const sportValue = m.sport.toString().toLowerCase();
-                return keywords.some(k => sportValue.includes(k));
+                const sportValue = String(m?.sport || '').toLowerCase();
+                const sportKeyValue = String(m?.sportKey || '').toLowerCase();
+                if (!sportValue && !sportKeyValue) return false;
+                const haystack = `${sportValue}|${sportKeyValue}`;
+                return keywords.some(k => haystack.includes(k));
             });
 
             if (periodFilter) {

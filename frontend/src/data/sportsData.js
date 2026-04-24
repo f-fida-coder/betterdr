@@ -172,6 +172,14 @@ export const getSportKeywords = (id) => {
     if (!id) return [];
     const normalized = id.toString().toLowerCase();
 
+    // Dynamic sidebar entries auto-injected from /api/matches/sports are
+    // keyed `api-<slug-with-dashes>`. Convert back to the Odds API slug
+    // so match.sportKey comparisons in consumers can succeed.
+    if (normalized.startsWith('api-')) {
+        const slug = normalized.slice(4).replace(/-/g, '_');
+        return [slug, slug.replace(/_/g, ' ')];
+    }
+
     const keywordMap = {
         nfl: ['nfl', 'americanfootball_nfl'],
         'ncaa-football': ['ncaaf', 'ncaa football', 'college football', 'americanfootball_ncaaf'],
