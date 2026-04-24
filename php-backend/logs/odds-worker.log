@@ -12161,3 +12161,5 @@
 [2026-04-23T21:38:54+00:00] [ERROR] [2026-04-23T21:38:54+00:00] update failed: Odds sync failed: all upstream API requests failed
 [2026-04-24T04:34:05+00:00] [INFO] [2026-04-24T04:22:37+00:00] update ok created=9 updated=700 scoreOnly=418 settled=0 calls=168 failed=86 blocked=false
 [2026-04-24T04:45:24+00:00] [INFO] [2026-04-24T04:34:06+00:00] update ok created=13 updated=695 scoreOnly=381 settled=0 calls=168 failed=89 blocked=false
+[2026-04-24T04:54:43+00:00] [INFO] [2026-04-24T04:45:25+00:00] update ok created=5 updated=705 scoreOnly=258 settled=0 calls=168 failed=80 blocked=false
+[2026-04-24T05:06:18+00:00] [INFO] [2026-04-24T04:54:44+00:00] update ok created=1 updated=798 scoreOnly=152 settled=0 calls=168 failed=63 blocked=false

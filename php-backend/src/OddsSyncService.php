@@ -545,17 +545,23 @@ final class OddsSyncService
             if (!is_array($decoded) || !isset($decoded['bookmakers']) || !is_array($decoded['bookmakers'])) {
                 continue;
             }
-            $primary = $decoded['bookmakers'][0] ?? null;
-            if (!is_array($primary) || !isset($primary['markets']) || !is_array($primary['markets'])) {
-                continue;
-            }
-            foreach ($primary['markets'] as $market) {
-                if (!is_array($market) || !isset($market['key'])) {
+            // Iterate every bookmaker — the first one often hasn't posted
+            // period/prop markets (esp. for games starting soon). First-seen
+            // wins per market key so the primary book still takes precedence
+            // when multiple books carry the same market.
+            foreach ($decoded['bookmakers'] as $bookmaker) {
+                if (!is_array($bookmaker) || !isset($bookmaker['markets']) || !is_array($bookmaker['markets'])) {
                     continue;
                 }
-                $key = (string) $market['key'];
-                // Dedupe: last write wins (later chunks may include more bookmakers)
-                $mergedMarkets[$key] = $market;
+                foreach ($bookmaker['markets'] as $market) {
+                    if (!is_array($market) || !isset($market['key'])) {
+                        continue;
+                    }
+                    $key = (string) $market['key'];
+                    if (!isset($mergedMarkets[$key])) {
+                        $mergedMarkets[$key] = $market;
+                    }
+                }
             }
         }
 
@@ -615,12 +621,22 @@ final class OddsSyncService
 
             $now = SqlRepository::nowUtc();
             $existingOdds = is_array($match['odds'] ?? null) ? $match['odds'] : [];
-            $existingOdds['extendedMarkets'] = $extendedMarkets;
+            $existingExtended = is_array($existingOdds['extendedMarkets'] ?? null) ? $existingOdds['extendedMarkets'] : [];
+            $existingPlayerProps = is_array($match['playerProps'] ?? null) ? $match['playerProps'] : [];
+
+            // Preserve prior data when a fetch cycle returns nothing. The
+            // Odds API sporadically returns empty chunks (rate limits, book
+            // filter mismatches, transient 422s) and unconditionally
+            // overwriting would wipe out period/prop markets we'd already
+            // captured on earlier cycles.
+            $hadAnyData = count($extendedMarkets) > 0 || count($playerProps) > 0;
+            $existingOdds['extendedMarkets'] = $hadAnyData ? $extendedMarkets : $existingExtended;
+            $nextPlayerProps = $hadAnyData ? $playerProps : $existingPlayerProps;
 
             try {
                 $db->updateOne('matches', ['id' => SqlRepository::id($matchId)], [
                     'odds' => $existingOdds,
-                    'playerProps' => $playerProps,
+                    'playerProps' => $nextPlayerProps,
                     'lastPropsSyncAt' => $now,
                     'updatedAt' => $now,
                 ]);
