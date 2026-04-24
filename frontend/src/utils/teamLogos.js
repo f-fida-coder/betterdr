@@ -1,4 +1,15 @@
+import { API_URL } from '../api';
+
 const ESPN_LOGO = (league, abbr) => `https://a.espncdn.com/i/teamlogos/${league}/500/${abbr}.png`;
+
+// Path-style API base uses `?path=` so queries append with `&`; normal
+// hosts use `/path?query`. Same logic as api.js#buildApiUrl, inlined
+// here to avoid a circular import with TEAM_LOGO_MAP consumers.
+const buildProxyUrl = (subpath, name) => {
+    const base = `${API_URL}${subpath}`;
+    const sep = base.includes('?') ? '&' : '?';
+    return `${base}${sep}name=${encodeURIComponent(name)}`;
+};
 
 // Shared logo source for desktop (SportContentView.jsx) and mobile
 // (MobileContentView.jsx). Keys are normalized via normalizeTeamName:
@@ -355,8 +366,11 @@ export const logoUrlForTeam = (teamName = '') => {
 // through the new code path.
 const LOGO_CACHE_KEY = 'betterdr:teamLogos:v3';
 const LOGO_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
-const THE_SPORTS_DB_TEAM_SEARCH = 'https://www.thesportsdb.com/api/v1/json/3/searchteams.php?t=';
-const THE_SPORTS_DB_PLAYER_SEARCH = 'https://www.thesportsdb.com/api/v1/json/3/searchplayers.php?p=';
+// Routed through the PHP proxy: direct browser calls to thesportsdb hit
+// CORS and a shared 429 rate limit. Backend fetches server-side, caches
+// for 7 days, and returns minimal JSON. See ThesportsdbProxyController.
+const THE_SPORTS_DB_TEAM_PATH = '/proxy/thesportsdb/team';
+const THE_SPORTS_DB_PLAYER_PATH = '/proxy/thesportsdb/player';
 
 // Common prefixes/suffixes that different feeds disagree on. Stripping
 // them creates variations that TheSportsDB tends to resolve (e.g.
@@ -508,46 +522,27 @@ export const fetchTeamBadgeUrl = async (teamName = '') => {
 
     const promise = (async () => {
         try {
-            // 1) Try up to 5 name variations on the TEAM-search endpoint.
-            //    First hit with a badge wins.
+            // 1) Try up to 5 name variations against the team-search proxy.
+            //    The backend picks exact-match-or-first and returns a
+            //    minimal `{ found, logoUrl }` payload so all team-name
+            //    normalization happens server-side.
             const variations = buildNameVariations(teamName).slice(0, 5);
             for (const variant of variations) {
-                const data = await fetchJson(THE_SPORTS_DB_TEAM_SEARCH + encodeURIComponent(variant));
-                const teams = Array.isArray(data?.teams) ? data.teams : [];
-                if (teams.length === 0) continue;
-                const variantNorm = normalizeTeamName(variant);
-                const exact = teams.find((t) => {
-                    const candidate = normalizeTeamName(t?.strTeam || '');
-                    return candidate === normalized || candidate === variantNorm;
-                });
-                const match = exact || teams[0];
-                const badge = match?.strBadge || match?.strTeamBadge || match?.strLogo || null;
-                if (badge) {
-                    setCachedLogo(normalized, badge);
-                    return badge;
+                const data = await fetchJson(buildProxyUrl(THE_SPORTS_DB_TEAM_PATH, variant));
+                if (data?.found && typeof data.logoUrl === 'string' && data.logoUrl) {
+                    setCachedLogo(normalized, data.logoUrl);
+                    return data.logoUrl;
                 }
             }
 
-            // 2) Team search struck out — try PLAYER search for athletes
-            //    (MMA fighters, boxers, tennis players, etc.). Player
-            //    entries carry headshots in strThumb/strCutout. Only try
-            //    the original name — player-name variations like "FC"
+            // 2) Team search struck out — try the player-search proxy for
+            //    athletes (MMA fighters, boxers, tennis players). Only
+            //    try the original name; player-name variations like "FC"
             //    stripping don't help here.
-            const playerData = await fetchJson(THE_SPORTS_DB_PLAYER_SEARCH + encodeURIComponent(teamName));
-            const players = Array.isArray(playerData?.player) ? playerData.player : [];
-            if (players.length > 0) {
-                const exactPlayer = players.find((p) =>
-                    normalizeTeamName(p?.strPlayer || '') === normalized
-                );
-                const playerMatch = exactPlayer || players[0];
-                const thumb = playerMatch?.strCutout
-                    || playerMatch?.strThumb
-                    || playerMatch?.strRender
-                    || null;
-                if (thumb) {
-                    setCachedLogo(normalized, thumb);
-                    return thumb;
-                }
+            const playerData = await fetchJson(buildProxyUrl(THE_SPORTS_DB_PLAYER_PATH, teamName));
+            if (playerData?.found && typeof playerData.logoUrl === 'string' && playerData.logoUrl) {
+                setCachedLogo(normalized, playerData.logoUrl);
+                return playerData.logoUrl;
             }
 
             // Nothing matched — negative cache the miss for 24h.

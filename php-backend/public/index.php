@@ -36,6 +36,7 @@ require_once __DIR__ . '/../src/AgentController.php';
 require_once __DIR__ . '/../src/AgentCutsController.php';
 require_once __DIR__ . '/../src/PaymentsController.php';
 require_once __DIR__ . '/../src/AdminCoreController.php';
+require_once __DIR__ . '/../src/ThesportsdbProxyController.php';
 require_once __DIR__ . '/../src/AdminEntityCatalog.php';
 require_once __DIR__ . '/../src/DebugController.php';
 require_once __DIR__ . '/../src/RateLimiter.php';
@@ -567,6 +568,7 @@ if (
     || str_starts_with($uriPath, '/api/payments')
     || str_starts_with($uriPath, '/api/admin')
     || str_starts_with($uriPath, '/api/debug')
+    || str_starts_with($uriPath, '/api/proxy')
 ) {
     if ($authNativeEnabled) {
         try {
@@ -604,6 +606,7 @@ if (
             $paymentsController = new PaymentsController($repo, $jwtSecret);
             $adminCoreController = new AdminCoreController($repo, $jwtSecret);
             $debugController = new DebugController($repo, $jwtSecret);
+            $thesportsdbProxyController = new ThesportsdbProxyController($repo, $jwtSecret);
 
             $handled = $authController->handle($method, $uriPath)
                 || $walletController->handle($method, $uriPath)
@@ -617,6 +620,7 @@ if (
                 || $agentController->handle($method, $uriPath)
                 || $paymentsController->handle($method, $uriPath)
                 || $adminCoreController->handle($method, $uriPath)
+                || $thesportsdbProxyController->handle($method, $uriPath)
                 || $debugController->handle($method, $uriPath);
 
             // Probabilistic query-cache warm-up: on ~2% of requests (non-warmup, non-admin)
