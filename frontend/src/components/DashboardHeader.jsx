@@ -208,91 +208,114 @@ const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, 
                         </div>
                     </div>
 
-                    {/* Middle: stacked balance display — Balance on top row,
-                        Available (or Pending) below. Flexes to fill space and
-                        right-aligns so numbers sit next to the action icons. */}
+                    {/* Middle: seamless two-line balance block. Tight line-height
+                        and small caps labels make it read as a single unit
+                        rather than two separate rows. */}
                     <div
                         style={{
                             flex: '1 1 auto',
                             display: 'flex',
                             flexDirection: 'column',
                             alignItems: 'flex-end',
+                            justifyContent: 'center',
                             minWidth: 0,
-                            paddingRight: 6,
-                            lineHeight: 1.1,
+                            paddingRight: 4,
+                            lineHeight: 1.05,
+                            gap: 1,
                         }}
                     >
-                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, whiteSpace: 'nowrap' }}>
-                            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.65)', letterSpacing: 0.5 }}>BAL</span>
-                            <span style={{ fontSize: 14, fontWeight: 700, color: '#49d17d' }}>{formatMoney(balance)}</span>
+                        <div style={{ display: 'inline-flex', alignItems: 'baseline', gap: 5, whiteSpace: 'nowrap' }}>
+                            <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.55)', letterSpacing: 0.6, textTransform: 'uppercase' }}>Bal</span>
+                            <span style={{ fontSize: 15, fontWeight: 700, color: '#49d17d', fontVariantNumeric: 'tabular-nums' }}>{formatMoney(balance)}</span>
                         </div>
-                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, whiteSpace: 'nowrap' }}>
-                            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.55)', letterSpacing: 0.5 }}>AVAIL</span>
-                            <span style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.85)' }}>{formatMoney(availableBalance)}</span>
+                        <div style={{ display: 'inline-flex', alignItems: 'baseline', gap: 5, whiteSpace: 'nowrap' }}>
+                            <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.45)', letterSpacing: 0.6, textTransform: 'uppercase' }}>Avail</span>
+                            <span style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.78)', fontVariantNumeric: 'tabular-nums' }}>{formatMoney(availableBalance)}</span>
                         </div>
                     </div>
 
                     {/* Right cluster: ACCOUNT then BETSLIP on the far right.
-                        Matches the reference layout — betslip is the final
-                        touch target, account sits directly to its left. */}
-                    <div className="right-section" style={{ display: 'flex', alignItems: 'center', gap: 6, flex: '0 0 auto' }}>
-                        {showContinueButton ? (
-                            <div className="continue-btn-container" onClick={onContinue}>
-                                <button className="mobile-continue-btn">
-                                    Continue <i className="fa-solid fa-chevron-right"></i>
-                                </button>
-                            </div>
-                        ) : (
-                            <>
-                                <div
-                                    className="icon-btn"
-                                    onClick={() => setShowAccountPanel(true)}
-                                    role="button"
-                                    aria-label="Open account panel"
-                                >
-                                    <i className="fa-solid fa-user"></i>
-                                    <span>ACCOUNT</span>
-                                </div>
-                                <div
-                                    className="icon-btn"
-                                    onClick={() => {
-                                        // ModeBetPanel listens for this and opens the slip.
-                                        window.dispatchEvent(new CustomEvent('betslip:open', { detail: { source: 'header' } }));
-                                    }}
-                                    role="button"
-                                    aria-label={`Open bet slip${slipCount ? ` — ${slipCount} selection${slipCount === 1 ? '' : 's'}` : ''}`}
-                                    style={{ position: 'relative' }}
-                                >
-                                    <i className="fa-solid fa-cart-shopping"></i>
-                                    <span>SLIP</span>
-                                    {slipCount > 0 && (
-                                        <span
-                                            aria-hidden="true"
-                                            style={{
-                                                position: 'absolute',
-                                                top: -2,
-                                                right: -2,
-                                                minWidth: 16,
-                                                height: 16,
-                                                padding: '0 4px',
-                                                borderRadius: 999,
-                                                background: '#ef4444',
-                                                color: '#fff',
-                                                fontSize: 10,
-                                                fontWeight: 700,
-                                                lineHeight: '16px',
-                                                textAlign: 'center',
-                                                boxShadow: '0 0 0 2px #000',
-                                            }}
-                                        >
-                                            {slipCount > 99 ? '99+' : slipCount}
-                                        </span>
-                                    )}
-                                </div>
-                            </>
-                        )}
+                        Icons only — text labels were noisy. Slip count sits
+                        inline as a pill next to the cart when >0, which is
+                        quieter than the floating dot badge but still legible. */}
+                    <div className="right-section" style={{ display: 'flex', alignItems: 'center', gap: 4, flex: '0 0 auto' }}>
+                        <button
+                            type="button"
+                            onClick={() => setShowAccountPanel(true)}
+                            aria-label="Open account panel"
+                            style={{
+                                width: 36, height: 36, borderRadius: 18,
+                                border: '1px solid rgba(255,255,255,0.15)',
+                                background: 'transparent', color: '#fff',
+                                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                                cursor: 'pointer', padding: 0,
+                            }}
+                        >
+                            <i className="fa-solid fa-user" style={{ fontSize: 15 }}></i>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => window.dispatchEvent(new CustomEvent('betslip:open', { detail: { source: 'header' } }))}
+                            aria-label={`Open bet slip${slipCount ? ` — ${slipCount} selection${slipCount === 1 ? '' : 's'}` : ''}`}
+                            style={{
+                                height: 36,
+                                borderRadius: 18,
+                                border: '1px solid rgba(255,255,255,0.15)',
+                                background: slipCount > 0 ? '#ef4444' : 'transparent',
+                                color: '#fff',
+                                display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+                                padding: slipCount > 0 ? '0 10px 0 8px' : 0,
+                                width: slipCount > 0 ? 'auto' : 36,
+                                minWidth: 36,
+                                cursor: 'pointer',
+                                fontWeight: 700,
+                                fontSize: 13,
+                                fontVariantNumeric: 'tabular-nums',
+                            }}
+                        >
+                            <i className="fa-solid fa-cart-shopping" style={{ fontSize: 15 }}></i>
+                            {slipCount > 0 && <span>{slipCount > 99 ? '99+' : slipCount}</span>}
+                        </button>
                     </div>
                 </div>
+
+                {/* Second row, only visible once a sport is chosen. A thin
+                    Continue pill separate from the top row so the main
+                    header never loses its account/balance/slip affordances. */}
+                {showContinueButton && (
+                    <div
+                        style={{
+                            display: 'flex',
+                            justifyContent: 'flex-end',
+                            padding: '6px 10px',
+                            background: 'rgba(0,0,0,0.35)',
+                            borderTop: '1px solid rgba(255,255,255,0.05)',
+                        }}
+                    >
+                        <button
+                            type="button"
+                            onClick={onContinue}
+                            aria-label="Continue to selected sports"
+                            style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 6,
+                                padding: '6px 14px',
+                                borderRadius: 999,
+                                border: 'none',
+                                background: '#16a34a',
+                                color: '#fff',
+                                fontWeight: 700,
+                                fontSize: 13,
+                                cursor: 'pointer',
+                                boxShadow: '0 2px 8px rgba(22,163,74,0.35)',
+                            }}
+                        >
+                            Continue
+                            <i className="fa-solid fa-chevron-right" style={{ fontSize: 12 }}></i>
+                        </button>
+                    </div>
+                )}
 
                 {showUserMenu && (
                     <div className="user-settings-dropdown mobile-usd" onClick={(e) => e.stopPropagation()}>
