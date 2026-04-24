@@ -75,6 +75,13 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Cache API only accepts http/https. Browser extensions and devtools
+  // routinely issue chrome-extension:// (or moz-extension://) requests
+  // through the page context, which would otherwise blow up cache.put().
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    return;
+  }
+
   // API requests: only the explicit public, read-only endpoints get SWR.
   // Everything else under /api/ bypasses the SW entirely (authenticated and
   // mutating-adjacent routes like /api/admin/**, /api/auth/**, /api/wallet/**,

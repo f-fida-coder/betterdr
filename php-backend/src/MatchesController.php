@@ -124,7 +124,11 @@ final class MatchesController
         $defaultPublicView = ($status === '' && $active === '');
         
         if ($desiredStatus === 'live') {
-            $dbFilter['status'] = 'live';
+            // Include DB-scheduled rows so auto-promoted "effectively live"
+            // matches (startTime passed + fresh odds) are not filtered out
+            // at the SQL layer. Final live-only filtering happens in PHP
+            // against the annotated effective status.
+            $dbFilter['status'] = ['$in' => ['scheduled', 'live']];
         } elseif ($desiredStatus === 'scheduled') {
             $dbFilter['status'] = 'scheduled';
         } elseif ($desiredStatus === 'finished') {
@@ -181,6 +185,8 @@ final class MatchesController
                 $parsed = $startTime !== '' ? strtotime($startTime) : false;
                 return $parsed === false || $parsed > $now;
             }));
+        } elseif ($desiredStatus === 'live') {
+            $annotated = array_values(array_filter($annotated, static fn (array $match): bool => strtolower((string) ($match['status'] ?? '')) === 'live'));
         } elseif ($desiredStatus === 'live-upcoming') {
             $annotated = array_values(array_filter($annotated, static function (array $match): bool {
                 $matchStatus = strtolower((string) ($match['status'] ?? ''));

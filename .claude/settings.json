@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s 'https://api.the-odds-api.com/v4/sports/tennis_atp_madrid_open/scores?apiKey=36509f41fa6f6e51b4a789e54a4c295f&dateFormat=iso')",
+      "Bash(python3 -c ' *)",
+      "Bash(curl -s 'https://api.the-odds-api.com/v4/sports/tennis_atp_madrid_open/odds?apiKey=36509f41fa6f6e51b4a789e54a4c295f&regions=us&markets=h2h&oddsFormat=decimal')",
+      "Bash(grep -rn -iE \"live.{0,8}score|livescore\" /Users/mac/Desktop/betterdr/frontend/src/ --include=\"*.jsx\" --include=\"*.js\" -l)",
+      "Bash(grep -rn -iE \"live.{0,3}scor|scoreboard\" /Users/mac/Desktop/betterdr/frontend/src/ --include=\"*.jsx\" --include=\"*.js\" -l)",
+      "Bash(grep -n -iE \"scoreboard|live.{0,3}scor\" /Users/mac/Desktop/betterdr/frontend/src/components/DashboardHeader.jsx)",
+      "Bash(curl -s \"http://localhost:5173/api/matches?payload=core&trigger=scoreboard\")",
+      "Bash(grep -rn -iE \"live.{0,3}spor\" /Users/mac/Desktop/betterdr/frontend/src/ --include=\"*.jsx\" --include=\"*.js\")",
+      "Bash(grep -rn -iE \"in.{0,2}play|live\\\\s*match|live\\\\s*bet\" /Users/mac/Desktop/betterdr/frontend/src/components/ --include=\"*.jsx\")",
+      "Bash(curl -s \"http://localhost:5173/api/matches?status=live&payload=core&trigger=view\")"
+    ]
+  }
+}
