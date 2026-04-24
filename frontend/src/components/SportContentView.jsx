@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import useMatches from '../hooks/useMatches';
 import useSportOddsRefresh from '../hooks/useSportOddsRefresh';
+import { useToast } from '../contexts/ToastContext';
 import { createFallbackTeamLogoDataUri, fetchTeamBadgeUrl } from '../utils/teamLogos';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { getSportKeywords, findSportItemById } from '../data/sportsData';
@@ -34,7 +35,8 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
     const primarySportKey = (content.matches?.find?.((m) => m?.rawMatch?.sportKey || m?.sportKey)?.rawMatch?.sportKey)
         || (content.matches?.find?.((m) => m?.rawMatch?.sportKey || m?.sportKey)?.sportKey)
         || null;
-    const { trigger: triggerRefresh, isRefreshing, cooldownRemainingSec } = useSportOddsRefresh(primarySportKey);
+    const { showToast } = useToast();
+    const { trigger: triggerRefresh, isRefreshing, cooldownRemainingSec } = useSportOddsRefresh(primarySportKey, { showToast });
     const handleRefreshClick = React.useCallback(() => {
         triggerRefresh({
             onSuccess: () => {

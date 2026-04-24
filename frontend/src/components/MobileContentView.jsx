@@ -1,6 +1,7 @@
 import React from 'react';
 import useMatches from '../hooks/useMatches';
 import useSportOddsRefresh from '../hooks/useSportOddsRefresh';
+import { useToast } from '../contexts/ToastContext';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { getSportKeywords, findSportItemById } from '../data/sportsData';
 import {
@@ -491,7 +492,8 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
     const primarySportKey = (orderedMatches?.find?.((m) => m?.rawMatch?.sportKey || m?.sportKey)?.rawMatch?.sportKey)
         || (orderedMatches?.find?.((m) => m?.rawMatch?.sportKey || m?.sportKey)?.sportKey)
         || null;
-    const { trigger: triggerSportRefresh, isRefreshing: isSportRefreshing, cooldownRemainingSec } = useSportOddsRefresh(primarySportKey);
+    const { showToast } = useToast();
+    const { trigger: triggerSportRefresh, isRefreshing: isSportRefreshing, cooldownRemainingSec } = useSportOddsRefresh(primarySportKey, { showToast });
 
     const handleManualRefresh = React.useCallback(() => {
         if (isRefreshing || isSportRefreshing || cooldownRemainingSec > 0) return;

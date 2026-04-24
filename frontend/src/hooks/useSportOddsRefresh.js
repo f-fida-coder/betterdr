@@ -1,13 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { refreshSportOdds } from '../api';
-import { useToast } from '../contexts/ToastContext';
 
 const DEFAULT_COOLDOWN_MS = 20_000;
+const noopToast = () => {};
 
 /**
  * Small hook that owns the click → API call → cooldown → toast lifecycle
  * for the on-demand odds refresh button. Used by SportContentView and
  * MobileContentView so they share identical UX rules.
+ *
+ * `showToast` is injected by the caller (not imported here) so this hook
+ * can live under src/hooks/ without creating a bundle-chunk cycle between
+ * utils-shared (hooks) and contexts-shared (ToastContext). Callers pull
+ * showToast from useToast() themselves.
  *
  * Returns:
  *   - trigger({ onSuccess }): invoke the refresh. Returns a promise that
@@ -18,8 +23,7 @@ const DEFAULT_COOLDOWN_MS = 20_000;
  *       a click. Decrements once per second for live countdown display.
  *   - lastUpdatedAt: ISO timestamp of the last successful refresh, or null.
  */
-export default function useSportOddsRefresh(sportKey, { cooldownMs = DEFAULT_COOLDOWN_MS } = {}) {
-    const { showToast } = useToast();
+export default function useSportOddsRefresh(sportKey, { cooldownMs = DEFAULT_COOLDOWN_MS, showToast = noopToast } = {}) {
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [cooldownUntil, setCooldownUntil] = useState(0);
     const [lastUpdatedAt, setLastUpdatedAt] = useState(null);
