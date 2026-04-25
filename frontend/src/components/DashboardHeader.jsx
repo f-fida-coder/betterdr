@@ -78,6 +78,19 @@ const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, 
         return `$ ${Math.round(num)}`;
     };
 
+    // Compact two-decimal comma-separated formatter for the mobile header
+    // balance cell. Matches probooknyc's "3,000.00" / "17,229.73" style and
+    // stays narrow enough to share the row with four icon cells on small
+    // viewports. Distinct from formatMoney() which the desktop block uses
+    // (rounded integers with a leading "$").
+    const formatBalanceCell = (value) => {
+        if (unlimitedBalance) return 'Unl.';
+        if (value === null || value === undefined || value === '') return '0.00';
+        const num = Number(value);
+        if (Number.isNaN(num)) return '0.00';
+        return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    };
+
     // Color the balance amount by sign — green positive, red negative, white
     // zero. The previous implementation rendered -997 in green (success color)
     // which inverted the meaning of "how much you can bet".
@@ -103,6 +116,82 @@ const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, 
         cursor: 'pointer',
         padding: 0,
         flex: '0 0 auto',
+    };
+
+    // 5-cell mobile header (Sport / Account / Balance / Menu / Betslip).
+    // Icon cells are dark navy, balance cell is muted gray and flex-grows
+    // to fill the middle. Each cell ≥44px tap target on the icon side; the
+    // balance cell is informational and not interactive.
+    const mhCellBtnStyle = {
+        flex: '0 0 auto',
+        minWidth: 56,
+        minHeight: 64,
+        padding: '6px 6px',
+        background: '#000000',
+        border: 'none',
+        borderRight: '1px solid rgba(255,255,255,0.12)',
+        color: '#fff',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 4,
+        cursor: 'pointer',
+        fontFamily: 'inherit',
+    };
+    const mhCellIconStyle = { fontSize: 20, color: '#fff', lineHeight: 1 };
+    const mhCellLabelStyle = {
+        fontSize: 10,
+        fontWeight: 500,
+        color: '#fff',
+        letterSpacing: 0.2,
+        lineHeight: 1,
+    };
+    const mhBalanceCellStyle = {
+        flex: '1 1 auto',
+        minWidth: 0,
+        background: '#6c7b8a',
+        borderLeft: '1px solid rgba(0,0,0,0.18)',
+        borderRight: '1px solid rgba(0,0,0,0.18)',
+        padding: '6px 10px',
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'center',
+        gap: 2,
+    };
+    const mhBalanceRowStyle = {
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 8,
+        minWidth: 0,
+    };
+    const mhBalanceLabelStyle = {
+        fontSize: 11,
+        fontWeight: 500,
+        color: '#fff',
+        flex: '0 0 auto',
+    };
+    const mhBalanceValueStyle = {
+        fontSize: 13,
+        fontWeight: 700,
+        color: '#fff',
+        fontVariantNumeric: 'tabular-nums',
+        textAlign: 'right',
+        minWidth: 0,
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap',
+    };
+    const mhBetslipCircleStyle = {
+        width: 28,
+        height: 28,
+        borderRadius: '50%',
+        background: '#fff',
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        lineHeight: 1,
     };
 
     const handleRefreshRequest = () => {
@@ -194,152 +283,84 @@ const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, 
     return (
         <>
             <div className="mobile-header-container mobile-only">
-                {/* 60px header — balance is the focal point. Left cluster is
-                    hamburger + search (cashier moved out per spec), balance
-                    centers the bar with sign-based color, right has profile
-                    and cart. No Continue button in the header anymore; it
-                    lives as a floating FAB attached elsewhere. */}
+                {/* 5-cell mobile header modeled on probooknyc's PPH layout:
+                    [Sport] [Account] [Pend/Avail Balance] [Menu] [Betslip].
+                    Icon cells are dark navy, balance cell is muted gray and
+                    flex-grows to fill the middle. Sport reuses the same
+                    handler as MobileGridMenu's "Sports" tile (single source
+                    of truth). No search, no calculator, no view-state-
+                    dependent back/home buttons — those flows live elsewhere. */}
                 <div
                     className="top-header"
                     style={{
                         display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        gap: 16,
-                        padding: '8px 14px',
-                        minHeight: 60,
+                        alignItems: 'stretch',
+                        padding: 0,
+                        minHeight: 64,
+                        background: '#000000',
                     }}
                 >
-                    {/* Left: hamburger + search/back/home */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: '0 0 auto' }}>
-                        <button
-                            type="button"
-                            onClick={onToggleSidebar}
-                            aria-label="Open sidebar menu"
-                            style={headerIconBtnStyle}
-                        >
-                            <i className="fa-solid fa-bars" style={{ fontSize: 18 }}></i>
-                        </button>
-                        {currentView !== 'dashboard' ? (
-                            <button
-                                type="button"
-                                onClick={() => onHomeClick && onHomeClick()}
-                                aria-label="Go home"
-                                style={headerIconBtnStyle}
-                            >
-                                <i className="fa-solid fa-house" style={{ fontSize: 18 }}></i>
-                            </button>
-                        ) : mobileViewState === 'results' ? (
-                            <button
-                                type="button"
-                                onClick={onMobileBack}
-                                aria-label="Back"
-                                style={headerIconBtnStyle}
-                            >
-                                <i className="fa-solid fa-arrow-left" style={{ fontSize: 18 }}></i>
-                            </button>
-                        ) : (
-                            <button
-                                type="button"
-                                aria-label="Search"
-                                style={headerIconBtnStyle}
-                            >
-                                <i className="fa-solid fa-magnifying-glass" style={{ fontSize: 18 }}></i>
-                            </button>
-                        )}
-                    </div>
-
-                    {/* Center: balance hero. Small "Balance" label, prominent
-                        amount below, then "Available: $X" on a third line at
-                        lower emphasis. Sign-based color on the amount. */}
-                    <div
-                        style={{
-                            flex: '1 1 auto',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            minWidth: 0,
-                            lineHeight: 1.05,
-                        }}
+                    <button
+                        type="button"
+                        onClick={() => onViewChange && onViewChange('dashboard')}
+                        aria-label="Sport categories"
+                        style={mhCellBtnStyle}
                     >
-                        <div
-                            style={{
-                                fontSize: 11,
-                                fontWeight: 500,
-                                color: 'rgba(255,255,255,0.7)',
-                                letterSpacing: 0.4,
-                            }}
-                        >
-                            Balance
+                        <i className="fa-solid fa-table-cells" style={mhCellIconStyle}></i>
+                        <span style={mhCellLabelStyle}>Sport</span>
+                    </button>
+
+                    <button
+                        type="button"
+                        onClick={() => setShowAccountPanel(true)}
+                        aria-label="Open account panel"
+                        style={mhCellBtnStyle}
+                    >
+                        <i className="fa-solid fa-user" style={mhCellIconStyle}></i>
+                        <span style={mhCellLabelStyle}>Account</span>
+                    </button>
+
+                    <div style={mhBalanceCellStyle} aria-label="Account balance">
+                        <div style={mhBalanceRowStyle}>
+                            <span style={mhBalanceLabelStyle}>Pend.:</span>
+                            <span style={mhBalanceValueStyle}>{formatBalanceCell(pendingBalance)}</span>
                         </div>
-                        <div
-                            style={{
-                                fontSize: 19,
-                                fontWeight: 800,
-                                color: balanceColor,
-                                fontVariantNumeric: 'tabular-nums',
-                                marginTop: 1,
-                            }}
-                        >
-                            {formatMoney(balance)}
-                        </div>
-                        <div
-                            style={{
-                                fontSize: 12,
-                                fontWeight: 500,
-                                color: 'rgba(255,255,255,0.7)',
-                                marginTop: 2,
-                                fontVariantNumeric: 'tabular-nums',
-                            }}
-                        >
-                            Available: {formatMoney(availableBalance)}
+                        <div style={mhBalanceRowStyle}>
+                            <span style={mhBalanceLabelStyle}>Avail.:</span>
+                            <span style={mhBalanceValueStyle}>{formatBalanceCell(availableBalance)}</span>
                         </div>
                     </div>
 
-                    {/* Right: profile + cart. Cart badge hides at zero. */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: '0 0 auto' }}>
-                        <button
-                            type="button"
-                            onClick={() => setShowAccountPanel(true)}
-                            aria-label="Open account panel"
-                            style={headerIconBtnStyle}
-                        >
-                            <i className="fa-solid fa-user" style={{ fontSize: 18 }}></i>
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => window.dispatchEvent(new CustomEvent('betslip:open', { detail: { source: 'header' } }))}
-                            aria-label={`Open bet slip${slipCount ? ` — ${slipCount} selection${slipCount === 1 ? '' : 's'}` : ''}`}
-                            style={{ ...headerIconBtnStyle, position: 'relative' }}
-                        >
-                            <i className="fa-solid fa-cart-shopping" style={{ fontSize: 18 }}></i>
-                            {slipCount > 0 && (
-                                <span
-                                    aria-hidden="true"
-                                    style={{
-                                        position: 'absolute',
-                                        top: -2,
-                                        right: -2,
-                                        minWidth: 18,
-                                        height: 18,
-                                        padding: '0 5px',
-                                        borderRadius: 999,
-                                        background: '#ef4444',
-                                        color: '#fff',
-                                        fontSize: 10,
-                                        fontWeight: 700,
-                                        lineHeight: '18px',
-                                        textAlign: 'center',
-                                        boxShadow: '0 0 0 2px #000',
-                                        fontVariantNumeric: 'tabular-nums',
-                                    }}
-                                >
-                                    {slipCount > 99 ? '99+' : slipCount}
-                                </span>
-                            )}
-                        </button>
-                    </div>
+                    <button
+                        type="button"
+                        onClick={onToggleSidebar}
+                        aria-label="Open menu"
+                        style={mhCellBtnStyle}
+                    >
+                        <i className="fa-solid fa-bars" style={mhCellIconStyle}></i>
+                        <span style={mhCellLabelStyle}>Menu</span>
+                    </button>
+
+                    <button
+                        type="button"
+                        onClick={() => window.dispatchEvent(new CustomEvent('betslip:open', { detail: { source: 'header' } }))}
+                        aria-label={`Open bet slip${slipCount ? ` — ${slipCount} selection${slipCount === 1 ? '' : 's'}` : ''}`}
+                        style={{ ...mhCellBtnStyle, borderRight: 'none' }}
+                    >
+                        <span style={mhBetslipCircleStyle}>
+                            <span
+                                style={{
+                                    fontSize: 13,
+                                    fontWeight: 800,
+                                    fontVariantNumeric: 'tabular-nums',
+                                    color: slipCount > 0 ? '#dc2626' : '#000',
+                                }}
+                            >
+                                {slipCount > 99 ? '99+' : slipCount}
+                            </span>
+                        </span>
+                        <span style={mhCellLabelStyle}>Betslip</span>
+                    </button>
                 </div>
 
                 {showUserMenu && (

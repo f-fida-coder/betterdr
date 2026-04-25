@@ -19,6 +19,10 @@ const ODDS_FORMAT_LABELS = {
 
 // Local design tokens so the panel has its own consistent visual system
 // without spilling more one-off colours into the global theme.
+// Brand accent aligned with the new black mobile header — slate-to-black
+// gradient replaces the previous orange. Warn semantics (Non-Posted Casino)
+// promoted to its own amber token so it still reads as a caution tile
+// instead of blending into the neutral slate.
 const palette = {
     bg: '#f4f6fb',
     cardBg: '#ffffff',
@@ -26,15 +30,18 @@ const palette = {
     textPrimary: '#0f172a',
     textMuted: '#64748b',
     textFaint: '#94a3b8',
-    brand: '#d0451b',
-    brandDark: '#a93611',
-    brandSoft: '#fde4d8',
+    brand: '#0f172a',
+    brandDark: '#000000',
+    brandSoft: '#e2e8f0',
     success: '#16a34a',
     successSoft: '#dcfce7',
     danger: '#dc2626',
     dangerSoft: '#fee2e2',
     info: '#1e40af',
     infoSoft: '#dbeafe',
+    warn: '#b45309',
+    warnIcon: '#d97706',
+    warnSoft: '#fef3c7',
     slate: '#0f172a',
     slateSoft: '#f1f5f9',
 };
@@ -61,7 +68,7 @@ const BalanceTile = ({ icon, label, value, tone = 'neutral', hint }) => {
         neutral: { label: palette.textMuted, value: palette.textPrimary, iconBg: palette.slateSoft, iconColor: palette.slate },
         success: { label: palette.textMuted, value: palette.success, iconBg: palette.successSoft, iconColor: palette.success },
         danger: { label: palette.textMuted, value: palette.danger, iconBg: palette.dangerSoft, iconColor: palette.danger },
-        warn: { label: palette.textMuted, value: palette.brandDark, iconBg: palette.brandSoft, iconColor: palette.brand },
+        warn: { label: palette.textMuted, value: palette.warn, iconBg: palette.warnSoft, iconColor: palette.warnIcon },
         info: { label: palette.textMuted, value: palette.info, iconBg: palette.infoSoft, iconColor: palette.info },
     }[tone] || { label: palette.textMuted, value: palette.textPrimary, iconBg: palette.slateSoft, iconColor: palette.slate };
 
@@ -643,7 +650,7 @@ const AccountPanel = ({
                                 Agent tools
                             </div>
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
-                                <button type="button" onClick={() => go('reports')} style={agentBtn(palette.brand)}>
+                                <button type="button" onClick={() => go('reports')} style={agentBtn(palette.success)}>
                                     <i className="fa-solid fa-chart-line" style={{ fontSize: 14, marginBottom: 6 }} />
                                     <span>Reports</span>
                                 </button>
