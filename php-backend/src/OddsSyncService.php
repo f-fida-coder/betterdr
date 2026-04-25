@@ -785,6 +785,14 @@ final class OddsSyncService
             }
         }
 
+        // Bump the global odds-feed health timestamp so SportsbookHealth's
+        // staleness gate stops blocking betting. Without this, a fresh
+        // user-triggered refresh writes new match rows but the public
+        // sportsbookSnapshot still reads the worker's last-success timestamp,
+        // which can be older than SPORTSBOOK_MAX_SYNC_AGE_SECONDS — every
+        // match then renders with "Sportsbook odds feed is stale (Xs old)"
+        // even though the upstream call we just made succeeded.
+        SportsbookHealth::recordOddsApiSuccess($db, $scoresStatus === 200);
         // Invalidate the public /api/matches cache so the next poll sees fresh rows.
         SportsbookCache::invalidatePublicMatchCaches();
 
