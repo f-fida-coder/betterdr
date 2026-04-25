@@ -150,31 +150,35 @@ const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, 
     const mhBalanceCellStyle = {
         flex: '1 1 auto',
         minWidth: 0,
-        background: '#6c7b8a',
-        borderLeft: '1px solid rgba(0,0,0,0.18)',
-        borderRight: '1px solid rgba(0,0,0,0.18)',
-        padding: '6px 10px',
+        background: 'linear-gradient(180deg, #6c7b8a 0%, #56636e 100%)',
+        borderLeft: '1px solid rgba(0,0,0,0.25)',
+        borderRight: '1px solid rgba(0,0,0,0.25)',
+        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 0 rgba(0,0,0,0.18)',
+        padding: '4px 10px',
         display: 'flex',
         flexDirection: 'column',
         justifyContent: 'center',
-        gap: 2,
     };
     const mhBalanceRowStyle = {
         display: 'flex',
-        alignItems: 'center',
+        alignItems: 'baseline',
         justifyContent: 'space-between',
         gap: 8,
         minWidth: 0,
+        lineHeight: 1.15,
+        padding: '2px 0',
     };
     const mhBalanceLabelStyle = {
-        fontSize: 11,
-        fontWeight: 500,
-        color: '#fff',
+        fontSize: 9,
+        fontWeight: 700,
+        color: 'rgba(255,255,255,0.7)',
+        letterSpacing: 0.7,
+        textTransform: 'uppercase',
         flex: '0 0 auto',
     };
     const mhBalanceValueStyle = {
-        fontSize: 13,
-        fontWeight: 700,
+        fontSize: 11,
+        fontWeight: 600,
         color: '#fff',
         fontVariantNumeric: 'tabular-nums',
         textAlign: 'right',
@@ -182,6 +186,30 @@ const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, 
         overflow: 'hidden',
         textOverflow: 'ellipsis',
         whiteSpace: 'nowrap',
+    };
+    // Hero Balance row gets the signal — larger value, sign-based color
+    // (green positive / red negative / white zero) so the headline number
+    // is readable at a glance even when the slate cell is busy.
+    const mhBalanceHeroLabelStyle = {
+        ...mhBalanceLabelStyle,
+        fontSize: 10,
+        color: 'rgba(255,255,255,0.95)',
+    };
+    const mhBalanceHeroValueStyle = {
+        ...mhBalanceValueStyle,
+        fontSize: 14,
+        fontWeight: 800,
+    };
+    const mhBalanceRowDividerStyle = {
+        height: 1,
+        background: 'rgba(255,255,255,0.12)',
+        margin: '0 -2px',
+    };
+    const balanceSignColor = (value) => {
+        if (unlimitedBalance) return '#34d399';
+        const n = Number(value);
+        if (!Number.isFinite(n) || n === 0) return '#ffffff';
+        return n > 0 ? '#34d399' : '#fca5a5';
     };
     const mhBetslipCircleStyle = {
         width: 28,
@@ -283,13 +311,14 @@ const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, 
     return (
         <>
             <div className="mobile-header-container mobile-only">
-                {/* 5-cell mobile header modeled on probooknyc's PPH layout:
-                    [Sport] [Account] [Pend/Avail Balance] [Menu] [Betslip].
-                    Icon cells are dark navy, balance cell is muted gray and
-                    flex-grows to fill the middle. Sport reuses the same
-                    handler as MobileGridMenu's "Sports" tile (single source
-                    of truth). No search, no calculator, no view-state-
-                    dependent back/home buttons — those flows live elsewhere. */}
+                {/* 5-cell mobile header — order:
+                    [Sport (3-line list icon)] [Menu (9-square grid icon)]
+                    [Balance / Pending / Available middle] [Betslip] [Account].
+                    Icon cells black, balance cell muted gray and flex-grows
+                    to fill the middle. Sport opens the sport-categories view
+                    via the same target as MobileGridMenu's "Sports" tile;
+                    Menu opens the global app grid (MobileGridMenu) via
+                    onToggleSidebar. Account stays on the far right. */}
                 <div
                     className="top-header"
                     style={{
@@ -306,30 +335,9 @@ const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, 
                         aria-label="Sport categories"
                         style={mhCellBtnStyle}
                     >
-                        <i className="fa-solid fa-table-cells" style={mhCellIconStyle}></i>
+                        <i className="fa-solid fa-bars" style={mhCellIconStyle}></i>
                         <span style={mhCellLabelStyle}>Sport</span>
                     </button>
-
-                    <button
-                        type="button"
-                        onClick={() => setShowAccountPanel(true)}
-                        aria-label="Open account panel"
-                        style={mhCellBtnStyle}
-                    >
-                        <i className="fa-solid fa-user" style={mhCellIconStyle}></i>
-                        <span style={mhCellLabelStyle}>Account</span>
-                    </button>
-
-                    <div style={mhBalanceCellStyle} aria-label="Account balance">
-                        <div style={mhBalanceRowStyle}>
-                            <span style={mhBalanceLabelStyle}>Pend.:</span>
-                            <span style={mhBalanceValueStyle}>{formatBalanceCell(pendingBalance)}</span>
-                        </div>
-                        <div style={mhBalanceRowStyle}>
-                            <span style={mhBalanceLabelStyle}>Avail.:</span>
-                            <span style={mhBalanceValueStyle}>{formatBalanceCell(availableBalance)}</span>
-                        </div>
-                    </div>
 
                     <button
                         type="button"
@@ -337,15 +345,41 @@ const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, 
                         aria-label="Open menu"
                         style={mhCellBtnStyle}
                     >
-                        <i className="fa-solid fa-bars" style={mhCellIconStyle}></i>
+                        <i className="fa-solid fa-th" style={mhCellIconStyle}></i>
                         <span style={mhCellLabelStyle}>Menu</span>
                     </button>
+
+                    <div style={mhBalanceCellStyle} aria-label="Account balance">
+                        <div style={mhBalanceRowStyle}>
+                            <span style={mhBalanceHeroLabelStyle}>Balance</span>
+                            <span style={{ ...mhBalanceHeroValueStyle, color: balanceSignColor(balance) }}>
+                                {formatBalanceCell(balance)}
+                            </span>
+                        </div>
+                        <div style={mhBalanceRowDividerStyle} aria-hidden="true" />
+                        <div style={mhBalanceRowStyle}>
+                            <span style={mhBalanceLabelStyle}>Pending</span>
+                            <span style={mhBalanceValueStyle}>{formatBalanceCell(pendingBalance)}</span>
+                        </div>
+                        <div style={mhBalanceRowDividerStyle} aria-hidden="true" />
+                        <div style={mhBalanceRowStyle}>
+                            <span style={mhBalanceLabelStyle}>Available</span>
+                            <span
+                                style={{
+                                    ...mhBalanceValueStyle,
+                                    color: Number(availableBalance) > 0 ? '#34d399' : '#fff',
+                                }}
+                            >
+                                {formatBalanceCell(availableBalance)}
+                            </span>
+                        </div>
+                    </div>
 
                     <button
                         type="button"
                         onClick={() => window.dispatchEvent(new CustomEvent('betslip:open', { detail: { source: 'header' } }))}
                         aria-label={`Open bet slip${slipCount ? ` — ${slipCount} selection${slipCount === 1 ? '' : 's'}` : ''}`}
-                        style={{ ...mhCellBtnStyle, borderRight: 'none' }}
+                        style={mhCellBtnStyle}
                     >
                         <span style={mhBetslipCircleStyle}>
                             <span
@@ -360,6 +394,16 @@ const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, 
                             </span>
                         </span>
                         <span style={mhCellLabelStyle}>Betslip</span>
+                    </button>
+
+                    <button
+                        type="button"
+                        onClick={() => setShowAccountPanel(true)}
+                        aria-label="Open account panel"
+                        style={{ ...mhCellBtnStyle, borderRight: 'none' }}
+                    >
+                        <i className="fa-solid fa-user" style={mhCellIconStyle}></i>
+                        <span style={mhCellLabelStyle}>Account</span>
                     </button>
                 </div>
 
