@@ -74,6 +74,18 @@ final class RundownLiveSync
         if (!RundownService::isEnabled()) {
             return $result;
         }
+
+        // Only poll Rundown for sports that actually have a live or imminent
+        // game in our local matches table. TheRundown bills per request, not
+        // per live event returned, so blindly polling every sport every tick
+        // burns data points during quiet hours. When nothing is live or about
+        // to start, skip the entire tick.
+        $activeKeys = self::activeSportKeys($db);
+        if ($activeKeys === []) {
+            $result['ok'] = true;
+            return $result;
+        }
+
         $sports = RundownService::listSports();
         if ($sports === []) {
             $result['errors']++;
@@ -94,6 +106,12 @@ final class RundownLiveSync
             // Skip sports we know we don't cover at all (Politics) — saves a
             // wasted request and a guaranteed empty match attempt.
             if (!isset(self::SPORT_ID_TO_ODDS_KEYS[$sportId])) continue;
+            // Skip sports with no live/imminent match in our DB.
+            $relevant = false;
+            foreach (self::SPORT_ID_TO_ODDS_KEYS[$sportId] as $k) {
+                if (isset($activeKeys[$k])) { $relevant = true; break; }
+            }
+            if (!$relevant) continue;
             $result['sportsTried']++;
 
             if (!$first && $perRequestDelayUs > 0) usleep($perRequestDelayUs);
@@ -137,6 +155,48 @@ final class RundownLiveSync
 
         $result['ok'] = true;
         return $result;
+    }
+
+    /**
+     * Set of OddsAPI sport keys with a live or imminent match in our DB.
+     * Anything `status='live'` is included regardless of time (long games like
+     * cricket / extra-innings baseball can run hours past their startTime).
+     * For `status='scheduled'`, only games starting within the next 30 minutes
+     * count, so we don't poll Rundown for tomorrow's NFL game right now.
+     *
+     * @return array<string, true>
+     */
+    private static function activeSportKeys(SqlRepository $db): array
+    {
+        $set = [];
+        $imminentEnd = gmdate('Y-m-d\TH:i:s\Z', time() + 30 * 60);
+
+        $live = $db->findMany('matches', ['status' => 'live'], [
+            'projection' => ['sportKey' => 1],
+            'limit' => 500,
+        ]);
+        if (is_array($live)) {
+            foreach ($live as $row) {
+                $k = (string) ($row['sportKey'] ?? '');
+                if ($k !== '') $set[$k] = true;
+            }
+        }
+
+        $scheduled = $db->findMany('matches', [
+            'status' => 'scheduled',
+            'startTime' => ['$lte' => $imminentEnd],
+        ], [
+            'projection' => ['sportKey' => 1],
+            'limit' => 500,
+        ]);
+        if (is_array($scheduled)) {
+            foreach ($scheduled as $row) {
+                $k = (string) ($row['sportKey'] ?? '');
+                if ($k !== '') $set[$k] = true;
+            }
+        }
+
+        return $set;
     }
 
     /**
