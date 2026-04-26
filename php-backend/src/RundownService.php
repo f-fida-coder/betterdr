@@ -89,8 +89,12 @@ final class RundownService
         // market_ids 1,2,3 = moneyline, spread, total. main_line=true skips
         // alts to keep the payload tight. No affiliate_ids filter — we want
         // every sportsbook so the merge layer can pick best line.
+        // NOTE: hide_no_markets=true must NOT be set — Rundown drops live
+        // events when even one of the requested market_ids is unavailable
+        // (very common during in-play, e.g. when totals are temporarily
+        // suspended). We'd rather get the event with whatever markets remain.
         $url = self::BASE_URL . '/sports/' . $sportId . '/events/' . rawurlencode($date)
-            . '?market_ids=1,2,3&main_line=true&hide_no_markets=true';
+            . '?market_ids=1,2,3&main_line=true';
         $resp = self::httpGet($url);
         if (!$resp['ok']) {
             return ['ok' => false, 'events' => [], 'http' => $resp['status'], 'error' => $resp['error'] ?? 'http_error'];
@@ -100,11 +104,43 @@ final class RundownService
         foreach ($events as $ev) {
             if (!is_array($ev)) continue;
             $status = strtoupper((string) ($ev['score']['event_status'] ?? ''));
-            if ($status === 'STATUS_IN_PROGRESS') {
+            if (self::isLiveStatus($status)) {
                 $live[] = $ev;
             }
         }
         return ['ok' => true, 'events' => $live, 'http' => $resp['status']];
+    }
+
+    /**
+     * Whether a Rundown event_status represents an in-progress game.
+     *
+     * Rundown uses sport-specific status codes (STATUS_FIRST_HALF for soccer,
+     * STATUS_*_PERIOD for hockey, STATUS_*_QUARTER for football/basketball,
+     * STATUS_OVERTIME, STATUS_HALFTIME, STATUS_RAIN_DELAY mid-game, etc.) so
+     * a strict STATUS_IN_PROGRESS check would silently drop almost every
+     * non-US-league live game. We instead exclude the small, stable set of
+     * non-live statuses and treat everything else with the STATUS_ prefix as
+     * live — when Rundown adds a new in-play status we'll pick it up too.
+     */
+    private static function isLiveStatus(string $status): bool
+    {
+        if ($status === '') return false;
+        static $notLive = [
+            'STATUS_SCHEDULED'   => true,
+            'STATUS_UNCONFIRMED' => true,
+            'STATUS_FINAL'       => true,
+            'STATUS_FINAL_OT'    => true,
+            'STATUS_FINAL_PEN'   => true,
+            'STATUS_FULL_TIME'   => true,
+            'STATUS_CANCELED'    => true,
+            'STATUS_CANCELLED'   => true,
+            'STATUS_POSTPONED'   => true,
+            'STATUS_FORFEIT'     => true,
+            'STATUS_ABANDONED'   => true,
+            'STATUS_RETIRED'     => true,
+        ];
+        if (isset($notLive[$status])) return false;
+        return strncmp($status, 'STATUS_', 7) === 0;
     }
 
     /**

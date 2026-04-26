@@ -551,12 +551,18 @@ final class OddsSyncService
                     $statusAndScore = self::extractScoreAndStatus($mergedEvent, $homeTeam, $awayTeam);
                     $doc = self::buildOddsDocument($event, $sportKey, $externalId, $homeTeam, $awayTeam, $statusAndScore);
 
-                    $existing = $db->findOne('matches', ['externalId' => $externalId], ['projection' => ['id' => 1, 'status' => 1, 'odds' => 1, 'playerProps' => 1, 'lastPropsSyncAt' => 1]]);
+                    $existing = $db->findOne('matches', ['externalId' => $externalId], ['projection' => ['id' => 1, 'status' => 1, 'odds' => 1, 'oddsSource' => 1, 'lastOddsSyncAt' => 1, 'playerProps' => 1, 'lastPropsSyncAt' => 1]]);
                     if ($existing === null) {
                         $doc['createdAt'] = SqlRepository::nowUtc();
                         $createdId = $db->insertOne('matches', $doc);
                         $result['created']++;
                         $result['settled'] += self::maybeSettleMatch($db, $createdId, $doc['status'] ?? '');
+                    } elseif (self::isRundownLiveOwned($existing)) {
+                        // Rundown is currently the live source for this row —
+                        // skip the OddsAPI overwrite so live odds stay 100%
+                        // Rundown-driven. OddsAPI takes back over once Rundown
+                        // stops touching the row (game ended / lost feed).
+                        $result['skippedRundownLive'] = ($result['skippedRundownLive'] ?? 0) + 1;
                     } else {
                         $oldStatus = (string) ($existing['status'] ?? '');
                         // Preserve extendedMarkets (period markets, alt
@@ -765,10 +771,13 @@ final class OddsSyncService
             $statusAndScore = self::extractScoreAndStatus($mergedEvent, $homeTeam, $awayTeam);
             $doc = self::buildOddsDocument($event, $sportKey, $externalId, $homeTeam, $awayTeam, $statusAndScore);
 
-            $existing = $db->findOne('matches', ['externalId' => $externalId], ['projection' => ['id' => 1, 'odds' => 1]]);
+            $existing = $db->findOne('matches', ['externalId' => $externalId], ['projection' => ['id' => 1, 'odds' => 1, 'oddsSource' => 1, 'lastOddsSyncAt' => 1, 'status' => 1]]);
             if ($existing === null) {
                 $doc['createdAt'] = SqlRepository::nowUtc();
                 $db->insertOne('matches', $doc);
+            } elseif (self::isRundownLiveOwned($existing)) {
+                // See bulk-sync path: skip overwriting rows that Rundown is
+                // actively updating, so live odds remain Rundown-only.
             } else {
                 $existingOdds = is_array($existing['odds'] ?? null) ? $existing['odds'] : [];
                 if (isset($existingOdds['extendedMarkets']) && is_array($existingOdds['extendedMarkets'])) {
@@ -1557,6 +1566,26 @@ final class OddsSyncService
         }
 
         $handle = null;
+    }
+
+    /**
+     * Whether a match row is currently being driven by the Rundown live
+     * overlay — used to gate OddsAPI overwrites so live odds stay
+     * Rundown-only. A row is "Rundown-owned" if it has oddsSource='rundown'
+     * AND its lastOddsSyncAt is fresh (within RUNDOWN_LIVE_FRESHNESS_SECONDS).
+     * Once Rundown stops touching the row (game ends / feed lost) the row
+     * goes stale and OddsAPI takes back over on the next tick.
+     */
+    private static function isRundownLiveOwned(array $existing): bool
+    {
+        if (strtolower((string) ($existing['oddsSource'] ?? '')) !== 'rundown') {
+            return false;
+        }
+        $last = (string) ($existing['lastOddsSyncAt'] ?? '');
+        $lastTs = $last !== '' ? strtotime($last) : false;
+        if ($lastTs === false) return false;
+        $maxAge = max(60, (int) Env::get('RUNDOWN_LIVE_FRESHNESS_SECONDS', '300'));
+        return (time() - $lastTs) <= $maxAge;
     }
 
     private static function extractScoreAndStatus(array $event, string $homeTeam, string $awayTeam): array

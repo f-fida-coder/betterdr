@@ -164,6 +164,7 @@ final class MatchesController
                 'sportKey' => 1,
                 'status' => 1,
                 'odds' => 1,
+                'oddsSource' => 1,
                 'score' => 1,
                 'lastUpdated' => 1,
                 'lastOddsSyncAt' => 1,
@@ -196,7 +197,21 @@ final class MatchesController
                 return $parsed === false || $parsed > $now;
             }));
         } elseif ($desiredStatus === 'live') {
-            $annotated = array_values(array_filter($annotated, static fn (array $match): bool => strtolower((string) ($match['status'] ?? '')) === 'live'));
+            // Live Now is intentionally Rundown-only: only rows that the
+            // Rundown live overlay has actively touched within the last
+            // RUNDOWN_LIVE_FRESHNESS_SECONDS window are considered truly
+            // live. Anything older is treated as stale (game ended, Rundown
+            // lost the feed, sportsbook suspended) and dropped from Live Now.
+            $maxAge = max(60, (int) Env::get('RUNDOWN_LIVE_FRESHNESS_SECONDS', '300'));
+            $now = time();
+            $annotated = array_values(array_filter($annotated, static function (array $match) use ($now, $maxAge): bool {
+                if (strtolower((string) ($match['status'] ?? '')) !== 'live') return false;
+                if (strtolower((string) ($match['oddsSource'] ?? '')) !== 'rundown') return false;
+                $last = (string) ($match['lastOddsSyncAt'] ?? '');
+                $lastTs = $last !== '' ? strtotime($last) : false;
+                if ($lastTs === false) return false;
+                return ($now - $lastTs) <= $maxAge;
+            }));
         } elseif ($desiredStatus === 'live-upcoming') {
             $annotated = array_values(array_filter($annotated, static function (array $match): bool {
                 $matchStatus = strtolower((string) ($match['status'] ?? ''));
@@ -215,14 +230,17 @@ final class MatchesController
             }));
         }
 
-        // Once commence_time passes, hide the match from pre-match listings.
-        // We don't offer live betting, so a started match has no UI home.
-        // Settlement / scores polling runs on a separate path and is not
-        // affected. `status=finished` / `status=all` opt out so admin and
-        // audit tooling can still pull historical rows.
+        // Hide pre-match rows whose commence_time has passed but which never
+        // got promoted to status='live' (so they don't sit in upcoming-style
+        // listings forever). Live rows always survive — they're past
+        // commence_time by definition. `status=finished` / `status=all` opt
+        // out entirely so admin and audit tooling can pull historical rows.
         if (!in_array($desiredStatus, ['finished', 'all'], true)) {
             $now = time();
             $annotated = array_values(array_filter($annotated, static function (array $match) use ($now): bool {
+                if (strtolower((string) ($match['status'] ?? '')) === 'live') {
+                    return true;
+                }
                 $startTime = (string) ($match['startTime'] ?? '');
                 $parsed = $startTime !== '' ? strtotime($startTime) : false;
                 return $parsed === false || $parsed > $now;

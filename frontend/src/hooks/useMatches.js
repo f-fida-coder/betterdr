@@ -80,11 +80,12 @@ const isPastCommence = (match) => {
 };
 
 const filterMatches = (normalized, statusFilter) => {
-    // Defensive: hide past-commence matches from pre-match listings even if
-    // the backend cache lagged or the client clock is slightly off. The
-    // `finished` view is an explicit historical listing and opts out.
+    // Defensive: hide past-commence pre-match rows even if the backend cache
+    // lagged or the client clock is slightly off. Live rows always survive —
+    // they're past commence_time by definition. `finished` is explicit
+    // historical and opts out entirely.
     if (statusFilter !== 'finished') {
-        normalized = normalized.filter((m) => !isPastCommence(m));
+        normalized = normalized.filter((m) => isLiveMatch(m) || !isPastCommence(m));
     }
 
     if (statusFilter === 'live' || statusFilter === 'active') {
