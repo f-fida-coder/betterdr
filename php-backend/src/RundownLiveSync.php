@@ -23,30 +23,48 @@ final class RundownLiveSync
 {
     /**
      * Map TheRundown numeric sport_id → list of OddsAPI sport_keys we look
-     * up to find candidate match rows. A single Rundown sport can map to
-     * multiple OddsAPI keys (e.g. "Soccer" 28 → many leagues).
+     * up to find candidate match rows. Verified against TheRundown's
+     * docs/reference/sports — see https://docs.therundown.io/reference/sports.md.
+     * Season-variant IDs (preseason/playoff/spring training: 23-32) map to
+     * the same OddsAPI keys as their parent sport.
      *
-     * Sources for IDs: TheRundown /sports response.
+     * Note: TheRundown does NOT cover Boxing, Tennis, Golf, AFL, or Rugby,
+     * so those sports remain solely on The Odds API path with no live
+     * overlay from this service.
+     *
      * @var array<int, list<string>>
      */
     private const SPORT_ID_TO_ODDS_KEYS = [
-        1  => ['americanfootball_nfl'],
-        2  => ['americanfootball_ncaaf'],
-        3  => ['basketball_nba'],
-        4  => ['basketball_ncaab'],
-        5  => ['baseball_mlb'],
+        1  => ['americanfootball_ncaaf'],
+        2  => ['americanfootball_nfl'],
+        3  => ['baseball_mlb'],
+        4  => ['basketball_nba'],
+        5  => ['basketball_ncaab'],
         6  => ['icehockey_nhl'],
         7  => ['mma_mixed_martial_arts'],
-        8  => ['boxing_boxing'],
-        9  => [
-            'soccer_epl', 'soccer_uefa_champs_league', 'soccer_spain_la_liga',
-            'soccer_italy_serie_a', 'soccer_germany_bundesliga',
-            'soccer_france_ligue_one', 'soccer_usa_mls',
-            'soccer_uefa_europa_league', 'soccer_uefa_nations_league',
-            'soccer_fifa_world_cup',
-        ],
-        10 => ['tennis_atp_madrid_open', 'tennis_wta_madrid_open'],
-        11 => ['cricket_ipl', 'cricket_psl', 'cricket_odi'],
+        8  => ['basketball_wnba'],
+        9  => ['americanfootball_cfl'],
+        10 => ['soccer_usa_mls'],
+        11 => ['soccer_epl'],
+        12 => ['soccer_france_ligue_one'],
+        13 => ['soccer_germany_bundesliga'],
+        14 => ['soccer_spain_la_liga'],
+        15 => ['soccer_italy_serie_a'],
+        16 => ['soccer_uefa_champs_league'],
+        17 => ['soccer_uefa_europa_league'],
+        18 => ['soccer_fifa_world_cup'],
+        19 => ['soccer_japan_j_league'],
+        20 => ['cricket_ipl'],
+        21 => ['cricket_psl', 'cricket_odi', 'cricket_t20', 'cricket_international_t20'],
+        // Season variants (preseason / playoff / spring training).
+        23 => ['basketball_nba'],            // NBA preseason
+        24 => ['basketball_nba'],            // NBA playoffs
+        25 => ['americanfootball_nfl'],      // NFL preseason
+        26 => ['americanfootball_nfl'],      // NFL playoffs
+        27 => ['icehockey_nhl'],             // NHL preseason
+        28 => ['icehockey_nhl'],             // NHL playoffs
+        30 => ['baseball_mlb'],              // MLB spring training
+        32 => ['basketball_nba'],            // NBA summer league
     ];
 
     /** @return array{ok:bool, sportsTried:int, eventsSeen:int, matched:int, updated:int, errors:int} */
