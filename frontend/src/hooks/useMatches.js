@@ -15,6 +15,11 @@ const AUTO_POLL_MS = 30000;
 // trigger a force-refetch on first paint and on tab-becomes-visible.
 // This is the "fresh on every visit" guarantee.
 const COLD_LOAD_FRESHNESS_MS = 90000;
+// When the live filter returns an empty list (e.g. user landed before
+// the Rundown overlay tick had a chance to populate any rows), retry
+// with backoff instead of waiting AUTO_POLL_MS for the next poll.
+// Bounded — bails after the last delay so empty truly stays empty.
+const LIVE_EMPTY_RETRY_DELAYS_MS = [4000, 9000];
 const matchesResponseCache = new Map();
 const inFlightRequests = new Map();
 
@@ -110,9 +115,13 @@ export default function useMatches(options = {}) {
     const scopeKey = (options.scopeKey || '').toString();
     const fetchIdRef = useRef(0);
     const listenerIdRef = useRef(buildClientId('matches-hook'));
+    // Counter for the empty-live retry path (see LIVE_EMPTY_RETRY_DELAYS_MS).
+    // Resets when a non-empty live response lands or the hook unmounts.
+    const emptyRetryRef = useRef(0);
 
     useEffect(() => {
         let mounted = true;
+        emptyRetryRef.current = 0;
 
         const emitRefreshProgress = (phase, detail) => {
             if (typeof window === 'undefined') return;
@@ -177,6 +186,31 @@ export default function useMatches(options = {}) {
                 pruneLocalCache();
                 setMatches(filtered);
                 success = true;
+
+                // Empty live result during the natural startup race (Rundown
+                // tick hasn't populated any rows yet) — schedule one or two
+                // short retries instead of forcing the user to wait the full
+                // AUTO_POLL_MS or hit refresh manually. Other status filters
+                // are not affected.
+                const isLiveStatus = statusFilter === 'live' || statusFilter === 'active';
+                if (isLiveStatus && filtered.length === 0 && trigger !== 'live-empty-retry') {
+                    const attempt = Math.min(
+                        Math.max(0, Number(emptyRetryRef.current) || 0),
+                        LIVE_EMPTY_RETRY_DELAYS_MS.length - 1
+                    );
+                    if (Number(emptyRetryRef.current) < LIVE_EMPTY_RETRY_DELAYS_MS.length) {
+                        const delay = LIVE_EMPTY_RETRY_DELAYS_MS[attempt];
+                        emptyRetryRef.current = attempt + 1;
+                        setTimeout(() => {
+                            if (!mounted || fetchId !== fetchIdRef.current) return;
+                            matchesResponseCache.delete(cacheKey);
+                            inFlightRequests.delete(cacheKey);
+                            fetchMatches({ trigger: 'live-empty-retry', refresh: false });
+                        }, delay);
+                    }
+                } else if (filtered.length > 0) {
+                    emptyRetryRef.current = 0;
+                }
             } catch (err) {
                 inFlightRequests.delete(cacheKey);
                 errorMessage = err?.message || 'Failed to fetch matches';

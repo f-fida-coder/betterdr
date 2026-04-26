@@ -623,6 +623,7 @@ if (
     || str_starts_with($uriPath, '/api/payments')
     || str_starts_with($uriPath, '/api/admin')
     || str_starts_with($uriPath, '/api/debug')
+    || str_starts_with($uriPath, '/api/internal')
     || str_starts_with($uriPath, '/api/proxy')
 ) {
     if ($authNativeEnabled) {
