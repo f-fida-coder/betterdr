@@ -30,25 +30,71 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
     const [isLoading, setIsLoading] = useState(true);
     const loadGenRef = React.useRef(0);
     const rawMatches = useMatches({ status, scopeKey: `${sportId || 'all'}:${filter || ''}` });
-    // Derive an Odds API sportKey for the refresh button from whichever match
-    // is currently in view. Null if no matches — button stays disabled then.
-    const primarySportKey = (content.matches?.find?.((m) => m?.rawMatch?.sportKey || m?.sportKey)?.rawMatch?.sportKey)
-        || (content.matches?.find?.((m) => m?.rawMatch?.sportKey || m?.sportKey)?.sportKey)
-        || null;
+    // Collect every distinct Odds API sportKey present in the visible
+    // matches. Views can mix leagues under one heading (e.g. NBA + WNBA,
+    // or several soccer leagues) — refreshing only the first match's
+    // sportKey leaves the others stale, so the refresh button needs the
+    // full set. Empty array if no matches — button stays disabled then.
+    const visibleSportKeys = React.useMemo(() => {
+        const keys = new Set();
+        for (const m of (content.matches || [])) {
+            const k = m?.rawMatch?.sportKey || m?.sportKey;
+            if (typeof k === 'string' && k.trim() !== '') keys.add(k.trim().toLowerCase());
+        }
+        return [...keys];
+    }, [content.matches]);
     const { showToast } = useToast();
-    const { trigger: triggerRefresh, isRefreshing, cooldownRemainingSec } = useSportOddsRefresh(primarySportKey, { showToast });
+    const { trigger: triggerRefresh, isRefreshing, cooldownRemainingSec } = useSportOddsRefresh(visibleSportKeys, { showToast });
     const handleRefreshClick = React.useCallback(() => {
         triggerRefresh({
             onSuccess: () => {
-                // DB already updated by /api/odds/refresh/{sport}; just force
-                // the UI to re-read. matches:force-refetch bypasses the
-                // backend sync-defer path that matches:refresh triggers.
+                // DB already updated by /api/odds/refresh{,-multi}; force the
+                // UI to re-read. matches:force-refetch bypasses the backend
+                // sync-defer path that matches:refresh triggers.
                 window.dispatchEvent(new CustomEvent('matches:force-refetch', {
-                    detail: { reason: 'user-odds-refresh', sportKey: primarySportKey },
+                    detail: { reason: 'user-odds-refresh', sportKeys: visibleSportKeys },
                 }));
             },
         });
-    }, [triggerRefresh, primarySportKey]);
+    }, [triggerRefresh, visibleSportKeys]);
+
+    // Cold-load freshness guarantee. The first time this view paints with
+    // matches, peek at the oldest visible lastOddsSyncAt. If anything is
+    // older than ~90s, silently fire the refresh button so the user sees
+    // current odds within a couple seconds of landing — no manual action
+    // required. Only fires once per (sportId,filter) mount; subsequent
+    // freshness is owned by the auto-poll in useMatches.
+    const coldLoadRefreshFiredRef = React.useRef(false);
+    React.useEffect(() => {
+        coldLoadRefreshFiredRef.current = false;
+    }, [sportId, filter]);
+    React.useEffect(() => {
+        if (coldLoadRefreshFiredRef.current) return;
+        if (visibleSportKeys.length === 0) return;
+        const matches = content.matches || [];
+        if (matches.length === 0) return;
+        let oldestAgeMs = 0;
+        const now = Date.now();
+        for (const m of matches) {
+            const ts = m?.rawMatch?.lastOddsSyncAt || m?.rawMatch?.lastUpdated || m?.lastOddsSyncAt;
+            const t = ts ? new Date(ts).getTime() : 0;
+            if (!t || Number.isNaN(t)) continue;
+            const age = now - t;
+            if (age > oldestAgeMs) oldestAgeMs = age;
+        }
+        if (oldestAgeMs > 90000) {
+            coldLoadRefreshFiredRef.current = true;
+            // Fire and forget — refresh hook owns its own cooldown so this
+            // is a no-op if a manual click just happened.
+            triggerRefresh({
+                onSuccess: () => {
+                    window.dispatchEvent(new CustomEvent('matches:force-refetch', {
+                        detail: { reason: 'cold-load-auto-refresh', sportKeys: visibleSportKeys },
+                    }));
+                },
+            });
+        }
+    }, [content.matches, visibleSportKeys, triggerRefresh]);
     const degradedSummary = React.useMemo(() => {
         const all = Array.isArray(rawMatches) ? rawMatches : [];
         const blocked = all.filter((m) => m?.isBettable === false);

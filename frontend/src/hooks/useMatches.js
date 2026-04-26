@@ -1,8 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
 import { getMatches, getLiveMatches, getUpcomingMatches } from '../api';
 
+// Local React-side cache. Short TTL so the user never sees a snapshot
+// older than this on a cache hit; the auto-poll below also triggers
+// network refetches every AUTO_POLL_MS regardless.
 const LOCAL_MATCHES_CACHE_TTL_MS = 15000;
 const LOCAL_MATCHES_CACHE_MAX_ENTRIES = 50;
+// Background polling cadence while the tab is visible. 30s keeps the
+// list aligned with the worker tier-1/2 cadence (2-3 min) and the
+// public-matches shared cache TTL (30s) — most polls return the same
+// data cheaply, the occasional one picks up new odds.
+const AUTO_POLL_MS = 30000;
+// If the most recently rendered data appears older than this, auto
+// trigger a force-refetch on first paint and on tab-becomes-visible.
+// This is the "fresh on every visit" guarantee.
+const COLD_LOAD_FRESHNESS_MS = 90000;
 const matchesResponseCache = new Map();
 const inFlightRequests = new Map();
 
@@ -251,10 +263,19 @@ export default function useMatches(options = {}) {
         // just wants the UI to re-read. Skips the refresh=true query param so
         // the backend doesn't kick a second sync-defer round-trip; just busts
         // the local 15s cache and pulls a fresh snapshot immediately.
+        //
+        // Critically also evicts the shared inFlightRequests entry — without
+        // this, an older in-flight /api/matches request (started by another
+        // component before the upstream refresh completed) would be reused
+        // and return pre-refresh data. That was the "sometimes refresh
+        // doesn't update" bug: the on-demand fetch correctly bumped the
+        // backend cache, but the UI got attached to a stale in-flight call.
         const handleForceRefetch = (event) => {
             const detail = event?.detail ?? {};
             const trigger = detail.reason ? String(detail.reason) : 'force-refetch';
-            matchesResponseCache.delete(createMatchesCacheKey(statusFilter, scopeKey || 'global'));
+            const cacheKey = createMatchesCacheKey(statusFilter, scopeKey || 'global');
+            matchesResponseCache.delete(cacheKey);
+            inFlightRequests.delete(cacheKey);
             fetchMatches({ trigger, refresh: false });
         };
 
@@ -273,19 +294,63 @@ export default function useMatches(options = {}) {
             }, 4500);
         };
 
+        // Background poll while tab is visible. Force-refetches (skip 15s
+        // local cache) so we always exercise the network and pick up odds
+        // changes from the worker / on-demand refreshes by other clients.
+        // Pauses when tab hidden, fires immediately on becoming visible.
+        let pollTimer = null;
+        const isPageVisible = () => typeof document === 'undefined'
+            || document.visibilityState !== 'hidden';
+        const startPolling = () => {
+            if (pollTimer) return;
+            pollTimer = setInterval(() => {
+                if (!isPageVisible()) return;
+                matchesResponseCache.delete(createMatchesCacheKey(statusFilter, scopeKey || 'global'));
+                fetchMatches({ trigger: 'auto-poll', refresh: false });
+            }, AUTO_POLL_MS);
+        };
+        const stopPolling = () => {
+            if (pollTimer) clearInterval(pollTimer);
+            pollTimer = null;
+        };
+        const handleVisibilityChange = () => {
+            if (typeof document === 'undefined') return;
+            if (document.visibilityState === 'hidden') {
+                stopPolling();
+                return;
+            }
+            // Tab just became visible. If our cached data is older than
+            // COLD_LOAD_FRESHNESS_MS, refetch immediately so the user
+            // doesn't see a stale snapshot on tab refocus.
+            const cached = matchesResponseCache.get(createMatchesCacheKey(statusFilter, scopeKey || 'global'));
+            if (!cached || (Date.now() - cached.ts) > COLD_LOAD_FRESHNESS_MS) {
+                matchesResponseCache.delete(createMatchesCacheKey(statusFilter, scopeKey || 'global'));
+                fetchMatches({ trigger: 'visibility-resume', refresh: false });
+            }
+            startPolling();
+        };
+
         if (typeof window !== 'undefined') {
             window.addEventListener('matches:refresh', handleRefresh);
             window.addEventListener('matches:sync-deferred', handleSyncDeferred);
             window.addEventListener('matches:force-refetch', handleForceRefetch);
+            if (typeof document !== 'undefined') {
+                document.addEventListener('visibilitychange', handleVisibilityChange);
+            }
+            if (isPageVisible()) startPolling();
         }
 
         return () => {
             mounted = false;
             if (deferredRetryTimer) clearTimeout(deferredRetryTimer);
+            stopPolling();
             if (typeof window !== 'undefined') {
                 window.removeEventListener('matches:refresh', handleRefresh);
                 window.removeEventListener('matches:sync-deferred', handleSyncDeferred);
                 window.removeEventListener('matches:force-refetch', handleForceRefetch);
+                if (typeof document !== 'undefined') {
+                    document.removeEventListener('visibilitychange', handleVisibilityChange);
+                }
             }
         };
     }, [scopeKey, statusFilter]);

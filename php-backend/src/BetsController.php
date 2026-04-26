@@ -708,6 +708,42 @@ final class BetsController
             throw new ApiException('Match not found: ' . $matchId, 404);
         }
 
+        // Sharp protection: if this match's odds are older than the bet-time
+        // freshness threshold, force a synchronous upstream fetch for the
+        // sport before we validate the price. Without this, a sharp could
+        // exploit the gap between worker syncs to lock in a stale price the
+        // book would have moved off. Goes through the existing per-sport
+        // SharedFileCache::remember dedup, so concurrent bets on the same
+        // sport share one upstream call.
+        $betTimeFreshSecs = max(5, (int) Env::get('BET_TIME_ODDS_FRESH_SECONDS', '30'));
+        $sportKey = (string) ($match['sportKey'] ?? '');
+        $lastOddsAt = (string) ($match['lastOddsSyncAt'] ?? $match['lastUpdated'] ?? '');
+        $oddsAge = $lastOddsAt !== '' ? max(0, time() - (int) strtotime($lastOddsAt)) : PHP_INT_MAX;
+        if ($sportKey !== '' && $oddsAge > $betTimeFreshSecs && class_exists('OddsSyncService')) {
+            $dedupWindow = max(1, (int) Env::get('ODDS_REFRESH_DEDUP_WINDOW_SECONDS', '20'));
+            try {
+                SharedFileCache::remember(
+                    'sportsbook-on-demand-refresh',
+                    $sportKey,
+                    $dedupWindow,
+                    fn(): array => OddsSyncService::syncSingleSport($this->db, $sportKey)
+                );
+                // Re-read the now-updated row so the price comparison below
+                // sees the freshest odds. If the upstream call failed, the
+                // existing row stays in place and validation continues
+                // against the older DB price (fail-open on upstream issues
+                // is better than blocking all bets when the API hiccups).
+                $refreshed = $this->db->findOne('matches', ['id' => SqlRepository::id($matchId)]);
+                if (is_array($refreshed)) {
+                    $match = $refreshed;
+                }
+            } catch (Throwable $_) {
+                // Swallow upstream errors — proceed with the existing match
+                // row. The official-odds check below still runs and ODDS_CHANGED
+                // still throws if the price moved beyond the client's quote.
+            }
+        }
+
         $match = SportsbookHealth::applyBettingAvailability($this->db, $match);
         if (($match['isBettable'] ?? false) !== true) {
             throw new ApiException((string) (($match['bettingBlockedReason'] ?? null) ?: SportsMatchStatus::placementBlockReason($match) ?: 'Match is not open for betting'), 409, [
