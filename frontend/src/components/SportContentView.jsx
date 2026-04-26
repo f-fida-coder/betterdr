@@ -338,9 +338,9 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                     type="button"
                     className="sport-refresh-btn"
                     onClick={handleRefreshClick}
-                    disabled={!primarySportKey || isRefreshing || cooldownRemainingSec > 0}
+                    disabled={visibleSportKeys.length === 0 || isRefreshing || cooldownRemainingSec > 0}
                     aria-label="Refresh odds for this sport"
-                    title={!primarySportKey ? 'No matches to refresh' : cooldownRemainingSec > 0 ? `Wait ${cooldownRemainingSec}s` : 'Refresh odds'}
+                    title={visibleSportKeys.length === 0 ? 'No matches to refresh' : cooldownRemainingSec > 0 ? `Wait ${cooldownRemainingSec}s` : 'Refresh odds'}
                     style={{
                         display: 'inline-flex',
                         alignItems: 'center',
@@ -351,8 +351,8 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                         borderRadius: 6,
                         border: '1px solid #d0d7de',
                         background: cooldownRemainingSec > 0 ? '#f0f0f0' : '#fff',
-                        color: !primarySportKey || cooldownRemainingSec > 0 ? '#888' : '#333',
-                        cursor: !primarySportKey || isRefreshing || cooldownRemainingSec > 0 ? 'not-allowed' : 'pointer',
+                        color: visibleSportKeys.length === 0 || cooldownRemainingSec > 0 ? '#888' : '#333',
+                        cursor: visibleSportKeys.length === 0 || isRefreshing || cooldownRemainingSec > 0 ? 'not-allowed' : 'pointer',
                         fontSize: 13,
                     }}
                 >
