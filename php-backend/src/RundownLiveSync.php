@@ -81,12 +81,23 @@ final class RundownLiveSync
         }
 
         $maxSports = max(1, (int) Env::get('RUNDOWN_LIVE_MAX_SPORTS_PER_TICK', '20'));
+        // Throttle to respect TheRundown's per-second rate limit (1 req/s on
+        // free tier, higher on paid). 1100ms between sport requests keeps
+        // us under the limit on free tier; paid tiers will easily absorb this.
+        $perRequestDelayUs = max(0, (int) Env::get('RUNDOWN_LIVE_REQUEST_DELAY_MS', '1100')) * 1000;
         $touchedSportKeys = [];
+        $first = true;
         foreach ($sports as $sport) {
             if ($result['sportsTried'] >= $maxSports) break;
             $sportId = (int) ($sport['id'] ?? 0);
             if ($sportId <= 0) continue;
+            // Skip sports we know we don't cover at all (Politics) — saves a
+            // wasted request and a guaranteed empty match attempt.
+            if (!isset(self::SPORT_ID_TO_ODDS_KEYS[$sportId])) continue;
             $result['sportsTried']++;
+
+            if (!$first && $perRequestDelayUs > 0) usleep($perRequestDelayUs);
+            $first = false;
 
             $resp = RundownService::liveEventsForSport($sportId);
             if (!$resp['ok']) {

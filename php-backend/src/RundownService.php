@@ -127,7 +127,8 @@ final class RundownService
         $body = curl_exec($ch);
         $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $err = curl_error($ch);
-        curl_close($ch);
+        // curl_close() is a deprecated no-op since PHP 8.0; the handle is
+        // cleaned up automatically when $ch goes out of scope.
 
         if (!is_string($body) || $body === '') {
             return ['ok' => false, 'status' => $status, 'body' => [], 'error' => $err ?: 'empty_body'];

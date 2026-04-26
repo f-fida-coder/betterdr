@@ -114,7 +114,11 @@ while (true) {
             try {
                 $repoLive = new SqlRepository($dbUri, $dbName);
                 $r = RundownLiveSync::tick($repoLive);
-                if (($r['updated'] ?? 0) > 0 || ($r['errors'] ?? 0) > 0) {
+                // Log every tick — even quiet ones — so operators can confirm
+                // the live tick is alive without grepping for sporadic updates.
+                // Quiet ticks are short ("events=0") and shouldn't dominate
+                // log volume; ticks that touched data get the full breakdown.
+                if (($r['updated'] ?? 0) > 0 || ($r['errors'] ?? 0) > 0 || ($r['eventsSeen'] ?? 0) > 0) {
                     $logWorker('info', sprintf(
                         "rundown live tick sports=%d events=%d matched=%d updated=%d errors=%d",
                         (int) ($r['sportsTried'] ?? 0),
