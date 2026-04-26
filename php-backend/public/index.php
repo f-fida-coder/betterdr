@@ -484,6 +484,60 @@ if ($uriPath === '/api/_php/costs') {
     exit;
 }
 
+if ($uriPath === '/api/_php/worker-health') {
+    // Public, lightweight worker-health probe for Phase-0 diagnostics.
+    // Safe to share publicly — returns only timing + counts, no credentials,
+    // no cost data, no upstream-API keys. Cached for 5s to prevent abuse;
+    // a casual hit is cheap, a flood collapses to one DB read per 5s window.
+    header('Cache-Control: public, max-age=5');
+    $payload = [];
+    if ($authNativeEnabled) {
+        try {
+            $repo = new SqlRepository($dbUri, $dbName);
+            $snapshot = SportsbookHealth::sportsbookSnapshot($repo);
+            $oddsSync = is_array($snapshot['oddsSync'] ?? null) ? $snapshot['oddsSync'] : [];
+            $tierStatePath = dirname(__DIR__) . '/cache/odds-tier-sync-state.json';
+            $tierState = [];
+            if (is_file($tierStatePath)) {
+                $rawTier = @file_get_contents($tierStatePath);
+                if (is_string($rawTier) && $rawTier !== '') {
+                    $decoded = json_decode($rawTier, true);
+                    if (is_array($decoded)) $tierState = $decoded;
+                }
+            }
+            $perSportAge = [];
+            $now = time();
+            foreach ($tierState as $sportKey => $iso) {
+                if (!is_string($iso) || $iso === '') continue;
+                $ts = (int) strtotime($iso);
+                if ($ts <= 0) continue;
+                $perSportAge[$sportKey] = max(0, $now - $ts);
+            }
+            asort($perSportAge);
+            $payload = [
+                'ok' => true,
+                'workerLastSuccessAt' => $oddsSync['lastOddsSuccessAt'] ?? null,
+                'workerSyncAgeSeconds' => $oddsSync['syncAgeSeconds'] ?? null,
+                'workerStaleThresholdSeconds' => $oddsSync['staleAfterSeconds'] ?? null,
+                'workerIsStale' => (bool) ($oddsSync['isStale'] ?? false),
+                'lastRunStatus' => $oddsSync['lastRunStatus'] ?? null,
+                'lastSource' => $oddsSync['lastSource'] ?? null,
+                'consecutiveFailures' => (int) ($oddsSync['consecutiveFailures'] ?? 0),
+                'consecutiveOddsFailures' => (int) ($oddsSync['consecutiveOddsFailures'] ?? 0),
+                'circuitBreakerState' => (string) ($oddsSync['circuitBreaker']['state'] ?? 'unknown'),
+                'perSportAgeSeconds' => $perSportAge,
+                'time' => gmdate(DATE_ATOM),
+            ];
+        } catch (Throwable $e) {
+            $payload = ['ok' => false, 'error' => 'snapshot_failed', 'time' => gmdate(DATE_ATOM)];
+        }
+    } else {
+        $payload = ['ok' => false, 'error' => 'auth_native_disabled', 'time' => gmdate(DATE_ATOM)];
+    }
+    Response::json($payload, 200, 'public, max-age=5');
+    exit;
+}
+
 if ($uriPath === '/api/realtime/health') {
     Response::json([
         'ok' => true,

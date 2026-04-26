@@ -146,25 +146,48 @@ function AppInner() {
     }
 
     const channel = String(message.channel || '').trim();
-    if (channel !== 'odds:sync' && channel !== 'odds:sync:error') {
+    // odds:sync is the worker's full-cycle aggregate event; odds:sport:sync
+    // fires from syncSingleSport for an individual sport (carries sportKey
+    // in payload so subscribers can target). Both arrive AFTER the backend
+    // has already written fresh data to DB and invalidated the public-
+    // matches cache, so the frontend just needs to re-read — no need to
+    // kick a second backend sync via /api/matches?refresh=true.
+    if (
+      channel !== 'odds:sync'
+      && channel !== 'odds:sync:error'
+      && channel !== 'odds:sport:sync'
+    ) {
       return;
     }
 
     setLastRealtimeEventAt(Date.now());
 
+    // Skip refetch if tab is hidden — useMatches's visibilitychange
+    // handler will catch us up when the user returns. Saves needless
+    // network/CPU on background tabs.
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+      return;
+    }
+
     const now = Date.now();
+    // 1.2s debounce against bursty events (e.g. all tier-1 sports finishing
+    // their cycle within ~100ms). Combined with the per-sport server-side
+    // dedup, this keeps the refetch to roughly one /api/matches per burst.
     if ((now - lastRealtimeRefreshRef.current) < 1200) {
       return;
     }
     lastRealtimeRefreshRef.current = now;
 
     if (typeof window !== 'undefined') {
-      const requestId = `realtime-${now}`;
-      window.dispatchEvent(new CustomEvent('matches:refresh', {
+      const sportKey = (message.payload && (message.payload.sport_key || message.payload.sportKey)) || null;
+      // matches:force-refetch reads from the freshly-invalidated public
+      // cache directly; matches:refresh would kick the backend's slow
+      // deferred-sync round-trip and serve a pre-sync snapshot.
+      window.dispatchEvent(new CustomEvent('matches:force-refetch', {
         detail: {
           reason: 'realtime',
           channel,
-          requestId,
+          sportKey,
         },
       }));
 

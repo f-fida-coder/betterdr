@@ -796,6 +796,18 @@ final class OddsSyncService
         // Invalidate the public /api/matches cache so the next poll sees fresh rows.
         SportsbookCache::invalidatePublicMatchCaches();
 
+        // Push a per-sport realtime event so subscribed clients viewing
+        // this sport's matches refetch immediately (instead of waiting
+        // for their 30s auto-poll). Cheap: just appends a line to the
+        // ws-events log; the WS server tail-broadcasts to listeners.
+        if (class_exists('RealtimeEventBus')) {
+            RealtimeEventBus::publish('odds:sport:sync', [
+                'sport_key' => $sportKey,
+                'updated' => count($updated),
+                'time' => gmdate(DATE_ATOM),
+            ]);
+        }
+
         $creditsUsedBefore = isset($oddsResp['headers']['x-requests-used']) ? (int) $oddsResp['headers']['x-requests-used'] : null;
         $scoresUsed = isset($responses['scores']['headers']['x-requests-used']) ? (int) $responses['scores']['headers']['x-requests-used'] : null;
         return [
