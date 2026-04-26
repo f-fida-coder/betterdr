@@ -382,7 +382,7 @@ final class SportsbookHealth
     {
         $snapshot = $snapshot ?? self::sportsbookSnapshot($db);
         $syncAgeSeconds = self::safeInt($snapshot['oddsSync']['syncAgeSeconds'] ?? null);
-        $threshold = self::staleAfterSeconds();
+        $matchThreshold = self::matchStaleAfterSeconds();
         $oddsFeedStale = (bool) ($snapshot['oddsSync']['isStale'] ?? true);
         $matchOddsAt = self::firstTimestamp(
             $match['lastOddsSyncAt'] ?? null,
@@ -402,7 +402,7 @@ final class SportsbookHealth
             ];
         }
 
-        if ($matchOddsAge === null || $matchOddsAge > $threshold) {
+        if ($matchOddsAge === null || $matchOddsAge > $matchThreshold) {
             $label = trim((string) (($match['homeTeam'] ?? 'Match') . ' vs ' . ($match['awayTeam'] ?? '')));
             $ageLabel = $matchOddsAge === null ? 'unknown age' : ($matchOddsAge . 's old');
             return [
@@ -427,6 +427,26 @@ final class SportsbookHealth
     {
         $raw = Env::get('SPORTSBOOK_MAX_SYNC_AGE_SECONDS', '600');
         return is_numeric($raw) ? max(60, (int) $raw) : 600;
+    }
+
+    /**
+     * Per-match staleness threshold. Higher than the global feed-health
+     * threshold so individual matches aren't blocked just because their
+     * sport's tier hasn't ticked recently. Worker tier cadence is 5/7/10
+     * minutes (tiers 1/2/3); a 25-minute default tolerates a missed worker
+     * run for tier 3 sports without flipping the whole list to "stale".
+     * The global feed-health gate (above) still fires when the worker is
+     * actually dead, so this doesn't paper over a real outage.
+     */
+    public static function matchStaleAfterSeconds(): int
+    {
+        $raw = Env::get('SPORTSBOOK_MATCH_STALE_AGE_SECONDS', '');
+        if (is_numeric($raw)) {
+            return max(60, (int) $raw);
+        }
+        // Fall back to 2.5x the global threshold, floor at 1500s (25 min).
+        $global = self::staleAfterSeconds();
+        return max(1500, (int) round($global * 2.5));
     }
 
     private static function snapshotCacheTtlSeconds(): int

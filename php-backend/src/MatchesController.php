@@ -60,6 +60,11 @@ final class MatchesController
             return true;
         }
 
+        if ($method === 'POST' && $path === '/api/odds/refresh-multi') {
+            $this->refreshSports();
+            return true;
+        }
+
         return false;
     }
 
@@ -511,6 +516,122 @@ final class MatchesController
             $responseBody['error'] = $result['error'];
         }
         Response::json($responseBody, $success ? 200 : 502);
+    }
+
+    /**
+     * Multi-sport on-demand refresh. Same auth + rate-limit posture as
+     * refreshSport() — counts as ONE call regardless of how many sport
+     * keys are in the body — so the user can refresh a view that mixes
+     * leagues (e.g. NBA + WNBA, or several soccer leagues) in a single
+     * round-trip without burning the per-user RATE_LIMIT_REFRESH_ODDS
+     * budget. Each sport key still goes through the per-sport in-flight
+     * dedup, so concurrent callers asking for the same sport share the
+     * upstream call.
+     *
+     * Body: {"sport_keys": ["basketball_nba", "basketball_wnba", ...]}
+     * Caps at 8 keys per request to keep upstream credit burn bounded.
+     */
+    private function refreshSports(): void
+    {
+        $startedAt = microtime(true);
+
+        $actor = $this->protectAny();
+        if ($actor === null) return;
+        $userId = (string) ($actor['id'] ?? '');
+
+        $body = Http::jsonBody();
+        $rawKeys = $body['sport_keys'] ?? null;
+        if (!is_array($rawKeys) || $rawKeys === []) {
+            Response::json(['success' => false, 'error' => 'sport_keys required'], 400);
+            return;
+        }
+
+        // Normalize, dedupe, validate, and cap.
+        $sportKeys = [];
+        foreach ($rawKeys as $rawKey) {
+            if (!is_string($rawKey)) continue;
+            $key = strtolower(trim($rawKey));
+            if (preg_match('/^[a-z][a-z0-9_]{1,79}$/', $key) !== 1) continue;
+            $sportKeys[$key] = true;
+        }
+        $sportKeys = array_keys($sportKeys);
+        if ($sportKeys === []) {
+            Response::json(['success' => false, 'error' => 'no_valid_sport_keys'], 400);
+            return;
+        }
+        $maxKeys = max(1, (int) Env::get('ODDS_REFRESH_MULTI_MAX_KEYS', '8'));
+        if (count($sportKeys) > $maxKeys) {
+            $sportKeys = array_slice($sportKeys, 0, $maxKeys);
+        }
+
+        $ipMax = max(1, (int) Env::get('ODDS_REFRESH_IP_LIMIT_MAX', '15'));
+        $ipWindow = max(1, (int) Env::get('ODDS_REFRESH_IP_LIMIT_WINDOW_SECONDS', '60'));
+        $userMax = max(1, (int) Env::get('ODDS_REFRESH_USER_LIMIT_MAX', '10'));
+        $userWindow = max(1, (int) Env::get('ODDS_REFRESH_USER_LIMIT_WINDOW_SECONDS', '60'));
+        $dedupWindow = max(1, (int) Env::get('ODDS_REFRESH_DEDUP_WINDOW_SECONDS', '20'));
+
+        $ipKey = $this->clientIpKey();
+        if (RateLimiter::enforce($this->db, 'refresh_odds_ip', $ipMax, $ipWindow)) {
+            return;
+        }
+        $userAllowed = RateLimiter::checkLimit($this->db, 'user:' . $userId, 'refresh_odds_user', $userMax, $userWindow);
+        if (!$userAllowed) {
+            $retry = RateLimiter::getRemainingSeconds($this->db, 'user:' . $userId, 'refresh_odds_user', $userWindow);
+            Response::json(['success' => false, 'error' => 'rate_limited', 'retry_after_seconds' => max(1, $retry)], 429);
+            return;
+        }
+
+        // Per-sport in-flight dedup is preserved by reusing the same
+        // SharedFileCache namespace + key as refreshSport() does.
+        $perSport = [];
+        $anySuccess = false;
+        $allMatches = [];
+        $latestUpdated = null;
+        foreach ($sportKeys as $sportKey) {
+            $result = SharedFileCache::remember(
+                'sportsbook-on-demand-refresh',
+                $sportKey,
+                $dedupWindow,
+                fn(): array => OddsSyncService::syncSingleSport($this->db, $sportKey)
+            );
+            $success = (bool) ($result['success'] ?? false);
+            if ($success) {
+                $anySuccess = true;
+                if (is_array($result['matches'] ?? null)) {
+                    foreach ($result['matches'] as $m) $allMatches[] = $m;
+                }
+                $lu = (string) ($result['last_updated'] ?? '');
+                if ($lu !== '' && ($latestUpdated === null || $lu > $latestUpdated)) {
+                    $latestUpdated = $lu;
+                }
+            }
+            $perSport[] = [
+                'sport_key' => $sportKey,
+                'success' => $success,
+                'error' => $result['error'] ?? null,
+                'last_updated' => $result['last_updated'] ?? null,
+            ];
+        }
+
+        $elapsedMs = (int) round((microtime(true) - $startedAt) * 1000);
+
+        Logger::info('odds_on_demand_refresh_multi', [
+            'userId' => $userId,
+            'role' => (string) ($actor['_role'] ?? ''),
+            'sportCount' => count($sportKeys),
+            'sports' => $sportKeys,
+            'ipHash' => substr(hash('sha256', $ipKey), 0, 16),
+            'anySuccess' => $anySuccess,
+            'responseTimeMs' => $elapsedMs,
+        ], 'sportsbook');
+
+        Response::json([
+            'success' => $anySuccess,
+            'sport_keys' => $sportKeys,
+            'last_updated' => $latestUpdated ?? gmdate(DATE_ATOM),
+            'matches' => $allMatches,
+            'per_sport' => $perSport,
+        ], $anySuccess ? 200 : 502);
     }
 
     private function clientIpKey(): string

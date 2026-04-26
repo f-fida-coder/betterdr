@@ -486,19 +486,26 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
         };
     }, []);
 
-    // Derive the visible sport's Odds API key so the button can trigger the
-    // per-sport upstream refresh. If no matches are visible (empty view), we
-    // fall back to the generic matches:refresh event only.
-    const primarySportKey = (orderedMatches?.find?.((m) => m?.rawMatch?.sportKey || m?.sportKey)?.rawMatch?.sportKey)
-        || (orderedMatches?.find?.((m) => m?.rawMatch?.sportKey || m?.sportKey)?.sportKey)
-        || null;
+    // Collect every distinct Odds API sportKey present in the visible
+    // matches. Mobile content views can mix leagues under one heading
+    // (NBA + WNBA, multiple soccer leagues, etc.); refreshing only the
+    // first match's sportKey leaves the others stale, so the button
+    // needs the full set. Empty array if no matches.
+    const visibleSportKeys = React.useMemo(() => {
+        const keys = new Set();
+        for (const m of (orderedMatches || [])) {
+            const k = m?.rawMatch?.sportKey || m?.sportKey;
+            if (typeof k === 'string' && k.trim() !== '') keys.add(k.trim().toLowerCase());
+        }
+        return [...keys];
+    }, [orderedMatches]);
     const { showToast } = useToast();
-    const { trigger: triggerSportRefresh, isRefreshing: isSportRefreshing, cooldownRemainingSec } = useSportOddsRefresh(primarySportKey, { showToast });
+    const { trigger: triggerSportRefresh, isRefreshing: isSportRefreshing, cooldownRemainingSec } = useSportOddsRefresh(visibleSportKeys, { showToast });
 
     const handleManualRefresh = React.useCallback(() => {
         if (isRefreshing || isSportRefreshing || cooldownRemainingSec > 0) return;
         setIsRefreshing(true);
-        if (primarySportKey) {
+        if (visibleSportKeys.length > 0) {
             // Per-sport upstream fetch lands fresh data in the DB and
             // invalidates the public cache. After success, just re-read
             // — matches:force-refetch skips the backend's refresh=true
@@ -507,7 +514,7 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
             triggerSportRefresh({
                 onSuccess: () => {
                     window.dispatchEvent(new CustomEvent('matches:force-refetch', {
-                        detail: { reason: 'user-odds-refresh', sportKey: primarySportKey },
+                        detail: { reason: 'user-odds-refresh', sportKeys: visibleSportKeys },
                     }));
                 },
             });
@@ -517,7 +524,7 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
                 detail: { reason: 'user', requestId: `mobile-${Date.now()}` },
             }));
         }
-    }, [isRefreshing, isSportRefreshing, cooldownRemainingSec, primarySportKey, triggerSportRefresh]);
+    }, [isRefreshing, isSportRefreshing, cooldownRemainingSec, visibleSportKeys, triggerSportRefresh]);
 
     const ageMs = nowTick - lastFetchTime;
     const isStale = ageMs >= STALE_MS;

@@ -642,6 +642,36 @@ export const refreshSportOdds = async (sportKey) => {
 };
 
 /**
+ * Multi-sport variant of refreshSportOdds. Sends ONE request that fans
+ * out to all listed sport keys server-side, sharing the per-user rate
+ * limit budget across all of them. Use this when the current view shows
+ * matches from multiple sport keys (e.g. NBA + WNBA, or several soccer
+ * leagues under one heading) so one click refreshes everything visible
+ * instead of leaving non-primary sports stale.
+ *
+ * Backend: POST /api/odds/refresh-multi  body: { sport_keys: [...] }
+ * Returns the aggregated response; on partial failure, success === true
+ * if any sport synced, with per_sport[] reporting individual outcomes.
+ */
+export const refreshSportsOdds = async (sportKeys) => {
+    const token = getStoredAuthToken();
+    const response = await fetch(buildApiUrl('/odds/refresh-multi'), {
+        method: 'POST',
+        headers: getHeaders(token),
+        body: JSON.stringify({ sport_keys: Array.isArray(sportKeys) ? sportKeys : [] }),
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        const err = new Error(body?.error || body?.message || `refresh_failed_${response.status}`);
+        err.status = response.status;
+        err.error = body?.error || '';
+        err.retryAfterSeconds = Number(body?.retry_after_seconds || 0);
+        throw err;
+    }
+    return body;
+};
+
+/**
  * Fetch distinct sport values that currently have active/scheduled matches.
  * Returns an array of strings (sport titles and sportKeys).
  */
