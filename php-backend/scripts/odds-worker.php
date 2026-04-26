@@ -23,6 +23,8 @@ require_once __DIR__ . '/../src/BetSettlementService.php';
 require_once __DIR__ . '/../src/OddsMarketCatalog.php';
 require_once __DIR__ . '/../src/OddsSyncService.php';
 require_once __DIR__ . '/../src/RealtimeEventBus.php';
+require_once __DIR__ . '/../src/RundownService.php';
+require_once __DIR__ . '/../src/RundownLiveSync.php';
 
 $projectRoot = dirname(__DIR__, 2);
 $phpBackendDir = dirname(__DIR__);
@@ -95,7 +97,42 @@ while (true) {
         break;
     }
 
+    // Sleep until the next main-cycle tick, but interleave a ~10s
+    // TheRundown live-only sync so in-progress matches refresh much
+    // faster than the main worker's per-tier cadence (2-5 min). The
+    // live tick is cheap when nothing is in-progress (mostly cache
+    // hits + early exits) and bounded by RUNDOWN_LIVE_MAX_SPORTS_PER_TICK.
+    // Pre-match / scheduled odds remain owned by OddsSyncService above.
     $elapsed = (int) max(0, round(microtime(true) - $started));
-    $sleep = max(1, $intervalSeconds - $elapsed);
-    sleep($sleep);
+    $remaining = max(1, $intervalSeconds - $elapsed);
+    $liveTickSeconds = max(5, (int) Env::get('RUNDOWN_LIVE_TICK_SECONDS', '10'));
+    $liveEnabled = RundownService::isEnabled();
+    $deadline = microtime(true) + $remaining;
+    while (microtime(true) < $deadline) {
+        $chunkStart = microtime(true);
+        if ($liveEnabled) {
+            try {
+                $repoLive = new SqlRepository($dbUri, $dbName);
+                $r = RundownLiveSync::tick($repoLive);
+                if (($r['updated'] ?? 0) > 0 || ($r['errors'] ?? 0) > 0) {
+                    $logWorker('info', sprintf(
+                        "rundown live tick sports=%d events=%d matched=%d updated=%d errors=%d",
+                        (int) ($r['sportsTried'] ?? 0),
+                        (int) ($r['eventsSeen'] ?? 0),
+                        (int) ($r['matched'] ?? 0),
+                        (int) ($r['updated'] ?? 0),
+                        (int) ($r['errors'] ?? 0)
+                    ));
+                }
+                unset($repoLive);
+            } catch (Throwable $e) {
+                $logWorker('error', 'rundown live tick failed: ' . $e->getMessage());
+            }
+        }
+        $chunkElapsed = microtime(true) - $chunkStart;
+        $sleepFor = max(1, $liveTickSeconds - (int) round($chunkElapsed));
+        $remainingToDeadline = $deadline - microtime(true);
+        if ($remainingToDeadline <= 0) break;
+        sleep((int) min($sleepFor, $remainingToDeadline));
+    }
 }
