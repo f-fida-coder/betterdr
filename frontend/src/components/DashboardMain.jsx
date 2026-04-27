@@ -80,12 +80,14 @@ const DashboardMain = ({ selectedSports = [], activeBetMode = 'straight' }) => {
         }
 
         if (selectedSports.includes('commercial-live')) {
-            // 'live-upcoming' instead of 'live': many in-progress games
-            // still carry status='scheduled' in the DB until the live
-            // cron flips them, so a strict 'live' filter often returns
-            // []. Per-row LIVE classification happens downstream from
-            // each match's own annotated status.
-            return [{ sportId: null, filter: null, status: 'live-upcoming' }];
+            // Live Now is Rundown-EXCLUSIVE: strict `'live'` status. The
+            // backend filter additionally requires oddsSource='rundown',
+            // a per-sport freshness window, and the row's sportKey to be
+            // in Rundown's coverage set — so any leftover stale or
+            // upcoming rows are filtered out server-side. Showing
+            // scheduled games here would be wrong: the user tapped LIVE
+            // NOW expecting in-play action only.
+            return [{ sportId: null, filter: null, status: 'live' }];
         }
 
         const sections = [];

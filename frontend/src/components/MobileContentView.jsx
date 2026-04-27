@@ -269,15 +269,17 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
         [selectedSports],
     );
 
-    // Use 'live-upcoming' even for the LIVE NOW bucket: many in-progress
-    // games still carry status='scheduled' in the DB until the live cron
-    // flips them, so a strict 'live' filter often returns []. The wider
-    // envelope matches the desktop SportContentView path; the per-row
-    // LIVE badge / OddsAge live rendering already classifies each match
-    // correctly from its own status, independent of this request filter.
+    // LIVE NOW: strict `'live'` status — Rundown-only, freshness-gated
+    // server-side. The previous `'live-upcoming'` envelope was leaking
+    // scheduled games into the LIVE NOW list (e.g. "Tomorrow 4/28 12am"
+    // appearing under Live Now), which is wrong: the user tapped LIVE
+    // NOW expecting in-play action only.
+    // UP NEXT keeps `'upcoming'`; default uses the wider envelope.
     const statusFilter = primarySport === 'up-next'
         ? 'upcoming'
-        : 'live-upcoming';
+        : primarySport === 'commercial-live'
+            ? 'live'
+            : 'live-upcoming';
     const scopeKey = selectedSports.join('|');
     const rawMatches = useMatches({ status: statusFilter, scopeKey });
 
@@ -420,6 +422,29 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
             const eventStatus = (match.score?.event_status || '').toString().toUpperCase();
             const isLive = match.status === 'live' || eventStatus.includes('IN_PROGRESS') || eventStatus.includes('LIVE');
             const startDate = match.startTime ? new Date(match.startTime) : null;
+            // Build a compact `Q2 5:43` / `H1 23:11` / `IN_PROGRESS`
+            // style label from the Rundown-supplied score fields.
+            // Period maps to a sport-appropriate prefix (Q for football
+            // /basketball, P for hockey, H for soccer); falls back to a
+            // cleaned event_status when period isn't set.
+            const periodNum = Number(match.score?.period || 0);
+            const clockText = String(match.score?.clock || '').trim();
+            const sportKeyLower = String(match.sportKey || '').toLowerCase();
+            const periodPrefix = sportKeyLower.startsWith('icehockey') ? 'P'
+                : sportKeyLower.startsWith('soccer') ? 'H'
+                    : sportKeyLower.startsWith('baseball') ? 'Inn '
+                        : 'Q';
+            let liveStatusLabel = '';
+            if (isLive) {
+                if (periodNum > 0 && clockText) liveStatusLabel = `${periodPrefix}${periodNum} ${clockText}`;
+                else if (periodNum > 0) liveStatusLabel = `${periodPrefix}${periodNum}`;
+                else if (clockText) liveStatusLabel = clockText;
+                else liveStatusLabel = eventStatus
+                    .replace(/^STATUS_/, '')
+                    .replace(/_/g, ' ')
+                    .toLowerCase()
+                    .replace(/\b\w/g, (c) => c.toUpperCase());
+            }
 
             return {
                 id: match.id || match.externalId,
@@ -429,6 +454,7 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
                 team2: homeName,
                 odds: extractOdds(match, homeName, awayName, activePeriod.suffix),
                 isLive,
+                liveStatusLabel,
                 // Preserve backend flag: MatchCard reads this to disable
                 // bet buttons when the book has stale or suspended lines.
                 isBettable: match.isBettable !== false,
@@ -666,7 +692,7 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
                 <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={sportTitleStyle}>{sportName}</div>
                     <div style={sportSubtitleStyle}>
-                        {activeModeLabel} · {statusFilter === 'live' ? 'Live Matches' : statusFilter === 'upcoming' ? 'Upcoming Matches' : 'Live & Upcoming'}
+                        {activeModeLabel} · {statusFilter === 'live' ? 'Live' : statusFilter === 'upcoming' ? 'Upcoming Matches' : 'Live & Upcoming'}
                     </div>
                 </div>
                 <button
@@ -710,9 +736,18 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
 
                 {groupedEntries.length === 0 && hasLoadedOnce && (
                     <div style={emptyStateStyle}>
-                        <i className="fa-solid fa-calendar-xmark" style={{ fontSize: '32px', marginBottom: '12px', opacity: 0.5, display: 'block' }}></i>
-                        <p style={{ fontSize: '13px', margin: '0 0 4px 0', color: '#999', fontWeight: '600' }}>No matches available</p>
-                        <p style={{ fontSize: '11px', margin: 0, color: '#bbb' }}>Check back later for updates</p>
+                        <i
+                            className={`fa-solid ${statusFilter === 'live' ? 'fa-tv' : 'fa-calendar-xmark'}`}
+                            style={{ fontSize: '32px', marginBottom: '12px', opacity: 0.5, display: 'block' }}
+                        ></i>
+                        <p style={{ fontSize: '13px', margin: '0 0 4px 0', color: '#999', fontWeight: '600' }}>
+                            {statusFilter === 'live' ? 'No live games right now' : 'No matches available'}
+                        </p>
+                        <p style={{ fontSize: '11px', margin: 0, color: '#bbb' }}>
+                            {statusFilter === 'live'
+                                ? 'In-play games will appear here when a match goes live.'
+                                : 'Check back later for updates'}
+                        </p>
                     </div>
                 )}
 
@@ -780,21 +815,52 @@ const MatchCard = ({ match, oddsFormat, onAddToSlip, selectedKeys, visibleMarket
                 alignItems: 'center',
             }}>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-                    {match.isLive && (
-                        <span
-                            aria-label="Live"
-                            title="Live"
-                            style={{
-                                display: 'inline-block',
-                                width: 8,
-                                height: 8,
-                                borderRadius: 999,
-                                background: '#ef4444',
-                                boxShadow: '0 0 0 2px rgba(239,68,68,0.2)',
-                            }}
-                        />
+                    {match.isLive ? (
+                        <>
+                            <span
+                                aria-label="Live"
+                                title="Live"
+                                style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 4,
+                                    background: '#ef4444',
+                                    color: '#fff',
+                                    fontSize: 9,
+                                    fontWeight: 800,
+                                    letterSpacing: 0.5,
+                                    padding: '2px 6px',
+                                    borderRadius: 4,
+                                    textTransform: 'uppercase',
+                                    lineHeight: 1,
+                                }}
+                            >
+                                <span
+                                    style={{
+                                        display: 'inline-block',
+                                        width: 6,
+                                        height: 6,
+                                        borderRadius: 999,
+                                        background: '#fff',
+                                    }}
+                                />
+                                Live
+                            </span>
+                            {match.liveStatusLabel && (
+                                <span style={{
+                                    fontSize: 11,
+                                    fontWeight: 700,
+                                    color: '#ef4444',
+                                    letterSpacing: 0.2,
+                                    fontVariantNumeric: 'tabular-nums',
+                                }}>
+                                    {match.liveStatusLabel}
+                                </span>
+                            )}
+                        </>
+                    ) : (
+                        <span style={matchTimeStyle}>{match.timeDisplay || match.time}</span>
                     )}
-                    <span style={matchTimeStyle}>{match.timeDisplay || match.time}</span>
                     <OddsAge timestamp={match.lastOddsSyncAt} live={(match.status || '').toString().toLowerCase() === 'live'} />
                 </span>
                 {visibleMarkets.showSpread && <span style={columnLabelStyle}>Spread</span>}
