@@ -127,6 +127,13 @@ export default function useMatches(options = {}) {
     useEffect(() => {
         let mounted = true;
         emptyRetryRef.current = 0;
+        // Clear stale data IMMEDIATELY when scope changes. Without this,
+        // consumers (e.g. SportContentView) see the old sport's matches
+        // until the new fetch resolves, then their downstream filter
+        // would either pass-through old rows (UX glitch) or filter them
+        // all out (showing "No matches" briefly). With the clear, the
+        // consumer can render a clean loading state during the hand-off.
+        setMatches([]);
 
         const emitRefreshProgress = (phase, detail) => {
             if (typeof window === 'undefined') return;

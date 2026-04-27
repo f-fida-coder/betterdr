@@ -30,6 +30,11 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
     const [content, setContent] = useState({ name: '', icon: '', matches: [] });
     const [isLoading, setIsLoading] = useState(true);
     const loadGenRef = React.useRef(0);
+    // Tracks whether the current scope has had a fetch resolve yet. While
+    // false, we keep the loading skeleton on screen even if rawMatches
+    // happens to be empty — otherwise the user briefly sees "No matches"
+    // when switching sports before the new fetch lands.
+    const fetchSettledForScopeRef = React.useRef(false);
     const rawMatches = useMatches({ status, scopeKey: `${sportId || 'all'}:${filter || ''}:${limit || 0}`, limit });
     // Collect every distinct Odds API sportKey present in the visible
     // matches. Views can mix leagues under one heading (e.g. NBA + WNBA,
@@ -100,26 +105,35 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
         });
     }, [status, triggerRefresh, visibleSportKeys, liveSyncSpinning, showToast]);
 
+    // Resolve OddsAPI sportKey(s) directly from sportId via sportsData,
+    // BEFORE any matches arrive. This lets the sport-tab parallel sync
+    // fire on first mount (when content.matches is still empty) instead
+    // of waiting for matches to load — the previous version short-
+    // circuited because visibleSportKeys was [] and never re-fired.
+    const intendedSportKeys = React.useMemo(() => {
+        if (!sportId) return [];
+        const item = findSportItemById(sportId);
+        if (item && Array.isArray(item.sportKeys)) {
+            return item.sportKeys.map((k) => String(k).toLowerCase());
+        }
+        return [];
+    }, [sportId]);
+
     // Sport-tab click: fire POST /api/sync/prematch/{sportKey} in parallel
     // with the GET that useMatches kicks off. AbortController cancels in-
     // flight syncs when the user switches sports rapidly, so we never paint
     // stale data over fresh. Only runs for pre-match views — the live path
-    // owns its own /api/sync/live trigger. Parallel-fires for each visible
-    // sportKey because views can mix leagues (e.g. NBA + WNBA).
+    // owns its own /api/sync/live trigger. Uses intendedSportKeys (from
+    // sportsData) instead of visibleSportKeys (from rawMatches) so it
+    // fires immediately on mount, not after the first GET resolves.
     React.useEffect(() => {
-        if (status === 'live') return;
-        if (visibleSportKeys.length === 0) return;
+        if (status === 'live') return undefined;
+        if (intendedSportKeys.length === 0) return undefined;
         const ctrl = new AbortController();
         let cancelled = false;
-        Promise.all(visibleSportKeys.map(async (sportKey) => {
+        Promise.all(intendedSportKeys.map(async (sportKey) => {
             try {
-                const { throttled } = await syncPrematchSport(sportKey, { signal: ctrl.signal });
-                if (cancelled) return;
-                if (throttled) {
-                    // Per-IP throttle hit — keep cached rows on screen, no
-                    // toast (would be noisy if rendered for every sport).
-                    return;
-                }
+                await syncPrematchSport(sportKey, { signal: ctrl.signal });
             } catch (err) {
                 if (err?.name === 'AbortError') return;
                 if (!cancelled) {
@@ -131,18 +145,14 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
             // Force-refetch after all parallel syncs settle so the UI sees
             // the freshly-synced rows in one consistent paint.
             window.dispatchEvent(new CustomEvent('matches:force-refetch', {
-                detail: { reason: 'sport-tab-sync', sportKeys: visibleSportKeys },
+                detail: { reason: 'sport-tab-sync', sportKeys: intendedSportKeys },
             }));
         });
         return () => {
             cancelled = true;
             ctrl.abort();
         };
-        // We intentionally key on sportId/filter only — visibleSportKeys
-        // changing mid-stay (because the sync just landed new rows) would
-        // create a feedback loop.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [sportId, filter, status]);
+    }, [intendedSportKeys, status, showToast]);
 
     // Cold-load freshness guarantee. The first time this view paints with
     // matches, peek at the oldest visible lastOddsSyncAt. If anything is
@@ -195,11 +205,28 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
         };
     }, [rawMatches]);
 
-    // Clear stale content immediately when sportId changes
+    // Clear stale content immediately when sportId/filter/status/limit
+    // changes. The useMatches hook also clears its internal state on the
+    // same trigger, so by the time processMatches runs it sees rawMatches=[]
+    // — which combined with fetchSettledForScopeRef=false means the loading
+    // skeleton stays on screen until the new fetch actually resolves.
     React.useEffect(() => {
         setContent({ name: '', icon: '', matches: [] });
         setIsLoading(true);
-    }, [sportId, filter]);
+        fetchSettledForScopeRef.current = false;
+    }, [sportId, filter, status, limit]);
+
+    // Listen for the matches:refresh-completed event from useMatches; it
+    // fires after every fetch (success or error). When it fires, mark the
+    // current scope as settled so processMatches is allowed to drop the
+    // loading skeleton even when filteredMatches is empty (legitimate
+    // "no games available" case).
+    React.useEffect(() => {
+        if (typeof window === 'undefined') return undefined;
+        const handler = () => { fetchSettledForScopeRef.current = true; };
+        window.addEventListener('matches:refresh-completed', handler);
+        return () => window.removeEventListener('matches:refresh-completed', handler);
+    }, []);
 
     React.useEffect(() => {
         // Determine sport name and icon — prefer the sportsData tree, fallback to hardcoded map
@@ -348,7 +375,14 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                     ...sportInfo,
                     matches: filteredMatches,
                 });
-                setIsLoading(false);
+                // Keep the loading skeleton on screen until the FIRST fetch
+                // for this scope has resolved. Without this gate, a clicked
+                // sport flashes "No matches available" between the scope
+                // switch and the fetch completing — even though the data
+                // is on its way and arrives ~200ms later.
+                if (filteredMatches.length > 0 || fetchSettledForScopeRef.current) {
+                    setIsLoading(false);
+                }
             };
 
         processMatches();
