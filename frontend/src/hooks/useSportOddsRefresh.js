@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { refreshSportOdds, refreshSportsOdds } from '../api';
 
-// Pre-match odds: 5-minute server-side rate limit (1 per user per 300s).
-// The frontend cooldown matches so the button stays disabled for the same
-// window — user never clicks, gets a toast, then has to wait anyway.
-const DEFAULT_COOLDOWN_MS = 300_000;
+// Manual-refresh button cooldown. Aligns with the backend per-user rate
+// limit window (ODDS_REFRESH_USER_LIMIT_WINDOW_SECONDS=60s, max 10 calls).
+// On 429 the handler below extends the cooldown to the server's
+// retry_after_seconds, so this is the floor not the ceiling. Keeping it
+// at 5min hid live-odds freshness behind a long button countdown that
+// users misread as data staleness — live odds actually auto-refresh
+// every AUTO_POLL_MS=30s in useMatches regardless of this button.
+const DEFAULT_COOLDOWN_MS = 60_000;
 const noopToast = () => {};
 
 /**

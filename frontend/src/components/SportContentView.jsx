@@ -501,9 +501,10 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
         });
     }, [content.matches]);
 
-    const handleAddToSlip = (matchId, selection, marketType, odds, matchName, marketLabel) => {
+    const handleAddToSlip = (matchId, selection, marketType, odds, matchName, marketLabel, line = null) => {
         const parsedOdds = parseOddsNumber(odds);
         if (!matchId || !selection || parsedOdds === null) return;
+        const parsedLine = Number(line);
         window.dispatchEvent(new CustomEvent('betslip:add', {
             detail: {
                 matchId,
@@ -511,7 +512,8 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                 marketType,
                 odds: parsedOdds,
                 matchName,
-                marketLabel
+                marketLabel,
+                line: Number.isFinite(parsedLine) ? parsedLine : null,
             }
         }));
     };
@@ -734,14 +736,14 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                     <div className="odds-values-group">
                                                         {renderOddsButton({
                                                             label: formatSpreadDisplay(match.odds.spread.awayPoint, match.odds.spread.awayOdds, oddsFormat),
-                                                            onClick: () => handleAddToSlip(match.id, match.team1.name, 'spreads', match.odds.spread.awayOdds, `${match.team1.name} vs ${match.team2.name}`, 'Spread'),
+                                                            onClick: () => handleAddToSlip(match.id, match.team1.name, 'spreads', match.odds.spread.awayOdds, `${match.team1.name} vs ${match.team2.name}`, 'Spread', match.odds.spread.awayPoint),
                                                             available: match.odds.spread.awayPoint !== null && hasValidOdds(match.odds.spread.awayOdds),
                                                             disabled: match.rawMatch?.isBettable === false,
                                                             reason: match.rawMatch?.bettingBlockedReason || 'Betting unavailable',
                                                         })}
                                                         {renderOddsButton({
                                                             label: formatSpreadDisplay(match.odds.spread.homePoint, match.odds.spread.homeOdds, oddsFormat),
-                                                            onClick: () => handleAddToSlip(match.id, match.team2.name, 'spreads', match.odds.spread.homeOdds, `${match.team1.name} vs ${match.team2.name}`, 'Spread'),
+                                                            onClick: () => handleAddToSlip(match.id, match.team2.name, 'spreads', match.odds.spread.homeOdds, `${match.team1.name} vs ${match.team2.name}`, 'Spread', match.odds.spread.homePoint),
                                                             available: match.odds.spread.homePoint !== null && hasValidOdds(match.odds.spread.homeOdds),
                                                             disabled: match.rawMatch?.isBettable === false,
                                                             reason: match.rawMatch?.bettingBlockedReason || 'Betting unavailable',
@@ -776,14 +778,14 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                     <div className="odds-values-group">
                                                         {renderOddsButton({
                                                             label: formatTotalDisplay('O', match.odds.total.point, match.odds.total.overOdds, oddsFormat),
-                                                            onClick: () => handleAddToSlip(match.id, 'Over', 'totals', match.odds.total.overOdds, `${match.team1.name} vs ${match.team2.name}`, 'Total'),
+                                                            onClick: () => handleAddToSlip(match.id, 'Over', 'totals', match.odds.total.overOdds, `${match.team1.name} vs ${match.team2.name}`, 'Total', match.odds.total.point),
                                                             available: match.odds.total.point !== null && hasValidOdds(match.odds.total.overOdds),
                                                             disabled: match.rawMatch?.isBettable === false,
                                                             reason: match.rawMatch?.bettingBlockedReason || 'Betting unavailable',
                                                         })}
                                                         {renderOddsButton({
                                                             label: formatTotalDisplay('U', match.odds.total.point, match.odds.total.underOdds, oddsFormat),
-                                                            onClick: () => handleAddToSlip(match.id, 'Under', 'totals', match.odds.total.underOdds, `${match.team1.name} vs ${match.team2.name}`, 'Total'),
+                                                            onClick: () => handleAddToSlip(match.id, 'Under', 'totals', match.odds.total.underOdds, `${match.team1.name} vs ${match.team2.name}`, 'Total', match.odds.total.point),
                                                             available: match.odds.total.point !== null && hasValidOdds(match.odds.total.underOdds),
                                                             disabled: match.rawMatch?.isBettable === false,
                                                             reason: match.rawMatch?.bettingBlockedReason || 'Betting unavailable',

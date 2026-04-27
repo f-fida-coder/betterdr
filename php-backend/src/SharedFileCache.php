@@ -113,6 +113,20 @@ final class SharedFileCache
         }
     }
 
+    /**
+     * Force-write a payload to the cache without going through the
+     * remember() lock dance. Used for stale-fallback namespaces where
+     * we want every successful upstream response to refresh the
+     * fallback copy regardless of any existing entry.
+     *
+     * @param array<string, mixed> $payload
+     * @return array<string, mixed>
+     */
+    public static function put(string $namespace, string $key, array $payload): array
+    {
+        return self::store($namespace, $key, $payload);
+    }
+
     public static function forget(string $namespace, string $key): void
     {
         $apcuKey = self::apcuKey($namespace, $key);

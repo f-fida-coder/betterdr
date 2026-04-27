@@ -15,7 +15,10 @@
       "Bash(time curl *)",
       "Bash(python3 -c \"import json; d=json.load\\(open\\('/tmp/live.json'\\)\\); print\\('matches:', len\\(d\\)\\)\")",
       "Bash(curl -s \"http://localhost:5000/api/matches?status=live&payload=core\")",
-      "Bash(curl -s -w \"\\\\nHTTP %{http_code}\\\\n\" \"http://localhost:5000/api/matches/sports\")"
+      "Bash(curl -s -w \"\\\\nHTTP %{http_code}\\\\n\" \"http://localhost:5000/api/matches/sports\")",
+      "Bash(npx --yes esbuild --loader:.jsx=jsx --loader:.js=jsx frontend/src/hooks/useSportOddsRefresh.js)",
+      "Bash(npx --yes esbuild --loader:.jsx=jsx --loader:.js=jsx frontend/src/components/MobileContentView.jsx)",
+      "Bash(npx --yes esbuild --loader:.jsx=jsx --loader:.js=jsx frontend/src/components/DashboardMain.jsx)"
     ]
   }
 }

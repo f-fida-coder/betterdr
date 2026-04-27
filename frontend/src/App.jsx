@@ -300,18 +300,16 @@ function AppInner() {
       if (!item.matchId || !item.selection) return;
       const dedupeKey = `${item.matchId}-${item.marketType}-${item.selection}`;
 
-      let didAdd = false;
-      let didRemove = false;
+      // Silent add/remove: the user wanted the odds cell itself to act
+      // as a checkbox — visual selected state on the cell + the header
+      // Betslip counter ticking up are enough feedback. Toasts removed
+      // because they covered the matchup the user was about to chain
+      // into a parlay.
       setSlipSelections(prev => {
         const existing = prev.find(sel => sel.dedupeKey === dedupeKey);
         if (existing) {
-          // Toggle: tapping an already-selected cell removes it from the
-          // slip. Each odds cell now acts as a checkbox rather than a
-          // one-way add, which matches user expectation on mobile.
-          didRemove = true;
           return prev.filter(sel => sel.dedupeKey !== dedupeKey);
         }
-        didAdd = true;
         const next = { ...item, id: Date.now() + Math.random(), dedupeKey };
         // Straight mode accumulates multiple selections. Each one is
         // placed as an independent single-leg ticket by the placement
@@ -320,18 +318,11 @@ function AppInner() {
         // submitting — the expected behavior in real sportsbooks.
         return [...prev, next];
       });
-      // Defer toast to next tick so the state update commits first (avoids
-      // setState-during-render warnings if the dispatcher is in a render path).
-      if (didAdd) {
-        queueMicrotask(() => showToast('Added to Betslip', 'success'));
-      } else if (didRemove) {
-        queueMicrotask(() => showToast('Removed from Betslip', 'info'));
-      }
     };
 
     window.addEventListener('betslip:add', handleAddToSlip);
     return () => window.removeEventListener('betslip:add', handleAddToSlip);
-  }, [betMode, showToast]);
+  }, [betMode]);
 
   const { data: userData, refetch: refetchUser } = useQuery({
     queryKey: ['user', token],

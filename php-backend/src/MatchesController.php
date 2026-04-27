@@ -91,9 +91,15 @@ final class MatchesController
             ? '|sport:' . strtolower($sportFilter) . '|sportKey:' . strtolower($sportKeyFilter)
             : '';
         $cacheKey = SportsbookCache::publicMatchesKey($status . '|payload:' . $payloadMode . $sportCacheSegment, $active);
+        $staleNamespace = SportsbookCache::publicMatchesStaleNamespace();
         // Read stale data NOW before any TTL-enforcing get() may delete the expired file.
-        // Used only as exception fallback to keep the endpoint available if computeMatches throws.
-        $staleForFallback = $sharedCacheTtl > 0 ? SharedFileCache::peek($cacheNamespace, $cacheKey) : null;
+        // Two sources, in priority order:
+        //   1. The dedicated stale-fallback namespace, written on every successful
+        //      compute regardless of live TTL — this is the resilient path that
+        //      survives the current TTL=0 (no-cache) configuration.
+        //   2. The legacy live cache, only useful when TTL>0.
+        $staleForFallback = SharedFileCache::peek($staleNamespace, $cacheKey)
+            ?? ($sharedCacheTtl > 0 ? SharedFileCache::peek($cacheNamespace, $cacheKey) : null);
 
         try {
             $cacheMeta = $this->maybeRefreshPublicMatches();
@@ -119,6 +125,13 @@ final class MatchesController
                 }
             }
 
+            // Refresh the stale-fallback copy with this successful response.
+            // Independent of $sharedCacheTtl so the fallback exists even when
+            // live caching is disabled.
+            if (is_array($annotated)) {
+                SharedFileCache::put($staleNamespace, $cacheKey, $annotated);
+            }
+
             header('X-Matches-Shared-Cache: ' . $sharedCacheState);
             header('X-Cache: ' . ($sharedCacheState === 'hit' ? 'HIT' : 'MISS'));
             header('X-Matches-Payload-Mode: ' . $payloadMode);
@@ -135,7 +148,10 @@ final class MatchesController
             Response::json($payload, 200, self::NO_STORE_HEADER);
             $this->runDeferredSync();
         } catch (Throwable $e) {
-            // Fallback to stale cache only if it exists from a prior cached era.
+            Logger::exception($e, 'getMatches failed; ' . (is_array($staleForFallback) ? 'served stale fallback' : 'no stale fallback available'));
+            // Fallback to stale cache (either the dedicated stale namespace
+            // or, where applicable, the legacy live cache) so transient DB
+            // / upstream failures don't surface as an empty list.
             if (is_array($staleForFallback)) {
                 $stalePayload = $staleForFallback;
                 if ($limit > 0 && count($stalePayload) > $limit) {
@@ -402,10 +418,30 @@ final class MatchesController
                 }
             }
 
+            // Refresh the stale-fallback copy on every successful response.
+            // Independent of the live TTL so transient DB failures on the
+            // next call surface a known-good list instead of [].
+            SharedFileCache::put(
+                SportsbookCache::availableSportsStaleNamespace(),
+                SportsbookCache::availableSportsKey(),
+                $sports
+            );
+
             header('X-Matches-Sports-Shared-Cache: ' . $sharedCacheState);
             header('X-Cache: ' . ($sharedCacheState === 'hit' ? 'HIT' : 'MISS'));
             Response::json($sports, 200, self::NO_STORE_HEADER);
         } catch (Throwable $e) {
+            $stale = SharedFileCache::peek(
+                SportsbookCache::availableSportsStaleNamespace(),
+                SportsbookCache::availableSportsKey()
+            );
+            Logger::exception($e, 'getAvailableSports failed; ' . (is_array($stale) ? 'served stale fallback' : 'no stale fallback available'));
+            if (is_array($stale)) {
+                header('X-Matches-Sports-Shared-Cache: stale-fallback');
+                header('X-Cache: STALE');
+                Response::json($stale, 200, self::NO_STORE_HEADER);
+                return;
+            }
             Response::json([], 200, self::NO_STORE_HEADER);
         }
     }

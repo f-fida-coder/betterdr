@@ -80,7 +80,12 @@ const DashboardMain = ({ selectedSports = [], activeBetMode = 'straight' }) => {
         }
 
         if (selectedSports.includes('commercial-live')) {
-            return [{ sportId: null, filter: null, status: 'live' }];
+            // 'live-upcoming' instead of 'live': many in-progress games
+            // still carry status='scheduled' in the DB until the live
+            // cron flips them, so a strict 'live' filter often returns
+            // []. Per-row LIVE classification happens downstream from
+            // each match's own annotated status.
+            return [{ sportId: null, filter: null, status: 'live-upcoming' }];
         }
 
         const sections = [];

@@ -238,3 +238,141 @@ export const findSportItemById = (id) => {
     };
     return search(sportsData);
 };
+
+/**
+ * Map an Odds API sport-key prefix (the part before the first `_`,
+ * e.g. `soccer` in `soccer_argentina_primera_division`) to the parent
+ * sport id used in the static sportsData tree. Used to nest leagues
+ * the backend reports — but the static tree doesn't enumerate — under
+ * the correct parent in the sidebar instead of promoting them to
+ * flat top-level rows.
+ */
+const PREFIX_TO_PARENT_ID = {
+    basketball: 'basketball',
+    baseball: 'baseball',
+    icehockey: 'hockey',
+    americanfootball: 'football',
+    aussierules: 'football',
+    canadianfootball: 'football',
+    soccer: 'soccer',
+    tennis: 'tennis',
+    golf: 'golf',
+    mma: 'martial-arts',
+    boxing: 'boxing',
+    motorsport: 'auto-racing',
+    cricket: 'cricket',
+    rugbyleague: 'rugby',
+    rugbyunion: 'rugby',
+    lacrosse: 'lacrosse',
+    handball: 'handball',
+    volleyball: 'volleyball',
+    politics: 'politics',
+};
+
+/**
+ * Sport parents that aren't in the static sportsData but may be
+ * reported by the backend. Spawned on demand when a backend key with
+ * one of these prefixes appears in liveSet.
+ */
+const FALLBACK_PARENTS = {
+    cricket: { id: 'cricket', label: 'CRICKET', icon: 'fa-solid fa-baseball', selectable: false },
+    rugby: { id: 'rugby', label: 'RUGBY', icon: 'fa-solid fa-football', selectable: false },
+    lacrosse: { id: 'lacrosse', label: 'LACROSSE', icon: 'fa-solid fa-shield', selectable: false },
+    handball: { id: 'handball', label: 'HANDBALL', icon: 'fa-solid fa-volleyball', selectable: false },
+    volleyball: { id: 'volleyball', label: 'VOLLEYBALL', icon: 'fa-solid fa-volleyball', selectable: false },
+    politics: { id: 'politics', label: 'POLITICS', icon: 'fa-solid fa-landmark', selectable: false },
+};
+
+const ODDS_API_SPORT_KEY_RE = /^[a-z]+_[a-z0-9_]+$/;
+
+const prettifyLeagueSuffix = (suffix) => String(suffix || '')
+    .split('_')
+    .filter(Boolean)
+    .map((part) => (part === part.toUpperCase() ? part : part.charAt(0).toUpperCase() + part.slice(1)))
+    .join(' ');
+
+/**
+ * Build a sidebar tree that merges the static sportsData with leagues
+ * the backend exposes via /api/matches/sports. Backend keys that the
+ * static tree already covers (via child.sportKeys) are dropped — they
+ * already appear under the correct parent. Anything else is routed to
+ * its parent by prefix and added as a synthetic child. Static parents
+ * with no children get any matching backend keys appended; fallback
+ * parents (cricket, rugby, lacrosse, etc.) are spawned on demand.
+ *
+ * Pure: never mutates the passed-in sportsData. Returns a new array.
+ */
+export const buildMergedSportsTree = (liveSet) => {
+    const baseTree = sportsData.map((sport) => ({
+        ...sport,
+        children: Array.isArray(sport.children) ? [...sport.children] : sport.children,
+    }));
+
+    if (!liveSet || liveSet.size === 0) return baseTree;
+
+    const covered = new Set();
+    const collect = (items) => {
+        items.forEach((item) => {
+            if (Array.isArray(item.sportKeys)) {
+                item.sportKeys.forEach((k) => covered.add(String(k).toLowerCase()));
+            }
+            if (Array.isArray(item.children)) collect(item.children);
+        });
+    };
+    collect(baseTree);
+
+    const parentById = new Map();
+    baseTree.forEach((parent) => {
+        if (parent.id) parentById.set(parent.id, parent);
+    });
+
+    const ensureParent = (parentId) => {
+        if (parentById.has(parentId)) return parentById.get(parentId);
+        const fallback = FALLBACK_PARENTS[parentId];
+        if (!fallback) return null;
+        const node = { ...fallback, children: [] };
+        parentById.set(parentId, node);
+        baseTree.push(node);
+        return node;
+    };
+
+    Array.from(liveSet).forEach((value) => {
+        const key = String(value || '').toLowerCase();
+        if (!ODDS_API_SPORT_KEY_RE.test(key)) return;
+        if (covered.has(key)) return;
+
+        const prefix = key.split('_')[0];
+        const parentId = PREFIX_TO_PARENT_ID[prefix];
+        if (!parentId) return;
+
+        const parent = ensureParent(parentId);
+        if (!parent) return;
+
+        if (!Array.isArray(parent.children)) parent.children = [];
+
+        const suffix = key.slice(prefix.length + 1);
+        const childId = `api-${key.replace(/_/g, '-')}`;
+        if (parent.children.some((c) => c.id === childId)) return;
+
+        parent.children.push({
+            id: childId,
+            label: prettifyLeagueSuffix(suffix),
+            selectable: true,
+            sportKeys: [key],
+        });
+        covered.add(key);
+    });
+
+    parentById.forEach((parent) => {
+        if (Array.isArray(parent.children) && parent.children.length > 1) {
+            parent.children.sort((a, b) => {
+                const aIsApi = String(a.id || '').startsWith('api-');
+                const bIsApi = String(b.id || '').startsWith('api-');
+                if (aIsApi !== bIsApi) return aIsApi ? 1 : -1;
+                return String(a.label || '').localeCompare(String(b.label || ''));
+            });
+        }
+    });
+
+    return baseTree;
+};

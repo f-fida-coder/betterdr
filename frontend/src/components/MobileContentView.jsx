@@ -260,38 +260,60 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
     const activeModeLabel = BET_MODE_LABELS[normalizedBetMode] || BET_MODE_LABELS.straight;
 
     const primarySport = selectedSports?.[0] ?? null;
-    const statusFilter = primarySport === 'commercial-live'
-        ? 'live'
-        : primarySport === 'up-next'
-            ? 'upcoming'
-            : 'live-upcoming';
+    // Real-league selections (excludes virtual buckets). Drives the
+    // multi-sport keyword filter and intended-sync set: any league the
+    // user checked contributes its keywords / OddsAPI keys here so the
+    // mobile content view renders the union of all checked leagues.
+    const realSelected = React.useMemo(
+        () => (selectedSports || []).filter((id) => id && id !== 'commercial-live' && id !== 'up-next'),
+        [selectedSports],
+    );
+
+    // Use 'live-upcoming' even for the LIVE NOW bucket: many in-progress
+    // games still carry status='scheduled' in the DB until the live cron
+    // flips them, so a strict 'live' filter often returns []. The wider
+    // envelope matches the desktop SportContentView path; the per-row
+    // LIVE badge / OddsAge live rendering already classifies each match
+    // correctly from its own status, independent of this request filter.
+    const statusFilter = primarySport === 'up-next'
+        ? 'upcoming'
+        : 'live-upcoming';
     const scopeKey = selectedSports.join('|');
     const rawMatches = useMatches({ status: statusFilter, scopeKey });
 
-    // Derive the intended OddsAPI sport keys from the selected sport so we
-    // can fire syncPrematchSport on sport selection — same freshness guarantee
-    // that SportContentView (desktop) provides.
+    // Resolve every checked league to its OddsAPI sport key(s) so the
+    // freshness sync fires for ALL selections, not just the first one.
+    // Static-tree items use their declared sportKeys; auto-injected
+    // `api-<slug>` ids decode the key from the slug.
     const intendedSportKeys = React.useMemo(() => {
-        if (!primarySport) return [];
-        // Virtual buckets have no dedicated sport key — skip.
-        if (primarySport === 'commercial-live' || primarySport === 'up-next') return [];
-        const item = findSportItemById(primarySport);
-        if (item && Array.isArray(item.sportKeys)) {
-            return item.sportKeys.map((k) => String(k).toLowerCase());
-        }
-        if (typeof primarySport === 'string' && primarySport.startsWith('api-')) {
-            return [primarySport.slice(4).replace(/-/g, '_').toLowerCase()];
-        }
-        return [];
-    }, [primarySport]);
+        const keys = new Set();
+        realSelected.forEach((id) => {
+            const item = findSportItemById(id);
+            if (item && Array.isArray(item.sportKeys)) {
+                item.sportKeys.forEach((k) => keys.add(String(k).toLowerCase()));
+                return;
+            }
+            if (typeof id === 'string' && id.startsWith('api-')) {
+                keys.add(id.slice(4).replace(/-/g, '_').toLowerCase());
+            }
+        });
+        return [...keys];
+    }, [realSelected]);
     const rawMatchesRef = React.useRef(rawMatches);
     React.useEffect(() => { rawMatchesRef.current = rawMatches; }, [rawMatches]);
 
     const sportName = React.useMemo(() => {
-        if (!primarySport) return 'Sports';
-        const item = findSportItemById(primarySport);
-        return item ? item.label : primarySport.replace(/-/g, ' ').toUpperCase();
-    }, [primarySport]);
+        if (realSelected.length === 0) {
+            return primarySport === 'up-next' ? 'Up Next'
+                : primarySport === 'commercial-live' ? 'Live Now'
+                    : 'Sports';
+        }
+        if (realSelected.length === 1) {
+            const item = findSportItemById(realSelected[0]);
+            return item ? item.label : realSelected[0].replace(/-/g, ' ').toUpperCase();
+        }
+        return `${realSelected.length} sports selected`;
+    }, [realSelected, primarySport]);
 
     // Derive the set of period market-suffixes actually present in the fetched
     // matches (e.g. '_h1' if any match carries `h2h_h1`/`spreads_h1`/`totals_h1`).
@@ -362,7 +384,12 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
         // sport-based) — skip the sport-keyword filter for them or every
         // real match gets dropped.
         const isVirtualBucket = primarySport === 'commercial-live' || primarySport === 'up-next';
-        const sportKeywords = primarySport && !isVirtualBucket ? getSportKeywords(primarySport) : null;
+        // Multi-select on mobile: union of every checked league's keywords
+        // so a match qualifies if it matches ANY selection. With zero real
+        // sports selected the filter is null (all matches pass).
+        const sportKeywords = isVirtualBucket || realSelected.length === 0
+            ? null
+            : [...new Set(realSelected.flatMap((id) => getSportKeywords(id)).map((k) => String(k).toLowerCase()))];
         // Filter raw matches BEFORE the expensive map (extractOdds / date
         // formatting). Drops:
         //   1. Non-bettable matches — book pulled lines, game past start
@@ -432,7 +459,7 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
             return aTs - bTs;
         });
         return formatted;
-    }, [rawMatches, primarySport, extractOdds, activePeriod.suffix]);
+    }, [rawMatches, primarySport, realSelected, extractOdds, activePeriod.suffix]);
 
     const degradedSummary = React.useMemo(() => {
         const all = Array.isArray(rawMatches) ? rawMatches : [];
@@ -603,11 +630,20 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
     const minutesAgo = Math.max(0, Math.floor(ageMs / 60000));
     const ageLabel = ageMs < 60000 ? 'Just updated' : `Updated ${minutesAgo}m ago`;
 
-    const handleAddToSlip = (matchId, selection, marketType, odds, matchName, marketLabel = marketType) => {
+    const handleAddToSlip = (matchId, selection, marketType, odds, matchName, marketLabel = marketType, line = null) => {
         const parsedOdds = parseOddsNumber(odds);
         if (!matchId || !selection || parsedOdds === null) return;
+        const parsedLine = Number(line);
         window.dispatchEvent(new CustomEvent('betslip:add', {
-            detail: { matchId, selection, marketType, odds: parsedOdds, matchName, marketLabel },
+            detail: {
+                matchId,
+                selection,
+                marketType,
+                odds: parsedOdds,
+                matchName,
+                marketLabel,
+                line: Number.isFinite(parsedLine) ? parsedLine : null,
+            },
         }));
     };
 
@@ -805,7 +841,7 @@ const MatchCard = ({ match, oddsFormat, onAddToSlip, selectedKeys, visibleMarket
                         selected={isSelected('spreads', match.team1) && !blocked}
                         main={formatLineValue(match.odds.spreadAwayPoint, { signed: true })}
                         juice={formatOdds(match.odds.spreadAwayPrice, oddsFormat)}
-                        onClick={() => addIfAllowed(match.id, match.team1, 'spreads', match.odds.spreadAwayPrice, matchName, 'Spread')}
+                        onClick={() => addIfAllowed(match.id, match.team1, 'spreads', match.odds.spreadAwayPrice, matchName, 'Spread', match.odds.spreadAwayPoint)}
                     />
                 )}
                 {visibleMarkets.showMoneyline && (
@@ -814,7 +850,7 @@ const MatchCard = ({ match, oddsFormat, onAddToSlip, selectedKeys, visibleMarket
                         selected={isSelected('h2h', match.team1) && !blocked}
                         main={formatOdds(match.odds.moneylineAway, oddsFormat)}
                         juice=""
-                        onClick={() => addIfAllowed(match.id, match.team1, 'h2h', match.odds.moneylineAway, matchName, 'Moneyline')}
+                        onClick={() => addIfAllowed(match.id, match.team1, 'h2h', match.odds.moneylineAway, matchName, 'Moneyline', null)}
                     />
                 )}
                 {visibleMarkets.showTotals && (
@@ -823,7 +859,7 @@ const MatchCard = ({ match, oddsFormat, onAddToSlip, selectedKeys, visibleMarket
                         selected={isSelected('totals', 'Over') && !blocked}
                         main={match.odds.totalPoint === null ? '—' : `O ${formatLineValue(match.odds.totalPoint)}`}
                         juice={formatOdds(match.odds.totalOverPrice, oddsFormat)}
-                        onClick={() => addIfAllowed(match.id, 'Over', 'totals', match.odds.totalOverPrice, matchName, 'Total')}
+                        onClick={() => addIfAllowed(match.id, 'Over', 'totals', match.odds.totalOverPrice, matchName, 'Total', match.odds.totalPoint)}
                     />
                 )}
 
@@ -928,7 +964,7 @@ const MatchCard = ({ match, oddsFormat, onAddToSlip, selectedKeys, visibleMarket
                         selected={isSelected('spreads', match.team2) && !blocked}
                         main={formatLineValue(match.odds.spreadHomePoint, { signed: true })}
                         juice={formatOdds(match.odds.spreadHomePrice, oddsFormat)}
-                        onClick={() => addIfAllowed(match.id, match.team2, 'spreads', match.odds.spreadHomePrice, matchName, 'Spread')}
+                        onClick={() => addIfAllowed(match.id, match.team2, 'spreads', match.odds.spreadHomePrice, matchName, 'Spread', match.odds.spreadHomePoint)}
                     />
                 )}
                 {visibleMarkets.showMoneyline && (
@@ -937,7 +973,7 @@ const MatchCard = ({ match, oddsFormat, onAddToSlip, selectedKeys, visibleMarket
                         selected={isSelected('h2h', match.team2) && !blocked}
                         main={formatOdds(match.odds.moneylineHome, oddsFormat)}
                         juice=""
-                        onClick={() => addIfAllowed(match.id, match.team2, 'h2h', match.odds.moneylineHome, matchName, 'Moneyline')}
+                        onClick={() => addIfAllowed(match.id, match.team2, 'h2h', match.odds.moneylineHome, matchName, 'Moneyline', null)}
                     />
                 )}
                 {visibleMarkets.showTotals && (
@@ -946,7 +982,7 @@ const MatchCard = ({ match, oddsFormat, onAddToSlip, selectedKeys, visibleMarket
                         selected={isSelected('totals', 'Under') && !blocked}
                         main={match.odds.totalPoint === null ? '—' : `U ${formatLineValue(match.odds.totalPoint)}`}
                         juice={formatOdds(match.odds.totalUnderPrice, oddsFormat)}
-                        onClick={() => addIfAllowed(match.id, 'Under', 'totals', match.odds.totalUnderPrice, matchName, 'Total')}
+                        onClick={() => addIfAllowed(match.id, 'Under', 'totals', match.odds.totalUnderPrice, matchName, 'Total', match.odds.totalPoint)}
                     />
                 )}
                 {/* SGP cell for row 2 is covered by the spanning action

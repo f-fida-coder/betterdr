@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { sportsData, getSportKeywords } from '../data/sportsData';
+import { getSportKeywords, buildMergedSportsTree } from '../data/sportsData';
 import { getAvailableSports } from '../api';
 
 // Return only children whose sport keys currently have data per
@@ -25,47 +25,6 @@ const filterActiveChildren = (children, liveSet) => {
         for (const c of candidates) if (liveSet.has(c)) return true;
         return false;
     });
-};
-
-// An Odds API sport key looks like `<category>_<suffix>` (e.g.
-// `basketball_nba`, `soccer_france_ligue_one`). /api/matches/sports
-// returns BOTH the key and the human-readable title, so we filter down
-// to just keys before deciding what to inject.
-const ODDS_API_SPORT_KEY_RE = /^[a-z]+_[a-z0-9_]+$/;
-
-const prettifySportKey = (key) => {
-    // `basketball_nba` -> `Basketball NBA`. Leagues themselves (NBA, NFL,
-    // etc.) stay upper-cased because The Odds API suffixes are mostly
-    // short acronyms; any all-caps token is left alone.
-    return String(key || '')
-        .split('_')
-        .filter(Boolean)
-        .map((part) => (part === part.toUpperCase() ? part : part.charAt(0).toUpperCase() + part.slice(1)))
-        .join(' ');
-};
-
-const ICON_BY_CATEGORY = {
-    basketball: 'fa-solid fa-basketball',
-    americanfootball: 'fa-solid fa-football',
-    baseball: 'fa-solid fa-baseball-bat-ball',
-    icehockey: 'fa-solid fa-hockey-puck',
-    soccer: 'fa-solid fa-futbol',
-    tennis: 'fa-solid fa-table-tennis-paddle-ball',
-    golf: 'fa-solid fa-golf-ball-tee',
-    mma: 'fa-solid fa-hand-fist',
-    boxing: 'fa-solid fa-mitten',
-    cricket: 'fa-solid fa-baseball',
-    rugbyleague: 'fa-solid fa-football',
-    rugbyunion: 'fa-solid fa-football',
-    aussierules: 'fa-solid fa-football',
-    motorsport: 'fa-solid fa-flag-checkered',
-    lacrosse: 'fa-solid fa-shield',
-    handball: 'fa-solid fa-volleyball',
-    politics: 'fa-solid fa-landmark',
-};
-const iconForSportKey = (key) => {
-    const category = String(key || '').split('_')[0];
-    return ICON_BY_CATEGORY[category] || 'fa-solid fa-trophy';
 };
 
 const SidebarItem = ({
@@ -99,22 +58,25 @@ const SidebarItem = ({
     const isFutures = item.type === 'futures';
     const isMarketGroup = !isSelectable && hasChildren;
 
-    const showCheckbox = isSelectable && level > 0 && !isPropsPlus && !isMobile;
+    // Checkboxes now render on both mobile and desktop so users can
+    // multi-select leagues either way (matches the bettorjuice365.com
+    // reference). Parent rows still don't get a checkbox — they only
+    // expand/collapse their children.
+    const showCheckbox = isSelectable && level > 0 && !isPropsPlus;
     const showIcon = (level === 0 && item.icon) || isPropsPlus;
     const showBlueArrow = level > 0 && hasChildren && !isMarketGroup;
     const showBlackArrow = level > 0 && isMarketGroup;
 
-    // Mobile rows have no checkboxes, so the UI is visually single-select.
-    // Pass `replace` so App.jsx drops any stale prior selection instead of
-    // leaving it at `selectedSports[0]`, which drives the match-list title
-    // and filter. Desktop checkbox path stays additive.
+    // Tapping a parent row only toggles expand/collapse — never an
+    // implicit selection of the parent itself, so checkbox-driven
+    // multi-select is the only way leagues enter `selectedSports`.
+    // Tapping a child row toggles its checkbox.
     const handleClick = () => {
         if (hasChildren) {
             onToggleExpand(item.id);
-            if (isSelectable) onToggle(item.id, { replace: isMobile });
             return;
         }
-        if (isSelectable) onToggle(item.id, { replace: isMobile });
+        if (isSelectable) onToggle(item.id);
     };
 
     const handleCheckbox = (e) => {
@@ -248,58 +210,24 @@ const DashboardSidebar = ({
     // Parlay/teaser modes limit to major sports
     const parlaySportsIds = new Set(['football', 'baseball', 'basketball', 'hockey', 'soccer', 'martial-arts']);
     const isRestrictedMode = ['parlay', 'teaser', 'if_bet', 'reverse'].includes(betMode);
+
+    // Merge backend-discovered leagues into the static tree under their
+    // parent sport (soccer_argentina_primera_division → SOCCER children),
+    // instead of promoting them to flat top-level rows.
+    const mergedSports = useMemo(() => buildMergedSportsTree(liveSet), [liveSet]);
     const displaySports = isRestrictedMode
-        ? sportsData.filter(s => parlaySportsIds.has(s.id))
-        : sportsData;
-
-    // Anything the API is returning that isn't already covered by the static
-    // taxonomy gets surfaced as a top-level standalone entry. Keeps the
-    // sidebar in sync with backend config without requiring a code change
-    // every time ODDS_ALLOWED_SPORTS gains a new sport key.
-    const extraSports = useMemo(() => {
-        if (!liveSet || liveSet.size === 0 || isRestrictedMode) return [];
-
-        const covered = new Set();
-        const walk = (items) => {
-            items.forEach((item) => {
-                if (Array.isArray(item.sportKeys)) {
-                    item.sportKeys.forEach((k) => covered.add(String(k).toLowerCase()));
-                }
-                if (Array.isArray(item.children)) walk(item.children);
-            });
-        };
-        walk(sportsData);
-
-        const extras = [];
-        liveSet.forEach((value) => {
-            const key = String(value || '').toLowerCase();
-            if (!ODDS_API_SPORT_KEY_RE.test(key)) return;
-            if (covered.has(key)) return;
-            extras.push({
-                id: `api-${key.replace(/_/g, '-')}`,
-                label: prettifySportKey(key),
-                icon: iconForSportKey(key),
-                selectable: true,
-                sportKeys: [key],
-            });
-            covered.add(key);
-        });
-        // Stable order so the list doesn't shuffle on each refresh.
-        extras.sort((a, b) => a.label.localeCompare(b.label));
-        return extras;
-    }, [liveSet, isRestrictedMode]);
+        ? mergedSports.filter(s => parlaySportsIds.has(s.id))
+        : mergedSports;
 
     const filteredSports = useMemo(() => {
-        const combined = [...displaySports, ...extraSports];
-
         // Hide a parent category if every one of its children was filtered
         // out by the liveSet health check. Parents with no `children`
-        // array (UP NEXT, LIVE NOW, auto-injected API extras) always pass.
+        // array (UP NEXT, LIVE NOW) always pass.
         const hasVisibleChildren = (item) => {
             if (!Array.isArray(item.children)) return true;
             return filterActiveChildren(item.children, liveSet).length > 0;
         };
-        const live = combined.filter(hasVisibleChildren);
+        const live = displaySports.filter(hasVisibleChildren);
 
         const q = searchQuery.trim().toLowerCase();
         if (!q) return live;
@@ -310,7 +238,7 @@ const DashboardSidebar = ({
             }
             return false;
         });
-    }, [displaySports, extraSports, liveSet, searchQuery]);
+    }, [displaySports, liveSet, searchQuery]);
 
     return (
         <aside className={`dash-sidebar ${isOpen ? 'open' : ''} ${isMobileSportsSelectionMode ? 'mobile-sports-selection-mode' : ''}`}>

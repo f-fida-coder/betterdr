@@ -57,6 +57,42 @@ const legLabelFor = (mode, index, total) => {
 
 const QUICK_STAKES = [10, 25, 50, 100];
 
+// Bet/Risk/Win mode toggle. `bet` and `risk` behave identically — the
+// entered amount is the stake; `win` flips the meaning so the entered
+// amount is the desired payout and the stake gets back-calculated from
+// the odds.
+const STAKE_MODES = [
+    { id: 'bet', label: 'Bet' },
+    { id: 'risk', label: 'Risk' },
+    { id: 'win', label: 'Win' },
+];
+
+// Risk ↔ Win conversion using DECIMAL odds (the storage format the app
+// uses everywhere internally — odds in selections are always >1, with
+// the display layer converting to American only for rendering). For a
+// decimal price D: Win = Risk × (D − 1), Risk = Win / (D − 1). Returns
+// 0 (not NaN) on invalid input so the read-only readouts don't flash
+// "NaN" while the user is mid-typing or while a leg awaits price.
+const resolveStake = (mode, amount, decimalOdds) => {
+    const amt = Number(amount);
+    const safeAmt = Number.isFinite(amt) && amt > 0 ? amt : 0;
+    const d = Number(decimalOdds);
+    const validOdds = Number.isFinite(d) && d > 1;
+    if (mode === 'win') {
+        const risk = validOdds && safeAmt > 0 ? safeAmt / (d - 1) : 0;
+        return { risk, win: safeAmt };
+    }
+    // 'bet' and 'risk' both treat amount as the stake.
+    const win = validOdds && safeAmt > 0 ? safeAmt * (d - 1) : 0;
+    return { risk: safeAmt, win };
+};
+
+const formatMoney = (value) => {
+    const n = Number(value);
+    if (!Number.isFinite(n) || n === 0) return '0.00';
+    return (Math.round(n * 100) / 100).toFixed(2);
+};
+
 const ModeBetPanel = ({
     user,
     balance = 0,
@@ -82,11 +118,12 @@ const ModeBetPanel = ({
     const [submitAttempted, setSubmitAttempted] = useState(false);
     const [showConfirm, setShowConfirm] = useState(false);
     const [useFreeplay, setUseFreeplay] = useState(false);
-    // Per-selection stake for straight mode. Keyed by selection id; value is
-    // the raw input string (not coerced) so "10.", "1.5" etc. can be typed
-    // without React fighting the user. Calculations Number() this down.
-    const [perSelectionWagers, setPerSelectionWagers] = useState({});
-    const [showModeDropdown, setShowModeDropdown] = useState(false);
+    // Single shared Bet/Risk/Win mode for the whole slip. The `wager`
+    // value (driven by onWagerChange) is the user-typed Bet Amount in
+    // their chosen mode; per-leg Risk/Win is back-calculated from each
+    // leg's odds at render-time (see resolveStake helper). Replaces the
+    // old per-selection wager map — there's now exactly one input.
+    const [stakeMode, setStakeMode] = useState('risk');
     const requestStateRef = useRef({ requestId: '', signature: '' });
     const submissionLockRef = useRef(false);
 
@@ -110,6 +147,9 @@ const ModeBetPanel = ({
     const normalizedMode = normalizeBetMode(mode);
     const rule = rulesByMode[normalizedMode] || DEFAULT_RULES[normalizedMode] || DEFAULT_RULES.straight;
     const legCount = selections.length;
+    // Raw user-typed amount in the shared Bet Amount input. Always parsed
+    // as a number for arithmetic but kept untouched in `wager` so React
+    // doesn't fight the user mid-typing ("10.", "1.5", etc.).
     const wagerAmount = Number(wager);
     const teaserPointValue = Number(teaserPoints || 0);
     const teaserValid = normalizedMode !== 'teaser'
@@ -117,100 +157,9 @@ const ModeBetPanel = ({
         || rule.teaserPointOptions.length === 0
         || rule.teaserPointOptions.includes(teaserPointValue);
 
-    // Per-selection wager helpers — only meaningful in straight mode where
-    // each leg is an independent bet. For combined modes (parlay / teaser /
-    // if_bet / reverse) the single `wagerAmount` applies to the whole ticket.
-    const wagerForSelection = React.useCallback((sel) => {
-        if (normalizedMode !== 'straight') return wagerAmount;
-        const raw = perSelectionWagers[sel?.id];
-        const num = Number(raw);
-        return Number.isFinite(num) && num > 0 ? num : 0;
-    }, [normalizedMode, perSelectionWagers, wagerAmount]);
-    const straightTotalRisk = useMemo(() => {
-        if (normalizedMode !== 'straight') return 0;
-        return selections.reduce((acc, sel) => acc + wagerForSelection(sel), 0);
-    }, [normalizedMode, selections, wagerForSelection]);
-    const hasAnyStraightAmount = normalizedMode === 'straight' && straightTotalRisk > 0;
-
-    // Drop stale per-selection wager entries when their selection leaves
-    // the slip (otherwise the map grows forever and would skew totals if
-    // an id got recycled).
-    useEffect(() => {
-        setPerSelectionWagers((prev) => {
-            const idsInSlip = new Set(selections.map((s) => s.id));
-            const next = {};
-            let changed = false;
-            Object.keys(prev).forEach((k) => {
-                if (idsInSlip.has(k) || idsInSlip.has(Number(k))) next[k] = prev[k];
-                else changed = true;
-            });
-            return changed ? next : prev;
-        });
-    }, [selections]);
-
-    const validationErrors = useMemo(() => {
-        const errors = [];
-        if (legCount < rule.minLegs || legCount > rule.maxLegs) {
-            errors.push(`${MODE_TABS.find(t => t.id === normalizedMode)?.label || 'MODE'} requires ${rule.minLegs === rule.maxLegs ? rule.minLegs : `${rule.minLegs}-${rule.maxLegs}`} selections`);
-        }
-        if (normalizedMode === 'straight') {
-            // Valid when at least one leg has a positive stake. Zero-stake
-            // legs are silently skipped at submit time, not surfaced as a
-            // blocker, so the user can stake just some of the slip.
-            if (!hasAnyStraightAmount) {
-                errors.push('Enter a stake on at least one selection');
-            }
-        } else if (!Number.isFinite(wagerAmount) || wagerAmount <= 0) {
-            errors.push('Enter a valid wager amount');
-        }
-        if (!teaserValid) {
-            errors.push(`Select teaser points: ${rule.teaserPointOptions.join(', ')}`);
-        }
-        if (!selections.every(sel => Number.isFinite(Number(sel.odds)) && Number(sel.odds) > 0)) {
-            errors.push('One or more selections have invalid odds');
-        }
-        return errors;
-    }, [legCount, normalizedMode, rule, selections, wagerAmount, teaserValid, hasAnyStraightAmount]);
-
-    const ticketSignature = useMemo(() => JSON.stringify({
-        type: normalizedMode,
-        amount: Number.isFinite(wagerAmount) ? Math.round(wagerAmount) : null,
-        teaserPoints: normalizedMode === 'teaser' ? Math.round(teaserPointValue) : 0,
-        selections: selections.map((sel) => ({
-            matchId: String(sel?.matchId || ''),
-            selection: String(sel?.selection || ''),
-            marketType: String(sel?.marketType || ''),
-            odds: Number.isFinite(Number(sel?.odds)) ? Number(Number(sel.odds).toFixed(4)) : null,
-        })),
-    }), [normalizedMode, selections, teaserPointValue, wagerAmount]);
-
-    const potentialPayout = useMemo(() => {
-        if (legCount === 0) return 0;
-
-        if (normalizedMode === 'straight') {
-            // Each leg is its own bet of `wagerForSelection(sel)`, so the
-            // max possible payout is the sum of each leg's (stake × odds).
-            return selections.reduce((acc, sel) => acc + (wagerForSelection(sel) * Number(sel.odds || 0)), 0);
-        }
-        if (!Number.isFinite(wagerAmount) || wagerAmount <= 0) return 0;
-        if (normalizedMode === 'parlay') {
-            const combined = selections.reduce((acc, sel) => acc * Number(sel.odds || 1), 1);
-            return wagerAmount * combined;
-        }
-        if (normalizedMode === 'teaser') {
-            return wagerAmount * getTeaserMultiplier(rule, legCount);
-        }
-        if (normalizedMode === 'if_bet') {
-            const firstTwo = selections.slice(0, 2).reduce((acc, sel) => acc * Number(sel.odds || 1), 1);
-            return wagerAmount * firstTwo;
-        }
-        if (normalizedMode === 'reverse') {
-            const firstTwo = selections.slice(0, 2).reduce((acc, sel) => acc * Number(sel.odds || 1), 1);
-            return wagerAmount * firstTwo * 2;
-        }
-        return 0;
-    }, [wagerAmount, legCount, normalizedMode, selections, rule]);
-
+    // Combined decimal odds the ticket pays at, by mode. Used to convert
+    // a Win-mode shared input into the actual Risk amount the backend
+    // receives for combined modes (parlay / teaser / if_bet / reverse).
     const ticketDecimalOdds = useMemo(() => {
         if (!legCount) return null;
         if (normalizedMode === 'straight') {
@@ -228,16 +177,113 @@ const ModeBetPanel = ({
         return null;
     }, [normalizedMode, selections, legCount]);
 
+    // Resolve the single shared (mode, amount) input into a per-leg
+    // {risk, win} pair using that leg's own decimal odds. The card
+    // readouts call this directly — the user's spec says each card
+    // shows Risk/Win based on its own odds, regardless of bet type.
+    const stakePairForSelection = React.useCallback((sel) => {
+        return resolveStake(stakeMode, wager, sel?.odds);
+    }, [stakeMode, wager]);
+
+    // Per-leg Risk amount that's actually staked on a straight leg.
+    // For combined modes this returns 0 because there's only ONE bet
+    // (using `effectiveCombinedRisk` below), not N independent stakes.
+    const wagerForSelection = React.useCallback((sel) => {
+        if (normalizedMode !== 'straight') return 0;
+        const { risk } = stakePairForSelection(sel);
+        return Number.isFinite(risk) && risk > 0 ? risk : 0;
+    }, [normalizedMode, stakePairForSelection]);
+
+    const straightTotalRisk = useMemo(() => {
+        if (normalizedMode !== 'straight') return 0;
+        return selections.reduce((acc, sel) => acc + wagerForSelection(sel), 0);
+    }, [normalizedMode, selections, wagerForSelection]);
+    const hasAnyStraightAmount = normalizedMode === 'straight' && straightTotalRisk > 0;
+
+    // Combined-mode resolved Risk: the actual stake the backend sees
+    // after Bet/Risk/Win mode conversion against the ticket's combined
+    // decimal odds. `bet` and `risk` pass straight through; `win` flips
+    // the user-typed amount from "I want to win this much" into the
+    // back-calculated Risk that produces that profit.
+    const effectiveCombinedRisk = useMemo(() => {
+        if (normalizedMode === 'straight') return 0;
+        const { risk } = resolveStake(stakeMode, wagerAmount, ticketDecimalOdds);
+        return Number.isFinite(risk) && risk > 0 ? risk : 0;
+    }, [normalizedMode, stakeMode, wagerAmount, ticketDecimalOdds]);
+
+    const validationErrors = useMemo(() => {
+        const errors = [];
+        if (legCount < rule.minLegs || legCount > rule.maxLegs) {
+            errors.push(`${MODE_TABS.find(t => t.id === normalizedMode)?.label || 'MODE'} requires ${rule.minLegs === rule.maxLegs ? rule.minLegs : `${rule.minLegs}-${rule.maxLegs}`} selections`);
+        }
+        if (normalizedMode === 'straight') {
+            // Valid when at least one leg has a positive stake. Zero-stake
+            // legs are silently skipped at submit time, not surfaced as a
+            // blocker, so the user can stake just some of the slip.
+            if (!hasAnyStraightAmount) {
+                errors.push('Enter a stake on at least one selection');
+            }
+        } else if (effectiveCombinedRisk <= 0) {
+            errors.push('Enter a valid wager amount');
+        }
+        if (!teaserValid) {
+            errors.push(`Select teaser points: ${rule.teaserPointOptions.join(', ')}`);
+        }
+        if (!selections.every(sel => Number.isFinite(Number(sel.odds)) && Number(sel.odds) > 0)) {
+            errors.push('One or more selections have invalid odds');
+        }
+        return errors;
+    }, [legCount, normalizedMode, rule, selections, effectiveCombinedRisk, teaserValid, hasAnyStraightAmount]);
+
+    const ticketSignature = useMemo(() => JSON.stringify({
+        type: normalizedMode,
+        amount: Number.isFinite(effectiveCombinedRisk) ? Math.round(effectiveCombinedRisk) : null,
+        teaserPoints: normalizedMode === 'teaser' ? Math.round(teaserPointValue) : 0,
+        selections: selections.map((sel) => ({
+            matchId: String(sel?.matchId || ''),
+            selection: String(sel?.selection || ''),
+            marketType: String(sel?.marketType || ''),
+            odds: Number.isFinite(Number(sel?.odds)) ? Number(Number(sel.odds).toFixed(4)) : null,
+        })),
+    }), [normalizedMode, selections, teaserPointValue, effectiveCombinedRisk]);
+
+    const potentialPayout = useMemo(() => {
+        if (legCount === 0) return 0;
+
+        if (normalizedMode === 'straight') {
+            // Each leg is its own bet of `wagerForSelection(sel)`, so the
+            // max possible payout is the sum of each leg's (stake × odds).
+            return selections.reduce((acc, sel) => acc + (wagerForSelection(sel) * Number(sel.odds || 0)), 0);
+        }
+        if (effectiveCombinedRisk <= 0) return 0;
+        if (normalizedMode === 'parlay') {
+            const combined = selections.reduce((acc, sel) => acc * Number(sel.odds || 1), 1);
+            return effectiveCombinedRisk * combined;
+        }
+        if (normalizedMode === 'teaser') {
+            return effectiveCombinedRisk * getTeaserMultiplier(rule, legCount);
+        }
+        if (normalizedMode === 'if_bet') {
+            const firstTwo = selections.slice(0, 2).reduce((acc, sel) => acc * Number(sel.odds || 1), 1);
+            return effectiveCombinedRisk * firstTwo;
+        }
+        if (normalizedMode === 'reverse') {
+            const firstTwo = selections.slice(0, 2).reduce((acc, sel) => acc * Number(sel.odds || 1), 1);
+            return effectiveCombinedRisk * firstTwo * 2;
+        }
+        return 0;
+    }, [effectiveCombinedRisk, legCount, normalizedMode, selections, rule, wagerForSelection]);
+
     const impliedProbability = useMemo(() => {
         if (!Number.isFinite(ticketDecimalOdds) || ticketDecimalOdds <= 1) return null;
         return (1 / ticketDecimalOdds) * 100;
     }, [ticketDecimalOdds]);
 
     const totalRisk = normalizedMode === 'reverse'
-        ? wagerAmount * 2
+        ? effectiveCombinedRisk * 2
         : normalizedMode === 'straight'
             ? straightTotalRisk
-            : wagerAmount;
+            : effectiveCombinedRisk;
     const rawAvailableBalance = availableBalance !== null && availableBalance !== undefined
         ? availableBalance
         : balance;
@@ -265,7 +311,7 @@ const ModeBetPanel = ({
     const clearSlip = () => {
         onSelectionsChange([]);
         onWagerChange('');
-        setPerSelectionWagers({});
+        setStakeMode('risk');
         setMessage(null);
         setSubmitAttempted(false);
         setUseFreeplay(false);
@@ -410,9 +456,12 @@ const ModeBetPanel = ({
             }
 
             // Non-straight modes: single request carrying all legs.
+            // The backend wants the actual Risk amount; if the user typed
+            // in Win mode we already converted to Risk via resolveStake
+            // against the ticket's combined decimal odds.
             const payload = {
                 type: normalizedMode,
-                amount: wagerAmount,
+                amount: effectiveCombinedRisk,
                 teaserPoints: normalizedMode === 'teaser' ? teaserPointValue : 0,
                 useFreeplay: useFp,
                 selections: selections.map((sel) => ({
@@ -446,16 +495,22 @@ const ModeBetPanel = ({
         }
     };
 
+    // Mobile: full-screen panel that starts BELOW the dark header (~64px
+    // for the 5-cell mh row) AND the bet-mode tabs row (~60px). Total ~124px
+    // top-offset keeps the SPORT/MENU/Balance/Account row + STRAIGHT/PARLAY/
+    // TEASER/IF BET/REVERSE row visible on top while the slip takes over the
+    // rest of the screen — that way the user can switch bet mode (parent
+    // tabs) without ever leaving the slip, which is exactly what made the
+    // in-slip mode dropdown redundant.
     const containerStyle = isMobile
         ? {
             position: 'fixed',
             left: 0,
             right: 0,
+            top: 124,
             bottom: 0,
-            maxHeight: '62vh',
             zIndex: 1200,
-            borderTopLeftRadius: 16,
-            borderTopRightRadius: 16
+            borderRadius: 0,
         }
         : {
             position: 'fixed',
@@ -585,147 +640,160 @@ const ModeBetPanel = ({
                         </div>
                     </div>
                 </div>
-                <button
-                    onClick={() => setIsOpen(false)}
-                    aria-label="Minimize bet slip"
-                    style={{
-                        border: 'none',
-                        background: 'rgba(255,255,255,0.08)',
-                        color: '#fff',
-                        borderRadius: 8,
-                        width: 34,
-                        height: 34,
-                        cursor: 'pointer',
-                        fontSize: 13,
-                    }}
-                >
-                    <i className="fa-solid fa-chevron-down" />
-                </button>
+                {/* Close-by-chevron retained on desktop only — on mobile
+                    the yellow Back button right below this row already
+                    handles dismiss, and a second chevron next to it was
+                    pure visual clutter. */}
+                {!isMobile && (
+                    <button
+                        onClick={() => setIsOpen(false)}
+                        aria-label="Minimize bet slip"
+                        style={{
+                            border: 'none',
+                            background: 'rgba(255,255,255,0.08)',
+                            color: '#fff',
+                            borderRadius: 8,
+                            width: 34,
+                            height: 34,
+                            cursor: 'pointer',
+                            fontSize: 13,
+                        }}
+                    >
+                        <i className="fa-solid fa-chevron-down" />
+                    </button>
+                )}
             </div>
 
-            {/* Mode selector — Back pill + current-mode dropdown.
-                Matches the reference sportsbook layout: one yellow Back
-                button, one dark pill showing the active mode that opens
-                a full-list dropdown. Click outside closes it. */}
+            {/* Mode-control row — only the yellow Back button. The active
+                bet mode (Straight / Parlay / Teaser / If Bet / Reverse) is
+                already driven by the top-level tabs above the slip, so the
+                old in-slip dropdown was redundant. Tapping Back collapses
+                the slip back to the odds board. */}
             <div style={{
                 background: '#fff',
                 padding: '10px 12px',
                 borderBottom: `1px solid ${palette.cardBorder}`,
-                position: 'relative',
             }}>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
-                    <button
-                        type="button"
-                        onClick={() => { setShowModeDropdown(false); setIsOpen(false); }}
-                        style={{
-                            background: '#facc15',
-                            color: '#0f172a',
-                            border: 'none',
-                            borderRadius: 8,
-                            padding: '0 16px',
-                            fontWeight: 800,
-                            fontSize: 12,
-                            letterSpacing: 0.3,
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 6,
-                            flexShrink: 0,
-                        }}
-                    >
-                        <i className="fa-solid fa-arrow-left" style={{ fontSize: 11 }} /> Back
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => setShowModeDropdown((v) => !v)}
-                        aria-haspopup="listbox"
-                        aria-expanded={showModeDropdown}
-                        style={{
-                            flex: 1,
-                            background: palette.headerBg,
-                            color: '#fff',
-                            border: 'none',
-                            borderRadius: 8,
-                            padding: '10px 14px',
-                            fontWeight: 800,
-                            fontSize: 13,
-                            letterSpacing: 0.6,
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            textTransform: 'uppercase',
-                        }}
-                    >
-                        <span>{MODE_TABS.find((t) => t.id === normalizedMode)?.label || 'STRAIGHT'}</span>
-                        <i className={`fa-solid fa-chevron-${showModeDropdown ? 'up' : 'down'}`} style={{ fontSize: 11, color: '#38bdf8' }} />
-                    </button>
-                </div>
+                <button
+                    type="button"
+                    onClick={() => setIsOpen(false)}
+                    style={{
+                        background: '#facc15',
+                        color: '#0f172a',
+                        border: 'none',
+                        borderRadius: 8,
+                        padding: '8px 16px',
+                        fontWeight: 800,
+                        fontSize: 12,
+                        letterSpacing: 0.3,
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 6,
+                    }}
+                >
+                    <i className="fa-solid fa-arrow-left" style={{ fontSize: 11 }} /> Back
+                </button>
+            </div>
 
-                {showModeDropdown && (
-                    <>
-                        {/* Invisible backdrop so tapping outside closes */}
-                        <div
-                            onClick={() => setShowModeDropdown(false)}
-                            style={{
-                                position: 'fixed',
-                                inset: 0,
-                                zIndex: 10,
-                            }}
-                        />
-                        <div
-                            role="listbox"
-                            style={{
-                                position: 'absolute',
-                                top: 'calc(100% - 2px)',
-                                right: 12,
-                                left: 'auto',
-                                width: 'calc(66% - 12px)',
-                                background: palette.headerBg,
-                                borderRadius: 10,
-                                overflow: 'hidden',
-                                boxShadow: '0 16px 40px -12px rgba(15,23,42,0.55)',
-                                zIndex: 20,
-                                border: '1px solid rgba(255,255,255,0.06)',
-                            }}
-                        >
-                            {MODE_TABS.map((tab) => {
-                                const active = normalizedMode === tab.id;
+            <div style={{ padding: '14px 14px 18px', overflowY: 'auto' }}>
+                {/* Shared Bet | Risk | Win toggle + single Bet Amount
+                    input. The mode + amount typed here drive every
+                    selection card's read-only Risk/Win readouts and the
+                    final Place Bet payload — there is exactly one input
+                    for the whole slip. */}
+                {legCount > 0 && (
+                    <div style={{
+                        background: '#fff',
+                        border: `1px solid ${palette.cardBorder}`,
+                        borderRadius: 10,
+                        padding: '10px 10px',
+                        marginBottom: 12,
+                        display: 'flex',
+                        alignItems: 'stretch',
+                        gap: 8,
+                    }}>
+                        <div style={{
+                            display: 'inline-flex',
+                            borderRadius: 8,
+                            overflow: 'hidden',
+                            border: `1px solid ${palette.cardBorder}`,
+                            background: '#fff',
+                            flexShrink: 0,
+                        }}>
+                            {STAKE_MODES.map((m, i) => {
+                                const active = stakeMode === m.id;
                                 return (
                                     <button
-                                        key={tab.id}
-                                        role="option"
-                                        aria-selected={active}
-                                        onClick={() => { onModeChange(tab.id); setShowModeDropdown(false); }}
+                                        key={m.id}
+                                        type="button"
+                                        onClick={() => setStakeMode(m.id)}
                                         style={{
-                                            display: 'block',
-                                            width: '100%',
-                                            background: active ? '#1e293b' : 'transparent',
-                                            color: active ? '#38bdf8' : '#e2e8f0',
+                                            background: active
+                                                ? (m.id === 'risk' ? '#ea580c' : m.id === 'win' ? '#16a34a' : '#0f172a')
+                                                : '#475569',
+                                            color: '#fff',
                                             border: 'none',
-                                            borderTop: '1px solid rgba(255,255,255,0.06)',
-                                            padding: '14px 16px',
-                                            textAlign: 'center',
-                                            fontSize: 13,
-                                            fontWeight: 700,
-                                            letterSpacing: 0.6,
+                                            borderLeft: i === 0 ? 'none' : '1px solid rgba(255,255,255,0.15)',
+                                            padding: '8px 14px',
+                                            fontWeight: 800,
+                                            fontSize: 12,
+                                            letterSpacing: 0.4,
                                             cursor: 'pointer',
                                             textTransform: 'uppercase',
-                                            transition: 'background 120ms ease',
+                                            transition: 'background 100ms ease',
+                                            minWidth: 50,
                                         }}
-                                        onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; }}
-                                        onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = 'transparent'; }}
                                     >
-                                        {tab.label}
+                                        {m.label}
                                     </button>
                                 );
                             })}
                         </div>
-                    </>
+                        <div style={{
+                            position: 'relative',
+                            flex: 1,
+                            border: `1px solid ${palette.cardBorder}`,
+                            borderRadius: 8,
+                            background: '#fbfbfd',
+                            transition: 'border-color 120ms ease',
+                        }}>
+                            <span style={{
+                                position: 'absolute',
+                                left: 12,
+                                top: '50%',
+                                transform: 'translateY(-50%)',
+                                fontSize: 13,
+                                fontWeight: 700,
+                                color: palette.textFaint,
+                                pointerEvents: 'none',
+                            }}>$</span>
+                            <input
+                                type="number"
+                                min="0"
+                                inputMode="decimal"
+                                placeholder="Bet Amount"
+                                value={wager}
+                                onChange={(e) => onWagerChange(e.target.value)}
+                                onFocus={(e) => { e.currentTarget.parentElement.style.borderColor = palette.accent; }}
+                                onBlur={(e) => { e.currentTarget.parentElement.style.borderColor = palette.cardBorder; }}
+                                style={{
+                                    width: '100%',
+                                    padding: '10px 12px 10px 24px',
+                                    border: 'none',
+                                    outline: 'none',
+                                    fontSize: 14,
+                                    fontWeight: 700,
+                                    color: palette.textPrimary,
+                                    boxSizing: 'border-box',
+                                    background: 'transparent',
+                                    borderRadius: 8,
+                                }}
+                            />
+                        </div>
+                    </div>
                 )}
-            </div>
 
-            <div style={{ padding: '14px 14px 18px', overflowY: 'auto' }}>
                 {/* Selections header */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                     <div style={{
@@ -824,182 +892,177 @@ const ModeBetPanel = ({
                     </div>
                 )}
 
-                {/* Selection cards */}
+                {/* Selection cards — read-only display. Black header bar
+                    with the full matchup + ⊗ remove icon; below it the
+                    Game-* bet type tag, the picked team in bold, the
+                    LISTED line/odds row, the Max Amount line, and the
+                    auto-calculated Risk: / Win: readouts driven by the
+                    shared (mode, amount) input above. No per-card input
+                    fields — every leg is sized off the one shared
+                    Bet Amount and its own decimal odds. */}
                 {selections.map((sel, idx) => {
                     const legLabel = legLabelFor(normalizedMode, idx, legCount);
-                    const tint = tintForMarket(sel.marketType);
+                    const { risk, win } = stakePairForSelection(sel);
+                    const matchupTitle = String(sel.matchName || sel.selection || '').toUpperCase();
+                    const betTypeLabel = `Game - ${marketLabelFor(sel.marketType, sel.marketLabel)}`;
+                    const lineNumber = Number(sel.line);
+                    const hasLine = Number.isFinite(lineNumber);
+                    const lineText = hasLine
+                        ? (sel.marketType === 'totals'
+                            ? `${String(sel.selection || '').toUpperCase().startsWith('U') ? 'U' : 'O'} ${formatMoney(Math.abs(lineNumber))}`
+                            : (lineNumber > 0 ? `+${formatMoney(lineNumber)}` : formatMoney(lineNumber)))
+                        : '';
                     return (
                         <div
                             key={sel.id}
                             style={{
-                                position: 'relative',
                                 border: `1px solid ${palette.cardBorder}`,
-                                borderLeft: `3px solid ${tint.color}`,
-                                borderRadius: 10,
-                                padding: '12px 40px 12px 12px',
-                                marginBottom: 8,
+                                borderRadius: 8,
+                                marginBottom: 10,
                                 background: palette.cardBg,
+                                overflow: 'hidden',
                                 boxShadow: '0 1px 2px rgba(15,23,42,0.04)',
                             }}
                         >
-                            {legLabel && (
-                                <div style={{
-                                    fontSize: 9,
+                            {/* Black header bar with matchup + ⊗ */}
+                            <div style={{
+                                background: palette.headerBg,
+                                color: '#fff',
+                                padding: '8px 12px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                gap: 8,
+                            }}>
+                                <span style={{
+                                    fontSize: 11,
                                     fontWeight: 800,
-                                    color: palette.accent,
-                                    letterSpacing: 0.6,
-                                    textTransform: 'uppercase',
-                                    marginBottom: 6,
+                                    letterSpacing: 0.4,
+                                    minWidth: 0,
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap',
                                 }}>
-                                    {legLabel}
-                                </div>
-                            )}
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
-                                <div style={{ flex: 1, minWidth: 0 }}>
+                                    {matchupTitle}
+                                </span>
+                                <button
+                                    onClick={() => removeSelection(sel.id)}
+                                    aria-label="Remove selection"
+                                    style={{
+                                        background: 'rgba(255,255,255,0.12)',
+                                        border: 'none',
+                                        color: '#fff',
+                                        width: 20,
+                                        height: 20,
+                                        borderRadius: '50%',
+                                        cursor: 'pointer',
+                                        fontSize: 10,
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        flexShrink: 0,
+                                    }}
+                                >
+                                    <i className="fa-solid fa-xmark" />
+                                </button>
+                            </div>
+
+                            {/* Card body */}
+                            <div style={{ padding: '10px 12px' }}>
+                                {legLabel && (
                                     <div style={{
                                         fontSize: 9,
-                                        color: palette.textFaint,
+                                        fontWeight: 800,
+                                        color: palette.accent,
+                                        letterSpacing: 0.6,
                                         textTransform: 'uppercase',
-                                        letterSpacing: 0.5,
-                                        whiteSpace: 'nowrap',
-                                        overflow: 'hidden',
-                                        textOverflow: 'ellipsis',
-                                        fontWeight: 600,
+                                        marginBottom: 4,
                                     }}>
-                                        {sel.matchName}
+                                        {legLabel}
+                                    </div>
+                                )}
+                                <div style={{ fontSize: 12, color: palette.textMuted, fontWeight: 600, marginBottom: 2 }}>
+                                    {betTypeLabel}
+                                </div>
+                                <div style={{
+                                    fontSize: 14,
+                                    fontWeight: 800,
+                                    color: palette.textPrimary,
+                                    lineHeight: 1.3,
+                                    marginBottom: 6,
+                                }}>
+                                    {sel.selection}
+                                </div>
+
+                                {/* LISTED row — line + odds. ML bets have
+                                    no line, so the line-side stays blank
+                                    and the odds align to the right. */}
+                                <div style={{
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'baseline',
+                                    fontSize: 12,
+                                    color: palette.textPrimary,
+                                    paddingTop: 4,
+                                    borderTop: `1px solid ${palette.cardBorder}`,
+                                }}>
+                                    <span style={{ fontWeight: 700, color: palette.textMuted, letterSpacing: 0.4 }}>LISTED</span>
+                                    <span style={{ display: 'inline-flex', gap: 8, alignItems: 'baseline' }}>
+                                        {hasLine && (
+                                            <span style={{ fontWeight: 700, color: palette.textPrimary, fontVariantNumeric: 'tabular-nums' }}>
+                                                {lineText}
+                                            </span>
+                                        )}
+                                        <span style={{ fontWeight: 800, color: oddsColour(sel.odds), fontVariantNumeric: 'tabular-nums' }}>
+                                            {formatOddsSign(sel.odds)}
+                                        </span>
+                                    </span>
+                                </div>
+
+                                <div style={{ fontSize: 11, color: palette.textMuted, marginTop: 6 }}>
+                                    Max Amount: 5,000.0
+                                </div>
+
+                                {/* Auto-calculated Risk / Win readouts —
+                                    driven by the shared input at top. */}
+                                <div style={{
+                                    display: 'grid',
+                                    gridTemplateColumns: '1fr 1fr',
+                                    gap: 8,
+                                    marginTop: 8,
+                                }}>
+                                    <div style={{
+                                        background: '#f8fafc',
+                                        border: `1px solid ${palette.cardBorder}`,
+                                        borderRadius: 6,
+                                        padding: '6px 10px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'space-between',
+                                        gap: 6,
+                                    }}>
+                                        <span style={{ fontSize: 10, fontWeight: 700, color: palette.textMuted, textTransform: 'uppercase', letterSpacing: 0.4 }}>Risk:</span>
+                                        <span style={{ fontSize: 12, fontWeight: 800, color: risk > 0 ? palette.textPrimary : palette.textFaint, fontVariantNumeric: 'tabular-nums' }}>
+                                            ${formatMoney(risk)}
+                                        </span>
                                     </div>
                                     <div style={{
-                                        fontSize: 13,
-                                        fontWeight: 700,
-                                        color: palette.textPrimary,
-                                        marginTop: 2,
-                                        lineHeight: 1.25,
+                                        background: '#f8fafc',
+                                        border: `1px solid ${palette.cardBorder}`,
+                                        borderRadius: 6,
+                                        padding: '6px 10px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'space-between',
+                                        gap: 6,
                                     }}>
-                                        {sel.selection}
-                                    </div>
-                                    <div style={{ marginTop: 6 }}>
-                                        <span style={{
-                                            display: 'inline-block',
-                                            fontSize: 9,
-                                            fontWeight: 700,
-                                            letterSpacing: 0.5,
-                                            color: tint.color,
-                                            background: tint.bg,
-                                            padding: '2px 7px',
-                                            borderRadius: 999,
-                                            textTransform: 'uppercase',
-                                        }}>
-                                            {marketLabelFor(sel.marketType, sel.marketLabel)}
+                                        <span style={{ fontSize: 10, fontWeight: 700, color: palette.textMuted, textTransform: 'uppercase', letterSpacing: 0.4 }}>Win:</span>
+                                        <span style={{ fontSize: 12, fontWeight: 800, color: win > 0 ? palette.success : palette.textFaint, fontVariantNumeric: 'tabular-nums' }}>
+                                            ${formatMoney(win)}
                                         </span>
                                     </div>
                                 </div>
-                                <div style={{
-                                    fontSize: 15,
-                                    fontWeight: 800,
-                                    color: oddsColour(sel.odds),
-                                    whiteSpace: 'nowrap',
-                                    paddingTop: 2,
-                                }}>
-                                    {formatOddsSign(sel.odds)}
-                                </div>
                             </div>
-
-                            {/* Per-selection stake — straight mode only. In
-                                combined modes (parlay / teaser / etc.) the
-                                one global wager applies to the whole ticket,
-                                so the inline input would be misleading. */}
-                            {normalizedMode === 'straight' && (() => {
-                                const raw = perSelectionWagers[sel.id] ?? '';
-                                const amt = wagerForSelection(sel);
-                                const toWin = amt > 0 ? amt * Number(sel.odds || 0) - amt : 0;
-                                return (
-                                    <div style={{
-                                        marginTop: 10,
-                                        display: 'grid',
-                                        gridTemplateColumns: '1fr auto',
-                                        gap: 8,
-                                        alignItems: 'center',
-                                    }}>
-                                        <div style={{
-                                            position: 'relative',
-                                            border: `1px solid ${palette.cardBorder}`,
-                                            borderRadius: 8,
-                                            background: '#fbfbfd',
-                                            transition: 'border-color 120ms ease',
-                                        }}>
-                                            <span style={{
-                                                position: 'absolute',
-                                                left: 10,
-                                                top: '50%',
-                                                transform: 'translateY(-50%)',
-                                                fontSize: 12,
-                                                fontWeight: 700,
-                                                color: palette.textFaint,
-                                                pointerEvents: 'none',
-                                            }}>$</span>
-                                            <input
-                                                type="number"
-                                                min="0"
-                                                inputMode="decimal"
-                                                placeholder="Risk"
-                                                value={raw}
-                                                onChange={(e) => setPerSelectionWagers((prev) => ({ ...prev, [sel.id]: e.target.value }))}
-                                                onFocus={(e) => { e.currentTarget.parentElement.style.borderColor = palette.accent; }}
-                                                onBlur={(e) => { e.currentTarget.parentElement.style.borderColor = palette.cardBorder; }}
-                                                style={{
-                                                    width: '100%',
-                                                    padding: '8px 10px 8px 22px',
-                                                    border: 'none',
-                                                    outline: 'none',
-                                                    fontSize: 13,
-                                                    fontWeight: 700,
-                                                    color: palette.textPrimary,
-                                                    boxSizing: 'border-box',
-                                                    background: 'transparent',
-                                                    borderRadius: 8,
-                                                }}
-                                            />
-                                        </div>
-                                        <div style={{
-                                            fontSize: 10,
-                                            color: palette.textMuted,
-                                            textAlign: 'right',
-                                            minWidth: 74,
-                                            lineHeight: 1.25,
-                                        }}>
-                                            <div style={{ fontSize: 9, letterSpacing: 0.5, fontWeight: 700, textTransform: 'uppercase' }}>To Win</div>
-                                            <div style={{ color: toWin > 0 ? palette.success : palette.textFaint, fontWeight: 800, fontSize: 12 }}>
-                                                ${formatAmount(toWin)}
-                                            </div>
-                                        </div>
-                                    </div>
-                                );
-                            })()}
-
-                            <button
-                                onClick={() => removeSelection(sel.id)}
-                                aria-label="Remove selection"
-                                style={{
-                                    position: 'absolute',
-                                    top: 6,
-                                    right: 6,
-                                    width: 22,
-                                    height: 22,
-                                    border: 'none',
-                                    background: 'transparent',
-                                    color: palette.textFaint,
-                                    cursor: 'pointer',
-                                    borderRadius: 6,
-                                    fontSize: 11,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                }}
-                                onMouseEnter={(e) => { e.currentTarget.style.background = palette.dangerSoft; e.currentTarget.style.color = palette.danger; }}
-                                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = palette.textFaint; }}
-                            >
-                                <i className="fa-solid fa-xmark" />
-                            </button>
                         </div>
                     );
                 })}
@@ -1041,9 +1104,10 @@ const ModeBetPanel = ({
                     </div>
                 )}
 
-                {/* Straight-mode: a compact "fill all" row instead of a
-                    global stake input, since each card has its own. */}
-                {legCount > 0 && normalizedMode === 'straight' && (
+                {/* APPLY TO ALL — quick stake row that writes to the
+                    single shared Bet Amount input at top. Visible in every
+                    mode now that there's exactly one stake state to fill. */}
+                {legCount > 0 && (
                     <div style={{
                         marginTop: 12,
                         background: '#fff',
@@ -1071,38 +1135,32 @@ const ModeBetPanel = ({
                             </span>
                         </div>
                         <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-                            {QUICK_STAKES.map(v => (
-                                <button
-                                    key={v}
-                                    onClick={() => {
-                                        // Fill every leg with the same amount
-                                        setPerSelectionWagers(() => {
-                                            const next = {};
-                                            selections.forEach((sel) => { next[sel.id] = String(v); });
-                                            return next;
-                                        });
-                                    }}
-                                    style={{
-                                        flex: '1 1 0',
-                                        minWidth: 54,
-                                        padding: '7px 6px',
-                                        border: `1px solid ${palette.cardBorder}`,
-                                        background: '#fff',
-                                        color: palette.textPrimary,
-                                        fontSize: 11,
-                                        fontWeight: 700,
-                                        cursor: 'pointer',
-                                        borderRadius: 6,
-                                        transition: 'all 120ms ease',
-                                    }}
-                                    onMouseEnter={(e) => { e.currentTarget.style.background = palette.headerBg; e.currentTarget.style.color = '#fff'; e.currentTarget.style.borderColor = palette.headerBg; }}
-                                    onMouseLeave={(e) => { e.currentTarget.style.background = '#fff'; e.currentTarget.style.color = palette.textPrimary; e.currentTarget.style.borderColor = palette.cardBorder; }}
-                                >
-                                    ${v}
-                                </button>
-                            ))}
+                            {QUICK_STAKES.map(v => {
+                                const active = Number(wager) === v;
+                                return (
+                                    <button
+                                        key={v}
+                                        onClick={() => onWagerChange(String(v))}
+                                        style={{
+                                            flex: '1 1 0',
+                                            minWidth: 54,
+                                            padding: '7px 6px',
+                                            border: `1px solid ${active ? palette.headerBg : palette.cardBorder}`,
+                                            background: active ? palette.headerBg : '#fff',
+                                            color: active ? '#fff' : palette.textPrimary,
+                                            fontSize: 11,
+                                            fontWeight: 700,
+                                            cursor: 'pointer',
+                                            borderRadius: 6,
+                                            transition: 'all 120ms ease',
+                                        }}
+                                    >
+                                        ${v}
+                                    </button>
+                                );
+                            })}
                             <button
-                                onClick={() => setPerSelectionWagers({})}
+                                onClick={() => onWagerChange('')}
                                 style={{
                                     padding: '7px 10px',
                                     border: `1px solid ${palette.cardBorder}`,
@@ -1140,139 +1198,6 @@ const ModeBetPanel = ({
                                 <span style={{ color: useFreeplay ? palette.success : palette.textPrimary, fontWeight: 700 }}>
                                     Use Freeplay (${formatAmount(parsedFreeplayBalance)})
                                 </span>
-                            </label>
-                        )}
-                    </div>
-                )}
-
-                {/* Combined-mode stake block (parlay / teaser / if_bet / reverse) */}
-                {legCount > 0 && normalizedMode !== 'straight' && (
-                    <div style={{
-                        marginTop: 16,
-                        background: '#fff',
-                        border: `1px solid ${palette.cardBorder}`,
-                        borderRadius: 12,
-                        padding: 14,
-                    }}>
-                        <div style={{
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                            marginBottom: 8,
-                        }}>
-                            <div style={{
-                                fontSize: 10,
-                                fontWeight: 700,
-                                color: palette.textMuted,
-                                textTransform: 'uppercase',
-                                letterSpacing: 0.6,
-                            }}>
-                                Stake
-                            </div>
-                            <div style={{ fontSize: 10, color: palette.textFaint }}>
-                                Balance <span style={{ color: palette.textPrimary, fontWeight: 700 }}>${formatAmount(balance)}</span>
-                                {hasFreeplay && (
-                                    <span style={{ marginLeft: 6, color: palette.success, fontWeight: 700 }}>
-                                        +${formatAmount(parsedFreeplayBalance)} FP
-                                    </span>
-                                )}
-                            </div>
-                        </div>
-                        <div style={{
-                            position: 'relative',
-                            border: `1px solid ${palette.cardBorder}`,
-                            borderRadius: 10,
-                            overflow: 'hidden',
-                            background: '#fbfbfd',
-                            transition: 'border-color 120ms ease',
-                        }}>
-                            <span style={{
-                                position: 'absolute',
-                                left: 12,
-                                top: '50%',
-                                transform: 'translateY(-50%)',
-                                fontSize: 14,
-                                fontWeight: 700,
-                                color: palette.textFaint,
-                                pointerEvents: 'none',
-                            }}>$</span>
-                            <input
-                                type="number"
-                                min="0"
-                                inputMode="decimal"
-                                value={wager}
-                                onChange={(e) => onWagerChange(e.target.value)}
-                                placeholder="0.00"
-                                onFocus={(e) => { e.currentTarget.parentElement.style.borderColor = palette.accent; }}
-                                onBlur={(e) => { e.currentTarget.parentElement.style.borderColor = palette.cardBorder; }}
-                                style={{
-                                    width: '100%',
-                                    padding: '11px 12px 11px 26px',
-                                    border: 'none',
-                                    outline: 'none',
-                                    fontSize: 16,
-                                    fontWeight: 800,
-                                    color: palette.textPrimary,
-                                    boxSizing: 'border-box',
-                                    background: 'transparent',
-                                }}
-                            />
-                        </div>
-                        <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
-                            {QUICK_STAKES.map(v => {
-                                const active = Number(wager) === v;
-                                return (
-                                    <button
-                                        key={v}
-                                        onClick={() => onWagerChange(String(v))}
-                                        style={{
-                                            flex: '1 1 0',
-                                            minWidth: 60,
-                                            padding: '9px 6px',
-                                            border: `1px solid ${active ? palette.headerBg : palette.cardBorder}`,
-                                            background: active ? palette.headerBg : '#fff',
-                                            color: active ? '#fff' : palette.textPrimary,
-                                            fontSize: 13,
-                                            fontWeight: 700,
-                                            cursor: 'pointer',
-                                            borderRadius: 8,
-                                            transition: 'all 120ms ease',
-                                        }}
-                                    >
-                                        ${v}
-                                    </button>
-                                );
-                            })}
-                        </div>
-                        {hasFreeplay && (
-                            <label style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 8,
-                                marginTop: 12,
-                                padding: '8px 10px',
-                                background: useFreeplay ? palette.successSoft : '#f8fafc',
-                                borderRadius: 8,
-                                fontSize: 12,
-                                cursor: 'pointer',
-                                userSelect: 'none',
-                                border: `1px solid ${useFreeplay ? palette.success : palette.cardBorder}`,
-                                transition: 'all 120ms ease',
-                            }}>
-                                <input
-                                    type="checkbox"
-                                    checked={useFreeplay}
-                                    onChange={(e) => setUseFreeplay(e.target.checked)}
-                                    style={{ width: 14, height: 14, cursor: 'pointer', accentColor: palette.success }}
-                                />
-                                <span style={{ color: useFreeplay ? palette.success : palette.textPrimary, fontWeight: 700 }}>
-                                    Use Freeplay
-                                </span>
-                                {freeplayExpiryLabel && (
-                                    <span style={{ color: palette.textFaint, marginLeft: 'auto', fontStyle: 'italic', fontSize: 11 }}>
-                                        exp {freeplayExpiryLabel}
-                                    </span>
-                                )}
                             </label>
                         )}
                     </div>
@@ -1400,7 +1325,7 @@ const ModeBetPanel = ({
                 isOpen={showConfirm}
                 betType={normalizedMode}
                 selections={selections}
-                wager={wagerAmount}
+                wager={normalizedMode === 'straight' ? straightTotalRisk : effectiveCombinedRisk}
                 totalRisk={totalRisk}
                 potentialPayout={potentialPayout}
                 isFreeplay={useFreeplay && hasFreeplay}
