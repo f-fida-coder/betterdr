@@ -174,6 +174,16 @@ export default function useMatches(options = {}) {
                     }
                 }
 
+                // Notify listeners that a background poll is starting so the
+                // UI can show a subtle "updating..." indicator. Scoped refresh
+                // requests already emit via emitRefreshProgress above; this
+                // covers auto-poll and other non-scoped fetch triggers.
+                if (!emitScopedLifecycle && trigger === 'auto-poll' && typeof window !== 'undefined') {
+                    window.dispatchEvent(new CustomEvent('matches:refresh-progress', {
+                        detail: { phase: 'started', trigger, listenerId: listenerIdRef.current, statusFilter, scopeKey },
+                    }));
+                }
+
                 let requestPromise = inFlightRequests.get(cacheKey);
                 if (!requestPromise) {
                     const requestOptions = { trigger, refresh, payload: 'core' };

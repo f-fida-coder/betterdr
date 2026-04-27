@@ -583,6 +583,15 @@ final class MatchesController
         if (!$success && isset($result['error'])) {
             $responseBody['error'] = $result['error'];
         }
+
+        // Bust the shared public-matches file cache so the very next
+        // GET /api/matches returns freshly-synced DB rows, not the
+        // stale 120s-TTL snapshot. Without this, force-refetch events
+        // from the frontend still read old data from the shared cache.
+        if ($success && !$dedupHit) {
+            SportsbookCache::invalidatePublicMatchCaches();
+        }
+
         Response::json($responseBody, $success ? 200 : 502);
     }
 
@@ -692,6 +701,13 @@ final class MatchesController
             'anySuccess' => $anySuccess,
             'responseTimeMs' => $elapsedMs,
         ], 'sportsbook');
+
+        // Bust the shared public-matches file cache (same as single-sport
+        // path above) so the force-refetch that the frontend fires after
+        // this call reads DB rows, not the 120s stale shared cache.
+        if ($anySuccess) {
+            SportsbookCache::invalidatePublicMatchCaches();
+        }
 
         Response::json([
             'success' => $anySuccess,

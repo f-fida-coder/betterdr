@@ -645,9 +645,6 @@ export const getUpcomingMatches = async (options = {}) => getMatches('upcoming',
  * (e.g. when the user switches tabs before this resolves).
  */
 export const syncLiveMatches = async (options = {}) => {
-    // Backend authorizeUserOrTickSecret() accepts JWT OR X-Tick-Secret. The
-    // browser only has the JWT, and getHeaders() omits Authorization when
-    // called without a token — was returning 401 on every user click.
     const init = {
         method: 'POST',
         headers: getHeaders(getStoredAuthToken()),
@@ -669,8 +666,6 @@ export const syncLiveMatches = async (options = {}) => {
  */
 export const syncPrematchSport = async (sportKey, options = {}) => {
     if (!sportKey) throw new Error('sportKey required');
-    // See syncLiveMatches: the prematch endpoint shares the same
-    // authorizeUserOrTickSecret() guard, so it needs the user's JWT.
     const init = {
         method: 'POST',
         headers: getHeaders(getStoredAuthToken()),

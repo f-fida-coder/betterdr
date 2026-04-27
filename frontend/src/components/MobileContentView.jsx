@@ -1,6 +1,7 @@
 import React from 'react';
 import useMatches from '../hooks/useMatches';
 import useSportOddsRefresh from '../hooks/useSportOddsRefresh';
+import { syncPrematchSport, getStoredAuthToken } from '../api';
 import { useToast } from '../contexts/ToastContext';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { getSportKeywords, findSportItemById } from '../data/sportsData';
@@ -16,6 +17,21 @@ import { logoUrlForTeam, fetchTeamBadgeUrl, prewarmTeamBadges } from '../utils/t
 import PropBuilderModal from './PropBuilderModal';
 import MatchDetailView from './MatchDetailView';
 import OddsAge from './OddsAge';
+
+// Module-level sync dedup — mirrors SportContentView. Mobile and desktop
+// views are mutually exclusive so separate maps are fine.
+const MOB_SYNC_TOAST_DEDUPE_MS = 30000;
+const MOB_SYNC_RECENT_MS = 60000; // skip re-sync if done within 60s
+const mobLastSyncToastAt = new Map();
+const mobLastSyncCompletedAt = new Map();
+const notifyMobSyncFailure = (sportKey, showToast) => {
+    if (!sportKey || typeof showToast !== 'function') return;
+    const now = Date.now();
+    const last = mobLastSyncToastAt.get(sportKey) || 0;
+    if (now - last < MOB_SYNC_TOAST_DEDUPE_MS) return;
+    mobLastSyncToastAt.set(sportKey, now);
+    showToast(`Couldn't fetch latest odds for ${sportKey}`, { type: 'warning' });
+};
 
 const WEEKDAYS_LONG = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
 const MONTHS_SHORT = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
@@ -250,6 +266,25 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
             : 'live-upcoming';
     const scopeKey = selectedSports.join('|');
     const rawMatches = useMatches({ status: statusFilter, scopeKey });
+
+    // Derive the intended OddsAPI sport keys from the selected sport so we
+    // can fire syncPrematchSport on sport selection — same freshness guarantee
+    // that SportContentView (desktop) provides.
+    const intendedSportKeys = React.useMemo(() => {
+        if (!primarySport) return [];
+        // Virtual buckets have no dedicated sport key — skip.
+        if (primarySport === 'commercial-live' || primarySport === 'up-next') return [];
+        const item = findSportItemById(primarySport);
+        if (item && Array.isArray(item.sportKeys)) {
+            return item.sportKeys.map((k) => String(k).toLowerCase());
+        }
+        if (typeof primarySport === 'string' && primarySport.startsWith('api-')) {
+            return [primarySport.slice(4).replace(/-/g, '_').toLowerCase()];
+        }
+        return [];
+    }, [primarySport]);
+    const rawMatchesRef = React.useRef(rawMatches);
+    React.useEffect(() => { rawMatchesRef.current = rawMatches; }, [rawMatches]);
 
     const sportName = React.useMemo(() => {
         if (!primarySport) return 'Sports';
@@ -501,6 +536,55 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
     }, [orderedMatches]);
     const { showToast } = useToast();
     const { trigger: triggerSportRefresh, isRefreshing: isSportRefreshing, cooldownRemainingSec } = useSportOddsRefresh(visibleSportKeys, { showToast });
+
+    // Freshness sync on sport selection — mirrors SportContentView (desktop).
+    // 300ms debounce absorbs rapid sport switches; 60s dedup skips re-syncing
+    // a sport the user already visited recently.
+    React.useEffect(() => {
+        if (statusFilter === 'live') return undefined;
+        if (intendedSportKeys.length === 0) return undefined;
+        if (!getStoredAuthToken()) return undefined;
+        const ctrl = new AbortController();
+        let cancelled = false;
+        const timer = window.setTimeout(() => {
+            if (cancelled) return;
+            const now = Date.now();
+            const keysToSync = intendedSportKeys.filter(
+                (k) => (now - (mobLastSyncCompletedAt.get(k) || 0)) > MOB_SYNC_RECENT_MS,
+            );
+            const syncAndDispatch = (keys) => {
+                Promise.all(keys.map(async (sportKey) => {
+                    try {
+                        await syncPrematchSport(sportKey, { signal: ctrl.signal });
+                        mobLastSyncCompletedAt.set(sportKey, Date.now());
+                    } catch (err) {
+                        if (err?.name === 'AbortError') return;
+                        if (cancelled) return;
+                        const haveCachedRows = Array.isArray(rawMatchesRef.current) && rawMatchesRef.current.length > 0;
+                        if (haveCachedRows) return;
+                        notifyMobSyncFailure(sportKey, showToast);
+                    }
+                })).then(() => {
+                    if (cancelled) return;
+                    window.dispatchEvent(new CustomEvent('matches:force-refetch', {
+                        detail: { reason: 'sport-tab-sync', sportKeys: intendedSportKeys },
+                    }));
+                });
+            };
+            if (keysToSync.length > 0) {
+                syncAndDispatch(keysToSync);
+            } else {
+                window.dispatchEvent(new CustomEvent('matches:force-refetch', {
+                    detail: { reason: 'sport-tab-sync-cached', sportKeys: intendedSportKeys },
+                }));
+            }
+        }, 300);
+        return () => {
+            cancelled = true;
+            window.clearTimeout(timer);
+            ctrl.abort();
+        };
+    }, [intendedSportKeys, statusFilter, showToast]);
 
     const handleManualRefresh = React.useCallback(() => {
         if (isRefreshing || isSportRefreshing || cooldownRemainingSec > 0) return;

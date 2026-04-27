@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { refreshSportOdds, refreshSportsOdds } from '../api';
 
-const DEFAULT_COOLDOWN_MS = 20_000;
+// Pre-match odds: 5-minute server-side rate limit (1 per user per 300s).
+// The frontend cooldown matches so the button stays disabled for the same
+// window — user never clicks, gets a toast, then has to wait anyway.
+const DEFAULT_COOLDOWN_MS = 300_000;
 const noopToast = () => {};
 
 /**
