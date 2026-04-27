@@ -365,10 +365,24 @@ export default function useMatches(options = {}) {
             startPolling();
         };
 
+        // Window focus is a sibling signal to visibilitychange — fires on
+        // alt-tab back, on window-unminimize, on click-into-window from
+        // another app. Some browsers fire one but not the other depending on
+        // OS/version, so we register both. Both paths bypass the local
+        // cache so the user sees fresh odds within one HTTP round-trip
+        // instead of waiting up to AUTO_POLL_MS for the next poll.
+        const handleWindowFocus = () => {
+            if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+            matchesResponseCache.delete(createMatchesCacheKey(statusFilter, scopeKey || 'global'));
+            inFlightRequests.delete(createMatchesCacheKey(statusFilter, scopeKey || 'global'));
+            fetchMatches({ trigger: 'window-focus', refresh: false });
+        };
+
         if (typeof window !== 'undefined') {
             window.addEventListener('matches:refresh', handleRefresh);
             window.addEventListener('matches:sync-deferred', handleSyncDeferred);
             window.addEventListener('matches:force-refetch', handleForceRefetch);
+            window.addEventListener('focus', handleWindowFocus);
             if (typeof document !== 'undefined') {
                 document.addEventListener('visibilitychange', handleVisibilityChange);
             }
@@ -383,6 +397,7 @@ export default function useMatches(options = {}) {
                 window.removeEventListener('matches:refresh', handleRefresh);
                 window.removeEventListener('matches:sync-deferred', handleSyncDeferred);
                 window.removeEventListener('matches:force-refetch', handleForceRefetch);
+                window.removeEventListener('focus', handleWindowFocus);
                 if (typeof document !== 'undefined') {
                     document.removeEventListener('visibilitychange', handleVisibilityChange);
                 }

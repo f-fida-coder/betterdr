@@ -597,7 +597,18 @@ const buildMatchesParams = (status = '', options = {}) => {
 };
 
 export const getMatches = async (status = '', options = {}) => {
-    const response = await fetch(buildApiUrl('/matches', buildMatchesParams(status, options)), { headers: getHeaders() });
+    // Live tab + manual refresh must bypass HTTP/CDN caches so the user
+    // never sees stale odds when they explicitly ask for fresh, or when
+    // they're on Live Now (where 30-90s freshness is mandatory). Other
+    // status filters use the default cache behavior, which is fine because
+    // the route already sets short server-side Cache-Control TTLs.
+    const lowered = (status || '').toString().toLowerCase();
+    const isLive = lowered === 'live' || lowered === 'active';
+    const fetchInit = { headers: getHeaders() };
+    if (options?.refresh || isLive) {
+        fetchInit.cache = 'no-store';
+    }
+    const response = await fetch(buildApiUrl('/matches', buildMatchesParams(status, options)), fetchInit);
     if (!response.ok) throw new Error('Failed to fetch matches');
     // Backend signals a background odds sync on manual refresh: the response
     // body is the pre-sync snapshot; fresh odds land a few seconds later.
@@ -614,6 +625,52 @@ export const getMatches = async (status = '', options = {}) => {
 export const getLiveMatches = async (options = {}) => getMatches('live', options);
 
 export const getUpcomingMatches = async (options = {}) => getMatches('upcoming', options);
+
+/**
+ * On-demand Live Now sync. POSTs to /api/sync/live which synchronously
+ * pokes Rundown, then returns the same shape as GET /api/matches?status=live.
+ * The endpoint NEVER errors: even when throttled or quota-capped, it
+ * returns 200 with the latest cached rows and an X-Sync-Throttled: 1
+ * header. Resolves with `{ data, throttled }` so the caller can decide
+ * whether to show the throttle toast.
+ *
+ * AbortSignal: pass options.signal to cancel a stale in-flight request
+ * (e.g. when the user switches tabs before this resolves).
+ */
+export const syncLiveMatches = async (options = {}) => {
+    const init = {
+        method: 'POST',
+        headers: getHeaders(),
+        cache: 'no-store',
+    };
+    if (options.signal) init.signal = options.signal;
+    const response = await fetch(buildApiUrl('/sync/live'), init);
+    if (!response.ok) throw new Error('Failed to sync live matches');
+    const throttled = response.headers?.get?.('X-Sync-Throttled') === '1';
+    const data = await response.json();
+    return { data: Array.isArray(data) ? data : [], throttled };
+};
+
+/**
+ * On-demand pre-match sync for one sport. Same throttle semantics as
+ * syncLiveMatches. Used by the sidebar sport-tab click handler so
+ * switching to NBA/SOCCER/etc. fires a fresh OddsAPI pull alongside the
+ * normal cached fetch.
+ */
+export const syncPrematchSport = async (sportKey, options = {}) => {
+    if (!sportKey) throw new Error('sportKey required');
+    const init = {
+        method: 'POST',
+        headers: getHeaders(),
+        cache: 'no-store',
+    };
+    if (options.signal) init.signal = options.signal;
+    const response = await fetch(buildApiUrl(`/sync/prematch/${encodeURIComponent(sportKey.toLowerCase())}`), init);
+    if (!response.ok) throw new Error(`Failed to sync ${sportKey}`);
+    const throttled = response.headers?.get?.('X-Sync-Throttled') === '1';
+    const data = await response.json();
+    return { data: Array.isArray(data) ? data : [], throttled };
+};
 
 /**
  * Trigger a user-initiated on-demand refresh for a single sport. Backend

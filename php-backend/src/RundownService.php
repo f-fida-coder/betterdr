@@ -77,11 +77,13 @@ final class RundownService
     }
 
     /**
-     * Events with markets for a sport on a date. Filters to in-progress
-     * (live) events client-side because TheRundown's V2 endpoint doesn't
-     * accept a status filter. Returns the raw events array (already filtered).
+     * Events with markets for a sport on a date. Returns events partitioned
+     * into in-progress (`live`) and recently-final (`finished`) buckets so
+     * RundownLiveSync can act on both — the live pass refreshes odds, the
+     * finished pass flips DB rows from status='live' → 'finished' so they
+     * stop appearing in Live Now.
      *
-     * @return array{ok:bool, events:list<array<string,mixed>>, http?:int, error?:string}
+     * @return array{ok:bool, live:list<array<string,mixed>>, finished:list<array<string,mixed>>, http?:int, error?:string}
      */
     public static function liveEventsForSport(int $sportId, ?string $date = null): array
     {
@@ -97,18 +99,45 @@ final class RundownService
             . '?market_ids=1,2,3&main_line=true';
         $resp = self::httpGet($url);
         if (!$resp['ok']) {
-            return ['ok' => false, 'events' => [], 'http' => $resp['status'], 'error' => $resp['error'] ?? 'http_error'];
+            return ['ok' => false, 'live' => [], 'finished' => [], 'http' => $resp['status'], 'error' => $resp['error'] ?? 'http_error'];
         }
         $events = is_array($resp['body']['events'] ?? null) ? $resp['body']['events'] : [];
         $live = [];
+        $finished = [];
         foreach ($events as $ev) {
             if (!is_array($ev)) continue;
             $status = strtoupper((string) ($ev['score']['event_status'] ?? ''));
             if (self::isLiveStatus($status)) {
                 $live[] = $ev;
+            } elseif (self::isFinalStatus($status)) {
+                $finished[] = $ev;
             }
         }
-        return ['ok' => true, 'events' => $live, 'http' => $resp['status']];
+        return ['ok' => true, 'live' => $live, 'finished' => $finished, 'http' => $resp['status']];
+    }
+
+    /**
+     * Whether a Rundown event_status represents a *concluded* game — the
+     * complement of isLiveStatus for the small set of "game over" codes.
+     * Used to flip our DB rows out of status='live' once Rundown reports
+     * STATUS_FULL_TIME / STATUS_FINAL / STATUS_AFTER_PENALTIES, etc.
+     */
+    public static function isFinalStatus(string $status): bool
+    {
+        static $finalSet = [
+            'STATUS_FINAL'         => true,
+            'STATUS_FINAL_OT'      => true,
+            'STATUS_FINAL_PEN'     => true,
+            'STATUS_FULL_TIME'     => true,
+            'STATUS_AFTER_PENALTIES' => true,
+            'STATUS_CANCELED'      => true,
+            'STATUS_CANCELLED'     => true,
+            'STATUS_POSTPONED'     => true,
+            'STATUS_FORFEIT'       => true,
+            'STATUS_ABANDONED'     => true,
+            'STATUS_RETIRED'       => true,
+        ];
+        return isset($finalSet[strtoupper($status)]);
     }
 
     /**
@@ -151,6 +180,12 @@ final class RundownService
         $key = self::apiKey();
         if ($key === '') {
             return ['ok' => false, 'status' => 0, 'body' => [], 'error' => 'missing_api_key'];
+        }
+        // Hard cap on Rundown calls per minute. Protects spend during
+        // burst load (cron + spam-clicked Refresh + sport-tab on-demand).
+        $cap = (int) Env::get('RUNDOWN_MAX_CALLS_PER_MINUTE', '30');
+        if (!ApiQuotaGuard::reserve('rundown', $cap)) {
+            return ['ok' => false, 'status' => 0, 'body' => [], 'error' => 'quota_capped'];
         }
         $ch = curl_init($url);
         curl_setopt_array($ch, [

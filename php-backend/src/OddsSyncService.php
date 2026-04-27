@@ -1517,6 +1517,12 @@ final class OddsSyncService
      */
     private static function httpGetDetailed(string $url): array
     {
+        // Hard cap on OddsAPI calls per minute. Mirrors the Rundown guard
+        // — protects monthly quota from runaway loops or burst spike.
+        $cap = (int) Env::get('ODDSAPI_MAX_CALLS_PER_MINUTE', '60');
+        if (!ApiQuotaGuard::reserve('oddsapi', $cap)) {
+            return ['body' => null, 'status' => 0, 'error' => 'quota_capped', 'headers' => []];
+        }
         $ch = curl_init($url);
         if ($ch === false) {
             return ['body' => null, 'status' => 0, 'error' => 'Unable to initialize cURL handle', 'headers' => []];

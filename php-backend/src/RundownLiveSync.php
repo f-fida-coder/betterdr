@@ -67,10 +67,34 @@ final class RundownLiveSync
         32 => ['basketball_nba'],            // NBA summer league
     ];
 
-    /** @return array{ok:bool, sportsTried:int, eventsSeen:int, matched:int, updated:int, errors:int} */
+    /**
+     * Set of OddsAPI sportKeys that the Rundown live overlay can cover —
+     * derived from SPORT_ID_TO_ODDS_KEYS. Used by the live API filter to
+     * exclude sports that Rundown can't service (Tennis WTA/ATP, NCAA
+     * Baseball, lower-tier soccer, women's leagues outside top flights)
+     * BEFORE checking freshness, so we never serve a stale row from an
+     * uncovered sport.
+     *
+     * @return array<string, true>
+     */
+    public static function coveredSportKeysSet(): array
+    {
+        static $set = null;
+        if ($set === null) {
+            $set = [];
+            foreach (self::SPORT_ID_TO_ODDS_KEYS as $keys) {
+                foreach ($keys as $k) {
+                    $set[strtolower($k)] = true;
+                }
+            }
+        }
+        return $set;
+    }
+
+    /** @return array{ok:bool, sportsTried:int, eventsSeen:int, matched:int, updated:int, finished:int, errors:int} */
     public static function tick(SqlRepository $db): array
     {
-        $result = ['ok' => false, 'sportsTried' => 0, 'eventsSeen' => 0, 'matched' => 0, 'updated' => 0, 'errors' => 0];
+        $result = ['ok' => false, 'sportsTried' => 0, 'eventsSeen' => 0, 'matched' => 0, 'updated' => 0, 'finished' => 0, 'errors' => 0];
         if (!RundownService::isEnabled()) {
             return $result;
         }
@@ -122,10 +146,11 @@ final class RundownLiveSync
                 $result['errors']++;
                 continue;
             }
-            if ($resp['events'] === []) continue;
 
             $oddsKeys = self::SPORT_ID_TO_ODDS_KEYS[$sportId] ?? [];
-            foreach ($resp['events'] as $event) {
+
+            // Pass 1 — in-progress events: refresh odds + bump lastOddsSyncAt.
+            foreach ($resp['live'] ?? [] as $event) {
                 $result['eventsSeen']++;
                 $merged = self::mergeEvent($db, $event, $oddsKeys);
                 if ($merged['matched']) $result['matched']++;
@@ -134,9 +159,23 @@ final class RundownLiveSync
                     if ($merged['sportKey'] !== '') $touchedSportKeys[$merged['sportKey']] = true;
                 }
             }
+
+            // Pass 2 — concluded events: flip status='finished' on any DB
+            // row currently sitting at status='live' for this game. Without
+            // this flip, ended games linger in Live Now until something else
+            // (which never runs on prod) marks them done.
+            foreach ($resp['finished'] ?? [] as $event) {
+                $result['eventsSeen']++;
+                $finalized = self::finalizeEvent($db, $event, $oddsKeys);
+                if ($finalized['matched']) $result['matched']++;
+                if ($finalized['finalized']) {
+                    $result['finished']++;
+                    if ($finalized['sportKey'] !== '') $touchedSportKeys[$finalized['sportKey']] = true;
+                }
+            }
         }
 
-        if ($result['updated'] > 0) {
+        if ($result['updated'] > 0 || $result['finished'] > 0) {
             // Bump global feed health + invalidate caches just like
             // OddsSyncService::syncSingleSport does so the staleness gate
             // and public matches endpoint reflect the fresh writes.
@@ -206,6 +245,8 @@ final class RundownLiveSync
      */
     private static function mergeEvent(SqlRepository $db, array $event, array $oddsKeys): array
     {
+        $rundownEventId = trim((string) ($event['event_id'] ?? ''));
+
         $teams = is_array($event['teams'] ?? null) ? $event['teams'] : [];
         $homeName = '';
         $awayName = '';
@@ -217,16 +258,24 @@ final class RundownLiveSync
             if (($team['is_home'] ?? false) === true) $homeName = $full !== '' ? $full : $name;
             elseif (($team['is_away'] ?? false) === true) $awayName = $full !== '' ? $full : $name;
         }
-        if ($homeName === '' || $awayName === '') {
-            return ['matched' => false, 'updated' => false, 'sportKey' => ''];
-        }
 
         $eventDate = (string) ($event['event_date'] ?? '');
         $eventTs = $eventDate !== '' ? (int) strtotime($eventDate) : 0;
 
-        $row = self::findMatchingRow($db, $homeName, $awayName, $oddsKeys, $eventTs);
+        // Stable identity first: if we've ever bound this Rundown event_id
+        // to a row, look it up directly. Avoids team-name-fuzzy drift across
+        // ticks (mid-game team-name updates, transliteration changes,
+        // sponsor name swaps) that previously caused live rows to silently
+        // age out of the freshness window.
+        $row = self::findRowByRundownEventId($db, $rundownEventId);
         if ($row === null) {
-            return ['matched' => false, 'updated' => false, 'sportKey' => ''];
+            if ($homeName === '' || $awayName === '') {
+                return ['matched' => false, 'updated' => false, 'sportKey' => ''];
+            }
+            $row = self::findMatchingRow($db, $homeName, $awayName, $oddsKeys, $eventTs);
+            if ($row === null) {
+                return ['matched' => false, 'updated' => false, 'sportKey' => ''];
+            }
         }
 
         $oddsDoc = self::buildOddsFromRundown($event['markets'] ?? [], $homeName, $awayName);
@@ -242,12 +291,100 @@ final class RundownLiveSync
             'lastScoreSyncAt' => $now,
             'updatedAt' => $now,
         ];
+        // Bind/refresh the Rundown event_id on every successful match so
+        // subsequent ticks bypass fuzzy-match entirely. updateOne is a JSON
+        // merge, so this is additive — won't clobber unrelated fields.
+        if ($rundownEventId !== '') {
+            $update['rundownEventId'] = $rundownEventId;
+        }
         try {
             $db->updateOne('matches', ['id' => SqlRepository::id((string) $row['id'])], $update);
             return ['matched' => true, 'updated' => true, 'sportKey' => (string) ($row['sportKey'] ?? '')];
         } catch (Throwable $_) {
             return ['matched' => true, 'updated' => false, 'sportKey' => (string) ($row['sportKey'] ?? '')];
         }
+    }
+
+    /**
+     * Flip an ended game's row from status='live' → 'finished', persist final
+     * scores, and pin oddsSource so the live filter stops counting it as
+     * fresh. Idempotent — re-running on an already-finished row is a no-op.
+     *
+     * @param array<string,mixed> $event
+     * @param list<string> $oddsKeys
+     * @return array{matched:bool, finalized:bool, sportKey:string}
+     */
+    private static function finalizeEvent(SqlRepository $db, array $event, array $oddsKeys): array
+    {
+        $rundownEventId = trim((string) ($event['event_id'] ?? ''));
+
+        $teams = is_array($event['teams'] ?? null) ? $event['teams'] : [];
+        $homeName = '';
+        $awayName = '';
+        foreach ($teams as $team) {
+            if (!is_array($team)) continue;
+            $name = trim((string) ($team['name'] ?? ''));
+            $mascot = trim((string) ($team['mascot'] ?? ''));
+            $full = trim($name . ' ' . $mascot);
+            if (($team['is_home'] ?? false) === true) $homeName = $full !== '' ? $full : $name;
+            elseif (($team['is_away'] ?? false) === true) $awayName = $full !== '' ? $full : $name;
+        }
+
+        $eventDate = (string) ($event['event_date'] ?? '');
+        $eventTs = $eventDate !== '' ? (int) strtotime($eventDate) : 0;
+
+        $row = self::findRowByRundownEventId($db, $rundownEventId);
+        if ($row === null) {
+            if ($homeName === '' || $awayName === '') {
+                return ['matched' => false, 'finalized' => false, 'sportKey' => ''];
+            }
+            $row = self::findMatchingRow($db, $homeName, $awayName, $oddsKeys, $eventTs);
+            if ($row === null) {
+                return ['matched' => false, 'finalized' => false, 'sportKey' => ''];
+            }
+        }
+
+        // Skip if already finished — keeps the tick idempotent and the
+        // 'updated' counter honest.
+        if (strtolower((string) ($row['status'] ?? '')) === 'finished') {
+            return ['matched' => true, 'finalized' => false, 'sportKey' => (string) ($row['sportKey'] ?? '')];
+        }
+
+        $score = self::buildScoreFromRundown($event['score'] ?? []);
+        $now = SqlRepository::nowUtc();
+        $update = [
+            'status' => 'finished',
+            'score' => $score,
+            'oddsSource' => 'rundown',
+            'lastUpdated' => $now,
+            'lastScoreSyncAt' => $now,
+            'updatedAt' => $now,
+        ];
+        if ($rundownEventId !== '') {
+            $update['rundownEventId'] = $rundownEventId;
+        }
+        try {
+            $db->updateOne('matches', ['id' => SqlRepository::id((string) $row['id'])], $update);
+            return ['matched' => true, 'finalized' => true, 'sportKey' => (string) ($row['sportKey'] ?? '')];
+        } catch (Throwable $_) {
+            return ['matched' => true, 'finalized' => false, 'sportKey' => (string) ($row['sportKey'] ?? '')];
+        }
+    }
+
+    /**
+     * Direct lookup by previously-bound rundownEventId. Returns null if no
+     * binding exists yet — caller falls back to fuzzy team-name matching
+     * for the first-ever pairing of an event to a row.
+     *
+     * @return array<string,mixed>|null
+     */
+    private static function findRowByRundownEventId(SqlRepository $db, string $rundownEventId): ?array
+    {
+        if ($rundownEventId === '') return null;
+        $row = $db->findOne('matches', ['rundownEventId' => $rundownEventId], [
+            'projection' => ['id' => 1, 'status' => 1, 'sportKey' => 1, 'homeTeam' => 1, 'awayTeam' => 1, 'startTime' => 1],
+        ]);
+        return is_array($row) ? $row : null;
     }
 
     /**

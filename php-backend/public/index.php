@@ -23,7 +23,10 @@ require_once __DIR__ . '/../src/AgentSettlementRules.php';
 require_once __DIR__ . '/../src/AgentSettlementSnapshotService.php';
 require_once __DIR__ . '/../src/BetSettlementService.php';
 require_once __DIR__ . '/../src/OddsMarketCatalog.php';
+require_once __DIR__ . '/../src/ApiQuotaGuard.php';
 require_once __DIR__ . '/../src/OddsSyncService.php';
+require_once __DIR__ . '/../src/RundownService.php';
+require_once __DIR__ . '/../src/RundownLiveSync.php';
 require_once __DIR__ . '/../src/AuthController.php';
 require_once __DIR__ . '/../src/WalletController.php';
 require_once __DIR__ . '/../src/BetsController.php';
@@ -624,6 +627,7 @@ if (
     || str_starts_with($uriPath, '/api/admin')
     || str_starts_with($uriPath, '/api/debug')
     || str_starts_with($uriPath, '/api/internal')
+    || str_starts_with($uriPath, '/api/sync')
     || str_starts_with($uriPath, '/api/proxy')
 ) {
     if ($authNativeEnabled) {

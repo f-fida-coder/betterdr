@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import useMatches from '../hooks/useMatches';
 import useSportOddsRefresh from '../hooks/useSportOddsRefresh';
+import { syncLiveMatches, syncPrematchSport } from '../api';
 import { useToast } from '../contexts/ToastContext';
 import { createFallbackTeamLogoDataUri, fetchTeamBadgeUrl } from '../utils/teamLogos';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
@@ -45,7 +46,48 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
     }, [content.matches]);
     const { showToast } = useToast();
     const { trigger: triggerRefresh, isRefreshing, cooldownRemainingSec } = useSportOddsRefresh(visibleSportKeys, { showToast });
+    // 2-second cooldown so users can't spam-click the Refresh button. The
+    // server already throttles per-IP, but locking the UI here is the
+    // primary spam-protection — the network request never even fires.
+    const [liveSyncSpinning, setLiveSyncSpinning] = React.useState(false);
+    const liveSyncLastClickRef = React.useRef(0);
+
     const handleRefreshClick = React.useCallback(() => {
+        // Live Now path: synchronous Rundown sync via POST /api/sync/live.
+        // The endpoint returns fresh rows (or cached ones if throttled) in
+        // a single round-trip. Once it resolves, fire matches:force-refetch
+        // so useMatches re-reads from the now-fresh DB.
+        if (status === 'live') {
+            const sinceLast = Date.now() - liveSyncLastClickRef.current;
+            if (liveSyncSpinning || sinceLast < 2000) return;
+            liveSyncLastClickRef.current = Date.now();
+            setLiveSyncSpinning(true);
+            // Hard 3s timeout — if the backend hangs, surface cached rows
+            // and stop the spinner; the user is never stuck.
+            const ctrl = new AbortController();
+            const timer = window.setTimeout(() => ctrl.abort(), 3000);
+            syncLiveMatches({ signal: ctrl.signal })
+                .then(({ throttled }) => {
+                    window.dispatchEvent(new CustomEvent('matches:force-refetch', {
+                        detail: { reason: 'user-live-sync' },
+                    }));
+                    if (throttled) {
+                        showToast?.('Refreshing too fast — showing latest cached odds', { type: 'info' });
+                    }
+                })
+                .catch((err) => {
+                    if (err?.name !== 'AbortError') {
+                        showToast?.("Couldn't refresh, showing last known odds", { type: 'warning' });
+                    }
+                })
+                .finally(() => {
+                    window.clearTimeout(timer);
+                    setLiveSyncSpinning(false);
+                });
+            return;
+        }
+        // Pre-match path keeps the existing per-sport refresh hook so we
+        // don't regress the bulk /api/odds/refresh-multi behavior.
         triggerRefresh({
             onSuccess: () => {
                 // DB already updated by /api/odds/refresh{,-multi}; force the
@@ -56,7 +98,51 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                 }));
             },
         });
-    }, [triggerRefresh, visibleSportKeys]);
+    }, [status, triggerRefresh, visibleSportKeys, liveSyncSpinning, showToast]);
+
+    // Sport-tab click: fire POST /api/sync/prematch/{sportKey} in parallel
+    // with the GET that useMatches kicks off. AbortController cancels in-
+    // flight syncs when the user switches sports rapidly, so we never paint
+    // stale data over fresh. Only runs for pre-match views — the live path
+    // owns its own /api/sync/live trigger. Parallel-fires for each visible
+    // sportKey because views can mix leagues (e.g. NBA + WNBA).
+    React.useEffect(() => {
+        if (status === 'live') return;
+        if (visibleSportKeys.length === 0) return;
+        const ctrl = new AbortController();
+        let cancelled = false;
+        Promise.all(visibleSportKeys.map(async (sportKey) => {
+            try {
+                const { throttled } = await syncPrematchSport(sportKey, { signal: ctrl.signal });
+                if (cancelled) return;
+                if (throttled) {
+                    // Per-IP throttle hit — keep cached rows on screen, no
+                    // toast (would be noisy if rendered for every sport).
+                    return;
+                }
+            } catch (err) {
+                if (err?.name === 'AbortError') return;
+                if (!cancelled) {
+                    showToast?.(`Couldn't fetch latest odds for ${sportKey}`, { type: 'warning' });
+                }
+            }
+        })).then(() => {
+            if (cancelled) return;
+            // Force-refetch after all parallel syncs settle so the UI sees
+            // the freshly-synced rows in one consistent paint.
+            window.dispatchEvent(new CustomEvent('matches:force-refetch', {
+                detail: { reason: 'sport-tab-sync', sportKeys: visibleSportKeys },
+            }));
+        });
+        return () => {
+            cancelled = true;
+            ctrl.abort();
+        };
+        // We intentionally key on sportId/filter only — visibleSportKeys
+        // changing mid-stay (because the sync just landed new rows) would
+        // create a feedback loop.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [sportId, filter, status]);
 
     // Cold-load freshness guarantee. The first time this view paints with
     // matches, peek at the oldest visible lastOddsSyncAt. If anything is
@@ -338,9 +424,13 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                     type="button"
                     className="sport-refresh-btn"
                     onClick={handleRefreshClick}
-                    disabled={visibleSportKeys.length === 0 || isRefreshing || cooldownRemainingSec > 0}
+                    disabled={(status === 'live')
+                        ? liveSyncSpinning
+                        : (visibleSportKeys.length === 0 || isRefreshing || cooldownRemainingSec > 0)}
                     aria-label="Refresh odds for this sport"
-                    title={visibleSportKeys.length === 0 ? 'No matches to refresh' : cooldownRemainingSec > 0 ? `Wait ${cooldownRemainingSec}s` : 'Refresh odds'}
+                    title={status === 'live'
+                        ? (liveSyncSpinning ? 'Syncing live odds…' : 'Refresh live odds')
+                        : (visibleSportKeys.length === 0 ? 'No matches to refresh' : cooldownRemainingSec > 0 ? `Wait ${cooldownRemainingSec}s` : 'Refresh odds')}
                     style={{
                         display: 'inline-flex',
                         alignItems: 'center',
@@ -356,8 +446,8 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                         fontSize: 13,
                     }}
                 >
-                    <i className={`fa-solid fa-arrows-rotate ${isRefreshing ? 'fa-spin' : ''}`} />
-                    <span>{isRefreshing ? 'Updating…' : cooldownRemainingSec > 0 ? `Wait ${cooldownRemainingSec}s` : 'Refresh'}</span>
+                    <i className={`fa-solid fa-arrows-rotate ${(isRefreshing || liveSyncSpinning) ? 'fa-spin' : ''}`} />
+                    <span>{(isRefreshing || liveSyncSpinning) ? 'Updating…' : cooldownRemainingSec > 0 ? `Wait ${cooldownRemainingSec}s` : 'Refresh'}</span>
                 </button>
                 <div className="content-tabs">
                     <button className="tab-btn active">Matches</button>
@@ -387,7 +477,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                     <div className="match-time">
                                         <span className="time">{match.time}</span>
                                         <span className="date">{match.date}</span>
-                                        <OddsAge timestamp={match.rawMatch?.lastOddsSyncAt || match.rawMatch?.lastUpdated} style={{ marginLeft: 8 }} />
+                                        <OddsAge timestamp={match.rawMatch?.lastOddsSyncAt || match.rawMatch?.lastUpdated} live={(match.status || '').toString().toUpperCase() === 'LIVE' || (match.rawMatch?.status || '').toString().toLowerCase() === 'live'} style={{ marginLeft: 8 }} />
                                     </div>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                         <button

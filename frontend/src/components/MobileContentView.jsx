@@ -687,7 +687,7 @@ const MatchCard = ({ match, oddsFormat, onAddToSlip, selectedKeys, visibleMarket
                         />
                     )}
                     <span style={matchTimeStyle}>{match.timeDisplay || match.time}</span>
-                    <OddsAge timestamp={match.lastOddsSyncAt} />
+                    <OddsAge timestamp={match.lastOddsSyncAt} live={(match.status || '').toString().toLowerCase() === 'live'} />
                 </span>
                 {visibleMarkets.showSpread && <span style={columnLabelStyle}>Spread</span>}
                 {visibleMarkets.showMoneyline && <span style={columnLabelStyle}>ML</span>}

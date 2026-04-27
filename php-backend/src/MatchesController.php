@@ -197,19 +197,32 @@ final class MatchesController
                 return $parsed === false || $parsed > $now;
             }));
         } elseif ($desiredStatus === 'live') {
-            // Live Now is intentionally Rundown-only: only rows that the
-            // Rundown live overlay has actively touched within the last
-            // RUNDOWN_LIVE_FRESHNESS_SECONDS window are considered truly
-            // live. Anything older is treated as stale (game ended, Rundown
-            // lost the feed, sportsbook suspended) and dropped from Live Now.
-            $maxAge = max(60, (int) Env::get('RUNDOWN_LIVE_FRESHNESS_SECONDS', '300'));
+            // Live Now is Rundown-EXCLUSIVE per business rule. A row passes
+            // only if ALL of:
+            //   1. status='live'
+            //   2. oddsSource='rundown' — proves Rundown is currently
+            //      driving the row (OddsAPI never sets this value)
+            //   3. lastOddsSyncAt within the per-sport freshness window
+            //   4. sportKey is in Rundown's coverage set — defense in depth
+            //      so a stale leftover row from a sport we removed from the
+            //      Rundown map can never leak into Live Now
+            //
+            // Per-sport overrides via env (sportKey upper-cased, dots/dashes
+            // replaced with underscores). Examples:
+            //   LIVE_FRESHNESS_SECONDS_DEFAULT=90
+            //   LIVE_FRESHNESS_SECONDS_CRICKET_IPL=120
+            //   LIVE_FRESHNESS_SECONDS_SOCCER_SPAIN_LA_LIGA=90
             $now = time();
-            $annotated = array_values(array_filter($annotated, static function (array $match) use ($now, $maxAge): bool {
+            $coveredKeys = RundownLiveSync::coveredSportKeysSet();
+            $annotated = array_values(array_filter($annotated, static function (array $match) use ($now, $coveredKeys): bool {
                 if (strtolower((string) ($match['status'] ?? '')) !== 'live') return false;
                 if (strtolower((string) ($match['oddsSource'] ?? '')) !== 'rundown') return false;
+                $sportKey = strtolower((string) ($match['sportKey'] ?? ''));
+                if ($sportKey === '' || !isset($coveredKeys[$sportKey])) return false;
                 $last = (string) ($match['lastOddsSyncAt'] ?? '');
                 $lastTs = $last !== '' ? strtotime($last) : false;
                 if ($lastTs === false) return false;
+                $maxAge = self::liveFreshnessSecondsForSport($sportKey);
                 return ($now - $lastTs) <= $maxAge;
             }));
         } elseif ($desiredStatus === 'live-upcoming') {
@@ -1084,6 +1097,35 @@ final class MatchesController
     {
         $raw = Env::get($key, (string) $default);
         return is_numeric($raw) ? max(1, (int) $raw) : $default;
+    }
+
+    /**
+     * Live freshness window in seconds for a given sportKey.
+     *
+     * Lookup order:
+     *   1. LIVE_FRESHNESS_SECONDS_<UPPERCASED_SPORT_KEY>  (e.g.
+     *      LIVE_FRESHNESS_SECONDS_CRICKET_IPL)
+     *   2. LIVE_FRESHNESS_SECONDS_DEFAULT
+     *   3. RUNDOWN_LIVE_FRESHNESS_SECONDS  (legacy fallback — earlier
+     *      releases used this single knob; respected for back-compat)
+     *   4. Hard default 90s
+     *
+     * Sport keys with non-alnum characters (dots, dashes) are normalized to
+     * underscores so the env name is always a valid identifier.
+     */
+    public static function liveFreshnessSecondsForSport(string $sportKey): int
+    {
+        $hard = 90;
+        $key = strtoupper(preg_replace('/[^A-Za-z0-9]+/', '_', trim($sportKey)) ?? '');
+        if ($key !== '') {
+            $perSport = (int) Env::get('LIVE_FRESHNESS_SECONDS_' . $key, '0');
+            if ($perSport > 0) return $perSport;
+        }
+        $default = (int) Env::get('LIVE_FRESHNESS_SECONDS_DEFAULT', '0');
+        if ($default > 0) return $default;
+        $legacy = (int) Env::get('RUNDOWN_LIVE_FRESHNESS_SECONDS', '0');
+        if ($legacy > 0) return $legacy;
+        return $hard;
     }
 
     private function isTruthy(mixed $value): bool

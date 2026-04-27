@@ -68,6 +68,26 @@ final class SqlRepository
         return extension_loaded('pdo_mysql');
     }
 
+    /**
+     * Direct PDO accessor for ops/diagnostic code that needs to manage
+     * non-doc tables (tick_log, ad-hoc dashboards). General application
+     * code should keep using insertOne / findMany / updateOne so the
+     * JSON-doc abstraction remains the one source of truth.
+     */
+    public function getRawPdoForOps(): PDO
+    {
+        return $this->pdo;
+    }
+
+    /**
+     * Apply the tablePrefix the same way collection-aware methods do, for
+     * ops code that's writing to a non-collection table (e.g. tick_log).
+     */
+    public function rawTableName(string $table): string
+    {
+        return $this->tablePrefix . $table;
+    }
+
     public function beginTransaction(): void
     {
         if (!$this->pdo->inTransaction()) {
