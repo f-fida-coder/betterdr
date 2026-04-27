@@ -96,6 +96,7 @@ final class RundownLiveSync
     {
         $result = ['ok' => false, 'sportsTried' => 0, 'eventsSeen' => 0, 'matched' => 0, 'updated' => 0, 'finished' => 0, 'errors' => 0];
         if (!RundownService::isEnabled()) {
+            Logger::info('Rundown live sync skipped: service disabled', [], 'rundown');
             return $result;
         }
 
@@ -106,12 +107,16 @@ final class RundownLiveSync
         // to start, skip the entire tick.
         $activeKeys = self::activeSportKeys($db);
         if ($activeKeys === []) {
+            Logger::debug('Rundown live sync: no active sports', [], 'rundown');
             $result['ok'] = true;
             return $result;
         }
 
+        Logger::info('Rundown live sync tick started', ['activeSports' => count($activeKeys)], 'rundown');
+        
         $sports = RundownService::listSports();
         if ($sports === []) {
+            Logger::error('Rundown live sync failed: no sports list available', [], 'rundown');
             $result['errors']++;
             return $result;
         }
@@ -181,6 +186,7 @@ final class RundownLiveSync
             // and public matches endpoint reflect the fresh writes.
             SportsbookHealth::recordOddsApiSuccess($db, false);
             SportsbookCache::invalidatePublicMatchCaches();
+            Logger::info('Rundown live sync: cache invalidated', ['updated' => $result['updated'], 'finished' => $result['finished']], 'rundown');
             if (class_exists('RealtimeEventBus')) {
                 foreach (array_keys($touchedSportKeys) as $sportKey) {
                     RealtimeEventBus::publish('odds:sport:sync', [
@@ -193,6 +199,14 @@ final class RundownLiveSync
         }
 
         $result['ok'] = true;
+        Logger::info('Rundown live sync tick completed', [
+            'sportsTried' => $result['sportsTried'],
+            'eventsSeen' => $result['eventsSeen'],
+            'matched' => $result['matched'],
+            'updated' => $result['updated'],
+            'finished' => $result['finished'],
+            'errors' => $result['errors'],
+        ], 'rundown');
         return $result;
     }
 

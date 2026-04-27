@@ -179,12 +179,14 @@ final class RundownService
     {
         $key = self::apiKey();
         if ($key === '') {
+            Logger::info('Rundown API key missing', [], 'rundown');
             return ['ok' => false, 'status' => 0, 'body' => [], 'error' => 'missing_api_key'];
         }
         // Hard cap on Rundown calls per minute. Protects spend during
         // burst load (cron + spam-clicked Refresh + sport-tab on-demand).
         $cap = (int) Env::get('RUNDOWN_MAX_CALLS_PER_MINUTE', '30');
         if (!ApiQuotaGuard::reserve('rundown', $cap)) {
+            Logger::warn('Rundown API quota capped', ['cap' => $cap], 'rundown');
             return ['ok' => false, 'status' => 0, 'body' => [], 'error' => 'quota_capped'];
         }
         $ch = curl_init($url);
@@ -195,22 +197,28 @@ final class RundownService
             CURLOPT_CONNECTTIMEOUT => 4,
             CURLOPT_FOLLOWLOCATION => true,
         ]);
+        $start = microtime(true);
         $body = curl_exec($ch);
+        $elapsed = (int) round((microtime(true) - $start) * 1000);
         $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $err = curl_error($ch);
         // curl_close() is a deprecated no-op since PHP 8.0; the handle is
         // cleaned up automatically when $ch goes out of scope.
 
         if (!is_string($body) || $body === '') {
+            Logger::warn('Rundown API empty response', ['status' => $status, 'error' => $err, 'elapsedMs' => $elapsed], 'rundown');
             return ['ok' => false, 'status' => $status, 'body' => [], 'error' => $err ?: 'empty_body'];
         }
         $decoded = json_decode($body, true);
         if (!is_array($decoded)) {
+            Logger::warn('Rundown API invalid JSON', ['status' => $status, 'elapsedMs' => $elapsed], 'rundown');
             return ['ok' => false, 'status' => $status, 'body' => [], 'error' => 'invalid_json'];
         }
         if ($status < 200 || $status >= 300) {
+            Logger::warn('Rundown API HTTP error', ['status' => $status, 'elapsedMs' => $elapsed, 'response' => $decoded], 'rundown');
             return ['ok' => false, 'status' => $status, 'body' => $decoded, 'error' => 'http_' . $status];
         }
+        Logger::debug('Rundown API call success', ['status' => $status, 'elapsedMs' => $elapsed, 'url' => $url], 'rundown');
         return ['ok' => true, 'status' => $status, 'body' => $decoded];
     }
 

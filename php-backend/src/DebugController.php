@@ -28,6 +28,10 @@ final class DebugController
             $this->liveStatus();
             return true;
         }
+        if ($method === 'GET' && $path === '/api/debug/rundown-diagnostics') {
+            $this->rundownDiagnostics();
+            return true;
+        }
         if (($method === 'GET' || $method === 'POST') && $path === '/api/internal/rundown-tick') {
             $this->rundownTick();
             return true;
@@ -853,6 +857,186 @@ final class DebugController
             ]);
         } catch (Throwable $e) {
             Logger::exception($e, 'live-status debug error');
+            Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Comprehensive Rundown API diagnostics. Checks:
+     * - API key configuration
+     * - Network connectivity to Rundown
+     * - Database state (live matches with rundown source)
+     * - Recent tick history and errors
+     * - Cache status and invalidation
+     * 
+     * Returns detailed diagnostic data for troubleshooting Live Now button issues.
+     * Admin-only endpoint.
+     */
+    private function rundownDiagnostics(): void
+    {
+        try {
+            $actor = $this->protectAdminOnly();
+            if ($actor === null) {
+                return;
+            }
+
+            $now = time();
+            $diagnostic = [
+                'timestamp' => gmdate(DATE_ATOM, $now),
+                'configuration' => [],
+                'api_connectivity' => [],
+                'database' => [],
+                'cache' => [],
+                'recent_history' => [],
+                'recommendations' => [],
+            ];
+
+            // 1. Configuration Check
+            $apiKey = trim((string) Env::get('RUNDOWN_API_KEY', ''));
+            $enabled = strtolower((string) Env::get('RUNDOWN_LIVE_ENABLED', 'false')) === 'true';
+            $diagnostic['configuration'] = [
+                'enabled' => $enabled,
+                'api_key_set' => $apiKey !== '',
+                'api_key_length' => strlen($apiKey),
+                'max_calls_per_minute' => (int) Env::get('RUNDOWN_MAX_CALLS_PER_MINUTE', '30'),
+                'max_sports_per_tick' => (int) Env::get('RUNDOWN_LIVE_MAX_SPORTS_PER_TICK', '20'),
+                'request_delay_ms' => (int) Env::get('RUNDOWN_LIVE_REQUEST_DELAY_MS', '1100'),
+            ];
+
+            if (!$enabled) {
+                $diagnostic['recommendations'][] = 'RUNDOWN_LIVE_ENABLED is false — Live Now button will not return any sports';
+                Response::json($diagnostic, 200);
+                return;
+            }
+
+            if (!$apiKey) {
+                $diagnostic['recommendations'][] = 'RUNDOWN_API_KEY is empty — Live odds are disabled';
+                Response::json($diagnostic, 200);
+                return;
+            }
+
+            // 2. API Connectivity Check
+            try {
+                $start = microtime(true);
+                $sports = RundownService::listSports();
+                $elapsed = (int) round((microtime(true) - $start) * 1000);
+                $diagnostic['api_connectivity'] = [
+                    'reachable' => true,
+                    'sports_count' => count($sports),
+                    'response_time_ms' => $elapsed,
+                    'error' => null,
+                    'api_quota_current' => ApiQuotaGuard::currentCount('rundown'),
+                    'api_quota_limit' => (int) Env::get('RUNDOWN_MAX_CALLS_PER_MINUTE', '30'),
+                ];
+            } catch (Throwable $e) {
+                $diagnostic['api_connectivity'] = [
+                    'reachable' => false,
+                    'sports_count' => 0,
+                    'response_time_ms' => 0,
+                    'error' => $e->getMessage(),
+                    'api_quota_current' => ApiQuotaGuard::currentCount('rundown'),
+                    'api_quota_limit' => (int) Env::get('RUNDOWN_MAX_CALLS_PER_MINUTE', '30'),
+                ];
+                $diagnostic['recommendations'][] = 'Cannot reach Rundown API: ' . $e->getMessage();
+            }
+
+            // 3. Database State Check
+            $allLive = $this->db->findMany('matches', ['status' => 'live'], [
+                'projection' => ['id' => 1, 'sportKey' => 1, 'oddsSource' => 1, 'lastOddsSyncAt' => 1, 'homeTeam' => 1, 'awayTeam' => 1],
+                'limit' => 1000,
+            ]);
+            $allLiveCount = is_array($allLive) ? count($allLive) : 0;
+
+            $rundownLive = array_filter(
+                is_array($allLive) ? $allLive : [],
+                static fn($m) => is_array($m) && strtolower((string) ($m['oddsSource'] ?? '')) === 'rundown'
+            );
+            $rundownLiveCount = count($rundownLive);
+
+            $coveredSports = RundownLiveSync::coveredSportKeysSet();
+            $rundownCovered = array_filter(
+                $rundownLive,
+                static fn($m) => isset($coveredSports[strtolower((string) ($m['sportKey'] ?? ''))])
+            );
+
+            // Check freshness of Rundown live rows
+            $freshRundownCount = 0;
+            $stalestRundownRow = null;
+            foreach ($rundownCovered as $row) {
+                $last = (string) ($row['lastOddsSyncAt'] ?? '');
+                $lastTs = $last !== '' ? strtotime($last) : false;
+                if ($lastTs === false) continue;
+                $sportKey = strtolower((string) ($row['sportKey'] ?? ''));
+                $freshness = MatchesController::liveFreshnessSecondsForSport($sportKey);
+                $age = $now - $lastTs;
+                if ($age <= $freshness) {
+                    $freshRundownCount++;
+                }
+                if ($stalestRundownRow === null || $age > ($now - (strtotime((string) ($stalestRundownRow['lastOddsSyncAt'] ?? '')) ?: 0))) {
+                    $stalestRundownRow = [
+                        'sport_key' => $sportKey,
+                        'home' => (string) ($row['homeTeam'] ?? ''),
+                        'away' => (string) ($row['awayTeam'] ?? ''),
+                        'age_seconds' => $age,
+                        'last_odds_sync_at' => $last,
+                    ];
+                }
+            }
+
+            $diagnostic['database'] = [
+                'total_live_rows' => $allLiveCount,
+                'rundown_live_rows' => $rundownLiveCount,
+                'rundown_covered_sports' => count($rundownCovered),
+                'rundown_fresh_rows' => $freshRundownCount,
+                'stalest_rundown_row' => $stalestRundownRow,
+                'covered_sports_list' => array_keys($coveredSports),
+            ];
+
+            if ($rundownLiveCount === 0) {
+                $diagnostic['recommendations'][] = 'No live matches with oddsSource=rundown in database — Live Now will return empty';
+            } elseif ($freshRundownCount === 0) {
+                $diagnostic['recommendations'][] = 'Rundown live rows exist but all are stale (older than freshness window) — check if ticks are running';
+            }
+
+            // 4. Cache Status Check
+            $cacheKey = 'public-matches:live';
+            $cachedLiveMatches = SharedFileCache::peek('matches', $cacheKey);
+            $diagnostic['cache'] = [
+                'live_matches_cached' => $cachedLiveMatches !== null,
+                'cache_age_seconds' => $cachedLiveMatches !== null && isset($cachedLiveMatches['ts']) ? ($now - (int) $cachedLiveMatches['ts']) : null,
+                'cache_size_bytes' => $cachedLiveMatches !== null && isset($cachedLiveMatches['data']) ? strlen((string) json_encode($cachedLiveMatches['data'])) : null,
+            ];
+
+            // 5. Recent Tick History
+            $recentTicks = $this->recentTickLogs(5);
+            $diagnostic['recent_history'] = array_map(
+                static fn($tick) => [
+                    'type' => $tick['tick_type'] ?? null,
+                    'started_at' => $tick['started_at'] ?? null,
+                    'finished_at' => $tick['finished_at'] ?? null,
+                    'status' => $tick['status'] ?? null,
+                    'sports_tried' => isset($tick['sports_tried']) ? (int) $tick['sports_tried'] : null,
+                    'events_seen' => isset($tick['events_seen']) ? (int) $tick['events_seen'] : null,
+                    'updated' => isset($tick['updated']) ? (int) $tick['updated'] : null,
+                    'finished' => isset($tick['finished']) ? (int) $tick['finished'] : null,
+                    'error' => $tick['error_message'] ?? null,
+                ],
+                $recentTicks
+            );
+
+            // 6. Final Recommendations
+            if ($diagnostic['api_connectivity']['reachable'] === false) {
+                $diagnostic['recommendations'][] = 'API connectivity issue — verify network access and RUNDOWN_API_KEY';
+            }
+            if ($freshRundownCount > 0) {
+                $diagnostic['recommendations'][] = '✓ System is working correctly — ' . $freshRundownCount . ' fresh Rundown live rows available';
+            } elseif ($rundownCovered > 0) {
+                $diagnostic['recommendations'][] = 'Rundown rows exist but are stale — trigger manual sync: POST /api/sync/live';
+            }
+
+            Response::json($diagnostic, 200);
+        } catch (Throwable $e) {
+            Logger::exception($e, 'rundown-diagnostics error');
             Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
         }
     }
