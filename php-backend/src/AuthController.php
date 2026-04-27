@@ -562,6 +562,52 @@ final class AuthController
                 $user['settings'] = $existingSettings;
                 $updates['settings'] = $existingSettings;
             }
+            // Bet defaults — pre-fill the betslip on open so the user
+            // doesn't retype their unit size every time. Stored inside
+            // the existing settings JSON (alongside oddsFormat) instead
+            // of as separate columns to avoid a schema migration; the
+            // shape exposed to the client is `settings.betDefaults`:
+            //   { mode: 'bet'|'risk'|'win', amount: number,
+            //     quickStakes: number[4] }
+            if (array_key_exists('betDefaults', $incomingSettings)) {
+                $bd = is_array($incomingSettings['betDefaults']) ? $incomingSettings['betDefaults'] : [];
+                $mode = strtolower(trim((string) ($bd['mode'] ?? 'risk')));
+                if (!in_array($mode, ['bet', 'risk', 'win'], true)) {
+                    Response::json(['message' => 'betDefaults.mode must be bet, risk, or win'], 400);
+                    return;
+                }
+                $amountRaw = $bd['amount'] ?? 0;
+                $amount = is_numeric($amountRaw) ? (float) $amountRaw : 0.0;
+                if ($amount < 0 || $amount > 1000000) {
+                    Response::json(['message' => 'betDefaults.amount must be between 0 and 1,000,000'], 400);
+                    return;
+                }
+                // Round to 2 decimals — money values, no need for finer precision.
+                $amount = round($amount, 2);
+                $quickStakesRaw = is_array($bd['quickStakes'] ?? null) ? $bd['quickStakes'] : [10, 25, 50, 100];
+                // Normalize to exactly 4 positive integers so the betslip
+                // UI can rely on a fixed-width row of 4 buttons. Drop
+                // anything non-numeric / non-positive and pad/truncate
+                // back to the expected shape.
+                $quickStakes = [];
+                foreach ($quickStakesRaw as $v) {
+                    if (!is_numeric($v)) continue;
+                    $n = (int) $v;
+                    if ($n > 0 && $n <= 1000000) $quickStakes[] = $n;
+                    if (count($quickStakes) >= 4) break;
+                }
+                while (count($quickStakes) < 4) {
+                    $quickStakes[] = [10, 25, 50, 100][count($quickStakes)];
+                }
+                $existingSettings = is_array($user['settings'] ?? null) ? $user['settings'] : [];
+                $existingSettings['betDefaults'] = [
+                    'mode' => $mode,
+                    'amount' => $amount,
+                    'quickStakes' => array_values($quickStakes),
+                ];
+                $user['settings'] = $existingSettings;
+                $updates['settings'] = $existingSettings;
+            }
 
             if (count($updates) > 1) {
                 $collection = $this->collectionByRole((string) ($user['role'] ?? 'user'));

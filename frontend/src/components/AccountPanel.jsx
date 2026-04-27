@@ -1,5 +1,14 @@
 import React from 'react';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
+import { updateProfile, getStoredAuthToken } from '../api';
+import { useToast } from '../contexts/ToastContext';
+
+const DEFAULT_QUICK_STAKES = [10, 25, 50, 100];
+const STAKE_MODE_OPTIONS = [
+    { id: 'bet', label: 'Bet' },
+    { id: 'risk', label: 'Risk' },
+    { id: 'win', label: 'Win' },
+];
 
 const LANGUAGES = [
     'English',
@@ -264,6 +273,264 @@ const ThemeToggle = ({ value, onChange }) => {
                 <i className={`fa-solid ${dark ? 'fa-moon' : 'fa-sun'}`} />
             </span>
         </button>
+    );
+};
+
+/* ---------- bet defaults card ---------- */
+
+const BetDefaultsCard = ({ user, onSaved }) => {
+    const { showToast } = useToast();
+    const stored = (user?.settings?.betDefaults && typeof user.settings.betDefaults === 'object')
+        ? user.settings.betDefaults
+        : null;
+    const initialMode = stored?.mode && ['bet', 'risk', 'win'].includes(stored.mode) ? stored.mode : 'risk';
+    const initialAmount = Number.isFinite(Number(stored?.amount)) && Number(stored.amount) > 0
+        ? String(stored.amount)
+        : '';
+    const initialQuickStakes = Array.isArray(stored?.quickStakes) && stored.quickStakes.length === 4
+        ? stored.quickStakes.map((v) => String(v))
+        : DEFAULT_QUICK_STAKES.map((v) => String(v));
+
+    const [mode, setMode] = React.useState(initialMode);
+    const [amount, setAmount] = React.useState(initialAmount);
+    const [quickStakes, setQuickStakes] = React.useState(initialQuickStakes);
+    const [saving, setSaving] = React.useState(false);
+    // Reseed local form state when the user prop updates (e.g. after
+    // /auth/me re-fetches and brings down a fresh `settings.betDefaults`).
+    React.useEffect(() => {
+        const next = user?.settings?.betDefaults;
+        if (!next) return;
+        if (next.mode && ['bet', 'risk', 'win'].includes(next.mode)) setMode(next.mode);
+        if (Number.isFinite(Number(next.amount))) setAmount(String(next.amount || ''));
+        if (Array.isArray(next.quickStakes) && next.quickStakes.length === 4) {
+            setQuickStakes(next.quickStakes.map((v) => String(v)));
+        }
+    }, [user?.settings?.betDefaults]);
+
+    const updateQuickStake = (idx, raw) => {
+        // Strip non-digits — these are integer dollar amounts, no decimals
+        // shown on the chips. Empty string is allowed during typing.
+        const cleaned = String(raw).replace(/[^0-9]/g, '').slice(0, 6);
+        setQuickStakes((prev) => prev.map((v, i) => (i === idx ? cleaned : v)));
+    };
+
+    const handleSave = async () => {
+        const token = getStoredAuthToken();
+        if (!token) {
+            showToast?.('Sign in to save defaults', 'warning');
+            return;
+        }
+        const parsedAmount = Number(amount);
+        if (amount !== '' && (!Number.isFinite(parsedAmount) || parsedAmount < 0)) {
+            showToast?.('Default amount must be a positive number', 'warning');
+            return;
+        }
+        const parsedQuickStakes = quickStakes.map((v) => Number(v));
+        if (parsedQuickStakes.some((n) => !Number.isFinite(n) || n <= 0)) {
+            showToast?.('Quick stake values must be positive numbers', 'warning');
+            return;
+        }
+        setSaving(true);
+        try {
+            await updateProfile({
+                settings: {
+                    betDefaults: {
+                        mode,
+                        amount: amount === '' ? 0 : Math.round(parsedAmount * 100) / 100,
+                        quickStakes: parsedQuickStakes,
+                    },
+                },
+            }, token);
+            showToast?.('Bet defaults saved', 'success');
+            // Trigger refresh of the cached user so other components
+            // (ModeBetPanel hydration) see the new defaults immediately.
+            window.dispatchEvent(new Event('user:refresh'));
+            onSaved?.();
+        } catch (err) {
+            showToast?.(err?.message || 'Failed to save bet defaults', 'error');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    return (
+        <section>
+            <div style={{
+                fontSize: 11,
+                color: palette.textMuted,
+                textTransform: 'uppercase',
+                letterSpacing: 0.6,
+                fontWeight: 700,
+                marginBottom: 8,
+                paddingLeft: 2,
+            }}>
+                Bet defaults
+            </div>
+            <div style={{
+                background: palette.cardBg,
+                border: `1px solid ${palette.cardBorder}`,
+                borderRadius: 12,
+                padding: 14,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 14,
+            }}>
+                {/* Default mode pills */}
+                <div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: palette.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
+                        Default mode
+                    </div>
+                    <div style={{
+                        display: 'inline-flex',
+                        borderRadius: 8,
+                        overflow: 'hidden',
+                        border: `1px solid ${palette.cardBorder}`,
+                    }}>
+                        {STAKE_MODE_OPTIONS.map((m, i) => {
+                            const active = mode === m.id;
+                            return (
+                                <button
+                                    key={m.id}
+                                    type="button"
+                                    onClick={() => setMode(m.id)}
+                                    style={{
+                                        background: active
+                                            ? (m.id === 'risk' ? '#ea580c' : m.id === 'win' ? '#16a34a' : '#0f172a')
+                                            : '#475569',
+                                        color: '#fff',
+                                        border: 'none',
+                                        borderLeft: i === 0 ? 'none' : '1px solid rgba(255,255,255,0.15)',
+                                        padding: '8px 18px',
+                                        fontWeight: 800,
+                                        fontSize: 12,
+                                        letterSpacing: 0.4,
+                                        cursor: 'pointer',
+                                        textTransform: 'uppercase',
+                                    }}
+                                >
+                                    {m.label}
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+
+                {/* Default amount */}
+                <div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: palette.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
+                        Default amount (unit size)
+                    </div>
+                    <div style={{
+                        position: 'relative',
+                        border: `1px solid ${palette.cardBorder}`,
+                        borderRadius: 8,
+                        background: '#fbfbfd',
+                    }}>
+                        <span style={{
+                            position: 'absolute',
+                            left: 12,
+                            top: '50%',
+                            transform: 'translateY(-50%)',
+                            fontSize: 13,
+                            fontWeight: 700,
+                            color: palette.textFaint,
+                            pointerEvents: 'none',
+                        }}>$</span>
+                        <input
+                            type="number"
+                            min="0"
+                            inputMode="decimal"
+                            placeholder="50"
+                            value={amount}
+                            onChange={(e) => setAmount(e.target.value)}
+                            style={{
+                                width: '100%',
+                                padding: '10px 12px 10px 24px',
+                                border: 'none',
+                                outline: 'none',
+                                fontSize: 14,
+                                fontWeight: 700,
+                                color: palette.textPrimary,
+                                background: 'transparent',
+                                boxSizing: 'border-box',
+                                borderRadius: 8,
+                            }}
+                        />
+                    </div>
+                </div>
+
+                {/* Quick stake chips — 4 editable values */}
+                <div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: palette.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
+                        Quick stake buttons
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+                        {quickStakes.map((value, idx) => (
+                            <div
+                                key={idx}
+                                style={{
+                                    position: 'relative',
+                                    border: `1px solid ${palette.cardBorder}`,
+                                    borderRadius: 8,
+                                    background: '#fbfbfd',
+                                }}
+                            >
+                                <span style={{
+                                    position: 'absolute',
+                                    left: 8,
+                                    top: '50%',
+                                    transform: 'translateY(-50%)',
+                                    fontSize: 11,
+                                    fontWeight: 700,
+                                    color: palette.textFaint,
+                                    pointerEvents: 'none',
+                                }}>$</span>
+                                <input
+                                    type="text"
+                                    inputMode="numeric"
+                                    value={value}
+                                    onChange={(e) => updateQuickStake(idx, e.target.value)}
+                                    style={{
+                                        width: '100%',
+                                        padding: '8px 6px 8px 18px',
+                                        border: 'none',
+                                        outline: 'none',
+                                        fontSize: 13,
+                                        fontWeight: 700,
+                                        color: palette.textPrimary,
+                                        background: 'transparent',
+                                        boxSizing: 'border-box',
+                                        borderRadius: 8,
+                                        textAlign: 'center',
+                                    }}
+                                />
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
+                <button
+                    type="button"
+                    onClick={handleSave}
+                    disabled={saving}
+                    style={{
+                        background: '#facc15',
+                        color: '#0f172a',
+                        border: 'none',
+                        borderRadius: 8,
+                        padding: '10px 14px',
+                        fontWeight: 800,
+                        fontSize: 13,
+                        letterSpacing: 0.4,
+                        cursor: saving ? 'not-allowed' : 'pointer',
+                        opacity: saving ? 0.7 : 1,
+                        textTransform: 'uppercase',
+                    }}
+                >
+                    {saving ? 'Saving…' : 'Save Defaults'}
+                </button>
+            </div>
+        </section>
     );
 };
 
@@ -560,6 +827,11 @@ const AccountPanel = ({
                             <ThemeToggle value={themeMode} onChange={onThemeModeChange} />
                         </div>
                     </section>
+
+                    {/* Bet defaults — pre-populates the betslip on open
+                        so the user doesn't retype their unit size every
+                        time. Persists to settings.betDefaults. */}
+                    <BetDefaultsCard user={user} />
 
                     {/* Activity */}
                     <section>

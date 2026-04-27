@@ -2,7 +2,7 @@ import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { placeBet, normalizeBetMode, createRequestId } from '../api';
 import { useToast } from '../contexts/ToastContext';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
-import { formatOdds } from '../utils/odds';
+import { formatOdds, decimalToAmerican, americanToDecimal } from '../utils/odds';
 import BetConfirmationModal from './BetConfirmationModal';
 
 // Minimal structural fallbacks — NO hardcoded multipliers.
@@ -41,11 +41,6 @@ const MARKET_LABELS = {
     spreads: 'Spread',
     totals: 'Total',
     straight: 'Straight',
-};
-const marketLabelFor = (marketType = '', fallback = '') => {
-    const key = String(marketType || '').toLowerCase();
-    if (MARKET_LABELS[key]) return MARKET_LABELS[key];
-    return fallback ? String(fallback).toUpperCase() : (key.toUpperCase() || 'BET');
 };
 
 const legLabelFor = (mode, index, total) => {
@@ -93,6 +88,153 @@ const formatMoney = (value) => {
     return (Math.round(n * 100) / 100).toFixed(2);
 };
 
+// Trim trailing zeros: 1.50 -> "1.5", 47.0 -> "47", 47.5 -> "47.5".
+const trimNumber = (n) => {
+    if (!Number.isFinite(n)) return '';
+    return Number(n.toFixed(2)).toString();
+};
+
+// Bet-type base label: 'Spread', 'Moneyline', 'Total'.
+const betTypeBaseLabel = (marketType) => {
+    const k = String(marketType || '').toLowerCase();
+    if (k === 'h2h') return 'Moneyline';
+    if (k === 'spreads') return 'Spread';
+    if (k === 'totals') return 'Total';
+    return MARKET_LABELS[k] || k.toUpperCase() || 'Bet';
+};
+
+// Bet-type + line shown to the left of American odds on the card. Returns
+// 'Spread -1.5' / 'Spread +2.5', 'Moneyline', or 'Total Over 54.5' /
+// 'Total Under 47.5' depending on market type and selection name.
+const betTypeLineLabel = (sel) => {
+    const base = betTypeBaseLabel(sel?.marketType);
+    const market = String(sel?.marketType || '').toLowerCase();
+    const line = Number(sel?.line);
+    if (market === 'spreads' && Number.isFinite(line)) {
+        const signed = line > 0 ? `+${trimNumber(line)}` : trimNumber(line);
+        return `${base} ${signed}`;
+    }
+    if (market === 'totals' && Number.isFinite(line)) {
+        const isUnder = String(sel?.selection || '').toUpperCase().startsWith('U');
+        return `${base} ${isUnder ? 'Under' : 'Over'} ${trimNumber(Math.abs(line))}`;
+    }
+    return base;
+};
+
+// Halves notation used in the Buy Points dropdown: -10.5 -> '-10½',
+// 47.5 -> '47½' (unsigned for totals), 10 -> '+10' / '10'.
+const formatLineHalves = (n, signed) => {
+    if (!Number.isFinite(n)) return '';
+    const abs = Math.abs(n);
+    const whole = Math.floor(abs);
+    const frac = abs - whole;
+    const isHalf = Math.abs(frac - 0.5) < 0.01;
+    const numText = isHalf ? `${whole}½` : `${trimNumber(abs)}`;
+    if (!signed) return numText;
+    if (n === 0) return numText;
+    return n < 0 ? `-${numText}` : `+${numText}`;
+};
+
+// Format a Buy Points option label for the dropdown row, e.g. '-10½ -110'
+// for spreads or '54½ -120' for totals.
+const formatBuyPointsLabel = (option, marketType) => {
+    const m = String(marketType || '').toLowerCase();
+    const lineText = m === 'totals'
+        ? formatLineHalves(option.line, false)
+        : formatLineHalves(option.line, true);
+    const odds = option.americanOdds;
+    const oddsText = Number.isFinite(odds) ? (odds > 0 ? `+${odds}` : `${odds}`) : '';
+    return `${lineText} ${oddsText}`.trim();
+};
+
+// Step American odds 10 cents in the worse direction (each 0.5-pt buy
+// makes the line easier but pays less). Skips the (-110, +110) interior
+// where standard juice doesn't sit, which keeps the fallback ladder
+// realistic enough for a sportsbook UI.
+const nextAmericanOddsStep = (current) => {
+    const candidate = current - 10;
+    if (candidate < 110 && candidate > -110) return -110;
+    return candidate;
+};
+
+// Build up to 5 alternate-line options for a Spread/Total selection.
+// Prefers `sel.alternateLines` (Rundown feed shape: { line, odds }) when
+// upstream has attached them; otherwise falls back to a local generator
+// stepping ±0.5 in the favorable direction with ~10 cents of juice per
+// step. Returns [original, ...alts] with the original flagged so the
+// dropdown can render its checkmark.
+const buildBuyPointsOptions = (sel) => {
+    const market = String(sel?.marketType || '').toLowerCase();
+    if (market !== 'spreads' && market !== 'totals') return [];
+
+    const baseLine = Number(sel?.line);
+    const baseDec = Number(sel?.odds);
+    if (!Number.isFinite(baseLine) || !Number.isFinite(baseDec) || baseDec <= 1) return [];
+
+    const baseAmerican = decimalToAmerican(baseDec);
+    if (!Number.isFinite(baseAmerican) || baseAmerican === 0) return [];
+
+    // Direction the line moves to "buy" points (make the bet easier).
+    // Spreads: always +0.5 (favourite line moves toward 0; underdog gets
+    // more cushion). Totals: Over wants a smaller total, Under wants a
+    // larger total.
+    let lineStep;
+    if (market === 'spreads') {
+        lineStep = 0.5;
+    } else {
+        const isUnder = String(sel?.selection || '').toUpperCase().startsWith('U');
+        lineStep = isUnder ? 0.5 : -0.5;
+    }
+
+    const original = {
+        line: baseLine,
+        decimalOdds: baseDec,
+        americanOdds: baseAmerican,
+        isOriginal: true,
+    };
+
+    const apiAlts = Array.isArray(sel?.alternateLines) ? sel.alternateLines : null;
+    if (apiAlts && apiAlts.length > 0) {
+        const options = [original];
+        apiAlts.forEach((alt) => {
+            const altLine = Number(alt?.line);
+            const altDec = Number(alt?.odds);
+            if (!Number.isFinite(altLine) || !Number.isFinite(altDec) || altDec <= 1) return;
+            const delta = altLine - baseLine;
+            if (lineStep > 0 && delta <= 0) return;
+            if (lineStep < 0 && delta >= 0) return;
+            if (Math.abs(delta) > 2.5 + 1e-6) return;
+            const altAmerican = decimalToAmerican(altDec);
+            if (!Number.isFinite(altAmerican)) return;
+            options.push({
+                line: altLine,
+                decimalOdds: altDec,
+                americanOdds: altAmerican,
+                isOriginal: false,
+            });
+        });
+        options.sort((a, b) => Math.abs(a.line - baseLine) - Math.abs(b.line - baseLine));
+        return options.slice(0, 5);
+    }
+
+    const options = [original];
+    let prevAmerican = baseAmerican;
+    for (let i = 1; i <= 4; i += 1) {
+        const newLine = baseLine + (lineStep * i);
+        const newAmerican = nextAmericanOddsStep(prevAmerican);
+        const newDec = americanToDecimal(newAmerican);
+        if (!Number.isFinite(newDec) || newDec <= 1) break;
+        options.push({
+            line: newLine,
+            decimalOdds: newDec,
+            americanOdds: newAmerican,
+            isOriginal: false,
+        });
+        prevAmerican = newAmerican;
+    }
+    return options;
+};
+
 const ModeBetPanel = ({
     user,
     balance = 0,
@@ -118,12 +260,39 @@ const ModeBetPanel = ({
     const [submitAttempted, setSubmitAttempted] = useState(false);
     const [showConfirm, setShowConfirm] = useState(false);
     const [useFreeplay, setUseFreeplay] = useState(false);
+    // User-saved bet defaults (settings.betDefaults). Drives initial
+    // values for the shared mode toggle, Bet Amount, and the editable
+    // Quick Stake chips. Falls back to project defaults when the user
+    // hasn't customised them yet.
+    const userBetDefaults = (user?.settings?.betDefaults && typeof user.settings.betDefaults === 'object')
+        ? user.settings.betDefaults
+        : null;
+    const defaultStakeMode = (userBetDefaults?.mode && ['bet', 'risk', 'win'].includes(userBetDefaults.mode))
+        ? userBetDefaults.mode
+        : 'risk';
+    const defaultStakeAmount = Number.isFinite(Number(userBetDefaults?.amount)) && Number(userBetDefaults.amount) > 0
+        ? Number(userBetDefaults.amount)
+        : 0;
+    const customQuickStakes = Array.isArray(userBetDefaults?.quickStakes) && userBetDefaults.quickStakes.length === 4
+        ? userBetDefaults.quickStakes.map((v) => Number(v) || 0)
+        : QUICK_STAKES;
+
     // Single shared Bet/Risk/Win mode for the whole slip. The `wager`
     // value (driven by onWagerChange) is the user-typed Bet Amount in
     // their chosen mode; per-leg Risk/Win is back-calculated from each
     // leg's odds at render-time (see resolveStake helper). Replaces the
     // old per-selection wager map — there's now exactly one input.
-    const [stakeMode, setStakeMode] = useState('risk');
+    const [stakeMode, setStakeMode] = useState(defaultStakeMode);
+    // Track the user-prefs `betDefaults` signature so a refreshed
+    // /auth/me payload (e.g. user just saved new defaults in Account)
+    // re-seeds the slip mode without forcing a remount.
+    const lastBetDefaultsSigRef = useRef('');
+    useEffect(() => {
+        const sig = JSON.stringify(userBetDefaults || {});
+        if (sig === lastBetDefaultsSigRef.current) return;
+        lastBetDefaultsSigRef.current = sig;
+        setStakeMode(defaultStakeMode);
+    }, [userBetDefaults, defaultStakeMode]);
     const requestStateRef = useRef({ requestId: '', signature: '' });
     const submissionLockRef = useRef(false);
 
@@ -229,6 +398,18 @@ const ModeBetPanel = ({
         if (!teaserValid) {
             errors.push(`Select teaser points: ${rule.teaserPointOptions.join(', ')}`);
         }
+        // Teaser is point-shift only — moneylines have no line to shift,
+        // so teaser legs must be spreads or totals exclusively. Blocks
+        // accidental teaser tickets that the backend would reject anyway.
+        if (normalizedMode === 'teaser') {
+            const invalid = selections.filter((sel) => {
+                const market = String(sel?.marketType || '').toLowerCase();
+                return market !== 'spreads' && market !== 'totals';
+            });
+            if (invalid.length > 0) {
+                errors.push('Teasers only accept spreads and totals — remove moneyline selections');
+            }
+        }
         if (!selections.every(sel => Number.isFinite(Number(sel.odds)) && Number(sel.odds) > 0)) {
             errors.push('One or more selections have invalid odds');
         }
@@ -274,11 +455,6 @@ const ModeBetPanel = ({
         return 0;
     }, [effectiveCombinedRisk, legCount, normalizedMode, selections, rule, wagerForSelection]);
 
-    const impliedProbability = useMemo(() => {
-        if (!Number.isFinite(ticketDecimalOdds) || ticketDecimalOdds <= 1) return null;
-        return (1 / ticketDecimalOdds) * 100;
-    }, [ticketDecimalOdds]);
-
     const totalRisk = normalizedMode === 'reverse'
         ? effectiveCombinedRisk * 2
         : normalizedMode === 'straight'
@@ -299,13 +475,47 @@ const ModeBetPanel = ({
     // Using an event keeps this component's state encapsulated so the
     // header doesn't need to lift `isOpen` through App → Shell → here.
     useEffect(() => {
-        const handleOpen = () => setIsOpen(true);
+        const handleOpen = () => {
+            setIsOpen(true);
+            // Pre-fill the Bet Amount with the user's saved default, but
+            // only when the input is currently empty so we don't stomp
+            // a value the user just typed before reopening the slip.
+            if (defaultStakeAmount > 0 && (wager === '' || wager === null || wager === undefined)) {
+                onWagerChange(String(defaultStakeAmount));
+            }
+            // Re-seed the mode whenever the slip opens so the
+            // user's most recently saved default is the one in effect.
+            setStakeMode(defaultStakeMode);
+        };
         window.addEventListener('betslip:open', handleOpen);
         return () => window.removeEventListener('betslip:open', handleOpen);
     }, []);
 
     const removeSelection = (id) => {
         onSelectionsChange(selections.filter(sel => sel.id !== id));
+    };
+
+    // Tracks which selection's Buy Points dropdown is currently open. Only
+    // one can be open at a time — selecting an option, tapping outside, or
+    // removing the selection closes it.
+    const [openBuyPointsId, setOpenBuyPointsId] = useState(null);
+
+    // Apply a Buy Points alternate to a selection. Mutates only that leg's
+    // line + odds; downstream Risk/Win, parlay/teaser combined odds, and
+    // the bottom Total Risk / Potential Payout summary all derive from
+    // selections via useMemo so they recalc automatically.
+    const applyBuyPoints = (selId, option) => {
+        onSelectionsChange(
+            selections.map((s) => {
+                if (s.id !== selId) return s;
+                return {
+                    ...s,
+                    line: option.line,
+                    odds: option.decimalOdds,
+                };
+            })
+        );
+        setOpenBuyPointsId(null);
     };
 
     const clearSlip = () => {
@@ -697,100 +907,204 @@ const ModeBetPanel = ({
             </div>
 
             <div style={{ padding: '14px 14px 18px', overflowY: 'auto' }}>
-                {/* Shared Bet | Risk | Win toggle + single Bet Amount
-                    input. The mode + amount typed here drive every
-                    selection card's read-only Risk/Win readouts and the
-                    final Place Bet payload — there is exactly one input
-                    for the whole slip. */}
+                {/* Consolidated APPLY TO ALL panel — sits at the top of
+                    the slip body, directly under BETSLIP header + Back.
+                    Owns: mode toggle, Bet Amount input, quick-stake row,
+                    Use Freeplay. The previous duplicate bottom block was
+                    removed; this is the single source of stake control
+                    for the entire slip. Quick stake values are user-
+                    editable (Account → Bet Defaults) and fall back to
+                    the project defaults [10, 25, 50, 100]. */}
                 {legCount > 0 && (
                     <div style={{
                         background: '#fff',
                         border: `1px solid ${palette.cardBorder}`,
                         borderRadius: 10,
-                        padding: '10px 10px',
+                        padding: '10px 12px',
                         marginBottom: 12,
-                        display: 'flex',
-                        alignItems: 'stretch',
-                        gap: 8,
                     }}>
+                        {/* Title row: APPLY TO ALL + Balance */}
                         <div style={{
-                            display: 'inline-flex',
-                            borderRadius: 8,
-                            overflow: 'hidden',
-                            border: `1px solid ${palette.cardBorder}`,
-                            background: '#fff',
-                            flexShrink: 0,
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            marginBottom: 8,
                         }}>
-                            {STAKE_MODES.map((m, i) => {
-                                const active = stakeMode === m.id;
+                            <span style={{
+                                fontSize: 10,
+                                fontWeight: 700,
+                                color: palette.textMuted,
+                                textTransform: 'uppercase',
+                                letterSpacing: 0.6,
+                            }}>
+                                Apply to all
+                            </span>
+                            <span style={{ fontSize: 10, color: palette.textFaint }}>
+                                Balance <span style={{ color: palette.textPrimary, fontWeight: 700 }}>${formatAmount(balance)}</span>
+                            </span>
+                        </div>
+
+                        {/* Row 1: BET / RISK / WIN toggle + Bet Amount */}
+                        <div style={{
+                            display: 'flex',
+                            alignItems: 'stretch',
+                            gap: 8,
+                            marginBottom: 8,
+                        }}>
+                            <div style={{
+                                display: 'inline-flex',
+                                borderRadius: 8,
+                                overflow: 'hidden',
+                                border: `1px solid ${palette.cardBorder}`,
+                                background: '#fff',
+                                flexShrink: 0,
+                            }}>
+                                {STAKE_MODES.map((m, i) => {
+                                    const active = stakeMode === m.id;
+                                    return (
+                                        <button
+                                            key={m.id}
+                                            type="button"
+                                            onClick={() => setStakeMode(m.id)}
+                                            style={{
+                                                background: active
+                                                    ? (m.id === 'risk' ? '#ea580c' : m.id === 'win' ? '#16a34a' : '#0f172a')
+                                                    : '#475569',
+                                                color: '#fff',
+                                                border: 'none',
+                                                borderLeft: i === 0 ? 'none' : '1px solid rgba(255,255,255,0.15)',
+                                                padding: '8px 14px',
+                                                fontWeight: 800,
+                                                fontSize: 12,
+                                                letterSpacing: 0.4,
+                                                cursor: 'pointer',
+                                                textTransform: 'uppercase',
+                                                transition: 'background 100ms ease',
+                                                minWidth: 50,
+                                            }}
+                                        >
+                                            {m.label}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                            <div style={{
+                                position: 'relative',
+                                flex: 1,
+                                border: `1px solid ${palette.cardBorder}`,
+                                borderRadius: 8,
+                                background: '#fbfbfd',
+                                transition: 'border-color 120ms ease',
+                            }}>
+                                <span style={{
+                                    position: 'absolute',
+                                    left: 12,
+                                    top: '50%',
+                                    transform: 'translateY(-50%)',
+                                    fontSize: 13,
+                                    fontWeight: 700,
+                                    color: palette.textFaint,
+                                    pointerEvents: 'none',
+                                }}>$</span>
+                                <input
+                                    type="number"
+                                    min="0"
+                                    inputMode="decimal"
+                                    placeholder="Bet Amount"
+                                    value={wager}
+                                    onChange={(e) => onWagerChange(e.target.value)}
+                                    onFocus={(e) => { e.currentTarget.parentElement.style.borderColor = palette.accent; }}
+                                    onBlur={(e) => { e.currentTarget.parentElement.style.borderColor = palette.cardBorder; }}
+                                    style={{
+                                        width: '100%',
+                                        padding: '10px 12px 10px 24px',
+                                        border: 'none',
+                                        outline: 'none',
+                                        fontSize: 14,
+                                        fontWeight: 700,
+                                        color: palette.textPrimary,
+                                        boxSizing: 'border-box',
+                                        background: 'transparent',
+                                        borderRadius: 8,
+                                    }}
+                                />
+                            </div>
+                        </div>
+
+                        {/* Row 2: quick stakes (4 user-editable values + Clear) */}
+                        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                            {customQuickStakes.map((v, i) => {
+                                const active = Number(wager) === Number(v);
                                 return (
                                     <button
-                                        key={m.id}
-                                        type="button"
-                                        onClick={() => setStakeMode(m.id)}
+                                        key={`${v}-${i}`}
+                                        onClick={() => onWagerChange(String(v))}
                                         style={{
-                                            background: active
-                                                ? (m.id === 'risk' ? '#ea580c' : m.id === 'win' ? '#16a34a' : '#0f172a')
-                                                : '#475569',
-                                            color: '#fff',
-                                            border: 'none',
-                                            borderLeft: i === 0 ? 'none' : '1px solid rgba(255,255,255,0.15)',
-                                            padding: '8px 14px',
-                                            fontWeight: 800,
-                                            fontSize: 12,
-                                            letterSpacing: 0.4,
+                                            flex: '1 1 0',
+                                            minWidth: 54,
+                                            padding: '7px 6px',
+                                            border: `1px solid ${active ? palette.headerBg : palette.cardBorder}`,
+                                            background: active ? palette.headerBg : '#fff',
+                                            color: active ? '#fff' : palette.textPrimary,
+                                            fontSize: 11,
+                                            fontWeight: 700,
                                             cursor: 'pointer',
-                                            textTransform: 'uppercase',
-                                            transition: 'background 100ms ease',
-                                            minWidth: 50,
+                                            borderRadius: 6,
+                                            transition: 'all 120ms ease',
                                         }}
                                     >
-                                        {m.label}
+                                        ${v}
                                     </button>
                                 );
                             })}
-                        </div>
-                        <div style={{
-                            position: 'relative',
-                            flex: 1,
-                            border: `1px solid ${palette.cardBorder}`,
-                            borderRadius: 8,
-                            background: '#fbfbfd',
-                            transition: 'border-color 120ms ease',
-                        }}>
-                            <span style={{
-                                position: 'absolute',
-                                left: 12,
-                                top: '50%',
-                                transform: 'translateY(-50%)',
-                                fontSize: 13,
-                                fontWeight: 700,
-                                color: palette.textFaint,
-                                pointerEvents: 'none',
-                            }}>$</span>
-                            <input
-                                type="number"
-                                min="0"
-                                inputMode="decimal"
-                                placeholder="Bet Amount"
-                                value={wager}
-                                onChange={(e) => onWagerChange(e.target.value)}
-                                onFocus={(e) => { e.currentTarget.parentElement.style.borderColor = palette.accent; }}
-                                onBlur={(e) => { e.currentTarget.parentElement.style.borderColor = palette.cardBorder; }}
+                            <button
+                                onClick={() => onWagerChange('')}
                                 style={{
-                                    width: '100%',
-                                    padding: '10px 12px 10px 24px',
-                                    border: 'none',
-                                    outline: 'none',
-                                    fontSize: 14,
+                                    padding: '7px 10px',
+                                    border: `1px solid ${palette.cardBorder}`,
+                                    background: '#fff',
+                                    color: palette.textMuted,
+                                    fontSize: 11,
                                     fontWeight: 700,
-                                    color: palette.textPrimary,
-                                    boxSizing: 'border-box',
-                                    background: 'transparent',
-                                    borderRadius: 8,
+                                    cursor: 'pointer',
+                                    borderRadius: 6,
                                 }}
-                            />
+                            >
+                                Clear
+                            </button>
                         </div>
+
+                        {/* Row 3: Use Freeplay (only when there's a freeplay balance) */}
+                        {hasFreeplay && (
+                            <label style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 8,
+                                marginTop: 10,
+                                padding: '6px 10px',
+                                background: useFreeplay ? palette.successSoft : '#f8fafc',
+                                borderRadius: 8,
+                                fontSize: 11,
+                                cursor: 'pointer',
+                                userSelect: 'none',
+                                border: `1px solid ${useFreeplay ? palette.success : palette.cardBorder}`,
+                            }}>
+                                <input
+                                    type="checkbox"
+                                    checked={useFreeplay}
+                                    onChange={(e) => setUseFreeplay(e.target.checked)}
+                                    style={{ width: 13, height: 13, cursor: 'pointer', accentColor: palette.success }}
+                                />
+                                <span style={{ color: useFreeplay ? palette.success : palette.textPrimary, fontWeight: 700 }}>
+                                    Use Freeplay (${formatAmount(parsedFreeplayBalance)})
+                                </span>
+                                {freeplayExpiryLabel && (
+                                    <span style={{ color: palette.textFaint, marginLeft: 'auto', fontStyle: 'italic', fontSize: 10 }}>
+                                        exp {freeplayExpiryLabel}
+                                    </span>
+                                )}
+                            </label>
+                        )}
                     </div>
                 )}
 
@@ -871,7 +1185,7 @@ const ModeBetPanel = ({
                         gap: 8,
                     }}>
                         <i className="fa-solid fa-circle-info" />
-                        Add at least one more selection for a parlay.
+                        Add at least 2 selections to build a parlay.
                     </div>
                 )}
                 {legCount < 2 && (normalizedMode === 'if_bet' || normalizedMode === 'reverse' || normalizedMode === 'teaser') && legCount > 0 && (
@@ -904,14 +1218,11 @@ const ModeBetPanel = ({
                     const legLabel = legLabelFor(normalizedMode, idx, legCount);
                     const { risk, win } = stakePairForSelection(sel);
                     const matchupTitle = String(sel.matchName || sel.selection || '').toUpperCase();
-                    const betTypeLabel = `Game - ${marketLabelFor(sel.marketType, sel.marketLabel)}`;
-                    const lineNumber = Number(sel.line);
-                    const hasLine = Number.isFinite(lineNumber);
-                    const lineText = hasLine
-                        ? (sel.marketType === 'totals'
-                            ? `${String(sel.selection || '').toUpperCase().startsWith('U') ? 'U' : 'O'} ${formatMoney(Math.abs(lineNumber))}`
-                            : (lineNumber > 0 ? `+${formatMoney(lineNumber)}` : formatMoney(lineNumber)))
-                        : '';
+                    const betTypeText = betTypeLineLabel(sel);
+                    const market = String(sel.marketType || '').toLowerCase();
+                    const supportsBuyPoints = market === 'spreads' || market === 'totals';
+                    const buyPointsOptions = supportsBuyPoints ? buildBuyPointsOptions(sel) : [];
+                    const buyPointsOpen = openBuyPointsId === sel.id;
                     return (
                         <div
                             key={sel.id}
@@ -981,91 +1292,273 @@ const ModeBetPanel = ({
                                         {legLabel}
                                     </div>
                                 )}
-                                <div style={{ fontSize: 12, color: palette.textMuted, fontWeight: 600, marginBottom: 2 }}>
-                                    {betTypeLabel}
-                                </div>
                                 <div style={{
-                                    fontSize: 14,
+                                    fontSize: 16,
                                     fontWeight: 800,
                                     color: palette.textPrimary,
                                     lineHeight: 1.3,
-                                    marginBottom: 6,
+                                    marginBottom: 8,
                                 }}>
                                     {sel.selection}
                                 </div>
 
-                                {/* LISTED row — line + odds. ML bets have
-                                    no line, so the line-side stays blank
-                                    and the odds align to the right. */}
+                                {/* Bet type + line on the left, American odds
+                                    (always green) on the right. ML bets only
+                                    show 'Moneyline' on the left. */}
                                 <div style={{
                                     display: 'flex',
                                     justifyContent: 'space-between',
                                     alignItems: 'baseline',
-                                    fontSize: 12,
-                                    color: palette.textPrimary,
-                                    paddingTop: 4,
-                                    borderTop: `1px solid ${palette.cardBorder}`,
+                                    fontSize: 13,
+                                    gap: 8,
                                 }}>
-                                    <span style={{ fontWeight: 700, color: palette.textMuted, letterSpacing: 0.4 }}>LISTED</span>
-                                    <span style={{ display: 'inline-flex', gap: 8, alignItems: 'baseline' }}>
-                                        {hasLine && (
-                                            <span style={{ fontWeight: 700, color: palette.textPrimary, fontVariantNumeric: 'tabular-nums' }}>
-                                                {lineText}
-                                            </span>
-                                        )}
-                                        <span style={{ fontWeight: 800, color: oddsColour(sel.odds), fontVariantNumeric: 'tabular-nums' }}>
-                                            {formatOddsSign(sel.odds)}
-                                        </span>
+                                    <span style={{ fontWeight: 700, color: palette.textPrimary, fontVariantNumeric: 'tabular-nums' }}>
+                                        {betTypeText}
+                                    </span>
+                                    <span style={{ fontWeight: 800, color: palette.success, fontVariantNumeric: 'tabular-nums' }}>
+                                        {formatOddsSign(sel.odds)}
                                     </span>
                                 </div>
 
-                                <div style={{ fontSize: 11, color: palette.textMuted, marginTop: 6 }}>
-                                    Max Amount: 5,000.0
-                                </div>
+                                {/* Buy Points selector — Spread/Total only.
+                                    Tapping the trigger opens a popup of up
+                                    to 5 alternate lines (original + 4 alts).
+                                    Picking one updates this leg's line +
+                                    odds in the parent state, which cascades
+                                    through Risk/Win and the bottom totals. */}
+                                {supportsBuyPoints && buyPointsOptions.length > 1 && (
+                                    <div style={{ position: 'relative', marginTop: 8 }}>
+                                        <button
+                                            type="button"
+                                            onClick={() => setOpenBuyPointsId(buyPointsOpen ? null : sel.id)}
+                                            style={{
+                                                width: '100%',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'space-between',
+                                                gap: 8,
+                                                padding: '8px 10px',
+                                                background: '#fff',
+                                                border: `1px solid ${buyPointsOpen ? palette.accent : palette.cardBorder}`,
+                                                borderRadius: 8,
+                                                fontSize: 12,
+                                                fontWeight: 700,
+                                                color: palette.textPrimary,
+                                                cursor: 'pointer',
+                                                transition: 'border-color 120ms ease',
+                                            }}
+                                        >
+                                            <span style={{ color: palette.textMuted, letterSpacing: 0.3 }}>Buy Points</span>
+                                            <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+                                                <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                                    {formatBuyPointsLabel(buyPointsOptions[0], sel.marketType)}
+                                                </span>
+                                                <i className={`fa-solid ${buyPointsOpen ? 'fa-chevron-up' : 'fa-chevron-down'}`} style={{ fontSize: 10, color: palette.textFaint }} />
+                                            </span>
+                                        </button>
+                                        {buyPointsOpen && (
+                                            <>
+                                                {/* Click-away catcher — closes the popup
+                                                    when the user taps anywhere outside. */}
+                                                <div
+                                                    onClick={() => setOpenBuyPointsId(null)}
+                                                    style={{
+                                                        position: 'fixed',
+                                                        inset: 0,
+                                                        zIndex: 1300,
+                                                    }}
+                                                />
+                                                <div style={{
+                                                    position: 'absolute',
+                                                    top: 'calc(100% + 4px)',
+                                                    left: 0,
+                                                    right: 0,
+                                                    background: '#fff',
+                                                    border: `1px solid ${palette.cardBorder}`,
+                                                    borderRadius: 10,
+                                                    boxShadow: '0 12px 28px -10px rgba(15,23,42,0.35)',
+                                                    overflow: 'hidden',
+                                                    zIndex: 1301,
+                                                }}>
+                                                    {buyPointsOptions.map((opt, optIdx) => {
+                                                        const isCurrent = Math.abs(Number(sel.line) - opt.line) < 1e-6
+                                                            && Math.abs(Number(sel.odds) - opt.decimalOdds) < 1e-3;
+                                                        return (
+                                                            <button
+                                                                key={`${opt.line}-${opt.americanOdds}-${optIdx}`}
+                                                                type="button"
+                                                                onClick={() => applyBuyPoints(sel.id, opt)}
+                                                                style={{
+                                                                    width: '100%',
+                                                                    display: 'flex',
+                                                                    alignItems: 'center',
+                                                                    gap: 10,
+                                                                    padding: '10px 12px',
+                                                                    background: isCurrent ? palette.accentSoft : '#fff',
+                                                                    border: 'none',
+                                                                    borderBottom: optIdx === buyPointsOptions.length - 1
+                                                                        ? 'none'
+                                                                        : `1px solid ${palette.cardBorder}`,
+                                                                    fontSize: 13,
+                                                                    fontWeight: 700,
+                                                                    color: palette.textPrimary,
+                                                                    cursor: 'pointer',
+                                                                    textAlign: 'left',
+                                                                    fontVariantNumeric: 'tabular-nums',
+                                                                }}
+                                                            >
+                                                                <span style={{
+                                                                    width: 14,
+                                                                    color: palette.accent,
+                                                                    fontWeight: 900,
+                                                                    flexShrink: 0,
+                                                                }}>
+                                                                    {isCurrent ? '✓' : ''}
+                                                                </span>
+                                                                <span>
+                                                                    {formatBuyPointsLabel(opt, sel.marketType)}
+                                                                </span>
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </>
+                                        )}
+                                    </div>
+                                )}
 
-                                {/* Auto-calculated Risk / Win readouts —
-                                    driven by the shared input at top. */}
-                                <div style={{
-                                    display: 'grid',
-                                    gridTemplateColumns: '1fr 1fr',
-                                    gap: 8,
-                                    marginTop: 8,
-                                }}>
+                                {/* Per-card Risk / Win readouts — only meaningful
+                                    in STRAIGHT mode where each leg is its own
+                                    independent bet. In parlay/teaser/if_bet/
+                                    reverse the slip places ONE combined ticket,
+                                    so per-leg numbers are misleading; the single
+                                    combined summary block below the cards owns
+                                    that math instead. */}
+                                {normalizedMode === 'straight' && (
                                     <div style={{
-                                        background: '#f8fafc',
-                                        border: `1px solid ${palette.cardBorder}`,
-                                        borderRadius: 6,
-                                        padding: '6px 10px',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'space-between',
-                                        gap: 6,
+                                        display: 'grid',
+                                        gridTemplateColumns: '1fr 1fr',
+                                        gap: 8,
+                                        marginTop: 8,
                                     }}>
-                                        <span style={{ fontSize: 10, fontWeight: 700, color: palette.textMuted, textTransform: 'uppercase', letterSpacing: 0.4 }}>Risk:</span>
-                                        <span style={{ fontSize: 12, fontWeight: 800, color: risk > 0 ? palette.textPrimary : palette.textFaint, fontVariantNumeric: 'tabular-nums' }}>
-                                            ${formatMoney(risk)}
-                                        </span>
+                                        <div style={{
+                                            background: '#f8fafc',
+                                            border: `1px solid ${palette.cardBorder}`,
+                                            borderRadius: 6,
+                                            padding: '6px 10px',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'space-between',
+                                            gap: 6,
+                                        }}>
+                                            <span style={{ fontSize: 10, fontWeight: 700, color: palette.textMuted, textTransform: 'uppercase', letterSpacing: 0.4 }}>Risk:</span>
+                                            <span style={{ fontSize: 12, fontWeight: 800, color: risk > 0 ? palette.textPrimary : palette.textFaint, fontVariantNumeric: 'tabular-nums' }}>
+                                                ${formatMoney(risk)}
+                                            </span>
+                                        </div>
+                                        <div style={{
+                                            background: '#f8fafc',
+                                            border: `1px solid ${palette.cardBorder}`,
+                                            borderRadius: 6,
+                                            padding: '6px 10px',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'space-between',
+                                            gap: 6,
+                                        }}>
+                                            <span style={{ fontSize: 10, fontWeight: 700, color: palette.textMuted, textTransform: 'uppercase', letterSpacing: 0.4 }}>Win:</span>
+                                            <span style={{ fontSize: 12, fontWeight: 800, color: win > 0 ? palette.success : palette.textFaint, fontVariantNumeric: 'tabular-nums' }}>
+                                                ${formatMoney(win)}
+                                            </span>
+                                        </div>
                                     </div>
-                                    <div style={{
-                                        background: '#f8fafc',
-                                        border: `1px solid ${palette.cardBorder}`,
-                                        borderRadius: 6,
-                                        padding: '6px 10px',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'space-between',
-                                        gap: 6,
-                                    }}>
-                                        <span style={{ fontSize: 10, fontWeight: 700, color: palette.textMuted, textTransform: 'uppercase', letterSpacing: 0.4 }}>Win:</span>
-                                        <span style={{ fontSize: 12, fontWeight: 800, color: win > 0 ? palette.success : palette.textFaint, fontVariantNumeric: 'tabular-nums' }}>
-                                            ${formatMoney(win)}
-                                        </span>
-                                    </div>
-                                </div>
+                                )}
                             </div>
                         </div>
                     );
                 })}
+
+                {/* Combined-mode summary — parlay / teaser / if_bet / reverse.
+                    Renders ONE block under the selection cards showing the
+                    combined ticket odds + the user's resolved Risk / Win.
+                    Hidden for straight mode (each card owns its own numbers)
+                    and when there are <2 selections in modes that need them
+                    (the warning banner above already nudges the user). */}
+                {legCount >= 2 && normalizedMode !== 'straight' && (
+                    <div style={{
+                        marginTop: 12,
+                        background: '#fff',
+                        border: `1px solid ${palette.cardBorder}`,
+                        borderLeft: `3px solid ${palette.accent}`,
+                        borderRadius: 8,
+                        padding: '12px 14px',
+                    }}>
+                        <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            marginBottom: 8,
+                        }}>
+                            <span style={{
+                                fontSize: 11,
+                                fontWeight: 800,
+                                color: palette.textMuted,
+                                textTransform: 'uppercase',
+                                letterSpacing: 0.6,
+                            }}>
+                                {normalizedMode === 'parlay' ? 'Parlay Odds'
+                                    : normalizedMode === 'teaser' ? 'Teaser Odds'
+                                        : normalizedMode === 'if_bet' ? 'If Bet Odds'
+                                            : normalizedMode === 'reverse' ? 'Reverse Odds'
+                                                : 'Combined Odds'}
+                            </span>
+                            <span style={{
+                                fontSize: 16,
+                                fontWeight: 800,
+                                color: oddsColour(ticketDecimalOdds),
+                                fontVariantNumeric: 'tabular-nums',
+                            }}>
+                                {ticketDecimalOdds ? formatOddsSign(ticketDecimalOdds) : '—'}
+                            </span>
+                        </div>
+                        <div style={{
+                            display: 'grid',
+                            gridTemplateColumns: '1fr 1fr',
+                            gap: 8,
+                        }}>
+                            <div style={{
+                                background: '#f8fafc',
+                                border: `1px solid ${palette.cardBorder}`,
+                                borderRadius: 6,
+                                padding: '6px 10px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                gap: 6,
+                            }}>
+                                <span style={{ fontSize: 10, fontWeight: 700, color: palette.textMuted, textTransform: 'uppercase', letterSpacing: 0.4 }}>Risk:</span>
+                                <span style={{ fontSize: 13, fontWeight: 800, color: effectiveCombinedRisk > 0 ? palette.textPrimary : palette.textFaint, fontVariantNumeric: 'tabular-nums' }}>
+                                    ${formatMoney(effectiveCombinedRisk)}
+                                </span>
+                            </div>
+                            <div style={{
+                                background: '#f8fafc',
+                                border: `1px solid ${palette.cardBorder}`,
+                                borderRadius: 6,
+                                padding: '6px 10px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                gap: 6,
+                            }}>
+                                <span style={{ fontSize: 10, fontWeight: 700, color: palette.textMuted, textTransform: 'uppercase', letterSpacing: 0.4 }}>Win:</span>
+                                <span style={{ fontSize: 13, fontWeight: 800, color: potentialPayout > effectiveCombinedRisk ? palette.success : palette.textFaint, fontVariantNumeric: 'tabular-nums' }}>
+                                    ${formatMoney(Math.max(0, potentialPayout - effectiveCombinedRisk))}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                )}
 
                 {normalizedMode === 'teaser' && Array.isArray(rule.teaserPointOptions) && rule.teaserPointOptions.length > 0 && (
                     <div style={{ marginTop: 14 }}>
@@ -1101,149 +1594,6 @@ const ModeBetPanel = ({
                                 );
                             })}
                         </div>
-                    </div>
-                )}
-
-                {/* APPLY TO ALL — quick stake row that writes to the
-                    single shared Bet Amount input at top. Visible in every
-                    mode now that there's exactly one stake state to fill. */}
-                {legCount > 0 && (
-                    <div style={{
-                        marginTop: 12,
-                        background: '#fff',
-                        border: `1px solid ${palette.cardBorder}`,
-                        borderRadius: 10,
-                        padding: '10px 12px',
-                    }}>
-                        <div style={{
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                            marginBottom: 8,
-                        }}>
-                            <span style={{
-                                fontSize: 10,
-                                fontWeight: 700,
-                                color: palette.textMuted,
-                                textTransform: 'uppercase',
-                                letterSpacing: 0.6,
-                            }}>
-                                Apply to all
-                            </span>
-                            <span style={{ fontSize: 10, color: palette.textFaint }}>
-                                Balance <span style={{ color: palette.textPrimary, fontWeight: 700 }}>${formatAmount(balance)}</span>
-                            </span>
-                        </div>
-                        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-                            {QUICK_STAKES.map(v => {
-                                const active = Number(wager) === v;
-                                return (
-                                    <button
-                                        key={v}
-                                        onClick={() => onWagerChange(String(v))}
-                                        style={{
-                                            flex: '1 1 0',
-                                            minWidth: 54,
-                                            padding: '7px 6px',
-                                            border: `1px solid ${active ? palette.headerBg : palette.cardBorder}`,
-                                            background: active ? palette.headerBg : '#fff',
-                                            color: active ? '#fff' : palette.textPrimary,
-                                            fontSize: 11,
-                                            fontWeight: 700,
-                                            cursor: 'pointer',
-                                            borderRadius: 6,
-                                            transition: 'all 120ms ease',
-                                        }}
-                                    >
-                                        ${v}
-                                    </button>
-                                );
-                            })}
-                            <button
-                                onClick={() => onWagerChange('')}
-                                style={{
-                                    padding: '7px 10px',
-                                    border: `1px solid ${palette.cardBorder}`,
-                                    background: '#fff',
-                                    color: palette.textMuted,
-                                    fontSize: 11,
-                                    fontWeight: 700,
-                                    cursor: 'pointer',
-                                    borderRadius: 6,
-                                }}
-                            >
-                                Clear
-                            </button>
-                        </div>
-                        {hasFreeplay && (
-                            <label style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 8,
-                                marginTop: 10,
-                                padding: '6px 10px',
-                                background: useFreeplay ? palette.successSoft : '#f8fafc',
-                                borderRadius: 8,
-                                fontSize: 11,
-                                cursor: 'pointer',
-                                userSelect: 'none',
-                                border: `1px solid ${useFreeplay ? palette.success : palette.cardBorder}`,
-                            }}>
-                                <input
-                                    type="checkbox"
-                                    checked={useFreeplay}
-                                    onChange={(e) => setUseFreeplay(e.target.checked)}
-                                    style={{ width: 13, height: 13, cursor: 'pointer', accentColor: palette.success }}
-                                />
-                                <span style={{ color: useFreeplay ? palette.success : palette.textPrimary, fontWeight: 700 }}>
-                                    Use Freeplay (${formatAmount(parsedFreeplayBalance)})
-                                </span>
-                            </label>
-                        )}
-                    </div>
-                )}
-
-                {/* Totals summary */}
-                {legCount > 0 && (
-                    <div style={{
-                        marginTop: 10,
-                        background: palette.headerBg,
-                        borderRadius: 10,
-                        padding: '12px 12px 14px',
-                        color: '#fff',
-                    }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                            <span style={{ color: '#94a3b8', fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 700 }}>Total Risk</span>
-                            <strong style={{ fontSize: 14, color: '#fff', fontWeight: 800 }}>${formatAmount(totalRisk)}</strong>
-                        </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 6 }}>
-                            <span style={{ color: '#94a3b8', fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 700 }}>Potential Payout</span>
-                            <strong style={{ fontSize: 17, color: '#4ade80', fontWeight: 800 }}>${formatAmount(potentialPayout)}</strong>
-                        </div>
-                        {(ticketDecimalOdds !== null || impliedProbability !== null) && (
-                            <div style={{
-                                marginTop: 8,
-                                paddingTop: 8,
-                                borderTop: '1px solid rgba(255,255,255,0.1)',
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                fontSize: 10,
-                                color: '#cbd5e1',
-                            }}>
-                                {ticketDecimalOdds !== null && (
-                                    <span>
-                                        {normalizedMode === 'straight' ? 'Odds' : 'Combined'}{' '}
-                                        <strong style={{ color: '#fff', marginLeft: 4 }}>{formatOdds(ticketDecimalOdds, oddsFormat)}</strong>
-                                    </span>
-                                )}
-                                {impliedProbability !== null && (
-                                    <span>
-                                        Prob{' '}
-                                        <strong style={{ color: '#fff', marginLeft: 4 }}>{impliedProbability.toFixed(1)}%</strong>
-                                    </span>
-                                )}
-                            </div>
-                        )}
                     </div>
                 )}
 
@@ -1315,7 +1665,16 @@ const ModeBetPanel = ({
                             </>
                         ) : (
                             <>
-                                <i className="fa-solid fa-check" /> Place {normalizedMode === 'straight' && legCount > 1 ? `${legCount} Bets` : 'Bet'}
+                                <i className="fa-solid fa-check" /> {(() => {
+                                    if (normalizedMode === 'straight') {
+                                        return legCount > 1 ? `Place ${legCount} Bets` : 'Place Bet';
+                                    }
+                                    if (normalizedMode === 'parlay') return 'Place Parlay';
+                                    if (normalizedMode === 'teaser') return 'Place Teaser';
+                                    if (normalizedMode === 'if_bet') return 'Place If Bet';
+                                    if (normalizedMode === 'reverse') return 'Place Reverse';
+                                    return 'Place Bet';
+                                })()}
                             </>
                         )}
                     </button>
