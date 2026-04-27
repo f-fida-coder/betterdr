@@ -789,8 +789,19 @@ body.dashboard-mode {
     background: #f5f5f5;
 }
 
+/* Selected sport row needs a clearly visible background — the previous 6%
+   green tint was barely distinguishable from hover, so users couldn't tell
+   which sport was active at a glance. Bumped to 14% with a 4px green left
+   accent and bold label so the active sport stands out among siblings. */
 .sidebar-item-row.selected {
-    background: rgba(0, 112, 60, 0.06);
+    background: rgba(0, 112, 60, 0.14);
+    border-left: 4px solid var(--dash-green);
+    padding-left: 12px;
+}
+
+.sidebar-item-row.selected .sidebar-label-text {
+    color: var(--dash-green);
+    font-weight: 700;
 }
 
 .sidebar-item-row.expander-only {

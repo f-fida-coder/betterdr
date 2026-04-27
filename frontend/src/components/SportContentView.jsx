@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import useMatches from '../hooks/useMatches';
 import useSportOddsRefresh from '../hooks/useSportOddsRefresh';
-import { syncLiveMatches, syncPrematchSport } from '../api';
+import { syncLiveMatches, syncPrematchSport, getStoredAuthToken } from '../api';
 import { useToast } from '../contexts/ToastContext';
 import { createFallbackTeamLogoDataUri, fetchTeamBadgeUrl } from '../utils/teamLogos';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
@@ -18,6 +18,22 @@ import {
 import PropBuilderModal from './PropBuilderModal';
 import MatchDetailView from './MatchDetailView';
 import OddsAge from './OddsAge';
+
+// Module-level dedupe: when the user multi-selects sports, every mounted
+// SportContentView instance fires its own sync. If two instances both try
+// to toast about the same failed sportKey, the screen used to flood with
+// duplicate "Couldn't fetch latest odds for X" lines. One toast per sport
+// per cooldown window is enough.
+const SYNC_TOAST_DEDUPE_MS = 30000;
+const lastSyncToastAt = new Map();
+const notifySyncFailure = (sportKey, showToast) => {
+    if (!sportKey || typeof showToast !== 'function') return;
+    const now = Date.now();
+    const last = lastSyncToastAt.get(sportKey) || 0;
+    if (now - last < SYNC_TOAST_DEDUPE_MS) return;
+    lastSyncToastAt.set(sportKey, now);
+    showToast(`Couldn't fetch latest odds for ${sportKey}`, { type: 'warning' });
+};
 
 const SportContentView = ({ sportId, selectedItems = [], filter = null, status = 'live-upcoming', activeBetMode = 'straight', limit = 0 }) => {
     const { oddsFormat } = useOddsFormat();
@@ -116,6 +132,13 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
         if (item && Array.isArray(item.sportKeys)) {
             return item.sportKeys.map((k) => String(k).toLowerCase());
         }
+        // Dynamic api-* entries (auto-injected from /api/matches/sports) are
+        // not in sportsData, so derive the OddsAPI sport key from the id —
+        // otherwise on-demand sync never fires for these and the user has
+        // to wait for the next cron tick to see fresh odds.
+        if (typeof sportId === 'string' && sportId.startsWith('api-')) {
+            return [sportId.slice(4).replace(/-/g, '_').toLowerCase()];
+        }
         return [];
     }, [sportId]);
 
@@ -126,9 +149,21 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
     // owns its own /api/sync/live trigger. Uses intendedSportKeys (from
     // sportsData) instead of visibleSportKeys (from rawMatches) so it
     // fires immediately on mount, not after the first GET resolves.
+    // Ref to the latest cached rows so the sync-error toast can suppress
+    // itself when we already have rows to show (Bug 3: don't nag the user
+    // about a refresh failure when the page isn't actually empty).
+    const rawMatchesRef = React.useRef(rawMatches);
+    React.useEffect(() => { rawMatchesRef.current = rawMatches; }, [rawMatches]);
+
     React.useEffect(() => {
         if (status === 'live') return undefined;
         if (intendedSportKeys.length === 0) return undefined;
+        // POST /api/sync/prematch requires auth (JWT or X-Tick-Secret).
+        // Anonymous browsers have neither, so the POST 401s and we used to
+        // toast "Couldn't fetch latest odds for …". Skip the call entirely —
+        // the cron tick keeps DB rows fresh, and the GET /api/matches that
+        // useMatches owns is public, so the page still renders correctly.
+        if (!getStoredAuthToken()) return undefined;
         const ctrl = new AbortController();
         let cancelled = false;
         Promise.all(intendedSportKeys.map(async (sportKey) => {
@@ -136,9 +171,13 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                 await syncPrematchSport(sportKey, { signal: ctrl.signal });
             } catch (err) {
                 if (err?.name === 'AbortError') return;
-                if (!cancelled) {
-                    showToast?.(`Couldn't fetch latest odds for ${sportKey}`, { type: 'warning' });
-                }
+                if (cancelled) return;
+                // Suppress the toast when cached rows are already on screen —
+                // the sync was best-effort, the user has data, no point
+                // surfacing an error they can't act on.
+                const haveCachedRows = Array.isArray(rawMatchesRef.current) && rawMatchesRef.current.length > 0;
+                if (haveCachedRows) return;
+                notifySyncFailure(sportKey, showToast);
             }
         })).then(() => {
             if (cancelled) return;
@@ -242,9 +281,45 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
             ncaab: { name: 'NCAA Basketball', icon: 'fa-solid fa-basketball' },
         };
 
+        // Auto-injected sidebar entries (e.g. `api-icehockey-liiga`) are not
+        // in the static sportsData tree, so findSportItemById misses them and
+        // the header used to fall through to a generic "Sports" label —
+        // making multi-selection look like duplicate sections. Synthesize a
+        // readable label + icon from the slug (mirrors prettifySportKey /
+        // iconForSportKey in DashboardSidebar).
+        const ICON_BY_CATEGORY = {
+            basketball: 'fa-solid fa-basketball',
+            americanfootball: 'fa-solid fa-football',
+            baseball: 'fa-solid fa-baseball-bat-ball',
+            icehockey: 'fa-solid fa-hockey-puck',
+            soccer: 'fa-solid fa-futbol',
+            tennis: 'fa-solid fa-table-tennis-paddle-ball',
+            golf: 'fa-solid fa-golf-ball-tee',
+            mma: 'fa-solid fa-hand-fist',
+            boxing: 'fa-solid fa-mitten',
+            cricket: 'fa-solid fa-baseball',
+            rugbyleague: 'fa-solid fa-football',
+            rugbyunion: 'fa-solid fa-football',
+            aussierules: 'fa-solid fa-football',
+            motorsport: 'fa-solid fa-flag-checkered',
+        };
+        const synthesizeFromApiId = (id) => {
+            if (!id || !id.startsWith('api-')) return null;
+            const slug = id.slice(4);
+            const label = slug
+                .split('-')
+                .filter(Boolean)
+                .map((p) => (p === p.toUpperCase() ? p : p.charAt(0).toUpperCase() + p.slice(1)))
+                .join(' ');
+            const category = slug.split('-')[0];
+            return { name: label, icon: ICON_BY_CATEGORY[category] || 'fa-solid fa-trophy' };
+        };
+
         const resolveSportInfo = (id) => {
             const item = findSportItemById(id);
             if (item) return { name: item.label, icon: item.icon || 'fa-solid fa-trophy' };
+            const synthesized = synthesizeFromApiId(id);
+            if (synthesized) return synthesized;
             return sportMapFallback[id] || { name: 'Sports', icon: 'fa-solid fa-trophy' };
         };
 
@@ -447,6 +522,18 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
     };
 
 
+    // Hide a generic "Sports" section entirely when:
+    //   1. the user has specific sports selected (so per-sport sections own
+    //      the page), AND
+    //   2. this section has nothing to show.
+    // Without this guard the page rendered a redundant empty "Sports - Live
+    // & Upcoming" panel above the real per-sport sections, looking like a
+    // duplicate render bug.
+    const isGenericFallbackSection = !sportId && (selectedItems?.length || 0) > 0;
+    if (isGenericFallbackSection && !isLoading && content.matches.length === 0) {
+        return null;
+    }
+
     return (
         <div className="sport-content-view">
             <div className="content-header">
@@ -500,9 +587,13 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                     ) : content.matches.length === 0 ? (
                         <div style={{ padding: '40px', textAlign: 'center', color: '#888', background: '#fff', borderRadius: '8px' }}>
                             <i className="fa-solid fa-calendar-xmark" style={{ fontSize: '48px', marginBottom: '16px', opacity: 0.5 }}></i>
-                            <h3>No Live or Upcoming Matches Found</h3>
-                            <p>There are no {content.name} matches available right now.</p>
-                            <p style={{ fontSize: '0.9em' }}>Check back later for new updates.</p>
+                            <h3>No matches scheduled</h3>
+                            <p>
+                                {content.name && content.name !== 'Sports'
+                                    ? `No live or upcoming ${content.name} matches right now.`
+                                    : 'No live or upcoming matches right now.'}
+                            </p>
+                            <p style={{ fontSize: '0.9em' }}>Check back when games are scheduled.</p>
                         </div>
                     ) : (
                         content.matches.map((match) => (
