@@ -298,6 +298,10 @@ const AccountPanel = ({
     const balance = user?.balance ?? 0;
     const freeplay = user?.freeplayBalance ?? 0;
     const nonPostedCasino = user?.nonPostedCasino ?? 0;
+    // Credit line the user can wager against. Backend exposes this as
+    // `creditLimit` on the /auth/me payload — agents/admin set it per
+    // user. Defaults to 0 so display is "$0.00" until provisioned.
+    const creditAvailable = user?.creditLimit ?? user?.creditAvailable ?? 0;
     const role = String(user?.role || 'user').toLowerCase();
     const isAgentLike = role === 'agent' || role === 'super_agent' || role === 'master_agent' || role === 'admin';
     const roleLabel = {
@@ -417,29 +421,23 @@ const AccountPanel = ({
                         </div>
                     </div>
 
-                    {/* Available balance snapshot inside header */}
+                    {/* Available balance snapshot — headline only.
+                        Pending and Freeplay used to be repeated on the
+                        right side of this row, but they already have
+                        their own tiles in the Balance breakdown grid
+                        directly below, so showing them twice was just
+                        clutter. */}
                     <div style={{
                         marginTop: 18,
                         background: 'rgba(0,0,0,0.18)',
                         borderRadius: 12,
-                        padding: '12px 14px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
+                        padding: '14px 16px',
                     }}>
-                        <div>
-                            <div style={{ fontSize: 10, opacity: 0.85, letterSpacing: 0.5, fontWeight: 700, textTransform: 'uppercase' }}>
-                                Available to Bet
-                            </div>
-                            <div style={{ fontSize: 22, fontWeight: 800, marginTop: 2 }}>
-                                ${formatMoney(available)}
-                            </div>
+                        <div style={{ fontSize: 10, opacity: 0.85, letterSpacing: 0.5, fontWeight: 700, textTransform: 'uppercase' }}>
+                            Available to Bet
                         </div>
-                        <div style={{ textAlign: 'right', fontSize: 11, opacity: 0.85 }}>
-                            <div>Pending <strong style={{ color: '#fff' }}>${formatMoney(pending)}</strong></div>
-                            {Number(freeplay) > 0 && (
-                                <div style={{ marginTop: 2 }}>Freeplay <strong style={{ color: '#fff' }}>${formatMoney(freeplay)}</strong></div>
-                            )}
+                        <div style={{ fontSize: 24, fontWeight: 800, marginTop: 4 }}>
+                            ${formatMoney(available)}
                         </div>
                     </div>
                 </div>
@@ -485,6 +483,17 @@ const AccountPanel = ({
                                 tone="info"
                                 hint={Number(pending) > 0 ? 'Locked in open bets' : undefined}
                             />
+                            {/* Credit Available — spans full row so the
+                                grid stays balanced with 5 tiles instead
+                                of an awkward half-empty 6th slot. */}
+                            <div style={{ gridColumn: '1 / -1' }}>
+                                <BalanceTile
+                                    icon="fa-money-check-dollar"
+                                    label="Credit Available"
+                                    value={`$${formatMoney(creditAvailable)}`}
+                                    tone={Number(creditAvailable) > 0 ? 'success' : 'neutral'}
+                                />
+                            </div>
                         </div>
                     </section>
 
