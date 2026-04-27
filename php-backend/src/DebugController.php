@@ -393,13 +393,31 @@ final class DebugController
         $coveredKeys = RundownLiveSync::coveredSportKeysSet();
         return array_values(array_filter($rows, static function ($m) use ($now, $coveredKeys) {
             if (!is_array($m)) return false;
-            if (strtolower((string) ($m['oddsSource'] ?? '')) !== 'rundown') return false;
-            $sportKey = strtolower((string) ($m['sportKey'] ?? ''));
+            // Resolve sportKey from either doc.sportKey (new format) or
+            // doc.sport (legacy format) so old-schema rows aren't silently
+            // dropped before the first Rundown sync backfills sportKey.
+            $sportKey = RundownLiveSync::resolveSportKey($m);
             if ($sportKey === '' || !isset($coveredKeys[$sportKey])) return false;
+            // oddsSource must be 'rundown' OR the row must have been freshly
+            // synced this tick (lastOddsSyncAt within window). Rows that were
+            // live before the first Rundown sync have oddsSource=null; we
+            // include them if they are in covered sports and have been synced.
+            $src = strtolower((string) ($m['oddsSource'] ?? ''));
             $last = (string) ($m['lastOddsSyncAt'] ?? '');
             $lastTs = $last !== '' ? strtotime($last) : false;
-            if ($lastTs === false) return false;
-            return ($now - $lastTs) <= MatchesController::liveFreshnessSecondsForSport($sportKey);
+            // If oddsSource is 'rundown' and freshness check passes → show.
+            if ($src === 'rundown') {
+                if ($lastTs === false) return false;
+                return ($now - $lastTs) <= MatchesController::liveFreshnessSecondsForSport($sportKey);
+            }
+            // For rows not yet synced by Rundown (oddsSource null/other),
+            // include them temporarily so Live Now isn't empty while the
+            // first tick is in-flight — but only for up to 5 minutes from
+            // their lastUpdated timestamp so stale rows eventually drop off.
+            $lastUpdated = (string) ($m['lastUpdated'] ?? ($m['updatedAt'] ?? ''));
+            $updatedTs = $lastUpdated !== '' ? strtotime($lastUpdated) : false;
+            if ($updatedTs === false) return false;
+            return ($now - $updatedTs) <= 300; // 5-minute grace for pre-sync rows
         }));
     }
 

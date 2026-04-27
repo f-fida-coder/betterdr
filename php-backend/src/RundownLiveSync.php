@@ -68,6 +68,75 @@ final class RundownLiveSync
     ];
 
     /**
+     * Map of old-format `sport` field values (short display names stored by
+     * The Odds API sync) → canonical OddsAPI sportKey strings used by the
+     * Rundown sync. Needed because some DB rows were written before sportKey
+     * was standardised, so doc.sportKey is NULL while doc.sport has a value.
+     *
+     * @var array<string, string>
+     */
+    private const LEGACY_SPORT_NAME_TO_KEY = [
+        'nba'                    => 'basketball_nba',
+        'basketball nba'         => 'basketball_nba',
+        'nfl'                    => 'americanfootball_nfl',
+        'american football nfl'  => 'americanfootball_nfl',
+        'ncaaf'                  => 'americanfootball_ncaaf',
+        'mlb'                    => 'baseball_mlb',
+        'baseball mlb'           => 'baseball_mlb',
+        'nhl'                    => 'icehockey_nhl',
+        'ice hockey nhl'         => 'icehockey_nhl',
+        'mma'                    => 'mma_mixed_martial_arts',
+        'mma/ufc'                => 'mma_mixed_martial_arts',
+        'ufc'                    => 'mma_mixed_martial_arts',
+        'wnba'                   => 'basketball_wnba',
+        'cfl'                    => 'americanfootball_cfl',
+        'mls'                    => 'soccer_usa_mls',
+        'soccer mls'             => 'soccer_usa_mls',
+        'epl'                    => 'soccer_epl',
+        'premier league'         => 'soccer_epl',
+        'english premier league' => 'soccer_epl',
+        'ligue 1'                => 'soccer_france_ligue_one',
+        'ligue1'                 => 'soccer_france_ligue_one',
+        'bundesliga'             => 'soccer_germany_bundesliga',
+        'la liga'                => 'soccer_spain_la_liga',
+        'la liga - spain'        => 'soccer_spain_la_liga',
+        'serie a'                => 'soccer_italy_serie_a',
+        'serie a - italy'        => 'soccer_italy_serie_a',
+        'champions league'       => 'soccer_uefa_champs_league',
+        'uefa champions league'  => 'soccer_uefa_champs_league',
+        'europa league'          => 'soccer_uefa_europa_league',
+        'uefa europa league'     => 'soccer_uefa_europa_league',
+        'fifa world cup'         => 'soccer_fifa_world_cup',
+        'world cup'              => 'soccer_fifa_world_cup',
+        'j-league'               => 'soccer_japan_j_league',
+        'j league'               => 'soccer_japan_j_league',
+        'cricket ipl'            => 'cricket_ipl',
+        'ipl'                    => 'cricket_ipl',
+        'cricket psl'            => 'cricket_psl',
+        'psl'                    => 'cricket_psl',
+        'cricket odi'            => 'cricket_odi',
+        'odi'                    => 'cricket_odi',
+        'cricket t20'            => 'cricket_t20',
+        't20'                    => 'cricket_t20',
+        'international t20'      => 'cricket_international_t20',
+        'ncaab'                  => 'basketball_ncaab',
+    ];
+
+    /**
+     * Resolve a canonical sportKey from a match row, handling both current
+     * rows (doc.sportKey is set) and legacy rows (doc.sport is set but
+     * doc.sportKey is absent/null).
+     */
+    public static function resolveSportKey(array $row): string
+    {
+        $key = strtolower(trim((string) ($row['sportKey'] ?? '')));
+        if ($key !== '') return $key;
+        // Fallback: map legacy short sport name → canonical sportKey
+        $legacyName = strtolower(trim((string) ($row['sport'] ?? '')));
+        return self::LEGACY_SPORT_NAME_TO_KEY[$legacyName] ?? '';
+    }
+
+    /**
      * Set of OddsAPI sportKeys that the Rundown live overlay can cover —
      * derived from SPORT_ID_TO_ODDS_KEYS. Used by the live API filter to
      * exclude sports that Rundown can't service (Tennis WTA/ATP, NCAA
@@ -225,12 +294,12 @@ final class RundownLiveSync
         $imminentEnd = gmdate('Y-m-d\TH:i:s\Z', time() + 30 * 60);
 
         $live = $db->findMany('matches', ['status' => 'live'], [
-            'projection' => ['sportKey' => 1],
+            'projection' => ['sportKey' => 1, 'sport' => 1],
             'limit' => 500,
         ]);
         if (is_array($live)) {
             foreach ($live as $row) {
-                $k = (string) ($row['sportKey'] ?? '');
+                $k = self::resolveSportKey($row);
                 if ($k !== '') $set[$k] = true;
             }
         }
@@ -239,12 +308,12 @@ final class RundownLiveSync
             'status' => 'scheduled',
             'startTime' => ['$lte' => $imminentEnd],
         ], [
-            'projection' => ['sportKey' => 1],
+            'projection' => ['sportKey' => 1, 'sport' => 1],
             'limit' => 500,
         ]);
         if (is_array($scheduled)) {
             foreach ($scheduled as $row) {
-                $k = (string) ($row['sportKey'] ?? '');
+                $k = self::resolveSportKey($row);
                 if ($k !== '') $set[$k] = true;
             }
         }
@@ -295,6 +364,10 @@ final class RundownLiveSync
         $oddsDoc = self::buildOddsFromRundown($event['markets'] ?? [], $homeName, $awayName);
         $score = self::buildScoreFromRundown($event['score'] ?? []);
         $now = SqlRepository::nowUtc();
+        // Resolve the canonical sportKey — may be null on legacy rows that
+        // only have doc.sport (short name). We backfill it here so every
+        // subsequent tick can use the fast sportKey index path.
+        $resolvedSportKey = self::resolveSportKey($row);
         $update = [
             'odds' => $oddsDoc,
             'score' => $score,
@@ -305,6 +378,11 @@ final class RundownLiveSync
             'lastScoreSyncAt' => $now,
             'updatedAt' => $now,
         ];
+        // Backfill sportKey on legacy rows that lacked it so the freshness
+        // filter and future ticks can use the canonical key.
+        if ($resolvedSportKey !== '' && empty($row['sportKey'])) {
+            $update['sportKey'] = $resolvedSportKey;
+        }
         // Bind/refresh the Rundown event_id on every successful match so
         // subsequent ticks bypass fuzzy-match entirely. updateOne is a JSON
         // merge, so this is additive — won't clobber unrelated fields.
@@ -313,9 +391,9 @@ final class RundownLiveSync
         }
         try {
             $db->updateOne('matches', ['id' => SqlRepository::id((string) $row['id'])], $update);
-            return ['matched' => true, 'updated' => true, 'sportKey' => (string) ($row['sportKey'] ?? '')];
+            return ['matched' => true, 'updated' => true, 'sportKey' => $resolvedSportKey];
         } catch (Throwable $_) {
-            return ['matched' => true, 'updated' => false, 'sportKey' => (string) ($row['sportKey'] ?? '')];
+            return ['matched' => true, 'updated' => false, 'sportKey' => $resolvedSportKey];
         }
     }
 
@@ -410,18 +488,34 @@ final class RundownLiveSync
      */
     private static function findMatchingRow(SqlRepository $db, string $home, string $away, array $oddsKeys, int $eventTs): ?array
     {
+        // First pass: query by canonical sportKey (new-format rows)
         $filter = [];
         if ($oddsKeys !== []) {
             $filter['sportKey'] = ['$in' => $oddsKeys];
         }
-        // Constrain to anything currently live OR scheduled within a ±90min
-        // window of the rundown event time. Avoids scanning the whole table.
         $filter['status'] = ['$in' => ['live', 'scheduled']];
 
         $candidates = $db->findMany('matches', $filter, [
-            'projection' => ['id' => 1, 'homeTeam' => 1, 'awayTeam' => 1, 'sportKey' => 1, 'startTime' => 1],
+            'projection' => ['id' => 1, 'homeTeam' => 1, 'awayTeam' => 1, 'sportKey' => 1, 'sport' => 1, 'startTime' => 1],
             'limit' => 200,
         ]);
+
+        // Second pass: if nothing found by sportKey, also search legacy rows
+        // that have doc.sport (short name) instead of doc.sportKey.
+        if ((!is_array($candidates) || $candidates === []) && $oddsKeys !== []) {
+            $legacyFilter = ['status' => ['$in' => ['live', 'scheduled']]];
+            $all = $db->findMany('matches', $legacyFilter, [
+                'projection' => ['id' => 1, 'homeTeam' => 1, 'awayTeam' => 1, 'sportKey' => 1, 'sport' => 1, 'startTime' => 1],
+                'limit' => 500,
+            ]);
+            if (is_array($all)) {
+                $candidates = array_values(array_filter($all, function ($row) use ($oddsKeys) {
+                    $resolved = self::resolveSportKey(is_array($row) ? $row : []);
+                    return $resolved !== '' && in_array($resolved, $oddsKeys, true);
+                }));
+            }
+        }
+
         if (!is_array($candidates) || $candidates === []) return null;
 
         $homeNorm = self::normalizeTeam($home);
