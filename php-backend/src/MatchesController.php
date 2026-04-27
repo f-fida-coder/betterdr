@@ -7,11 +7,16 @@ final class MatchesController
 {
     private const PUBLIC_CACHE_DOC_ID = 'sportsbook_public_matches';
     private const PUBLIC_REFRESH_LOCK_PREFIX = 'sportsbook_public_matches_refresh_';
-    private const DEFAULT_PUBLIC_CACHE_TTL_SECONDS = 120;
-    private const DEFAULT_PUBLIC_REFRESH_COOLDOWN_SECONDS = 120;
-    private const DEFAULT_PUBLIC_REFRESH_LOCK_SECONDS = 30;
-    private const DEFAULT_SHARED_MATCHES_CACHE_TTL_SECONDS = 120;
-    private const DEFAULT_SHARED_SPORTS_CACHE_TTL_SECONDS = 60;
+    // Defaults are zero so a fresh install / unset env var bypasses caching.
+    // Live betting cannot serve stale odds; the prior 120 s defaults caused
+    // a wrong-price risk window. Re-introduce non-zero defaults only after
+    // a real invalidation strategy ships (>=1000 DAU regime).
+    private const DEFAULT_PUBLIC_CACHE_TTL_SECONDS = 0;
+    private const DEFAULT_PUBLIC_REFRESH_COOLDOWN_SECONDS = 0;
+    private const DEFAULT_PUBLIC_REFRESH_LOCK_SECONDS = 30; // refresh lock is concurrency, not staleness — keep
+    private const DEFAULT_SHARED_MATCHES_CACHE_TTL_SECONDS = 0;
+    private const DEFAULT_SHARED_SPORTS_CACHE_TTL_SECONDS = 0;
+    private const NO_STORE_HEADER = 'no-store, no-cache, must-revalidate, max-age=0, private';
 
     private SqlRepository $db;
     private string $jwtSecret;
@@ -87,21 +92,31 @@ final class MatchesController
             : '';
         $cacheKey = SportsbookCache::publicMatchesKey($status . '|payload:' . $payloadMode . $sportCacheSegment, $active);
         // Read stale data NOW before any TTL-enforcing get() may delete the expired file.
-        // This is the fallback used if the fresh-data path throws an exception under load.
-        $staleForFallback = SharedFileCache::peek($cacheNamespace, $cacheKey);
+        // Used only as exception fallback to keep the endpoint available if computeMatches throws.
+        $staleForFallback = $sharedCacheTtl > 0 ? SharedFileCache::peek($cacheNamespace, $cacheKey) : null;
 
         try {
             $cacheMeta = $this->maybeRefreshPublicMatches();
-            $annotated = SharedFileCache::get($cacheNamespace, $cacheKey, $sharedCacheTtl);
-            $sharedCacheState = is_array($annotated) ? 'hit' : 'miss';
 
-            if (!is_array($annotated)) {
-                $annotated = SharedFileCache::remember(
-                    $cacheNamespace,
-                    $cacheKey,
-                    $sharedCacheTtl,
-                    fn(): array => $this->computeMatches($status, $active, $payloadMode, $sportFilter, $sportKeyFilter)
-                );
+            // Caching disabled (TTL <= 0): live betting requires fresh data on
+            // every request. Bypass SharedFileCache and APCu entirely so we
+            // never serve stale odds. Re-enable when a proper invalidation
+            // strategy ships at higher scale.
+            if ($sharedCacheTtl <= 0) {
+                $annotated = $this->computeMatches($status, $active, $payloadMode, $sportFilter, $sportKeyFilter);
+                $sharedCacheState = 'bypass';
+            } else {
+                $annotated = SharedFileCache::get($cacheNamespace, $cacheKey, $sharedCacheTtl);
+                $sharedCacheState = is_array($annotated) ? 'hit' : 'miss';
+
+                if (!is_array($annotated)) {
+                    $annotated = SharedFileCache::remember(
+                        $cacheNamespace,
+                        $cacheKey,
+                        $sharedCacheTtl,
+                        fn(): array => $this->computeMatches($status, $active, $payloadMode, $sportFilter, $sportKeyFilter)
+                    );
+                }
             }
 
             header('X-Matches-Shared-Cache: ' . $sharedCacheState);
@@ -109,28 +124,18 @@ final class MatchesController
             header('X-Matches-Payload-Mode: ' . $payloadMode);
             $this->emitPublicCacheHeaders($cacheMeta);
 
-            // Apply ?limit=N here so a single cached array serves every limit
-            // value. The cache key intentionally does NOT include limit.
+            // Apply ?limit=N here. The cache key intentionally does NOT include limit.
             $payload = $annotated;
             if ($limit > 0 && is_array($payload) && count($payload) > $limit) {
                 $payload = array_slice($payload, 0, $limit);
                 header('X-Matches-Limit-Applied: ' . $limit);
             }
 
-            // Manual-refresh paths are uncacheable by intermediaries: the payload
-            // is intentionally the pre-sync snapshot, and a follow-up refetch will
-            // pick up the freshly-synced odds.
-            if (!empty($cacheMeta['syncDeferred'])) {
-                Response::json($payload, 200, 'private, no-cache, no-store, must-revalidate');
-            } else {
-                $upstreamCacheTtl = (int) ($cacheMeta['cacheTtlSeconds'] ?? self::DEFAULT_PUBLIC_CACHE_TTL_SECONDS);
-                $responseCacheTtl = max(1, min($upstreamCacheTtl, $sharedCacheTtl));
-                Response::json($payload, 200, "public, max-age={$responseCacheTtl}");
-            }
+            // Always send no-store: live betting platform, no intermediary caching.
+            Response::json($payload, 200, self::NO_STORE_HEADER);
             $this->runDeferredSync();
         } catch (Throwable $e) {
-            // Fallback to stale cache to keep the public matches endpoint available
-            // during transient database contention and avoid 5xx spikes.
+            // Fallback to stale cache only if it exists from a prior cached era.
             if (is_array($staleForFallback)) {
                 $stalePayload = $staleForFallback;
                 if ($limit > 0 && count($stalePayload) > $limit) {
@@ -138,7 +143,7 @@ final class MatchesController
                 }
                 header('X-Matches-Fallback: stale-cache');
                 header('X-Cache: STALE');
-                Response::json($stalePayload, 200, 'public, max-age=5, stale-while-revalidate=60');
+                Response::json($stalePayload, 200, self::NO_STORE_HEADER);
                 return;
             }
             Response::json(['message' => 'Server Error fetching matches'], 500);
@@ -356,8 +361,8 @@ final class MatchesController
                 'extendedMarkets' => is_array($result['markets'] ?? null) ? $result['markets'] : [],
                 'playerProps' => is_array($result['playerProps'] ?? null) ? $result['playerProps'] : [],
             ];
-            $ttl = (bool) ($result['cached'] ?? false) ? 60 : 30;
-            Response::json($payload, 200, "public, max-age={$ttl}");
+            // Match props are live odds too — never serve from CDN/browser cache.
+            Response::json($payload, 200, self::NO_STORE_HEADER);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server Error fetching props'], 500);
         }
@@ -371,27 +376,37 @@ final class MatchesController
     {
         try {
             $sharedCacheTtl = $this->envInt('SPORTSBOOK_MATCHES_SPORTS_CACHE_TTL_SECONDS', self::DEFAULT_SHARED_SPORTS_CACHE_TTL_SECONDS);
-            $sports = SharedFileCache::get(
-                SportsbookCache::availableSportsNamespace(),
-                SportsbookCache::availableSportsKey(),
-                $sharedCacheTtl
-            );
-            $sharedCacheState = is_array($sports) ? 'hit' : 'miss';
 
-            if (!is_array($sports)) {
-                $sports = SharedFileCache::remember(
+            // Caching disabled by default — sidebar must reflect what's
+            // actually live in the DB right now. See getMatches() for the
+            // reasoning. computeAvailableSports() is a single indexed query
+            // over the matches table, so DB cost is negligible.
+            if ($sharedCacheTtl <= 0) {
+                $sports = $this->computeAvailableSports();
+                $sharedCacheState = 'bypass';
+            } else {
+                $sports = SharedFileCache::get(
                     SportsbookCache::availableSportsNamespace(),
                     SportsbookCache::availableSportsKey(),
-                    $sharedCacheTtl,
-                    fn(): array => $this->computeAvailableSports()
+                    $sharedCacheTtl
                 );
+                $sharedCacheState = is_array($sports) ? 'hit' : 'miss';
+
+                if (!is_array($sports)) {
+                    $sports = SharedFileCache::remember(
+                        SportsbookCache::availableSportsNamespace(),
+                        SportsbookCache::availableSportsKey(),
+                        $sharedCacheTtl,
+                        fn(): array => $this->computeAvailableSports()
+                    );
+                }
             }
 
             header('X-Matches-Sports-Shared-Cache: ' . $sharedCacheState);
             header('X-Cache: ' . ($sharedCacheState === 'hit' ? 'HIT' : 'MISS'));
-            Response::json($sports, 200, "public, max-age={$sharedCacheTtl}");
+            Response::json($sports, 200, self::NO_STORE_HEADER);
         } catch (Throwable $e) {
-            Response::json([], 200, 'public, max-age=5');
+            Response::json([], 200, self::NO_STORE_HEADER);
         }
     }
 

@@ -27,12 +27,12 @@ import OddsAge from './OddsAge';
 const SYNC_TOAST_DEDUPE_MS = 30000;
 const lastSyncToastAt = new Map();
 
-// Module-level record of the last time each sportKey was successfully
-// synced (prematch). When the user switches back to a sport they already
-// visited, skip the upstream Odds API call if it was synced recently —
-// prevents 3 calls for NBA → Soccer → NBA and reduces rate-limit pressure.
-const SYNC_RECENT_MS = 60000; // 60 s — matches backend tier-1 cadence
-const lastSyncCompletedAt = new Map();
+// NOTE: previously a `lastSyncCompletedAt` map skipped sync POSTs within
+// 60 s of the last success. That was a client-side cache and produced
+// `trigger=sport-tab-sync-cached` requests in the network tab. Removed
+// because live betting cannot serve stale odds — every sport-tab click
+// now hits the upstream sync. Per-IP throttle on the backend
+// (USER_PREMATCH_SYNC_MIN_INTERVAL_SECONDS=30) still prevents quota burn.
 const notifySyncFailure = (sportKey, showToast) => {
     if (!sportKey || typeof showToast !== 'function') return;
     const now = Date.now();
@@ -178,52 +178,30 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
 
         // Debounce: wait 300ms before firing — rapid sport-tab clicks
         // (NBA → Soccer → NBA) abort the timer and never hit the network.
-        // This is the primary defence against spray-firing upstream calls.
+        // This is request-economy, not data caching: it just collapses
+        // mid-flight key changes into one POST per final selection.
         const timer = window.setTimeout(() => {
             if (cancelled) return;
-
-            const now = Date.now();
-            // Sport-level dedup: filter out keys that were already synced
-            // within the last 60s. Switching back to NBA reuses cached DB
-            // rows; no upstream Odds API call is needed.
-            const keysToSync = intendedSportKeys.filter(
-                (k) => (now - (lastSyncCompletedAt.get(k) || 0)) > SYNC_RECENT_MS,
-            );
-
-            const syncAndDispatch = (keys) => {
-                Promise.all(keys.map(async (sportKey) => {
-                    try {
-                        await syncPrematchSport(sportKey, { signal: ctrl.signal });
-                        // Record success time so return-visits skip this call.
-                        lastSyncCompletedAt.set(sportKey, Date.now());
-                    } catch (err) {
-                        if (err?.name === 'AbortError') return;
-                        if (cancelled) return;
-                        // Suppress the toast when cached rows are already on
-                        // screen — sync was best-effort, user has data.
-                        const haveCachedRows = Array.isArray(rawMatchesRef.current) && rawMatchesRef.current.length > 0;
-                        if (haveCachedRows) return;
-                        notifySyncFailure(sportKey, showToast);
-                    }
-                })).then(() => {
+            Promise.all(intendedSportKeys.map(async (sportKey) => {
+                try {
+                    await syncPrematchSport(sportKey, { signal: ctrl.signal });
+                } catch (err) {
+                    if (err?.name === 'AbortError') return;
                     if (cancelled) return;
-                    // Force-refetch after all parallel syncs settle so the UI
-                    // sees the freshly-synced rows in one consistent paint.
-                    window.dispatchEvent(new CustomEvent('matches:force-refetch', {
-                        detail: { reason: 'sport-tab-sync', sportKeys: intendedSportKeys },
-                    }));
-                });
-            };
-
-            if (keysToSync.length > 0) {
-                syncAndDispatch(keysToSync);
-            } else {
-                // All keys recently synced — still force-refetch from DB so
-                // the UI gets fresh rows without an upstream call.
+                    // Suppress the toast when cached rows are already on
+                    // screen — sync was best-effort, user has data.
+                    const haveCachedRows = Array.isArray(rawMatchesRef.current) && rawMatchesRef.current.length > 0;
+                    if (haveCachedRows) return;
+                    notifySyncFailure(sportKey, showToast);
+                }
+            })).then(() => {
+                if (cancelled) return;
+                // Force-refetch after all parallel syncs settle so the UI
+                // sees the freshly-synced rows in one consistent paint.
                 window.dispatchEvent(new CustomEvent('matches:force-refetch', {
-                    detail: { reason: 'sport-tab-sync-cached', sportKeys: intendedSportKeys },
+                    detail: { reason: 'sport-tab-sync', sportKeys: intendedSportKeys },
                 }));
-            }
+            });
         }, 300);
 
         return () => {

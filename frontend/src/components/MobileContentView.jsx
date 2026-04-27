@@ -18,12 +18,13 @@ import PropBuilderModal from './PropBuilderModal';
 import MatchDetailView from './MatchDetailView';
 import OddsAge from './OddsAge';
 
-// Module-level sync dedup — mirrors SportContentView. Mobile and desktop
-// views are mutually exclusive so separate maps are fine.
+// Module-level toast dedup — mirrors SportContentView.
 const MOB_SYNC_TOAST_DEDUPE_MS = 30000;
-const MOB_SYNC_RECENT_MS = 60000; // skip re-sync if done within 60s
 const mobLastSyncToastAt = new Map();
-const mobLastSyncCompletedAt = new Map();
+// NOTE: previously a `mobLastSyncCompletedAt` map skipped sync POSTs within
+// 60 s of the last success. Removed because live betting cannot serve
+// stale odds — every sport-tab click now hits the upstream sync. See
+// SportContentView.jsx for the matching desktop change.
 const notifyMobSyncFailure = (sportKey, showToast) => {
     if (!sportKey || typeof showToast !== 'function') return;
     const now = Date.now();
@@ -538,8 +539,9 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
     const { trigger: triggerSportRefresh, isRefreshing: isSportRefreshing, cooldownRemainingSec } = useSportOddsRefresh(visibleSportKeys, { showToast });
 
     // Freshness sync on sport selection — mirrors SportContentView (desktop).
-    // 300ms debounce absorbs rapid sport switches; 60s dedup skips re-syncing
-    // a sport the user already visited recently.
+    // 300ms debounce absorbs rapid sport switches into one POST per final
+    // selection. No client-side dedup beyond the debounce — every committed
+    // selection fires a fresh upstream sync.
     React.useEffect(() => {
         if (statusFilter === 'live') return undefined;
         if (intendedSportKeys.length === 0) return undefined;
@@ -548,36 +550,22 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
         let cancelled = false;
         const timer = window.setTimeout(() => {
             if (cancelled) return;
-            const now = Date.now();
-            const keysToSync = intendedSportKeys.filter(
-                (k) => (now - (mobLastSyncCompletedAt.get(k) || 0)) > MOB_SYNC_RECENT_MS,
-            );
-            const syncAndDispatch = (keys) => {
-                Promise.all(keys.map(async (sportKey) => {
-                    try {
-                        await syncPrematchSport(sportKey, { signal: ctrl.signal });
-                        mobLastSyncCompletedAt.set(sportKey, Date.now());
-                    } catch (err) {
-                        if (err?.name === 'AbortError') return;
-                        if (cancelled) return;
-                        const haveCachedRows = Array.isArray(rawMatchesRef.current) && rawMatchesRef.current.length > 0;
-                        if (haveCachedRows) return;
-                        notifyMobSyncFailure(sportKey, showToast);
-                    }
-                })).then(() => {
+            Promise.all(intendedSportKeys.map(async (sportKey) => {
+                try {
+                    await syncPrematchSport(sportKey, { signal: ctrl.signal });
+                } catch (err) {
+                    if (err?.name === 'AbortError') return;
                     if (cancelled) return;
-                    window.dispatchEvent(new CustomEvent('matches:force-refetch', {
-                        detail: { reason: 'sport-tab-sync', sportKeys: intendedSportKeys },
-                    }));
-                });
-            };
-            if (keysToSync.length > 0) {
-                syncAndDispatch(keysToSync);
-            } else {
+                    const haveCachedRows = Array.isArray(rawMatchesRef.current) && rawMatchesRef.current.length > 0;
+                    if (haveCachedRows) return;
+                    notifyMobSyncFailure(sportKey, showToast);
+                }
+            })).then(() => {
+                if (cancelled) return;
                 window.dispatchEvent(new CustomEvent('matches:force-refetch', {
-                    detail: { reason: 'sport-tab-sync-cached', sportKeys: intendedSportKeys },
+                    detail: { reason: 'sport-tab-sync', sportKeys: intendedSportKeys },
                 }));
-            }
+            });
         }, 300);
         return () => {
             cancelled = true;

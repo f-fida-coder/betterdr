@@ -604,17 +604,11 @@ const buildMatchesParams = (status = '', options = {}) => {
 };
 
 export const getMatches = async (status = '', options = {}) => {
-    // Live tab + manual refresh must bypass HTTP/CDN caches so the user
-    // never sees stale odds when they explicitly ask for fresh, or when
-    // they're on Live Now (where 30-90s freshness is mandatory). Other
-    // status filters use the default cache behavior, which is fine because
-    // the route already sets short server-side Cache-Control TTLs.
-    const lowered = (status || '').toString().toLowerCase();
-    const isLive = lowered === 'live' || lowered === 'active';
-    const fetchInit = { headers: getHeaders() };
-    if (options?.refresh || isLive) {
-        fetchInit.cache = 'no-store';
-    }
+    // Always bypass browser/CDN cache for match data: live betting cannot
+    // serve stale odds. Backend now returns Cache-Control: no-store, but we
+    // keep cache:'no-store' here as belt-and-suspenders so a misconfigured
+    // intermediary or service worker can't reuse a prior response.
+    const fetchInit = { headers: getHeaders(), cache: 'no-store' };
     const response = await fetch(buildApiUrl('/matches', buildMatchesParams(status, options)), fetchInit);
     if (!response.ok) throw new Error('Failed to fetch matches');
     // Backend signals a background odds sync on manual refresh: the response
@@ -754,6 +748,7 @@ export const getAvailableSports = async ({ signal, timeoutMs = 5000 } = {}) => {
     try {
         const response = await fetch(buildApiUrl('/matches/sports'), {
             headers: getHeaders(),
+            cache: 'no-store',
             signal: controller.signal,
         });
         if (!response.ok) return [];
@@ -772,7 +767,11 @@ export const getAvailableSports = async ({ signal, timeoutMs = 5000 } = {}) => {
  */
 export const getMatchProps = async (matchId) => {
     if (!matchId) return { extendedMarkets: [], playerProps: [], cached: false };
-    const response = await fetch(buildApiUrl(`/matches/${encodeURIComponent(matchId)}/props`), { headers: getHeaders() });
+    // Live odds — never serve from browser/CDN cache.
+    const response = await fetch(buildApiUrl(`/matches/${encodeURIComponent(matchId)}/props`), {
+        headers: getHeaders(),
+        cache: 'no-store',
+    });
     if (!response.ok) throw new Error('Failed to fetch match props');
     return response.json();
 };

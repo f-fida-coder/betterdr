@@ -1,26 +1,39 @@
 import { useEffect, useRef, useState } from 'react';
 import { getMatches, getLiveMatches, getUpcomingMatches } from '../api';
 
-// Local React-side cache. Short TTL so the user never sees a snapshot
-// older than this on a cache hit; the auto-poll below also triggers
-// network refetches every AUTO_POLL_MS regardless.
-const LOCAL_MATCHES_CACHE_TTL_MS = 15000;
-const LOCAL_MATCHES_CACHE_MAX_ENTRIES = 50;
-// Background polling cadence while the tab is visible. 30s keeps the
-// list aligned with the worker tier-1/2 cadence (2-3 min) and the
-// public-matches shared cache TTL (30s) — most polls return the same
-// data cheaply, the occasional one picks up new odds.
+// Local React-side data cache: DISABLED. Live betting cannot show stale
+// odds. The previous 15 s TTL meant a user could land on a sport, see a
+// 14-second-old odds snapshot, and bet on it after the bookmaker pulled
+// the line. We use a no-op shim so existing .get/.set/.delete call sites
+// keep working but always miss, forcing a fresh network read every time.
+// Re-enable with a real invalidation strategy at >=1000 DAU.
+const LOCAL_MATCHES_CACHE_TTL_MS = 0;
+const LOCAL_MATCHES_CACHE_MAX_ENTRIES = 0;
+// Background polling cadence while the tab is visible. Keeps the list in
+// sync with cron-driven DB updates without requiring a manual refresh.
 const AUTO_POLL_MS = 30000;
 // If the most recently rendered data appears older than this, auto
 // trigger a force-refetch on first paint and on tab-becomes-visible.
-// This is the "fresh on every visit" guarantee.
 const COLD_LOAD_FRESHNESS_MS = 90000;
 // When the live filter returns an empty list (e.g. user landed before
 // the Rundown overlay tick had a chance to populate any rows), retry
 // with backoff instead of waiting AUTO_POLL_MS for the next poll.
-// Bounded — bails after the last delay so empty truly stays empty.
 const LIVE_EMPTY_RETRY_DELAYS_MS = [4000, 9000];
-const matchesResponseCache = new Map();
+// No-op cache: same Map surface (.get/.set/.delete/.size) so the rest of
+// the file is unchanged, but every read returns undefined so we always
+// refetch from the backend.
+const matchesResponseCache = {
+    get: () => undefined,
+    set: () => {},
+    delete: () => {},
+    size: 0,
+    entries: () => [][Symbol.iterator](),
+};
+// In-flight request dedup is NOT a data cache — it just prevents the same
+// HTTP request from being fired twice within a single render burst (e.g.
+// when 3 components mount simultaneously). Always-fresh policy still
+// applies: once the request resolves, the entry is removed and the next
+// caller starts a brand new fetch.
 const inFlightRequests = new Map();
 
 const createMatchesCacheKey = (status, scopeKey) => JSON.stringify({
