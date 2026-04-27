@@ -113,6 +113,11 @@ export default function useMatches(options = {}) {
     const [matches, setMatches] = useState([]);
     const statusFilter = (options.status || 'all').toString().toLowerCase();
     const scopeKey = (options.scopeKey || '').toString();
+    // Optional row cap forwarded to /api/matches?limit=N. Used by the default
+    // landing view (no sport selected) to ask for only top 6 freshest rows.
+    const rowLimit = Number.isFinite(Number(options.limit)) && Number(options.limit) > 0
+        ? Math.floor(Number(options.limit))
+        : 0;
     const fetchIdRef = useRef(0);
     const listenerIdRef = useRef(buildClientId('matches-hook'));
     // Counter for the empty-live retry path (see LIVE_EMPTY_RETRY_DELAYS_MS).
@@ -165,6 +170,7 @@ export default function useMatches(options = {}) {
                 let requestPromise = inFlightRequests.get(cacheKey);
                 if (!requestPromise) {
                     const requestOptions = { trigger, refresh, payload: 'core' };
+                    if (rowLimit > 0) requestOptions.limit = rowLimit;
                     requestPromise = (statusFilter === 'live' || statusFilter === 'active')
                         ? getLiveMatches(requestOptions)
                         : (statusFilter === 'upcoming' || statusFilter === 'scheduled')
@@ -264,6 +270,7 @@ export default function useMatches(options = {}) {
                 let requestPromise = inFlightRequests.get(prefetchKey);
                 if (!requestPromise) {
                     const requestOptions = { trigger: 'prefetch', refresh: false, payload: 'core' };
+                    if (rowLimit > 0) requestOptions.limit = rowLimit;
                     requestPromise = targetStatus === 'live'
                         ? getLiveMatches(requestOptions)
                         : getUpcomingMatches(requestOptions);
@@ -403,7 +410,7 @@ export default function useMatches(options = {}) {
                 }
             }
         };
-    }, [scopeKey, statusFilter]);
+    }, [scopeKey, statusFilter, rowLimit]);
 
     return matches;
 }

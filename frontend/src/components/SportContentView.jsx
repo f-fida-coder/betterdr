@@ -19,7 +19,7 @@ import PropBuilderModal from './PropBuilderModal';
 import MatchDetailView from './MatchDetailView';
 import OddsAge from './OddsAge';
 
-const SportContentView = ({ sportId, selectedItems = [], filter = null, status = 'live-upcoming', activeBetMode = 'straight' }) => {
+const SportContentView = ({ sportId, selectedItems = [], filter = null, status = 'live-upcoming', activeBetMode = 'straight', limit = 0 }) => {
     const { oddsFormat } = useOddsFormat();
     const [activeTab] = useState('matches');
     const [teamLogos, setTeamLogos] = useState({});
@@ -30,7 +30,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
     const [content, setContent] = useState({ name: '', icon: '', matches: [] });
     const [isLoading, setIsLoading] = useState(true);
     const loadGenRef = React.useRef(0);
-    const rawMatches = useMatches({ status, scopeKey: `${sportId || 'all'}:${filter || ''}` });
+    const rawMatches = useMatches({ status, scopeKey: `${sportId || 'all'}:${filter || ''}:${limit || 0}`, limit });
     // Collect every distinct Odds API sportKey present in the visible
     // matches. Views can mix leagues under one heading (e.g. NBA + WNBA,
     // or several soccer leagues) — refreshing only the first match's

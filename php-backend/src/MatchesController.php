@@ -75,6 +75,11 @@ final class MatchesController
         $payloadMode = $this->normalizePayloadMode((string) ($_GET['payload'] ?? 'full'));
         $sportFilter = isset($_GET['sport']) ? trim((string) $_GET['sport']) : '';
         $sportKeyFilter = isset($_GET['sportKey']) ? trim((string) $_GET['sportKey']) : '';
+        // ?limit=N — clamp to [1,200]. Applied AFTER cache read so a single
+        // cached row-set serves every limit value cheaply. Used by the
+        // default landing view to ask for just the top 6 freshest rows.
+        $rawLimit = isset($_GET['limit']) ? (int) $_GET['limit'] : 0;
+        $limit = $rawLimit > 0 ? min(200, $rawLimit) : 0;
         $sharedCacheTtl = $this->envInt('SPORTSBOOK_MATCHES_CACHE_TTL_SECONDS', self::DEFAULT_SHARED_MATCHES_CACHE_TTL_SECONDS);
         $cacheNamespace = SportsbookCache::publicMatchesNamespace();
         $sportCacheSegment = ($sportFilter !== '' || $sportKeyFilter !== '')
@@ -103,24 +108,37 @@ final class MatchesController
             header('X-Cache: ' . ($sharedCacheState === 'hit' ? 'HIT' : 'MISS'));
             header('X-Matches-Payload-Mode: ' . $payloadMode);
             $this->emitPublicCacheHeaders($cacheMeta);
+
+            // Apply ?limit=N here so a single cached array serves every limit
+            // value. The cache key intentionally does NOT include limit.
+            $payload = $annotated;
+            if ($limit > 0 && is_array($payload) && count($payload) > $limit) {
+                $payload = array_slice($payload, 0, $limit);
+                header('X-Matches-Limit-Applied: ' . $limit);
+            }
+
             // Manual-refresh paths are uncacheable by intermediaries: the payload
             // is intentionally the pre-sync snapshot, and a follow-up refetch will
             // pick up the freshly-synced odds.
             if (!empty($cacheMeta['syncDeferred'])) {
-                Response::json($annotated, 200, 'private, no-cache, no-store, must-revalidate');
+                Response::json($payload, 200, 'private, no-cache, no-store, must-revalidate');
             } else {
                 $upstreamCacheTtl = (int) ($cacheMeta['cacheTtlSeconds'] ?? self::DEFAULT_PUBLIC_CACHE_TTL_SECONDS);
                 $responseCacheTtl = max(1, min($upstreamCacheTtl, $sharedCacheTtl));
-                Response::json($annotated, 200, "public, max-age={$responseCacheTtl}");
+                Response::json($payload, 200, "public, max-age={$responseCacheTtl}");
             }
             $this->runDeferredSync();
         } catch (Throwable $e) {
             // Fallback to stale cache to keep the public matches endpoint available
             // during transient database contention and avoid 5xx spikes.
             if (is_array($staleForFallback)) {
+                $stalePayload = $staleForFallback;
+                if ($limit > 0 && count($stalePayload) > $limit) {
+                    $stalePayload = array_slice($stalePayload, 0, $limit);
+                }
                 header('X-Matches-Fallback: stale-cache');
                 header('X-Cache: STALE');
-                Response::json($staleForFallback, 200, 'public, max-age=5, stale-while-revalidate=60');
+                Response::json($stalePayload, 200, 'public, max-age=5, stale-while-revalidate=60');
                 return;
             }
             Response::json(['message' => 'Server Error fetching matches'], 500);
@@ -226,9 +244,28 @@ final class MatchesController
                 return ($now - $lastTs) <= $maxAge;
             }));
         } elseif ($desiredStatus === 'live-upcoming') {
-            $annotated = array_values(array_filter($annotated, static function (array $match): bool {
+            // Freshness-gated: drop rows whose lastOddsSyncAt is older than
+            // the per-status threshold. live → tight per-sport window (same
+            // as Live Now); scheduled → PREMATCH_FRESHNESS_SECONDS_DEFAULT.
+            // Without this, the default landing view shows hours-old odds
+            // for sports that aren't in the prematch cron rotation (tennis,
+            // niche soccer leagues, etc.). Better to show fewer fresh rows
+            // than many stale ones.
+            $now = time();
+            $prematchMaxAge = max(60, (int) Env::get('PREMATCH_FRESHNESS_SECONDS_DEFAULT', '300'));
+            $annotated = array_values(array_filter($annotated, static function (array $match) use ($now, $prematchMaxAge): bool {
                 $matchStatus = strtolower((string) ($match['status'] ?? ''));
-                return in_array($matchStatus, ['scheduled', 'live'], true);
+                if (!in_array($matchStatus, ['scheduled', 'live'], true)) return false;
+                $last = (string) ($match['lastOddsSyncAt'] ?? '');
+                $lastTs = $last !== '' ? strtotime($last) : false;
+                if ($lastTs === false) return false;
+                if ($matchStatus === 'live') {
+                    $sportKey = (string) ($match['sportKey'] ?? '');
+                    $maxAge = self::liveFreshnessSecondsForSport($sportKey);
+                } else {
+                    $maxAge = $prematchMaxAge;
+                }
+                return ($now - $lastTs) <= $maxAge;
             }));
         } elseif ($desiredStatus !== '' && $desiredStatus !== 'all' && !isset($dbFilter['status'])) {
             $annotated = array_values(array_filter($annotated, static function (array $match) use ($desiredStatus): bool {

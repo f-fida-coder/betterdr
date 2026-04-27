@@ -593,6 +593,13 @@ const buildMatchesParams = (status = '', options = {}) => {
     if (options?.refresh) {
         params.refresh = '1';
     }
+    // Optional row cap. Used by the default landing view to ask for just the
+    // top-N freshest matches instead of the full live-upcoming list (which
+    // can be 700+ rows of mixed staleness).
+    if (options?.limit) {
+        const n = Math.max(1, Math.min(200, Number(options.limit) || 0));
+        if (n > 0) params.limit = String(n);
+    }
     return params;
 };
 

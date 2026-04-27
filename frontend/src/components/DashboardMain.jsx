@@ -69,7 +69,10 @@ const DashboardMain = ({ selectedSports = [], activeBetMode = 'straight' }) => {
 
     const getSportSections = () => {
         if (isDefault) {
-            return [{ sportId: null, filter: null, status: 'live-upcoming' }];
+            // No sport selected → show only the top 6 freshest matches
+            // (live + upcoming, server-side freshness-gated). Avoids the
+            // 700-row "everything" dump that included 5h-old tennis odds.
+            return [{ sportId: null, filter: null, status: 'live-upcoming', limit: 6 }];
         }
 
         if (selectedSports.includes('up-next')) {
@@ -121,6 +124,7 @@ const DashboardMain = ({ selectedSports = [], activeBetMode = 'straight' }) => {
                             filter={section.filter}
                             status={section.status || 'live-upcoming'}
                             activeBetMode={activeBetMode}
+                            limit={section.limit || 0}
                         />
                     </React.Fragment>
                 ))}
