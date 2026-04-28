@@ -452,6 +452,15 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
                 sportKey: match.sportKey || '',
                 team1: awayName,
                 team2: homeName,
+                // Short names + records come pre-computed from the backend
+                // (TeamNormalizer joins them onto the matches row from
+                // either the OddsAPI or Rundown feed). Falling back to the
+                // full name preserves the old behavior when a row predates
+                // the normalization layer.
+                team1Short: match.awayTeamShort || awayName,
+                team2Short: match.homeTeamShort || homeName,
+                team1Record: match.awayTeamRecord || '',
+                team2Record: match.homeTeamRecord || '',
                 odds: extractOdds(match, homeName, awayName, activePeriod.suffix),
                 isLive,
                 liveStatusLabel,
@@ -897,7 +906,12 @@ const MatchCard = ({ match, oddsFormat, onAddToSlip, selectedKeys, visibleMarket
                         {rotationAway != null && (
                             <span style={{ fontSize: 10, fontWeight: 700, color: '#9aa' }}>{rotationAway}</span>
                         )}
-                        <span style={teamNameStyle}>{match.team1}</span>
+                        <span style={teamNameStyle}>
+                            {match.team1Short || match.team1}
+                            {match.team1Record && (
+                                <span style={teamRecordStyle}> ({match.team1Record})</span>
+                            )}
+                        </span>
                     </div>
                 </div>
 
@@ -1020,7 +1034,12 @@ const MatchCard = ({ match, oddsFormat, onAddToSlip, selectedKeys, visibleMarket
                         {rotationHome != null && (
                             <span style={{ fontSize: 10, fontWeight: 700, color: '#9aa' }}>{rotationHome}</span>
                         )}
-                        <span style={teamNameStyle}>{match.team2}</span>
+                        <span style={teamNameStyle}>
+                            {match.team2Short || match.team2}
+                            {match.team2Record && (
+                                <span style={teamRecordStyle}> ({match.team2Record})</span>
+                            )}
+                        </span>
                     </div>
                 </div>
 
@@ -1380,6 +1399,13 @@ const teamNameStyle = {
     WebkitLineClamp: 2,
     overflow: 'hidden',
     wordBreak: 'break-word',
+};
+
+const teamRecordStyle = {
+    color: '#9ca3af',
+    fontWeight: 500,
+    fontSize: '10px',
+    marginLeft: 2,
 };
 
 const oddsCellStyle = {

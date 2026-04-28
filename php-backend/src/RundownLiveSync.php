@@ -333,13 +333,20 @@ final class RundownLiveSync
         $teams = is_array($event['teams'] ?? null) ? $event['teams'] : [];
         $homeName = '';
         $awayName = '';
+        $homeTeam = null;
+        $awayTeam = null;
         foreach ($teams as $team) {
             if (!is_array($team)) continue;
             $name = trim((string) ($team['name'] ?? ''));
             $mascot = trim((string) ($team['mascot'] ?? ''));
             $full = trim($name . ' ' . $mascot);
-            if (($team['is_home'] ?? false) === true) $homeName = $full !== '' ? $full : $name;
-            elseif (($team['is_away'] ?? false) === true) $awayName = $full !== '' ? $full : $name;
+            if (($team['is_home'] ?? false) === true) {
+                $homeName = $full !== '' ? $full : $name;
+                $homeTeam = $team;
+            } elseif (($team['is_away'] ?? false) === true) {
+                $awayName = $full !== '' ? $full : $name;
+                $awayTeam = $team;
+            }
         }
 
         $eventDate = (string) ($event['event_date'] ?? '');
@@ -378,6 +385,24 @@ final class RundownLiveSync
             'lastScoreSyncAt' => $now,
             'updatedAt' => $now,
         ];
+        // Push the short display name + current win-loss record onto the row
+        // so the public odds board can render "Thunder (64-18)" without
+        // re-deriving anything client-side. Rundown is the authoritative
+        // source for both — the OddsAPI feed only carries full names, no
+        // records — so we let it overwrite whatever was there before.
+        $sportKeyForNorm = $resolvedSportKey !== '' ? $resolvedSportKey : (string) ($oddsKeys[0] ?? '');
+        if ($homeTeam !== null) {
+            $homeShort = TeamNormalizer::shortName($homeName, $sportKeyForNorm, (string) ($homeTeam['mascot'] ?? ''));
+            $homeRecord = TeamNormalizer::recordFromRundownTeam($homeTeam, $sportKeyForNorm);
+            if ($homeShort !== '') $update['homeTeamShort'] = $homeShort;
+            if ($homeRecord !== null) $update['homeTeamRecord'] = $homeRecord;
+        }
+        if ($awayTeam !== null) {
+            $awayShort = TeamNormalizer::shortName($awayName, $sportKeyForNorm, (string) ($awayTeam['mascot'] ?? ''));
+            $awayRecord = TeamNormalizer::recordFromRundownTeam($awayTeam, $sportKeyForNorm);
+            if ($awayShort !== '') $update['awayTeamShort'] = $awayShort;
+            if ($awayRecord !== null) $update['awayTeamRecord'] = $awayRecord;
+        }
         // Backfill sportKey on legacy rows that lacked it so the freshness
         // filter and future ticks can use the canonical key.
         if ($resolvedSportKey !== '' && empty($row['sportKey'])) {
@@ -413,13 +438,20 @@ final class RundownLiveSync
         $teams = is_array($event['teams'] ?? null) ? $event['teams'] : [];
         $homeName = '';
         $awayName = '';
+        $homeTeam = null;
+        $awayTeam = null;
         foreach ($teams as $team) {
             if (!is_array($team)) continue;
             $name = trim((string) ($team['name'] ?? ''));
             $mascot = trim((string) ($team['mascot'] ?? ''));
             $full = trim($name . ' ' . $mascot);
-            if (($team['is_home'] ?? false) === true) $homeName = $full !== '' ? $full : $name;
-            elseif (($team['is_away'] ?? false) === true) $awayName = $full !== '' ? $full : $name;
+            if (($team['is_home'] ?? false) === true) {
+                $homeName = $full !== '' ? $full : $name;
+                $homeTeam = $team;
+            } elseif (($team['is_away'] ?? false) === true) {
+                $awayName = $full !== '' ? $full : $name;
+                $awayTeam = $team;
+            }
         }
 
         $eventDate = (string) ($event['event_date'] ?? '');
@@ -452,6 +484,23 @@ final class RundownLiveSync
             'lastScoreSyncAt' => $now,
             'updatedAt' => $now,
         ];
+        // Capture the post-game record so the row stays display-correct in
+        // the finished list (e.g. a "Final" card in scoreboards) even after
+        // we stop touching it on subsequent ticks.
+        $sportKeyForNorm = self::resolveSportKey($row);
+        if ($sportKeyForNorm === '') $sportKeyForNorm = (string) ($oddsKeys[0] ?? '');
+        if ($homeTeam !== null) {
+            $homeShort = TeamNormalizer::shortName($homeName, $sportKeyForNorm, (string) ($homeTeam['mascot'] ?? ''));
+            $homeRecord = TeamNormalizer::recordFromRundownTeam($homeTeam, $sportKeyForNorm);
+            if ($homeShort !== '') $update['homeTeamShort'] = $homeShort;
+            if ($homeRecord !== null) $update['homeTeamRecord'] = $homeRecord;
+        }
+        if ($awayTeam !== null) {
+            $awayShort = TeamNormalizer::shortName($awayName, $sportKeyForNorm, (string) ($awayTeam['mascot'] ?? ''));
+            $awayRecord = TeamNormalizer::recordFromRundownTeam($awayTeam, $sportKeyForNorm);
+            if ($awayShort !== '') $update['awayTeamShort'] = $awayShort;
+            if ($awayRecord !== null) $update['awayTeamRecord'] = $awayRecord;
+        }
         if ($rundownEventId !== '') {
             $update['rundownEventId'] = $rundownEventId;
         }

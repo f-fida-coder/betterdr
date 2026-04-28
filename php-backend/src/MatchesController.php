@@ -198,6 +198,10 @@ final class MatchesController
                 'externalId' => 1,
                 'homeTeam' => 1,
                 'awayTeam' => 1,
+                'homeTeamShort' => 1,
+                'awayTeamShort' => 1,
+                'homeTeamRecord' => 1,
+                'awayTeamRecord' => 1,
                 'startTime' => 1,
                 'sport' => 1,
                 'sportKey' => 1,
@@ -340,8 +344,37 @@ final class MatchesController
         if ($payloadMode === 'core') {
             $annotated = array_map(fn(array $match): array => $this->coreMatchPayload($match), $annotated);
         }
-        
+
+        // Backfill the short-name fields at serve time so legacy rows
+        // written before the normalization layer existed still render with
+        // a tidy "Thunder" / "Suns" name on the odds board. Records can
+        // only come from the live feed so they're left null when absent —
+        // the frontend just suppresses the parenthetical in that case.
+        $annotated = array_map(static function (array $match): array {
+            return self::backfillTeamDisplayFields($match);
+        }, $annotated);
+
         return $annotated;
+    }
+
+    /**
+     * Ensure every match row served to the frontend carries `homeTeamShort`
+     * and `awayTeamShort`. Idempotent — does nothing if the writer (Rundown
+     * or OddsAPI sync) already populated them.
+     *
+     * @param array<string, mixed> $match
+     * @return array<string, mixed>
+     */
+    private static function backfillTeamDisplayFields(array $match): array
+    {
+        $sportKey = (string) ($match['sportKey'] ?? '');
+        if (empty($match['homeTeamShort']) && !empty($match['homeTeam'])) {
+            $match['homeTeamShort'] = TeamNormalizer::shortName((string) $match['homeTeam'], $sportKey);
+        }
+        if (empty($match['awayTeamShort']) && !empty($match['awayTeam'])) {
+            $match['awayTeamShort'] = TeamNormalizer::shortName((string) $match['awayTeam'], $sportKey);
+        }
+        return $match;
     }
 
     private function getMatchById(string $id): void
@@ -357,6 +390,7 @@ final class MatchesController
                 Response::json(['message' => 'Match not available'], 404);
                 return;
             }
+            $annotated = self::backfillTeamDisplayFields($annotated);
             Response::json($annotated);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server Error fetching match'], 500);
@@ -1289,6 +1323,7 @@ final class MatchesController
                     if (($annotated['isPublicVisible'] ?? false) !== true) {
                         continue;
                     }
+                    $annotated = self::backfillTeamDisplayFields($annotated);
                     echo "event: matchUpdate\n";
                     echo 'data: ' . json_encode($annotated, JSON_UNESCAPED_SLASHES) . "\n\n";
                 }

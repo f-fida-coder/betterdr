@@ -21,6 +21,7 @@ require_once __DIR__ . '/../src/SportsbookHealth.php';
 require_once __DIR__ . '/../src/SportsbookBetSupport.php';
 require_once __DIR__ . '/../src/BetSettlementService.php';
 require_once __DIR__ . '/../src/OddsMarketCatalog.php';
+require_once __DIR__ . '/../src/TeamNormalizer.php';
 require_once __DIR__ . '/../src/OddsSyncService.php';
 require_once __DIR__ . '/../src/RealtimeEventBus.php';
 require_once __DIR__ . '/../src/RundownService.php';

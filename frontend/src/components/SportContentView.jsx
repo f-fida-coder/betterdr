@@ -19,6 +19,16 @@ import PropBuilderModal from './PropBuilderModal';
 import MatchDetailView from './MatchDetailView';
 import OddsAge from './OddsAge';
 
+// Faded grey, slightly smaller than the team name — same treatment used
+// across every odds board card so the record always reads as supplemental
+// metadata rather than competing with the team identifier.
+const teamRecordStyle = {
+    color: '#9ca3af',
+    fontWeight: 500,
+    fontSize: '0.85em',
+    marginLeft: 4,
+};
+
 // Module-level dedupe: when the user multi-selects sports, every mounted
 // SportContentView instance fires its own sync. If two instances both try
 // to toast about the same failed sportKey, the screen used to flood with
@@ -453,8 +463,22 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                     id: match.id || match.externalId,
                     time: match.startTime ? new Date(match.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
                     date: match.startTime ? new Date(match.startTime).toLocaleDateString() : '',
-                    team1: { name: awayName, abbr: awayName.substring(0, 3).toUpperCase() },
-                    team2: { name: homeName, abbr: homeName.substring(0, 3).toUpperCase() },
+                    // shortName + record are populated server-side by
+                    // TeamNormalizer (Rundown live feed for records, both
+                    // feeds for short names). They fall back to the full
+                    // name / empty record when the row predates the layer.
+                    team1: {
+                        name: awayName,
+                        shortName: match.awayTeamShort || awayName,
+                        record: match.awayTeamRecord || '',
+                        abbr: awayName.substring(0, 3).toUpperCase(),
+                    },
+                    team2: {
+                        name: homeName,
+                        shortName: match.homeTeamShort || homeName,
+                        record: match.homeTeamRecord || '',
+                        abbr: homeName.substring(0, 3).toUpperCase(),
+                    },
                     score1: displayScore1,
                     score2: displayScore2,
                     period: match.score?.period, // e.g. 'Q1', '2nd Half'
@@ -698,7 +722,12 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                             />
                                         </span>
                                         <div className="team-info">
-                                            <span className="team-name">{match.team1.name}</span>
+                                            <span className="team-name">
+                                                {match.team1.shortName || match.team1.name}
+                                                {match.team1.record && (
+                                                    <span style={teamRecordStyle}> ({match.team1.record})</span>
+                                                )}
+                                            </span>
                                             <span className="team-abbr">{match.team1.abbr}</span>
                                         </div>
                                         <span className="score">{match.score1}</span>
@@ -720,7 +749,12 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                             />
                                         </span>
                                         <div className="team-info">
-                                            <span className="team-name">{match.team2.name}</span>
+                                            <span className="team-name">
+                                                {match.team2.shortName || match.team2.name}
+                                                {match.team2.record && (
+                                                    <span style={teamRecordStyle}> ({match.team2.record})</span>
+                                                )}
+                                            </span>
                                             <span className="team-abbr">{match.team2.abbr}</span>
                                         </div>
                                         <span className="score">{match.score2}</span>

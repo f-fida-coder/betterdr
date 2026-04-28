@@ -1256,6 +1256,12 @@ final class OddsSyncService
             'externalId' => $externalId,
             'homeTeam' => $homeTeam,
             'awayTeam' => $awayTeam,
+            // Short display names so the public odds board can render
+            // "Thunder" / "Suns" instead of the full city+mascot. Records
+            // come from the Rundown live feed (OddsAPI doesn't carry them)
+            // and are merged in by RundownLiveSync without being touched here.
+            'homeTeamShort' => TeamNormalizer::shortName($homeTeam, $sportKey),
+            'awayTeamShort' => TeamNormalizer::shortName($awayTeam, $sportKey),
             'startTime' => $event['commence_time'] ?? null,
             'sport' => $event['sport_title'] ?? ($event['sport'] ?? $sportKey),
             'sportKey' => $sportKey,
