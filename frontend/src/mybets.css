@@ -1,180 +1,172 @@
-/* ─────────────── My Bets Page — Full-Width Premium White ─────────────── */
+/* ─────────────── My Bets Page — Premium Sportsbook Look ─────────────── */
 
 .my-bets-page {
-  padding: 24px 28px;
-  color: #1a2332;
+  padding: 16px 16px calc(120px + env(safe-area-inset-bottom, 0px));
+  color: #0f172a;
   min-height: 100vh;
   width: 100%;
-  background: #f0f4f8;
+  background: #f1f5f9;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
 }
 
 .my-bets-shell {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 14px;
   width: 100%;
+  max-width: 960px;
+  margin: 0 auto;
 }
 
-/* ── Hero ── */
+/* ── Hero — single compact bar ── */
 .my-bets-hero {
   display: flex;
-  justify-content: space-between;
-  gap: 20px;
   align-items: center;
-  padding: 24px 28px;
-  border-radius: 10px;
-  background: #ffffff;
-  border: 1px solid #e4eaf2;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 18px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+  color: #fff;
+  box-shadow: 0 8px 20px -12px rgba(15, 23, 42, 0.45);
+}
+
+.my-bets-hero-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
 }
 
 .my-bets-eyebrow {
   display: inline-block;
-  margin-bottom: 4px;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
-  font-size: 11px;
-  font-weight: 700;
-  color: #6366f1;
+  font-size: 10px;
+  font-weight: 800;
+  color: #818cf8;
 }
 
 .my-bets-hero h2 {
-  margin: 0;
-  font-size: 26px;
+  margin: 2px 0 0;
+  font-size: 22px;
   font-weight: 800;
-  line-height: 1.15;
-  color: #111827;
-}
-
-.my-bets-hero p {
-  margin: 6px 0 0;
-  color: #6b7a90;
-  font-size: 13.5px;
-  line-height: 1.5;
-}
-
-.my-bets-hero-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  align-items: flex-end;
-  flex-shrink: 0;
-}
-
-.my-bets-refresh-btn {
-  border: none;
-  border-radius: 6px;
-  background: linear-gradient(135deg, #4f46e5, #6366f1);
+  line-height: 1.1;
   color: #fff;
-  font-weight: 700;
-  font-size: 13px;
-  padding: 9px 18px;
+  letter-spacing: -0.01em;
+}
+
+.my-bets-updated {
+  margin: 2px 0 0;
+  color: #94a3b8;
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+.my-bets-refresh-icon {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  font-size: 14px;
   cursor: pointer;
-  box-shadow: 0 3px 8px rgba(99, 102, 241, 0.3);
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  transition: background 0.15s ease, transform 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.my-bets-refresh-btn:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 5px 8px rgba(99, 102, 241, 0.4);
+.my-bets-refresh-icon:hover {
+  background: rgba(255, 255, 255, 0.16);
 }
 
-.my-bets-refresh-btn:disabled {
+.my-bets-refresh-icon:active {
+  transform: scale(0.96);
+}
+
+.my-bets-refresh-icon:disabled {
   cursor: wait;
   opacity: 0.6;
 }
 
-.my-bets-updated {
-  color: #94a3b8;
-  font-size: 11px;
-}
-
-/* ── Summary Grid ── */
+/* ── Summary Strip — 4 small stat tiles, no hover lift ── */
 .my-bets-summary-grid {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
 }
 
 .my-bets-summary-card {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 16px 18px;
-  border-radius: 8px;
+  padding: 12px 14px;
+  border-radius: 12px;
   background: #ffffff;
-  border: 1px solid #eaeff5;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.03);
-  overflow: hidden;
-  position: relative;
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
-}
-
-.my-bets-summary-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.06);
+  border: 1px solid #e2e8f0;
+  min-width: 0;
 }
 
 .my-bets-summary-card span {
-  color: #8896a8;
-  font-size: 11px;
-  font-weight: 600;
+  color: #64748b;
+  font-size: 10.5px;
+  font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
 
-.my-bets-summary-card small {
-  color: #94a3b8;
-  font-size: 11px;
-  margin-top: 2px;
-}
-
 .my-bets-summary-card strong {
-  font-size: 24px;
+  font-size: 20px;
   line-height: 1.1;
   font-weight: 800;
-  color: #111827;
+  color: #0f172a;
+  font-variant-numeric: tabular-nums;
 }
 
-/* Colour accents — left border + tinted background */
 .my-bets-summary-card.accent-pending {
-  border-left: 3px solid #f59e0b;
-  background: linear-gradient(135deg, #fffbeb 0%, #ffffff 60%);
+  background: linear-gradient(135deg, #fffbeb 0%, #ffffff 70%);
+  border-color: #fde68a;
 }
 
-.my-bets-summary-card.accent-won {
-  border-left: 3px solid #10b981;
-  background: linear-gradient(135deg, #ecfdf5 0%, #ffffff 60%);
+.my-bets-summary-card.accent-pending strong {
+  color: #b45309;
 }
 
-.my-bets-summary-card.accent-lost {
-  border-left: 3px solid #ef4444;
-  background: linear-gradient(135deg, #fef2f2 0%, #ffffff 60%);
-}
-
-.my-bets-summary-card.accent-void {
-  border-left: 3px solid #9ca3af;
-  background: linear-gradient(135deg, #f9fafb 0%, #ffffff 60%);
-}
-
-/* ── Filter Chips ── */
+/* ── Filter Chips — horizontal scroll on narrow screens ── */
 .my-bets-filter-row {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  flex-wrap: nowrap;
+  gap: 6px;
   align-items: center;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  padding: 2px 0;
+}
+
+.my-bets-filter-row::-webkit-scrollbar {
+  display: none;
 }
 
 .my-bets-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   border: 1px solid #e2e8f0;
-  border-radius: 6px;
+  border-radius: 999px;
   background: #ffffff;
   color: #475569;
-  padding: 7px 16px;
-  font-size: 13px;
-  font-weight: 600;
+  padding: 7px 14px;
+  font-size: 12.5px;
+  font-weight: 700;
   cursor: pointer;
   transition: all 0.15s ease;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .my-bets-filter-chip:hover {
@@ -183,10 +175,30 @@
 }
 
 .my-bets-filter-chip.active {
-  background: linear-gradient(135deg, #4f46e5, #6366f1);
-  border-color: transparent;
+  background: #0f172a;
+  border-color: #0f172a;
   color: #ffffff;
-  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.28);
+  box-shadow: 0 4px 12px -4px rgba(15, 23, 42, 0.3);
+}
+
+.my-bets-filter-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.08);
+  color: #475569;
+  font-size: 10.5px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.my-bets-filter-chip.active .my-bets-filter-count {
+  background: rgba(255, 255, 255, 0.18);
+  color: #ffffff;
 }
 
 /* ── Bet Card List ── */
@@ -201,59 +213,47 @@
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 0;
-  padding: 0;
-  border-radius: 8px;
-  border: 1px solid #eaeff5;
+  border-radius: 14px;
+  border: 1px solid #e2e8f0;
   background: #ffffff;
-  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.03);
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.04);
   overflow: hidden;
   transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 
 .my-bet-card:hover {
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 6px 18px -6px rgba(15, 23, 42, 0.12);
 }
 
-/* Left colour stripe */
+/* Status colour stripe down the left edge */
 .my-bet-card::before {
   content: '';
   position: absolute;
   top: 0;
   left: 0;
   bottom: 0;
-  width: 4px;
+  width: 3px;
   background: #f59e0b;
-  border-radius: 4px 0 0 4px;
 }
 
-.my-bet-card.won::before {
-  background: #10b981;
-}
-
-.my-bet-card.lost::before {
-  background: #ef4444;
-}
-
-.my-bet-card.void::before {
-  background: #9ca3af;
-}
+.my-bet-card.won::before { background: #10b981; }
+.my-bet-card.lost::before { background: #ef4444; }
+.my-bet-card.void::before { background: #94a3b8; }
 
 /* ── Card Top Row ── */
 .my-bet-card-top {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 14px 20px 10px 20px;
+  gap: 10px;
+  padding: 12px 16px 8px;
   flex-wrap: wrap;
-  border-bottom: 1px solid #f5f7fa;
 }
 
 .my-bet-card-meta {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
   min-width: 0;
 }
@@ -265,11 +265,10 @@
 .my-bet-leg-status {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  height: 24px;
-  padding: 0 10px;
+  height: 22px;
+  padding: 0 9px;
   border-radius: 6px;
-  font-size: 10.5px;
+  font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -296,8 +295,8 @@
 
 .my-bet-status.void,
 .my-bet-leg-status.void {
-  background: #f3f4f6;
-  color: #4b5563;
+  background: #f1f5f9;
+  color: #475569;
 }
 
 .my-bet-type {
@@ -309,73 +308,148 @@
   background: #f8fafc;
   color: #64748b;
   font-weight: 600;
-  font-size: 11px;
+  font-family: 'SF Mono', 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 9.5px;
+  letter-spacing: 0;
+  border: 1px solid #e2e8f0;
 }
 
 .my-bet-card-time {
   color: #94a3b8;
-  font-size: 12px;
+  font-size: 11.5px;
   white-space: nowrap;
   flex-shrink: 0;
+  font-weight: 600;
 }
 
-/* ── Card Body ── */
-.my-bet-card-body {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 20px;
-  align-items: start;
-  padding: 14px 20px 16px 20px;
-}
-
-.my-bet-main {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 0;
+/* ── Match title ── */
+.my-bet-card-title {
+  padding: 0 16px 10px;
 }
 
 .my-bet-match {
   font-size: 16px;
   font-weight: 800;
-  line-height: 1.3;
-  color: #111827;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.25;
+  color: #0f172a;
+  letter-spacing: -0.005em;
 }
 
 .my-bet-subtext {
+  margin-top: 4px;
   display: flex;
-  flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
-  color: #94a3b8;
-  font-size: 12px;
+  color: #64748b;
+  font-size: 11.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
-.my-bet-summary-lines {
+.my-bet-subdot {
+  color: #cbd5e1;
+}
+
+/* ── Leg list ── */
+.my-bet-leg-list {
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  margin-top: 2px;
+  gap: 0;
+  border-top: 1px solid #f1f5f9;
 }
 
-.my-bet-summary-line {
-  color: #b45309;
-  font-weight: 600;
+.my-bet-leg-item {
+  padding: 12px 16px;
+  border-bottom: 1px solid #f1f5f9;
+  background: #fafbfd;
+}
+
+.my-bet-leg-item:last-child {
+  border-bottom: 0;
+}
+
+/* Team-vs-team line */
+.my-bet-leg-teams {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 13px;
-  line-height: 1.4;
+  color: #475569;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.my-bet-team {
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  max-width: 45%;
+}
+
+.my-bet-team.picked {
+  color: #0f172a;
+  font-weight: 800;
+}
+
+.my-bet-team-vs {
+  color: #94a3b8;
+  font-size: 11.5px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+/* Pick row: market · selection · odds · status */
+.my-bet-leg-pick-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.my-bet-leg-market {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 5px;
+  background: #e0e7ff;
+  color: #3730a3;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
   white-space: nowrap;
 }
 
-/* ── Stats (Risk / Odds / Payout) — inline row on desktop ── */
+.my-bet-leg-pick {
+  flex: 1;
+  min-width: 0;
+  color: #0f172a;
+  font-size: 13.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.my-bet-leg-odds {
+  color: #0f172a;
+  font-weight: 800;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  padding: 2px 8px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 5px;
+}
+
+/* ── Footer stats — 3 inline tiles, payout highlighted ── */
 .my-bet-stats {
-  display: flex;
-  gap: 8px;
-  flex-shrink: 0;
-  align-items: stretch;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  background: #f1f5f9;
+  border-top: 1px solid #e2e8f0;
 }
 
 .my-bet-stat {
@@ -383,141 +457,66 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  padding: 10px 16px;
-  border-radius: 8px;
-  background: #f8fafc;
-  border: 1px solid #f1f5f9;
-  min-width: 90px;
-  text-align: center;
+  gap: 2px;
+  padding: 12px 8px;
+  background: #ffffff;
 }
 
 .my-bet-stat span {
-  color: #8896a8;
+  color: #64748b;
   font-size: 10px;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  font-weight: 700;
-  white-space: nowrap;
+  letter-spacing: 0.06em;
+  font-weight: 800;
 }
 
 .my-bet-stat strong {
   font-size: 15px;
   font-weight: 800;
-  color: #111827;
-  white-space: nowrap;
+  color: #0f172a;
+  font-variant-numeric: tabular-nums;
+}
+
+.my-bet-stat.highlight {
+  background: #f0fdf4;
+}
+
+.my-bet-stat.highlight strong {
+  color: #15803d;
+}
+
+/* Lost / void recolour the highlight tile so it doesn't stay green */
+.my-bet-card.lost .my-bet-stat.highlight {
+  background: #fef2f2;
+}
+
+.my-bet-card.lost .my-bet-stat.highlight strong {
+  color: #b91c1c;
+}
+
+.my-bet-card.void .my-bet-stat.highlight {
+  background: #f8fafc;
+}
+
+.my-bet-card.void .my-bet-stat.highlight strong {
+  color: #475569;
 }
 
 /* ── Reverse Ticket Note ── */
 .my-bet-note {
-  padding: 10px 20px;
+  padding: 8px 16px;
   color: #64748b;
-  font-size: 12px;
+  font-size: 11.5px;
   font-style: italic;
   border-top: 1px solid #f1f5f9;
   background: #fafbfd;
 }
 
-/* ── Leg Details ── */
-.my-bet-legs {
-  border-top: 1px solid #f1f5f9;
-  margin: 0;
-}
-
-.my-bet-legs summary {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  cursor: pointer;
-  font-weight: 700;
-  font-size: 13px;
-  color: #6366f1;
-  list-style: none;
-  padding: 11px 20px;
-  transition: background 0.15s ease;
-  user-select: none;
-}
-
-.my-bet-legs summary:hover {
-  background: #f8fafc;
-}
-
-.my-bet-legs summary::-webkit-details-marker {
-  display: none;
-}
-
-.my-bet-legs summary span:last-child {
-  color: #94a3b8;
-  font-weight: 600;
-  font-size: 12px;
-}
-
-.my-bet-leg-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 0 16px 12px;
-}
-
-.my-bet-leg-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 14px;
-  border: 1px solid #f1f5f9;
-  border-radius: 8px;
-  background: #fafbfd;
-  transition: background 0.15s ease;
-}
-
-.my-bet-leg-item:hover {
-  background: #f1f5f9;
-}
-
-.my-bet-leg-main {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-  flex: 1;
-}
-
-.my-bet-leg-match {
-  font-weight: 700;
-  font-size: 13px;
-  color: #1e293b;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.my-bet-leg-pick {
-  color: #b45309;
-  font-size: 12.5px;
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.my-bet-leg-meta {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  color: #64748b;
-  font-size: 12px;
-  font-weight: 600;
-  flex-shrink: 0;
-}
-
 /* ── Empty State ── */
 .my-bets-empty {
-  padding: 60px 24px;
-  border-radius: 10px;
-  border: 1px dashed #d1d5db;
+  padding: 48px 24px;
+  border-radius: 14px;
+  border: 1px dashed #cbd5e1;
   background: #ffffff;
   text-align: center;
 }
@@ -528,130 +527,89 @@
 }
 
 .my-bets-empty h3 {
-  margin: 0 0 8px;
-  font-size: 20px;
-  font-weight: 700;
-  color: #1f2937;
+  margin: 0 0 6px;
+  font-size: 17px;
+  font-weight: 800;
+  color: #0f172a;
 }
 
 .my-bets-empty p {
   margin: 0;
-  color: #6b7280;
-  font-size: 14px;
+  color: #64748b;
+  font-size: 13px;
 }
 
 .my-bets-empty-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 52px;
-  height: 52px;
-  margin-bottom: 14px;
-  border-radius: 8px;
+  width: 48px;
+  height: 48px;
+  margin-bottom: 12px;
+  border-radius: 12px;
   background: #eef2ff;
   color: #6366f1;
-  font-size: 22px;
+  font-size: 20px;
 }
 
 /* ─────────── Responsive ─────────── */
 
-@media (max-width: 1080px) {
-  .my-bets-summary-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .my-bet-card-body {
-    grid-template-columns: 1fr;
-  }
-
-  .my-bet-stats {
-    flex-wrap: wrap;
-  }
-
-  .my-bet-stat {
-    flex: 1 1 0;
-    min-width: 80px;
-  }
-
-  .my-bet-match {
-    white-space: normal;
-    word-break: break-word;
-  }
-}
-
 @media (max-width: 768px) {
   .my-bets-page {
-    /* Extra bottom padding so the chat bubble + iOS Safari URL toolbar
-       (~120px combined) can never sit on top of the last ticket card.
-       Without this the user has to dismiss the chat bubble before they
-       can read or interact with their oldest pending tickets. */
-    padding: 14px 12px calc(120px + env(safe-area-inset-bottom, 0px));
+    padding: 12px 10px calc(120px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .my-bets-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .my-bets-hero {
-    flex-direction: column;
-    padding: 18px;
-    align-items: flex-start;
+    padding: 12px 14px;
   }
 
   .my-bets-hero h2 {
-    font-size: 22px;
-  }
-
-  .my-bets-hero-actions {
-    align-items: stretch;
-    width: 100%;
-  }
-
-  .my-bets-summary-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    font-size: 19px;
   }
 
   .my-bet-card-top {
-    flex-direction: column;
-    align-items: flex-start;
-    padding: 12px 16px 8px;
+    padding: 10px 14px 6px;
   }
 
-  .my-bet-card-body {
-    padding: 10px 16px 14px;
-  }
-
-  .my-bet-stats {
-    flex-direction: column;
-  }
-
-  .my-bet-stat {
-    flex-direction: row;
-    justify-content: space-between;
-    padding: 8px 12px;
-  }
-
-  .my-bet-leg-item {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .my-bet-leg-meta {
-    justify-content: flex-start;
-  }
-}
-
-@media (max-width: 480px) {
-  .my-bets-summary-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .my-bet-card-title {
+    padding: 0 14px 8px;
   }
 
   .my-bet-match {
     font-size: 15px;
   }
 
-  .my-bets-hero h2 {
-    font-size: 20px;
+  .my-bet-leg-item {
+    padding: 10px 14px;
   }
 
-  .my-bets-filter-chip {
-    padding: 6px 12px;
-    font-size: 12px;
+  .my-bet-leg-teams {
+    font-size: 12.5px;
+  }
+
+  .my-bet-leg-pick-row {
+    gap: 6px;
+  }
+
+  .my-bet-leg-pick {
+    font-size: 12.5px;
+  }
+}
+
+@media (max-width: 420px) {
+  .my-bets-summary-card strong {
+    font-size: 18px;
+  }
+
+  .my-bet-stat strong {
+    font-size: 13.5px;
+  }
+
+  .my-bet-team {
+    max-width: 40%;
   }
 }

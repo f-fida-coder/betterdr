@@ -2,6 +2,7 @@ import React from 'react';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { updateProfile, getStoredAuthToken } from '../api';
 import { useToast } from '../contexts/ToastContext';
+import { setMyBetsInitialFilter } from './MyBetsView';
 
 const DEFAULT_QUICK_STAKES = [10, 25, 50, 100];
 // `bet` was removed — it behaved identically to `risk` and confused users
@@ -891,7 +892,15 @@ const AccountPanel = ({
                                         <button
                                             key={tab.id}
                                             type="button"
-                                            onClick={() => { setActiveBetsTab(tab.id); go('my-bets'); }}
+                                            onClick={() => {
+                                                setActiveBetsTab(tab.id);
+                                                // Pre-set MyBetsView's filter so the user lands on
+                                                // the tab they clicked. 'graded' covers won/lost/void;
+                                                // 'open' is the legacy synonym for pending.
+                                                const filterMap = { pending: 'pending', graded: 'graded', open: 'pending' };
+                                                setMyBetsInitialFilter(filterMap[tab.id] || 'all');
+                                                go('my-bets');
+                                            }}
                                             style={{
                                                 border: 'none',
                                                 padding: '8px 4px',

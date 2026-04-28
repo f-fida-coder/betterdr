@@ -53,6 +53,41 @@ const legLabelFor = (mode, index, total) => {
 
 const QUICK_STAKES = [10, 25, 50, 100];
 
+// Round a chip suggestion to a "nice" stake (nearest 5/10/25/50/100/500
+// depending on magnitude) so the auto-derived chips read as intentional
+// presets — $1000 not $1008, $500 not $483.
+const roundNiceStake = (value) => {
+    const n = Math.max(0, Math.round(Number(value) || 0));
+    if (n <= 0) return 0;
+    if (n < 50) return Math.round(n / 5) * 5;
+    if (n < 200) return Math.round(n / 10) * 10;
+    if (n < 1000) return Math.round(n / 50) * 50;
+    if (n < 5000) return Math.round(n / 100) * 100;
+    return Math.round(n / 500) * 500;
+};
+
+// When the user hasn't saved custom quick stakes, derive 4 chips from
+// their account [minBet, maxBet] so the presets respect their actual
+// betting range. min anchors the left chip, max anchors the right; the
+// two middle chips are evenly spaced and de-duplicated against the
+// anchors so [25, 500, 1000, 3000] reads cleanly instead of repeating.
+const deriveQuickStakesFromLimits = (minBet, maxBet) => {
+    const min = Number(minBet);
+    const max = Number(maxBet);
+    if (!Number.isFinite(min) || !Number.isFinite(max) || min <= 0 || max <= min) {
+        return null;
+    }
+    const mid1 = roundNiceStake(min + (max - min) * 0.18);
+    const mid2 = roundNiceStake(min + (max - min) * 0.45);
+    const chips = [min, mid1, mid2, max];
+    // Replace any duplicate / out-of-order entry with a value just above
+    // its predecessor so each chip stays distinct and ascending.
+    for (let i = 1; i < chips.length; i++) {
+        if (chips[i] <= chips[i - 1]) chips[i] = chips[i - 1] + roundNiceStake((max - min) / 8) || chips[i - 1] + 1;
+    }
+    return chips;
+};
+
 // Risk / Win mode toggle. `risk` = entered amount is the stake; `win`
 // flips the meaning so the entered amount is the desired payout and the
 // stake gets back-calculated from the odds. `bet` was a duplicate of
@@ -281,9 +316,17 @@ const ModeBetPanel = ({
     const defaultStakeAmount = Number.isFinite(Number(userBetDefaults?.amount)) && Number(userBetDefaults.amount) > 0
         ? Number(userBetDefaults.amount)
         : 0;
-    const customQuickStakes = Array.isArray(userBetDefaults?.quickStakes) && userBetDefaults.quickStakes.length === 4
-        ? userBetDefaults.quickStakes.map((v) => Number(v) || 0)
-        : QUICK_STAKES;
+    // Saved user defaults win first; otherwise derive 4 chips from the
+    // account's [minBet, maxBet] so the presets fit the user's actual
+    // limits (e.g. min=$25, max=$3000 → [$25, $500, $1000, $3000]). Only
+    // fall back to the project defaults when neither source is available.
+    const customQuickStakes = (() => {
+        if (Array.isArray(userBetDefaults?.quickStakes) && userBetDefaults.quickStakes.length === 4) {
+            return userBetDefaults.quickStakes.map((v) => Number(v) || 0);
+        }
+        const derived = deriveQuickStakesFromLimits(user?.minBet, user?.maxBet);
+        return derived || QUICK_STAKES;
+    })();
 
     // Single shared Bet/Risk/Win mode for the whole slip. The `wager`
     // value (driven by onWagerChange) is the user-typed Bet Amount in
@@ -490,8 +533,36 @@ const ModeBetPanel = ({
         if (!selections.every(sel => Number.isFinite(Number(sel.odds)) && Number(sel.odds) > 0)) {
             errors.push('One or more selections have invalid odds');
         }
+        // Per-account min/max bet limits from /auth/me payload. Backend
+        // already enforces these (BetsController::placeBet) — checking
+        // client-side too gives instant feedback instead of a round-trip
+        // error after the user clicks Place Bet.
+        const minBet = Number(user?.minBet);
+        const maxBet = Number(user?.maxBet);
+        const hasMin = Number.isFinite(minBet) && minBet > 0;
+        const hasMax = Number.isFinite(maxBet) && maxBet > 0;
+        if (hasMin || hasMax) {
+            if (normalizedMode === 'straight') {
+                // Each staked leg is its own ticket — every leg with a
+                // positive stake must satisfy [minBet, maxBet] independently.
+                const stakes = selections.map(wagerForSelection).filter((v) => v > 0);
+                if (hasMin && stakes.some((v) => v < minBet)) {
+                    errors.push(`Minimum bet is $${minBet}`);
+                }
+                if (hasMax && stakes.some((v) => v > maxBet)) {
+                    errors.push(`Maximum bet is $${maxBet}`);
+                }
+            } else if (effectiveCombinedRisk > 0) {
+                if (hasMin && effectiveCombinedRisk < minBet) {
+                    errors.push(`Minimum bet is $${minBet}`);
+                }
+                if (hasMax && effectiveCombinedRisk > maxBet) {
+                    errors.push(`Maximum bet is $${maxBet}`);
+                }
+            }
+        }
         return errors;
-    }, [legCount, normalizedMode, rule, selections, effectiveCombinedRisk, teaserValid, hasAnyStraightAmount]);
+    }, [legCount, normalizedMode, rule, selections, effectiveCombinedRisk, teaserValid, hasAnyStraightAmount, user?.minBet, user?.maxBet, wagerForSelection]);
 
     const ticketSignature = useMemo(() => JSON.stringify({
         type: normalizedMode,
