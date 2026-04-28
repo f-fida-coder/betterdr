@@ -306,6 +306,20 @@ const ModeBetPanel = ({
 
     const parsedFreeplayBalance = Number.isFinite(Number(freeplayBalance)) ? Number(freeplayBalance) : 0;
     const hasFreeplay = parsedFreeplayBalance > 0;
+
+    // Mirrors DashboardHeader's `headerAvailable`: for credit-account players
+    // (creditLimit > 0) the betslip's headline number is `creditAvailable`
+    // (creditLimit - balanceOwed); for cash accounts it stays the spendable
+    // cash. Keeping the two displays in sync prevents the betslip from
+    // showing $0 when the header shows $10,000.
+    const userCreditLimit = Number(user?.creditLimit ?? 0);
+    const userCreditAvailable = Number(user?.creditAvailable ?? user?.creditLimit ?? 0);
+    const userRole = String(user?.role || 'user').toLowerCase();
+    const isCreditAccount = userRole === 'user' && userCreditLimit > 0;
+    const fallbackAvailable = Number.isFinite(Number(availableBalance)) ? Number(availableBalance) : Number(balance) || 0;
+    const headerAvailable = isCreditAccount
+        ? (Number.isFinite(userCreditAvailable) ? userCreditAvailable : 0)
+        : fallbackAvailable;
     const freeplayExpiryLabel = (() => {
         if (!freeplayExpiresAt || !hasFreeplay) return null;
         const ts = typeof freeplayExpiresAt === 'number' ? freeplayExpiresAt * 1000 : Date.parse(freeplayExpiresAt);
@@ -1034,7 +1048,11 @@ const ModeBetPanel = ({
                         padding: '10px 12px',
                         marginBottom: 12,
                     }}>
-                        {/* Title row: APPLY TO ALL + Balance */}
+                        {/* Title row: APPLY TO ALL + Available Credit.
+                            Mirrors the top header's "AVAILABLE" tile — for
+                            credit-account players (creditLimit > 0) this is
+                            creditLimit - balanceOwed, so the betslip and the
+                            header always agree on what the user can wager. */}
                         <div style={{
                             display: 'flex',
                             justifyContent: 'space-between',
@@ -1051,7 +1069,7 @@ const ModeBetPanel = ({
                                 Apply to all
                             </span>
                             <span style={{ fontSize: 10, color: palette.textFaint }}>
-                                Balance <span style={{ color: palette.textPrimary, fontWeight: 700 }}>${formatAmount(balance)}</span>
+                                Available Credit <span style={{ color: palette.textPrimary, fontWeight: 700 }}>${formatAmount(headerAvailable)}</span>
                             </span>
                         </div>
 

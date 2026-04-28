@@ -481,11 +481,6 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
                 // Carried through so the MatchCard can render "Updated N min ago"
                 // without having to reach into rawMatch.
                 lastOddsSyncAt: match.lastOddsSyncAt || match.lastUpdated || null,
-                // Server-flagged stale row — surfaces a STALE badge on
-                // the OddsAge indicator. The row used to be filtered out
-                // entirely; now it ships with this flag so the user can
-                // still see the line + judge whether to bet on it.
-                oddsStale: match.oddsStale === true,
             };
         });
 
@@ -755,12 +750,12 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
                             style={{ fontSize: '32px', marginBottom: '12px', opacity: 0.5, display: 'block' }}
                         ></i>
                         <p style={{ fontSize: '13px', margin: '0 0 4px 0', color: '#999', fontWeight: '600' }}>
-                            {statusFilter === 'live' ? 'No live games right now' : 'No matches available'}
+                            {statusFilter === 'live' ? 'No matches with live odds right now' : 'No matches with fresh odds right now'}
                         </p>
                         <p style={{ fontSize: '11px', margin: 0, color: '#bbb' }}>
                             {statusFilter === 'live'
-                                ? 'In-play games will appear here when a match goes live.'
-                                : 'Check back later for updates'}
+                                ? 'In-play games appear here once their odds refresh.'
+                                : 'Refreshing — check back in a moment.'}
                         </p>
                     </div>
                 )}
@@ -875,7 +870,7 @@ const MatchCard = ({ match, oddsFormat, onAddToSlip, selectedKeys, visibleMarket
                     ) : (
                         <span style={matchTimeStyle}>{match.timeDisplay || match.time}</span>
                     )}
-                    <OddsAge timestamp={match.lastOddsSyncAt} live={(match.status || '').toString().toLowerCase() === 'live'} stale={match.oddsStale === true} />
+                    <OddsAge timestamp={match.lastOddsSyncAt} live={(match.status || '').toString().toLowerCase() === 'live'} />
                 </span>
                 {visibleMarkets.showSpread && <span style={columnLabelStyle}>Spread</span>}
                 {visibleMarkets.showMoneyline && <span style={columnLabelStyle}>ML</span>}

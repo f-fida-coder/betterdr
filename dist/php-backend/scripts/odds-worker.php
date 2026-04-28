@@ -99,6 +99,23 @@ while (true) {
         $logWorker('error', sprintf("[%s] update failed: %s", $ts, $e->getMessage()));
     }
 
+    // Worker health alert: if no successful odds tick in WORKER_HEALTH_ALERT_SECONDS
+    // (default 600s = 10 min), log a critical row. Threshold + audit row are
+    // owned by SportsbookHealth so admins can also surface this in dashboards.
+    try {
+        $repoHealth = new SqlRepository($dbUri, $dbName);
+        if (SportsbookHealth::checkWorkerHealth($repoHealth)) {
+            $logWorker('error', sprintf(
+                "[%s] worker health alert: no successful odds sync in > %ds — upstream sync stalled",
+                $ts,
+                max(60, (int) Env::get('WORKER_HEALTH_ALERT_SECONDS', '600'))
+            ));
+        }
+        unset($repoHealth);
+    } catch (Throwable $e) {
+        $logWorker('error', 'worker health check failed: ' . $e->getMessage());
+    }
+
     unset($repo);
 
     if ($runOnce) {

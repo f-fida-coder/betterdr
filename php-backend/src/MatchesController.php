@@ -240,70 +240,47 @@ final class MatchesController
                 return $parsed === false || $parsed > $now;
             }));
         } elseif ($desiredStatus === 'live') {
-            // Live Now: any row with status='live' qualifies. Rundown-sourced
-            // rows are still preferred (their freshness window is per-sport
-            // tighter), but rows whose oddsSource is OddsAPI/null are no
-            // longer hidden — Rundown's coverage map only spans US majors
-            // plus a handful of soccer/cricket leagues, so the previous
-            // rundown-exclusive rule made Live Now perpetually empty whenever
-            // the only in-play matches were from sports Rundown doesn't
-            // cover (KBO baseball, ATP tennis, etc.). Freshness is annotated
-            // as `oddsStale: true` rather than dropped, so a row never
-            // vanishes mid-bet just because the next sync hasn't landed yet.
+            // Live Now: drop any row whose odds aren't fresh. Threshold is
+            // 90s for live in-play (default), with per-sport overrides via
+            // LIVE_FRESHNESS_SECONDS_<SPORT_KEY> env vars. Rows missing
+            // lastOddsSyncAt are dropped too — we never display unverifiable
+            // freshness. The rundown-exclusive requirement is intentionally
+            // gone: OddsAPI-sourced live rows are eligible as long as their
+            // odds are fresh.
             $now = time();
-            $coveredKeys = RundownLiveSync::coveredSportKeysSet();
-            $prematchMaxAge = max(60, (int) Env::get('PREMATCH_FRESHNESS_SECONDS_DEFAULT', '300'));
-            $annotated = array_values(array_map(static function (array $match) use ($now, $coveredKeys, $prematchMaxAge): ?array {
-                if (strtolower((string) ($match['status'] ?? '')) !== 'live') return null;
-                $sportKey = strtolower((string) ($match['sportKey'] ?? ''));
+            $annotated = array_values(array_filter($annotated, static function (array $match) use ($now): bool {
+                if (strtolower((string) ($match['status'] ?? '')) !== 'live') return false;
                 $last = (string) ($match['lastOddsSyncAt'] ?? '');
                 $lastTs = $last !== '' ? strtotime($last) : false;
-                if ($lastTs === false) {
-                    $match['oddsStale'] = true;
-                    return $match;
-                }
-                // Use the per-sport live freshness window when Rundown covers
-                // the sport (those rows refresh every ~90s); fall back to the
-                // looser pre-match window for OddsAPI-only sports where the
-                // sync cadence is slower.
-                if ($sportKey !== '' && isset($coveredKeys[$sportKey])) {
-                    $maxAge = self::liveFreshnessSecondsForSport($sportKey);
-                } else {
-                    $maxAge = $prematchMaxAge;
-                }
-                $match['oddsStale'] = ($now - $lastTs) > $maxAge;
-                return $match;
-            }, $annotated));
-            $annotated = array_values(array_filter($annotated, static fn ($m) => $m !== null));
+                if ($lastTs === false) return false;
+                $sportKey = (string) ($match['sportKey'] ?? '');
+                $maxAge = self::liveFreshnessSecondsForSport($sportKey);
+                return ($now - $lastTs) <= $maxAge;
+            }));
         } elseif ($desiredStatus === 'live-upcoming') {
-            // Default landing view. Used to drop pre-match rows whose
-            // `lastOddsSyncAt` was older than PREMATCH_FRESHNESS_SECONDS_DEFAULT
-            // and live rows older than the per-sport live window — that
-            // produced the visible "odds disappear after a few minutes"
-            // bug whenever the cron worker fell behind. Now we KEEP the
-            // row and only set `oddsStale: true` so the UI can render it
-            // with a STALE indicator instead of vanishing.
+            // Default landing view. Drop rows whose odds are stale outright
+            // — pre-match window is PREMATCH_FRESHNESS_SECONDS_DEFAULT (300s
+            // by default), live window is the per-sport live freshness
+            // value (default 90s). We previously kept stale rows with an
+            // `oddsStale: true` flag so the UI could render a "betting
+            // suspended" badge, but the product call is to hide stale
+            // matches entirely so the user only sees bet-able odds.
             $now = time();
             $prematchMaxAge = max(60, (int) Env::get('PREMATCH_FRESHNESS_SECONDS_DEFAULT', '300'));
-            $annotated = array_values(array_map(static function (array $match) use ($now, $prematchMaxAge): ?array {
+            $annotated = array_values(array_filter($annotated, static function (array $match) use ($now, $prematchMaxAge): bool {
                 $matchStatus = strtolower((string) ($match['status'] ?? ''));
-                if (!in_array($matchStatus, ['scheduled', 'live'], true)) return null;
+                if (!in_array($matchStatus, ['scheduled', 'live'], true)) return false;
                 $last = (string) ($match['lastOddsSyncAt'] ?? '');
                 $lastTs = $last !== '' ? strtotime($last) : false;
-                if ($lastTs === false) {
-                    $match['oddsStale'] = true;
-                    return $match;
-                }
+                if ($lastTs === false) return false;
                 if ($matchStatus === 'live') {
                     $sportKey = (string) ($match['sportKey'] ?? '');
                     $maxAge = self::liveFreshnessSecondsForSport($sportKey);
                 } else {
                     $maxAge = $prematchMaxAge;
                 }
-                $match['oddsStale'] = ($now - $lastTs) > $maxAge;
-                return $match;
-            }, $annotated));
-            $annotated = array_values(array_filter($annotated, static fn ($m) => $m !== null));
+                return ($now - $lastTs) <= $maxAge;
+            }));
         } elseif ($desiredStatus !== '' && $desiredStatus !== 'all' && !isset($dbFilter['status'])) {
             $annotated = array_values(array_filter($annotated, static function (array $match) use ($desiredStatus): bool {
                 return strtolower((string) ($match['status'] ?? '')) === $desiredStatus;

@@ -148,6 +148,69 @@ final class SportsbookHealth
     }
 
     /**
+     * Worker health alert. Called from the odds-worker tick after each
+     * iteration. If the gap between now and `lastOddsSuccessAt` exceeds the
+     * threshold (default 10 min), emit a critical audit + file-log row so
+     * monitoring can pick it up. Debounced via `lastHealthAlertAt` so a
+     * stuck worker logs once per detection cycle, not every tick.
+     *
+     * Returns true if an alert fired this call (useful for the worker to
+     * also escalate to STDERR), false otherwise.
+     */
+    public static function checkWorkerHealth(SqlRepository $db, ?int $thresholdSeconds = null): bool
+    {
+        $threshold = $thresholdSeconds !== null
+            ? max(60, (int) $thresholdSeconds)
+            : max(60, (int) Env::get('WORKER_HEALTH_ALERT_SECONDS', '600'));
+        $existing = self::healthDoc($db, self::SYNC_DOC_ID);
+        if (!is_array($existing) || $existing === []) {
+            return false;
+        }
+        $lastSuccessAt = $existing['lastOddsSuccessAt'] ?? ($existing['lastSuccessAt'] ?? null);
+        if ($lastSuccessAt === null || $lastSuccessAt === '') {
+            return false;
+        }
+        $lastTs = strtotime((string) $lastSuccessAt);
+        if ($lastTs === false) {
+            return false;
+        }
+        $now = time();
+        $ageSeconds = $now - $lastTs;
+        if ($ageSeconds <= $threshold) {
+            return false;
+        }
+        // Debounce: don't re-fire the alert until the threshold elapses again
+        // since the previous alert. Stuck worker → one alert per ~threshold.
+        $lastAlertAt = $existing['lastHealthAlertAt'] ?? null;
+        if ($lastAlertAt !== null && $lastAlertAt !== '') {
+            $lastAlertTs = strtotime((string) $lastAlertAt);
+            if ($lastAlertTs !== false && ($now - $lastAlertTs) < $threshold) {
+                return false;
+            }
+        }
+        $payload = [
+            'lastOddsSuccessAt' => (string) $lastSuccessAt,
+            'ageSeconds' => $ageSeconds,
+            'thresholdSeconds' => $threshold,
+            'consecutiveFailures' => (int) ($existing['consecutiveFailures'] ?? 0),
+            'consecutiveOddsFailures' => (int) ($existing['consecutiveOddsFailures'] ?? 0),
+            'lastError' => $existing['lastError'] ?? null,
+        ];
+        $db->updateOneUpsert(self::HEALTH_COLLECTION, ['id' => self::SYNC_DOC_ID], [
+            'id' => self::SYNC_DOC_ID,
+            'lastHealthAlertAt' => SqlRepository::nowUtc(),
+            'updatedAt' => SqlRepository::nowUtc(),
+        ], [
+            'id' => self::SYNC_DOC_ID,
+            'component' => 'odds_sync',
+            'createdAt' => SqlRepository::nowUtc(),
+        ]);
+        self::appendAudit($db, 'odds_worker_unhealthy', $payload, 'critical');
+        self::writeFileLog('odds_worker_unhealthy', 'error', $payload);
+        return true;
+    }
+
+    /**
      * @param array<string, mixed> $partialResult
      */
     public static function recordSyncFailure(SqlRepository $db, string $runId, string $source, Throwable $error, array $partialResult = []): void

@@ -631,13 +631,12 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                     ) : content.matches.length === 0 ? (
                         <div style={{ padding: '40px', textAlign: 'center', color: '#888', background: '#fff', borderRadius: '8px' }}>
                             <i className="fa-solid fa-calendar-xmark" style={{ fontSize: '48px', marginBottom: '16px', opacity: 0.5 }}></i>
-                            <h3>No matches scheduled</h3>
+                            <h3>No matches with live odds right now</h3>
                             <p>
                                 {content.name && content.name !== 'Sports'
-                                    ? `No live or upcoming ${content.name} matches right now.`
-                                    : 'No live or upcoming matches right now.'}
+                                    ? `No fresh ${content.name} odds available — check back in a moment.`
+                                    : 'No fresh odds available — check back in a moment.'}
                             </p>
-                            <p style={{ fontSize: '0.9em' }}>Check back when games are scheduled.</p>
                         </div>
                     ) : (
                         content.matches.map((match) => (
@@ -646,7 +645,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                     <div className="match-time">
                                         <span className="time">{match.time}</span>
                                         <span className="date">{match.date}</span>
-                                        <OddsAge timestamp={match.rawMatch?.lastOddsSyncAt || match.rawMatch?.lastUpdated} live={(match.status || '').toString().toUpperCase() === 'LIVE' || (match.rawMatch?.status || '').toString().toLowerCase() === 'live'} stale={match.rawMatch?.oddsStale === true} style={{ marginLeft: 8 }} />
+                                        <OddsAge timestamp={match.rawMatch?.lastOddsSyncAt || match.rawMatch?.lastUpdated} live={(match.status || '').toString().toUpperCase() === 'LIVE' || (match.rawMatch?.status || '').toString().toLowerCase() === 'live'} style={{ marginLeft: 8 }} />
                                     </div>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                         <button
