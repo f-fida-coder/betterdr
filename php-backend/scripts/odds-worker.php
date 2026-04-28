@@ -21,6 +21,13 @@ require_once __DIR__ . '/../src/SportsbookHealth.php';
 require_once __DIR__ . '/../src/SportsbookBetSupport.php';
 require_once __DIR__ . '/../src/BetSettlementService.php';
 require_once __DIR__ . '/../src/OddsMarketCatalog.php';
+// RundownService::httpGet calls ApiQuotaGuard::reserve to cap upstream
+// calls per minute. The web bootstrap (public/index.php) requires this
+// already, but the worker was missing it — every Rundown live tick was
+// throwing "Class ApiQuotaGuard not found", which is exactly why live
+// rows go stale and the freshness filter was dropping them. Loading it
+// here brings the live overlay back online.
+require_once __DIR__ . '/../src/ApiQuotaGuard.php';
 require_once __DIR__ . '/../src/TeamNormalizer.php';
 require_once __DIR__ . '/../src/OddsSyncService.php';
 require_once __DIR__ . '/../src/RealtimeEventBus.php';

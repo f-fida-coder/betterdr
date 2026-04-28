@@ -646,7 +646,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                     <div className="match-time">
                                         <span className="time">{match.time}</span>
                                         <span className="date">{match.date}</span>
-                                        <OddsAge timestamp={match.rawMatch?.lastOddsSyncAt || match.rawMatch?.lastUpdated} live={(match.status || '').toString().toUpperCase() === 'LIVE' || (match.rawMatch?.status || '').toString().toLowerCase() === 'live'} style={{ marginLeft: 8 }} />
+                                        <OddsAge timestamp={match.rawMatch?.lastOddsSyncAt || match.rawMatch?.lastUpdated} live={(match.status || '').toString().toUpperCase() === 'LIVE' || (match.rawMatch?.status || '').toString().toLowerCase() === 'live'} stale={match.rawMatch?.oddsStale === true} style={{ marginLeft: 8 }} />
                                     </div>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                         <button

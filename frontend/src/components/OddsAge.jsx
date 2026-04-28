@@ -20,9 +20,15 @@ const TICK_MS = 30 * 1000;
  *   - live: when true, uses tight live-mode thresholds (90s amber / 5min red)
  *           and renders an explicit STALE / OUTDATED badge so on-call admins
  *           can spot coverage gaps at a glance instead of doing math.
+ *   - stale: server-side hint from /api/matches (`oddsStale: true`). The
+ *           backend used to drop rows whose `lastOddsSyncAt` was past the
+ *           freshness window — now it ships them with this flag instead so
+ *           the row doesn't disappear when the worker falls behind. We
+ *           force the STALE badge whenever this is set, regardless of the
+ *           client clock vs timestamp math (the server's authority wins).
  *   - className, style: pass-through for layout integration.
  */
-const OddsAge = ({ timestamp, live = false, className, style: extraStyle }) => {
+const OddsAge = ({ timestamp, live = false, stale = false, className, style: extraStyle }) => {
     const [nowTick, setNowTick] = useState(() => Date.now());
 
     useEffect(() => {
@@ -56,17 +62,26 @@ const OddsAge = ({ timestamp, live = false, className, style: extraStyle }) => {
 
     const amberThreshold = live ? LIVE_AMBER_MS : AMBER_MS;
     const redThreshold = live ? LIVE_RED_MS : RED_MS;
-    const isStale = ageMs > amberThreshold;
+    // Server-side `oddsStale` always promotes the row to STALE — that's
+    // the signal "the cron worker hasn't refreshed me in a while", which
+    // the user needs to see regardless of how the client clock compares
+    // to the lastOddsSyncAt timestamp. Time-based escalation continues to
+    // gate OUTDATED so we don't degrade what was previously a STALE row
+    // to OUTDATED purely because the server flag fired.
+    const isStale = stale || ageMs > amberThreshold;
     const isOutdated = ageMs > redThreshold;
     const color = isOutdated ? '#c0392b' : isStale ? '#d58512' : '#888';
 
     let badge = null;
-    if (live) {
-        if (isOutdated) {
-            badge = <span style={{ marginLeft: 6, padding: '1px 6px', borderRadius: 3, background: '#c0392b', color: '#fff', fontSize: 10, fontWeight: 700 }}>OUTDATED</span>;
-        } else if (isStale) {
-            badge = <span style={{ marginLeft: 6, padding: '1px 6px', borderRadius: 3, background: '#d58512', color: '#fff', fontSize: 10, fontWeight: 700 }}>STALE</span>;
-        }
+    // The STALE / OUTDATED badge now renders for both pre-match and live
+    // contexts. Pre-match used to suppress the badge entirely; with the
+    // backend now flagging stale pre-match rows instead of dropping them,
+    // we need a visible cue so users know the line they're looking at
+    // wasn't refreshed on the latest cron tick.
+    if (isOutdated) {
+        badge = <span style={{ marginLeft: 6, padding: '1px 6px', borderRadius: 3, background: '#c0392b', color: '#fff', fontSize: 10, fontWeight: 700 }}>OUTDATED</span>;
+    } else if (isStale) {
+        badge = <span style={{ marginLeft: 6, padding: '1px 6px', borderRadius: 3, background: '#d58512', color: '#fff', fontSize: 10, fontWeight: 700 }}>STALE</span>;
     }
 
     // Allow the parent's flex/grid layout to clip this badge if it would

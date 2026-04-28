@@ -29,6 +29,19 @@ const matchesResponseCache = {
     size: 0,
     entries: () => [][Symbol.iterator](),
 };
+
+// "Last known good" snapshot per (statusFilter, scopeKey). NOT a TTL
+// cache — it's the most recent successful response for that exact view,
+// kept around so back/forward nav can render instantly from the previous
+// data while a fresh fetch lands. Every successful fetch overwrites the
+// slot, so the data the user sees on hand-off is always whatever the
+// hook last fetched from /api/matches (which itself reads from MySQL).
+//
+// This is what removes the "flash empty list on every nav" symptom:
+// instead of `setMatches([])` on scope change, we seed from this map.
+// On a brand-new scope the map miss returns `[]` so first-visit consumers
+// still get their normal empty/loading state.
+const lastKnownByScope = new Map();
 // In-flight request dedup is NOT a data cache — it just prevents the same
 // HTTP request from being fired twice within a single render burst (e.g.
 // when 3 components mount simultaneously). Always-fresh policy still
@@ -123,9 +136,15 @@ const filterMatches = (normalized, statusFilter) => {
 };
 
 export default function useMatches(options = {}) {
-    const [matches, setMatches] = useState([]);
     const statusFilter = (options.status || 'all').toString().toLowerCase();
     const scopeKey = (options.scopeKey || '').toString();
+    // Seed from the last-known-good snapshot for this exact view so the
+    // first render shows the previously-loaded rows immediately. Hand-off
+    // is silent: the fetch effect below will overwrite once new data
+    // lands. New scope (cache miss) still returns [], preserving the
+    // original first-visit loading-state UX.
+    const initialKey = JSON.stringify({ status: statusFilter, scope: scopeKey || 'global' });
+    const [matches, setMatches] = useState(() => lastKnownByScope.get(initialKey) || []);
     // Optional row cap forwarded to /api/matches?limit=N. Used by the default
     // landing view (no sport selected) to ask for only top 6 freshest rows.
     const rowLimit = Number.isFinite(Number(options.limit)) && Number(options.limit) > 0
@@ -140,13 +159,17 @@ export default function useMatches(options = {}) {
     useEffect(() => {
         let mounted = true;
         emptyRetryRef.current = 0;
-        // Clear stale data IMMEDIATELY when scope changes. Without this,
-        // consumers (e.g. SportContentView) see the old sport's matches
-        // until the new fetch resolves, then their downstream filter
-        // would either pass-through old rows (UX glitch) or filter them
-        // all out (showing "No matches" briefly). With the clear, the
-        // consumer can render a clean loading state during the hand-off.
-        setMatches([]);
+        // On scope change, seed from the last-known-good snapshot for
+        // the new scope instead of clearing to []. This is what makes
+        // back/forward nav feel instant — if the user was just viewing
+        // NBA matches, switching back to NBA after browsing MLB shows
+        // those NBA rows immediately and updates them silently as the
+        // fresh fetch resolves a moment later. A brand-new scope misses
+        // the map and falls back to [], preserving the original empty
+        // / loading-state UX for first visits.
+        const cacheKey = createMatchesCacheKey(statusFilter, scopeKey || 'global');
+        const lastKnown = lastKnownByScope.get(cacheKey);
+        setMatches(lastKnown || []);
 
         const emitRefreshProgress = (phase, detail) => {
             if (typeof window === 'undefined') return;
@@ -220,6 +243,15 @@ export default function useMatches(options = {}) {
                 const filtered = filterMatches(normalized, statusFilter);
                 matchesResponseCache.set(cacheKey, { ts: Date.now(), data: filtered });
                 pruneLocalCache();
+                // Stash this scope's freshest data so a future remount /
+                // back-nav into the same scope can render it instantly
+                // before the next fetch lands. Only cache non-empty
+                // results — caching `[]` would suppress the legitimate
+                // first-visit empty/loading state for sports that have
+                // no upcoming events.
+                if (filtered.length > 0) {
+                    lastKnownByScope.set(cacheKey, filtered);
+                }
                 setMatches(filtered);
                 success = true;
 

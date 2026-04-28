@@ -481,6 +481,11 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
                 // Carried through so the MatchCard can render "Updated N min ago"
                 // without having to reach into rawMatch.
                 lastOddsSyncAt: match.lastOddsSyncAt || match.lastUpdated || null,
+                // Server-flagged stale row — surfaces a STALE badge on
+                // the OddsAge indicator. The row used to be filtered out
+                // entirely; now it ships with this flag so the user can
+                // still see the line + judge whether to bet on it.
+                oddsStale: match.oddsStale === true,
             };
         });
 
@@ -870,7 +875,7 @@ const MatchCard = ({ match, oddsFormat, onAddToSlip, selectedKeys, visibleMarket
                     ) : (
                         <span style={matchTimeStyle}>{match.timeDisplay || match.time}</span>
                     )}
-                    <OddsAge timestamp={match.lastOddsSyncAt} live={(match.status || '').toString().toLowerCase() === 'live'} />
+                    <OddsAge timestamp={match.lastOddsSyncAt} live={(match.status || '').toString().toLowerCase() === 'live'} stale={match.oddsStale === true} />
                 </span>
                 {visibleMarkets.showSpread && <span style={columnLabelStyle}>Spread</span>}
                 {visibleMarkets.showMoneyline && <span style={columnLabelStyle}>ML</span>}
