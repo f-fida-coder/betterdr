@@ -232,12 +232,23 @@ final class MatchesController
         }
 
         // Apply remaining filters in PHP
-        if ($desiredStatus === 'upcoming') {
+        if ($desiredStatus === 'upcoming' || $desiredStatus === 'scheduled') {
+            // UP NEXT (pre-match) view. Two requirements: (1) commence_time
+            // is still in the future, and (2) odds were refreshed within
+            // PREMATCH_FRESHNESS_SECONDS_DEFAULT (300s by default). Stale
+            // rows are dropped, not flagged — the user only ever sees lines
+            // they can actually bet on. Same threshold as the live-upcoming
+            // pre-match branch so the two views stay consistent.
             $now = time();
-            $annotated = array_values(array_filter($annotated, static function (array $match) use ($now): bool {
+            $prematchMaxAge = max(60, (int) Env::get('PREMATCH_FRESHNESS_SECONDS_DEFAULT', '300'));
+            $annotated = array_values(array_filter($annotated, static function (array $match) use ($now, $prematchMaxAge): bool {
                 $startTime = (string) ($match['startTime'] ?? '');
                 $parsed = $startTime !== '' ? strtotime($startTime) : false;
-                return $parsed === false || $parsed > $now;
+                if ($parsed !== false && $parsed <= $now) return false;
+                $last = (string) ($match['lastOddsSyncAt'] ?? '');
+                $lastTs = $last !== '' ? strtotime($last) : false;
+                if ($lastTs === false) return false;
+                return ($now - $lastTs) <= $prematchMaxAge;
             }));
         } elseif ($desiredStatus === 'live') {
             // Live Now: drop any row whose odds aren't fresh. Threshold is

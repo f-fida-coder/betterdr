@@ -4,7 +4,7 @@ import useSportOddsRefresh from '../hooks/useSportOddsRefresh';
 import { syncPrematchSport, getStoredAuthToken } from '../api';
 import { useToast } from '../contexts/ToastContext';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
-import { getSportKeywords, findSportItemById } from '../data/sportsData';
+import { getSportKeywords, findSportItemById, sportLabelForKey } from '../data/sportsData';
 import {
     formatLineValue,
     formatOdds,
@@ -682,18 +682,41 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
         }));
     };
 
+    // When the user has 2+ real sports selected via the sidebar checkboxes,
+    // group matches by league inside the match list and emit a section
+    // header (e.g. "MLB Game", "NBA 1H") so the cards visually self-describe.
+    // Single-sport view stays as-is — the sport title at the top of the
+    // panel already provides that context, so an extra header would be
+    // redundant noise. The header sits between the day divider and the
+    // match cards so the day → league hierarchy reads top-to-bottom.
+    const showLeagueHeaders = realSelected.length >= 2;
+    const periodSuffixLabel = activePeriod && activePeriod.label ? activePeriod.label : 'Game';
     const groupedEntries = React.useMemo(() => {
         const entries = [];
         let currentDayKey = null;
+        let currentLeagueKey = null;
         orderedMatches.forEach(match => {
             if (match.dayKey && match.dayKey !== currentDayKey) {
                 currentDayKey = match.dayKey;
+                currentLeagueKey = null; // re-emit league header at the top of each new day
                 entries.push({ type: 'day', id: `day-${currentDayKey}`, label: match.dayLabel });
+            }
+            if (showLeagueHeaders) {
+                const leagueKey = String(match.sportKey || match.sport || '').toLowerCase();
+                if (leagueKey && leagueKey !== currentLeagueKey) {
+                    currentLeagueKey = leagueKey;
+                    const leagueLabel = sportLabelForKey(leagueKey) || (match.sport || leagueKey);
+                    entries.push({
+                        type: 'league',
+                        id: `league-${currentDayKey || 'all'}-${leagueKey}`,
+                        label: `${leagueLabel} ${periodSuffixLabel}`.trim(),
+                    });
+                }
             }
             entries.push({ type: 'match', id: `match-${match.id}`, match });
         });
         return entries;
-    }, [orderedMatches]);
+    }, [orderedMatches, showLeagueHeaders, periodSuffixLabel]);
 
     return (
         <div style={containerStyle}>
@@ -766,6 +789,9 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
                         // render inside each MatchCard so every row
                         // self-describes its SPREAD / ML / TOTAL columns.
                         return <div key={entry.id} style={dayHeaderStyle}>{entry.label}</div>;
+                    }
+                    if (entry.type === 'league') {
+                        return <div key={entry.id} style={leagueHeaderStyle}>{entry.label}</div>;
                     }
                     return (
                         <MatchCard
@@ -1295,6 +1321,19 @@ const dayHeaderStyle = {
     fontWeight: 700,
     letterSpacing: '0.6px',
     textTransform: 'uppercase',
+};
+
+// Lighter than dayHeaderStyle so the visual hierarchy reads
+// day → league → match top-to-bottom without competing.
+const leagueHeaderStyle = {
+    padding: '8px 16px',
+    background: '#f3f4f6',
+    color: '#111827',
+    fontSize: '12px',
+    fontWeight: 700,
+    letterSpacing: '0.4px',
+    textTransform: 'uppercase',
+    borderBottom: '1px solid #e5e7eb',
 };
 
 const matchCardStyle = {

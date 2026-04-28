@@ -223,6 +223,55 @@ export const getSportKeywords = (id) => {
 };
 
 /**
+ * Map of canonical OddsAPI sportKey → human-readable league label, derived
+ * from the leaf nodes in `sportsData`. Used by the multi-sport list view to
+ * print "MLB Game" / "NBA Game" section headers above each league's matches.
+ *
+ * Lazily memoised so the first lookup builds the map once; subsequent calls
+ * are O(1). Falls back to the sportKey itself (uppercased segments) when the
+ * key isn't in our static tree (e.g. tennis_atp_madrid_open which is
+ * auto-discovered from /v4/sports rather than hardcoded).
+ */
+let _sportKeyToLabel = null;
+const buildSportKeyToLabel = () => {
+    const map = {};
+    const walk = (items) => {
+        for (const item of items) {
+            if (Array.isArray(item.sportKeys) && item.label) {
+                for (const k of item.sportKeys) {
+                    if (typeof k === 'string' && k && !map[k]) {
+                        map[k.toLowerCase()] = item.label;
+                    }
+                }
+            }
+            if (item.children) walk(item.children);
+        }
+    };
+    walk(sportsData);
+    return map;
+};
+
+export const sportLabelForKey = (sportKey) => {
+    const key = String(sportKey || '').toLowerCase();
+    if (!key) return '';
+    if (_sportKeyToLabel === null) _sportKeyToLabel = buildSportKeyToLabel();
+    if (_sportKeyToLabel[key]) return _sportKeyToLabel[key];
+    // Fallback for auto-discovered sports not in the static tree: title-case
+    // the suffix after the family prefix. E.g. tennis_atp_madrid_open →
+    // "ATP Madrid Open"; soccer_korea_kleague1 → "Korea Kleague1".
+    const parts = key.split('_');
+    if (parts.length <= 1) return key.toUpperCase();
+    const family = parts[0];
+    const rest = parts.slice(1).map(p => {
+        if (p === 'atp' || p === 'wta' || p === 'nba' || p === 'nfl' || p === 'mlb' || p === 'nhl' || p === 'mls' || p === 'epl' || p === 'kbo' || p === 'cfl') {
+            return p.toUpperCase();
+        }
+        return p.charAt(0).toUpperCase() + p.slice(1);
+    }).join(' ');
+    return rest || family.toUpperCase();
+};
+
+/**
  * Find an item anywhere in the sportsData tree by its id.
  */
 export const findSportItemById = (id) => {

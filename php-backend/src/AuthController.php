@@ -805,7 +805,14 @@ final class AuthController
             }
         }
 
-        $creditAvailable = max(0.0, $creditLimit - $balanceOwed);
+        // Credit available = creditLimit + balance - pendingBalance, matching
+        // the admin Customer Details "Available" tile so the player and admin
+        // views never disagree. Previously this subtracted `balanceOwed`, but
+        // in this codebase `balanceOwed` on a player record is the *settle
+        // limit threshold* (admin form field "Settle Limit ± $X"), not actual
+        // debt — subtracting it produced a Credit Available figure $X lower
+        // than what the admin panel showed for the same player.
+        $creditAvailable = max(0.0, $creditLimit + $balance - $pendingBalance);
         $nonPostedCasino = $this->num($user['nonPostedCasino'] ?? ($user['nonPostedCasinoBalance'] ?? 0));
         return [
             'id' => (string) $user['id'],
@@ -844,11 +851,13 @@ final class AuthController
         $availableBalance = max(0, $balance - $pendingBalance);
         $balanceOwed = $this->num($user['balanceOwed'] ?? 0);
         $creditLimit = $this->num($user['creditLimit'] ?? 0);
-        // Remaining credit the user can wager against — what the Account
-        // screen labels "Credit Available". creditLimit alone overstated
-        // this when a user had already drawn against it. max(0,..) so a
-        // partially over-drawn account doesn't render a negative tile.
-        $creditAvailable = max(0.0, $creditLimit - $balanceOwed);
+        // Mirrors the admin Customer Details "Available" tile so the player
+        // and admin views never disagree: creditLimit + balance - pending.
+        // `balanceOwed` is the player's *settle limit threshold* in this
+        // codebase (admin form field "Settle Limit ± $X"), not actual debt,
+        // so subtracting it from credit was understating Credit Available
+        // by the settle threshold (e.g. $9,800 instead of $10,000).
+        $creditAvailable = max(0.0, $creditLimit + $balance - $pendingBalance);
         $nonPostedCasino = $this->num($user['nonPostedCasino'] ?? ($user['nonPostedCasinoBalance'] ?? 0));
         $freeplayBalance = $this->num($user['freeplayBalance'] ?? 0);
         $freeplayExpiresAt = $user['freeplayExpiresAt'] ?? null;

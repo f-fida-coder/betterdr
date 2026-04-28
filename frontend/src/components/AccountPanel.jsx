@@ -64,6 +64,15 @@ const formatMoney = (value) => {
     return number.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
 
+// Whole-dollar formatter for tiles where decimals add noise (e.g. Free Play
+// is granted as round-dollar amounts; the trailing `.14` on $1,776.14 was
+// just rounding drift from settlement math).
+const formatMoneyWhole = (value) => {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return '0';
+    return Math.floor(number).toLocaleString(undefined, { maximumFractionDigits: 0 });
+};
+
 const initialsOf = (name) => {
     if (!name) return '?';
     const trimmed = String(name).trim();
@@ -745,7 +754,7 @@ const AccountPanel = ({
                             <BalanceTile
                                 icon="fa-gift"
                                 label="Free Play"
-                                value={`$${formatMoney(freeplay)}`}
+                                value={`$${formatMoneyWhole(freeplay)}`}
                                 tone={Number(freeplay) > 0 ? 'success' : 'neutral'}
                             />
                             <BalanceTile
