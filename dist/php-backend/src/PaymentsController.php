@@ -1,0 +1,542 @@
+<?php
+
+declare(strict_types=1);
+
+
+final class PaymentsController
+{
+    private SqlRepository $db;
+    private string $jwtSecret;
+
+    public function __construct(SqlRepository $db, string $jwtSecret)
+    {
+        $this->db = $db;
+        $this->jwtSecret = $jwtSecret;
+    }
+
+    public function handle(string $method, string $path): bool
+    {
+        if ($method === 'POST' && $path === '/api/payments/create-deposit-intent') {
+            $this->createDepositIntent();
+            return true;
+        }
+        if ($method === 'POST' && $path === '/api/payments/webhook') {
+            $this->handleWebhook();
+            return true;
+        }
+        return false;
+    }
+
+    private function createDepositIntent(): void
+    {
+        try {
+            if (RateLimiter::enforce($this->db, 'deposit_intent', 3, 60)) {
+                return;
+            }
+
+            $actor = $this->protect();
+            if ($actor === null) {
+                return;
+            }
+
+            $stripeKey = (string) Env::get('STRIPE_SECRET_KEY', '');
+            if ($stripeKey === '' || str_contains($stripeKey, 'PLACEHOLDER')) {
+                Response::json(['message' => 'Payment service is currently unavailable. Please contact support.'], 503);
+                return;
+            }
+
+            $body = Http::jsonBody();
+            $amount = is_numeric($body['amount'] ?? null) ? (float) $body['amount'] : 0;
+            if ($amount <= 0) {
+                Response::json(['message' => 'Invalid amount'], 400);
+                return;
+            }
+
+            if (($actor['role'] ?? '') === 'user') {
+                Response::json(['message' => 'Deposits are disabled. Please contact your agent to add funds.'], 403);
+                return;
+            }
+
+            $payload = [
+                'amount' => (string) ((int) round($amount * 100)),
+                'currency' => 'usd',
+                'metadata[userId]' => (string) $actor['id'],
+                'metadata[type]' => 'deposit',
+                'automatic_payment_methods[enabled]' => 'true',
+            ];
+
+            $ch = curl_init('https://api.stripe.com/v1/payment_intents');
+            if ($ch === false) {
+                Response::json(['message' => 'Error creating payment intent'], 500);
+                return;
+            }
+
+            curl_setopt_array($ch, [
+                CURLOPT_POST => true,
+                CURLOPT_POSTFIELDS => http_build_query($payload),
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_HTTPHEADER => [
+                    'Authorization: Bearer ' . $stripeKey,
+                    'Content-Type: application/x-www-form-urlencoded',
+                ],
+                CURLOPT_TIMEOUT => 20,
+                CURLOPT_CONNECTTIMEOUT => 5,
+            ]);
+
+            $raw = curl_exec($ch);
+            $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+
+            if ($raw === false || $status >= 400) {
+                $err = curl_error($ch);
+                Response::json(['message' => 'Error creating payment intent', 'error' => $err !== '' ? $err : 'Stripe API error'], 500);
+                return;
+            }
+
+            $data = json_decode((string) $raw, true);
+            if (!is_array($data) || !isset($data['client_secret'])) {
+                Response::json(['message' => 'Error creating payment intent', 'error' => 'Invalid Stripe response'], 500);
+                return;
+            }
+
+            Response::json(['clientSecret' => $data['client_secret']]);
+        } catch (Throwable $e) {
+            Response::json(['message' => 'Error creating payment intent', 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    private function protect(): ?array
+    {
+        $auth = Http::header('authorization');
+        if (!str_starts_with($auth, 'Bearer ')) {
+            Response::json(['message' => 'Not authorized, no token'], 401);
+            return null;
+        }
+
+        $token = trim(substr($auth, 7));
+        try {
+            $decoded = Jwt::decode($token, $this->jwtSecret);
+        } catch (Throwable $e) {
+            Response::json(['message' => 'Not authorized'], 401);
+            return null;
+        }
+
+        $role = (string) ($decoded['role'] ?? 'user');
+        $id = (string) ($decoded['id'] ?? '');
+        if ($id === '' || preg_match('/^[a-f0-9]{24}$/i', $id) !== 1) {
+            Response::json(['message' => 'Not authorized, token failed: invalid user id'], 401);
+            return null;
+        }
+
+        $collection = $this->collectionByRole($role);
+        $actor = $this->db->findOne($collection, ['id' => SqlRepository::id($id)]);
+        if ($actor === null) {
+            Response::json(['message' => 'Not authorized, user not found'], 403);
+            return null;
+        }
+
+        if (($actor['status'] ?? '') === 'suspended') {
+            Response::json(['message' => 'Not authorized, account suspended'], 403);
+            return null;
+        }
+
+        return $actor;
+    }
+
+    private function collectionByRole(string $role): string
+    {
+        if ($role === 'admin') {
+            return 'admins';
+        }
+        if ($role === 'agent' || $role === 'master_agent' || $role === 'super_agent') {
+            return 'agents';
+        }
+        return 'users';
+    }
+
+    private function handleWebhook(): void
+    {
+        try {
+            $webhookSecret = (string) Env::get('STRIPE_WEBHOOK_SECRET', '');
+            if ($webhookSecret === '') {
+                http_response_code(503);
+                header('Content-Type: text/plain');
+                echo 'Stripe not initialized';
+                return;
+            }
+
+            $sigHeader = Http::header('stripe-signature');
+            $payload = file_get_contents('php://input');
+            if (!is_string($payload)) {
+                $payload = '';
+            }
+
+            if (!$this->verifyStripeSignature($payload, $sigHeader, $webhookSecret)) {
+                http_response_code(400);
+                header('Content-Type: text/plain');
+                echo 'Webhook Error: Invalid signature';
+                return;
+            }
+
+            $event = json_decode($payload, true);
+            if (!is_array($event)) {
+                http_response_code(400);
+                header('Content-Type: text/plain');
+                echo 'Webhook Error: Invalid payload';
+                return;
+            }
+
+            if (($event['type'] ?? '') === 'payment_intent.succeeded' && is_array($event['data']['object'] ?? null)) {
+                $eventId = (string) ($event['id'] ?? '');
+                if ($eventId !== '') {
+                    $existing = $this->db->findOne('webhook_events', ['eventId' => $eventId]);
+                    if ($existing !== null) {
+                        Response::json(['received' => true]);
+                        return;
+                    }
+                    $this->db->insertOne('webhook_events', [
+                        'eventId' => $eventId,
+                        'type' => 'payment_intent.succeeded',
+                        'processedAt' => SqlRepository::nowUtc(),
+                    ]);
+                }
+
+                $this->handleSuccessfulDeposit($event['data']['object']);
+            }
+
+            Response::json(['received' => true]);
+        } catch (Throwable $e) {
+            http_response_code(400);
+            header('Content-Type: text/plain');
+            echo 'Webhook Error: ' . $e->getMessage();
+        }
+    }
+
+    private function verifyStripeSignature(string $payload, string $sigHeader, string $secret): bool
+    {
+        if ($sigHeader === '' || $secret === '') {
+            return false;
+        }
+        $parts = array_map('trim', explode(',', $sigHeader));
+        $timestamp = null;
+        $signatures = [];
+        foreach ($parts as $part) {
+            if (str_starts_with($part, 't=')) {
+                $timestamp = substr($part, 2);
+            } elseif (str_starts_with($part, 'v1=')) {
+                $signatures[] = substr($part, 3);
+            }
+        }
+        if ($timestamp === null || count($signatures) === 0) {
+            return false;
+        }
+
+        $signedPayload = $timestamp . '.' . $payload;
+        $expected = hash_hmac('sha256', $signedPayload, $secret);
+        foreach ($signatures as $sig) {
+            if (hash_equals($expected, $sig)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function handleSuccessfulDeposit(array $paymentIntent): void
+    {
+        $meta = is_array($paymentIntent['metadata'] ?? null) ? $paymentIntent['metadata'] : [];
+        $userId = (string) ($meta['userId'] ?? '');
+        $type = (string) ($meta['type'] ?? '');
+        if ($type !== 'deposit' || $userId === '' || preg_match('/^[a-f0-9]{24}$/i', $userId) !== 1) {
+            return;
+        }
+
+        $stripePaymentId = (string) ($paymentIntent['id'] ?? '');
+        if ($stripePaymentId !== '') {
+            $existingTx = $this->db->findOne('transactions', ['stripePaymentId' => $stripePaymentId, 'type' => 'deposit', 'status' => 'completed']);
+            if ($existingTx !== null) {
+                return;
+            }
+        }
+
+        $amountCents = is_numeric($paymentIntent['amount'] ?? null) ? (float) $paymentIntent['amount'] : 0.0;
+        $amount = $amountCents / 100;
+
+        $this->db->beginTransaction();
+        try {
+            $user = $this->db->findOneForUpdate('users', ['id' => SqlRepository::id($userId)]);
+            if ($user === null) {
+                $this->db->rollback();
+                return;
+            }
+
+            $balanceBefore = $this->num($user['balance'] ?? 0);
+            $newBalance = $balanceBefore + $amount;
+            $now = SqlRepository::nowUtc();
+
+            $bonusConfig = $this->resolveDepositFreePlayBonus($user, $amount);
+            $freePlayBonusAmount = $bonusConfig['bonusAmount'];
+            $freePlayBonusPercent = $bonusConfig['percent'];
+            $freePlayBonusCap = $bonusConfig['cap'];
+            $freePlayBalanceBefore = $this->num($user['freeplayBalance'] ?? 0);
+            $freePlayBalanceAfter = $freePlayBalanceBefore + $freePlayBonusAmount;
+
+            $userUpdates = [
+                'balance' => $newBalance,
+                'updatedAt' => $now,
+            ];
+            if ($freePlayBonusAmount > 0) {
+                $userUpdates['freeplayBalance'] = $freePlayBalanceAfter;
+            }
+            $this->db->updateOne('users', ['id' => SqlRepository::id($userId)], $userUpdates);
+
+            $depositTransactionId = $this->db->insertOne('transactions', [
+                'userId' => SqlRepository::id($userId),
+                'amount' => $amount,
+                'type' => 'deposit',
+                'status' => 'completed',
+                'balanceBefore' => $balanceBefore,
+                'balanceAfter' => $newBalance,
+                'stripePaymentId' => $stripePaymentId,
+                'approvedByRole' => 'admin',
+                'description' => 'Stripe Deposit',
+                'createdAt' => $now,
+                'updatedAt' => $now,
+            ]);
+
+            if ($freePlayBonusAmount > 0) {
+                $fpBonusDesc = 'Auto free play bonus ' . rtrim(rtrim(number_format($freePlayBonusPercent, 2, '.', ''), '0'), '.') . '% on deposit $' . number_format(abs($amount), 2, '.', '') . ' (Stripe)';
+                $referrerIdForDesc = trim((string) ($user['referredByUserId'] ?? ''));
+                if ($referrerIdForDesc !== '' && preg_match('/^[a-f0-9]{24}$/i', $referrerIdForDesc) === 1) {
+                    $referrerDoc = $this->db->findOne('users', ['id' => SqlRepository::id($referrerIdForDesc)], ['projection' => ['username' => 1]]);
+                    if ($referrerDoc !== null && isset($referrerDoc['username'])) {
+                        $fpBonusDesc = 'Auto Freeplay bonus for referral ' . (string) $referrerDoc['username'];
+                    }
+                }
+                $this->db->insertOne('transactions', [
+                    'userId' => SqlRepository::id($userId),
+                    'amount' => $freePlayBonusAmount,
+                    'type' => 'adjustment',
+                    'status' => 'completed',
+                    'balanceBefore' => $freePlayBalanceBefore,
+                    'balanceAfter' => $freePlayBalanceAfter,
+                    'referenceType' => 'FreePlayBonus',
+                    'referenceId' => SqlRepository::id($depositTransactionId),
+                    'reason' => 'DEPOSIT_FREEPLAY_BONUS',
+                    'description' => $fpBonusDesc,
+                    'metadata' => [
+                        'depositAmount' => round(abs($amount), 2),
+                        'freePlayPercent' => $freePlayBonusPercent,
+                        'maxFpCredit' => $freePlayBonusCap,
+                        'stripePaymentId' => $stripePaymentId,
+                        'depositTransactionId' => $depositTransactionId,
+                    ],
+                    'stripePaymentId' => $stripePaymentId,
+                    'createdAt' => $now,
+                    'updatedAt' => $now,
+                ]);
+            }
+
+            $this->grantReferralBonusForFirstCompletedDeposit(
+                $user,
+                $depositTransactionId,
+                $amount,
+                $stripePaymentId,
+                $now
+            );
+
+            $this->db->commit();
+        } catch (Throwable $e) {
+            $this->db->rollback();
+        }
+    }
+
+    /**
+     * @return array{bonusAmount: float, percent: float, cap: float, depositAmount: float}
+     */
+    private function resolveDepositFreePlayBonus(array $user, float $depositAmount): array
+    {
+        $normalizedDeposit = round(max(0.0, $depositAmount), 2);
+        if ($normalizedDeposit <= 0) {
+            return [
+                'bonusAmount' => 0.0,
+                'percent' => 0.0,
+                'cap' => 0.0,
+                'depositAmount' => 0.0,
+            ];
+        }
+
+        $settings = is_array($user['settings'] ?? null) ? $user['settings'] : [];
+        $percentSource = $settings['freePlayPercent'] ?? ($user['freePlayPercent'] ?? 20);
+        $percent = round(max(0.0, $this->num($percentSource)), 4);
+        if ($percent <= 0) {
+            return [
+                'bonusAmount' => 0.0,
+                'percent' => 0.0,
+                'cap' => 0.0,
+                'depositAmount' => $normalizedDeposit,
+            ];
+        }
+
+        $rawBonus = round($normalizedDeposit * ($percent / 100), 2);
+        if ($rawBonus <= 0) {
+            return [
+                'bonusAmount' => 0.0,
+                'percent' => $percent,
+                'cap' => 0.0,
+                'depositAmount' => $normalizedDeposit,
+            ];
+        }
+
+        $capSource = $settings['maxFpCredit'] ?? ($user['maxFpCredit'] ?? null);
+        $capRaw = $this->num($capSource === null ? 0.0 : $capSource);
+        $cap = round(max(0.0, $capRaw), 2);
+        $unlimited = ($capSource === null || $capRaw <= 0);
+        $bonusAmount = (!$unlimited && $cap > 0) ? min($rawBonus, $cap) : $rawBonus;
+        $bonusAmount = round(max(0.0, $bonusAmount), 2);
+
+        return [
+            'bonusAmount' => $bonusAmount,
+            'percent' => $percent,
+            'cap' => $cap,
+            'depositAmount' => $normalizedDeposit,
+        ];
+    }
+
+    private function isPlayerLikeUserDocument(?array $doc): bool
+    {
+        if ($doc === null) {
+            return false;
+        }
+
+        $role = strtolower(trim((string) ($doc['role'] ?? '')));
+        return !in_array($role, ['admin', 'agent', 'master_agent', 'super_agent'], true);
+    }
+
+    private function countCompletedDepositTransactionsForUser(string $userId, ?string $excludeTransactionId = null): int
+    {
+        if ($userId === '' || preg_match('/^[a-f0-9]{24}$/i', $userId) !== 1) {
+            return 0;
+        }
+
+        $filter = [
+            'userId' => SqlRepository::id($userId),
+            'type' => 'deposit',
+            '$or' => [
+                ['status' => 'completed'],
+                ['status' => ''],
+                ['status' => ['$exists' => false]],
+            ],
+        ];
+        if ($excludeTransactionId !== null && preg_match('/^[a-f0-9]{24}$/i', $excludeTransactionId) === 1) {
+            $filter['id'] = ['$ne' => SqlRepository::id($excludeTransactionId)];
+        }
+
+        return $this->db->countDocuments('transactions', $filter);
+    }
+
+    /**
+     * @param array<string, mixed> $referredUser
+     */
+    private function grantReferralBonusForFirstCompletedDeposit(
+        array $referredUser,
+        string $depositTransactionId,
+        float $depositAmount,
+        string $stripePaymentId = '',
+        mixed $now = null
+    ): void {
+        $referredUserId = trim((string) ($referredUser['id'] ?? ''));
+        $referrerUserId = trim((string) ($referredUser['referredByUserId'] ?? ''));
+        $normalizedDepositAmount = round(max(0.0, $depositAmount), 2);
+        if (
+            $referredUserId === ''
+            || preg_match('/^[a-f0-9]{24}$/i', $referredUserId) !== 1
+            || $referrerUserId === ''
+            || preg_match('/^[a-f0-9]{24}$/i', $referrerUserId) !== 1
+            || preg_match('/^[a-f0-9]{24}$/i', $depositTransactionId) !== 1
+            || $normalizedDepositAmount <= 0
+        ) {
+            return;
+        }
+
+        if ($this->countCompletedDepositTransactionsForUser($referredUserId, $depositTransactionId) > 0) {
+            return;
+        }
+
+        $referrer = $this->db->findOneForUpdate('users', ['id' => SqlRepository::id($referrerUserId)]);
+        if (!$this->isPlayerLikeUserDocument($referrer) || (string) ($referrer['status'] ?? 'active') !== 'active') {
+            return;
+        }
+
+        $awardTimestamp = $now ?? SqlRepository::nowUtc();
+        $referralBonusAmount = 200.0;
+        $freeplayBefore = $this->num($referrer['freeplayBalance'] ?? 0);
+        $freeplayAfter = round($freeplayBefore + $referralBonusAmount, 2);
+
+        $this->db->updateOne('users', ['id' => SqlRepository::id($referrerUserId)], [
+            'freeplayBalance' => $freeplayAfter,
+            'updatedAt' => $awardTimestamp,
+        ]);
+
+        $transactionDoc = [
+            'userId' => SqlRepository::id($referrerUserId),
+            'agentId' => isset($referrer['agentId']) && preg_match('/^[a-f0-9]{24}$/i', (string) $referrer['agentId']) === 1
+                ? SqlRepository::id((string) $referrer['agentId'])
+                : null,
+            'amount' => $referralBonusAmount,
+            'type' => 'fp_deposit',
+            'status' => 'completed',
+            'isFreeplay' => true,
+            'balanceBefore' => $freeplayBefore,
+            'balanceAfter' => $freeplayAfter,
+            'referenceType' => 'ReferralBonus',
+            'referenceId' => SqlRepository::id($depositTransactionId),
+            'reason' => 'REFERRAL_FREEPLAY_BONUS',
+            'description' => 'Referral bonus from ' . (string) ($referredUser['username'] ?? 'user') . ' first deposit',
+            'metadata' => [
+                'depositAmount' => $normalizedDepositAmount,
+                'sourceTransactionId' => $depositTransactionId,
+                'sourceDepositTransactionId' => $depositTransactionId,
+                'referredUserId' => $referredUserId,
+                'referredUsername' => (string) ($referredUser['username'] ?? ''),
+                'trigger' => 'first_completed_deposit',
+            ],
+            'createdAt' => $awardTimestamp,
+            'updatedAt' => $awardTimestamp,
+        ];
+        if ($stripePaymentId !== '') {
+            $transactionDoc['stripePaymentId'] = $stripePaymentId;
+            $transactionDoc['metadata']['stripePaymentId'] = $stripePaymentId;
+        }
+        $this->db->insertOne('transactions', $transactionDoc);
+
+        $this->db->updateOne('users', ['id' => SqlRepository::id($referredUserId)], [
+            'referralBonusGranted' => true,
+            'referralBonusGrantedAt' => $awardTimestamp,
+            'referralQualifiedDepositAt' => $awardTimestamp,
+            'referralBonusAmount' => $referralBonusAmount,
+            'referralBonusSourceDepositId' => $depositTransactionId,
+            'updatedAt' => $awardTimestamp,
+        ]);
+    }
+
+    private function num(mixed $value): float
+    {
+        if (is_int($value) || is_float($value)) {
+            return (float) $value;
+        }
+        if (is_string($value)) {
+            return (float) $value;
+        }
+        if (is_array($value)) {
+            if (isset($value['$numberDecimal'])) {
+                return (float) $value['$numberDecimal'];
+            }
+            if (isset($value['value'])) {
+                return (float) $value['value'];
+            }
+        }
+        if (is_object($value) && method_exists($value, '__toString')) {
+            return (float) $value->__toString();
+        }
+        return 0.0;
+    }
+}

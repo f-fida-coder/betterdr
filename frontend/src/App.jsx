@@ -384,17 +384,11 @@ function AppInner() {
     try {
       // Call real backend authentication
       const result = await loginUser(username, password);
-      const authenticatedUser = {
-        username: result.username,
-        phoneNumber: result.phoneNumber,
-        balance: result.balance,
-        pendingBalance: result.pendingBalance,
-        availableBalance: result.availableBalance,
-        id: result.id,
-        role: result.role,
-        unlimitedBalance: result.unlimitedBalance,
-        settings: result.settings || null,
-      };
+      // Keep the full /auth/login payload (creditLimit, creditAvailable,
+      // freeplayBalance, balanceOwed, nonPostedCasino, …) so the Account
+      // panel and header tiles render the correct values immediately
+      // instead of falling back to $0 while /auth/me re-fetches.
+      const { token: _loginToken, message: _loginMessage, ...authenticatedUser } = result;
 
       // Primary auth: httpOnly cookie is set by the backend on every login response.
       // localStorage write below is kept for backward compat with legacy admin/agent

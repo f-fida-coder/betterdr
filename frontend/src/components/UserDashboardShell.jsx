@@ -59,6 +59,11 @@ function UserDashboardShell({
         pendingBalance={user?.pendingBalance ?? null}
         availableBalance={user?.availableBalance ?? user?.balance ?? null}
         freeplayBalance={user?.freeplayBalance ?? 0}
+        freeplayExpiresAt={user?.freeplayExpiresAt ?? null}
+        creditLimit={user?.creditLimit ?? 0}
+        creditAvailable={user?.creditAvailable ?? user?.creditLimit ?? 0}
+        balanceOwed={user?.balanceOwed ?? 0}
+        nonPostedCasino={user?.nonPostedCasino ?? 0}
         role={user?.role}
         unlimitedBalance={user?.unlimitedBalance}
         onLogout={onLogout}

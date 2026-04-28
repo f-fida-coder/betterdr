@@ -20,10 +20,17 @@ const buildRefreshRequestId = () => {
 // proceed directly via Continue.
 const META_SPORT_FILTERS = new Set(['up-next', 'featured']);
 
-const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, freeplayBalance, onViewChange, activeBetMode = 'straight', onBetModeChange, currentView, onToggleSidebar, selectedSports = [], onContinue, onMobileBack, onLogout, mobileViewState = 'browsing', onHomeClick, role, unlimitedBalance, slipCount = 0, realtimeConnectionState = 'idle', lastRealtimeEventAt = null }) => {
+const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, freeplayBalance, freeplayExpiresAt = null, creditLimit = 0, creditAvailable = 0, balanceOwed = 0, nonPostedCasino = 0, onViewChange, activeBetMode = 'straight', onBetModeChange, currentView, onToggleSidebar, selectedSports = [], onContinue, onMobileBack, onLogout, mobileViewState = 'browsing', onHomeClick, role, unlimitedBalance, slipCount = 0, realtimeConnectionState = 'idle', lastRealtimeEventAt = null }) => {
     const hasRealSportSelection = selectedSports.some((id) => !META_SPORT_FILTERS.has(id));
     const showContinueButton = mobileViewState === 'selected' && hasRealSportSelection;
     const [showAccountPanel, setShowAccountPanel] = useState(false);
+    // Credit-style accounts run their cash balance at $0 and bet against the
+    // credit line, so the "Available" / "Available Credit" headline tile
+    // should report `creditAvailable` (creditLimit - balanceOwed). Cash
+    // accounts (balance > 0) keep showing `availableBalance` so the number
+    // matches what they can actually withdraw.
+    const isCreditAccount = role === 'user' && Number(creditLimit) > 0;
+    const headerAvailable = isCreditAccount ? creditAvailable : availableBalance;
     const accountUser = {
         username,
         role,
@@ -31,6 +38,11 @@ const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, 
         pendingBalance,
         availableBalance,
         freeplayBalance,
+        freeplayExpiresAt,
+        creditLimit,
+        creditAvailable,
+        balanceOwed,
+        nonPostedCasino,
     };
     const { oddsFormat, setOddsFormat, isUpdatingOddsFormat } = useOddsFormat();
     const [showLiveMenu, setShowLiveMenu] = useState(false);
@@ -367,10 +379,10 @@ const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, 
                             <span
                                 style={{
                                     ...mhBalanceValueStyle,
-                                    color: Number(availableBalance) > 0 ? '#34d399' : '#fff',
+                                    color: Number(headerAvailable) > 0 ? '#34d399' : '#fff',
                                 }}
                             >
-                                {formatBalanceCell(availableBalance)}
+                                {formatBalanceCell(headerAvailable)}
                             </span>
                         </div>
                     </div>
@@ -632,7 +644,7 @@ const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, 
                     </div>
                     <div className="dash-balance">
                         <span>AVAILABLE CREDIT</span>
-                        <strong>{formatMoney(availableBalance)}</strong>
+                        <strong>{formatMoney(headerAvailable)}</strong>
                     </div>
 
                     <div
@@ -940,7 +952,7 @@ const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, 
                         onClose={() => setShowSettingsModal(false)}
                         balance={balance}
                         pendingBalance={pendingBalance}
-                        availableBalance={availableBalance}
+                        availableBalance={headerAvailable}
                     />,
                     document.body
                 )
