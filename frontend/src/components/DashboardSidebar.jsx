@@ -170,7 +170,10 @@ const DashboardSidebar = ({
     onOpenFeedback,
     isMobileSportsSelectionMode = false,
 }) => {
-    const [expandedIds, setExpandedIds] = useState(new Set(['football']));
+    // Sports list opens fully collapsed on login. Auto-expanding football
+    // surprised users who didn't pick it — they had to scroll past an open
+    // category they never asked to see. Tap a category to expand it.
+    const [expandedIds, setExpandedIds] = useState(new Set());
     const [liveSet, setLiveSet] = useState(null);
     const [searchQuery, setSearchQuery] = useState('');
 

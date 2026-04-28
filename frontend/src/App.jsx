@@ -448,6 +448,21 @@ function AppInner() {
     setMobileResultsActive(false);
   }, []);
 
+  // Bridge for components that aren't passed `onViewChange` directly
+  // (e.g. the Wager Confirmed sheet rendered inside ModeBetPanel) — they
+  // dispatch this event and we route it through the same handler the
+  // header / sidebar use, keeping nav state in one place.
+  useEffect(() => {
+    const handleNavigate = (event) => {
+      const target = event?.detail?.view;
+      if (typeof target === 'string' && target.length > 0) {
+        handleViewChange(target);
+      }
+    };
+    window.addEventListener('navigate:view', handleNavigate);
+    return () => window.removeEventListener('navigate:view', handleNavigate);
+  }, [handleViewChange]);
+
   const handleBetModeChange = useCallback((mode) => {
     const normalized = normalizeBetMode(mode);
     setBetMode(normalized);

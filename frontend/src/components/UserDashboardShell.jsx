@@ -7,7 +7,6 @@ import MobileContentView from './MobileContentView';
 import PromoCard from './PromoCard';
 import ChatWidget from './ChatWidget';
 import ModeBetPanel from './ModeBetPanel';
-import ContinueFab from './ContinueFab';
 import LoadingSpinner from './LoadingSpinner';
 
 const PrimeLiveView = React.lazy(() => import('./PrimeLiveView'));
@@ -149,18 +148,10 @@ function UserDashboardShell({
 
       <ChatWidget />
 
-      {/* Floating Continue FAB: bottom-right. Visible only while browsing
-          the dashboard and at least one real sport is selected. Dispatches
-          the same onContinue the header used to. */}
-      <ContinueFab
-        visible={
-          dashboardView === 'dashboard'
-          && mobileViewState === 'selected'
-          && Array.isArray(selectedSports)
-          && selectedSports.some((id) => id && id !== 'up-next' && id !== 'featured')
-        }
-        onClick={onContinue}
-      />
+      {/* Bottom-right Continue FAB removed — the action lives in the
+          top-right of the header now (replaces the Account button while
+          one or more sport checkboxes are selected). Removing it here
+          deletes the duplicate prompt and frees that screen corner up. */}
 
       <div className="desktop-feedback-trigger" style={{
         position: 'fixed',

@@ -581,7 +581,11 @@
 
 @media (max-width: 768px) {
   .my-bets-page {
-    padding: 14px 12px;
+    /* Extra bottom padding so the chat bubble + iOS Safari URL toolbar
+       (~120px combined) can never sit on top of the last ticket card.
+       Without this the user has to dismiss the chat bubble before they
+       can read or interact with their oldest pending tickets. */
+    padding: 14px 12px calc(120px + env(safe-area-inset-bottom, 0px));
   }
 
   .my-bets-hero {

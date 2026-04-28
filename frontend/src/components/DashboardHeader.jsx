@@ -332,11 +332,11 @@ const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, 
                     <button
                         type="button"
                         onClick={() => onViewChange && onViewChange('dashboard')}
-                        aria-label="Sport categories"
+                        aria-label="Sports categories"
                         style={mhCellBtnStyle}
                     >
                         <i className="fa-solid fa-bars" style={mhCellIconStyle}></i>
-                        <span style={mhCellLabelStyle}>Sport</span>
+                        <span style={mhCellLabelStyle}>Sports</span>
                     </button>
 
                     <button
@@ -396,15 +396,39 @@ const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, 
                         <span style={mhCellLabelStyle}>Betslip</span>
                     </button>
 
-                    <button
-                        type="button"
-                        onClick={() => setShowAccountPanel(true)}
-                        aria-label="Open account panel"
-                        style={{ ...mhCellBtnStyle, borderRight: 'none' }}
-                    >
-                        <i className="fa-solid fa-user" style={mhCellIconStyle}></i>
-                        <span style={mhCellLabelStyle}>Account</span>
-                    </button>
+                    {showContinueButton ? (
+                        // While the user has 1+ real sport checkboxes
+                        // selected on the sports list, the top-right slot
+                        // becomes the Continue action so they don't have
+                        // to chase a floating bottom button. Tapping it
+                        // routes through the same `onContinue` the old FAB
+                        // used (App promotes mobileViewState → 'results'),
+                        // which immediately swaps this slot back to Account.
+                        <button
+                            type="button"
+                            onClick={onContinue}
+                            aria-label="Continue with selected sports"
+                            style={{
+                                ...mhCellBtnStyle,
+                                borderRight: 'none',
+                                background: '#16a34a',
+                                color: '#fff',
+                            }}
+                        >
+                            <i className="fa-solid fa-chevron-right" style={{ ...mhCellIconStyle, color: '#fff' }}></i>
+                            <span style={{ ...mhCellLabelStyle, color: '#fff' }}>Continue</span>
+                        </button>
+                    ) : (
+                        <button
+                            type="button"
+                            onClick={() => setShowAccountPanel(true)}
+                            aria-label="Open account panel"
+                            style={{ ...mhCellBtnStyle, borderRight: 'none' }}
+                        >
+                            <i className="fa-solid fa-user" style={mhCellIconStyle}></i>
+                            <span style={mhCellLabelStyle}>Account</span>
+                        </button>
+                    )}
                 </div>
 
                 {showUserMenu && (

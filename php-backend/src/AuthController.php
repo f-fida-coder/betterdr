@@ -572,8 +572,15 @@ final class AuthController
             if (array_key_exists('betDefaults', $incomingSettings)) {
                 $bd = is_array($incomingSettings['betDefaults']) ? $incomingSettings['betDefaults'] : [];
                 $mode = strtolower(trim((string) ($bd['mode'] ?? 'risk')));
-                if (!in_array($mode, ['bet', 'risk', 'win'], true)) {
-                    Response::json(['message' => 'betDefaults.mode must be bet, risk, or win'], 400);
+                // `bet` is a legacy value — coerce to `risk` since the UI no
+                // longer offers it as a separate mode. Anything else that
+                // isn't `win` or `risk` is rejected so we don't quietly
+                // accept typos / future-mode attempts from a stale client.
+                if ($mode === 'bet') {
+                    $mode = 'risk';
+                }
+                if ($mode !== 'risk' && $mode !== 'win') {
+                    Response::json(['message' => 'betDefaults.mode must be risk or win'], 400);
                     return;
                 }
                 $amountRaw = $bd['amount'] ?? 0;
@@ -611,20 +618,45 @@ final class AuthController
 
             if (count($updates) > 1) {
                 $collection = $this->collectionByRole((string) ($user['role'] ?? 'user'));
-                $this->db->updateOne($collection, ['id' => SqlRepository::id((string) $user['id'])], $updates);
+                try {
+                    $this->db->updateOne($collection, ['id' => SqlRepository::id((string) $user['id'])], $updates);
+                } catch (Throwable $writeErr) {
+                    // Surface the underlying write failure — without this log
+                    // a save that silently dropped (e.g. JSON column too long,
+                    // PDO timeout, schema drift) showed up only as the
+                    // generic "Server error" 500 below with no diagnostic.
+                    Logger::error('Profile update DB write failed', [
+                        'userId' => (string) $user['id'],
+                        'collection' => $collection,
+                        'fields' => array_keys($updates),
+                        'error' => $writeErr->getMessage(),
+                    ], 'auth');
+                    throw $writeErr;
+                }
+                // Log a confirmation row so the bet-defaults save trail is
+                // auditable from server logs (non-PII: just the user id and
+                // the canonical normalized values that landed on disk).
+                if (isset($incomingSettings['betDefaults']) && isset($updates['settings']['betDefaults'])) {
+                    Logger::info('Bet defaults saved', [
+                        'userId' => (string) $user['id'],
+                        'betDefaults' => $updates['settings']['betDefaults'],
+                    ], 'auth');
+                }
             }
 
+            // Return the full /auth/me-shape payload (balance, creditLimit,
+            // settings, etc.) instead of a 5-field stub. The previous stub
+            // overwrote the frontend's cached user via primeMeCache and made
+            // Credit Available / balance tiles flash to $0 right after Save.
             Response::json([
                 'message' => 'Profile updated successfully',
-                'user' => [
-                    'id' => (string) $user['id'],
-                    'username' => $user['username'] ?? null,
-                    'role' => $user['role'] ?? null,
-                    'dashboardLayout' => $user['dashboardLayout'] ?? null,
-                    'settings' => is_array($user['settings'] ?? null) ? $user['settings'] : null,
-                ],
+                'user' => $this->buildMePayload($user),
             ]);
         } catch (Throwable $e) {
+            Logger::error('Profile update failed', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ], 'auth');
             Response::json(['message' => 'Server error updating profile'], 500);
         }
     }
@@ -773,6 +805,8 @@ final class AuthController
             }
         }
 
+        $creditAvailable = max(0.0, $creditLimit - $balanceOwed);
+        $nonPostedCasino = $this->num($user['nonPostedCasino'] ?? ($user['nonPostedCasinoBalance'] ?? 0));
         return [
             'id' => (string) $user['id'],
             'username' => $user['username'] ?? null,
@@ -782,6 +816,8 @@ final class AuthController
             'availableBalance' => $availableBalance,
             'balanceOwed' => $balanceOwed,
             'creditLimit' => $creditLimit,
+            'creditAvailable' => $creditAvailable,
+            'nonPostedCasino' => $nonPostedCasino,
             'freeplayBalance' => $freeplayBalance,
             'freeplayExpiresAt' => $freeplayExpiresAt,
             'unlimitedBalance' => (bool) ($user['unlimitedBalance'] ?? false),
@@ -808,6 +844,12 @@ final class AuthController
         $availableBalance = max(0, $balance - $pendingBalance);
         $balanceOwed = $this->num($user['balanceOwed'] ?? 0);
         $creditLimit = $this->num($user['creditLimit'] ?? 0);
+        // Remaining credit the user can wager against — what the Account
+        // screen labels "Credit Available". creditLimit alone overstated
+        // this when a user had already drawn against it. max(0,..) so a
+        // partially over-drawn account doesn't render a negative tile.
+        $creditAvailable = max(0.0, $creditLimit - $balanceOwed);
+        $nonPostedCasino = $this->num($user['nonPostedCasino'] ?? ($user['nonPostedCasinoBalance'] ?? 0));
         $freeplayBalance = $this->num($user['freeplayBalance'] ?? 0);
         $freeplayExpiresAt = $user['freeplayExpiresAt'] ?? null;
         if ($freeplayBalance > 0 && $freeplayExpiresAt !== null) {
@@ -827,6 +869,8 @@ final class AuthController
             'availableBalance' => $availableBalance,
             'balanceOwed' => $balanceOwed,
             'creditLimit' => $creditLimit,
+            'creditAvailable' => $creditAvailable,
+            'nonPostedCasino' => $nonPostedCasino,
             'freeplayBalance' => $freeplayBalance,
             'freeplayExpiresAt' => $freeplayExpiresAt,
             'unlimitedBalance' => (bool) ($user['unlimitedBalance'] ?? false),

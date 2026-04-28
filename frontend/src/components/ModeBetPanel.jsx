@@ -4,6 +4,7 @@ import { useToast } from '../contexts/ToastContext';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { formatOdds, decimalToAmerican, americanToDecimal } from '../utils/odds';
 import BetConfirmationModal from './BetConfirmationModal';
+import WagerConfirmedScreen from './WagerConfirmedScreen';
 
 // Minimal structural fallbacks — NO hardcoded multipliers.
 // Real values always come from rulesByMode (loaded from DB via /api/betting/rules).
@@ -52,12 +53,12 @@ const legLabelFor = (mode, index, total) => {
 
 const QUICK_STAKES = [10, 25, 50, 100];
 
-// Bet/Risk/Win mode toggle. `bet` and `risk` behave identically — the
-// entered amount is the stake; `win` flips the meaning so the entered
-// amount is the desired payout and the stake gets back-calculated from
-// the odds.
+// Risk / Win mode toggle. `risk` = entered amount is the stake; `win`
+// flips the meaning so the entered amount is the desired payout and the
+// stake gets back-calculated from the odds. `bet` was a duplicate of
+// `risk` and was removed — legacy saved defaults of `bet` are normalised
+// up to `risk` at read time so the UI never shows a third pill.
 const STAKE_MODES = [
-    { id: 'bet', label: 'Bet' },
     { id: 'risk', label: 'Risk' },
     { id: 'win', label: 'Win' },
 ];
@@ -260,6 +261,11 @@ const ModeBetPanel = ({
     const [submitAttempted, setSubmitAttempted] = useState(false);
     const [showConfirm, setShowConfirm] = useState(false);
     const [useFreeplay, setUseFreeplay] = useState(false);
+    // Holds the placed-ticket payload(s) from the most recent successful
+    // /bets/place response so the Wager Confirmed sheet can show full
+    // ticket details (id, legs, odds, risk, win, timestamp) without a
+    // round-trip to /api/bets. Cleared when the user dismisses the sheet.
+    const [confirmedBets, setConfirmedBets] = useState(null);
     // User-saved bet defaults (settings.betDefaults). Drives initial
     // values for the shared mode toggle, Bet Amount, and the editable
     // Quick Stake chips. Falls back to project defaults when the user
@@ -267,9 +273,11 @@ const ModeBetPanel = ({
     const userBetDefaults = (user?.settings?.betDefaults && typeof user.settings.betDefaults === 'object')
         ? user.settings.betDefaults
         : null;
-    const defaultStakeMode = (userBetDefaults?.mode && ['bet', 'risk', 'win'].includes(userBetDefaults.mode))
-        ? userBetDefaults.mode
-        : 'risk';
+    // Legacy users may still have `mode: 'bet'` saved on their profile —
+    // collapse it to `risk` since the UI no longer offers `bet` as a
+    // separate option (it was an exact behavioural duplicate of `risk`).
+    const rawDefaultMode = String(userBetDefaults?.mode || '').toLowerCase();
+    const defaultStakeMode = rawDefaultMode === 'win' ? 'win' : 'risk';
     const defaultStakeAmount = Number.isFinite(Number(userBetDefaults?.amount)) && Number(userBetDefaults.amount) > 0
         ? Number(userBetDefaults.amount)
         : 0;
@@ -354,14 +362,59 @@ const ModeBetPanel = ({
         return resolveStake(stakeMode, wager, sel?.odds);
     }, [stakeMode, wager]);
 
+    /**
+     * Patch a single selection in the slip. Used by the per-card editable
+     * Risk / Win inputs so users can over-stake one leg of a straight
+     * ticket without touching the others. The override is stored on the
+     * selection itself (`wagerOverride`) so it survives re-renders and
+     * doesn't leak across legs.
+     */
+    const updateSelection = React.useCallback((id, patch) => {
+        onSelectionsChange(selections.map((s) => (s.id === id ? { ...s, ...patch } : s)));
+    }, [onSelectionsChange, selections]);
+
+    /**
+     * Compute the effective {risk, win} a selection card should display.
+     * If the user has typed into either of the per-card inputs (or hit
+     * Apply to All), `wagerOverride.source` indicates which side is the
+     * source of truth and the other is back-calculated from this leg's
+     * decimal odds. Falls through to the top-panel mode + amount when no
+     * override has been set yet.
+     *
+     * Defined *before* `wagerForSelection` (and friends) because they
+     * reference it inside their useCallback dependency arrays — moving it
+     * later in the file triggered a temporal-dead-zone ReferenceError on
+     * first render the moment React tried to memoize the dependents.
+     */
+    const effectiveStakeForSelection = React.useCallback((sel) => {
+        const override = sel?.wagerOverride;
+        if (override && (override.source === 'risk' || override.source === 'win')) {
+            const raw = override.source === 'risk' ? override.riskRaw : override.winRaw;
+            const num = Number(raw);
+            const safe = Number.isFinite(num) && num > 0 ? num : 0;
+            const d = Number(sel?.odds);
+            const validOdds = Number.isFinite(d) && d > 1;
+            if (override.source === 'risk') {
+                const win = validOdds ? Math.round(safe * (d - 1) * 100) / 100 : 0;
+                return { risk: safe, win, source: 'risk' };
+            }
+            const risk = validOdds ? Math.round((safe / (d - 1)) * 100) / 100 : 0;
+            return { risk, win: safe, source: 'win' };
+        }
+        const computed = resolveStake(stakeMode, wager, sel?.odds);
+        return { ...computed, source: null };
+    }, [stakeMode, wager]);
+
     // Per-leg Risk amount that's actually staked on a straight leg.
     // For combined modes this returns 0 because there's only ONE bet
     // (using `effectiveCombinedRisk` below), not N independent stakes.
+    // Honors `wagerOverride` so a per-card edit immediately drives the
+    // backend payload + bottom totals, not just the on-screen readout.
     const wagerForSelection = React.useCallback((sel) => {
         if (normalizedMode !== 'straight') return 0;
-        const { risk } = stakePairForSelection(sel);
+        const { risk } = effectiveStakeForSelection(sel);
         return Number.isFinite(risk) && risk > 0 ? risk : 0;
-    }, [normalizedMode, stakePairForSelection]);
+    }, [normalizedMode, effectiveStakeForSelection]);
 
     const straightTotalRisk = useMemo(() => {
         if (normalizedMode !== 'straight') return 0;
@@ -521,12 +574,42 @@ const ModeBetPanel = ({
     const clearSlip = () => {
         onSelectionsChange([]);
         onWagerChange('');
-        setStakeMode('risk');
+        setStakeMode(defaultStakeMode);
         setMessage(null);
         setSubmitAttempted(false);
         setUseFreeplay(false);
         requestStateRef.current = { requestId: '', signature: '' };
     };
+
+    /**
+     * Push the top-panel mode + amount onto every selection's
+     * `wagerOverride` so the user gets a one-tap "stake it all this way"
+     * action. The top panel itself is intentionally untouched — editing
+     * a per-card value afterward never bleeds back into the top panel,
+     * matching the spec's independence requirement.
+     */
+    const applyToAll = React.useCallback(() => {
+        const amt = Number(wager);
+        if (!Number.isFinite(amt) || amt <= 0) {
+            showToast('Enter a Bet Amount first', 'warning');
+            return;
+        }
+        const next = selections.map((s) => {
+            const d = Number(s?.odds);
+            const validOdds = Number.isFinite(d) && d > 1;
+            if (!validOdds) return s;
+            // Round to 2 decimals on the *derived* side; the side the
+            // user typed stays exact so a $1000 win request reads back
+            // as $1000.00 even after Apply to All.
+            if (stakeMode === 'win') {
+                const risk = Math.round((amt / (d - 1)) * 100) / 100;
+                return { ...s, wagerOverride: { source: 'win', riskRaw: String(risk), winRaw: String(amt) } };
+            }
+            const win = Math.round(amt * (d - 1) * 100) / 100;
+            return { ...s, wagerOverride: { source: 'risk', riskRaw: String(amt), winRaw: String(win) } };
+        });
+        onSelectionsChange(next);
+    }, [wager, stakeMode, selections, onSelectionsChange, showToast]);
 
     const getRequestIdForTicket = () => {
         if (
@@ -563,7 +646,13 @@ const ModeBetPanel = ({
             return;
         }
         if (totalRisk > effectiveAvailableBalance) {
-            const msg = 'Insufficient balance for this bet.';
+            // Tell the user *which* pool came up short. Previously a
+            // freeplay-toggled bet that didn't fit fell through to the
+            // generic "Insufficient balance" toast — making it look like
+            // freeplay wasn't being honored at all.
+            const msg = useFreeplay
+                ? `Freeplay balance insufficient. Available: $${formatAmount(parsedFreeplayBalance)}`
+                : `Insufficient balance for this bet. Available: $${formatAmount(effectiveAvailableBalance)}`;
             setMessage({ type: 'error', text: msg });
             showToast(msg, 'error');
             return;
@@ -603,6 +692,11 @@ const ModeBetPanel = ({
                 const legsToSubmit = selections
                     .map((sel) => ({ sel, amount: wagerForSelection(sel) }))
                     .filter(({ amount }) => amount > 0);
+                // Collect each leg's placement response so the Wager
+                // Confirmed sheet can show one ticket card per leg —
+                // straight mode places N independent tickets, all of
+                // which are receipts the user expects to see.
+                const placedTickets = [];
                 for (const { sel, amount } of legsToSubmit) {
                     const payload = {
                         type: 'straight',
@@ -627,8 +721,11 @@ const ModeBetPanel = ({
                     const requestId = createRequestId();
                     try {
                         // eslint-disable-next-line no-await-in-loop
-                        await placeBet(payload, token, { requestId });
+                        const legResult = await placeBet(payload, token, { requestId });
                         placed.push(sel);
+                        if (Array.isArray(legResult?.bets)) {
+                            placedTickets.push(...legResult.bets);
+                        }
                     } catch (err) {
                         failed.push({ sel, err });
                         break;
@@ -643,6 +740,13 @@ const ModeBetPanel = ({
                         : `${placed.length} straight bets placed`;
                     setMessage({ type: 'success', text });
                     showToast(text, 'success');
+                    // Show the post-placement receipt screen (Wager
+                    // Confirmed) before clearing — gives the user proof
+                    // their ticket(s) landed and a one-tap path to view
+                    // them in My Bets.
+                    if (placedTickets.length > 0) {
+                        setConfirmedBets(placedTickets);
+                    }
                     clearSlip();
                     window.dispatchEvent(new Event('user:refresh'));
                     if (onBetPlaced) onBetPlaced();
@@ -688,6 +792,13 @@ const ModeBetPanel = ({
             requestStateRef.current = { requestId: '', signature: '' };
             setMessage({ type: 'success', text: successText });
             showToast(successText, 'success');
+            // Capture the placed ticket(s) for the Wager Confirmed sheet.
+            // Combined-mode placements always produce a single ticket but
+            // we still pass the whole `bets` array so the confirmation
+            // component can stay shape-agnostic between straight and combo.
+            if (Array.isArray(result?.bets) && result.bets.length > 0) {
+                setConfirmedBets(result.bets);
+            }
             clearSlip();
             window.dispatchEvent(new Event('user:refresh'));
             if (onBetPlaced) onBetPlaced();
@@ -1029,6 +1140,34 @@ const ModeBetPanel = ({
                                     }}
                                 />
                             </div>
+                            {/* Apply to All — explicit, opt-in push of the
+                                top-panel mode + amount onto every card.
+                                Hidden in combined modes where per-card
+                                stakes don't make sense (one combined ticket,
+                                not N independent wagers). */}
+                            {normalizedMode === 'straight' && (
+                                <button
+                                    type="button"
+                                    onClick={applyToAll}
+                                    aria-label="Apply this amount to every selection"
+                                    style={{
+                                        background: palette.headerBg,
+                                        color: '#fff',
+                                        border: 'none',
+                                        borderRadius: 8,
+                                        padding: '0 14px',
+                                        fontSize: 11,
+                                        fontWeight: 800,
+                                        letterSpacing: 0.4,
+                                        cursor: 'pointer',
+                                        textTransform: 'uppercase',
+                                        flexShrink: 0,
+                                        whiteSpace: 'nowrap',
+                                    }}
+                                >
+                                    Apply
+                                </button>
+                            )}
                         </div>
 
                         {/* Row 2: quick stakes (4 user-editable values + Clear) */}
@@ -1216,7 +1355,24 @@ const ModeBetPanel = ({
                     Bet Amount and its own decimal odds. */}
                 {selections.map((sel, idx) => {
                     const legLabel = legLabelFor(normalizedMode, idx, legCount);
-                    const { risk, win } = stakePairForSelection(sel);
+                    // Effective {risk, win, source} pulls from `wagerOverride`
+                    // when the user has typed into the per-card inputs (or
+                    // tapped Apply to All) and otherwise falls back to the
+                    // top-panel mode + amount.
+                    const stake = effectiveStakeForSelection(sel);
+                    const risk = stake.risk;
+                    const win = stake.win;
+                    const stakeSource = stake.source;
+                    // What text to display in the Risk + Win inputs. We
+                    // show the user's *raw* string for whichever side they
+                    // last edited (so "10." doesn't snap to "10" mid-type)
+                    // and the formatted derived value for the other side.
+                    const riskInputValue = stakeSource === 'risk'
+                        ? (sel?.wagerOverride?.riskRaw ?? '')
+                        : (risk > 0 ? formatMoney(risk) : '');
+                    const winInputValue = stakeSource === 'win'
+                        ? (sel?.wagerOverride?.winRaw ?? '')
+                        : (win > 0 ? formatMoney(win) : '');
                     const matchupTitle = String(sel.matchName || sel.selection || '').toUpperCase();
                     const betTypeText = betTypeLineLabel(sel);
                     const market = String(sel.marketType || '').toLowerCase();
@@ -1427,13 +1583,17 @@ const ModeBetPanel = ({
                                     </div>
                                 )}
 
-                                {/* Per-card Risk / Win readouts — only meaningful
-                                    in STRAIGHT mode where each leg is its own
-                                    independent bet. In parlay/teaser/if_bet/
-                                    reverse the slip places ONE combined ticket,
-                                    so per-leg numbers are misleading; the single
-                                    combined summary block below the cards owns
-                                    that math instead. */}
+                                {/* Per-card Risk / Win — editable inputs in
+                                    STRAIGHT mode. The user can type into
+                                    either field; the other auto-derives
+                                    from this leg's decimal odds. Edits
+                                    are independent across cards, and per
+                                    spec they never bleed back into the
+                                    top APPLY TO ALL panel. Combined modes
+                                    (parlay / teaser / if_bet / reverse)
+                                    skip this block — there's only one
+                                    combined ticket so the summary card
+                                    below owns the math. */}
                                 {normalizedMode === 'straight' && (
                                     <div style={{
                                         display: 'grid',
@@ -1441,36 +1601,60 @@ const ModeBetPanel = ({
                                         gap: 8,
                                         marginTop: 8,
                                     }}>
-                                        <div style={{
-                                            background: '#f8fafc',
-                                            border: `1px solid ${palette.cardBorder}`,
-                                            borderRadius: 6,
-                                            padding: '6px 10px',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'space-between',
-                                            gap: 6,
-                                        }}>
-                                            <span style={{ fontSize: 10, fontWeight: 700, color: palette.textMuted, textTransform: 'uppercase', letterSpacing: 0.4 }}>Risk:</span>
-                                            <span style={{ fontSize: 12, fontWeight: 800, color: risk > 0 ? palette.textPrimary : palette.textFaint, fontVariantNumeric: 'tabular-nums' }}>
-                                                ${formatMoney(risk)}
-                                            </span>
-                                        </div>
-                                        <div style={{
-                                            background: '#f8fafc',
-                                            border: `1px solid ${palette.cardBorder}`,
-                                            borderRadius: 6,
-                                            padding: '6px 10px',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'space-between',
-                                            gap: 6,
-                                        }}>
-                                            <span style={{ fontSize: 10, fontWeight: 700, color: palette.textMuted, textTransform: 'uppercase', letterSpacing: 0.4 }}>Win:</span>
-                                            <span style={{ fontSize: 12, fontWeight: 800, color: win > 0 ? palette.success : palette.textFaint, fontVariantNumeric: 'tabular-nums' }}>
-                                                ${formatMoney(win)}
-                                            </span>
-                                        </div>
+                                        {[
+                                            { id: 'risk', label: 'Risk:', value: riskInputValue, color: palette.textPrimary, isPositive: risk > 0 },
+                                            { id: 'win', label: 'Win:', value: winInputValue, color: palette.success, isPositive: win > 0 },
+                                        ].map((field) => (
+                                            <label
+                                                key={field.id}
+                                                style={{
+                                                    background: '#f8fafc',
+                                                    border: `1px solid ${palette.cardBorder}`,
+                                                    borderRadius: 6,
+                                                    padding: '4px 10px',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'space-between',
+                                                    gap: 6,
+                                                    cursor: 'text',
+                                                }}
+                                            >
+                                                <span style={{ fontSize: 10, fontWeight: 700, color: palette.textMuted, textTransform: 'uppercase', letterSpacing: 0.4 }}>{field.label}</span>
+                                                <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 2, minWidth: 0 }}>
+                                                    <span style={{ fontSize: 12, fontWeight: 800, color: field.isPositive ? field.color : palette.textFaint }}>$</span>
+                                                    <input
+                                                        type="text"
+                                                        inputMode="decimal"
+                                                        value={field.value}
+                                                        onChange={(e) => {
+                                                            // Only digits + at most one decimal — keeps
+                                                            // the input feeling like a money field on
+                                                            // mobile without an aggressive number type
+                                                            // that strips trailing dots while typing.
+                                                            const cleaned = String(e.target.value).replace(/[^0-9.]/g, '');
+                                                            const onlyOneDot = cleaned.replace(/(\..*)\./g, '$1');
+                                                            updateSelection(sel.id, {
+                                                                wagerOverride: field.id === 'risk'
+                                                                    ? { source: 'risk', riskRaw: onlyOneDot, winRaw: '' }
+                                                                    : { source: 'win', riskRaw: '', winRaw: onlyOneDot },
+                                                            });
+                                                        }}
+                                                        placeholder="0"
+                                                        style={{
+                                                            width: 70,
+                                                            border: 'none',
+                                                            outline: 'none',
+                                                            background: 'transparent',
+                                                            fontSize: 12,
+                                                            fontWeight: 800,
+                                                            color: field.isPositive ? field.color : palette.textFaint,
+                                                            textAlign: 'right',
+                                                            fontVariantNumeric: 'tabular-nums',
+                                                        }}
+                                                    />
+                                                </span>
+                                            </label>
+                                        ))}
                                     </div>
                                 )}
                             </div>
@@ -1691,6 +1875,26 @@ const ModeBetPanel = ({
                 onCancel={() => setShowConfirm(false)}
                 onConfirm={executePlaceBet}
                 isSubmitting={placing}
+            />
+            <WagerConfirmedScreen
+                open={Array.isArray(confirmedBets) && confirmedBets.length > 0}
+                bets={confirmedBets || []}
+                isFreeplay={useFreeplay && hasFreeplay}
+                onPending={() => {
+                    setConfirmedBets(null);
+                    setIsOpen(false);
+                    // Sibling components own routing — fire a window event
+                    // so any shell can react. App-level handler navigates
+                    // to the My Bets ticket center on this signal.
+                    window.dispatchEvent(new CustomEvent('navigate:view', { detail: { view: 'my-bets' } }));
+                }}
+                onMainMenu={() => {
+                    setConfirmedBets(null);
+                    setIsOpen(false);
+                }}
+                onContinue={() => {
+                    setConfirmedBets(null);
+                }}
             />
         </div>
     );

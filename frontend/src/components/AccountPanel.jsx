@@ -4,8 +4,11 @@ import { updateProfile, getStoredAuthToken } from '../api';
 import { useToast } from '../contexts/ToastContext';
 
 const DEFAULT_QUICK_STAKES = [10, 25, 50, 100];
+// `bet` was removed — it behaved identically to `risk` and confused users
+// into thinking it was a separate mode. Saved profiles still on `bet` are
+// silently coerced to `risk` at read time so the pill row never shows a
+// third option.
 const STAKE_MODE_OPTIONS = [
-    { id: 'bet', label: 'Bet' },
     { id: 'risk', label: 'Risk' },
     { id: 'win', label: 'Win' },
 ];
@@ -283,7 +286,7 @@ const BetDefaultsCard = ({ user, onSaved }) => {
     const stored = (user?.settings?.betDefaults && typeof user.settings.betDefaults === 'object')
         ? user.settings.betDefaults
         : null;
-    const initialMode = stored?.mode && ['bet', 'risk', 'win'].includes(stored.mode) ? stored.mode : 'risk';
+    const initialMode = stored?.mode === 'win' ? 'win' : 'risk';
     const initialAmount = Number.isFinite(Number(stored?.amount)) && Number(stored.amount) > 0
         ? String(stored.amount)
         : '';
@@ -300,7 +303,8 @@ const BetDefaultsCard = ({ user, onSaved }) => {
     React.useEffect(() => {
         const next = user?.settings?.betDefaults;
         if (!next) return;
-        if (next.mode && ['bet', 'risk', 'win'].includes(next.mode)) setMode(next.mode);
+        if (next.mode === 'win' || next.mode === 'risk') setMode(next.mode);
+        else if (next.mode === 'bet') setMode('risk'); // legacy → coerce
         if (Number.isFinite(Number(next.amount))) setAmount(String(next.amount || ''));
         if (Array.isArray(next.quickStakes) && next.quickStakes.length === 4) {
             setQuickStakes(next.quickStakes.map((v) => String(v)));
@@ -565,10 +569,11 @@ const AccountPanel = ({
     const balance = user?.balance ?? 0;
     const freeplay = user?.freeplayBalance ?? 0;
     const nonPostedCasino = user?.nonPostedCasino ?? 0;
-    // Credit line the user can wager against. Backend exposes this as
-    // `creditLimit` on the /auth/me payload — agents/admin set it per
-    // user. Defaults to 0 so display is "$0.00" until provisioned.
-    const creditAvailable = user?.creditLimit ?? user?.creditAvailable ?? 0;
+    // Credit line the user can still wager against = creditLimit - balanceOwed.
+    // Backend now ships the computed `creditAvailable`; we prefer it and
+    // fall back to the raw limit so older payloads still render something
+    // meaningful instead of $0.
+    const creditAvailable = user?.creditAvailable ?? user?.creditLimit ?? 0;
     const role = String(user?.role || 'user').toLowerCase();
     const isAgentLike = role === 'agent' || role === 'super_agent' || role === 'master_agent' || role === 'admin';
     const roleLabel = {
@@ -608,7 +613,13 @@ const AccountPanel = ({
                     color: palette.textPrimary,
                     width: '100%',
                     maxWidth: 520,
+                    // 100vh on iOS Safari includes the URL toolbar, which
+                    // pushed the sticky SIGN OUT footer below the visible
+                    // viewport. 100dvh is the dynamic viewport height that
+                    // tracks toolbar collapse/expand; the 100vh value is a
+                    // fallback for older browsers that ignore the dvh unit.
                     height: '100vh',
+                    maxHeight: '100dvh',
                     overflowY: 'auto',
                     boxShadow: '-20px 0 60px rgba(15,23,42,0.35)',
                     display: 'flex',
@@ -983,13 +994,19 @@ const AccountPanel = ({
                     </section>
                 </div>
 
-                {/* Sticky sign-out footer */}
+                {/* Sticky sign-out footer.
+                    `env(safe-area-inset-bottom)` reserves space for the iOS
+                    home indicator / browser bottom toolbar so the SIGN OUT
+                    button isn't clipped on mobile. Bumped z-index so the
+                    sticky footer always wins over the floating chat bubble
+                    if a stacking-context fight ever happens. */}
                 <div style={{
-                    padding: '12px 16px 18px',
+                    padding: '12px 16px calc(18px + env(safe-area-inset-bottom, 0px))',
                     background: palette.bg,
                     borderTop: `1px solid ${palette.cardBorder}`,
                     position: 'sticky',
                     bottom: 0,
+                    zIndex: 2,
                 }}>
                     <button
                         type="button"
