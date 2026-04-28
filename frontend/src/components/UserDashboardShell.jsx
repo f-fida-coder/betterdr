@@ -151,7 +151,11 @@ function UserDashboardShell({
           {dashboardView === 'bonus' && <BonusView />}
           {dashboardView === 'tutorials' && <TutorialsView />}
           {dashboardView === 'support' && <SupportView />}
-          {dashboardView === 'my-bets' && <MyBetsView />}
+          {dashboardView === 'my-bets' && (
+            <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch', display: 'flex', flexDirection: 'column' }}>
+              <MyBetsView />
+            </div>
+          )}
         </Suspense>
       </div>
 
