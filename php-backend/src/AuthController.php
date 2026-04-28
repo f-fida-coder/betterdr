@@ -814,6 +814,10 @@ final class AuthController
         // than what the admin panel showed for the same player.
         $creditAvailable = max(0.0, $creditLimit + $balance - $pendingBalance);
         $nonPostedCasino = $this->num($user['nonPostedCasino'] ?? ($user['nonPostedCasinoBalance'] ?? 0));
+        $minBet = isset($user['minBet']) && is_numeric($user['minBet']) && (float) $user['minBet'] > 0
+            ? round((float) $user['minBet'], 2) : null;
+        $maxBet = isset($user['maxBet']) && is_numeric($user['maxBet']) && (float) $user['maxBet'] > 0
+            ? round((float) $user['maxBet'], 2) : null;
         return [
             'id' => (string) $user['id'],
             'username' => $user['username'] ?? null,
@@ -827,6 +831,8 @@ final class AuthController
             'nonPostedCasino' => $nonPostedCasino,
             'freeplayBalance' => $freeplayBalance,
             'freeplayExpiresAt' => $freeplayExpiresAt,
+            'minBet' => $minBet,
+            'maxBet' => $maxBet,
             'unlimitedBalance' => (bool) ($user['unlimitedBalance'] ?? false),
             'isSuperAdmin' => (bool) ($user['isSuperAdmin'] ?? false),
             'totalWinnings' => $user['totalWinnings'] ?? 0,
@@ -859,6 +865,10 @@ final class AuthController
         // by the settle threshold (e.g. $9,800 instead of $10,000).
         $creditAvailable = max(0.0, $creditLimit + $balance - $pendingBalance);
         $nonPostedCasino = $this->num($user['nonPostedCasino'] ?? ($user['nonPostedCasinoBalance'] ?? 0));
+        $minBet = isset($user['minBet']) && is_numeric($user['minBet']) && (float) $user['minBet'] > 0
+            ? round((float) $user['minBet'], 2) : null;
+        $maxBet = isset($user['maxBet']) && is_numeric($user['maxBet']) && (float) $user['maxBet'] > 0
+            ? round((float) $user['maxBet'], 2) : null;
         $freeplayBalance = $this->num($user['freeplayBalance'] ?? 0);
         $freeplayExpiresAt = $user['freeplayExpiresAt'] ?? null;
         if ($freeplayBalance > 0 && $freeplayExpiresAt !== null) {
@@ -882,6 +892,8 @@ final class AuthController
             'nonPostedCasino' => $nonPostedCasino,
             'freeplayBalance' => $freeplayBalance,
             'freeplayExpiresAt' => $freeplayExpiresAt,
+            'minBet' => $minBet,
+            'maxBet' => $maxBet,
             'unlimitedBalance' => (bool) ($user['unlimitedBalance'] ?? false),
             'isSuperAdmin' => (bool) ($user['isSuperAdmin'] ?? false),
             'totalWinnings' => $user['totalWinnings'] ?? 0,

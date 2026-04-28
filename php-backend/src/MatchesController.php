@@ -251,20 +251,30 @@ final class MatchesController
                 return ($now - $lastTs) <= $prematchMaxAge;
             }));
         } elseif ($desiredStatus === 'live') {
-            // Live Now: drop any row whose odds aren't fresh. Threshold is
-            // 90s for live in-play (default), with per-sport overrides via
-            // LIVE_FRESHNESS_SECONDS_<SPORT_KEY> env vars. Rows missing
-            // lastOddsSyncAt are dropped too — we never display unverifiable
-            // freshness. The rundown-exclusive requirement is intentionally
-            // gone: OddsAPI-sourced live rows are eligible as long as their
-            // odds are fresh.
+            // Live Now is RUNDOWN-EXCLUSIVE per business rule. A row passes
+            // only if all three hold:
+            //   1. status='live'
+            //   2. sportKey is in Rundown's coverage set (defense in depth
+            //      so a stale row from a sport we removed from the Rundown
+            //      map cannot leak in)
+            //   3. oddsSource='rundown' AND lastOddsSyncAt within the
+            //      per-sport freshness window (LIVE_FRESHNESS_SECONDS_<KEY>,
+            //      LIVE_FRESHNESS_SECONDS_DEFAULT, or RUNDOWN_LIVE_FRESHNESS_SECONDS;
+            //      hard-defaults to 90s but production typically sets 300s).
+            //
+            // Mirrors DebugController::currentLiveRows() so GET /api/matches?status=live
+            // returns the same shape as POST /api/sync/live — auto-poll and
+            // user-triggered Refresh land on identical filter logic.
             $now = time();
-            $annotated = array_values(array_filter($annotated, static function (array $match) use ($now): bool {
+            $coveredKeys = RundownLiveSync::coveredSportKeysSet();
+            $annotated = array_values(array_filter($annotated, static function (array $match) use ($now, $coveredKeys): bool {
                 if (strtolower((string) ($match['status'] ?? '')) !== 'live') return false;
+                $sportKey = strtolower((string) ($match['sportKey'] ?? ''));
+                if ($sportKey === '' || !isset($coveredKeys[$sportKey])) return false;
+                if (strtolower((string) ($match['oddsSource'] ?? '')) !== 'rundown') return false;
                 $last = (string) ($match['lastOddsSyncAt'] ?? '');
                 $lastTs = $last !== '' ? strtotime($last) : false;
                 if ($lastTs === false) return false;
-                $sportKey = (string) ($match['sportKey'] ?? '');
                 $maxAge = self::liveFreshnessSecondsForSport($sportKey);
                 return ($now - $lastTs) <= $maxAge;
             }));

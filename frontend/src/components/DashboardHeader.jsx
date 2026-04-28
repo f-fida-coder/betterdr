@@ -20,7 +20,7 @@ const buildRefreshRequestId = () => {
 // proceed directly via Continue.
 const META_SPORT_FILTERS = new Set(['up-next', 'featured']);
 
-const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, freeplayBalance, freeplayExpiresAt = null, creditLimit = 0, creditAvailable = 0, balanceOwed = 0, nonPostedCasino = 0, onViewChange, activeBetMode = 'straight', onBetModeChange, currentView, onToggleSidebar, selectedSports = [], onContinue, onMobileBack, onLogout, mobileViewState = 'browsing', onHomeClick, role, unlimitedBalance, slipCount = 0, realtimeConnectionState = 'idle', lastRealtimeEventAt = null }) => {
+const DashboardHeader = ({ username, userId = null, balance, pendingBalance, availableBalance, freeplayBalance, freeplayExpiresAt = null, creditLimit = 0, creditAvailable = 0, balanceOwed = 0, nonPostedCasino = 0, minBet = null, maxBet = null, userSettings = null, onViewChange, activeBetMode = 'straight', onBetModeChange, currentView, onToggleSidebar, selectedSports = [], onContinue, onMobileBack, onLogout, mobileViewState = 'browsing', onHomeClick, role, unlimitedBalance, slipCount = 0, realtimeConnectionState = 'idle', lastRealtimeEventAt = null }) => {
     const hasRealSportSelection = selectedSports.some((id) => !META_SPORT_FILTERS.has(id));
     const showContinueButton = mobileViewState === 'selected' && hasRealSportSelection;
     const [showAccountPanel, setShowAccountPanel] = useState(false);
@@ -32,6 +32,7 @@ const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, 
     const isCreditAccount = role === 'user' && Number(creditLimit) > 0;
     const headerAvailable = isCreditAccount ? creditAvailable : availableBalance;
     const accountUser = {
+        id: userId,
         username,
         role,
         balance,
@@ -43,6 +44,13 @@ const DashboardHeader = ({ username, balance, pendingBalance, availableBalance, 
         creditAvailable,
         balanceOwed,
         nonPostedCasino,
+        minBet,
+        maxBet,
+        // settings.betDefaults must round-trip into AccountPanel so the BET
+        // DEFAULTS card hydrates from the saved values instead of the
+        // hardcoded $50 / [10,25,50,100] fallbacks. Stripping settings here
+        // was why Save Defaults appeared not to persist.
+        settings: userSettings,
     };
     const { oddsFormat, setOddsFormat, isUpdatingOddsFormat } = useOddsFormat();
     const [showLiveMenu, setShowLiveMenu] = useState(false);

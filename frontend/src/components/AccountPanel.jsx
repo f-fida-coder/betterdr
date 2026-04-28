@@ -247,46 +247,6 @@ const RowButton = ({ icon, label, sublabel, onClick, trailing, danger }) => (
     </button>
 );
 
-const ThemeToggle = ({ value, onChange }) => {
-    const dark = value === 'dark';
-    return (
-        <button
-            type="button"
-            onClick={() => onChange?.(dark ? 'light' : 'dark')}
-            aria-label={`Switch to ${dark ? 'light' : 'dark'} mode`}
-            style={{
-                position: 'relative',
-                width: 58,
-                height: 30,
-                borderRadius: 999,
-                background: dark ? palette.slate : '#cbd5e1',
-                border: 'none',
-                cursor: 'pointer',
-                transition: 'background 160ms ease',
-                flexShrink: 0,
-            }}
-        >
-            <span style={{
-                position: 'absolute',
-                top: 3,
-                left: dark ? 31 : 3,
-                width: 24,
-                height: 24,
-                borderRadius: '50%',
-                background: '#fff',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
-                transition: 'left 160ms ease',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: 10,
-                color: dark ? palette.slate : '#f59e0b',
-            }}>
-                <i className={`fa-solid ${dark ? 'fa-moon' : 'fa-sun'}`} />
-            </span>
-        </button>
-    );
-};
 
 /* ---------- bet defaults card ---------- */
 
@@ -295,18 +255,37 @@ const BetDefaultsCard = ({ user, onSaved }) => {
     const stored = (user?.settings?.betDefaults && typeof user.settings.betDefaults === 'object')
         ? user.settings.betDefaults
         : null;
+    // Min/Max bet come from the admin-set player limits (user.minBet,
+    // user.maxBet on /auth/me). They drive the leftmost / rightmost chips
+    // as read-only "Min Bet" / "Max Bet" buttons; the middle two slots stay
+    // user-editable. Falling back to project defaults keeps the layout
+    // stable when an admin hasn't set limits yet.
+    const playerMinBet = Number(user?.minBet);
+    const playerMaxBet = Number(user?.maxBet);
+    const lockedMin = Number.isFinite(playerMinBet) && playerMinBet > 0 ? Math.round(playerMinBet) : DEFAULT_QUICK_STAKES[0];
+    const lockedMax = Number.isFinite(playerMaxBet) && playerMaxBet > 0 ? Math.round(playerMaxBet) : DEFAULT_QUICK_STAKES[3];
+
     const initialMode = stored?.mode === 'win' ? 'win' : 'risk';
     const initialAmount = Number.isFinite(Number(stored?.amount)) && Number(stored.amount) > 0
         ? String(stored.amount)
         : '';
-    const initialQuickStakes = Array.isArray(stored?.quickStakes) && stored.quickStakes.length === 4
-        ? stored.quickStakes.map((v) => String(v))
-        : DEFAULT_QUICK_STAKES.map((v) => String(v));
+    // Only positions 1 & 2 are editable; position 0 = lockedMin, position 3 =
+    // lockedMax. Pull the saved customizations from positions 1 & 2 of the
+    // stored array (whatever shape was saved before — if a previous version
+    // saved 4 fully-custom values, the outer two are silently overridden).
+    const initialMid1 = Array.isArray(stored?.quickStakes) && stored.quickStakes[1] != null
+        ? String(stored.quickStakes[1])
+        : String(DEFAULT_QUICK_STAKES[1]);
+    const initialMid2 = Array.isArray(stored?.quickStakes) && stored.quickStakes[2] != null
+        ? String(stored.quickStakes[2])
+        : String(DEFAULT_QUICK_STAKES[2]);
 
     const [mode, setMode] = React.useState(initialMode);
     const [amount, setAmount] = React.useState(initialAmount);
-    const [quickStakes, setQuickStakes] = React.useState(initialQuickStakes);
+    const [midStakes, setMidStakes] = React.useState([initialMid1, initialMid2]);
     const [saving, setSaving] = React.useState(false);
+    // The composed 4-chip array shown in the UI: [Min, mid1, mid2, Max].
+    const quickStakes = [String(lockedMin), midStakes[0], midStakes[1], String(lockedMax)];
     // Reseed local form state when the user prop updates (e.g. after
     // /auth/me re-fetches and brings down a fresh `settings.betDefaults`).
     React.useEffect(() => {
@@ -316,15 +295,18 @@ const BetDefaultsCard = ({ user, onSaved }) => {
         else if (next.mode === 'bet') setMode('risk'); // legacy → coerce
         if (Number.isFinite(Number(next.amount))) setAmount(String(next.amount || ''));
         if (Array.isArray(next.quickStakes) && next.quickStakes.length === 4) {
-            setQuickStakes(next.quickStakes.map((v) => String(v)));
+            setMidStakes([String(next.quickStakes[1] ?? ''), String(next.quickStakes[2] ?? '')]);
         }
     }, [user?.settings?.betDefaults]);
 
     const updateQuickStake = (idx, raw) => {
-        // Strip non-digits — these are integer dollar amounts, no decimals
-        // shown on the chips. Empty string is allowed during typing.
+        // Outer chips are bound to admin Min/Max; only middle 2 slots accept
+        // user input. Silently no-op on the locked positions so the existing
+        // grid <input onChange> wiring works unchanged.
+        if (idx === 0 || idx === 3) return;
         const cleaned = String(raw).replace(/[^0-9]/g, '').slice(0, 6);
-        setQuickStakes((prev) => prev.map((v, i) => (i === idx ? cleaned : v)));
+        const midIdx = idx - 1; // 1 → 0, 2 → 1
+        setMidStakes((prev) => prev.map((v, i) => (i === midIdx ? cleaned : v)));
     };
 
     const handleSave = async () => {
@@ -472,53 +454,78 @@ const BetDefaultsCard = ({ user, onSaved }) => {
                     </div>
                 </div>
 
-                {/* Quick stake chips — 4 editable values */}
+                {/* Quick stake chips — leftmost/rightmost auto-bound to the
+                    admin-set Min Bet / Max Bet (read-only); middle two are
+                    user-customizable and persist into settings.betDefaults. */}
                 <div>
                     <div style={{ fontSize: 11, fontWeight: 700, color: palette.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
                         Quick stake buttons
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
-                        {quickStakes.map((value, idx) => (
-                            <div
-                                key={idx}
-                                style={{
-                                    position: 'relative',
-                                    border: `1px solid ${palette.cardBorder}`,
-                                    borderRadius: 8,
-                                    background: '#fbfbfd',
-                                }}
-                            >
-                                <span style={{
-                                    position: 'absolute',
-                                    left: 8,
-                                    top: '50%',
-                                    transform: 'translateY(-50%)',
-                                    fontSize: 11,
-                                    fontWeight: 700,
-                                    color: palette.textFaint,
-                                    pointerEvents: 'none',
-                                }}>$</span>
-                                <input
-                                    type="text"
-                                    inputMode="numeric"
-                                    value={value}
-                                    onChange={(e) => updateQuickStake(idx, e.target.value)}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 18 }}>
+                        {quickStakes.map((value, idx) => {
+                            const locked = idx === 0 || idx === 3;
+                            const lockedLabel = idx === 0 ? 'Min Bet' : idx === 3 ? 'Max Bet' : '';
+                            return (
+                                <div
+                                    key={idx}
                                     style={{
-                                        width: '100%',
-                                        padding: '8px 6px 8px 18px',
-                                        border: 'none',
-                                        outline: 'none',
-                                        fontSize: 13,
-                                        fontWeight: 700,
-                                        color: palette.textPrimary,
-                                        background: 'transparent',
-                                        boxSizing: 'border-box',
+                                        position: 'relative',
+                                        border: `1px solid ${palette.cardBorder}`,
                                         borderRadius: 8,
-                                        textAlign: 'center',
+                                        background: locked ? '#f1f5f9' : '#fbfbfd',
                                     }}
-                                />
-                            </div>
-                        ))}
+                                >
+                                    <span style={{
+                                        position: 'absolute',
+                                        left: 8,
+                                        top: '50%',
+                                        transform: 'translateY(-50%)',
+                                        fontSize: 11,
+                                        fontWeight: 700,
+                                        color: palette.textFaint,
+                                        pointerEvents: 'none',
+                                    }}>$</span>
+                                    <input
+                                        type="text"
+                                        inputMode="numeric"
+                                        readOnly={locked}
+                                        value={value}
+                                        onChange={(e) => updateQuickStake(idx, e.target.value)}
+                                        title={locked ? `${lockedLabel} (set by your agent)` : undefined}
+                                        style={{
+                                            width: '100%',
+                                            padding: '8px 6px 8px 18px',
+                                            border: 'none',
+                                            outline: 'none',
+                                            fontSize: 13,
+                                            fontWeight: 700,
+                                            color: palette.textPrimary,
+                                            background: 'transparent',
+                                            boxSizing: 'border-box',
+                                            borderRadius: 8,
+                                            textAlign: 'center',
+                                            cursor: locked ? 'not-allowed' : 'text',
+                                        }}
+                                    />
+                                    {locked && (
+                                        <div style={{
+                                            position: 'absolute',
+                                            bottom: -16,
+                                            left: 0,
+                                            right: 0,
+                                            textAlign: 'center',
+                                            fontSize: 9,
+                                            fontWeight: 700,
+                                            color: palette.textFaint,
+                                            textTransform: 'uppercase',
+                                            letterSpacing: 0.4,
+                                        }}>
+                                            {lockedLabel}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
                     </div>
                 </div>
 
@@ -555,8 +562,6 @@ const AccountPanel = ({
     user,
     onViewChange,
     onLogout,
-    themeMode = 'light',
-    onThemeModeChange,
 }) => {
     const { oddsFormat, setOddsFormat, isUpdatingOddsFormat } = useOddsFormat();
     const [language, setLanguage] = React.useState('English');
@@ -586,12 +591,29 @@ const AccountPanel = ({
     const role = String(user?.role || 'user').toLowerCase();
     const isAgentLike = role === 'agent' || role === 'super_agent' || role === 'master_agent' || role === 'admin';
     const roleLabel = {
-        user: 'Member',
+        user: 'Login',
         agent: 'Agent',
         super_agent: 'Super Agent',
         master_agent: 'Master Agent',
         admin: 'Admin',
-    }[role] || 'Member';
+    }[role] || 'Login';
+    const heroLabel = roleLabel;
+    // Hero spec block under the username — admin-set limits the player needs
+    // to see at a glance. Min/Max bet come from /auth/me (j_min_bet, j_max_bet
+    // on the user doc); Credit Limit is creditLimit; Settle Limit reflects
+    // `balanceOwed` which on a player record is the +/- settle threshold the
+    // admin types into the form, not actual debt. Whole-dollar formatting so
+    // the four lines stay visually balanced.
+    const minBetSpec = Number(user?.minBet);
+    const maxBetSpec = Number(user?.maxBet);
+    const creditLimitSpec = Number(user?.creditLimit);
+    const settleLimitSpec = Number(user?.balanceOwed);
+    const heroSpecs = [
+        { label: 'Min bet', value: Number.isFinite(minBetSpec) && minBetSpec > 0 ? `$${formatMoneyWhole(minBetSpec)}` : '—' },
+        { label: 'Max bet', value: Number.isFinite(maxBetSpec) && maxBetSpec > 0 ? `$${formatMoneyWhole(maxBetSpec)}` : '—' },
+        { label: 'Credit Limit', value: Number.isFinite(creditLimitSpec) && creditLimitSpec > 0 ? `$${formatMoneyWhole(creditLimitSpec)}` : '—' },
+        { label: 'Settle Limit', value: Number.isFinite(settleLimitSpec) && settleLimitSpec > 0 ? `± $${formatMoneyWhole(settleLimitSpec)}` : '—' },
+    ];
 
     const go = (view) => {
         onClose?.();
@@ -667,65 +689,75 @@ const AccountPanel = ({
                     >
                         <i className="fa-solid fa-xmark" />
                     </button>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                    <div style={{ minWidth: 0 }}>
                         <div style={{
-                            width: 52,
-                            height: 52,
-                            borderRadius: '50%',
-                            background: 'rgba(255,255,255,0.2)',
-                            border: '2px solid rgba(255,255,255,0.35)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            fontWeight: 800,
-                            fontSize: 18,
-                            letterSpacing: 0.5,
-                            flexShrink: 0,
+                            fontSize: 10,
+                            textTransform: 'uppercase',
+                            letterSpacing: 0.6,
+                            opacity: 0.85,
+                            fontWeight: 700,
+                            marginBottom: 2,
                         }}>
-                            {initialsOf(username)}
+                            {heroLabel}
                         </div>
-                        <div style={{ minWidth: 0, flex: 1 }}>
-                            <div style={{
-                                fontSize: 10,
-                                textTransform: 'uppercase',
-                                letterSpacing: 0.6,
-                                opacity: 0.85,
-                                fontWeight: 700,
-                                marginBottom: 2,
-                            }}>
-                                {roleLabel}
-                            </div>
-                            <div style={{
-                                fontSize: 18,
-                                fontWeight: 800,
-                                letterSpacing: 0.3,
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                                whiteSpace: 'nowrap',
-                            }}>
-                                {username}
-                            </div>
+                        <div style={{
+                            fontSize: 18,
+                            fontWeight: 800,
+                            letterSpacing: 0.3,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                        }}>
+                            {username}
                         </div>
                     </div>
 
-                    {/* Available balance snapshot — headline only.
-                        Pending and Freeplay used to be repeated on the
-                        right side of this row, but they already have
-                        their own tiles in the Balance breakdown grid
-                        directly below, so showing them twice was just
-                        clutter. */}
+                    {/* Player limits — Min/Max bet, Credit Limit, Settle
+                        Limit. Replaces the old "Available to Bet" headline:
+                        the same number is in the Credit Available tile in
+                        the Balance breakdown directly below, so showing it
+                        twice was redundant. These four limits are admin-set
+                        and surfacing them here saves the player a trip to
+                        their agent to confirm what they're allowed to
+                        wager. */}
                     <div style={{
                         marginTop: 18,
                         background: 'rgba(0,0,0,0.18)',
                         borderRadius: 12,
-                        padding: '14px 16px',
+                        padding: '12px 16px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 6,
                     }}>
-                        <div style={{ fontSize: 10, opacity: 0.85, letterSpacing: 0.5, fontWeight: 700, textTransform: 'uppercase' }}>
-                            Available to Bet
-                        </div>
-                        <div style={{ fontSize: 24, fontWeight: 800, marginTop: 4 }}>
-                            ${formatMoney(available)}
-                        </div>
+                        {heroSpecs.map((row) => (
+                            <div
+                                key={row.label}
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'baseline',
+                                    justifyContent: 'space-between',
+                                    gap: 12,
+                                }}
+                            >
+                                <span style={{
+                                    fontSize: 11,
+                                    opacity: 0.85,
+                                    letterSpacing: 0.4,
+                                    fontWeight: 600,
+                                    textTransform: 'uppercase',
+                                }}>
+                                    {row.label}
+                                </span>
+                                <span style={{
+                                    fontSize: 14,
+                                    fontWeight: 800,
+                                    letterSpacing: 0.2,
+                                    fontVariantNumeric: 'tabular-nums',
+                                }}>
+                                    {row.value}
+                                </span>
+                            </div>
+                        ))}
                     </div>
                 </div>
 
@@ -813,38 +845,6 @@ const AccountPanel = ({
                                 disabled={isUpdatingOddsFormat}
                                 options={Object.entries(ODDS_FORMAT_LABELS).map(([v, l]) => ({ value: v, label: l }))}
                             />
-                        </div>
-                        <div style={{
-                            marginTop: 10,
-                            background: palette.cardBg,
-                            border: `1px solid ${palette.cardBorder}`,
-                            borderRadius: 12,
-                            padding: '12px 14px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 12,
-                        }}>
-                            <div style={{
-                                width: 34,
-                                height: 34,
-                                borderRadius: 10,
-                                background: palette.slateSoft,
-                                color: palette.slate,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                fontSize: 14,
-                                flexShrink: 0,
-                            }}>
-                                <i className={`fa-solid ${themeMode === 'dark' ? 'fa-moon' : 'fa-sun'}`} />
-                            </div>
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ fontSize: 14, fontWeight: 700, color: palette.textPrimary }}>Appearance</div>
-                                <div style={{ fontSize: 11, color: palette.textMuted, marginTop: 2 }}>
-                                    {themeMode === 'dark' ? 'Dark theme' : 'Light theme'}
-                                </div>
-                            </div>
-                            <ThemeToggle value={themeMode} onChange={onThemeModeChange} />
                         </div>
                     </section>
 

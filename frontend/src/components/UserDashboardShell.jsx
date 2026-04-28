@@ -55,6 +55,7 @@ function UserDashboardShell({
         username={user?.username || 'Guest'}
         realtimeConnectionState={realtimeConnectionState}
         lastRealtimeEventAt={lastRealtimeEventAt}
+        userId={user?.id ?? null}
         balance={user?.balance ?? null}
         pendingBalance={user?.pendingBalance ?? null}
         availableBalance={user?.availableBalance ?? user?.balance ?? null}
@@ -64,6 +65,9 @@ function UserDashboardShell({
         creditAvailable={user?.creditAvailable ?? user?.creditLimit ?? 0}
         balanceOwed={user?.balanceOwed ?? 0}
         nonPostedCasino={user?.nonPostedCasino ?? 0}
+        minBet={user?.minBet ?? null}
+        maxBet={user?.maxBet ?? null}
+        userSettings={user?.settings ?? null}
         role={user?.role}
         unlimitedBalance={user?.unlimitedBalance}
         onLogout={onLogout}

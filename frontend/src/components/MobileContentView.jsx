@@ -1,7 +1,7 @@
 import React from 'react';
 import useMatches from '../hooks/useMatches';
 import useSportOddsRefresh from '../hooks/useSportOddsRefresh';
-import { syncPrematchSport, getStoredAuthToken } from '../api';
+import { syncLiveMatches, syncPrematchSport, getStoredAuthToken } from '../api';
 import { useToast } from '../contexts/ToastContext';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { getSportKeywords, findSportItemById, sportLabelForKey } from '../data/sportsData';
@@ -599,6 +599,34 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
     }, [orderedMatches]);
     const { showToast } = useToast();
     const { trigger: triggerSportRefresh, isRefreshing: isSportRefreshing, cooldownRemainingSec } = useSportOddsRefresh(visibleSportKeys, { showToast });
+
+    // LIVE NOW open (mobile): mirror SportContentView and fire a single
+    // synchronous Rundown sync so the first paint shows the freshest odds
+    // possible. Backend's 15s per-IP throttle on /api/sync/live silently
+    // collapses redundant calls, so re-mounting LIVE NOW or rapid back/forth
+    // navigation never hammers the upstream.
+    React.useEffect(() => {
+        if (statusFilter !== 'live') return undefined;
+        if (!getStoredAuthToken()) return undefined;
+        const ctrl = new AbortController();
+        let cancelled = false;
+        const timer = window.setTimeout(() => {
+            if (cancelled) return;
+            syncLiveMatches({ signal: ctrl.signal })
+                .then(() => {
+                    if (cancelled) return;
+                    window.dispatchEvent(new CustomEvent('matches:force-refetch', {
+                        detail: { reason: 'live-mount-sync' },
+                    }));
+                })
+                .catch(() => { /* throttled / aborted — auto-poll will catch up */ });
+        }, 200);
+        return () => {
+            cancelled = true;
+            window.clearTimeout(timer);
+            ctrl.abort();
+        };
+    }, [statusFilter]);
 
     // Freshness sync on sport selection — mirrors SportContentView (desktop).
     // 300ms debounce absorbs rapid sport switches into one POST per final
