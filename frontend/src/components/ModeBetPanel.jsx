@@ -449,18 +449,28 @@ const ModeBetPanel = ({
 
     const validationErrors = useMemo(() => {
         const errors = [];
-        if (legCount < rule.minLegs || legCount > rule.maxLegs) {
-            errors.push(`${MODE_TABS.find(t => t.id === normalizedMode)?.label || 'MODE'} requires ${rule.minLegs === rule.maxLegs ? rule.minLegs : `${rule.minLegs}-${rule.maxLegs}`} selections`);
-        }
         if (normalizedMode === 'straight') {
+            // Straight mode is N independent single bets. Some rule tables
+            // store straight.maxLegs=1 (single-ticket semantics), which would
+            // incorrectly block valid multi-leg straight slips in this UI.
+            // Keep straight capped by the app-level default instead.
+            const straightMaxLegs = DEFAULT_RULES.straight.maxLegs;
+            if (legCount > straightMaxLegs) {
+                errors.push(`STRAIGHT supports up to ${straightMaxLegs} selections`);
+            }
             // Valid when at least one leg has a positive stake. Zero-stake
             // legs are silently skipped at submit time, not surfaced as a
             // blocker, so the user can stake just some of the slip.
             if (!hasAnyStraightAmount) {
                 errors.push('Enter a stake on at least one selection');
             }
-        } else if (effectiveCombinedRisk <= 0) {
-            errors.push('Enter a valid wager amount');
+        } else {
+            if (legCount < rule.minLegs || legCount > rule.maxLegs) {
+                errors.push(`${MODE_TABS.find(t => t.id === normalizedMode)?.label || 'MODE'} requires ${rule.minLegs === rule.maxLegs ? rule.minLegs : `${rule.minLegs}-${rule.maxLegs}`} selections`);
+            }
+            if (effectiveCombinedRisk <= 0) {
+                errors.push('Enter a valid wager amount');
+            }
         }
         if (!teaserValid) {
             errors.push(`Select teaser points: ${rule.teaserPointOptions.join(', ')}`);
@@ -527,10 +537,11 @@ const ModeBetPanel = ({
         : normalizedMode === 'straight'
             ? straightTotalRisk
             : effectiveCombinedRisk;
-    const rawAvailableBalance = availableBalance !== null && availableBalance !== undefined
-        ? availableBalance
-        : balance;
-    const parsedAvailableBalance = Number(rawAvailableBalance);
+    // Use the same pool the top bar's AVAILABLE tile shows: creditAvailable
+    // for credit accounts, availableBalance for cash accounts. Otherwise the
+    // bet-placement guard rejects with "Insufficient balance: $0.00" while
+    // the user sees "AVAILABLE: $10,000".
+    const parsedAvailableBalance = Number(headerAvailable);
     const effectiveAvailableBalance = useFreeplay
         ? parsedFreeplayBalance
         : (Number.isFinite(parsedAvailableBalance) ? parsedAvailableBalance : 0);
