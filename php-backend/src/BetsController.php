@@ -236,10 +236,15 @@ final class BetsController
                     throw new ApiException('User not found', 404);
                 }
 
-                $balance        = $this->num($lockedUser['balance'] ?? 0);
-                $pending        = $this->num($lockedUser['pendingBalance'] ?? 0);
+                $balance         = $this->num($lockedUser['balance'] ?? 0);
+                $pending         = $this->num($lockedUser['pendingBalance'] ?? 0);
                 $freeplayBalance = $this->num($lockedUser['freeplayBalance'] ?? 0);
-                $available      = max(0, $balance - $pending);
+                $creditLimit     = $this->num($lockedUser['creditLimit'] ?? 0);
+                $role            = strtolower((string) ($lockedUser['role'] ?? 'user'));
+                $isCreditAccount = $role === 'user' && $creditLimit > 0;
+                $available       = $isCreditAccount
+                    ? max(0.0, $creditLimit + $balance - $pending)
+                    : max(0.0, $balance - $pending);
 
                 // ── Freeplay expiry check ──────────────────────────────────────────
                 // If freeplayExpiresAt is set and in the past, zero out the balance.
@@ -305,7 +310,11 @@ final class BetsController
                         throw new ApiException($lossLimitMsg, 400);
                     }
 
-                    $newBalance  = $balance - $totalRisk;
+                    // Credit-account bettors reserve stake in pending only.
+                    // For these users, available = creditLimit + balance - pending,
+                    // so subtracting from balance *and* adding pending would
+                    // double-charge available credit.
+                    $newBalance  = $isCreditAccount ? $balance : ($balance - $totalRisk);
                     $newPending  = $pending + $totalRisk;
                     $newFreeplay = $freeplayBalance; // unchanged
 
