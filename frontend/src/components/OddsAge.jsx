@@ -38,15 +38,20 @@ const OddsAge = ({ timestamp, live = false, className, style: extraStyle }) => {
     const seconds = Math.floor(ageMs / 1000);
     const minutes = Math.floor(ageMs / 60000);
 
+    // Compact labels — the previous "Updated just now" / "Updated N min
+    // ago" strings were wide enough to bleed past their grid track on the
+    // mobile odds board and visually collide with the SPREAD column
+    // header. The new format keeps the same information density (relative
+    // time + freshness colour) at a fraction of the width.
     let label;
     if (live && ageMs < LIVE_AMBER_MS) {
-        label = ageMs < 10000 ? 'Live · just updated' : `Live · ${seconds}s ago`;
+        label = ageMs < 10000 ? 'Live · now' : `Live · ${seconds}s`;
     } else if (ageMs < 60000) {
-        label = 'Updated just now';
+        label = 'Just now';
     } else if (minutes === 1) {
-        label = 'Updated 1 min ago';
+        label = '1m ago';
     } else {
-        label = `Updated ${minutes} min ago`;
+        label = `${minutes}m ago`;
     }
 
     const amberThreshold = live ? LIVE_AMBER_MS : AMBER_MS;
@@ -64,7 +69,19 @@ const OddsAge = ({ timestamp, live = false, className, style: extraStyle }) => {
         }
     }
 
-    const style = { fontSize: 11, color, whiteSpace: 'nowrap', ...extraStyle };
+    // Allow the parent's flex/grid layout to clip this badge if it would
+    // otherwise overflow — `min-width: 0` is the unlock for that, and
+    // `overflow: hidden` + `text-overflow: ellipsis` keeps any future
+    // longer label from spilling into the neighbouring column.
+    const style = {
+        fontSize: 11,
+        color,
+        whiteSpace: 'nowrap',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        minWidth: 0,
+        ...extraStyle,
+    };
     return <span className={className} style={style}>{label}{badge}</span>;
 };
 

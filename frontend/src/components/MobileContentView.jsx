@@ -823,7 +823,7 @@ const MatchCard = ({ match, oddsFormat, onAddToSlip, selectedKeys, visibleMarket
                 padding: '0 0 4px',
                 alignItems: 'center',
             }}>
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0, overflow: 'hidden' }}>
                     {match.isLive ? (
                         <>
                             <span
