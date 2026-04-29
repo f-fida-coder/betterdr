@@ -90,15 +90,24 @@ final class RundownService
     public static function liveEventsForSport(int $sportId, ?string $date = null): array
     {
         $date = $date ?? gmdate('Y-m-d');
-        // market_ids 1,2,3 = moneyline, spread, total. main_line=true skips
-        // alts to keep the payload tight. No affiliate_ids filter — we want
-        // every sportsbook so the merge layer can pick best line.
+        // include=lines is REQUIRED for Rundown v2 to return per-event
+        // `markets` data — without it the events endpoint returns metadata
+        // only (event_id/teams/score) and `markets` is absent, which made
+        // RundownLiveSync overwrite stored odds with empty markets and
+        // caused the Live Now page to hide every row (frontend rejects
+        // matches with zero markets).
+        // market_ids 1,2,3 = moneyline, spread, total.
+        // We deliberately DROP main_line=true: with that flag Rundown
+        // returns only in-play period markets (market_id 41/42/43, period 7)
+        // and strips the full-game lines (period 0) the live overlay needs.
+        // The parser keeps only period_id=0 anyway, so omitting main_line
+        // restores the moneyline/spread/total trio while still being tight.
         // NOTE: hide_no_markets=true must NOT be set — Rundown drops live
         // events when even one of the requested market_ids is unavailable
         // (very common during in-play, e.g. when totals are temporarily
         // suspended). We'd rather get the event with whatever markets remain.
         $url = self::BASE_URL . '/sports/' . $sportId . '/events/' . rawurlencode($date)
-            . '?market_ids=1,2,3&main_line=true';
+            . '?include=lines&market_ids=1,2,3';
         $resp = self::httpGet($url);
         if (!$resp['ok']) {
             return ['ok' => false, 'live' => [], 'finished' => [], 'upcoming' => [], 'http' => $resp['status'], 'error' => $resp['error'] ?? 'http_error'];
@@ -194,7 +203,7 @@ final class RundownService
         // burst load (cron + spam-clicked Refresh + sport-tab on-demand).
         $cap = (int) Env::get('RUNDOWN_MAX_CALLS_PER_MINUTE', '30');
         if (!ApiQuotaGuard::reserve('rundown', $cap)) {
-            Logger::warn('Rundown API quota capped', ['cap' => $cap], 'rundown');
+            Logger::warning('Rundown API quota capped', ['cap' => $cap], 'rundown');
             return ['ok' => false, 'status' => 0, 'body' => [], 'error' => 'quota_capped'];
         }
         $ch = curl_init($url);
@@ -214,19 +223,19 @@ final class RundownService
         // cleaned up automatically when $ch goes out of scope.
 
         if (!is_string($body) || $body === '') {
-            Logger::warn('Rundown API empty response', ['status' => $status, 'error' => $err, 'elapsedMs' => $elapsed], 'rundown');
+            Logger::warning('Rundown API empty response', ['status' => $status, 'error' => $err, 'elapsedMs' => $elapsed], 'rundown');
             return ['ok' => false, 'status' => $status, 'body' => [], 'error' => $err ?: 'empty_body'];
         }
         $decoded = json_decode($body, true);
         if (!is_array($decoded)) {
-            Logger::warn('Rundown API invalid JSON', ['status' => $status, 'elapsedMs' => $elapsed], 'rundown');
+            Logger::warning('Rundown API invalid JSON', ['status' => $status, 'elapsedMs' => $elapsed], 'rundown');
             return ['ok' => false, 'status' => $status, 'body' => [], 'error' => 'invalid_json'];
         }
         if ($status < 200 || $status >= 300) {
-            Logger::warn('Rundown API HTTP error', ['status' => $status, 'elapsedMs' => $elapsed, 'response' => $decoded], 'rundown');
+            Logger::warning('Rundown API HTTP error', ['status' => $status, 'elapsedMs' => $elapsed, 'response' => $decoded], 'rundown');
             return ['ok' => false, 'status' => $status, 'body' => $decoded, 'error' => 'http_' . $status];
         }
-        Logger::debug('Rundown API call success', ['status' => $status, 'elapsedMs' => $elapsed, 'url' => $url], 'rundown');
+        Logger::info('Rundown API call success', ['status' => $status, 'elapsedMs' => $elapsed, 'url' => $url], 'rundown');
         return ['ok' => true, 'status' => $status, 'body' => $decoded];
     }
 

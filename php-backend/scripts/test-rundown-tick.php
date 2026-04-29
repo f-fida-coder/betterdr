@@ -21,6 +21,9 @@ require_once __DIR__ . '/../src/BetModeRules.php';
 require_once __DIR__ . '/../src/SportsMatchStatus.php';
 require_once __DIR__ . '/../src/SportsbookHealth.php';
 require_once __DIR__ . '/../src/RealtimeEventBus.php';
+require_once __DIR__ . '/../src/ApiQuotaGuard.php';
+require_once __DIR__ . '/../src/TeamNormalizer.php';
+require_once __DIR__ . '/../src/SportsbookBetSupport.php';
 require_once __DIR__ . '/../src/RundownService.php';
 require_once __DIR__ . '/../src/RundownLiveSync.php';
 

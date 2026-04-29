@@ -176,7 +176,7 @@ final class RundownLiveSync
         // to start, skip the entire tick.
         $activeKeys = self::activeSportKeys($db);
         if ($activeKeys === []) {
-            Logger::debug('Rundown live sync: no active sports', [], 'rundown');
+            Logger::info('Rundown live sync: no active sports', [], 'rundown');
             $result['ok'] = true;
             return $result;
         }
