@@ -9,7 +9,7 @@ const formatCurrency = (value) => {
     currency: 'USD',
     maximumFractionDigits: 0,
     minimumFractionDigits: 0
-  }).format(Math.round(num));
+  }).format(Math.ceil(num));
 };
 
 function ProfileView() {

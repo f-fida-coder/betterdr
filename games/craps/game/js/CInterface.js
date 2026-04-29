@@ -237,7 +237,7 @@ function CInterface(){
     };
     
     this.setMoney = function(iMoney){
-        _oMoneyAmountText.refreshText(Math.round(iMoney)+TEXT_CURRENCY);
+        _oMoneyAmountText.refreshText(Math.ceil(iMoney)+TEXT_CURRENCY);
     };
 
     this.refreshMoney = function(iStartMoney, iMoney){
@@ -245,7 +245,7 @@ function CInterface(){
     };
 
     this.setCurBet = function(iCurBet){
-        _oBetAmountText.refreshText(Math.round(iCurBet) + TEXT_CURRENCY);
+        _oBetAmountText.refreshText(Math.ceil(iCurBet) + TEXT_CURRENCY);
     };
     
     this.refreshMsgHelp = function(szText,bLastState){

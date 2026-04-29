@@ -252,21 +252,21 @@ final class SportsbookBetSupport
     {
         $sorted = self::sortSelectionRows($selectionRows);
         $bet['ticketId'] = (string) ($bet['ticketId'] ?? ($bet['id'] ?? ''));
-        $bet['riskAmount'] = round(self::riskAmount($bet));
-        $bet['unitStake'] = round(self::unitStake($bet));
-        $bet['amount'] = round(self::num($bet['amount'] ?? 0));
-        $bet['potentialPayout'] = round(self::num($bet['potentialPayout'] ?? 0));
+        $bet['riskAmount'] = (float) ceil(self::riskAmount($bet));
+        $bet['unitStake'] = (float) ceil(self::unitStake($bet));
+        $bet['amount'] = (float) ceil(self::num($bet['amount'] ?? 0));
+        $bet['potentialPayout'] = (float) ceil(self::num($bet['potentialPayout'] ?? 0));
         if (isset($bet['payout']) && is_numeric($bet['payout'])) {
-            $bet['payout'] = round(self::num($bet['payout']));
+            $bet['payout'] = (float) ceil(self::num($bet['payout']));
         }
         if (isset($bet['profit']) && is_numeric($bet['profit'])) {
-            $bet['profit'] = round(self::num($bet['profit']));
+            $bet['profit'] = (float) ceil(self::num($bet['profit']));
         }
         if (isset($bet['balanceBefore']) && is_numeric($bet['balanceBefore'])) {
-            $bet['balanceBefore'] = round(self::num($bet['balanceBefore']));
+            $bet['balanceBefore'] = (float) ceil(self::num($bet['balanceBefore']));
         }
         if (isset($bet['balanceAfter']) && is_numeric($bet['balanceAfter'])) {
-            $bet['balanceAfter'] = round(self::num($bet['balanceAfter']));
+            $bet['balanceAfter'] = (float) ceil(self::num($bet['balanceAfter']));
         }
         $bet['combinedOdds'] = self::combinedOdds(self::num($bet['riskAmount']), self::num($bet['potentialPayout']));
         $bet['odds'] = self::combinedOdds(self::num($bet['riskAmount']), self::num($bet['potentialPayout']));

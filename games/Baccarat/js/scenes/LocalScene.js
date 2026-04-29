@@ -34,7 +34,7 @@ export default class LocalScene extends Phaser.Scene {
   }
   _formatMoney(value) {
     const amount = this._normalizeMoney(value);
-    return String(Math.round(amount));
+    return String(Math.ceil(amount));
   }
   _setDisplayedBalance(value) {
     this.balance = this._normalizeMoney(value);
@@ -1136,7 +1136,7 @@ export default class LocalScene extends Phaser.Scene {
     });
 
     const sign = isWin ? 'WIN ' : 'LOSE ';
-    const amountText = scene.add.text(padding, topH + 8, sign + String(Math.round(parseFloat(amount))), {
+    const amountText = scene.add.text(padding, topH + 8, sign + String(Math.ceil(parseFloat(amount))), {
       fontFamily: 'Arial',
       fontSize: '22px',
       color: isWin ? '#00cc33' : '#ff4444',

@@ -457,7 +457,7 @@ function CGame(oData){
         }
 		
         var iNewTotalBet = _iCurBet * _iLastLineActive;
-        iNewTotalBet = Math.round(iNewTotalBet);
+        iNewTotalBet = Math.ceil(iNewTotalBet);
         
         _iTotBet = iNewTotalBet;
         _oInterface.refreshTotalBet(_iTotBet);
@@ -496,7 +496,7 @@ function CGame(oData){
         var iNewBet = parseFloat(COIN_BET[_iCurCoinIndex]);
         
         var iNewTotalBet = iNewBet * _iLastLineActive;
-        iNewTotalBet = Math.round(iNewTotalBet);
+        iNewTotalBet = Math.ceil(iNewTotalBet);
         
         _iCurBet = iNewBet;
         _iCurBet = Math.floor(_iCurBet * 100)/100;

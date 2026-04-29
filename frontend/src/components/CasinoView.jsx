@@ -145,7 +145,7 @@ const resolveLocalGameOrigin = (gameLike) => {
 
 const buildRoundResultSummary = (r) => {
     if (!r) return null;
-    const fmt = (v) => `$${Math.round(Math.abs(Number(v) || 0)).toLocaleString()}`;
+    const fmt = (v) => `$${Math.ceil(Math.abs(Number(v) || 0)).toLocaleString()}`;
     if (r.jackpotWon) {
         return { label: 'JACKPOT!', detail: `+${fmt(r.jackpotPayout)}`, type: 'jackpot' };
     }
@@ -565,12 +565,12 @@ const CasinoView = () => {
         const min = Number(minBet);
         const max = Number(maxBet);
         if (!Number.isFinite(min) || !Number.isFinite(max)) return 'MIN/MAX set by table rules';
-        return `MIN: $${Math.round(min)} | MAX: $${Math.round(max)}`;
+        return `MIN: $${Math.ceil(min)} | MAX: $${Math.ceil(max)}`;
     };
     const formatMoney = (value) => {
         const num = Number(value || 0);
         if (Number.isNaN(num)) return '$0';
-        return `$${Math.round(num)}`;
+        return `$${Math.ceil(num)}`;
     };
     const formatGameLabel = (value) => {
         switch (String(value || '').toLowerCase()) {

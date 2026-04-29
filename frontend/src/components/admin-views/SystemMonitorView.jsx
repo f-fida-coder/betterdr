@@ -267,14 +267,14 @@ const SystemMonitorView = () => {
                     <div className="stat-icon users"><i className="fa-solid fa-dollar-sign"></i></div>
                     <div className="stat-info">
                         <h3>Daily API Cost</h3>
-                        <p>${Math.round(Number(costMetrics?.costDollars || 0))}</p>
+                        <p>${Math.ceil(Number(costMetrics?.costDollars || 0))}</p>
                     </div>
                 </div>
                 <div className="stat-card">
                     <div className="stat-icon bets"><i className="fa-solid fa-chart-line"></i></div>
                     <div className="stat-info">
                         <h3>Projected Monthly Cost</h3>
-                        <p>${Math.round(Number(costMetrics?.projectedMonthlyDollars || 0))}</p>
+                        <p>${Math.ceil(Number(costMetrics?.projectedMonthlyDollars || 0))}</p>
                     </div>
                 </div>
             </div>
@@ -410,7 +410,7 @@ const SystemMonitorView = () => {
                                 <li key={`cost-alert-${idx}`}>
                                     {item.message}
                                     {item.valuePercent !== undefined ? ` (${item.valuePercent}% change)` : ''}
-                                    {item.valueDollars !== undefined ? ` ($${Math.round(Number(item.valueDollars))})` : ''}
+                                    {item.valueDollars !== undefined ? ` ($${Math.ceil(Number(item.valueDollars))})` : ''}
                                 </li>
                             ))}
                         </ul>
@@ -438,7 +438,7 @@ const SystemMonitorView = () => {
                                                 }}
                                             />
                                         </div>
-                                        <div style={{ color: '#f8d39d', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>${Math.round(cost)}</div>
+                                        <div style={{ color: '#f8d39d', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>${Math.ceil(cost)}</div>
                                     </div>
                                 );
                             })}

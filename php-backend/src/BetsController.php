@@ -892,8 +892,8 @@ final class BetsController
             'message' => 'Bet placed successfully',
             'bets' => $this->loadEnrichedBetsByIds($betIds),
             'requestId' => $meta['requestId'] ?? null,
-            'balance' => round($this->num($meta['balance'] ?? 0)),
-            'pendingBalance' => round($this->num($meta['pendingBalance'] ?? 0)),
+            'balance' => (float) ceil($this->num($meta['balance'] ?? 0)),
+            'pendingBalance' => (float) ceil($this->num($meta['pendingBalance'] ?? 0)),
         ];
     }
 

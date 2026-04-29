@@ -2631,13 +2631,13 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
                             <td className="commission-username">{d.isSharedNode && d.linkedUsername ? `${d.username}/${d.linkedUsername}` : (d.username || '—')}</td>
                             <td>{d.role ? d.role.replace(/_/g, ' ') : '—'}</td>
                             <td>{d.effectivePercent != null ? `${d.effectivePercent}%` : (d.agentPercent != null ? `${d.agentPercent}%` : '—')}</td>
-                            <td className="commission-amount">${Math.round(Number(d.amount || 0))}</td>
+                            <td className="commission-amount">${Math.ceil(Number(d.amount || 0))}</td>
                           </tr>
                         ))}
                         <tr className="commission-total-row">
                           <td colSpan={3}><strong>Total</strong></td>
                           <td className="commission-amount">
-                            <strong>${Math.round(calcResult.distributions.reduce((s, d) => s + Number(d.amount || 0), 0))}</strong>
+                            <strong>${Math.ceil(calcResult.distributions.reduce((s, d) => s + Number(d.amount || 0), 0))}</strong>
                           </td>
                         </tr>
                       </tbody>

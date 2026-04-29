@@ -761,11 +761,11 @@ final class AuthController
 
     private function buildAuthPayload(array $user, ?int $ttlOverride = null): array
     {
-        $balance = round($this->num($user['balance'] ?? 0));
-        $pendingBalance = round($this->num($user['pendingBalance'] ?? 0));
+        $balance = (float) ceil($this->num($user['balance'] ?? 0));
+        $pendingBalance = (float) ceil($this->num($user['pendingBalance'] ?? 0));
         $availableBalance = max(0, $balance - $pendingBalance);
-        $balanceOwed = round($this->num($user['balanceOwed'] ?? 0));
-        $creditLimit = round($this->num($user['creditLimit'] ?? 0));
+        $balanceOwed = (float) ceil($this->num($user['balanceOwed'] ?? 0));
+        $creditLimit = (float) ceil($this->num($user['creditLimit'] ?? 0));
 
         $ttl = $ttlOverride ?? 8 * 3600;
         $token = Jwt::encode([
@@ -812,13 +812,13 @@ final class AuthController
         // limit threshold* (admin form field "Settle Limit ± $X"), not actual
         // debt — subtracting it produced a Credit Available figure $X lower
         // than what the admin panel showed for the same player.
-        $creditAvailable = round(max(0.0, $creditLimit + $balance - $pendingBalance));
-        $nonPostedCasino = round($this->num($user['nonPostedCasino'] ?? ($user['nonPostedCasinoBalance'] ?? 0)));
+        $creditAvailable = (float) ceil(max(0.0, $creditLimit + $balance - $pendingBalance));
+        $nonPostedCasino = (float) ceil($this->num($user['nonPostedCasino'] ?? ($user['nonPostedCasinoBalance'] ?? 0)));
         $minBet = isset($user['minBet']) && is_numeric($user['minBet']) && (float) $user['minBet'] > 0
-            ? round((float) $user['minBet']) : null;
+            ? (float) ceil((float) $user['minBet']) : null;
         $maxBet = isset($user['maxBet']) && is_numeric($user['maxBet']) && (float) $user['maxBet'] > 0
-            ? round((float) $user['maxBet']) : null;
-        $freeplayBalance = round($freeplayBalance);
+            ? (float) ceil((float) $user['maxBet']) : null;
+        $freeplayBalance = (float) ceil($freeplayBalance);
         return [
             'id' => (string) $user['id'],
             'username' => $user['username'] ?? null,
@@ -836,7 +836,7 @@ final class AuthController
             'maxBet' => $maxBet,
             'unlimitedBalance' => (bool) ($user['unlimitedBalance'] ?? false),
             'isSuperAdmin' => (bool) ($user['isSuperAdmin'] ?? false),
-            'totalWinnings' => round($this->num($user['totalWinnings'] ?? 0)),
+            'totalWinnings' => (float) ceil($this->num($user['totalWinnings'] ?? 0)),
             'role' => $user['role'] ?? 'user',
             'viewOnly' => $user['viewOnly'] ?? null,
             'agentBillingStatus' => $user['agentBillingStatus'] ?? null,
@@ -853,24 +853,24 @@ final class AuthController
 
     private function buildMePayload(array $user): array
     {
-        $balance = round($this->num($user['balance'] ?? 0));
-        $pendingBalance = round($this->num($user['pendingBalance'] ?? 0));
+        $balance = (float) ceil($this->num($user['balance'] ?? 0));
+        $pendingBalance = (float) ceil($this->num($user['pendingBalance'] ?? 0));
         $availableBalance = max(0, $balance - $pendingBalance);
-        $balanceOwed = round($this->num($user['balanceOwed'] ?? 0));
-        $creditLimit = round($this->num($user['creditLimit'] ?? 0));
+        $balanceOwed = (float) ceil($this->num($user['balanceOwed'] ?? 0));
+        $creditLimit = (float) ceil($this->num($user['creditLimit'] ?? 0));
         // Mirrors the admin Customer Details "Available" tile so the player
         // and admin views never disagree: creditLimit + balance - pending.
         // `balanceOwed` is the player's *settle limit threshold* in this
         // codebase (admin form field "Settle Limit ± $X"), not actual debt,
         // so subtracting it from credit was understating Credit Available
         // by the settle threshold (e.g. $9,800 instead of $10,000).
-        $creditAvailable = round(max(0.0, $creditLimit + $balance - $pendingBalance));
-        $nonPostedCasino = round($this->num($user['nonPostedCasino'] ?? ($user['nonPostedCasinoBalance'] ?? 0)));
+        $creditAvailable = (float) ceil(max(0.0, $creditLimit + $balance - $pendingBalance));
+        $nonPostedCasino = (float) ceil($this->num($user['nonPostedCasino'] ?? ($user['nonPostedCasinoBalance'] ?? 0)));
         $minBet = isset($user['minBet']) && is_numeric($user['minBet']) && (float) $user['minBet'] > 0
-            ? round((float) $user['minBet']) : null;
+            ? (float) ceil((float) $user['minBet']) : null;
         $maxBet = isset($user['maxBet']) && is_numeric($user['maxBet']) && (float) $user['maxBet'] > 0
-            ? round((float) $user['maxBet']) : null;
-        $freeplayBalance = round($this->num($user['freeplayBalance'] ?? 0));
+            ? (float) ceil((float) $user['maxBet']) : null;
+        $freeplayBalance = (float) ceil($this->num($user['freeplayBalance'] ?? 0));
         $freeplayExpiresAt = $user['freeplayExpiresAt'] ?? null;
         if ($freeplayBalance > 0 && $freeplayExpiresAt !== null) {
             $expTs = is_numeric($freeplayExpiresAt) ? (int) $freeplayExpiresAt : strtotime((string) $freeplayExpiresAt);
@@ -897,7 +897,7 @@ final class AuthController
             'maxBet' => $maxBet,
             'unlimitedBalance' => (bool) ($user['unlimitedBalance'] ?? false),
             'isSuperAdmin' => (bool) ($user['isSuperAdmin'] ?? false),
-            'totalWinnings' => round($this->num($user['totalWinnings'] ?? 0)),
+            'totalWinnings' => (float) ceil($this->num($user['totalWinnings'] ?? 0)),
             'role' => $user['role'] ?? 'user',
             'viewOnly' => $user['viewOnly'] ?? null,
             'agentBillingStatus' => $user['agentBillingStatus'] ?? null,

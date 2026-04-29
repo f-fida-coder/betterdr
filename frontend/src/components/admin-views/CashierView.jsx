@@ -198,7 +198,7 @@ function CashierView() {
     if (amount === null || amount === undefined) return '—';
     const num = Number(amount);
     if (Number.isNaN(num)) return '—';
-    return `$${Math.round(num).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
+    return `$${Math.ceil(num).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
   };
 
   const getEntryUserOptions = (entry) => {

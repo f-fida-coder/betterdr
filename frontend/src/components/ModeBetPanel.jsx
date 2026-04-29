@@ -28,7 +28,7 @@ const MODE_TABS = [
 
 const formatAmount = (value) => {
     const n = Number(value);
-    return Number.isFinite(n) ? String(Math.round(n)) : '0';
+    return Number.isFinite(n) ? String(Math.ceil(n)) : '0';
 };
 
 const getTeaserMultiplier = (rule, legCount) => {
@@ -89,7 +89,7 @@ const resolveStake = (mode, amount, decimalOdds) => {
 const formatMoney = (value) => {
     const n = Number(value);
     if (!Number.isFinite(n) || n === 0) return '0';
-    return String(Math.round(n));
+    return String(Math.ceil(n));
 };
 
 // Trim trailing zeros: 1.50 -> "1.5", 47.0 -> "47", 47.5 -> "47.5".
@@ -659,11 +659,11 @@ const ModeBetPanel = ({
             // user typed stays exact so a $1000 win request reads back
             // as $1000.00 even after Apply to All.
             if (stakeMode === 'win') {
-                const risk = Math.round(amt / (d - 1));
-                return { ...s, wagerOverride: { source: 'win', riskRaw: String(risk), winRaw: String(Math.round(amt)) } };
+                const risk = Math.ceil(amt / (d - 1));
+                return { ...s, wagerOverride: { source: 'win', riskRaw: String(risk), winRaw: String(Math.ceil(amt)) } };
             }
-            const win = Math.round(amt * (d - 1));
-            return { ...s, wagerOverride: { source: 'risk', riskRaw: String(Math.round(amt)), winRaw: String(win) } };
+            const win = Math.ceil(amt * (d - 1));
+            return { ...s, wagerOverride: { source: 'risk', riskRaw: String(Math.ceil(amt)), winRaw: String(win) } };
         });
         onSelectionsChange(next);
     }, [wager, stakeMode, selections, onSelectionsChange, showToast]);

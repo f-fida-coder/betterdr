@@ -89,9 +89,9 @@ function CRollingTextController(oTarget, oTargetStroke, iStartAmount,iAmountToIn
         if (_iCntFrames > _iMaxFrames) {
             _iCntFrames = 0;
 
-            _oTarget.text = Math.round(_iTotWin)+_szTextAppend;
+            _oTarget.text = Math.ceil(_iTotWin)+_szTextAppend;
             if (_oTargetStroke !== null) {
-                _oTargetStroke.text = Math.round(_iTotWin)+_szTextAppend;
+                _oTargetStroke.text = Math.ceil(_iTotWin)+_szTextAppend;
             }
 
             clearInterval(_iIdUpdateInterval);
@@ -166,9 +166,9 @@ function CRollingTextController(oTarget, oTargetStroke, iStartAmount,iAmountToIn
             }
         }
 
-        _oTarget.text = Math.round(iValue) + _szTextAppend;
+        _oTarget.text = Math.ceil(iValue) + _szTextAppend;
         if (_oTargetStroke !== null) {
-            _oTargetStroke.text = Math.round(iValue) + _szTextAppend;
+            _oTargetStroke.text = Math.ceil(iValue) + _szTextAppend;
         }
     };
 
