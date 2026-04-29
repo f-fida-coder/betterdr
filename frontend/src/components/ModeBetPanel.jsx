@@ -51,42 +51,10 @@ const legLabelFor = (mode, index, total) => {
     return null;
 };
 
-const QUICK_STAKES = [10, 25, 50, 100];
-
-// Round a chip suggestion to a "nice" stake (nearest 5/10/25/50/100/500
-// depending on magnitude) so the auto-derived chips read as intentional
-// presets — $1000 not $1008, $500 not $483.
-const roundNiceStake = (value) => {
-    const n = Math.max(0, Math.round(Number(value) || 0));
-    if (n <= 0) return 0;
-    if (n < 50) return Math.round(n / 5) * 5;
-    if (n < 200) return Math.round(n / 10) * 10;
-    if (n < 1000) return Math.round(n / 50) * 50;
-    if (n < 5000) return Math.round(n / 100) * 100;
-    return Math.round(n / 500) * 500;
-};
-
-// When the user hasn't saved custom quick stakes, derive 4 chips from
-// their account [minBet, maxBet] so the presets respect their actual
-// betting range. min anchors the left chip, max anchors the right; the
-// two middle chips are evenly spaced and de-duplicated against the
-// anchors so [25, 500, 1000, 3000] reads cleanly instead of repeating.
-const deriveQuickStakesFromLimits = (minBet, maxBet) => {
-    const min = Number(minBet);
-    const max = Number(maxBet);
-    if (!Number.isFinite(min) || !Number.isFinite(max) || min <= 0 || max <= min) {
-        return null;
-    }
-    const mid1 = roundNiceStake(min + (max - min) * 0.18);
-    const mid2 = roundNiceStake(min + (max - min) * 0.45);
-    const chips = [min, mid1, mid2, max];
-    // Replace any duplicate / out-of-order entry with a value just above
-    // its predecessor so each chip stays distinct and ascending.
-    for (let i = 1; i < chips.length; i++) {
-        if (chips[i] <= chips[i - 1]) chips[i] = chips[i - 1] + roundNiceStake((max - min) / 8) || chips[i - 1] + 1;
-    }
-    return chips;
-};
+// Constant for every user — explicit business decision: quick stake
+// chips do not vary by per-user min/max or saved Bet Defaults. Anyone
+// wanting a different amount uses the typed Bet Amount input instead.
+const QUICK_STAKES = [25, 500, 1000, 3000];
 
 // Risk / Win mode toggle. `risk` = entered amount is the stake; `win`
 // flips the meaning so the entered amount is the desired payout and the
@@ -316,17 +284,10 @@ const ModeBetPanel = ({
     const defaultStakeAmount = Number.isFinite(Number(userBetDefaults?.amount)) && Number(userBetDefaults.amount) > 0
         ? Number(userBetDefaults.amount)
         : 0;
-    // Saved user defaults win first; otherwise derive 4 chips from the
-    // account's [minBet, maxBet] so the presets fit the user's actual
-    // limits (e.g. min=$25, max=$3000 → [$25, $500, $1000, $3000]). Only
-    // fall back to the project defaults when neither source is available.
-    const customQuickStakes = (() => {
-        if (Array.isArray(userBetDefaults?.quickStakes) && userBetDefaults.quickStakes.length === 4) {
-            return userBetDefaults.quickStakes.map((v) => Number(v) || 0);
-        }
-        const derived = deriveQuickStakesFromLimits(user?.minBet, user?.maxBet);
-        return derived || QUICK_STAKES;
-    })();
+    // Quick stakes are intentionally fixed across all users — saved
+    // settings.betDefaults.quickStakes are ignored here so every betslip
+    // shows the same [$25, $500, $1000, $3000] presets.
+    const customQuickStakes = QUICK_STAKES;
 
     // Single shared Bet/Risk/Win mode for the whole slip. The `wager`
     // value (driven by onWagerChange) is the user-typed Bet Amount in

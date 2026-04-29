@@ -197,6 +197,19 @@ final class BetSettlementService
                     $freeplayBalance = self::num($user['freeplayBalance'] ?? 0);
                     $acceptedPayout = self::num($bet['acceptedPayout'] ?? ($bet['potentialPayout'] ?? 0));
 
+                    // Mirror the placement-time branch in BetsController.php:244 — credit
+                    // accounts (creditLimit > 0) reserve stake in pendingBalance only and
+                    // never debit `balance` at placement, so settlement must:
+                    //  • LOSS  → debit `balance` by riskAmount (user now owes the house)
+                    //  • WIN   → credit `balance` by *profit only* (stake was never debited)
+                    //  • VOID  → leave `balance` alone (nothing to refund)
+                    // Cash accounts (creditLimit = 0) keep the existing semantics because
+                    // their stake was already moved out of `balance` at placement.
+                    // Freeplay bets follow the freeplay branches below regardless of role.
+                    $creditLimit     = self::num($user['creditLimit'] ?? 0);
+                    $userRole        = strtolower((string) ($user['role'] ?? 'user'));
+                    $isCreditAccount = !$isFreeplay && $userRole === 'user' && $creditLimit > 0;
+
                     // Freeplay bets never touched pendingBalance at placement, so don't adjust it.
                     $newPendingBalance = $isFreeplay
                         ? $pendingBalance
@@ -227,6 +240,12 @@ final class BetSettlementService
                             $balanceAfter = $freeplayBalance + $riskAmount;
                             $userUpdate['freeplayBalance'] = $balanceAfter;
                             $transactionType = 'fp_bet_void';
+                        } elseif ($isCreditAccount) {
+                            // Credit account: stake was never debited from balance at
+                            // placement, so void freeing pendingBalance restores the
+                            // pre-placement state. Do NOT credit balance.
+                            $balanceAfter = $balance;
+                            $transactionType = 'bet_void';
                         } else {
                             $balanceAfter = $balance + $riskAmount;
                             $userUpdate['balance'] = $balanceAfter;
@@ -247,6 +266,18 @@ final class BetSettlementService
                             $transactionType  = 'fp_bet_won';
                             $transactionAmount = $profit;
                             $description = strtoupper((string) ($bet['type'] ?? 'straight')) . ' freeplay bet won - profit credited';
+                        } elseif ($isCreditAccount) {
+                            // Credit account win: stake was never debited from balance,
+                            // so credit only the profit (payout − risk). Crediting full
+                            // payout would gift the user an extra `risk` of credit.
+                            $profit = max(0.0, $ticketPayout - $riskAmount);
+                            $balanceBefore = $balance;
+                            $balanceAfter  = $balance + $profit;
+                            $userUpdate['balance'] = $balanceAfter;
+                            $userUpdate['totalWinnings'] = self::num($user['totalWinnings'] ?? 0) + $profit;
+                            $transactionType  = 'bet_won';
+                            $transactionAmount = $profit;
+                            $description = strtoupper((string) ($bet['type'] ?? 'straight')) . ' bet won - profit credited (credit account)';
                         } else {
                             $balanceBefore = $balance;
                             $balanceAfter  = $balance + $ticketPayout;
@@ -258,6 +289,18 @@ final class BetSettlementService
                         }
                         $results['won']++;
                     } else {
+                        // LOSS path. Cash accounts already had stake debited from balance
+                        // at placement → no-op is correct. Credit accounts had stake held
+                        // in pendingBalance only, so LOSS must now debit balance to record
+                        // the user's debt to the house. Without this, freeing pending
+                        // would silently restore their available credit, which is the
+                        // exact symptom NJG101 reported.
+                        if ($isCreditAccount) {
+                            $balanceBefore = $balance;
+                            $balanceAfter  = $balance - $riskAmount;
+                            $userUpdate['balance'] = $balanceAfter;
+                            $description = strtoupper((string) ($bet['type'] ?? 'straight')) . ' bet lost - balance debited (credit account)';
+                        }
                         $results['lost']++;
                     }
 
