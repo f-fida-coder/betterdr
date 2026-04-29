@@ -6,6 +6,7 @@ import {
   getTransactionsHistory,
   getDeletedWagers,
   getAdminBets,
+  deleteAdminBet,
   deleteAdminTransactions,
   updateUserFreeplay,
   updateUserByAdmin,
@@ -520,6 +521,14 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
   const [impersonating, setImpersonating] = useState(false);
   const [impersonateError, setImpersonateError] = useState('');
   const [agentSettlementBalance, setAgentSettlementBalance] = useState(null);
+  // Pending sportsbook bets (for the dedicated Pending section so the
+  // agent can see and delete unsettled wagers per-customer). Loaded on
+  // demand when the Pending tile / quick menu item is clicked.
+  const [pendingBets, setPendingBets] = useState([]);
+  const [pendingBetsLoading, setPendingBetsLoading] = useState(false);
+  const [pendingBetsError, setPendingBetsError] = useState('');
+  const [pendingBetsNotice, setPendingBetsNotice] = useState('');
+  const [pendingBetDeletingId, setPendingBetDeletingId] = useState('');
 
   // Commission / hierarchy state (agents only)
   const [commissionChain, setCommissionChain] = useState(null);      // { upline, downlines, chainTotal, isValid }
@@ -721,6 +730,55 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
 
     if (userId) fetchDetails();
   }, [role, userId]);
+
+  // Pending sportsbook bets — fetched on demand for the dedicated Pending
+  // section. Mirrors the bettorjuice365 layout (Description / Risk / To
+  // Win + totals row) with an extra Delete column so an agent can void a
+  // pending wager without leaving the customer page. Risk stays as-is in
+  // the bet doc (we delegate the refund to deleteAdminBet on the
+  // backend).
+  const loadPendingBets = async (showLoader = true) => {
+    if (!customer?.username) return;
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setPendingBetsError('Please login to view pending bets.');
+      return;
+    }
+    try {
+      if (showLoader) setPendingBetsLoading(true);
+      setPendingBetsError('');
+      const data = await getAdminBets({
+        customer: customer.username,
+        status: 'pending',
+        limit: 500,
+      }, token);
+      const bets = Array.isArray(data?.bets) ? data.bets : [];
+      setPendingBets(bets);
+    } catch (err) {
+      setPendingBetsError(err?.message || 'Failed to load pending bets');
+    } finally {
+      if (showLoader) setPendingBetsLoading(false);
+    }
+  };
+
+  const handleDeletePendingBet = async (betId) => {
+    if (!betId) return;
+    if (!window.confirm('Delete this pending bet? Risk will be refunded to the player.')) return;
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    try {
+      setPendingBetDeletingId(betId);
+      setPendingBetsError('');
+      setPendingBetsNotice('');
+      await deleteAdminBet(betId, token);
+      setPendingBetsNotice('Bet deleted.');
+      await loadPendingBets(false);
+    } catch (err) {
+      setPendingBetsError(err?.message || 'Failed to delete bet');
+    } finally {
+      setPendingBetDeletingId('');
+    }
+  };
 
   // Load commission chain when the 'commission' section is opened for an agent
   const loadCommissionChain = async () => {
@@ -1542,10 +1600,10 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
       setTxTypeFilter('deposit_withdrawal');
       setTxStatusFilter('all');
     } else if (sectionId === 'pending') {
-      setActiveSection('transactions');
-      setTxDisplayFilter('7d');
-      setTxTypeFilter('deposit_withdrawal');
-      setTxStatusFilter('pending');
+      setActiveSection('pending-bets');
+      setPendingBetsError('');
+      setPendingBetsNotice('');
+      loadPendingBets();
     } else if (sectionId === 'performance') {
       setActiveSection('performance');
     } else if (sectionId === 'freeplays') {
@@ -2252,7 +2310,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
               </>);
             })() : (
             <>
-              <button type="button" className={`detail-item detail-metric${activeSection === 'transactions' && txStatusFilter === 'pending' ? ' detail-metric-active' : ''}`} onClick={() => openSection('pending')}>
+              <button type="button" className={`detail-item detail-metric${activeSection === 'pending-bets' ? ' detail-metric-active' : ''}`} onClick={() => openSection('pending')}>
                 <span className="detail-label">Pending</span>
                 <strong className="detail-value neutral">{formatCurrency(pendingBalance)}</strong>
               </button>
@@ -2346,10 +2404,12 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
               <span></span><span></span><span></span>
             </div>
           </button>
-          <h3>{activeSection === 'transactions' ? 'Transactions' : activeSection === 'performance' ? 'Performance' : activeSection === 'freeplays' ? 'Free Play' : activeSection === 'dynamic-live' ? 'Dynamic Live' : activeSection === 'live-casino' ? 'Live Casino' : activeSection === 'commission' ? 'Commission Tree' : 'The Basics'}</h3>
+          <h3>{activeSection === 'transactions' ? 'Transactions' : activeSection === 'pending-bets' ? 'Pending Bets' : activeSection === 'performance' ? 'Performance' : activeSection === 'freeplays' ? 'Free Play' : activeSection === 'dynamic-live' ? 'Dynamic Live' : activeSection === 'live-casino' ? 'Live Casino' : activeSection === 'commission' ? 'Commission Tree' : 'The Basics'}</h3>
         </div>
         {activeSection === 'transactions' ? (
           <button className="btn btn-back" onClick={openTransactionSlip}>New transaction</button>
+        ) : activeSection === 'pending-bets' ? (
+          <button className="btn btn-back" onClick={() => loadPendingBets()} disabled={pendingBetsLoading}>{pendingBetsLoading ? 'Loading...' : 'Refresh'}</button>
         ) : activeSection === 'freeplays' ? (
           <div style={{ display: 'flex', gap: '8px' }}>
             <button className="btn btn-back" onClick={() => { setFreePlayModalMode('withdraw'); setFreePlayError(''); setShowNewFreePlayModal(true); }}>Withdraw</button>
@@ -2385,7 +2445,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
         </>
       )}
 
-      {activeSection === 'transactions' ? txError && <div className="alert error">{txError}</div> : activeSection === 'performance' ? performanceError && <div className="alert error">{performanceError}</div> : activeSection === 'freeplays' ? freePlayError && <div className="alert error">{freePlayError}</div> : activeSection === 'dynamic-live' ? dynamicLiveError && <div className="alert error">{dynamicLiveError}</div> : activeSection === 'live-casino' ? casinoError && <div className="alert error">{casinoError}</div> : error && <div className="alert error">{error}</div>}
+      {activeSection === 'transactions' ? txError && <div className="alert error">{txError}</div> : activeSection === 'pending-bets' ? pendingBetsError && <div className="alert error">{pendingBetsError}</div> : activeSection === 'performance' ? performanceError && <div className="alert error">{performanceError}</div> : activeSection === 'freeplays' ? freePlayError && <div className="alert error">{freePlayError}</div> : activeSection === 'dynamic-live' ? dynamicLiveError && <div className="alert error">{dynamicLiveError}</div> : activeSection === 'live-casino' ? casinoError && <div className="alert error">{casinoError}</div> : error && <div className="alert error">{error}</div>}
       {activeSection === 'transactions' ? txSuccess && <div className="alert success">{txSuccess}</div> : activeSection === 'freeplays' ? freePlaySuccess && <div className="alert success">{freePlaySuccess}</div> : activeSection === 'dynamic-live' ? dynamicLiveSuccess && <div className="alert success">{dynamicLiveSuccess}</div> : activeSection === 'live-casino' ? casinoSuccess && <div className="alert success">{casinoSuccess}</div> : success && <div className="alert success">{success}</div>}
       {activeSection === 'basics' && duplicateWarning && (
         <div className="duplicate-warning-state">
@@ -2742,6 +2802,115 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
           </div>
 
           <button className="btn btn-danger" onClick={handleDeleteSelected} disabled={selectedTxIds.length === 0}>Delete Selected</button>
+        </div>
+      ) : activeSection === 'pending-bets' ? (
+        <div className="transactions-wrap">
+          {pendingBetsNotice && <div className="alert success">{pendingBetsNotice}</div>}
+          {(() => {
+            // Build the player-facing description for one bet, mirroring
+            // the bettorjuice365 reference: top-line label "Parlay - N
+            // Teams" / "Straight" + an indented list of legs ("Lakers
+            // -4 -110"). For a single-leg straight we collapse to one
+            // line so the row reads cleanly.
+            const americanFromDecimal = (dec) => {
+              const d = Number(dec);
+              if (!Number.isFinite(d) || d <= 1) return '';
+              const american = d >= 2 ? Math.round((d - 1) * 100) : Math.round(-100 / (d - 1));
+              return american > 0 ? `+${american}` : `${american}`;
+            };
+            const legLine = (leg) => {
+              const market = String(leg?.marketType || '').toLowerCase();
+              const selection = String(leg?.selection || '').trim();
+              const point = Number(leg?.point);
+              const american = americanFromDecimal(leg?.odds);
+              if (market === 'spreads' && Number.isFinite(point)) {
+                const signed = point > 0 ? `+${point}` : `${point}`;
+                return `${selection} ${signed}${american ? ` ${american}` : ''}`.trim();
+              }
+              if (market === 'totals' && Number.isFinite(point)) {
+                const isUnder = selection.toLowerCase().startsWith('u');
+                return `${isUnder ? 'Under' : 'Over'} ${Math.abs(point)}${american ? ` ${american}` : ''}`.trim();
+              }
+              return `${selection || 'ML'}${american ? ` ${american}` : ''}`.trim();
+            };
+            const winFromBet = (bet) => {
+              const risk = Number(bet?.amount || 0);
+              const payout = Number(bet?.potentialPayout || 0);
+              return Math.max(0, payout - risk);
+            };
+            const totalRisk = pendingBets.reduce((sum, b) => sum + Number(b?.amount || 0), 0);
+            const totalWin = pendingBets.reduce((sum, b) => sum + winFromBet(b), 0);
+            return (
+              <div className="tx-table-wrap">
+                <table className="tx-table">
+                  <thead>
+                    <tr>
+                      <th>Description</th>
+                      <th>Risk</th>
+                      <th>To Win</th>
+                      <th className="tx-actions-col">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pendingBetsLoading ? (
+                      <tr><td colSpan={4} className="tx-empty">Loading pending bets...</td></tr>
+                    ) : pendingBets.length === 0 ? (
+                      <tr><td colSpan={4} className="tx-empty">No pending bets</td></tr>
+                    ) : pendingBets.map((bet) => {
+                      const type = String(bet?.type || 'straight').toLowerCase();
+                      const selections = Array.isArray(bet?.selections) ? bet.selections : [];
+                      const isMulti = selections.length > 1;
+                      const headline = isMulti
+                        ? (type === 'parlay' ? `Parlay - ${selections.length} Teams`
+                            : type === 'teaser' ? `Teaser - ${selections.length} Teams`
+                            : type === 'if_bet' ? `If Bet - ${selections.length} Legs`
+                            : type === 'reverse' ? `Reverse - ${selections.length} Legs`
+                            : `${type.toUpperCase()} - ${selections.length} Legs`)
+                        : (selections[0] ? legLine(selections[0]) : 'Straight');
+                      const risk = Number(bet?.amount || 0);
+                      const win = winFromBet(bet);
+                      return (
+                        <tr key={bet.id}>
+                          <td>
+                            <div style={{ fontWeight: 600 }}>{headline}</div>
+                            {isMulti && (
+                              <div style={{ marginTop: 4, paddingLeft: 12, fontSize: 12, color: '#475569' }}>
+                                {selections.map((leg, i) => (
+                                  <div key={`${bet.id}-leg-${i}`}>{legLine(leg)}</div>
+                                ))}
+                              </div>
+                            )}
+                          </td>
+                          <td className="neg" style={{ fontWeight: 700 }}>{formatCurrency(risk)}</td>
+                          <td style={{ fontWeight: 700 }}>{formatCurrency(win)}</td>
+                          <td className="tx-actions-col">
+                            <button
+                              type="button"
+                              className="tx-row-delete"
+                              onClick={() => handleDeletePendingBet(bet.id)}
+                              disabled={pendingBetDeletingId === bet.id}
+                            >
+                              {pendingBetDeletingId === bet.id ? 'Deleting...' : 'Delete'}
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  {pendingBets.length > 0 && (
+                    <tfoot>
+                      <tr>
+                        <td style={{ textAlign: 'right', fontWeight: 700 }}>Total Risk: <span className="neg">{formatCurrency(totalRisk)}</span> &nbsp; Total Win: <strong>{formatCurrency(totalWin)}</strong></td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+            );
+          })()}
         </div>
       ) : activeSection === 'performance' ? (
         <div className="performance-wrap">
