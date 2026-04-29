@@ -1,9 +1,10 @@
 // Broadcast network → display chip resolution. Rundown returns network
 // names as raw strings ("ESPN", "TNT", "Prime Video", "ESPN/ESPN+",
 // "Bally Sports Southwest", etc.). We normalize them into a small set
-// of recognized brands with brand-correct chip colors, falling back to
-// "Local TV" for regional sports networks and unknown channels so the
-// row never reads as "Unknown".
+// of recognized brands with brand-correct chip colors. Unrecognized
+// strings (random RSNs, generic placeholders) return null so the chip
+// is hidden — a generic "Local TV" badge added noise without telling
+// the user which channel actually carries the game.
 //
 // To keep the bundle small we use color-only chips with the brand name
 // printed inside — no SVG logo set. That's enough to be visually
@@ -38,8 +39,6 @@ const BROADCAST_BRANDS = [
     { id: 'tsn',         match: /\btsn\b/i,                 bg: '#0c2340', fg: '#fff', name: 'TSN' },
 ];
 
-const RSN_FALLBACK = { id: 'local',  bg: '#475569', fg: '#fff', name: 'LOCAL TV' };
-
 export const resolveBroadcast = (raw) => {
     const value = typeof raw === 'string' ? raw.trim() : '';
     if (!value) return null;
@@ -48,9 +47,8 @@ export const resolveBroadcast = (raw) => {
             return { ...brand, raw: value };
         }
     }
-    // Unknown channel — likely a regional sports network. Use generic
-    // "Local TV" chip rather than echoing the unrecognized string back
-    // (per spec: omit unknowns gracefully, but here we still know there
-    // *is* a broadcast — just not which national brand).
-    return { ...RSN_FALLBACK, raw: value };
+    // Unknown channel — hide the chip rather than show a generic
+    // "Local TV" placeholder. Better to render nothing than confuse
+    // the user with a label that conveys no real information.
+    return null;
 };

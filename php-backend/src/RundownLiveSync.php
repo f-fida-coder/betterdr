@@ -404,9 +404,14 @@ final class RundownLiveSync
         // Broadcast / event metadata from Rundown — used for the "[TIME]
         // EST - [GAME CONTEXT] - [NETWORK]" row above each odds-board card.
         // Rundown provides `broadcast` (string) and `event_name` (e.g.
-        // "WEST 1ST ROUND GAME 5"); we capture both whenever present.
+        // "WEST 1ST ROUND GAME 5"). For live events Rundown is the source
+        // of truth: when it returns no broadcast, we explicitly CLEAR the
+        // field so stale prematch placeholders ("MLB.TV", "TBD") don't
+        // leak onto the in-play card. Letting OddsAPI's prematch value
+        // survive caused every MLB live game to flash an "MLB.TV" chip
+        // even though Rundown didn't actually report any network.
         $broadcast = self::extractBroadcast($event);
-        if ($broadcast !== '') $update['broadcast'] = $broadcast;
+        $update['broadcast'] = $broadcast !== '' ? $broadcast : '';
         $eventName = trim((string) ($event['event_name'] ?? ''));
         if ($eventName !== '') $update['eventName'] = $eventName;
         // Push the short display name + current win-loss record onto the row
