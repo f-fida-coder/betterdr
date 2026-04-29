@@ -396,7 +396,7 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
                     >
                         <div style={mhBalanceRowStyle}>
                             <span style={mhBalanceHeroLabelStyle}>Balance</span>
-                            <span style={{ ...mhBalanceHeroValueStyle, color: balanceSignColor(balance) }}>
+                            <span style={{ ...mhBalanceHeroValueStyle, color: '#ffffff' }}>
                                 {formatBalanceCell(balance)}
                             </span>
                         </div>
