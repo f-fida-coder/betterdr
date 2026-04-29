@@ -114,10 +114,10 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
     // (rounded integers with a leading "$").
     const formatBalanceCell = (value) => {
         if (unlimitedBalance) return 'Unl.';
-        if (value === null || value === undefined || value === '') return '0';
+        if (value === null || value === undefined || value === '') return '$0';
         const num = Number(value);
-        if (Number.isNaN(num)) return '0';
-        return Math.ceil(num).toLocaleString('en-US', { maximumFractionDigits: 0 });
+        if (Number.isNaN(num)) return '$0';
+        return `$${Math.ceil(num).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
     };
 
     // Color the balance amount by sign — green positive, red negative, white
@@ -402,18 +402,15 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
                         </div>
                         <div style={mhBalanceRowDividerStyle} aria-hidden="true" />
                         <div style={mhBalanceRowStyle}>
-                            <span style={mhBalanceLabelStyle}>Pending</span>
-                            <span style={mhBalanceValueStyle}>{formatBalanceCell(pendingBalance)}</span>
+                            <span style={mhBalanceHeroLabelStyle}>Pending</span>
+                            <span style={{ ...mhBalanceHeroValueStyle, color: '#ffffff' }}>
+                                {formatBalanceCell(pendingBalance)}
+                            </span>
                         </div>
                         <div style={mhBalanceRowDividerStyle} aria-hidden="true" />
                         <div style={mhBalanceRowStyle}>
-                            <span style={mhBalanceLabelStyle}>Available</span>
-                            <span
-                                style={{
-                                    ...mhBalanceValueStyle,
-                                    color: Number(headerAvailable) > 0 ? '#34d399' : '#fff',
-                                }}
-                            >
+                            <span style={mhBalanceHeroLabelStyle}>Available</span>
+                            <span style={{ ...mhBalanceHeroValueStyle, color: '#ffffff' }}>
                                 {formatBalanceCell(headerAvailable)}
                             </span>
                         </div>
