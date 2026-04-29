@@ -859,8 +859,16 @@ final class RundownLiveSync
     private static function americanToDecimal(float $american): ?float
     {
         if ($american === 0.0) return null;
-        if ($american > 0) return round(1 + ($american / 100), 4);
-        return round(1 + (100 / abs($american)), 4);
+        // Keep full-precision conversion (no 4-decimal truncation) and let
+        // the shared snap helper decide whether to keep it as a clean
+        // integer-American decimal or pass through a half-point as-is. A
+        // pre-snap round() to 4dp drops 1 + 100/120 = 1.83333… to 1.8333,
+        // which made every -120 stake compute Risk = $1200.05 instead of
+        // exactly $1200.
+        $decimal = $american > 0
+            ? 1.0 + ($american / 100.0)
+            : 1.0 + (100.0 / abs($american));
+        return SportsbookBetSupport::snapDecimalOdds($decimal);
     }
 
     /**

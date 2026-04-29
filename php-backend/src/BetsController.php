@@ -832,8 +832,12 @@ final class BetsController
             ]);
         }
 
-        $officialOdds = (float) $outcome['price'];
-        $clientOdds = is_numeric($odds) ? (float) $odds : 0.0;
+        // Snap to the nearest clean American integer when the upstream value
+        // is just floating-point noise (e.g. 1.83330 → 1.83333... so -120
+        // really is -120 in math too). Genuine half-points like real -120.5
+        // are preserved untouched.
+        $officialOdds = SportsbookBetSupport::snapDecimalOdds($outcome['price']);
+        $clientOdds = is_numeric($odds) ? SportsbookBetSupport::snapDecimalOdds($odds) : 0.0;
         if (!is_finite($officialOdds) || $officialOdds <= 0) {
             throw new ApiException('Invalid odds for selection ' . $selection, 409, [
                 'code' => 'INVALID_ODDS',

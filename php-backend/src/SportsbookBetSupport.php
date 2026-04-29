@@ -115,6 +115,44 @@ final class SportsbookBetSupport
     }
 
     /**
+     * Snap a decimal odds value to the cleanest American line that's within
+     * tolerance, so what the player sees on the ticket actually matches the
+     * Risk/Win math. Upstream feeds frequently store -120 as 1.8333 (4dp
+     * truncation) or 1.83000 (3dp); we promote those back to the exact
+     * 1 + 100/120 = 1.83333... so 1000-win → 1200-risk to the penny. If the
+     * value is genuinely between integer American lines (e.g. real -120.5 →
+     * 1.829876…) we leave it alone so the half-point survives end-to-end.
+     *
+     * Rule: convert decimal → exact American (no rounding); compute the
+     * decimal of the *rounded* American integer; if that decimal is within
+     * 0.001 of the input, snap. Otherwise keep the input unchanged.
+     */
+    public static function snapDecimalOdds(mixed $value): float
+    {
+        $decimal = is_numeric($value) ? (float) $value : 0.0;
+        if (!is_finite($decimal) || $decimal <= 1.0) {
+            return $decimal;
+        }
+
+        $american = $decimal >= 2.0
+            ? ($decimal - 1.0) * 100.0
+            : -100.0 / ($decimal - 1.0);
+        if (!is_finite($american) || $american === 0.0) {
+            return $decimal;
+        }
+
+        $rounded = (float) round($american);
+        if ($rounded === 0.0) {
+            return $decimal;
+        }
+        $integerDecimal = $rounded > 0
+            ? 1.0 + ($rounded / 100.0)
+            : 1.0 + (100.0 / abs($rounded));
+
+        return abs($decimal - $integerDecimal) < 0.001 ? $integerDecimal : $decimal;
+    }
+
+    /**
      * @param array<string, mixed> $validatedSelection
      * @return array<string, mixed>
      */

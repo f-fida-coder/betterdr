@@ -24,6 +24,40 @@ export const setMyBetsInitialFilter = (filter) => {
     }
 };
 
+// Player-facing market label + line for one leg row. Maps the internal
+// market type (h2h / spreads / totals) to the universal sportsbook
+// shorthand (ML / Spread / Over / Under). Returns { label, line } so the
+// caller can render `{label} {line}` without trailing whitespace when the
+// line is empty (e.g. moneyline). A non-zero `teaserAdjustment` or an
+// explicit `buyPoints` flag adds a trailing "(BP)" so buy-points / teaser
+// shifts are visually distinct from the base line.
+const legPickLabel = (leg) => {
+    const market = String(leg?.marketType || '').toLowerCase();
+    const selection = String(leg?.selection || '').trim();
+    const pointRaw = leg?.point;
+    const point = Number.isFinite(Number(pointRaw)) ? Number(pointRaw) : null;
+    const isBuyPoints = !!leg?.buyPoints
+        || (Number.isFinite(Number(leg?.teaserAdjustment)) && Number(leg.teaserAdjustment) !== 0);
+    const bpSuffix = isBuyPoints ? ' (BP)' : '';
+
+    if (market === 'spreads') {
+        const line = point === null ? '' : formatLineValue(point, { signed: true });
+        return { label: 'Spread', pick: selection, line: line ? `${line}${bpSuffix}` : bpSuffix.trim() };
+    }
+    if (market === 'totals') {
+        const isUnder = selection.toLowerCase().startsWith('u');
+        const line = point === null ? '' : formatLineValue(Math.abs(point));
+        return {
+            label: isUnder ? 'Under' : 'Over',
+            pick: '',
+            line: line ? `${line}${bpSuffix}` : bpSuffix.trim(),
+        };
+    }
+    // h2h / moneyline / anything else: never show a line, never the
+    // stored point=0 sentinel that older rows leak into selection text.
+    return { label: 'ML', pick: selection, line: '' };
+};
+
 const formatStatus = (value) => {
     const normalized = normalizeStatus(value);
     if (normalized === 'won') return 'WON';
@@ -360,14 +394,11 @@ const MyBetsView = () => {
                                                 const legTheme = statusTheme(leg?.status);
                                                 const home = leg?.matchSnapshot?.homeTeam || '';
                                                 const away = leg?.matchSnapshot?.awayTeam || '';
-                                                const pick = leg?.selection || '—';
-                                                const market = String(leg?.marketType || 'STRAIGHT').toUpperCase();
-                                                const line = formatLineValue(leg?.point, {
-                                                    signed: String(leg?.marketType || '').toLowerCase() === 'spreads',
-                                                    fallback: '',
-                                                });
-                                                const pickIsAway = away && pick && pick.toLowerCase() === away.toLowerCase();
-                                                const pickIsHome = home && pick && pick.toLowerCase() === home.toLowerCase();
+                                                const rawPick = leg?.selection || '';
+                                                const { label, pick, line } = legPickLabel(leg);
+                                                const displayPick = pick || rawPick || '—';
+                                                const pickIsAway = away && rawPick && rawPick.toLowerCase() === away.toLowerCase();
+                                                const pickIsHome = home && rawPick && rawPick.toLowerCase() === home.toLowerCase();
                                                 return (
                                                     <div key={`${betId}-leg-${idx}`} className="my-bet-leg-item">
                                                         <div className="my-bet-leg-teams">
@@ -376,8 +407,8 @@ const MyBetsView = () => {
                                                             <span className={`my-bet-team ${pickIsHome ? 'picked' : ''}`}>{home || 'Home'}</span>
                                                         </div>
                                                         <div className="my-bet-leg-pick-row">
-                                                            <span className="my-bet-leg-market">{market}</span>
-                                                            <span className="my-bet-leg-pick">{pick}{line ? ` ${line}` : ''}</span>
+                                                            <span className="my-bet-leg-market">{label}</span>
+                                                            <span className="my-bet-leg-pick">{displayPick}{line ? ` ${line}` : ''}</span>
                                                             <span className="my-bet-leg-odds">{formatOdds(leg.odds, oddsFormat)}</span>
                                                             <span className={`my-bet-leg-status ${legTheme}`}>{formatStatus(leg.status)}</span>
                                                         </div>
