@@ -2550,9 +2550,10 @@ I need active players so if you could do me a solid and place a bet today even i
                           <span className="sym">$</span>
                           <input
                             type="number"
-                            step="0.01"
+                            step="1"
+                            inputMode="numeric"
                             value={balanceForm.nextBalance}
-                            onChange={e => setBalanceForm({ ...balanceForm, nextBalance: e.target.value })}
+                            onChange={e => setBalanceForm({ ...balanceForm, nextBalance: String(e.target.value).replace(/[^\d-]/g, '') })}
                             autoFocus
                             required
                           />

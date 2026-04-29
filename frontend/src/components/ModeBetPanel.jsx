@@ -88,8 +88,8 @@ const resolveStake = (mode, amount, decimalOdds) => {
 
 const formatMoney = (value) => {
     const n = Number(value);
-    if (!Number.isFinite(n) || n === 0) return '0.00';
-    return (Math.round(n * 100) / 100).toFixed(2);
+    if (!Number.isFinite(n) || n === 0) return '0';
+    return String(Math.round(n));
 };
 
 // Trim trailing zeros: 1.50 -> "1.5", 47.0 -> "47", 47.5 -> "47.5".
@@ -659,11 +659,11 @@ const ModeBetPanel = ({
             // user typed stays exact so a $1000 win request reads back
             // as $1000.00 even after Apply to All.
             if (stakeMode === 'win') {
-                const risk = Math.round((amt / (d - 1)) * 100) / 100;
-                return { ...s, wagerOverride: { source: 'win', riskRaw: String(risk), winRaw: String(amt) } };
+                const risk = Math.round(amt / (d - 1));
+                return { ...s, wagerOverride: { source: 'win', riskRaw: String(risk), winRaw: String(Math.round(amt)) } };
             }
-            const win = Math.round(amt * (d - 1) * 100) / 100;
-            return { ...s, wagerOverride: { source: 'risk', riskRaw: String(amt), winRaw: String(win) } };
+            const win = Math.round(amt * (d - 1));
+            return { ...s, wagerOverride: { source: 'risk', riskRaw: String(Math.round(amt)), winRaw: String(win) } };
         });
         onSelectionsChange(next);
     }, [wager, stakeMode, selections, onSelectionsChange, showToast]);
@@ -1181,10 +1181,11 @@ const ModeBetPanel = ({
                                 <input
                                     type="number"
                                     min="0"
-                                    inputMode="decimal"
+                                    step="1"
+                                    inputMode="numeric"
                                     placeholder="Bet Amount"
                                     value={wager}
-                                    onChange={(e) => onWagerChange(e.target.value)}
+                                    onChange={(e) => onWagerChange(String(e.target.value).replace(/\D/g, ''))}
                                     onFocus={(e) => { e.currentTarget.parentElement.style.borderColor = palette.accent; }}
                                     onBlur={(e) => { e.currentTarget.parentElement.style.borderColor = palette.cardBorder; }}
                                     style={{
@@ -1685,19 +1686,17 @@ const ModeBetPanel = ({
                                                     <span style={{ fontSize: 12, fontWeight: 800, color: field.isPositive ? field.color : palette.textFaint }}>$</span>
                                                     <input
                                                         type="text"
-                                                        inputMode="decimal"
+                                                        inputMode="numeric"
                                                         value={field.value}
                                                         onChange={(e) => {
-                                                            // Only digits + at most one decimal — keeps
-                                                            // the input feeling like a money field on
-                                                            // mobile without an aggressive number type
-                                                            // that strips trailing dots while typing.
-                                                            const cleaned = String(e.target.value).replace(/[^0-9.]/g, '');
-                                                            const onlyOneDot = cleaned.replace(/(\..*)\./g, '$1');
+                                                            // Whole-dollar amounts only — strip anything
+                                                            // that isn't a digit so users can't enter
+                                                            // cents.
+                                                            const cleaned = String(e.target.value).replace(/\D/g, '');
                                                             updateSelection(sel.id, {
                                                                 wagerOverride: field.id === 'risk'
-                                                                    ? { source: 'risk', riskRaw: onlyOneDot, winRaw: '' }
-                                                                    : { source: 'win', riskRaw: '', winRaw: onlyOneDot },
+                                                                    ? { source: 'risk', riskRaw: cleaned, winRaw: '' }
+                                                                    : { source: 'win', riskRaw: '', winRaw: cleaned },
                                                             });
                                                         }}
                                                         placeholder="0"

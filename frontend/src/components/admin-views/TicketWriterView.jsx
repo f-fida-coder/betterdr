@@ -175,9 +175,11 @@ function TicketWriterView() {
                   type="number"
                   name="amount"
                   value={formData.amount}
-                  onChange={handleChange}
+                  onChange={(e) => handleChange({ target: { name: 'amount', value: String(e.target.value).replace(/\D/g, '') } })}
                   placeholder="e.g., 100"
-                  step="0.01"
+                  step="1"
+                  inputMode="numeric"
+                  min="0"
                   required
                 />
               </div>

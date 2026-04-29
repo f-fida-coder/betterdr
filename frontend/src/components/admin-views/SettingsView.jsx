@@ -137,7 +137,9 @@ function SettingsView() {
                     name="minBet"
                     value={settings.minBet}
                     onChange={handleChange}
-                    step="0.01"
+                    step="1"
+                    inputMode="numeric"
+                    min="0"
                   />
                 </div>
                 <div className="form-group">

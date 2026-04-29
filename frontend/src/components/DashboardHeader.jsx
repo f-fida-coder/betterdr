@@ -114,10 +114,10 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
     // (rounded integers with a leading "$").
     const formatBalanceCell = (value) => {
         if (unlimitedBalance) return 'Unl.';
-        if (value === null || value === undefined || value === '') return '0.00';
+        if (value === null || value === undefined || value === '') return '0';
         const num = Number(value);
-        if (Number.isNaN(num)) return '0.00';
-        return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        if (Number.isNaN(num)) return '0';
+        return Math.round(num).toLocaleString('en-US', { maximumFractionDigits: 0 });
     };
 
     // Color the balance amount by sign — green positive, red negative, white

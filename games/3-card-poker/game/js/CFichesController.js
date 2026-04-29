@@ -87,7 +87,7 @@ function CFichesController(){
         
         _oBetAmountText.x = iXPos;
         _oBetAmountText.y = iYPos + 35;
-        _oBetAmountText.text = _iValue.toFixed(2) + TEXT_CURRENCY;
+        _oBetAmountText.text = Math.round(_iValue) + TEXT_CURRENCY;
     };
 		
     this.createFichesPile = function(iAmount,iX,iY){

@@ -139,7 +139,7 @@ function BetTickerView() {
           </div>
           <div className="summary-stat">
             <span className="label">Total Wagered</span>
-            <span className="value">${bets.reduce((sum, b) => sum + parseFloat(b.amount.replace('$', '')), 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+            <span className="value">${Math.round(bets.reduce((sum, b) => sum + parseFloat(b.amount.replace(/[$,]/g, '')), 0)).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
           </div>
           <div className="summary-stat">
             <span className="label">Avg Odds</span>

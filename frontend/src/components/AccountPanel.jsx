@@ -61,8 +61,8 @@ const palette = {
 
 const formatMoney = (value) => {
     const number = Number(value);
-    if (!Number.isFinite(number)) return '0.00';
-    return number.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    if (!Number.isFinite(number)) return '0';
+    return Math.round(number).toLocaleString(undefined, { maximumFractionDigits: 0 });
 };
 
 // Whole-dollar formatter for tiles where decimals add noise (e.g. Free Play
@@ -435,10 +435,11 @@ const BetDefaultsCard = ({ user, onSaved }) => {
                         <input
                             type="number"
                             min="0"
-                            inputMode="decimal"
+                            step="1"
+                            inputMode="numeric"
                             placeholder="50"
                             value={amount}
-                            onChange={(e) => setAmount(e.target.value)}
+                            onChange={(e) => setAmount(String(e.target.value).replace(/\D/g, ''))}
                             style={{
                                 width: '100%',
                                 padding: '10px 12px 10px 24px',

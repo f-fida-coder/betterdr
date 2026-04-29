@@ -2597,11 +2597,12 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
                   <input
                     type="number"
                     min="0"
-                    step="0.01"
+                    step="1"
+                    inputMode="numeric"
                     className="commission-input"
                     placeholder="Amount (e.g. 1000)"
                     value={calcAmount}
-                    onChange={(e) => { setCalcAmount(e.target.value); setCalcResult(null); setCalcError(''); }}
+                    onChange={(e) => { setCalcAmount(String(e.target.value).replace(/\D/g, '')); setCalcResult(null); setCalcError(''); }}
                   />
                   <button className="btn btn-back" onClick={handleCalculateCommission} disabled={calcLoading}>
                     {calcLoading ? 'Calculating...' : 'Calculate'}
@@ -2630,13 +2631,13 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
                             <td className="commission-username">{d.isSharedNode && d.linkedUsername ? `${d.username}/${d.linkedUsername}` : (d.username || '—')}</td>
                             <td>{d.role ? d.role.replace(/_/g, ' ') : '—'}</td>
                             <td>{d.effectivePercent != null ? `${d.effectivePercent}%` : (d.agentPercent != null ? `${d.agentPercent}%` : '—')}</td>
-                            <td className="commission-amount">${Number(d.amount || 0).toFixed(2)}</td>
+                            <td className="commission-amount">${Math.round(Number(d.amount || 0))}</td>
                           </tr>
                         ))}
                         <tr className="commission-total-row">
                           <td colSpan={3}><strong>Total</strong></td>
                           <td className="commission-amount">
-                            <strong>${calcResult.distributions.reduce((s, d) => s + Number(d.amount || 0), 0).toFixed(2)}</strong>
+                            <strong>${Math.round(calcResult.distributions.reduce((s, d) => s + Number(d.amount || 0), 0))}</strong>
                           </td>
                         </tr>
                       </tbody>

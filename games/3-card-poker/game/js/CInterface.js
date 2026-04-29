@@ -153,7 +153,7 @@ function CInterface(iMoney){
                     460, CANVAS_HEIGHT - 84, 155, 30, 
                     30, "right", "#ffde00", FONT_GAME_2, 1,
                     0, 0,
-                    TEXT_CURRENCY+iMoney.toFixed(3),
+                    TEXT_CURRENCY+Math.round(iMoney),
                     true, true, false,
                     false );
                     
@@ -266,7 +266,7 @@ function CInterface(iMoney){
     };
     
     this.refreshCredit = function(iMoney){
-        _oMoneyText.refreshText(TEXT_CURRENCY+iMoney.toFixed(3));
+        _oMoneyText.refreshText(TEXT_CURRENCY+Math.round(iMoney));
     };
     
     this.refreshCardValue = function(iDealerValue,iPlayerValue){

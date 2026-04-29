@@ -67,7 +67,7 @@ final class BetsController
             $selections = is_array($body['selections'] ?? null) ? $body['selections'] : [];
             $teaserPoints = (float) ($body['teaserPoints'] ?? 0);
 
-            $betAmount = is_numeric($amount) ? (float) $amount : 0.0;
+            $betAmount = is_numeric($amount) ? (float) round((float) $amount) : 0.0;
             if (!is_finite($betAmount) || $betAmount <= 0) {
                 throw new ApiException('Bet amount must be positive', 400);
             }
@@ -153,7 +153,7 @@ final class BetsController
 
             $requestFingerprint = SportsbookBetSupport::payloadHash([
                 'type' => $type,
-                'amount' => round($betAmount, 2),
+                'amount' => round($betAmount),
                 'teaserPoints' => round($teaserPoints, 2),
                 'selections' => array_map(static function (array $item): array {
                     return [
@@ -279,7 +279,7 @@ final class BetsController
                     if ($freeplayBalance < $totalRisk) {
                         $this->db->rollback();
                         throw new ApiException(
-                            'Insufficient freeplay balance. Available: $' . number_format($freeplayBalance, 2),
+                            'Insufficient freeplay balance. Available: $' . number_format($freeplayBalance, 0),
                             400,
                             ['code' => 'INSUFFICIENT_FREEPLAY_BALANCE']
                         );

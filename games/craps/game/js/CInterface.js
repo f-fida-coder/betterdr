@@ -237,15 +237,15 @@ function CInterface(){
     };
     
     this.setMoney = function(iMoney){
-        _oMoneyAmountText.refreshText(iMoney.toFixed(2)+TEXT_CURRENCY);
+        _oMoneyAmountText.refreshText(Math.round(iMoney)+TEXT_CURRENCY);
     };
 
     this.refreshMoney = function(iStartMoney, iMoney){
         _oRollingText = new CRollingTextController(_oMoneyAmountText.getText(), null, iStartMoney , parseFloat(iMoney), 4000, EASE_LINEAR,TEXT_CURRENCY);
     };
-    
+
     this.setCurBet = function(iCurBet){
-        _oBetAmountText.refreshText(iCurBet.toFixed(2) + TEXT_CURRENCY);
+        _oBetAmountText.refreshText(Math.round(iCurBet) + TEXT_CURRENCY);
     };
     
     this.refreshMsgHelp = function(szText,bLastState){

@@ -2060,7 +2060,7 @@ function checkBets() {
         suitedTrips: 100,
       },
     },
-    toDE = (n) => n.toLocaleString('de-DE'),
+    toDE = (n) => Math.round(Number(n) || 0).toLocaleString('de-DE'),
     cardStr = (c) => (c ? `${c[0]}:${c[1]}` : null),
     allEqual = (a) => a.length > 0 && a.every((v) => v === a[0]),
     rankToNums = (r) => {

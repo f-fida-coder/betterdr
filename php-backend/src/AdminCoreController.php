@@ -4328,7 +4328,7 @@ final class AdminCoreController
                         if ($agentBalance < $amount) {
                             $this->db->rollback();
                             Response::json([
-                                'message' => 'Insufficient agent balance. You need $' . number_format($amount - $agentBalance, 2) . ' more to approve this withdrawal.',
+                                'message' => 'Insufficient agent balance. You need $' . number_format($amount - $agentBalance, 0) . ' more to approve this withdrawal.',
                                 'code' => 'INSUFFICIENT_AGENT_BALANCE',
                                 'required' => $amount,
                                 'available' => $agentBalance,

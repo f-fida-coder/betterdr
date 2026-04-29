@@ -45,7 +45,7 @@ final class SportsbookBetSupport
         }
 
         if ($betType === 'straight') {
-            return round($unitStake * self::num($validatedSelections[0]['odds'] ?? 0), 2);
+            return round($unitStake * self::num($validatedSelections[0]['odds'] ?? 0));
         }
 
         if ($betType === 'parlay' || $betType === 'if_bet') {
@@ -53,11 +53,11 @@ final class SportsbookBetSupport
             foreach ($validatedSelections as $selection) {
                 $combined *= self::num($selection['odds'] ?? 0);
             }
-            return round($unitStake * $combined, 2);
+            return round($unitStake * $combined);
         }
 
         if ($betType === 'teaser') {
-            return round($unitStake * self::teaserMultiplier($rule, count($validatedSelections)), 2);
+            return round($unitStake * self::teaserMultiplier($rule, count($validatedSelections)));
         }
 
         if ($betType === 'reverse') {
@@ -65,7 +65,7 @@ final class SportsbookBetSupport
             foreach ($validatedSelections as $selection) {
                 $combined *= self::num($selection['odds'] ?? 0);
             }
-            return round($unitStake * $combined * 2.0, 2);
+            return round($unitStake * $combined * 2.0);
         }
 
         return 0.0;
@@ -367,7 +367,7 @@ final class SportsbookBetSupport
 
         if ($type === 'straight') {
             $straight = self::settleStraightLeg($rows[0], $riskAmount);
-            return ['status' => $straight['status'], 'payout' => round($straight['payout'], 2)];
+            return ['status' => $straight['status'], 'payout' => round($straight['payout'])];
         }
 
         if ($type === 'parlay') {
@@ -388,7 +388,7 @@ final class SportsbookBetSupport
             foreach ($wonRows as $row) {
                 $combined *= self::num($row['odds'] ?? 0);
             }
-            return ['status' => 'won', 'payout' => round($riskAmount * $combined, 2)];
+            return ['status' => 'won', 'payout' => round($riskAmount * $combined)];
         }
 
         if ($type === 'teaser') {
@@ -407,13 +407,13 @@ final class SportsbookBetSupport
 
             return [
                 'status' => 'won',
-                'payout' => round($riskAmount * self::teaserMultiplier($teaserRule, $wonCount), 2),
+                'payout' => round($riskAmount * self::teaserMultiplier($teaserRule, $wonCount)),
             ];
         }
 
         if ($type === 'if_bet') {
             $result = self::evaluateIfBet($rows, $unitStake);
-            return ['status' => $result['status'], 'payout' => round($result['payout'], 2)];
+            return ['status' => $result['status'], 'payout' => round($result['payout'])];
         }
 
         if ($type === 'reverse') {
@@ -424,7 +424,7 @@ final class SportsbookBetSupport
                 return ['status' => 'pending', 'payout' => self::num($bet['potentialPayout'] ?? 0)];
             }
 
-            $totalPayout = round($resultA['payout'] + $resultB['payout'], 2);
+            $totalPayout = round($resultA['payout'] + $resultB['payout']);
             if ($resultA['status'] === 'void' && $resultB['status'] === 'void') {
                 return ['status' => 'void', 'payout' => $riskAmount];
             }
@@ -481,7 +481,7 @@ final class SportsbookBetSupport
         $type = strtolower((string) ($bet['type'] ?? 'straight'));
         $amount = self::num($bet['amount'] ?? 0);
         if ($type === 'reverse') {
-            return $amount > 0 ? round($amount / 2.0, 2) : 0.0;
+            return $amount > 0 ? round($amount / 2.0) : 0.0;
         }
         return $amount;
     }

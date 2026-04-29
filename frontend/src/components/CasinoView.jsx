@@ -1174,13 +1174,14 @@ const CasinoView = () => {
                         <input
                             type="number"
                             min="0"
-                            step="0.01"
+                            step="1"
+                            inputMode="numeric"
                             value={historyFilters.minWager}
                             onChange={(e) => {
                                 setHistoryPage(1);
-                                setHistoryFilters((prev) => ({ ...prev, minWager: e.target.value }));
+                                setHistoryFilters((prev) => ({ ...prev, minWager: String(e.target.value).replace(/\D/g, '') }));
                             }}
-                            placeholder="0.00"
+                            placeholder="0"
                         />
                     </label>
                     <label>
@@ -1188,13 +1189,14 @@ const CasinoView = () => {
                         <input
                             type="number"
                             min="0"
-                            step="0.01"
+                            step="1"
+                            inputMode="numeric"
                             value={historyFilters.maxWager}
                             onChange={(e) => {
                                 setHistoryPage(1);
-                                setHistoryFilters((prev) => ({ ...prev, maxWager: e.target.value }));
+                                setHistoryFilters((prev) => ({ ...prev, maxWager: String(e.target.value).replace(/\D/g, '') }));
                             }}
-                            placeholder="100.00"
+                            placeholder="100"
                         />
                     </label>
                 </div>

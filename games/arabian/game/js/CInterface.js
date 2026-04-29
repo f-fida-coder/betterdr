@@ -90,7 +90,7 @@ function CInterface(iCurBet,iTotBet,iMoney){
                     341, 20, 128, 50, 
                     24, "center", "#ffde00", FONT_GAME, 1,
                     0, 0,
-                    TEXT_MONEY +"\n"+iMoney.toFixed(2)+TEXT_CURRENCY,
+                    TEXT_MONEY +"\n"+Math.round(iMoney)+TEXT_CURRENCY,
                     true, true, true,
                     false );
 
@@ -108,7 +108,7 @@ function CInterface(iCurBet,iTotBet,iMoney){
                     644, CANVAS_HEIGHT - 118, 134, 30, 
                     30, "center", "#ffffff", FONT_GAME, 1,
                     0, 0,
-                    iCurBet.toFixed(2),
+                    Math.round(iCurBet),
                     true, true, false,
                     false );
         _oCoinText.setShadow("#000",1,1,2);
@@ -119,7 +119,7 @@ function CInterface(iCurBet,iTotBet,iMoney){
                     827, CANVAS_HEIGHT - 118, 174, 30, 
                     30, "center", "#ffffff", FONT_GAME, 1,
                     0, 0,
-                    TEXT_BET +": "+iTotBet.toFixed(2),
+                    TEXT_BET +": "+Math.round(iTotBet),
                     true, true, false,
                     false );
         _oTotalBetText.setShadow("#000",1,1,2);
@@ -343,15 +343,15 @@ function CInterface(iCurBet,iTotBet,iMoney){
     };
 
     this.refreshMoney = function(iMoney){
-        _oMoneyText.refreshText(TEXT_MONEY +"\n"+iMoney.toFixed(2)+TEXT_CURRENCY);
+        _oMoneyText.refreshText(TEXT_MONEY +"\n"+Math.round(iMoney)+TEXT_CURRENCY);
     };
-    
+
     this.refreshBet = function(iBet){
-        _oCoinText.refreshText(iBet.toFixed(2));
+        _oCoinText.refreshText(Math.round(iBet));
     };
-    
+
     this.refreshTotalBet = function(iTotBet){
-        _oTotalBetText.refreshText(TEXT_BET +": "+iTotBet.toFixed(2));
+        _oTotalBetText.refreshText(TEXT_BET +": "+Math.round(iTotBet));
     };
     
     this.refreshNumLines = function(iLines){
@@ -376,7 +376,7 @@ function CInterface(iCurBet,iTotBet,iMoney){
     };
     
     this.refreshWinText = function(iWin){
-        _oWinText.refreshText(TEXT_WIN + " "+iWin.toFixed(2));
+        _oWinText.refreshText(TEXT_WIN + " "+Math.round(iWin));
     };
     
     this.refreshFreeSpinNum = function(iNum){

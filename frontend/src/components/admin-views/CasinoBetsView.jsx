@@ -494,10 +494,11 @@ function CasinoBetsView() {
                 <input
                   type="number"
                   min="0"
-                  step="0.01"
+                  step="1"
+                  inputMode="numeric"
                   value={filters.minWager}
-                  onChange={(e) => applyFilter('minWager', e.target.value)}
-                  placeholder="0.00"
+                  onChange={(e) => applyFilter('minWager', String(e.target.value).replace(/\D/g, ''))}
+                  placeholder="0"
                 />
               </div>
               <div className="filter-group">
@@ -505,10 +506,11 @@ function CasinoBetsView() {
                 <input
                   type="number"
                   min="0"
-                  step="0.01"
+                  step="1"
+                  inputMode="numeric"
                   value={filters.maxWager}
-                  onChange={(e) => applyFilter('maxWager', e.target.value)}
-                  placeholder="500.00"
+                  onChange={(e) => applyFilter('maxWager', String(e.target.value).replace(/\D/g, ''))}
+                  placeholder="500"
                 />
               </div>
               <div className="casino-filter-actions">

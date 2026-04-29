@@ -198,7 +198,7 @@ function CashierView() {
     if (amount === null || amount === undefined) return '—';
     const num = Number(amount);
     if (Number.isNaN(num)) return '—';
-    return `$${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    return `$${Math.round(num).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
   };
 
   const getEntryUserOptions = (entry) => {
@@ -497,10 +497,11 @@ function CashierView() {
             <input
               type="number"
               min="0"
-              step="0.01"
+              step="1"
+              inputMode="numeric"
               placeholder="Amount"
               value={entry.amount}
-              onChange={(e) => updateEntry({ ...entry, amount: e.target.value })}
+              onChange={(e) => updateEntry({ ...entry, amount: String(e.target.value).replace(/\D/g, '') })}
             />
             <button type="button" className="cashier-zero-btn" onClick={() => updateEntry({ ...entry, amount: '0' })}>Zero</button>
           </div>
