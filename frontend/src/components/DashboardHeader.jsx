@@ -235,8 +235,8 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
     };
     const mhBalanceHeroValueStyle = {
         ...mhBalanceValueStyle,
-        fontSize: 14,
-        fontWeight: 800,
+        fontSize: 11,
+        fontWeight: 700,
     };
     const mhBalanceRowDividerStyle = {
         height: 1,
