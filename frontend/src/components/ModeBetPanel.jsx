@@ -331,13 +331,6 @@ const ModeBetPanel = ({
     const headerAvailable = isCreditAccount
         ? (Number.isFinite(userCreditAvailable) ? userCreditAvailable : 0)
         : fallbackAvailable;
-    const freeplayExpiryLabel = (() => {
-        if (!freeplayExpiresAt || !hasFreeplay) return null;
-        const ts = typeof freeplayExpiresAt === 'number' ? freeplayExpiresAt * 1000 : Date.parse(freeplayExpiresAt);
-        if (!Number.isFinite(ts)) return null;
-        return new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-    })();
-
     useEffect(() => {
         const media = window.matchMedia('(max-width: 768px)');
         const sync = () => setIsMobile(media.matches);
@@ -458,6 +451,77 @@ const ModeBetPanel = ({
         return Number.isFinite(risk) && risk > 0 ? risk : 0;
     }, [normalizedMode, stakeMode, wagerAmount, ticketDecimalOdds]);
 
+    // Per-account min/max bet limits from /auth/me payload. Backend
+    // already enforces these (BetsController::placeBet) — checking
+    // client-side too gives instant feedback instead of a round-trip
+    // error after the user clicks Place Bet.
+    //
+    // Mode-aware semantics: in Win mode the *min* applies to the
+    // amount-to-win the player asked for ("Min bet to win $X"); in
+    // Risk mode the *min* applies to the staked amount. Max always
+    // applies to the actual money risked — the backend reserves Risk
+    // against pendingBalance, so a small Win ask on heavy negative
+    // odds (Win $1000 @ -300 → Risk $3000) gets capped by the Risk-side
+    // max even though the player typed a Win figure.
+    //
+    // Returns:
+    //   - messages: { min, max } context-rich strings that name the
+    //     offending leg + actual numbers ("Max bet $2000 — 'Yankees vs
+    //     Rangers' risks $3,000 to win $1,000") so the user understands
+    //     why the warning fired.
+    //   - violatingIds: Set of selection IDs whose Risk/Win trips a
+    //     limit, used to flag the offending card with a red border.
+    const limitFlags = useMemo(() => {
+        const violatingIds = new Set();
+        const messages = { min: null, max: null };
+        const minBet = Number(user?.minBet);
+        const maxBet = Number(user?.maxBet);
+        const hasMin = Number.isFinite(minBet) && minBet > 0;
+        const hasMax = Number.isFinite(maxBet) && maxBet > 0;
+        if (!hasMin && !hasMax) return { violatingIds, messages };
+
+        const fmt = (v) => formatMoney(v);
+        const labelFor = (sel) => {
+            const t = String(sel?.matchName || sel?.selection || '').trim();
+            return t ? `"${t}"` : 'one leg';
+        };
+
+        if (normalizedMode === 'straight') {
+            for (const sel of selections) {
+                const { risk, win } = effectiveStakeForSelection(sel);
+                const subjectVal = stakeMode === 'win' ? win : risk;
+                if (!(subjectVal > 0)) continue;
+                const minBreach = hasMin && subjectVal < minBet;
+                const maxBreach = hasMax && risk > maxBet;
+                if (minBreach && !messages.min) {
+                    messages.min = stakeMode === 'win'
+                        ? `Min bet to win $${minBet} — ${labelFor(sel)} only wins $${fmt(win)}`
+                        : `Min bet $${minBet} — ${labelFor(sel)} risks only $${fmt(risk)}`;
+                }
+                if (maxBreach && !messages.max) {
+                    messages.max = stakeMode === 'win'
+                        ? `Max bet $${maxBet} — ${labelFor(sel)} risks $${fmt(risk)} to win $${fmt(win)}`
+                        : `Max bet $${maxBet} — ${labelFor(sel)} risks $${fmt(risk)}`;
+                }
+                if (minBreach || maxBreach) violatingIds.add(sel.id);
+            }
+        } else if (effectiveCombinedRisk > 0) {
+            const winValue = effectiveCombinedRisk * Math.max(0, Number(ticketDecimalOdds) - 1);
+            const minSubject = stakeMode === 'win' ? winValue : effectiveCombinedRisk;
+            if (hasMin && minSubject < minBet) {
+                messages.min = stakeMode === 'win'
+                    ? `Min bet to win $${minBet} — ticket only wins $${fmt(winValue)}`
+                    : `Min bet $${minBet} — ticket risks only $${fmt(effectiveCombinedRisk)}`;
+            }
+            if (hasMax && effectiveCombinedRisk > maxBet) {
+                messages.max = stakeMode === 'win'
+                    ? `Max bet $${maxBet} — ticket risks $${fmt(effectiveCombinedRisk)} to win $${fmt(winValue)}`
+                    : `Max bet $${maxBet} — ticket risks $${fmt(effectiveCombinedRisk)}`;
+            }
+        }
+        return { violatingIds, messages };
+    }, [normalizedMode, selections, effectiveStakeForSelection, stakeMode, effectiveCombinedRisk, ticketDecimalOdds, user?.minBet, user?.maxBet]);
+
     const validationErrors = useMemo(() => {
         const errors = [];
         if (normalizedMode === 'straight') {
@@ -501,60 +565,10 @@ const ModeBetPanel = ({
         if (!selections.every(sel => Number.isFinite(Number(sel.odds)) && Number(sel.odds) > 0)) {
             errors.push('One or more selections have invalid odds');
         }
-        // Per-account min/max bet limits from /auth/me payload. Backend
-        // already enforces these (BetsController::placeBet) — checking
-        // client-side too gives instant feedback instead of a round-trip
-        // error after the user clicks Place Bet.
-        //
-        // Mode-aware semantics: in Win mode the *min* applies to the
-        // amount-to-win the player asked for ("Min bet to win $X"); in
-        // Risk mode the *min* applies to the staked amount ("Min bet
-        // $X"). Max always applies to the actual money risked — the
-        // backend reserves Risk against pendingBalance, so a small Win
-        // ask on heavy negative odds (Win $25 @ -500 → Risk $125) gets
-        // capped by the Risk-side max even though the player typed a
-        // Win figure. Win-mode small-Risk on positive odds (Win $25 @
-        // +500 → Risk $5) is intentionally legal because the Win side
-        // satisfies the minimum.
-        const minBet = Number(user?.minBet);
-        const maxBet = Number(user?.maxBet);
-        const hasMin = Number.isFinite(minBet) && minBet > 0;
-        const hasMax = Number.isFinite(maxBet) && maxBet > 0;
-        if (hasMin || hasMax) {
-            const minLabel = stakeMode === 'win' ? `Min bet to win $${minBet}` : `Min bet $${minBet}`;
-            const maxLabel = `Max bet $${maxBet}`;
-            if (normalizedMode === 'straight') {
-                // Each staked leg is its own ticket — every leg with a
-                // positive stake (Risk) or positive ask (Win) must
-                // satisfy its mode-specific minimum and the always-on
-                // Risk-side maximum independently.
-                const pairs = selections.map((sel) => {
-                    const { risk, win } = resolveStake(stakeMode, wager, sel?.odds);
-                    return { risk, win };
-                });
-                const minSubject = stakeMode === 'win'
-                    ? pairs.map((p) => p.win).filter((v) => v > 0)
-                    : pairs.map((p) => p.risk).filter((v) => v > 0);
-                const riskValues = pairs.map((p) => p.risk).filter((v) => v > 0);
-                if (hasMin && minSubject.some((v) => v < minBet)) {
-                    errors.push(minLabel);
-                }
-                if (hasMax && riskValues.some((v) => v > maxBet)) {
-                    errors.push(maxLabel);
-                }
-            } else if (effectiveCombinedRisk > 0) {
-                const winValue = effectiveCombinedRisk * Math.max(0, ticketDecimalOdds - 1);
-                const minSubject = stakeMode === 'win' ? winValue : effectiveCombinedRisk;
-                if (hasMin && minSubject < minBet) {
-                    errors.push(minLabel);
-                }
-                if (hasMax && effectiveCombinedRisk > maxBet) {
-                    errors.push(maxLabel);
-                }
-            }
-        }
+        if (limitFlags.messages.min) errors.push(limitFlags.messages.min);
+        if (limitFlags.messages.max) errors.push(limitFlags.messages.max);
         return errors;
-    }, [legCount, normalizedMode, rule, selections, effectiveCombinedRisk, teaserValid, hasAnyStraightAmount, user?.minBet, user?.maxBet, wagerForSelection, stakeMode, wager, ticketDecimalOdds]);
+    }, [legCount, normalizedMode, rule, selections, effectiveCombinedRisk, teaserValid, hasAnyStraightAmount, limitFlags]);
 
     const ticketSignature = useMemo(() => JSON.stringify({
         type: normalizedMode,
@@ -676,35 +690,24 @@ const ModeBetPanel = ({
         requestStateRef.current = { requestId: '', signature: '' };
     };
 
-    /**
-     * Push the top-panel mode + amount onto every selection's
-     * `wagerOverride` so the user gets a one-tap "stake it all this way"
-     * action. The top panel itself is intentionally untouched — editing
-     * a per-card value afterward never bleeds back into the top panel,
-     * matching the spec's independence requirement.
-     */
-    const applyToAll = React.useCallback(() => {
-        const amt = Number(wager);
-        if (!Number.isFinite(amt) || amt <= 0) {
-            showToast('Enter a Bet Amount first', 'warning');
-            return;
+    // Top Bet Amount auto-flows to every leg via effectiveStakeForSelection
+    // — typing into a per-card Risk/Win field is the only thing that
+    // creates a wagerOverride. The old explicit "Apply" button was
+    // redundant in that flow and got removed; the slot now hosts Clear.
+    const clearWager = React.useCallback(() => {
+        // Wipe the top Bet Amount AND every per-card wagerOverride.
+        // Without the override sweep, a leg the user previously typed into
+        // would keep its stale Risk/Win after Clear while sibling legs
+        // (no override) reset to $0 — the slip would look half-cleared.
+        onWagerChange('');
+        if (selections.some((s) => s?.wagerOverride)) {
+            onSelectionsChange(selections.map((s) => {
+                if (!s?.wagerOverride) return s;
+                const { wagerOverride, ...rest } = s;
+                return rest;
+            }));
         }
-        const next = selections.map((s) => {
-            const d = Number(s?.odds);
-            const validOdds = Number.isFinite(d) && d > 1;
-            if (!validOdds) return s;
-            // Round to 2 decimals on the *derived* side; the side the
-            // user typed stays exact so a $1000 win request reads back
-            // as $1000.00 even after Apply to All.
-            if (stakeMode === 'win') {
-                const risk = Math.ceil(amt / (d - 1));
-                return { ...s, wagerOverride: { source: 'win', riskRaw: String(risk), winRaw: String(Math.ceil(amt)) } };
-            }
-            const win = Math.ceil(amt * (d - 1));
-            return { ...s, wagerOverride: { source: 'risk', riskRaw: String(Math.ceil(amt)), winRaw: String(win) } };
-        });
-        onSelectionsChange(next);
-    }, [wager, stakeMode, selections, onSelectionsChange, showToast]);
+    }, [onWagerChange, onSelectionsChange, selections]);
 
     const getRequestIdForTicket = () => {
         if (
@@ -1240,34 +1243,33 @@ const ModeBetPanel = ({
                                     }}
                                 />
                             </div>
-                            {/* Apply to All — explicit, opt-in push of the
-                                top-panel mode + amount onto every card.
-                                Hidden in combined modes where per-card
-                                stakes don't make sense (one combined ticket,
-                                not N independent wagers). */}
-                            {normalizedMode === 'straight' && (
-                                <button
-                                    type="button"
-                                    onClick={applyToAll}
-                                    aria-label="Apply this amount to every selection"
-                                    style={{
-                                        background: palette.headerBg,
-                                        color: '#fff',
-                                        border: 'none',
-                                        borderRadius: 8,
-                                        padding: '0 14px',
-                                        fontSize: 11,
-                                        fontWeight: 800,
-                                        letterSpacing: 0.4,
-                                        cursor: 'pointer',
-                                        textTransform: 'uppercase',
-                                        flexShrink: 0,
-                                        whiteSpace: 'nowrap',
-                                    }}
-                                >
-                                    Apply
-                                </button>
-                            )}
+                            {/* Clear — wipes the top Bet Amount and any
+                                per-card wagerOverride so the slip resets
+                                cleanly. Replaces the old "Apply" button:
+                                the top wager already auto-flows into every
+                                leg via effectiveStakeForSelection, so an
+                                explicit Apply was redundant. */}
+                            <button
+                                type="button"
+                                onClick={clearWager}
+                                aria-label="Clear bet amount"
+                                style={{
+                                    background: palette.headerBg,
+                                    color: '#fff',
+                                    border: 'none',
+                                    borderRadius: 8,
+                                    padding: '0 14px',
+                                    fontSize: 11,
+                                    fontWeight: 800,
+                                    letterSpacing: 0.4,
+                                    cursor: 'pointer',
+                                    textTransform: 'uppercase',
+                                    flexShrink: 0,
+                                    whiteSpace: 'nowrap',
+                                }}
+                            >
+                                Clear
+                            </button>
                         </div>
 
                         {/* Inline min/max warning — sits between the Bet
@@ -1338,22 +1340,6 @@ const ModeBetPanel = ({
                                     </div>
                                 );
                             })}
-                            <button
-                                onClick={() => onWagerChange('')}
-                                style={{
-                                    padding: '7px 10px',
-                                    border: `1px solid ${palette.cardBorder}`,
-                                    background: '#fff',
-                                    color: palette.textMuted,
-                                    fontSize: 11,
-                                    fontWeight: 700,
-                                    cursor: 'pointer',
-                                    borderRadius: 6,
-                                    alignSelf: 'flex-start',
-                                }}
-                            >
-                                Clear
-                            </button>
                         </div>
 
                         {/* Row 3: Use Freeplay (only when there's a freeplay balance) */}
@@ -1380,11 +1366,6 @@ const ModeBetPanel = ({
                                 <span style={{ color: useFreeplay ? palette.success : palette.textPrimary, fontWeight: 700 }}>
                                     Use Freeplay (${formatAmount(parsedFreeplayBalance)})
                                 </span>
-                                {freeplayExpiryLabel && (
-                                    <span style={{ color: palette.textFaint, marginLeft: 'auto', fontStyle: 'italic', fontSize: 10 }}>
-                                        exp {freeplayExpiryLabel}
-                                    </span>
-                                )}
                             </label>
                         )}
                     </div>
@@ -1522,11 +1503,24 @@ const ModeBetPanel = ({
                     const supportsBuyPoints = market === 'spreads' || market === 'totals';
                     const buyPointsOptions = supportsBuyPoints ? buildBuyPointsOptions(sel) : [];
                     const buyPointsOpen = openBuyPointsId === sel.id;
+                    // Flags this leg if its Risk/Win trips the user's per-account
+                    // min or max bet limit. Drives the red border + inline chip
+                    // so the user immediately sees *which* leg blocked the slip
+                    // instead of guessing from a global "Max bet $2000" toast.
+                    const legViolatesLimit = limitFlags.violatingIds.has(sel.id);
+                    const legLimitMaxBet = Number(user?.maxBet);
+                    const legLimitMinBet = Number(user?.minBet);
+                    const legOverMax = Number.isFinite(legLimitMaxBet) && legLimitMaxBet > 0 && risk > legLimitMaxBet;
+                    const legUnderMin = (() => {
+                        if (!Number.isFinite(legLimitMinBet) || legLimitMinBet <= 0) return false;
+                        const subj = stakeMode === 'win' ? win : risk;
+                        return subj > 0 && subj < legLimitMinBet;
+                    })();
                     return (
                         <div
                             key={sel.id}
                             style={{
-                                border: `1px solid ${palette.cardBorder}`,
+                                border: `1px solid ${legViolatesLimit ? palette.danger : palette.cardBorder}`,
                                 borderRadius: 8,
                                 marginBottom: 10,
                                 background: palette.cardBg,
@@ -1796,6 +1790,40 @@ const ModeBetPanel = ({
                                                 </span>
                                             </label>
                                         ))}
+                                    </div>
+                                )}
+
+                                {/* Per-leg limit chip — surfaces *why* this
+                                    card was flagged when its Risk exceeds the
+                                    Max Bet or its Risk/Win sits under the
+                                    Min Bet. Mirrors the global amount warning
+                                    pill but pinned to the offending leg so
+                                    multi-leg slips don't leave the user
+                                    hunting for the breach. */}
+                                {legViolatesLimit && (legOverMax || legUnderMin) && (
+                                    <div
+                                        role="alert"
+                                        style={{
+                                            marginTop: 8,
+                                            padding: '6px 10px',
+                                            fontSize: 11,
+                                            fontWeight: 700,
+                                            color: palette.danger,
+                                            background: palette.dangerSoft,
+                                            border: `1px solid ${palette.danger}`,
+                                            borderRadius: 6,
+                                            letterSpacing: 0.2,
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: 6,
+                                        }}
+                                    >
+                                        <i className="fa-solid fa-triangle-exclamation" style={{ fontSize: 11 }} />
+                                        <span>
+                                            {legOverMax
+                                                ? `Risks $${formatMoney(risk)} — over your $${formatMoney(legLimitMaxBet)} Max Bet`
+                                                : `Only ${stakeMode === 'win' ? `wins $${formatMoney(win)}` : `risks $${formatMoney(risk)}`} — under your $${formatMoney(legLimitMinBet)} Min Bet`}
+                                        </span>
                                     </div>
                                 )}
                             </div>
