@@ -615,6 +615,7 @@ $nativeError = null;
 if (
     str_starts_with($uriPath, '/api/auth')
     || str_starts_with($uriPath, '/api/wallet')
+    || str_starts_with($uriPath, '/api/user')
     || str_starts_with($uriPath, '/api/bets')
     || str_starts_with($uriPath, '/api/betting')
     || str_starts_with($uriPath, '/api/admin/bet-mode-rules')

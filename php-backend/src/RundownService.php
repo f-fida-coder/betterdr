@@ -78,12 +78,14 @@ final class RundownService
 
     /**
      * Events with markets for a sport on a date. Returns events partitioned
-     * into in-progress (`live`) and recently-final (`finished`) buckets so
-     * RundownLiveSync can act on both — the live pass refreshes odds, the
-     * finished pass flips DB rows from status='live' → 'finished' so they
-     * stop appearing in Live Now.
+     * into `live` (in-progress), `finished` (recently-final), and
+     * `upcoming` (scheduled-but-not-yet-started) so RundownLiveSync can
+     * act on each: live refreshes odds, finished flips rows to
+     * status='finished', upcoming carries broadcast/event_name metadata
+     * for prematch cards (no odds/status disturbance — OddsAPI owns
+     * those for prematch).
      *
-     * @return array{ok:bool, live:list<array<string,mixed>>, finished:list<array<string,mixed>>, http?:int, error?:string}
+     * @return array{ok:bool, live:list<array<string,mixed>>, finished:list<array<string,mixed>>, upcoming:list<array<string,mixed>>, http?:int, error?:string}
      */
     public static function liveEventsForSport(int $sportId, ?string $date = null): array
     {
@@ -99,11 +101,12 @@ final class RundownService
             . '?market_ids=1,2,3&main_line=true';
         $resp = self::httpGet($url);
         if (!$resp['ok']) {
-            return ['ok' => false, 'live' => [], 'finished' => [], 'http' => $resp['status'], 'error' => $resp['error'] ?? 'http_error'];
+            return ['ok' => false, 'live' => [], 'finished' => [], 'upcoming' => [], 'http' => $resp['status'], 'error' => $resp['error'] ?? 'http_error'];
         }
         $events = is_array($resp['body']['events'] ?? null) ? $resp['body']['events'] : [];
         $live = [];
         $finished = [];
+        $upcoming = [];
         foreach ($events as $ev) {
             if (!is_array($ev)) continue;
             $status = strtoupper((string) ($ev['score']['event_status'] ?? ''));
@@ -111,9 +114,14 @@ final class RundownService
                 $live[] = $ev;
             } elseif (self::isFinalStatus($status)) {
                 $finished[] = $ev;
+            } else {
+                // STATUS_SCHEDULED / STATUS_UNCONFIRMED / blank — events
+                // not yet started. Useful so we can attach broadcast +
+                // event_name to prematch rows without stepping on odds.
+                $upcoming[] = $ev;
             }
         }
-        return ['ok' => true, 'live' => $live, 'finished' => $finished, 'http' => $resp['status']];
+        return ['ok' => true, 'live' => $live, 'finished' => $finished, 'upcoming' => $upcoming, 'http' => $resp['status']];
     }
 
     /**

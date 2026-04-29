@@ -202,6 +202,8 @@ final class MatchesController
                 'awayTeamShort' => 1,
                 'homeTeamRecord' => 1,
                 'awayTeamRecord' => 1,
+                'broadcast' => 1,
+                'eventName' => 1,
                 'startTime' => 1,
                 'sport' => 1,
                 'sportKey' => 1,

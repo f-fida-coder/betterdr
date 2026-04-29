@@ -830,6 +830,22 @@ export const getMyBets = async (token) => {
     return response.json();
 };
 
+export const getUserFigures = async (token, weekOffset = 0) => {
+    const response = await fetch(buildApiUrl('/user/figures', { week_offset: String(weekOffset) }), {
+        headers: getHeaders(token),
+    });
+    if (!response.ok) throw new Error('Failed to fetch figures');
+    return response.json();
+};
+
+export const getUserTransactions = async (token, { limit = 50, offset = 0 } = {}) => {
+    const response = await fetch(buildApiUrl('/user/transactions', { limit: String(limit), offset: String(offset) }), {
+        headers: getHeaders(token),
+    });
+    if (!response.ok) throw new Error('Failed to fetch transactions');
+    return response.json();
+};
+
 export const getCasinoCategories = async (token) => {
     const response = await fetch(buildApiUrl('/casino/categories'), {
         headers: getHeaders(token)

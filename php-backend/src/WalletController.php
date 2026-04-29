@@ -24,6 +24,14 @@ final class WalletController
             $this->getTransactions();
             return true;
         }
+        if ($path === '/api/user/transactions' && $method === 'GET') {
+            $this->getUserTransactions();
+            return true;
+        }
+        if ($path === '/api/user/figures' && $method === 'GET') {
+            $this->getFigures();
+            return true;
+        }
         if ($path === '/api/wallet/request-deposit' && $method === 'POST') {
             $this->requestDeposit();
             return true;
@@ -128,6 +136,242 @@ final class WalletController
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error', 'error' => $e->getMessage()], 500);
         }
+    }
+
+    /**
+     * Player-facing balance change feed: paginated, filtered to types that
+     * actually map to one of the human labels rendered on the My Bets
+     * Transactions tab. Bet placements with no balance impact (credit
+     * accounts) are kept so the player sees their wager activity even
+     * though the dollar delta is $0.
+     */
+    private function getUserTransactions(): void
+    {
+        try {
+            $actor = $this->protect();
+            if ($actor === null) {
+                return;
+            }
+
+            $limitRaw = isset($_GET['limit']) ? (int) $_GET['limit'] : 50;
+            $limit = min(200, max(1, $limitRaw > 0 ? $limitRaw : 50));
+            $offsetRaw = isset($_GET['offset']) ? (int) $_GET['offset'] : 0;
+            $offset = max(0, $offsetRaw);
+
+            // Pull one extra row past `limit` so the client can detect that
+            // a "Load More" page exists without a separate count query.
+            $userId = SqlRepository::id((string) $actor['id']);
+            $rows = $this->db->findMany('transactions', [
+                'userId' => $userId,
+                'type' => ['$in' => [
+                    'bet_placed', 'fp_bet_placed',
+                    'bet_won', 'fp_bet_won',
+                    'bet_lost', 'fp_bet_lost',
+                    'bet_void', 'fp_bet_void',
+                    'adjustment',
+                    'fp_deposit',
+                    'casino_bet_debit', 'casino_bet_credit',
+                    'bet_placed_admin', 'bet_void_admin',
+                ]],
+            ], [
+                'sort' => ['createdAt' => -1],
+                'limit' => $limit + 1,
+                'skip' => $offset,
+            ]);
+
+            $hasMore = count($rows) > $limit;
+            if ($hasMore) {
+                $rows = array_slice($rows, 0, $limit);
+            }
+
+            $formatted = array_map(function (array $tx): array {
+                $type = (string) ($tx['type'] ?? '');
+                $balanceBefore = isset($tx['balanceBefore']) ? $this->num($tx['balanceBefore']) : null;
+                $balanceAfter = isset($tx['balanceAfter']) ? $this->num($tx['balanceAfter']) : null;
+                $delta = ($balanceBefore !== null && $balanceAfter !== null)
+                    ? round($balanceAfter - $balanceBefore, 2)
+                    : null;
+                return [
+                    'id' => $tx['id'] ?? null,
+                    'type' => $type,
+                    'label' => self::transactionLabel($type),
+                    'amount' => $this->num($tx['amount'] ?? 0),
+                    'delta' => $delta,
+                    'balanceAfter' => $balanceAfter,
+                    'balanceBefore' => $balanceBefore,
+                    'description' => $tx['description'] ?? null,
+                    'isFreeplay' => !empty($tx['isFreeplay']),
+                    'createdAt' => $tx['createdAt'] ?? null,
+                ];
+            }, $rows);
+
+            Response::json([
+                'transactions' => $formatted,
+                'hasMore' => $hasMore,
+                'limit' => $limit,
+                'offset' => $offset,
+            ]);
+        } catch (Throwable $e) {
+            Response::json(['message' => 'Server error', 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Weekly P/L breakdown for the My Bets → Figures tab.
+     *
+     * Accounting week is Tuesday → Monday (matches the reference book
+     * "bettorjuice365" UI the player is comparing against). week_offset=0
+     * is the Tue→Mon window containing today; 1 = previous, up to 11.
+     *
+     * Per-day P/L is sourced from the `bets` table by `settledAt`:
+     *   • won → +(potentialPayout − riskAmount)
+     *   • lost → −riskAmount
+     *   • void/push → 0
+     * This is independent of cash vs credit wallet bookkeeping — the bet
+     * outcome is the same either way and that's what the player wants to
+     * see on the report.
+     */
+    private function getFigures(): void
+    {
+        try {
+            $actor = $this->protect();
+            if ($actor === null) {
+                return;
+            }
+
+            $weekOffset = isset($_GET['week_offset']) ? max(0, min(11, (int) $_GET['week_offset'])) : 0;
+
+            // Tuesday-anchored week. PHP's 'N' returns 1=Mon..7=Sun; we want
+            // Tuesday as day 1. So daysFromTue = (N - 2 + 7) % 7.
+            $today = new DateTimeImmutable('today', new DateTimeZone('UTC'));
+            $todayDow = (int) $today->format('N');
+            $daysFromTue = ($todayDow - 2 + 7) % 7;
+            $weekStart = $today->modify('-' . ($daysFromTue + ($weekOffset * 7)) . ' days');
+            $weekEnd = $weekStart->modify('+7 days'); // exclusive
+
+            $weekStartIso = $weekStart->format('Y-m-d\TH:i:s\Z');
+            $weekEndIso = $weekEnd->format('Y-m-d\TH:i:s\Z');
+
+            $userId = SqlRepository::id((string) $actor['id']);
+
+            // Daily P/L from settled bets
+            $bets = $this->db->findMany('bets', [
+                'userId' => $userId,
+                'status' => ['$in' => ['won', 'lost', 'void', 'push']],
+                'settledAt' => ['$gte' => $weekStartIso, '$lt' => $weekEndIso],
+            ], ['projection' => ['status' => 1, 'amount' => 1, 'riskAmount' => 1, 'potentialPayout' => 1, 'settledAt' => 1]]);
+
+            $dailyPL = array_fill(0, 7, 0.0); // index 0=Tue, 6=Mon
+            foreach ($bets as $bet) {
+                $settledAt = (string) ($bet['settledAt'] ?? '');
+                if ($settledAt === '') continue;
+                try {
+                    $dt = new DateTimeImmutable($settledAt);
+                } catch (Throwable) {
+                    continue;
+                }
+                $diffDays = (int) floor(($dt->getTimestamp() - $weekStart->getTimestamp()) / 86400);
+                if ($diffDays < 0 || $diffDays > 6) continue;
+
+                $status = strtolower((string) ($bet['status'] ?? ''));
+                $risk = $this->num($bet['riskAmount'] ?? $bet['amount'] ?? 0);
+                $payout = $this->num($bet['potentialPayout'] ?? 0);
+
+                if ($status === 'won') {
+                    $dailyPL[$diffDays] += max(0.0, $payout - $risk);
+                } elseif ($status === 'lost') {
+                    $dailyPL[$diffDays] -= $risk;
+                }
+                // void/push: net zero
+            }
+
+            // Non-bet balance changes inside the week (admin adjustments,
+            // freeplay grants). Show as the "Transactions" row.
+            $nonBetTx = $this->db->findMany('transactions', [
+                'userId' => $userId,
+                'type' => ['$in' => ['adjustment', 'fp_deposit', 'deposit', 'withdrawal']],
+                'status' => 'completed',
+                'createdAt' => ['$gte' => $weekStartIso, '$lt' => $weekEndIso],
+            ], ['projection' => ['amount' => 1, 'type' => 1, 'balanceBefore' => 1, 'balanceAfter' => 1]]);
+
+            $transactionsTotal = 0.0;
+            foreach ($nonBetTx as $tx) {
+                $balanceBefore = isset($tx['balanceBefore']) ? $this->num($tx['balanceBefore']) : null;
+                $balanceAfter = isset($tx['balanceAfter']) ? $this->num($tx['balanceAfter']) : null;
+                if ($balanceBefore !== null && $balanceAfter !== null) {
+                    $transactionsTotal += ($balanceAfter - $balanceBefore);
+                }
+            }
+
+            // Carry forward = balanceAfter of the most-recent transaction
+            // strictly before week start that recorded a balance snapshot.
+            // Default to 0 if no history. Walk a small window so we skip
+            // legacy rows where balanceAfter wasn't populated yet.
+            $priorTx = $this->db->findMany('transactions', [
+                'userId' => $userId,
+                'createdAt' => ['$lt' => $weekStartIso],
+            ], [
+                'sort' => ['createdAt' => -1],
+                'limit' => 50,
+                'projection' => ['balanceAfter' => 1, 'createdAt' => 1],
+            ]);
+            $carryForward = 0.0;
+            foreach ($priorTx as $row) {
+                if (isset($row['balanceAfter']) && $row['balanceAfter'] !== null) {
+                    $carryForward = $this->num($row['balanceAfter']);
+                    break;
+                }
+            }
+
+            $weekTotal = array_sum($dailyPL);
+            $endBalance = $carryForward + $weekTotal + $transactionsTotal;
+
+            // Day labels Tue, Wed, ..., Mon with their date strings
+            $dayNames = ['Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun', 'Mon'];
+            $days = [];
+            for ($i = 0; $i < 7; $i++) {
+                $d = $weekStart->modify('+' . $i . ' days');
+                $days[] = [
+                    'label' => $dayNames[$i],
+                    'date' => $d->format('n/j'),
+                    'pl' => round($dailyPL[$i], 2),
+                ];
+            }
+
+            Response::json([
+                'weekOffset' => $weekOffset,
+                'weekStart' => $weekStart->format('Y-m-d'),
+                'weekEnd' => $weekEnd->modify('-1 day')->format('Y-m-d'),
+                'carryForward' => round($carryForward, 2),
+                'days' => $days,
+                'weekTotal' => round($weekTotal, 2),
+                'transactions' => round($transactionsTotal, 2),
+                'endBalance' => round($endBalance, 2),
+            ]);
+        } catch (Throwable $e) {
+            Response::json(['message' => 'Server error', 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    private static function transactionLabel(string $type): string
+    {
+        $type = strtolower($type);
+        return match ($type) {
+            'bet_placed', 'bet_placed_admin' => 'Bet Placed',
+            'fp_bet_placed' => 'Freeplay Used',
+            'bet_won' => 'Bet Won',
+            'fp_bet_won' => 'Freeplay Won',
+            'bet_lost' => 'Bet Lost',
+            'fp_bet_lost' => 'Freeplay Lost',
+            'bet_void', 'fp_bet_void', 'bet_void_admin' => 'Bet Refund',
+            'adjustment' => 'Credit Adjusted',
+            'fp_deposit' => 'Freeplay Grant',
+            'deposit' => 'Deposit',
+            'withdrawal' => 'Withdrawal',
+            'casino_bet_debit' => 'Casino Bet',
+            'casino_bet_credit' => 'Casino Win',
+            default => ucwords(str_replace('_', ' ', $type)),
+        };
     }
 
     private function requestDeposit(): void

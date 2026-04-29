@@ -4,6 +4,7 @@ import useSportOddsRefresh from '../hooks/useSportOddsRefresh';
 import { syncLiveMatches, syncPrematchSport, getStoredAuthToken } from '../api';
 import { useToast } from '../contexts/ToastContext';
 import { createFallbackTeamLogoDataUri, fetchTeamBadgeUrl } from '../utils/teamLogos';
+import { resolveBroadcast } from '../utils/broadcast';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { getSportKeywords, findSportItemById } from '../data/sportsData';
 import {
@@ -27,6 +28,24 @@ const teamRecordStyle = {
     fontWeight: 500,
     fontSize: '0.85em',
     marginLeft: 4,
+};
+
+// Format the start time as a US Eastern Time clock string ("09:30 PM EST")
+// for the broadcast row. The reference book the player is comparing
+// against shows wall-clock ET; we follow that even when the user's
+// browser is in a different zone so the channel/time line reads the
+// same regardless of locale.
+const formatBroadcastTimeET = (iso) => {
+    if (!iso) return '';
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return '';
+    const formatted = date.toLocaleTimeString('en-US', {
+        timeZone: 'America/New_York',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true,
+    });
+    return `${formatted} EST`;
 };
 
 // Module-level dedupe: when the user multi-selects sports, every mounted
@@ -494,6 +513,12 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                     id: match.id || match.externalId,
                     time: match.startTime ? new Date(match.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
                     date: match.startTime ? new Date(match.startTime).toLocaleDateString() : '',
+                    // Broadcast row above the match-header. Resolved client-side
+                    // so we can keep the chip palette in one place; raw string
+                    // comes from Rundown via the matches projection.
+                    broadcast: resolveBroadcast(match.broadcast),
+                    eventName: typeof match.eventName === 'string' ? match.eventName.trim() : '',
+                    broadcastTime: formatBroadcastTimeET(match.startTime),
                     // shortName + record are populated server-side by
                     // TeamNormalizer (Rundown live feed for records, both
                     // feeds for short names). They fall back to the full
@@ -672,6 +697,35 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                     ) : (
                         content.matches.map((match) => (
                             <div key={match.id} className={`match-card ${match.rawMatch?.isBettable === false ? 'match-card-closed' : ''}`}>
+                                {match.broadcast ? (
+                                    // Broadcast row sits above the action header so the
+                                    // user reads tip-off time + game context + network
+                                    // before scanning the team rows. Per spec we omit
+                                    // the row entirely when no broadcast data exists,
+                                    // rather than rendering a "TBD" placeholder.
+                                    <div className="match-broadcast-row">
+                                        <span className="match-broadcast-text">
+                                            {match.broadcastTime}
+                                            {match.eventName ? (
+                                                <>
+                                                    <span className="match-broadcast-sep"> - </span>
+                                                    <span className="match-broadcast-context">{match.eventName.toUpperCase()}</span>
+                                                </>
+                                            ) : null}
+                                        </span>
+                                        <span
+                                            className="match-broadcast-chip"
+                                            style={{
+                                                background: match.broadcast.bg,
+                                                color: match.broadcast.fg,
+                                            }}
+                                            title={match.broadcast.raw}
+                                        >
+                                            {match.broadcast.name}
+                                        </span>
+                                    </div>
+                                ) : null}
+
                                 <div className="match-header">
                                     <div className="match-time">
                                         <span className="time">{match.time}</span>

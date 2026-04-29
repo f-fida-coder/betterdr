@@ -136,12 +136,59 @@ body.dashboard-mode {
 
 .dash-balance strong {
     color: #4ade80;
-    
+
     font-size: 16px;
     font-weight: 700;
-    
+
     display: block;
     letter-spacing: 0.5px;
+}
+
+/* Whole BALANCE/PENDING/AVAILABLE block is one tap target opening My Bets.
+   Default styling is invisible so the inner cells look unchanged; on hover
+   we lift slightly + brighten so the affordance is visible without
+   restyling each child cell. */
+.dash-balance-trigger {
+    display: flex;
+    gap: 24px;
+    align-items: center;
+    background: transparent;
+    border: none;
+    padding: 0;
+    margin: 0;
+    cursor: pointer;
+    font: inherit;
+    color: inherit;
+}
+
+.dash-balance-trigger:hover .dash-balance {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+.dash-balance-trigger:active .dash-balance {
+    transform: translateY(1px);
+}
+
+.dash-balance-trigger:focus-visible {
+    outline: 2px solid #4ade80;
+    outline-offset: 3px;
+    border-radius: 8px;
+}
+
+/* Mobile balance cell (DashboardHeader.jsx mobile header) — hover lift +
+   active press so the touch target reads as a button. */
+.header-balance-cell:active {
+    filter: brightness(1.08);
+}
+.header-balance-cell:focus-visible {
+    outline: 2px solid #fff;
+    outline-offset: -3px;
+}
+@media (hover: hover) {
+    .header-balance-cell:hover {
+        filter: brightness(1.05);
+    }
 }
 
 .dash-subheader {
@@ -3416,6 +3463,57 @@ body.dashboard-mode {
 
 .match-card:hover {
     box-shadow: var(--dash-shadow-md);
+}
+
+/* Broadcast row — sits above the dark match-header so the chip reads
+   against a light background and the green time/context line matches
+   the reference book the player is comparing against. Omitted entirely
+   when broadcast info isn't available; never renders a placeholder. */
+.match-broadcast-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 16px 6px 44px; /* left pad lines up past the existing + toggle */
+    background: #f8fafc;
+    border-bottom: 1px solid var(--dash-border);
+    font-size: 12px;
+    line-height: 1.2;
+}
+
+.match-broadcast-text {
+    color: #166534;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.match-broadcast-sep {
+    color: #64748b;
+    font-weight: 600;
+}
+
+.match-broadcast-context {
+    color: #0f172a;
+    font-weight: 700;
+}
+
+.match-broadcast-chip {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 10px;
+    border-radius: 4px;
+    font-size: 10.5px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    line-height: 1.4;
+    white-space: nowrap;
 }
 
 .match-header {

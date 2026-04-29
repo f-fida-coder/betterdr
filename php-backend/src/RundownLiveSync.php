@@ -247,6 +247,22 @@ final class RundownLiveSync
                     if ($finalized['sportKey'] !== '') $touchedSportKeys[$finalized['sportKey']] = true;
                 }
             }
+
+            // Pass 3 — upcoming events: write only broadcast/eventName/
+            // shortName/record metadata onto the matched row. Doesn't
+            // disturb odds/status (OddsAPI still owns prematch). The
+            // odds-board card needs broadcast info before tip-off, not
+            // only once the game's already live, so we piggyback on the
+            // same Rundown response we already fetched for live odds.
+            foreach ($resp['upcoming'] ?? [] as $event) {
+                $result['eventsSeen']++;
+                $merged = self::mergeBroadcastOnly($db, $event, $oddsKeys);
+                if ($merged['matched']) $result['matched']++;
+                if ($merged['updated']) {
+                    $result['updated']++;
+                    if ($merged['sportKey'] !== '') $touchedSportKeys[$merged['sportKey']] = true;
+                }
+            }
         }
 
         if ($result['updated'] > 0 || $result['finished'] > 0) {
@@ -385,6 +401,14 @@ final class RundownLiveSync
             'lastScoreSyncAt' => $now,
             'updatedAt' => $now,
         ];
+        // Broadcast / event metadata from Rundown — used for the "[TIME]
+        // EST - [GAME CONTEXT] - [NETWORK]" row above each odds-board card.
+        // Rundown provides `broadcast` (string) and `event_name` (e.g.
+        // "WEST 1ST ROUND GAME 5"); we capture both whenever present.
+        $broadcast = self::extractBroadcast($event);
+        if ($broadcast !== '') $update['broadcast'] = $broadcast;
+        $eventName = trim((string) ($event['event_name'] ?? ''));
+        if ($eventName !== '') $update['eventName'] = $eventName;
         // Push the short display name + current win-loss record onto the row
         // so the public odds board can render "Thunder (64-18)" without
         // re-deriving anything client-side. Rundown is the authoritative
@@ -501,6 +525,13 @@ final class RundownLiveSync
             if ($awayShort !== '') $update['awayTeamShort'] = $awayShort;
             if ($awayRecord !== null) $update['awayTeamRecord'] = $awayRecord;
         }
+        // Preserve the broadcast/event metadata onto the finished row so a
+        // user opening Scoreboards can still see "ESPN — WEST 1ST ROUND
+        // GAME 5" on a just-ended game.
+        $broadcast = self::extractBroadcast($event);
+        if ($broadcast !== '') $update['broadcast'] = $broadcast;
+        $eventName = trim((string) ($event['event_name'] ?? ''));
+        if ($eventName !== '') $update['eventName'] = $eventName;
         if ($rundownEventId !== '') {
             $update['rundownEventId'] = $rundownEventId;
         }
@@ -510,6 +541,145 @@ final class RundownLiveSync
         } catch (Throwable $_) {
             return ['matched' => true, 'finalized' => false, 'sportKey' => (string) ($row['sportKey'] ?? '')];
         }
+    }
+
+    /**
+     * Lightweight metadata-only merge for not-yet-started events. Writes
+     * only the broadcast/eventName/team-short/team-record fields onto a
+     * matched DB row — never touches odds, score, or status. This way
+     * the OddsAPI prematch flow remains the source of truth for prematch
+     * odds while we get to enrich the card with broadcast info from
+     * Rundown.
+     *
+     * @param array<string,mixed> $event
+     * @param list<string> $oddsKeys
+     * @return array{matched:bool, updated:bool, sportKey:string}
+     */
+    private static function mergeBroadcastOnly(SqlRepository $db, array $event, array $oddsKeys): array
+    {
+        $rundownEventId = trim((string) ($event['event_id'] ?? ''));
+
+        $teams = is_array($event['teams'] ?? null) ? $event['teams'] : [];
+        $homeName = '';
+        $awayName = '';
+        $homeTeam = null;
+        $awayTeam = null;
+        foreach ($teams as $team) {
+            if (!is_array($team)) continue;
+            $name = trim((string) ($team['name'] ?? ''));
+            $mascot = trim((string) ($team['mascot'] ?? ''));
+            $full = trim($name . ' ' . $mascot);
+            if (($team['is_home'] ?? false) === true) {
+                $homeName = $full !== '' ? $full : $name;
+                $homeTeam = $team;
+            } elseif (($team['is_away'] ?? false) === true) {
+                $awayName = $full !== '' ? $full : $name;
+                $awayTeam = $team;
+            }
+        }
+
+        $broadcast = self::extractBroadcast($event);
+        $eventName = trim((string) ($event['event_name'] ?? ''));
+        // If Rundown didn't ship any of the fields we'd write, skip the
+        // DB hit entirely. records/short names alone aren't worth a
+        // round-trip when the live merge already keeps them fresh.
+        if ($broadcast === '' && $eventName === '' && $homeTeam === null && $awayTeam === null) {
+            return ['matched' => false, 'updated' => false, 'sportKey' => ''];
+        }
+
+        $eventDate = (string) ($event['event_date'] ?? '');
+        $eventTs = $eventDate !== '' ? (int) strtotime($eventDate) : 0;
+
+        $row = self::findRowByRundownEventId($db, $rundownEventId);
+        if ($row === null) {
+            if ($homeName === '' || $awayName === '') {
+                return ['matched' => false, 'updated' => false, 'sportKey' => ''];
+            }
+            $row = self::findMatchingRow($db, $homeName, $awayName, $oddsKeys, $eventTs);
+            if ($row === null) {
+                return ['matched' => false, 'updated' => false, 'sportKey' => ''];
+            }
+        }
+
+        // No-op fast path: if the row already has the same broadcast +
+        // eventName, skip the write so we don't bump updatedAt and bust
+        // unrelated downstream caches.
+        if (
+            $broadcast !== ''
+            && $eventName !== ''
+            && (string) ($row['broadcast'] ?? '') === $broadcast
+            && (string) ($row['eventName'] ?? '') === $eventName
+        ) {
+            return ['matched' => true, 'updated' => false, 'sportKey' => (string) ($row['sportKey'] ?? '')];
+        }
+
+        $now = SqlRepository::nowUtc();
+        $update = ['updatedAt' => $now];
+        if ($broadcast !== '') $update['broadcast'] = $broadcast;
+        if ($eventName !== '') $update['eventName'] = $eventName;
+
+        $sportKeyForNorm = self::resolveSportKey($row);
+        if ($sportKeyForNorm === '') $sportKeyForNorm = (string) ($oddsKeys[0] ?? '');
+        if ($homeTeam !== null) {
+            $homeShort = TeamNormalizer::shortName($homeName, $sportKeyForNorm, (string) ($homeTeam['mascot'] ?? ''));
+            $homeRecord = TeamNormalizer::recordFromRundownTeam($homeTeam, $sportKeyForNorm);
+            if ($homeShort !== '') $update['homeTeamShort'] = $homeShort;
+            if ($homeRecord !== null) $update['homeTeamRecord'] = $homeRecord;
+        }
+        if ($awayTeam !== null) {
+            $awayShort = TeamNormalizer::shortName($awayName, $sportKeyForNorm, (string) ($awayTeam['mascot'] ?? ''));
+            $awayRecord = TeamNormalizer::recordFromRundownTeam($awayTeam, $sportKeyForNorm);
+            if ($awayShort !== '') $update['awayTeamShort'] = $awayShort;
+            if ($awayRecord !== null) $update['awayTeamRecord'] = $awayRecord;
+        }
+        if ($rundownEventId !== '') {
+            $update['rundownEventId'] = $rundownEventId;
+        }
+
+        if (count($update) <= 1) {
+            return ['matched' => true, 'updated' => false, 'sportKey' => (string) ($row['sportKey'] ?? '')];
+        }
+        try {
+            $db->updateOne('matches', ['id' => SqlRepository::id((string) $row['id'])], $update);
+            return ['matched' => true, 'updated' => true, 'sportKey' => (string) ($row['sportKey'] ?? '')];
+        } catch (Throwable $_) {
+            return ['matched' => true, 'updated' => false, 'sportKey' => (string) ($row['sportKey'] ?? '')];
+        }
+    }
+
+    /**
+     * Pull a broadcast string from a Rundown event payload. Rundown
+     * exposes it under different shapes across endpoints — sometimes a
+     * top-level `broadcast` string, sometimes a `tv_broadcast` array, and
+     * occasionally nested under `score.broadcast`. Coalesce to the first
+     * non-empty value we find so the merge code can stay agnostic.
+     *
+     * @param array<string,mixed> $event
+     */
+    private static function extractBroadcast(array $event): string
+    {
+        $candidates = [];
+        if (isset($event['broadcast'])) $candidates[] = $event['broadcast'];
+        if (isset($event['tv_broadcast'])) $candidates[] = $event['tv_broadcast'];
+        if (isset($event['score']['broadcast'])) $candidates[] = $event['score']['broadcast'];
+        foreach ($candidates as $candidate) {
+            if (is_string($candidate)) {
+                $trimmed = trim($candidate);
+                if ($trimmed !== '') return $trimmed;
+            }
+            if (is_array($candidate) && !empty($candidate)) {
+                $first = $candidate[0] ?? null;
+                if (is_string($first)) {
+                    $trimmed = trim($first);
+                    if ($trimmed !== '') return $trimmed;
+                }
+                if (is_array($first) && isset($first['name']) && is_string($first['name'])) {
+                    $trimmed = trim($first['name']);
+                    if ($trimmed !== '') return $trimmed;
+                }
+            }
+        }
+        return '';
     }
 
     /**

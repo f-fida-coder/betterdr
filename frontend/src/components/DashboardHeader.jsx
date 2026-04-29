@@ -4,6 +4,7 @@ import ScoreboardSidebar from './ScoreboardSidebar';
 import SettingsModal from './SettingsModal';
 import PersonalizeSidebar from './PersonalizeSidebar';
 import AccountPanel from './AccountPanel';
+import { setMyBetsInitialFilter } from './MyBetsView';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 
 const buildRefreshRequestId = () => {
@@ -65,6 +66,14 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
         { id: 'if_bet', label: 'IF BET', icon: 'I' },
         { id: 'reverse', label: 'REVERSE', icon: 'R' }
     ];
+
+    // Tapping the BALANCE / PENDING / AVAILABLE summary anywhere in the
+    // header should open My Bets on the Pending tab. Single navigation
+    // target — no per-row separation — matches the reference book.
+    const goToMyBetsPending = () => {
+        setMyBetsInitialFilter('pending');
+        if (onViewChange) onViewChange('my-bets');
+    };
 
     const [showLanguageModal, setShowLanguageModal] = useState(false);
     const [showOddsModal, setShowOddsModal] = useState(false);
@@ -178,6 +187,15 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
         display: 'flex',
         flexDirection: 'column',
         justifyContent: 'center',
+        // Make the whole 3-row balance summary act as a single tap target
+        // so the user goes straight to My Bets → Pending. Keeping it a
+        // <button> with `appearance: none` so the gradient shows through.
+        appearance: 'none',
+        WebkitAppearance: 'none',
+        border: 'none',
+        cursor: 'pointer',
+        textAlign: 'left',
+        fontFamily: 'inherit',
     };
     const mhBalanceRowStyle = {
         display: 'flex',
@@ -369,7 +387,13 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
                         <span style={mhCellLabelStyle}>Menu</span>
                     </button>
 
-                    <div style={mhBalanceCellStyle} aria-label="Account balance">
+                    <button
+                        type="button"
+                        className="header-balance-cell"
+                        style={mhBalanceCellStyle}
+                        onClick={goToMyBetsPending}
+                        aria-label="View my bets"
+                    >
                         <div style={mhBalanceRowStyle}>
                             <span style={mhBalanceHeroLabelStyle}>Balance</span>
                             <span style={{ ...mhBalanceHeroValueStyle, color: balanceSignColor(balance) }}>
@@ -393,7 +417,7 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
                                 {formatBalanceCell(headerAvailable)}
                             </span>
                         </div>
-                    </div>
+                    </button>
 
                     <button
                         type="button"
@@ -642,18 +666,28 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
                     </div>
                 </div>
                 <div className="dash-user-info">
-                    <div className="dash-balance">
-                        <span>{role === 'user' ? 'BALANCE' : 'CREDIT LIMIT'}</span>
-                        <strong>{formatMoney(balance)}</strong>
-                    </div>
-                    <div className="dash-balance">
-                        <span>PENDING WAGERS</span>
-                        <strong>{formatMoney(pendingBalance)}</strong>
-                    </div>
-                    <div className="dash-balance">
-                        <span>AVAILABLE CREDIT</span>
-                        <strong>{formatMoney(headerAvailable)}</strong>
-                    </div>
+                    {/* Single tap target spanning all three balance cells —
+                        a click anywhere in BALANCE / PENDING / AVAILABLE
+                        opens My Bets on the Pending tab. */}
+                    <button
+                        type="button"
+                        className="dash-balance-trigger"
+                        onClick={goToMyBetsPending}
+                        aria-label="View my bets"
+                    >
+                        <div className="dash-balance">
+                            <span>{role === 'user' ? 'BALANCE' : 'CREDIT LIMIT'}</span>
+                            <strong>{formatMoney(balance)}</strong>
+                        </div>
+                        <div className="dash-balance">
+                            <span>PENDING</span>
+                            <strong>{formatMoney(pendingBalance)}</strong>
+                        </div>
+                        <div className="dash-balance">
+                            <span>AVAILABLE CREDIT</span>
+                            <strong>{formatMoney(headerAvailable)}</strong>
+                        </div>
+                    </button>
 
                     <div
                         style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', position: 'relative' }}

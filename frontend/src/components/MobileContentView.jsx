@@ -14,6 +14,7 @@ import {
     parseOddsNumber,
 } from '../utils/odds';
 import { logoUrlForTeam, fetchTeamBadgeUrl, prewarmTeamBadges } from '../utils/teamLogos';
+import { resolveBroadcast } from '../utils/broadcast';
 import PropBuilderModal from './PropBuilderModal';
 import MatchDetailView from './MatchDetailView';
 import OddsAge from './OddsAge';
@@ -87,6 +88,15 @@ const initialsForName = (name = '') => {
 
 const dayKeyOf = (d) => (d ? `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}` : '');
 const dayLabelOf = (d) => (d ? `${WEEKDAYS_LONG[d.getDay()]}, ${MONTHS_SHORT[d.getMonth()]} ${d.getDate()}` : '');
+
+// US Eastern time formatter for the broadcast row — matches the
+// reference book's "09:30 PM EST" prefix.
+const formatBroadcastTimeET = (iso) => {
+    if (!iso) return '';
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return '';
+    return `${date.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', hour12: true })} EST`;
+};
 
 const WEEKDAYS_SHORT = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
 // "Today 4/23 6:10pm" / "Tomorrow 4/24 6:10pm" / "Fri 4/25 6:10pm" /
@@ -461,6 +471,9 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
                 team2Short: match.homeTeamShort || homeName,
                 team1Record: match.awayTeamRecord || '',
                 team2Record: match.homeTeamRecord || '',
+                broadcast: resolveBroadcast(match.broadcast),
+                eventName: typeof match.eventName === 'string' ? match.eventName.trim() : '',
+                broadcastTime: formatBroadcastTimeET(match.startTime),
                 odds: extractOdds(match, homeName, awayName, activePeriod.suffix),
                 isLive,
                 liveStatusLabel,
@@ -866,6 +879,34 @@ const MatchCard = ({ match, oddsFormat, onAddToSlip, selectedKeys, visibleMarket
     }), [match.id, match.externalId, match.team1, match.team2, match.odds]);
     return (
         <div style={matchCardStyle}>
+            {/* Broadcast row sits at the very top so the player sees
+                "[TIME] EST - [GAME CONTEXT] - [NETWORK]" before scanning
+                team rows. Omitted entirely when no broadcast info is
+                available; never rendered as a placeholder. */}
+            {match.broadcast ? (
+                <div style={broadcastRowStyle}>
+                    <span style={broadcastTextStyle}>
+                        {match.broadcastTime}
+                        {match.eventName ? (
+                            <>
+                                <span style={broadcastSepStyle}> - </span>
+                                <span style={broadcastContextStyle}>{match.eventName.toUpperCase()}</span>
+                            </>
+                        ) : null}
+                    </span>
+                    <span
+                        style={{
+                            ...broadcastChipStyle,
+                            background: match.broadcast.bg,
+                            color: match.broadcast.fg,
+                        }}
+                        title={match.broadcast.raw}
+                    >
+                        {match.broadcast.name}
+                    </span>
+                </div>
+            ) : null}
+
             {/* Combined header row: live dot + date on the left,
                 SPREAD / ML / TOTAL labels aligned with the odds
                 columns below. Trailing empty slot matches the
@@ -1473,6 +1514,46 @@ const teamRecordStyle = {
     fontWeight: 500,
     fontSize: '10px',
     marginLeft: 2,
+};
+
+// Broadcast row styles for the mobile match card. Light background +
+// green time text mirrors the reference book; the chip on the right
+// uses brand colors picked by resolveBroadcast().
+const broadcastRowStyle = {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 6,
+    padding: '6px 4px 4px',
+    fontSize: 11,
+    lineHeight: 1.2,
+    borderBottom: '1px solid #f1f5f9',
+    marginBottom: 4,
+    minWidth: 0,
+};
+const broadcastTextStyle = {
+    color: '#166534',
+    fontWeight: 700,
+    flex: '1 1 auto',
+    minWidth: 0,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+};
+const broadcastSepStyle = { color: '#64748b', fontWeight: 600 };
+const broadcastContextStyle = { color: '#0f172a', fontWeight: 700 };
+const broadcastChipStyle = {
+    flex: '0 0 auto',
+    display: 'inline-flex',
+    alignItems: 'center',
+    padding: '2px 7px',
+    borderRadius: 4,
+    fontSize: 9.5,
+    fontWeight: 800,
+    letterSpacing: 0.04,
+    textTransform: 'uppercase',
+    lineHeight: 1.4,
+    whiteSpace: 'nowrap',
 };
 
 const oddsCellStyle = {

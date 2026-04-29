@@ -118,14 +118,18 @@ const WagerConfirmedScreen = ({
                         borderRadius: 6,
                     }}
                 >
-                    Wager Confirmed
+                    Bet Confirmed
                 </div>
 
                 <div style={{ padding: '12px 16px 16px' }}>
                     {bets.map((bet, idx) => {
                         const ticketId = bet?.ticketId || bet?.id || '';
                         const risk = Number(bet?.riskAmount ?? bet?.amount ?? 0);
-                        const win = Number(bet?.potentialPayout ?? 0);
+                        // Credit-based "Win" = profit only (the amount credited
+                        // on settlement). potentialPayout is gross (risk + profit),
+                        // which would mislead a credit-line player into thinking
+                        // their available balance grows by the full payout on win.
+                        const win = Math.max(0, Number(bet?.potentialPayout ?? 0) - risk);
                         const odds = bet?.combinedOdds ?? bet?.odds;
                         const selections = Array.isArray(bet?.selections) ? bet.selections : [];
                         const summaryLines = String(bet?.description || '').split('\n').filter(Boolean);
@@ -194,7 +198,7 @@ const WagerConfirmedScreen = ({
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0, border: '1px solid #e5e7eb', borderRadius: 6, overflow: 'hidden' }}>
                                     <div>
                                         <div style={{ background: '#475569', color: '#fff', textAlign: 'center', padding: '6px 0', fontSize: 12, fontWeight: 700 }}>
-                                            Risking
+                                            Risk
                                         </div>
                                         <div style={{ textAlign: 'center', padding: '8px 0', fontSize: 16, fontWeight: 700, color: '#0f172a' }}>
                                             {fmtMoney(risk)}
@@ -202,7 +206,7 @@ const WagerConfirmedScreen = ({
                                     </div>
                                     <div style={{ borderLeft: '1px solid #e5e7eb' }}>
                                         <div style={{ background: '#15803d', color: '#fff', textAlign: 'center', padding: '6px 0', fontSize: 12, fontWeight: 700 }}>
-                                            To Win
+                                            Win
                                         </div>
                                         <div style={{ textAlign: 'center', padding: '8px 0', fontSize: 16, fontWeight: 700, color: '#0f172a' }}>
                                             {fmtMoney(win)}

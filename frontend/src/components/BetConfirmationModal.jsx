@@ -89,23 +89,34 @@ const BetConfirmationModal = ({
               FREEPLAY BET — Stake from freeplay credits. Only profit credited on win.
             </div>
           )}
+          {/* Credit-based summary: only Risk (what they could lose) and Win
+              (profit if it hits). "Wager" / "Total Risk" / "Potential Payout"
+              were cash-betting framing that misled credit-line players into
+              thinking the full payout (stake + profit) was new money. */}
           <div style={{ marginTop: 16, borderTop: '1px solid rgba(255,255,255,0.12)', paddingTop: 12, fontSize: 14 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-              <span>{isFreeplay ? 'Freeplay Stake' : 'Wager'}</span>
-              <strong style={isFreeplay ? { color: '#7ee7a8' } : {}}>${formatAmount(wager)}</strong>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-              <span>Total Risk</span>
-              <strong>${formatAmount(totalRisk)}</strong>
+              <span>{isFreeplay ? 'Risk (Freeplay)' : 'Risk'}</span>
+              <strong style={isFreeplay ? { color: '#7ee7a8' } : {}}>${formatAmount(totalRisk)}</strong>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span>Potential Payout</span>
-              <strong style={{ color: '#7ee7a8' }}>${formatAmount(potentialPayout)}</strong>
+              <span>Win</span>
+              <strong style={{ color: '#7ee7a8' }}>${formatAmount(Math.max(0, potentialPayout - totalRisk))}</strong>
             </div>
+            {betType === 'parlay' && selections.length > 1 && totalRisk > 0 && (
+              <>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, color: '#b8c3d8' }}>
+                  <span>Parlay Odds</span>
+                  <strong>{formatOdds(potentialPayout / totalRisk, oddsFormat)}</strong>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, color: '#b8c3d8' }}>
+                  <span>Legs</span>
+                  <strong>{selections.length}</strong>
+                </div>
+              </>
+            )}
             {isFreeplay && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 12, color: '#b8c3d8' }}>
-                <span>Profit if won (credited to real balance)</span>
-                <span>${formatAmount(Math.max(0, potentialPayout - wager))}</span>
+              <div style={{ marginTop: 8, fontSize: 12, color: '#b8c3d8' }}>
+                Win credited to real balance on success.
               </div>
             )}
           </div>
