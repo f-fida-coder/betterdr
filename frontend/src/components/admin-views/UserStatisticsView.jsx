@@ -108,10 +108,10 @@ function UserStatisticsView({ userId, onBack }) {
 
                     <div className="stat-section">
                         <h4>Financials</h4>
-                        <div className="detail-row"><label>Balance:</label> <span>${Math.round(Number(user.balance || 0))}</span></div>
-                        <div className="detail-row"><label>Credit Limit:</label> <span>${Math.round(Number(user.creditLimit || 0))}</span></div>
-                        <div className="detail-row"><label>Owed:</label> <span>${Math.round(Number(user.balanceOwed || 0))}</span></div>
-                        <div className="detail-row"><label>Net Earnings:</label> <span className={(stats.netProfit || 0) >= 0 ? 'text-success' : 'text-danger'}>${Math.round(Number(stats.netProfit || 0))}</span></div>
+                        <div className="detail-row"><label>Balance:</label> <span>${Math.ceil(Number(user.balance || 0))}</span></div>
+                        <div className="detail-row"><label>Credit Limit:</label> <span>${Math.ceil(Number(user.creditLimit || 0))}</span></div>
+                        <div className="detail-row"><label>Owed:</label> <span>${Math.ceil(Number(user.balanceOwed || 0))}</span></div>
+                        <div className="detail-row"><label>Net Earnings:</label> <span className={(stats.netProfit || 0) >= 0 ? 'text-success' : 'text-danger'}>${Math.ceil(Number(stats.netProfit || 0))}</span></div>
                     </div>
 
                     <div className="stat-section full-width">

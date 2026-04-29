@@ -284,10 +284,17 @@ const ModeBetPanel = ({
     const defaultStakeAmount = Number.isFinite(Number(userBetDefaults?.amount)) && Number(userBetDefaults.amount) > 0
         ? Number(userBetDefaults.amount)
         : 0;
-    // Quick stakes are intentionally fixed across all users — saved
-    // settings.betDefaults.quickStakes are ignored here so every betslip
-    // shows the same [$25, $500, $1000, $3000] presets.
-    const customQuickStakes = QUICK_STAKES;
+    // Quick stakes pin the leftmost / rightmost chip to the player's
+    // admin-set Min Bet and Max Bet (so the limits are always one tap
+    // away). The middle two slots stay at fixed presets across all users
+    // — saved settings.betDefaults.quickStakes are still ignored here so
+    // every player sees the same mid-range chips. Falls back to the
+    // hardcoded extremes when the player has no min/max configured.
+    const playerMinBet = Number(user?.minBet);
+    const playerMaxBet = Number(user?.maxBet);
+    const minBetChip = Number.isFinite(playerMinBet) && playerMinBet > 0 ? Math.round(playerMinBet) : QUICK_STAKES[0];
+    const maxBetChip = Number.isFinite(playerMaxBet) && playerMaxBet > 0 ? Math.round(playerMaxBet) : QUICK_STAKES[3];
+    const customQuickStakes = [minBetChip, QUICK_STAKES[1], QUICK_STAKES[2], maxBetChip];
 
     // Single shared Bet/Risk/Win mode for the whole slip. The `wager`
     // value (driven by onWagerChange) is the user-typed Bet Amount in
@@ -498,32 +505,56 @@ const ModeBetPanel = ({
         // already enforces these (BetsController::placeBet) — checking
         // client-side too gives instant feedback instead of a round-trip
         // error after the user clicks Place Bet.
+        //
+        // Mode-aware semantics: in Win mode the *min* applies to the
+        // amount-to-win the player asked for ("Min bet to win $X"); in
+        // Risk mode the *min* applies to the staked amount ("Min bet
+        // $X"). Max always applies to the actual money risked — the
+        // backend reserves Risk against pendingBalance, so a small Win
+        // ask on heavy negative odds (Win $25 @ -500 → Risk $125) gets
+        // capped by the Risk-side max even though the player typed a
+        // Win figure. Win-mode small-Risk on positive odds (Win $25 @
+        // +500 → Risk $5) is intentionally legal because the Win side
+        // satisfies the minimum.
         const minBet = Number(user?.minBet);
         const maxBet = Number(user?.maxBet);
         const hasMin = Number.isFinite(minBet) && minBet > 0;
         const hasMax = Number.isFinite(maxBet) && maxBet > 0;
         if (hasMin || hasMax) {
+            const minLabel = stakeMode === 'win' ? `Min bet to win $${minBet}` : `Min bet $${minBet}`;
+            const maxLabel = `Max bet $${maxBet}`;
             if (normalizedMode === 'straight') {
                 // Each staked leg is its own ticket — every leg with a
-                // positive stake must satisfy [minBet, maxBet] independently.
-                const stakes = selections.map(wagerForSelection).filter((v) => v > 0);
-                if (hasMin && stakes.some((v) => v < minBet)) {
-                    errors.push(`Minimum bet is $${minBet}`);
+                // positive stake (Risk) or positive ask (Win) must
+                // satisfy its mode-specific minimum and the always-on
+                // Risk-side maximum independently.
+                const pairs = selections.map((sel) => {
+                    const { risk, win } = resolveStake(stakeMode, wager, sel?.odds);
+                    return { risk, win };
+                });
+                const minSubject = stakeMode === 'win'
+                    ? pairs.map((p) => p.win).filter((v) => v > 0)
+                    : pairs.map((p) => p.risk).filter((v) => v > 0);
+                const riskValues = pairs.map((p) => p.risk).filter((v) => v > 0);
+                if (hasMin && minSubject.some((v) => v < minBet)) {
+                    errors.push(minLabel);
                 }
-                if (hasMax && stakes.some((v) => v > maxBet)) {
-                    errors.push(`Maximum bet is $${maxBet}`);
+                if (hasMax && riskValues.some((v) => v > maxBet)) {
+                    errors.push(maxLabel);
                 }
             } else if (effectiveCombinedRisk > 0) {
-                if (hasMin && effectiveCombinedRisk < minBet) {
-                    errors.push(`Minimum bet is $${minBet}`);
+                const winValue = effectiveCombinedRisk * Math.max(0, ticketDecimalOdds - 1);
+                const minSubject = stakeMode === 'win' ? winValue : effectiveCombinedRisk;
+                if (hasMin && minSubject < minBet) {
+                    errors.push(minLabel);
                 }
                 if (hasMax && effectiveCombinedRisk > maxBet) {
-                    errors.push(`Maximum bet is $${maxBet}`);
+                    errors.push(maxLabel);
                 }
             }
         }
         return errors;
-    }, [legCount, normalizedMode, rule, selections, effectiveCombinedRisk, teaserValid, hasAnyStraightAmount, user?.minBet, user?.maxBet, wagerForSelection]);
+    }, [legCount, normalizedMode, rule, selections, effectiveCombinedRisk, teaserValid, hasAnyStraightAmount, user?.minBet, user?.maxBet, wagerForSelection, stakeMode, wager, ticketDecimalOdds]);
 
     const ticketSignature = useMemo(() => JSON.stringify({
         type: normalizedMode,
@@ -578,6 +609,13 @@ const ModeBetPanel = ({
         ? parsedFreeplayBalance
         : (Number.isFinite(parsedAvailableBalance) ? parsedAvailableBalance : 0);
     const canPlace = validationErrors.length === 0 && !placing;
+    // Pluck the amount-related warning (if any) for inline display under
+    // the Bet Amount input. Matches the prefixes the validation builder
+    // emits so the same string drives both the inline pill and the
+    // disabled-button state.
+    const amountWarning = validationErrors.find((e) =>
+        typeof e === 'string' && (e.startsWith('Min bet') || e.startsWith('Max bet'))
+    ) || '';
     const hasSelections = legCount > 0;
     const [isOpen, setIsOpen] = useState(false);
 
@@ -1232,30 +1270,72 @@ const ModeBetPanel = ({
                             )}
                         </div>
 
-                        {/* Row 2: quick stakes (4 user-editable values + Clear) */}
-                        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                        {/* Inline min/max warning — sits between the Bet
+                            Amount input and the quick-stake chips so the
+                            user sees the constraint without clicking
+                            PLACE BET. PLACE BET stays disabled while a
+                            warning is present (canPlace mirrors this). */}
+                        {amountWarning && (
+                            <div
+                                role="alert"
+                                style={{
+                                    margin: '4px 0 8px',
+                                    padding: '6px 10px',
+                                    fontSize: 11,
+                                    fontWeight: 700,
+                                    color: '#b45309',
+                                    background: '#fef3c7',
+                                    border: '1px solid #fcd34d',
+                                    borderRadius: 6,
+                                    letterSpacing: 0.2,
+                                }}
+                            >
+                                {amountWarning}
+                            </div>
+                        )}
+
+                        {/* Row 2: quick stakes — leftmost / rightmost are
+                            pinned to the player's admin-set Min Bet /
+                            Max Bet (with a small label underneath); the
+                            middle two stay at fixed presets. */}
+                        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', alignItems: 'flex-start' }}>
                             {customQuickStakes.map((v, i) => {
                                 const active = Number(wager) === Number(v);
+                                const limitLabel = i === 0 ? 'Min Bet' : i === customQuickStakes.length - 1 ? 'Max Bet' : '';
                                 return (
-                                    <button
+                                    <div
                                         key={`${v}-${i}`}
-                                        onClick={() => onWagerChange(String(v))}
-                                        style={{
-                                            flex: '1 1 0',
-                                            minWidth: 54,
-                                            padding: '7px 6px',
-                                            border: `1px solid ${active ? palette.headerBg : palette.cardBorder}`,
-                                            background: active ? palette.headerBg : '#fff',
-                                            color: active ? '#fff' : palette.textPrimary,
-                                            fontSize: 11,
-                                            fontWeight: 700,
-                                            cursor: 'pointer',
-                                            borderRadius: 6,
-                                            transition: 'all 120ms ease',
-                                        }}
+                                        style={{ flex: '1 1 0', minWidth: 54, display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}
                                     >
-                                        ${v}
-                                    </button>
+                                        <button
+                                            onClick={() => onWagerChange(String(v))}
+                                            style={{
+                                                padding: '7px 6px',
+                                                border: `1px solid ${active ? palette.headerBg : palette.cardBorder}`,
+                                                background: active ? palette.headerBg : '#fff',
+                                                color: active ? '#fff' : palette.textPrimary,
+                                                fontSize: 11,
+                                                fontWeight: 700,
+                                                cursor: 'pointer',
+                                                borderRadius: 6,
+                                                transition: 'all 120ms ease',
+                                                width: '100%',
+                                            }}
+                                        >
+                                            ${v}
+                                        </button>
+                                        {limitLabel && (
+                                            <span style={{
+                                                marginTop: 3,
+                                                fontSize: 9,
+                                                fontWeight: 700,
+                                                textTransform: 'uppercase',
+                                                letterSpacing: 0.4,
+                                                color: palette.textFaint,
+                                                textAlign: 'center',
+                                            }}>{limitLabel}</span>
+                                        )}
+                                    </div>
                                 );
                             })}
                             <button
@@ -1269,6 +1349,7 @@ const ModeBetPanel = ({
                                     fontWeight: 700,
                                     cursor: 'pointer',
                                     borderRadius: 6,
+                                    alignSelf: 'flex-start',
                                 }}
                             >
                                 Clear

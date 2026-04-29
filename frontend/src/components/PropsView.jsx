@@ -245,7 +245,7 @@ const PropsView = () => {
                             {!myBetsLoading && !myBetsError && myBets.slice(0, 10).map((bet) => (
                                 <div key={bet.id} className="props-bet-row">
                                     <span>{String(bet.type || 'bet').toUpperCase()}</span>
-                                    <span>${Math.round(Number(bet.amount || 0))}</span>
+                                    <span>${Math.ceil(Number(bet.amount || 0))}</span>
                                     <span className={`status ${String(bet.status || 'pending').toLowerCase()}`}>{bet.status || 'pending'}</span>
                                 </div>
                             ))}

@@ -1202,8 +1202,13 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
     };
   }, [transactions, pendingBalance, customerBalance, available, isAgent, agentSettlementBalance, displayedAgentBalance]);
 
+  // Whole-dollar display uses Math.ceil so admin/agent figures never read
+  // *below* the stored value — matches the player's /auth/me payload (PHP
+  // ceil() in buildAuthPayload). Round() drifts down for cents > 0 and
+  // produced "agent says $1999, player says $2000" mismatches on the
+  // same stored 1999.26.
   const roundDisplayedMoney = (value) => {
-    return Math.round(toMoneyNumber(value, 0));
+    return Math.ceil(toMoneyNumber(value, 0));
   };
 
   const amountFromDisplayedMoney = (value) => String(Math.abs(roundDisplayedMoney(value)));
@@ -1214,7 +1219,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
 
   const formatDetailMoney = (value) => {
     const num = toMoneyNumber(value, 0);
-    return `$${Math.round(num).toLocaleString('en-US')}`;
+    return `$${Math.ceil(num).toLocaleString('en-US')}`;
   };
 
   const handleImpersonate = async () => {
@@ -2765,7 +2770,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
                   ) : performanceRows.map((row) => (
                     <tr key={row.key} className={performanceSelectedKey === row.key ? 'selected' : ''} onClick={() => setPerformanceSelectedKey(row.key)}>
                       <td>{row.periodLabel}</td>
-                      <td>{Math.round(Number(row.net || 0))}</td>
+                      <td>{Math.ceil(Number(row.net || 0))}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -2786,7 +2791,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
                   ) : performanceDayBets.map((wager) => (
                     <tr key={wager.id} className={wager?.synthetic ? 'perf-synthetic' : ''}>
                       <td>{wager.label || 'Wager'}</td>
-                      <td>{Math.round(Number(wager.amount || 0))}</td>
+                      <td>{Math.ceil(Number(wager.amount || 0))}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -2806,8 +2811,8 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
                 <option value="all">All Time</option>
               </select>
             </div>
-            <div className="tx-stat"><label>Balance</label><b>{Math.round(Number(freePlayBalance))}</b></div>
-            <div className="tx-stat"><label>Pending</label><b>{Math.round(Number(freePlayPending))}</b></div>
+            <div className="tx-stat"><label>Balance</label><b>{Math.ceil(Number(freePlayBalance))}</b></div>
+            <div className="tx-stat"><label>Pending</label><b>{Math.ceil(Number(freePlayPending))}</b></div>
           </div>
 
           <div className="tx-table-wrap">
@@ -2848,9 +2853,9 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
                       <td>{toTxDate(txn.date)}</td>
                       <td>{displayDescription}</td>
                       <td>{notes}</td>
-                      <td>{credit > 0 ? Math.round(credit) : '—'}</td>
-                      <td>{debit > 0 ? Math.round(debit) : '—'}</td>
-                      <td>{Math.round(rowBalance)}</td>
+                      <td>{credit > 0 ? Math.ceil(credit) : '—'}</td>
+                      <td>{debit > 0 ? Math.ceil(debit) : '—'}</td>
+                      <td>{Math.ceil(rowBalance)}</td>
                       <td>{enteredBy}</td>
                       <td className="tx-actions-col">
                         <button
