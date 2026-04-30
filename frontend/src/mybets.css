@@ -359,6 +359,102 @@
   font-weight: 600;
 }
 
+/* A clickable ticket row. Hover/focus states give the player feedback
+   that the row will expand; the chevron sits next to the description
+   and rotates 90° when open. The whole row remains a single grid cell
+   so click target stays large on mobile. */
+.my-bets-table-row.expandable {
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+.my-bets-table-row.expandable:hover,
+.my-bets-table-row.expandable:focus-visible {
+  background: #f1f5f9;
+}
+.my-bets-table-row.expandable.expanded {
+  background: #eef2ff;
+}
+.my-bets-table-row.expandable:focus-visible {
+  outline: 2px solid #6366f1;
+  outline-offset: -2px;
+}
+
+.my-bets-table-chevron {
+  display: inline-block;
+  width: 14px;
+  flex-shrink: 0;
+  color: #64748b;
+  font-size: 10px;
+  transition: transform 150ms ease;
+  transform: rotate(0deg);
+  transform-origin: center;
+  text-align: center;
+}
+.my-bets-table-chevron.open {
+  transform: rotate(90deg);
+  color: #4f46e5;
+}
+
+/* Expanded detail panel rendered immediately under a clicked row.
+   Two-column key/value grid keeps long labels (Potential Payout)
+   from squeezing the values out of view on narrow phones. */
+.my-bets-table-details {
+  background: #f8fafc;
+  border-top: 1px solid #e2e8f0;
+  padding: 12px 14px 14px 38px;
+  font-size: 13px;
+  color: #0f172a;
+}
+
+.my-bets-details-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 24px;
+  margin: 0;
+}
+
+.my-bets-details-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  border-bottom: 1px dashed #e2e8f0;
+  padding: 4px 0;
+  min-width: 0;
+}
+
+.my-bets-details-row dt {
+  margin: 0;
+  color: #64748b;
+  font-weight: 500;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.my-bets-details-row dd {
+  margin: 0;
+  color: #0f172a;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 600px) {
+  .my-bets-details-grid {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+  .my-bets-table-details {
+    padding-left: 22px;
+  }
+}
+
 .my-bets-table-row.leg .my-bets-table-col-desc {
   padding-left: 24px;
   color: #1f2937;

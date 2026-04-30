@@ -265,6 +265,88 @@ const formatTimestamp = (value) => {
 
 const settledTimestamp = (bet) => bet?.settledAt || bet?.updatedAt || bet?.createdAt;
 
+// Pulls the matchup string for the expanded details panel. For
+// multi-leg tickets the parent bet has no single match — we lift the
+// matchup off the first leg's snapshot so the panel still shows
+// something meaningful instead of "—".
+const expandedMatchup = (bet) => {
+    if (bet?.match?.homeTeam && bet?.match?.awayTeam) {
+        return `${bet.match.awayTeam} @ ${bet.match.homeTeam}`;
+    }
+    if (bet?.matchSnapshot?.homeTeam && bet?.matchSnapshot?.awayTeam) {
+        return `${bet.matchSnapshot.awayTeam} @ ${bet.matchSnapshot.homeTeam}`;
+    }
+    const firstLeg = Array.isArray(bet?.selections) ? bet.selections[0] : null;
+    const snap = firstLeg?.matchSnapshot;
+    if (snap?.homeTeam && snap?.awayTeam) {
+        return `${snap.awayTeam} @ ${snap.homeTeam}`;
+    }
+    return null;
+};
+
+const expandedSport = (bet) => {
+    const fromMatch = bet?.match?.sport || bet?.matchSnapshot?.sport;
+    if (fromMatch) return String(fromMatch);
+    const firstLeg = Array.isArray(bet?.selections) ? bet.selections[0] : null;
+    return firstLeg?.matchSnapshot?.sport ? String(firstLeg.matchSnapshot.sport) : null;
+};
+
+const ticketTypeLabel = (bet) => {
+    const type = String(bet?.type || 'straight').toLowerCase();
+    if (type === 'parlay') return 'Parlay';
+    if (type === 'teaser') return 'Teaser';
+    if (type === 'if_bet') return 'If Bet';
+    if (type === 'reverse') return 'Reverse';
+    return 'Straight';
+};
+
+// Detail panel rendered under an expanded ticket row. Pulls fields
+// straight off the bet — no extra fetch — so it doesn't change the
+// network shape and renders instantly. Cells fall back to "—" rather
+// than rendering blanks so layout stays stable across older tickets
+// that may be missing a field (sport, settlement timestamps, etc).
+const BetDetailsPanel = ({ bet, oddsFormat }) => {
+    const matchup = expandedMatchup(bet);
+    const sport = expandedSport(bet);
+    const isMulti = isMultiLegBet(bet);
+    const firstLeg = Array.isArray(bet?.selections) ? bet.selections[0] : null;
+    const odds = isMulti
+        ? (Number.isFinite(Number(bet?.combinedOdds)) ? formatOdds(bet.combinedOdds, oddsFormat) : '—')
+        : (firstLeg ? formatOdds(firstLeg.odds, oddsFormat) : '—');
+    const risk = Number(bet?.riskAmount || bet?.amount || 0);
+    const potential = Number(bet?.potentialPayout || 0);
+    const placedAt = formatTimestamp(bet?.createdAt);
+    const settledAt = ['won', 'lost', 'void'].includes(normalizeStatus(bet?.status))
+        ? formatTimestamp(settledTimestamp(bet))
+        : null;
+    const ticketIdShort = String(bet?.ticketId || bet?.id || '').slice(-8).toUpperCase();
+    const isFreeplay = !!bet?.isFreeplay;
+
+    const rows = [];
+    if (!isMulti && matchup) rows.push(['Matchup', matchup]);
+    if (sport) rows.push(['Sport', sport]);
+    rows.push(['Type', ticketTypeLabel(bet) + (isFreeplay ? ' (Freeplay)' : '')]);
+    rows.push(['Odds', odds]);
+    rows.push(['Risk', money(risk)]);
+    rows.push(['Potential Payout', money(potential)]);
+    rows.push(['Placed', placedAt]);
+    if (settledAt) rows.push(['Settled', settledAt]);
+    if (ticketIdShort) rows.push(['Ticket', `#${ticketIdShort}`]);
+
+    return (
+        <div className="my-bets-table-details" role="region" aria-label="Bet details">
+            <dl className="my-bets-details-grid">
+                {rows.map(([label, value]) => (
+                    <div className="my-bets-details-row" key={label}>
+                        <dt>{label}</dt>
+                        <dd>{value}</dd>
+                    </div>
+                ))}
+            </dl>
+        </div>
+    );
+};
+
 const WEEK_OPTIONS = [
     { id: 0, label: 'This Week' },
     { id: 1, label: 'Last Week' },
@@ -285,6 +367,11 @@ const MyBetsView = () => {
         if (initial === 'all') return 'pending';
         return initial || 'pending';
     });
+    // Click-to-expand state for ticket rows. Exactly one row can be
+    // open at a time so the list never balloons; clicking the open row
+    // again collapses it.
+    const [expandedBetId, setExpandedBetId] = useState(null);
+    const toggleExpanded = (id) => setExpandedBetId((cur) => (cur === id ? null : id));
     // Map<team name, logo url> populated lazily as bets land. We render
     // an SVG initials fallback immediately and replace with the real
     // crest when fetchTeamBadgeUrl resolves, so the row never shows a
@@ -488,6 +575,7 @@ const MyBetsView = () => {
                             const ticketPayout = payoutValue(bet);
                             const amount = ticketAmount(bet);
                             const isMulti = isMultiLegBet(bet);
+                            const isExpanded = expandedBetId === betId;
                             // For graded rows, "To Win" cell shows the
                             // signed outcome (+$X green / -$X red /
                             // Refund grey). Pending shows the unsigned
@@ -499,8 +587,17 @@ const MyBetsView = () => {
                             if (isMulti) {
                                 return (
                                     <React.Fragment key={betId}>
-                                        <div className="my-bets-table-row parent">
-                                            <span className="my-bets-table-col-desc">{multiLegLabel(bet)}</span>
+                                        <div
+                                            className={`my-bets-table-row parent expandable${isExpanded ? ' expanded' : ''}`}
+                                            role="button"
+                                            tabIndex={0}
+                                            onClick={() => toggleExpanded(betId)}
+                                            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleExpanded(betId); } }}
+                                        >
+                                            <span className="my-bets-table-col-desc">
+                                                <span className={`my-bets-table-chevron${isExpanded ? ' open' : ''}`} aria-hidden="true">▸</span>
+                                                {multiLegLabel(bet)}
+                                            </span>
                                             <span className="my-bets-table-col-risk">{money(risk)}</span>
                                             <span className={`my-bets-table-col-win ${winTheme}`}>{winCell}</span>
                                         </div>
@@ -528,6 +625,9 @@ const MyBetsView = () => {
                                                 </div>
                                             );
                                         })}
+                                        {isExpanded && (
+                                            <BetDetailsPanel bet={bet} oddsFormat={oddsFormat} />
+                                        )}
                                     </React.Fragment>
                                 );
                             }
@@ -538,22 +638,34 @@ const MyBetsView = () => {
                                 ? (teamLogos[legTeam] || createFallbackTeamLogoDataUri(legTeam))
                                 : null;
                             return (
-                                <div key={betId} className="my-bets-table-row">
-                                    <span className="my-bets-table-col-desc">
-                                        {logoSrc && (
-                                            <img
-                                                src={logoSrc}
-                                                alt=""
-                                                className="my-bets-table-logo"
-                                                loading="lazy"
-                                                onError={(e) => { e.currentTarget.src = createFallbackTeamLogoDataUri(legTeam || ''); }}
-                                            />
-                                        )}
-                                        <span className="my-bets-table-leg-text">{legDescription(leg, oddsFormat)}</span>
-                                    </span>
-                                    <span className="my-bets-table-col-risk">{money(risk)}</span>
-                                    <span className={`my-bets-table-col-win ${winTheme}`}>{winCell}</span>
-                                </div>
+                                <React.Fragment key={betId}>
+                                    <div
+                                        className={`my-bets-table-row expandable${isExpanded ? ' expanded' : ''}`}
+                                        role="button"
+                                        tabIndex={0}
+                                        onClick={() => toggleExpanded(betId)}
+                                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleExpanded(betId); } }}
+                                    >
+                                        <span className="my-bets-table-col-desc">
+                                            <span className={`my-bets-table-chevron${isExpanded ? ' open' : ''}`} aria-hidden="true">▸</span>
+                                            {logoSrc && (
+                                                <img
+                                                    src={logoSrc}
+                                                    alt=""
+                                                    className="my-bets-table-logo"
+                                                    loading="lazy"
+                                                    onError={(e) => { e.currentTarget.src = createFallbackTeamLogoDataUri(legTeam || ''); }}
+                                                />
+                                            )}
+                                            <span className="my-bets-table-leg-text">{legDescription(leg, oddsFormat)}</span>
+                                        </span>
+                                        <span className="my-bets-table-col-risk">{money(risk)}</span>
+                                        <span className={`my-bets-table-col-win ${winTheme}`}>{winCell}</span>
+                                    </div>
+                                    {isExpanded && (
+                                        <BetDetailsPanel bet={bet} oddsFormat={oddsFormat} />
+                                    )}
+                                </React.Fragment>
                             );
                         })}
                         {/* Bottom totals row — same 3-column grid so the
