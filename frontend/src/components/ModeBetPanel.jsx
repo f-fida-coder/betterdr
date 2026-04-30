@@ -120,7 +120,8 @@ const resolveStake = (mode, amount, decimalOdds) => {
 const formatMoney = (value) => {
     const n = Number(value);
     if (!Number.isFinite(n) || n === 0) return '0';
-    return String(Math.ceil(n));
+    // Match backend stake rounding and confirm-modal display.
+    return String(Math.round(n));
 };
 
 // Trim trailing zeros: 1.50 -> "1.5", 47.0 -> "47", 47.5 -> "47.5".

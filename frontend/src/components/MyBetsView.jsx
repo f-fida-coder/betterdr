@@ -561,11 +561,22 @@ const MyBetsView = () => {
                         indented sub-row whose Risk/Win cells stay
                         empty (the parent already owns the totals).
                         Single-game tickets render as a single row. */}
-                    <div className="my-bets-table">
+                    {/* Graded view drops the Risk column — the bet is
+                        settled, so only the realised profit/loss
+                        matters. Pending keeps the 3-col Risk + To Win
+                        breakdown so the player can see exactly what is
+                        committed and what could come back. */}
+                    <div className={`my-bets-table${activeTab === 'graded' ? ' graded' : ''}`}>
                         <div className="my-bets-table-header">
                             <span className="my-bets-table-col-desc">Description</span>
-                            <span className="my-bets-table-col-risk">Risk</span>
-                            <span className="my-bets-table-col-win">To Win</span>
+                            {activeTab === 'graded' ? (
+                                <span className="my-bets-table-col-win">Profit</span>
+                            ) : (
+                                <>
+                                    <span className="my-bets-table-col-risk">Risk</span>
+                                    <span className="my-bets-table-col-win">To Win</span>
+                                </>
+                            )}
                         </div>
                         {visibleBets.map((bet) => {
                             const betId = bet.id || bet.ticketId;
@@ -598,7 +609,9 @@ const MyBetsView = () => {
                                                 <span className={`my-bets-table-chevron${isExpanded ? ' open' : ''}`} aria-hidden="true">▸</span>
                                                 {multiLegLabel(bet)}
                                             </span>
-                                            <span className="my-bets-table-col-risk">{money(risk)}</span>
+                                            {activeTab !== 'graded' && (
+                                                <span className="my-bets-table-col-risk">{money(risk)}</span>
+                                            )}
                                             <span className={`my-bets-table-col-win ${winTheme}`}>{winCell}</span>
                                         </div>
                                         {selections.map((leg, idx) => {
@@ -620,7 +633,7 @@ const MyBetsView = () => {
                                                         )}
                                                         <span className="my-bets-table-leg-text">{legDescription(leg, oddsFormat)}</span>
                                                     </span>
-                                                    <span className="my-bets-table-col-risk" />
+                                                    {activeTab !== 'graded' && <span className="my-bets-table-col-risk" />}
                                                     <span className="my-bets-table-col-win" />
                                                 </div>
                                             );
@@ -659,7 +672,9 @@ const MyBetsView = () => {
                                             )}
                                             <span className="my-bets-table-leg-text">{legDescription(leg, oddsFormat)}</span>
                                         </span>
-                                        <span className="my-bets-table-col-risk">{money(risk)}</span>
+                                        {activeTab !== 'graded' && (
+                                            <span className="my-bets-table-col-risk">{money(risk)}</span>
+                                        )}
                                         <span className={`my-bets-table-col-win ${winTheme}`}>{winCell}</span>
                                     </div>
                                     {isExpanded && (
@@ -687,7 +702,11 @@ const MyBetsView = () => {
                                     </div>
                                 );
                             }
-                            const totalRisk = visibleBets.reduce((sum, b) => sum + (normalizeStatus(b?.status) === 'lost' ? Number(b?.riskAmount || b?.amount || 0) : 0), 0);
+                            // Graded view shows Net P/L only — the previous
+                            // "Total Risk" tally summed only LOST bets, which
+                            // displayed as "$0" when every settled bet won
+                            // and confused players into thinking nothing was
+                            // ever wagered.
                             const net = visibleBets.reduce((sum, b) => {
                                 const s = normalizeStatus(b?.status);
                                 const r = Number(b?.riskAmount || b?.amount || 0);
@@ -700,7 +719,6 @@ const MyBetsView = () => {
                             const cls = net > 0 ? 'won' : net < 0 ? 'lost' : 'void';
                             return (
                                 <div className="my-bets-table-totals">
-                                    <span>Total Risk : <strong className="risk-total">{money(totalRisk)}</strong></span>
                                     <span>Net P/L : <strong className={cls}>{sign}${Math.abs(Math.round(net))}</strong></span>
                                 </div>
                             );

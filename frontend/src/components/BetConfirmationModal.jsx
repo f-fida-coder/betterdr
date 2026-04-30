@@ -9,6 +9,16 @@ const formatAmount = (value) => {
 
 const prettyMode = (mode) => String(mode || 'straight').replace('_', ' ').toUpperCase();
 
+const marketShortLabel = (selection = {}) => {
+  const market = String(selection?.marketType || selection?.type || '').toLowerCase();
+  if (market === 'h2h' || market === 'moneyline' || market === 'ml' || market === 'straight') {
+    return 'ML';
+  }
+  if (market === 'spreads') return 'SPREAD';
+  if (market === 'totals') return 'TOTAL';
+  return '';
+};
+
 const BetConfirmationModal = ({
   isOpen,
   betType,
@@ -68,7 +78,9 @@ const BetConfirmationModal = ({
                 }}
               >
                 <div style={{ color: '#d8e2f5' }}>{selection.matchName || selection.matchId}</div>
-                <div style={{ color: '#ffd776', fontWeight: 700 }}>{selection.selection} @ {formatOdds(selection.odds, oddsFormat)}</div>
+                <div style={{ color: '#ffd776', fontWeight: 700 }}>
+                  {selection.selection} {marketShortLabel(selection)} {formatOdds(selection.odds, oddsFormat)}
+                </div>
               </div>
             ))}
           </div>

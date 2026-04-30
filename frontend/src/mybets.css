@@ -329,6 +329,19 @@
   padding: 10px 14px;
 }
 
+/* Graded mode drops the Risk column → 2 cols (Description / Profit).
+   The totals row only shows Net P/L so it sits flush to the right. */
+.my-bets-table.graded .my-bets-table-header,
+.my-bets-table.graded .my-bets-table-row {
+  grid-template-columns: 1fr 110px;
+}
+
+.my-bets-table.graded .my-bets-table-totals {
+  grid-template-columns: 1fr;
+  justify-content: flex-end;
+  text-align: right;
+}
+
 .my-bets-table-header {
   background: #ef5350;
   color: #ffffff;
@@ -343,6 +356,10 @@
 .my-bets-table-header .my-bets-table-col-win {
   text-align: left;
   font-weight: 700;
+  /* Force white in the header — the per-column rules below paint Risk
+     red and Win dark for body rows, which would otherwise leak into
+     the header and tint "Risk" red against its own red background. */
+  color: #ffffff;
 }
 
 .my-bets-table-row {
@@ -537,6 +554,10 @@
     grid-template-columns: 1fr 78px 82px;
     padding: 9px 10px;
     font-size: 12.5px;
+  }
+  .my-bets-table.graded .my-bets-table-header,
+  .my-bets-table.graded .my-bets-table-row {
+    grid-template-columns: 1fr 92px;
   }
   .my-bets-table-row.leg .my-bets-table-col-desc {
     padding-left: 16px;
