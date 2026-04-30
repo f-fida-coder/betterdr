@@ -80,6 +80,20 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
     const [showScoreboard, setShowScoreboard] = useState(false);
     const [showSettingsModal, setShowSettingsModal] = useState(false);
     const [showPersonalizeSidebar, setShowPersonalizeSidebar] = useState(false);
+    // Mirrors ModeBetPanel's local `isOpen` via a window event — when the
+    // slip is open, the top-left header slot swaps from "☰ Sports" to
+    // "← Back" so the user has a single dismiss target instead of an
+    // extra in-slip Back row. Tapping the slot in this state fires
+    // `betslip:close` (ModeBetPanel listens) and the slip collapses,
+    // restoring the underlying odds board with its previous sport tab,
+    // Up Next / Featured filter, and scroll position intact (the slip
+    // is a fixed overlay, so the board behind it never re-mounts).
+    const [betslipOpen, setBetslipOpen] = useState(false);
+    useEffect(() => {
+        const handleState = (e) => setBetslipOpen(Boolean(e?.detail?.open));
+        window.addEventListener('betslip:state', handleState);
+        return () => window.removeEventListener('betslip:state', handleState);
+    }, []);
     const activeRefreshRef = useRef({ requestId: '', pendingListeners: new Set(), timeoutId: 0 });
 
     const clearActiveRefreshTimeout = () => {
@@ -369,12 +383,21 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
                 >
                     <button
                         type="button"
-                        onClick={() => onViewChange && onViewChange('dashboard')}
-                        aria-label="Sports categories"
+                        onClick={() => {
+                            if (betslipOpen) {
+                                window.dispatchEvent(new CustomEvent('betslip:close', { detail: { source: 'header' } }));
+                            } else if (onViewChange) {
+                                onViewChange('dashboard');
+                            }
+                        }}
+                        aria-label={betslipOpen ? 'Back to odds board' : 'Sports categories'}
                         style={mhCellBtnStyle}
                     >
-                        <i className="fa-solid fa-bars" style={mhCellIconStyle}></i>
-                        <span style={mhCellLabelStyle}>Sports</span>
+                        <i
+                            className={betslipOpen ? 'fa-solid fa-arrow-left' : 'fa-solid fa-bars'}
+                            style={mhCellIconStyle}
+                        ></i>
+                        <span style={mhCellLabelStyle}>{betslipOpen ? 'Back' : 'Sports'}</span>
                     </button>
 
                     <button
@@ -516,7 +539,18 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
                     </div>
                 )}
 
-                {mobileViewState !== 'browsing' && (
+                {mobileViewState !== 'browsing' && (currentView === 'dashboard' || betslipOpen) && (
+                    // STRAIGHT/PARLAY/TEASER/IF BET/REVERSE only make sense
+                    // inside the betting flow — the odds board (currentView
+                    // === 'dashboard') or the betslip overlay (which can be
+                    // opened from any view via the header Betslip cell).
+                    // Other static views — My Bets, Casino, Bonus, Support
+                    // — don't drive a bet mode, so the tabs were just
+                    // visual noise sitting above unrelated content. The
+                    // betslip-open carve-out also matters because the
+                    // mobile slip is a fixed overlay positioned at top:
+                    // 124, which assumes both the 64px header AND this
+                    // 60px tabs row are present above it.
                     <div className="tabs-bar">
                         {[
                             { id: 'straight', label: 'STRAIGHT', letter: 'S' },
@@ -543,11 +577,21 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
                 <div className="dash-nav-links">
                     <div
                         className="dash-nav-item"
-                        onClick={() => onHomeClick && onHomeClick()}
+                        onClick={() => {
+                            if (betslipOpen) {
+                                window.dispatchEvent(new CustomEvent('betslip:close', { detail: { source: 'header' } }));
+                            } else if (onHomeClick) {
+                                onHomeClick();
+                            }
+                        }}
                     >
-                        <span>SPORTS</span>
+                        <span>{betslipOpen ? 'BACK' : 'SPORTS'}</span>
                         <div className="dash-nav-icon">
-                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm0 18a8 8 0 1 1 8-8 8 8 0 0 1-8 8z" /><path d="M2.5 12h19M12 2.5v19" /></svg>
+                            {betslipOpen ? (
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
+                            ) : (
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm0 18a8 8 0 1 1 8-8 8 8 0 0 1-8 8z" /><path d="M2.5 12h19M12 2.5v19" /></svg>
+                            )}
                         </div>
                     </div>
 

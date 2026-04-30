@@ -2,7 +2,6 @@ import React from 'react';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { updateProfile, getStoredAuthToken } from '../api';
 import { useToast } from '../contexts/ToastContext';
-import { setMyBetsInitialFilter } from './MyBetsView';
 
 const DEFAULT_QUICK_STAKES = [10, 25, 50, 100];
 // `bet` was removed — it behaved identically to `risk` and confused users
@@ -84,62 +83,6 @@ const initialsOf = (name) => {
 };
 
 /* ---------- small visual primitives ---------- */
-
-const BalanceTile = ({ icon, label, value, tone = 'neutral', hint }) => {
-    const tones = {
-        neutral: { label: palette.textMuted, value: palette.textPrimary, iconBg: palette.slateSoft, iconColor: palette.slate },
-        success: { label: palette.textMuted, value: palette.success, iconBg: palette.successSoft, iconColor: palette.success },
-        danger: { label: palette.textMuted, value: palette.danger, iconBg: palette.dangerSoft, iconColor: palette.danger },
-        warn: { label: palette.textMuted, value: palette.warn, iconBg: palette.warnSoft, iconColor: palette.warnIcon },
-        info: { label: palette.textMuted, value: palette.info, iconBg: palette.infoSoft, iconColor: palette.info },
-    }[tone] || { label: palette.textMuted, value: palette.textPrimary, iconBg: palette.slateSoft, iconColor: palette.slate };
-
-    return (
-        <div style={{
-            background: palette.cardBg,
-            border: `1px solid ${palette.cardBorder}`,
-            borderRadius: 12,
-            padding: '12px 14px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 12,
-            minHeight: 64,
-        }}>
-            <div style={{
-                width: 34,
-                height: 34,
-                borderRadius: 10,
-                background: tones.iconBg,
-                color: tones.iconColor,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: 14,
-                flexShrink: 0,
-            }}>
-                <i className={`fa-solid ${icon}`} />
-            </div>
-            <div style={{ minWidth: 0, flex: 1 }}>
-                <div style={{
-                    fontSize: 10,
-                    color: tones.label,
-                    textTransform: 'uppercase',
-                    letterSpacing: 0.5,
-                    fontWeight: 700,
-                    marginBottom: 2,
-                }}>
-                    {label}
-                </div>
-                <div style={{ fontSize: 16, fontWeight: 800, color: tones.value, lineHeight: 1.15 }}>
-                    {value}
-                </div>
-                {hint && (
-                    <div style={{ fontSize: 10, color: palette.textFaint, marginTop: 2 }}>{hint}</div>
-                )}
-            </div>
-        </div>
-    );
-};
 
 const SelectField = ({ label, value, onChange, options, disabled, icon }) => (
     <label style={{
@@ -457,8 +400,10 @@ const BetDefaultsCard = ({ user, onSaved }) => {
                 </div>
 
                 {/* Quick stake chips — leftmost/rightmost auto-bound to the
-                    admin-set Min Bet / Max Bet (read-only); middle two are
-                    user-customizable and persist into settings.betDefaults. */}
+                    admin-set Min to Win / Max to Win (read-only); middle two
+                    are user-customizable and persist into settings.betDefaults.
+                    Limits are win-anchored per the credit-bookie convention,
+                    so the labels read "to Win" not just "Bet". */}
                 <div>
                     <div style={{ fontSize: 11, fontWeight: 700, color: palette.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
                         Quick stake buttons
@@ -466,7 +411,7 @@ const BetDefaultsCard = ({ user, onSaved }) => {
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 18 }}>
                         {quickStakes.map((value, idx) => {
                             const locked = idx === 0 || idx === 3;
-                            const lockedLabel = idx === 0 ? 'Min Bet' : idx === 3 ? 'Max Bet' : '';
+                            const lockedLabel = idx === 0 ? 'Min to Win' : idx === 3 ? 'Max to Win' : '';
                             return (
                                 <div
                                     key={idx}
@@ -567,7 +512,6 @@ const AccountPanel = ({
 }) => {
     const { oddsFormat, setOddsFormat, isUpdatingOddsFormat } = useOddsFormat();
     const [language, setLanguage] = React.useState('English');
-    const [activeBetsTab, setActiveBetsTab] = React.useState('pending');
 
     // Lock body scroll while the sheet is open on mobile.
     React.useEffect(() => {
@@ -580,17 +524,23 @@ const AccountPanel = ({
     if (!open) return null;
 
     const username = user?.username || 'Guest';
-    const available = user?.availableBalance ?? user?.balance ?? 0;
     const pending = user?.pendingBalance ?? 0;
     const balance = user?.balance ?? 0;
-    const freeplay = user?.freeplayBalance ?? 0;
-    const nonPostedCasino = user?.nonPostedCasino ?? 0;
     // Credit line the user can still wager against = creditLimit - balanceOwed.
     // Backend now ships the computed `creditAvailable`; we prefer it and
     // fall back to the raw limit so older payloads still render something
     // meaningful instead of $0.
     const creditAvailable = user?.creditAvailable ?? user?.creditLimit ?? 0;
     const role = String(user?.role || 'user').toLowerCase();
+    // AVAILABLE column for the top tile mirrors DashboardHeader: credit
+    // accounts (role=user with creditLimit > 0) bet against the credit
+    // line, so "Available" is creditAvailable; cash accounts use the
+    // straight balance - pending. Without this split a credit account
+    // would see AVAILABLE = $0 here even though they can wager.
+    const isCreditAccount = role === 'user' && Number(user?.creditLimit ?? 0) > 0;
+    const headerAvailable = isCreditAccount
+        ? Number(creditAvailable) || 0
+        : Number(user?.availableBalance ?? user?.balance ?? 0) || 0;
     const isAgentLike = role === 'agent' || role === 'super_agent' || role === 'master_agent' || role === 'admin';
     const roleLabel = {
         user: 'Login',
@@ -611,8 +561,8 @@ const AccountPanel = ({
     const creditLimitSpec = Number(user?.creditLimit);
     const settleLimitSpec = Number(user?.balanceOwed);
     const heroSpecs = [
-        { label: 'Min bet', value: Number.isFinite(minBetSpec) && minBetSpec > 0 ? `$${formatMoneyWhole(minBetSpec)}` : '—' },
-        { label: 'Max bet', value: Number.isFinite(maxBetSpec) && maxBetSpec > 0 ? `$${formatMoneyWhole(maxBetSpec)}` : '—' },
+        { label: 'Min to Win', value: Number.isFinite(minBetSpec) && minBetSpec > 0 ? `$${formatMoneyWhole(minBetSpec)}` : '—' },
+        { label: 'Max to Win', value: Number.isFinite(maxBetSpec) && maxBetSpec > 0 ? `$${formatMoneyWhole(maxBetSpec)}` : '—' },
         { label: 'Credit Limit', value: Number.isFinite(creditLimitSpec) && creditLimitSpec > 0 ? `$${formatMoneyWhole(creditLimitSpec)}` : '—' },
         { label: 'Settle Limit', value: Number.isFinite(settleLimitSpec) && settleLimitSpec > 0 ? `± $${formatMoneyWhole(settleLimitSpec)}` : '—' },
     ];
@@ -659,10 +609,16 @@ const AccountPanel = ({
                     flexDirection: 'column',
                 }}
             >
-                {/* Hero header */}
+                {/* Hero header — compact: LOGIN/USERNAME + a single
+                    tile that stacks live balances (Balance/Pending/
+                    Available) on top of admin-set limits (Min/Max to
+                    Win, Credit Limit, Settle Limit), separated by a
+                    thicker divider. Tightening font sizes and merging
+                    the two tiles brings the hero down from ~470px to
+                    ~280px on mobile. */}
                 <div style={{
                     background: `linear-gradient(135deg, ${palette.brand} 0%, ${palette.brandDark} 100%)`,
-                    padding: '20px 18px 24px',
+                    padding: '14px 14px 16px',
                     color: '#fff',
                     position: 'relative',
                 }}>
@@ -672,16 +628,16 @@ const AccountPanel = ({
                         aria-label="Close account panel"
                         style={{
                             position: 'absolute',
-                            top: 12,
-                            right: 12,
-                            width: 32,
-                            height: 32,
+                            top: 10,
+                            right: 10,
+                            width: 28,
+                            height: 28,
                             border: 'none',
                             background: 'rgba(255,255,255,0.18)',
                             color: '#fff',
-                            borderRadius: 10,
+                            borderRadius: 8,
                             cursor: 'pointer',
-                            fontSize: 14,
+                            fontSize: 12,
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
@@ -691,21 +647,21 @@ const AccountPanel = ({
                     >
                         <i className="fa-solid fa-xmark" />
                     </button>
-                    <div style={{ minWidth: 0 }}>
+                    <div style={{ minWidth: 0, paddingRight: 36 }}>
                         <div style={{
-                            fontSize: 10,
+                            fontSize: 9,
                             textTransform: 'uppercase',
-                            letterSpacing: 0.6,
-                            opacity: 0.85,
+                            letterSpacing: 0.7,
+                            opacity: 0.8,
                             fontWeight: 700,
-                            marginBottom: 2,
+                            marginBottom: 1,
                         }}>
                             {heroLabel}
                         </div>
                         <div style={{
-                            fontSize: 18,
+                            fontSize: 15,
                             fontWeight: 800,
-                            letterSpacing: 0.3,
+                            letterSpacing: 0.2,
                             overflow: 'hidden',
                             textOverflow: 'ellipsis',
                             whiteSpace: 'nowrap',
@@ -714,47 +670,59 @@ const AccountPanel = ({
                         </div>
                     </div>
 
-                    {/* Player limits — Min/Max bet, Credit Limit, Settle
-                        Limit. Replaces the old "Available to Bet" headline:
-                        the same number is in the Credit Available tile in
-                        the Balance breakdown directly below, so showing it
-                        twice was redundant. These four limits are admin-set
-                        and surfacing them here saves the player a trip to
-                        their agent to confirm what they're allowed to
-                        wager. */}
+                    {/* Combined balances + limits tile. Live numbers
+                        (Balance / Pending / Available) sit on top of
+                        admin-set limits (Min/Max to Win, Credit, Settle)
+                        with a single, slightly heavier divider between
+                        the two groups. All seven rows share the same
+                        type scale + spacing so the whole block reads as
+                        one tidy table — the live group leads with full
+                        white text, limits follow at slightly softer
+                        weight to preserve scan order without feeling
+                        inconsistent. */}
                     <div style={{
-                        marginTop: 18,
-                        background: 'rgba(0,0,0,0.18)',
-                        borderRadius: 12,
-                        padding: '12px 16px',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: 6,
+                        marginTop: 12,
+                        background: 'rgba(0,0,0,0.22)',
+                        borderRadius: 10,
+                        padding: '4px 14px',
                     }}>
-                        {heroSpecs.map((row) => (
+                        {[
+                            { label: 'Balance', value: `$${formatMoney(balance)}`, live: true, divider: false },
+                            { label: 'Pending', value: `$${formatMoney(pending)}`, live: true, divider: true, dividerSoft: true },
+                            { label: 'Available', value: `$${formatMoney(headerAvailable)}`, live: true, divider: true, dividerSoft: true },
+                            { label: heroSpecs[0].label, value: heroSpecs[0].value, live: false, divider: true, dividerSoft: false },
+                            { label: heroSpecs[1].label, value: heroSpecs[1].value, live: false, divider: true, dividerSoft: true },
+                            { label: heroSpecs[2].label, value: heroSpecs[2].value, live: false, divider: true, dividerSoft: true },
+                            { label: heroSpecs[3].label, value: heroSpecs[3].value, live: false, divider: true, dividerSoft: true },
+                        ].map((row) => (
                             <div
                                 key={row.label}
                                 style={{
                                     display: 'flex',
-                                    alignItems: 'baseline',
+                                    alignItems: 'center',
                                     justifyContent: 'space-between',
                                     gap: 12,
+                                    padding: '6px 0',
+                                    borderTop: row.divider
+                                        ? `1px solid rgba(255,255,255,${row.dividerSoft ? 0.08 : 0.22})`
+                                        : 'none',
                                 }}
                             >
                                 <span style={{
-                                    fontSize: 11,
-                                    opacity: 0.85,
-                                    letterSpacing: 0.4,
-                                    fontWeight: 600,
+                                    fontSize: 9,
+                                    opacity: row.live ? 0.78 : 0.62,
+                                    letterSpacing: 0.7,
+                                    fontWeight: 700,
                                     textTransform: 'uppercase',
                                 }}>
                                     {row.label}
                                 </span>
                                 <span style={{
-                                    fontSize: 14,
-                                    fontWeight: 800,
+                                    fontSize: 11,
+                                    fontWeight: row.live ? 800 : 700,
                                     letterSpacing: 0.2,
                                     fontVariantNumeric: 'tabular-nums',
+                                    opacity: row.live ? 1 : 0.85,
                                 }}>
                                     {row.value}
                                 </span>
@@ -765,59 +733,6 @@ const AccountPanel = ({
 
                 {/* Content */}
                 <div style={{ padding: '16px 16px 24px', flex: 1, display: 'flex', flexDirection: 'column', gap: 16 }}>
-                    {/* Balance breakdown */}
-                    <section>
-                        <div style={{
-                            fontSize: 11,
-                            color: palette.textMuted,
-                            textTransform: 'uppercase',
-                            letterSpacing: 0.6,
-                            fontWeight: 700,
-                            marginBottom: 8,
-                            paddingLeft: 2,
-                        }}>
-                            Balance breakdown
-                        </div>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                            <BalanceTile
-                                icon="fa-wallet"
-                                label="Balance"
-                                value={`$${formatMoney(balance)}`}
-                                tone={Number(balance) < 0 ? 'danger' : 'neutral'}
-                            />
-                            <BalanceTile
-                                icon="fa-gift"
-                                label="Free Play"
-                                value={`$${formatMoneyWhole(freeplay)}`}
-                                tone={Number(freeplay) > 0 ? 'success' : 'neutral'}
-                            />
-                            <BalanceTile
-                                icon="fa-coins"
-                                label="Non-Posted Casino"
-                                value={`$${formatMoney(nonPostedCasino)}`}
-                                tone="warn"
-                            />
-                            <BalanceTile
-                                icon="fa-hourglass-half"
-                                label="Pending"
-                                value={`$${formatMoney(pending)}`}
-                                tone="info"
-                                hint={Number(pending) > 0 ? 'Locked in open bets' : undefined}
-                            />
-                            {/* Credit Available — spans full row so the
-                                grid stays balanced with 5 tiles instead
-                                of an awkward half-empty 6th slot. */}
-                            <div style={{ gridColumn: '1 / -1' }}>
-                                <BalanceTile
-                                    icon="fa-money-check-dollar"
-                                    label="Credit Available"
-                                    value={`$${formatMoney(creditAvailable)}`}
-                                    tone={Number(creditAvailable) > 0 ? 'success' : 'neutral'}
-                                />
-                            </div>
-                        </div>
-                    </section>
-
                     {/* Preferences */}
                     <section>
                         <div style={{
@@ -854,97 +769,6 @@ const AccountPanel = ({
                         so the user doesn't retype their unit size every
                         time. Persists to settings.betDefaults. */}
                     <BetDefaultsCard user={user} />
-
-                    {/* Activity */}
-                    <section>
-                        <div style={{
-                            fontSize: 11,
-                            color: palette.textMuted,
-                            textTransform: 'uppercase',
-                            letterSpacing: 0.6,
-                            fontWeight: 700,
-                            marginBottom: 8,
-                            paddingLeft: 2,
-                        }}>
-                            My activity
-                        </div>
-                        <div style={{
-                            background: palette.cardBg,
-                            border: `1px solid ${palette.cardBorder}`,
-                            borderRadius: 12,
-                            overflow: 'hidden',
-                        }}>
-                            <div style={{
-                                display: 'grid',
-                                gridTemplateColumns: 'repeat(3, 1fr)',
-                                background: palette.slateSoft,
-                                padding: 4,
-                                margin: 10,
-                                borderRadius: 10,
-                                gap: 4,
-                            }}>
-                                {[
-                                    { id: 'pending', label: 'Pending' },
-                                    { id: 'graded', label: 'Graded' },
-                                    { id: 'open', label: 'Open Bets' },
-                                ].map((tab) => {
-                                    const active = activeBetsTab === tab.id;
-                                    return (
-                                        <button
-                                            key={tab.id}
-                                            type="button"
-                                            onClick={() => {
-                                                setActiveBetsTab(tab.id);
-                                                // Pre-set MyBetsView's filter so the user lands on
-                                                // the tab they clicked. 'graded' covers won/lost/void;
-                                                // 'open' is the legacy synonym for pending.
-                                                const filterMap = { pending: 'pending', graded: 'graded', open: 'pending' };
-                                                setMyBetsInitialFilter(filterMap[tab.id] || 'all');
-                                                go('my-bets');
-                                            }}
-                                            style={{
-                                                border: 'none',
-                                                padding: '8px 4px',
-                                                fontSize: 12,
-                                                fontWeight: 700,
-                                                color: active ? '#fff' : palette.textMuted,
-                                                background: active ? palette.slate : 'transparent',
-                                                cursor: 'pointer',
-                                                borderRadius: 8,
-                                                transition: 'all 120ms ease',
-                                                boxShadow: active ? '0 4px 10px -6px rgba(15,23,42,0.4)' : 'none',
-                                            }}
-                                        >
-                                            {tab.label}
-                                        </button>
-                                    );
-                                })}
-                            </div>
-                            <button
-                                type="button"
-                                onClick={() => go('my-bets')}
-                                style={{
-                                    width: '100%',
-                                    border: 'none',
-                                    borderTop: `1px solid ${palette.cardBorder}`,
-                                    background: palette.cardBg,
-                                    padding: '12px 14px',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 10,
-                                    cursor: 'pointer',
-                                    fontWeight: 700,
-                                    fontSize: 13,
-                                    color: palette.textPrimary,
-                                    textAlign: 'left',
-                                }}
-                            >
-                                <i className="fa-solid fa-receipt" style={{ color: palette.brand, fontSize: 13 }} />
-                                View full bet history
-                                <i className="fa-solid fa-chevron-right" style={{ marginLeft: 'auto', fontSize: 11, color: palette.textFaint }} />
-                            </button>
-                        </div>
-                    </section>
 
                     {/* Agent controls (only for agent-like roles) */}
                     {isAgentLike && (

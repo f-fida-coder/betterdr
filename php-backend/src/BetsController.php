@@ -84,12 +84,12 @@ final class BetsController
                 throw new ApiException('Account is suspended, disabled, or read-only', 400);
             }
 
-            if (isset($user['minBet']) && $betAmount < (float) $user['minBet']) {
-                throw new ApiException('Minimum bet for your account is ' . $user['minBet'], 400);
-            }
-            if (isset($user['maxBet']) && $betAmount > (float) $user['maxBet']) {
-                throw new ApiException('Maximum bet for your account is ' . $user['maxBet'], 400);
-            }
+            // min/max bet limits are validated AFTER selections + odds are
+            // resolved (see the $winAmount check after potentialPayout is
+            // computed below). They apply to the *win* amount, not the
+            // risk amount — the agent's exposure on every ticket is the
+            // win, so caps gate that, not the user's own credit obligation.
+            // Risk is bounded separately by available_credit further down.
 
             $selectionInputs = [];
             if ($type === 'straight') {
@@ -221,6 +221,32 @@ final class BetsController
             $totalRisk = SportsbookBetSupport::ticketRiskAmount($type, $betAmount);
             $potentialPayout = SportsbookBetSupport::calculatePotentialPayout($type, $betAmount, $validatedSelections, $modeRule);
             $combinedOdds = SportsbookBetSupport::combinedOdds($totalRisk, $potentialPayout);
+
+            // Win-anchored min/max validation. The agent's exposure on a
+            // ticket is potentialPayout - totalRisk (the profit paid out
+            // if the bet hits) — that's what the player's minBet/maxBet
+            // limits cap, not the risk amount. A heavy favorite like
+            // -500 can take a $5,000 risk to win $1,000 against a $3,000
+            // max because the bookie's exposure is still only $1,000.
+            $winAmount = max(0.0, (float) $potentialPayout - (float) $totalRisk);
+            $minBetLimit = isset($user['minBet']) && is_numeric($user['minBet']) ? (float) $user['minBet'] : 0.0;
+            $maxBetLimit = isset($user['maxBet']) && is_numeric($user['maxBet']) ? (float) $user['maxBet'] : 0.0;
+            if ($minBetLimit > 0 && $winAmount < $minBetLimit) {
+                throw new ApiException(
+                    'Min bet to win is $' . rtrim(rtrim(number_format($minBetLimit, 2, '.', ''), '0'), '.')
+                    . ' — this ticket only wins $' . rtrim(rtrim(number_format($winAmount, 2, '.', ''), '0'), '.'),
+                    400,
+                    ['code' => 'BELOW_MIN_BET']
+                );
+            }
+            if ($maxBetLimit > 0 && $winAmount > $maxBetLimit) {
+                throw new ApiException(
+                    'Max bet to win is $' . rtrim(rtrim(number_format($maxBetLimit, 2, '.', ''), '0'), '.')
+                    . ' — this ticket wins $' . rtrim(rtrim(number_format($winAmount, 2, '.', ''), '0'), '.') . ' (over limit)',
+                    400,
+                    ['code' => 'ABOVE_MAX_BET']
+                );
+            }
             $ticketId = SportsbookBetSupport::idempotencyDocumentId('sportsbook_ticket', $userId, $requestId);
             $selectionDocs = array_map(fn (array $selectionRow): array => $this->selectionForInsert($selectionRow), $validatedSelections);
 

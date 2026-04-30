@@ -8,10 +8,66 @@ final class AuthController
     private SqlRepository $db;
     private string $jwtSecret;
 
+    /**
+     * Per-request memoization of SUM(bets.j_risk_amount) for pending bets,
+     * keyed by userId. Auth endpoints can re-build the user payload more than
+     * once per request (e.g. login → buildAuthPayload, then a follow-up call
+     * inside the same request); caching avoids running the SUM more than
+     * once. AuthController is constructed fresh per HTTP request so this
+     * map naturally clears between requests.
+     *
+     * @var array<string, float>
+     */
+    private array $pendingRiskCache = [];
+
     public function __construct(SqlRepository $db, string $jwtSecret)
     {
         $this->db = $db;
         $this->jwtSecret = $jwtSecret;
+    }
+
+    /**
+     * Single source of truth for the top header's PENDING tile and the
+     * AT RISK card on My Bets: SUM(j_risk_amount) over the user's pending
+     * bets. Previously the header read the stored `users.pendingBalance`
+     * column, which could drift from the bet rows for tickets placed
+     * before the snap-on-write fix (the column was bumped using
+     * unsnapped decimal arithmetic, while the bet's stored riskAmount
+     * was a clean integer). Computing live from the bets table makes
+     * drift impossible — whatever the ticket cards sum to, the header
+     * shows the same number.
+     */
+    private function pendingRiskForUser(string $userId): float
+    {
+        if (isset($this->pendingRiskCache[$userId])) {
+            return $this->pendingRiskCache[$userId];
+        }
+
+        try {
+            $table = $this->db->tableNameForCollection('bets');
+            $pdo = $this->db->getRawPdoForOps();
+            // "Pending" here matches MyBetsView's AT RISK card, which
+            // counts every bet whose status is NOT a final outcome. New
+            // bets are stored with status='pending', but if anything
+            // pre-settlement (e.g. a review/hold state) is ever added
+            // we'll still keep the header in lockstep with AT RISK.
+            $stmt = $pdo->prepare(
+                "SELECT COALESCE(SUM(`j_risk_amount`), 0) FROM `{$table}` "
+                . "WHERE `j_user_id` = :uid "
+                . "AND (`j_status` IS NULL OR `j_status` NOT IN ('won', 'lost', 'void'))"
+            );
+            $stmt->execute([':uid' => $userId]);
+            $sum = (float) $stmt->fetchColumn();
+        } catch (Throwable $e) {
+            // If the bets table or generated columns aren't available
+            // (e.g. early in a fresh install before the first bet is
+            // placed), fall back to 0 rather than 500'ing the auth
+            // endpoint — the user will simply see PENDING $0 until the
+            // table comes online.
+            $sum = 0.0;
+        }
+
+        return $this->pendingRiskCache[$userId] = $sum;
     }
 
     public function handle(string $method, string $path): bool
@@ -762,7 +818,11 @@ final class AuthController
     private function buildAuthPayload(array $user, ?int $ttlOverride = null): array
     {
         $balance = (float) ceil($this->num($user['balance'] ?? 0));
-        $pendingBalance = (float) ceil($this->num($user['pendingBalance'] ?? 0));
+        // Pending = live SUM of j_risk_amount for this user's pending bets.
+        // round() (not ceil) to match frontend Math.round() used by the
+        // AT RISK card and per-ticket RISK cell, so all three displays
+        // agree to the cent.
+        $pendingBalance = (float) round($this->pendingRiskForUser((string) ($user['id'] ?? '')));
         $availableBalance = max(0, $balance - $pendingBalance);
         $balanceOwed = (float) ceil($this->num($user['balanceOwed'] ?? 0));
         $creditLimit = (float) ceil($this->num($user['creditLimit'] ?? 0));
@@ -854,7 +914,13 @@ final class AuthController
     private function buildMePayload(array $user): array
     {
         $balance = (float) ceil($this->num($user['balance'] ?? 0));
-        $pendingBalance = (float) ceil($this->num($user['pendingBalance'] ?? 0));
+        // Pending = live SUM of j_risk_amount for this user's pending bets.
+        // round() (not ceil) to match frontend Math.round() used by the
+        // AT RISK card and per-ticket RISK cell, so all three displays
+        // agree to the cent. The previous implementation read
+        // `users.pendingBalance` directly, which could drift from the
+        // bet rows for tickets placed before the snap-on-write fix.
+        $pendingBalance = (float) round($this->pendingRiskForUser((string) ($user['id'] ?? '')));
         $availableBalance = max(0, $balance - $pendingBalance);
         $balanceOwed = (float) ceil($this->num($user['balanceOwed'] ?? 0));
         $creditLimit = (float) ceil($this->num($user['creditLimit'] ?? 0));

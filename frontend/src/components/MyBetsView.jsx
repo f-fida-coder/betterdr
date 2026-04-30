@@ -140,7 +140,6 @@ const MyBetsView = () => {
     const [bets, setBets] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
-    const [refreshing, setRefreshing] = useState(false);
     const [activeTab, setActiveTab] = useState(() => {
         const initial = pendingInitialFilter;
         pendingInitialFilter = null;
@@ -150,7 +149,6 @@ const MyBetsView = () => {
         if (initial === 'all') return 'pending';
         return initial || 'pending';
     });
-    const [lastUpdated, setLastUpdated] = useState(null);
 
     const fetchBets = async ({ silent = false } = {}) => {
         const token = localStorage.getItem('token');
@@ -160,9 +158,7 @@ const MyBetsView = () => {
             return;
         }
 
-        if (silent) {
-            setRefreshing(true);
-        } else {
+        if (!silent) {
             setLoading(true);
         }
 
@@ -170,13 +166,11 @@ const MyBetsView = () => {
             const data = await getMyBets(token);
             setBets(Array.isArray(data) ? data : []);
             setError(null);
-            setLastUpdated(new Date());
         } catch (err) {
             console.error('Failed to fetch bets:', err);
             setError('Failed to load bets.');
         } finally {
             setLoading(false);
-            setRefreshing(false);
         }
     };
 
@@ -201,28 +195,6 @@ const MyBetsView = () => {
             document.removeEventListener('visibilitychange', handleVisibilityChange);
         };
     }, []);
-
-    const summary = useMemo(() => {
-        return bets.reduce((acc, bet) => {
-            const status = normalizeStatus(bet?.status);
-            const risk = Number(bet?.riskAmount || bet?.amount || 0);
-
-            acc.total += 1;
-            acc.risk += risk;
-
-            if (status !== 'won' && status !== 'lost' && status !== 'void') {
-                acc.pending += 1;
-                acc.pendingRisk += risk;
-            }
-
-            return acc;
-        }, {
-            total: 0,
-            pending: 0,
-            risk: 0,
-            pendingRisk: 0,
-        });
-    }, [bets]);
 
     const pendingBets = useMemo(
         () => bets.filter((bet) => normalizeStatus(bet?.status) === 'pending'),
@@ -283,47 +255,15 @@ const MyBetsView = () => {
     return (
         <div className="my-bets-page">
             <div className="my-bets-shell">
-                <div className="my-bets-hero">
-                    <div className="my-bets-hero-text">
-                        <span className="my-bets-eyebrow">Ticket Center</span>
-                        <h2>My Bets</h2>
-                        <p className="my-bets-updated">
-                            Updated {lastUpdated ? lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}
-                        </p>
-                    </div>
-                    <button
-                        type="button"
-                        className="my-bets-refresh-icon"
-                        onClick={() => void fetchBets({ silent: true })}
-                        disabled={refreshing}
-                        aria-label="Refresh bets"
-                    >
-                        <i className={`fa-solid fa-arrows-rotate${refreshing ? ' fa-spin' : ''}`} />
-                    </button>
-                </div>
-
-                {/* Summary strip — Total Tickets / Pending / At Risk / Total Risked.
-                    Won/Lost/Void counts are intentionally omitted: surfacing the
-                    win-vs-loss tally encourages chasing behavior. */}
-                <div className="my-bets-summary-grid">
-                    <div className="my-bets-summary-card">
-                        <span>Total Tickets</span>
-                        <strong>{summary.total}</strong>
-                    </div>
-                    <div className="my-bets-summary-card accent-pending">
-                        <span>Pending</span>
-                        <strong>{summary.pending}</strong>
-                    </div>
-                    <div className="my-bets-summary-card">
-                        <span>At Risk</span>
-                        <strong>{money(summary.pendingRisk)}</strong>
-                    </div>
-                    <div className="my-bets-summary-card">
-                        <span>Total Risked</span>
-                        <strong>{money(summary.risk)}</strong>
-                    </div>
-                </div>
-
+                {/* Ticket Center hero (title + Updated timestamp + refresh
+                    icon) and the 4-card summary strip (Total Tickets /
+                    Pending / At Risk / Total Risked) used to live here.
+                    Both got removed: the top header already shows the
+                    live PENDING tile (= same SUM as the old At Risk
+                    card), and the per-ticket cards below carry their
+                    own RISK/ODDS/WIN footers — the summary grid was
+                    visual noise duplicating numbers a player can read
+                    directly. Auto-refresh still runs every 20s. */}
                 <div className="my-bets-filter-row">
                     {[
                         { id: 'pending', label: 'Pending', showCount: true },

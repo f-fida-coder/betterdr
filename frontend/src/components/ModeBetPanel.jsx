@@ -456,21 +456,24 @@ const ModeBetPanel = ({
     // client-side too gives instant feedback instead of a round-trip
     // error after the user clicks Place Bet.
     //
-    // Mode-aware semantics: in Win mode the *min* applies to the
-    // amount-to-win the player asked for ("Min bet to win $X"); in
-    // Risk mode the *min* applies to the staked amount. Max always
-    // applies to the actual money risked — the backend reserves Risk
-    // against pendingBalance, so a small Win ask on heavy negative
-    // odds (Win $1000 @ -300 → Risk $3000) gets capped by the Risk-side
-    // max even though the player typed a Win figure.
+    // Win-anchored semantics (credit-bookie convention): both min and
+    // max apply to the *win* amount, regardless of which side the
+    // player typed. The agent's exposure on every ticket is the win —
+    // what the book pays out if the bet hits — so limits cap that, not
+    // the user's own credit obligation. A user with $10k available
+    // credit on a -500 favorite can risk $10k to win $2k (above max)
+    // and be fine, because the bookie's exposure is still $2k.
+    //
+    // Available credit is enforced separately at submit time (see the
+    // totalRisk vs effectiveAvailableBalance check below) — that's
+    // what bounds the risk side, not maxBet.
     //
     // Returns:
-    //   - messages: { min, max } context-rich strings that name the
-    //     offending leg + actual numbers ("Max bet $2000 — 'Yankees vs
-    //     Rangers' risks $3,000 to win $1,000") so the user understands
-    //     why the warning fired.
-    //   - violatingIds: Set of selection IDs whose Risk/Win trips a
-    //     limit, used to flag the offending card with a red border.
+    //   - messages: { min, max } win-anchored context strings that
+    //     name the offending leg + actual numbers, e.g. "Max bet to
+    //     win $3000 — 'Yankees vs Rangers' wins $4000 (over limit)".
+    //   - violatingIds: Set of selection IDs whose Win trips a limit,
+    //     used to flag the offending card with a red border.
     const limitFlags = useMemo(() => {
         const violatingIds = new Set();
         const messages = { min: null, max: null };
@@ -489,38 +492,28 @@ const ModeBetPanel = ({
         if (normalizedMode === 'straight') {
             for (const sel of selections) {
                 const { risk, win } = effectiveStakeForSelection(sel);
-                const subjectVal = stakeMode === 'win' ? win : risk;
-                if (!(subjectVal > 0)) continue;
-                const minBreach = hasMin && subjectVal < minBet;
-                const maxBreach = hasMax && risk > maxBet;
+                if (!(risk > 0) && !(win > 0)) continue;
+                const minBreach = hasMin && win > 0 && win < minBet;
+                const maxBreach = hasMax && win > maxBet;
                 if (minBreach && !messages.min) {
-                    messages.min = stakeMode === 'win'
-                        ? `Min bet to win $${minBet} — ${labelFor(sel)} only wins $${fmt(win)}`
-                        : `Min bet $${minBet} — ${labelFor(sel)} risks only $${fmt(risk)}`;
+                    messages.min = `Min bet to win $${minBet} — ${labelFor(sel)} only wins $${fmt(win)}`;
                 }
                 if (maxBreach && !messages.max) {
-                    messages.max = stakeMode === 'win'
-                        ? `Max bet $${maxBet} — ${labelFor(sel)} risks $${fmt(risk)} to win $${fmt(win)}`
-                        : `Max bet $${maxBet} — ${labelFor(sel)} risks $${fmt(risk)}`;
+                    messages.max = `Max bet to win $${maxBet} — ${labelFor(sel)} wins $${fmt(win)} (over limit)`;
                 }
                 if (minBreach || maxBreach) violatingIds.add(sel.id);
             }
         } else if (effectiveCombinedRisk > 0) {
             const winValue = effectiveCombinedRisk * Math.max(0, Number(ticketDecimalOdds) - 1);
-            const minSubject = stakeMode === 'win' ? winValue : effectiveCombinedRisk;
-            if (hasMin && minSubject < minBet) {
-                messages.min = stakeMode === 'win'
-                    ? `Min bet to win $${minBet} — ticket only wins $${fmt(winValue)}`
-                    : `Min bet $${minBet} — ticket risks only $${fmt(effectiveCombinedRisk)}`;
+            if (hasMin && winValue > 0 && winValue < minBet) {
+                messages.min = `Min bet to win $${minBet} — ticket only wins $${fmt(winValue)}`;
             }
-            if (hasMax && effectiveCombinedRisk > maxBet) {
-                messages.max = stakeMode === 'win'
-                    ? `Max bet $${maxBet} — ticket risks $${fmt(effectiveCombinedRisk)} to win $${fmt(winValue)}`
-                    : `Max bet $${maxBet} — ticket risks $${fmt(effectiveCombinedRisk)}`;
+            if (hasMax && winValue > maxBet) {
+                messages.max = `Max bet to win $${maxBet} — ticket wins $${fmt(winValue)} (over limit)`;
             }
         }
         return { violatingIds, messages };
-    }, [normalizedMode, selections, effectiveStakeForSelection, stakeMode, effectiveCombinedRisk, ticketDecimalOdds, user?.minBet, user?.maxBet]);
+    }, [normalizedMode, selections, effectiveStakeForSelection, effectiveCombinedRisk, ticketDecimalOdds, user?.minBet, user?.maxBet]);
 
     const validationErrors = useMemo(() => {
         const errors = [];
@@ -652,6 +645,23 @@ const ModeBetPanel = ({
         window.addEventListener('betslip:open', handleOpen);
         return () => window.removeEventListener('betslip:open', handleOpen);
     }, []);
+
+    // External close signal — fired by the top-left header slot when it's
+    // showing "← Back" (i.e. the slip is open). Keeping this on a window
+    // event mirrors the open path so the header doesn't need to lift
+    // `isOpen` through App → Shell → here.
+    useEffect(() => {
+        const handleClose = () => setIsOpen(false);
+        window.addEventListener('betslip:close', handleClose);
+        return () => window.removeEventListener('betslip:close', handleClose);
+    }, []);
+
+    // Broadcast open/close transitions so the header can swap its top-left
+    // slot between "☰ Sports" and "← Back". Using a window event keeps the
+    // slip's local state encapsulated; no parent prop drilling required.
+    useEffect(() => {
+        window.dispatchEvent(new CustomEvent('betslip:state', { detail: { open: isOpen } }));
+    }, [isOpen]);
 
     const removeSelection = (id) => {
         onSelectionsChange(selections.filter(sel => sel.id !== id));
@@ -1030,100 +1040,20 @@ const ModeBetPanel = ({
             boxShadow: '0 20px 50px -20px rgba(15,23,42,0.35)',
             borderRadius: isMobile ? 0 : 14,
         }}>
-            {/* Title bar */}
-            <div style={{
-                background: palette.headerBg,
-                color: '#fff',
-                padding: '12px 14px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-            }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <div style={{
-                        width: 28,
-                        height: 28,
-                        borderRadius: 8,
-                        background: 'rgba(255,255,255,0.12)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontSize: 13,
-                    }}>
-                        <i className="fa-solid fa-ticket" />
-                    </div>
-                    <div style={{ lineHeight: 1.1 }}>
-                        <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: 1 }}>BETSLIP</div>
-                        <div style={{ fontSize: 9, color: '#94a3b8', marginTop: 2 }}>
-                            {legCount === 0 ? 'No selections yet' : `${legCount} selection${legCount === 1 ? '' : 's'}`}
-                        </div>
-                    </div>
-                </div>
-                {/* Close-by-chevron retained on desktop only — on mobile
-                    the yellow Back button right below this row already
-                    handles dismiss, and a second chevron next to it was
-                    pure visual clutter. */}
-                {!isMobile && (
-                    <button
-                        onClick={() => setIsOpen(false)}
-                        aria-label="Minimize bet slip"
-                        style={{
-                            border: 'none',
-                            background: 'rgba(255,255,255,0.08)',
-                            color: '#fff',
-                            borderRadius: 8,
-                            width: 34,
-                            height: 34,
-                            cursor: 'pointer',
-                            fontSize: 13,
-                        }}
-                    >
-                        <i className="fa-solid fa-chevron-down" />
-                    </button>
-                )}
-            </div>
-
-            {/* Mode-control row — only the yellow Back button. The active
-                bet mode (Straight / Parlay / Teaser / If Bet / Reverse) is
-                already driven by the top-level tabs above the slip, so the
-                old in-slip dropdown was redundant. Tapping Back collapses
-                the slip back to the odds board. */}
-            <div style={{
-                background: '#fff',
-                padding: '10px 12px',
-                borderBottom: `1px solid ${palette.cardBorder}`,
-            }}>
-                <button
-                    type="button"
-                    onClick={() => setIsOpen(false)}
-                    style={{
-                        background: '#facc15',
-                        color: '#0f172a',
-                        border: 'none',
-                        borderRadius: 8,
-                        padding: '8px 16px',
-                        fontWeight: 800,
-                        fontSize: 12,
-                        letterSpacing: 0.3,
-                        cursor: 'pointer',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 6,
-                    }}
-                >
-                    <i className="fa-solid fa-arrow-left" style={{ fontSize: 11 }} /> Back
-                </button>
-            </div>
-
+            {/* The dark BETSLIP title bar and the standalone yellow Back
+                button row used to live here. Both got removed: the top
+                header already shows the live Betslip count, and the
+                top-left header slot now swaps to "← Back" while the slip
+                is open (see DashboardHeader). The APPLY TO ALL panel
+                below is now the visual top of the slip body. */}
             <div style={{ padding: '14px 14px 18px', overflowY: 'auto' }}>
-                {/* Consolidated APPLY TO ALL panel — sits at the top of
-                    the slip body, directly under BETSLIP header + Back.
-                    Owns: mode toggle, Bet Amount input, quick-stake row,
-                    Use Freeplay. The previous duplicate bottom block was
-                    removed; this is the single source of stake control
-                    for the entire slip. Quick stake values are user-
-                    editable (Account → Bet Defaults) and fall back to
-                    the project defaults [10, 25, 50, 100]. */}
+                {/* Consolidated APPLY TO ALL panel — now the visual top
+                    of the slip body. Owns: mode toggle, Bet Amount input,
+                    quick-stake row, Use Freeplay. The previous duplicate
+                    bottom block was removed; this is the single source of
+                    stake control for the entire slip. Quick stake values
+                    are user-editable (Account → Bet Defaults) and fall
+                    back to the project defaults [10, 25, 50, 100]. */}
                 {legCount > 0 && (
                     <div style={{
                         background: '#fff',
@@ -1297,13 +1227,15 @@ const ModeBetPanel = ({
                         )}
 
                         {/* Row 2: quick stakes — leftmost / rightmost are
-                            pinned to the player's admin-set Min Bet /
-                            Max Bet (with a small label underneath); the
-                            middle two stay at fixed presets. */}
+                            pinned to the player's admin-set Min to Win /
+                            Max to Win (with a small label underneath); the
+                            middle two stay at fixed presets. Limits are
+                            win-anchored per the credit-bookie convention,
+                            so the labels read "to Win" not just "Bet". */}
                         <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', alignItems: 'flex-start' }}>
                             {customQuickStakes.map((v, i) => {
                                 const active = Number(wager) === Number(v);
-                                const limitLabel = i === 0 ? 'Min Bet' : i === customQuickStakes.length - 1 ? 'Max Bet' : '';
+                                const limitLabel = i === 0 ? 'Min to Win' : i === customQuickStakes.length - 1 ? 'Max to Win' : '';
                                 return (
                                     <div
                                         key={`${v}-${i}`}
@@ -1503,19 +1435,17 @@ const ModeBetPanel = ({
                     const supportsBuyPoints = market === 'spreads' || market === 'totals';
                     const buyPointsOptions = supportsBuyPoints ? buildBuyPointsOptions(sel) : [];
                     const buyPointsOpen = openBuyPointsId === sel.id;
-                    // Flags this leg if its Risk/Win trips the user's per-account
-                    // min or max bet limit. Drives the red border + inline chip
+                    // Flags this leg if its *win* trips the user's per-account
+                    // min/max bet limit. Drives the red border + inline chip
                     // so the user immediately sees *which* leg blocked the slip
-                    // instead of guessing from a global "Max bet $2000" toast.
+                    // instead of guessing from a global toast. Win-anchored
+                    // (not risk-anchored) per the credit-bookie convention —
+                    // see the limitFlags useMemo above for the full rationale.
                     const legViolatesLimit = limitFlags.violatingIds.has(sel.id);
                     const legLimitMaxBet = Number(user?.maxBet);
                     const legLimitMinBet = Number(user?.minBet);
-                    const legOverMax = Number.isFinite(legLimitMaxBet) && legLimitMaxBet > 0 && risk > legLimitMaxBet;
-                    const legUnderMin = (() => {
-                        if (!Number.isFinite(legLimitMinBet) || legLimitMinBet <= 0) return false;
-                        const subj = stakeMode === 'win' ? win : risk;
-                        return subj > 0 && subj < legLimitMinBet;
-                    })();
+                    const legOverMax = Number.isFinite(legLimitMaxBet) && legLimitMaxBet > 0 && win > legLimitMaxBet;
+                    const legUnderMin = Number.isFinite(legLimitMinBet) && legLimitMinBet > 0 && win > 0 && win < legLimitMinBet;
                     return (
                         <div
                             key={sel.id}
@@ -1794,10 +1724,10 @@ const ModeBetPanel = ({
                                 )}
 
                                 {/* Per-leg limit chip — surfaces *why* this
-                                    card was flagged when its Risk exceeds the
-                                    Max Bet or its Risk/Win sits under the
-                                    Min Bet. Mirrors the global amount warning
-                                    pill but pinned to the offending leg so
+                                    card was flagged when its *win* exceeds
+                                    Max to Win or sits under Min to Win.
+                                    Mirrors the global amount warning pill
+                                    but pinned to the offending leg so
                                     multi-leg slips don't leave the user
                                     hunting for the breach. */}
                                 {legViolatesLimit && (legOverMax || legUnderMin) && (
@@ -1821,8 +1751,8 @@ const ModeBetPanel = ({
                                         <i className="fa-solid fa-triangle-exclamation" style={{ fontSize: 11 }} />
                                         <span>
                                             {legOverMax
-                                                ? `Risks $${formatMoney(risk)} — over your $${formatMoney(legLimitMaxBet)} Max Bet`
-                                                : `Only ${stakeMode === 'win' ? `wins $${formatMoney(win)}` : `risks $${formatMoney(risk)}`} — under your $${formatMoney(legLimitMinBet)} Min Bet`}
+                                                ? `Wins $${formatMoney(win)} — over your $${formatMoney(legLimitMaxBet)} Max to Win`
+                                                : `Only wins $${formatMoney(win)} — under your $${formatMoney(legLimitMinBet)} Min to Win`}
                                         </span>
                                     </div>
                                 )}
