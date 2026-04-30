@@ -382,6 +382,7 @@ final class BetsController
                     'matchId' => $single ? SqlRepository::id((string) $single['matchId']) : null,
                     'selection' => $single ? $single['selection'] : 'MULTI',
                     'odds' => $single ? (float) $single['odds'] : $combinedOdds,
+                    'oddsAmerican' => $single && isset($single['oddsAmerican']) ? (int) $single['oddsAmerican'] : null,
                     'marketType' => $single ? (string) ($single['marketType'] ?? '') : $type,
                     'description' => SportsbookBetSupport::descriptionForSelections($selectionDocs),
                     'matchSnapshot' => $single ? ($single['matchSnapshot'] ?? new stdClass()) : new stdClass(),
@@ -858,38 +859,53 @@ final class BetsController
             ]);
         }
 
-        // Snap to the nearest clean American integer when the upstream value
-        // is just floating-point noise (e.g. 1.83330 → 1.83333... so -120
-        // really is -120 in math too). Genuine half-points like real -120.5
-        // are preserved untouched.
-        $officialOdds = SportsbookBetSupport::snapDecimalOdds($outcome['price']);
-        $clientOdds = is_numeric($odds) ? SportsbookBetSupport::snapDecimalOdds($odds) : 0.0;
-        if (!is_finite($officialOdds) || $officialOdds <= 0) {
+        // Convert the upstream decimal price to a rounded American integer —
+        // this is the canonical source of truth. Re-derive the exact decimal
+        // from the integer so Risk/Win arithmetic is always clean (no upstream
+        // floating-point noise). E.g. upstream 1.6896 → American −145 →
+        // exact decimal 1 + 100/145 = 1.68965517… used in all calculations.
+        $snappedOdds = SportsbookBetSupport::snapDecimalOdds($outcome['price']);
+        $officialAmericanInt = SportsbookBetSupport::decimalToAmericanInt($snappedOdds);
+        if ($officialAmericanInt === 0) {
+            throw new ApiException('Invalid odds for selection ' . $selection, 409, [
+                'code' => 'INVALID_ODDS',
+            ]);
+        }
+        // Exact decimal derived from American integer — zero floating-point drift.
+        $officialOdds = SportsbookBetSupport::americanToDecimalExact($officialAmericanInt);
+        if (!is_finite($officialOdds) || $officialOdds <= 1.0) {
             throw new ApiException('Invalid odds for selection ' . $selection, 409, [
                 'code' => 'INVALID_ODDS',
             ]);
         }
 
-        if ($officialOdds > 10000.0) {
+        if (abs($officialAmericanInt) > 1000000) {
             throw new ApiException('Odds exceed maximum allowed value for selection ' . $selection, 409, [
                 'code' => 'ODDS_EXCEEDS_MAX',
             ]);
         }
 
-        if ($clientOdds > 0 && abs($officialOdds - $clientOdds) > 0.0001) {
-            throw new ApiException('Odds changed. Please review the updated price before placing the bet.', 409, [
-                'code' => 'ODDS_CHANGED',
-                'officialOdds' => $officialOdds,
-                'clientOdds' => $clientOdds,
-                'selection' => (string) ($outcome['name'] ?? $selection),
-                'matchId' => $matchId,
-            ]);
+        // Compare client odds vs official using American integers to avoid
+        // decimal floating-point mismatches on the 0.0001 threshold.
+        if (is_numeric($odds)) {
+            $clientSnapped = SportsbookBetSupport::snapDecimalOdds((float) $odds);
+            $clientAmericanInt = SportsbookBetSupport::decimalToAmericanInt($clientSnapped);
+            if ($clientAmericanInt !== 0 && $clientAmericanInt !== $officialAmericanInt) {
+                throw new ApiException('Odds changed. Please review the updated price before placing the bet.', 409, [
+                    'code' => 'ODDS_CHANGED',
+                    'officialOdds' => $officialOdds,
+                    'officialAmericanOdds' => $officialAmericanInt,
+                    'selection' => (string) ($outcome['name'] ?? $selection),
+                    'matchId' => $matchId,
+                ]);
+            }
         }
 
         return [
             'matchId' => $matchId,
             'selection' => (string) ($outcome['name'] ?? $selection),
             'odds' => $officialOdds,
+            'oddsAmerican' => $officialAmericanInt,
             'marketType' => (string) ($market['key'] ?? ''),
             'point' => isset($outcome['point']) ? (float) $outcome['point'] : null,
             'matchSnapshot' => $match,
@@ -902,6 +918,7 @@ final class BetsController
             'matchId' => SqlRepository::id((string) $selection['matchId']),
             'selection' => $selection['selection'],
             'odds' => (float) $selection['odds'],
+            'oddsAmerican' => isset($selection['oddsAmerican']) ? (int) $selection['oddsAmerican'] : null,
             'marketType' => $selection['marketType'] ?? '',
             'point' => $selection['point'] ?? null,
             'basePoint' => $selection['basePoint'] ?? ($selection['point'] ?? null),

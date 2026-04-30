@@ -38,6 +38,24 @@ final class SportsbookBetSupport
      * @param array<string, mixed> $rule
      * @param array<int, array<string, mixed>> $validatedSelections
      */
+    /**
+     * Derive exact decimal odds from a selection document.
+     * Prefers the stored oddsAmerican integer (source of truth) when present;
+     * falls back to the decimal odds field for legacy records.
+     *
+     * @param array<string, mixed> $selection
+     */
+    private static function exactDecimalForSelection(array $selection): float
+    {
+        $american = isset($selection['oddsAmerican']) && is_int($selection['oddsAmerican'])
+            ? $selection['oddsAmerican']
+            : (isset($selection['oddsAmerican']) && is_numeric($selection['oddsAmerican']) ? (int) $selection['oddsAmerican'] : 0);
+        if ($american !== 0) {
+            return self::americanToDecimalExact($american);
+        }
+        return self::num($selection['odds'] ?? 0);
+    }
+
     public static function calculatePotentialPayout(string $betType, float $unitStake, array $validatedSelections, array $rule): float
     {
         if ($unitStake <= 0 || $validatedSelections === []) {
@@ -45,13 +63,13 @@ final class SportsbookBetSupport
         }
 
         if ($betType === 'straight') {
-            return round($unitStake * self::num($validatedSelections[0]['odds'] ?? 0));
+            return round($unitStake * self::exactDecimalForSelection($validatedSelections[0]));
         }
 
         if ($betType === 'parlay' || $betType === 'if_bet') {
             $combined = 1.0;
             foreach ($validatedSelections as $selection) {
-                $combined *= self::num($selection['odds'] ?? 0);
+                $combined *= self::exactDecimalForSelection($selection);
             }
             return round($unitStake * $combined);
         }
@@ -77,6 +95,44 @@ final class SportsbookBetSupport
             return 0.0;
         }
         return round($potentialPayout / $riskAmount, 4);
+    }
+
+    /**
+     * Convert a decimal odds value to a rounded American integer.
+     * decimal ≥ 2.0 → american = round((decimal − 1) × 100)
+     * decimal < 2.0 → american = round(−100 / (decimal − 1))
+     * Returns 0 for invalid input (decimal ≤ 1).
+     */
+    public static function decimalToAmericanInt(float $decimal): int
+    {
+        if (!is_finite($decimal) || $decimal <= 1.0) {
+            return 0;
+        }
+        if ($decimal >= 2.0) {
+            return (int) round(($decimal - 1.0) * 100.0);
+        }
+        $raw = -100.0 / ($decimal - 1.0);
+        if (!is_finite($raw)) {
+            return 0;
+        }
+        return (int) round($raw);
+    }
+
+    /**
+     * Derive the exact decimal odds from a signed American integer.
+     * american > 0 → decimal = 1 + (american / 100)
+     * american < 0 → decimal = 1 + (100 / |american|)
+     * Returns 0.0 for invalid input (zero).
+     */
+    public static function americanToDecimalExact(int $american): float
+    {
+        if ($american === 0) {
+            return 0.0;
+        }
+        if ($american > 0) {
+            return 1.0 + ($american / 100.0);
+        }
+        return 1.0 + (100.0 / (float) abs($american));
     }
 
     /**
@@ -544,10 +600,14 @@ final class SportsbookBetSupport
      */
     public static function selectionRowForBetDoc(array $selection): array
     {
+        $americanOdds = isset($selection['oddsAmerican']) && is_numeric($selection['oddsAmerican'])
+            ? (int) $selection['oddsAmerican']
+            : null;
         return [
             'matchId' => $selection['matchId'] ?? null,
             'selection' => $selection['selection'] ?? null,
             'odds' => self::num($selection['odds'] ?? 0),
+            'oddsAmerican' => $americanOdds,
             'marketType' => $selection['marketType'] ?? null,
             'point' => isset($selection['point']) && is_numeric($selection['point']) ? (float) $selection['point'] : null,
             'basePoint' => isset($selection['basePoint']) && is_numeric($selection['basePoint']) ? (float) $selection['basePoint'] : null,
@@ -678,6 +738,9 @@ final class SportsbookBetSupport
         $rowId = substr(hash('sha256', $betId . '|' . $index), 0, 24);
         $point = isset($selection['point']) && is_numeric($selection['point']) ? (float) $selection['point'] : null;
         $basePoint = isset($selection['basePoint']) && is_numeric($selection['basePoint']) ? (float) $selection['basePoint'] : $point;
+        $americanOdds = isset($selection['oddsAmerican']) && is_numeric($selection['oddsAmerican'])
+            ? (int) $selection['oddsAmerican']
+            : null;
         return [
             'id' => $rowId,
             'betId' => $betId,
@@ -688,6 +751,7 @@ final class SportsbookBetSupport
             'matchId' => SqlRepository::id((string) ($selection['matchId'] ?? '')),
             'selection' => (string) ($selection['selection'] ?? ''),
             'odds' => self::num($selection['odds'] ?? 0),
+            'oddsAmerican' => $americanOdds,
             'marketType' => (string) ($selection['marketType'] ?? ''),
             'point' => $point,
             'basePoint' => $basePoint,

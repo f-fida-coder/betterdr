@@ -72,18 +72,49 @@ const STAKE_MODES = [
 // decimal price D: Win = Risk × (D − 1), Risk = Win / (D − 1). Returns
 // 0 (not NaN) on invalid input so the read-only readouts don't flash
 // "NaN" while the user is mid-typing or while a leg awaits price.
+//
+// Architecture: decimal odds are converted to a rounded American integer
+// first, then all Risk/Win arithmetic uses integer-based formulas. This
+// eliminates the floating-point drift that arose from dividing by an
+// imprecise decimal representation (e.g. 1000 / 0.6896551... ≠ 1450.00
+// exactly in IEEE-754). Integer math: -145 Win $1000 → Risk = 1000×145/100
+// = $1450.00 exactly; -110 Win $1000 → $1100.00 exactly.
 const resolveStake = (mode, amount, decimalOdds) => {
     const amt = Number(amount);
     const safeAmt = Number.isFinite(amt) && amt > 0 ? amt : 0;
     const d = Number(decimalOdds);
     const validOdds = Number.isFinite(d) && d > 1;
-    if (mode === 'win') {
-        const risk = validOdds && safeAmt > 0 ? safeAmt / (d - 1) : 0;
-        return { risk, win: safeAmt };
+
+    if (!validOdds || safeAmt === 0) {
+        if (mode === 'win') return { risk: 0, win: safeAmt };
+        return { risk: safeAmt, win: 0 };
     }
-    // 'bet' and 'risk' both treat amount as the stake.
-    const win = validOdds && safeAmt > 0 ? safeAmt * (d - 1) : 0;
-    return { risk: safeAmt, win };
+
+    // Convert decimal → American integer (same formula as decimalToAmerican).
+    // This is the source of truth; all arithmetic below is integer-based.
+    const american = d >= 2
+        ? Math.round((d - 1) * 100)
+        : Math.round(-100 / (d - 1));
+
+    if (american === 0) {
+        if (mode === 'win') return { risk: 0, win: safeAmt };
+        return { risk: safeAmt, win: 0 };
+    }
+
+    if (mode === 'win') {
+        // Desired profit = safeAmt. Risk = profit × |american| / 100 (neg)
+        // or Risk = profit × 100 / american (pos). Round to 2dp.
+        const rawRisk = american < 0
+            ? safeAmt * (-american) / 100
+            : safeAmt * 100 / american;
+        return { risk: Math.round(rawRisk * 100) / 100, win: safeAmt };
+    }
+    // 'bet' and 'risk' — amount IS the stake. Win = stake × 100/|american|
+    // (neg) or stake × american/100 (pos). Round to 2dp.
+    const rawWin = american < 0
+        ? safeAmt * 100 / (-american)
+        : safeAmt * american / 100;
+    return { risk: safeAmt, win: Math.round(rawWin * 100) / 100 };
 };
 
 const formatMoney = (value) => {
@@ -412,12 +443,24 @@ const ModeBetPanel = ({
             const safe = Number.isFinite(num) && num > 0 ? num : 0;
             const d = Number(sel?.odds);
             const validOdds = Number.isFinite(d) && d > 1;
-            if (override.source === 'risk') {
-                const win = validOdds ? Math.round(safe * (d - 1) * 100) / 100 : 0;
-                return { risk: safe, win, source: 'risk' };
+            if (!validOdds || safe === 0) {
+                return override.source === 'risk'
+                    ? { risk: safe, win: 0, source: 'risk' }
+                    : { risk: 0, win: safe, source: 'win' };
             }
-            const risk = validOdds ? Math.round((safe / (d - 1)) * 100) / 100 : 0;
-            return { risk, win: safe, source: 'win' };
+            // Use American integer arithmetic to avoid decimal drift.
+            const american = d >= 2 ? Math.round((d - 1) * 100) : Math.round(-100 / (d - 1));
+            if (american === 0) {
+                return override.source === 'risk'
+                    ? { risk: safe, win: 0, source: 'risk' }
+                    : { risk: 0, win: safe, source: 'win' };
+            }
+            if (override.source === 'risk') {
+                const rawWin = american < 0 ? safe * 100 / (-american) : safe * american / 100;
+                return { risk: safe, win: Math.round(rawWin * 100) / 100, source: 'risk' };
+            }
+            const rawRisk = american < 0 ? safe * (-american) / 100 : safe * 100 / american;
+            return { risk: Math.round(rawRisk * 100) / 100, win: safe, source: 'win' };
         }
         const computed = resolveStake(stakeMode, wager, sel?.odds);
         return { ...computed, source: null };

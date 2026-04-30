@@ -213,10 +213,9 @@
 .my-bet-row-summary {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
   width: 100%;
-  padding: 14px 16px;
+  padding: 12px 14px;
   background: transparent;
   border: none;
   cursor: pointer;
@@ -229,6 +228,24 @@
   background: #f8fafc;
 }
 
+.my-bet-row-logo {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: #f1f5f9;
+  object-fit: contain;
+  border: 1px solid #e2e8f0;
+}
+
+.my-bet-row-logo-multi {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #475569;
+  font-size: 13px;
+}
+
 .my-bet-row-label {
   font-size: 15px;
   font-weight: 700;
@@ -236,7 +253,44 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  flex: 1;
   min-width: 0;
+}
+
+/* Right cluster: stacked Risk + Outcome.
+   Risk on top in muted grey acts as the "what's at stake" anchor;
+   Outcome on the bottom carries the result colour (green/red/grey/
+   neutral) in a slightly heavier weight so the eye lands on it
+   first when scanning a settled list. */
+.my-bet-row-amounts {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  flex-shrink: 0;
+  text-align: right;
+  line-height: 1.15;
+}
+
+.my-bet-row-risk {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  font-size: 11px;
+  color: #64748b;
+  font-variant-numeric: tabular-nums;
+}
+
+.my-bet-row-risk-label {
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 9.5px;
+  color: #94a3b8;
+}
+
+.my-bet-row-risk-value {
+  font-weight: 700;
 }
 
 .my-bet-row-amount {
@@ -244,13 +298,158 @@
   font-weight: 800;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-  flex-shrink: 0;
 }
 
 .my-bet-row-amount.won { color: #16a34a; }
 .my-bet-row-amount.lost { color: #dc2626; }
 .my-bet-row-amount.void { color: #64748b; }
 .my-bet-row-amount.pending { color: #475569; }
+
+/* ── Table-style ticket list ──
+   Matches the reference 3-column layout: Description (flex-grow),
+   Risk (red), To Win. Header strip uses a soft red so the column
+   labels read instantly; multi-leg tickets render a parent row with
+   the ticket totals, then each leg as an indented sub-row whose
+   Risk/Win cells stay empty (only the parent owns the totals). */
+.my-bets-table {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  overflow: hidden;
+  margin-top: -2px;
+}
+
+.my-bets-table-header,
+.my-bets-table-row,
+.my-bets-table-totals {
+  display: grid;
+  grid-template-columns: 1fr 100px 100px;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+}
+
+.my-bets-table-header {
+  background: #ef5350;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: none;
+  letter-spacing: 0;
+  padding: 10px 14px;
+}
+
+.my-bets-table-header .my-bets-table-col-risk,
+.my-bets-table-header .my-bets-table-col-win {
+  text-align: left;
+  font-weight: 700;
+}
+
+.my-bets-table-row {
+  border-top: 1px solid #f1f5f9;
+  font-size: 13px;
+  color: #0f172a;
+}
+
+.my-bets-table-row:nth-child(even) {
+  background: #fafbfd;
+}
+
+.my-bets-table-row.parent {
+  font-weight: 600;
+}
+
+.my-bets-table-row.leg .my-bets-table-col-desc {
+  padding-left: 24px;
+  color: #1f2937;
+  font-weight: 500;
+}
+
+.my-bets-table-col-desc {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.my-bets-table-logo {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  object-fit: contain;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+}
+
+.my-bets-table-leg-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.my-bets-table-col-risk {
+  color: #dc2626;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.my-bets-table-col-win {
+  color: #0f172a;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.my-bets-table-col-win.won { color: #16a34a; font-weight: 700; }
+.my-bets-table-col-win.lost { color: #dc2626; font-weight: 700; }
+.my-bets-table-col-win.void { color: #64748b; }
+.my-bets-table-col-win.pending { color: #0f172a; }
+
+/* Bottom totals row sits inside the same table card; column-2/3 holds
+   the labels + values so they line up with the header row above. */
+.my-bets-table-totals {
+  border-top: 1px solid #e2e8f0;
+  background: #ffffff;
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f172a;
+  grid-template-columns: 1fr auto auto;
+  gap: 16px;
+  justify-content: flex-end;
+  padding: 12px 14px;
+}
+
+.my-bets-table-totals span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.my-bets-table-totals strong {
+  font-weight: 800;
+  color: #0f172a;
+  font-variant-numeric: tabular-nums;
+}
+
+.my-bets-table-totals strong.risk-total { color: #dc2626; }
+.my-bets-table-totals strong.won { color: #16a34a; }
+.my-bets-table-totals strong.lost { color: #dc2626; }
+
+@media (max-width: 480px) {
+  .my-bets-table-header,
+  .my-bets-table-row {
+    grid-template-columns: 1fr 78px 82px;
+    padding: 9px 10px;
+    font-size: 12.5px;
+  }
+  .my-bets-table-row.leg .my-bets-table-col-desc {
+    padding-left: 16px;
+  }
+  .my-bets-table-totals {
+    padding: 10px;
+    font-size: 12.5px;
+  }
+}
 
 /* Expanded detail panel — same data the dense card used to show by
    default (matchup, ticket id + bet type, leg breakdown, Risk/Odds/Win

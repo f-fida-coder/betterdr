@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { getMyBets, getUserFigures, getUserTransactions } from '../api';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { formatLineValue, formatOdds } from '../utils/odds';
+import { fetchTeamBadgeUrl, createFallbackTeamLogoDataUri } from '../utils/teamLogos';
 import '../mybets.css';
 
 const money = (value) => `$${Math.round(Number(value || 0))}`;
@@ -142,6 +143,76 @@ const ticketSummary = (bet) => {
     return `${team} ML`;
 };
 
+// One-line description for a single leg, e.g. "Lakers -4 -110".
+// Used for both single-game tickets and the indented leg rows under
+// a multi-leg parent. Returns the raw string the UI renders verbatim
+// in the Description column.
+const legDescription = (leg, oddsFormat) => {
+    const market = String(leg?.marketType || '').toLowerCase();
+    const point = Number.isFinite(Number(leg?.point)) ? Number(leg.point) : null;
+    const selection = String(leg?.selection || '').trim();
+    const odds = formatOdds(leg?.odds, oddsFormat);
+    if (market === 'spreads') {
+        const team = shortTeam(selection) || selection;
+        const line = point === null ? '' : formatLineValue(point, { signed: true });
+        return [team, line, odds].filter(Boolean).join(' ');
+    }
+    if (market === 'totals') {
+        const isUnder = selection.toLowerCase().startsWith('u');
+        const line = point === null ? '' : formatLineValue(Math.abs(point));
+        return [`${isUnder ? 'Under' : 'Over'}`, line, odds].filter(Boolean).join(' ');
+    }
+    const team = shortTeam(selection) || selection || 'Pick';
+    return [team, odds].filter(Boolean).join(' ');
+};
+
+// Parent-row label for multi-leg tickets, e.g. "Parlay - 3 Teams".
+const multiLegLabel = (bet) => {
+    const type = String(bet?.type || '').toLowerCase();
+    const count = Array.isArray(bet?.selections) ? bet.selections.length : 0;
+    const noun = type === 'teaser' ? 'Teaser'
+        : type === 'if_bet' ? 'If Bet'
+            : type === 'reverse' ? 'Reverse'
+                : 'Parlay';
+    return `${noun} - ${count} Teams`;
+};
+
+const isMultiLegBet = (bet) => {
+    const type = String(bet?.type || '').toLowerCase();
+    if (type === 'parlay' || type === 'teaser' || type === 'if_bet' || type === 'reverse') return true;
+    return Array.isArray(bet?.selections) && bet.selections.length > 1;
+};
+
+// Team name to use when rendering a leg's logo. For totals we pull
+// from matchSnapshot since the selection is "Over"/"Under", not a team.
+const legTeamForLogo = (leg) => {
+    const market = String(leg?.marketType || '').toLowerCase();
+    if (market === 'totals') {
+        return String(leg?.matchSnapshot?.homeTeam || '').trim() || null;
+    }
+    return String(leg?.selection || '').trim() || null;
+};
+
+// Team whose logo represents this ticket on the collapsed row. For
+// straight spreads/h2h it's the picked team (taken from leg.selection,
+// which already resolves "Los Angeles Angels" vs "Angels" depending on
+// what the betslip stored). Totals don't have a single team — we fall
+// back to the home team of the matchup. Multi-leg tickets return null
+// (the row renders a multi-leg badge instead of a logo).
+const primaryTeamFor = (bet) => {
+    const selections = Array.isArray(bet?.selections) ? bet.selections : [];
+    if (selections.length !== 1) return null;
+    const leg = selections[0];
+    const market = String(leg?.marketType || '').toLowerCase();
+    if (market === 'spreads' || market === 'h2h' || market === '') {
+        return String(leg?.selection || '').trim() || null;
+    }
+    if (market === 'totals') {
+        return String(leg?.matchSnapshot?.homeTeam || '').trim() || null;
+    }
+    return String(leg?.selection || '').trim() || null;
+};
+
 // Right-side amount + sign + colour theme for the collapsed row.
 //   won  → +profit, green
 //   lost → -risk, red
@@ -214,19 +285,48 @@ const MyBetsView = () => {
         if (initial === 'all') return 'pending';
         return initial || 'pending';
     });
-    // Set of bet ids the user has expanded. Tap-to-expand replaces the
-    // dense per-card top row + meta line + leg list + 3-column footer
-    // that used to render unconditionally; the collapsed view now shows
-    // only `[summary] [amount]`, and the rest reveals on tap.
-    const [expandedIds, setExpandedIds] = useState(() => new Set());
-    const toggleExpanded = (id) => {
-        setExpandedIds((prev) => {
-            const next = new Set(prev);
-            if (next.has(id)) next.delete(id);
-            else next.add(id);
-            return next;
+    // Map<team name, logo url> populated lazily as bets land. We render
+    // an SVG initials fallback immediately and replace with the real
+    // crest when fetchTeamBadgeUrl resolves, so the row never shows a
+    // broken image and the list doesn't block on the network. Same
+    // pattern ScoreboardSidebar uses.
+    const [teamLogos, setTeamLogos] = useState({});
+    useEffect(() => {
+        let mounted = true;
+        const teamsToLoad = new Set();
+        bets.forEach((bet) => {
+            const team = primaryTeamFor(bet);
+            if (team && !teamLogos[team]) teamsToLoad.add(team);
+            // Also queue every leg in multi-leg tickets so the
+            // indented leg rows render their crests, not just the
+            // single-leg parent rows.
+            const selections = Array.isArray(bet?.selections) ? bet.selections : [];
+            if (selections.length > 1) {
+                selections.forEach((leg) => {
+                    const legTeam = legTeamForLogo(leg);
+                    if (legTeam && !teamLogos[legTeam]) teamsToLoad.add(legTeam);
+                });
+            }
         });
-    };
+        if (teamsToLoad.size === 0) return undefined;
+        (async () => {
+            const updates = {};
+            await Promise.all(
+                Array.from(teamsToLoad).map(async (team) => {
+                    try {
+                        const url = await fetchTeamBadgeUrl(team);
+                        if (url) updates[team] = url;
+                    } catch {
+                        // fallback stays as-is
+                    }
+                })
+            );
+            if (mounted && Object.keys(updates).length > 0) {
+                setTeamLogos((prev) => ({ ...prev, ...updates }));
+            }
+        })();
+        return () => { mounted = false; };
+    }, [bets]);
 
     const fetchBets = async ({ silent = false } = {}) => {
         const token = localStorage.getItem('token');
@@ -367,126 +467,133 @@ const MyBetsView = () => {
                     </div>
                 ) : (
                     <>
-                    <div className="my-bets-list">
+                    {/* Table-style ticket list:
+                          [Description] [Risk] [To Win]
+                        Multi-leg tickets render a parent row with the
+                        ticket-level Risk/Win, then each leg as an
+                        indented sub-row whose Risk/Win cells stay
+                        empty (the parent already owns the totals).
+                        Single-game tickets render as a single row. */}
+                    <div className="my-bets-table">
+                        <div className="my-bets-table-header">
+                            <span className="my-bets-table-col-desc">Description</span>
+                            <span className="my-bets-table-col-risk">Risk</span>
+                            <span className="my-bets-table-col-win">To Win</span>
+                        </div>
                         {visibleBets.map((bet) => {
                             const betId = bet.id || bet.ticketId;
                             const selections = Array.isArray(bet.selections) ? bet.selections : [];
                             const risk = Number(bet.riskAmount || bet.amount || 0);
-                            const unitStake = Number(bet.unitStake || 0);
                             const status = normalizeStatus(bet.status);
                             const ticketPayout = payoutValue(bet);
-                            const betType = String(bet.type || 'straight').replace(/_/g, ' ').toUpperCase();
-                            const summary = ticketSummary(bet);
                             const amount = ticketAmount(bet);
-                            const expanded = expandedIds.has(betId);
+                            const isMulti = isMultiLegBet(bet);
+                            // For graded rows, "To Win" cell shows the
+                            // signed outcome (+$X green / -$X red /
+                            // Refund grey). Pending shows the unsigned
+                            // potential win in neutral text so it
+                            // matches the competitor reference exactly.
+                            const winCell = status === 'pending' ? money(ticketPayout) : amount.text;
+                            const winTheme = status === 'pending' ? 'pending' : amount.theme;
 
-                            return (
-                                <article key={betId} className={`my-bet-row ${amount.theme} ${expanded ? 'expanded' : ''}`}>
-                                    <button
-                                        type="button"
-                                        className="my-bet-row-summary"
-                                        onClick={() => toggleExpanded(betId)}
-                                        aria-expanded={expanded}
-                                    >
-                                        <span className="my-bet-row-label">{summary}</span>
-                                        <span className={`my-bet-row-amount ${amount.theme}`}>{amount.text}</span>
-                                    </button>
-                                    {expanded && (
-                                        <div className="my-bet-row-detail">
-                                            <div className="my-bet-row-detail-meta">
-                                                <span>{matchLabel(bet)}</span>
-                                                <span className="my-bet-row-detail-dot">•</span>
-                                                <span>{formatTimestamp(bet.createdAt)}</span>
-                                            </div>
-                                            <div className="my-bet-row-detail-meta">
-                                                <span>{betType}</span>
-                                                {bet.ticketId ? <><span className="my-bet-row-detail-dot">•</span><span className="my-bet-row-detail-ticket">#{String(bet.ticketId).slice(0, 12)}</span></> : null}
-                                            </div>
-
-                                            {selections.length > 0 ? (
-                                                <div className="my-bet-row-legs">
-                                                    {selections.map((leg, idx) => {
-                                                        const legTheme = statusTheme(leg?.status);
-                                                        const home = leg?.matchSnapshot?.homeTeam || '';
-                                                        const away = leg?.matchSnapshot?.awayTeam || '';
-                                                        const rawPick = leg?.selection || '';
-                                                        const { label, pick, line } = legPickLabel(leg);
-                                                        const displayPick = pick || rawPick || '—';
-                                                        return (
-                                                            <div key={`${betId}-leg-${idx}`} className="my-bet-row-leg">
-                                                                <div className="my-bet-row-leg-teams">{away || 'Away'} @ {home || 'Home'}</div>
-                                                                <div className="my-bet-row-leg-pick">
-                                                                    <span className="my-bet-row-leg-market">{label}</span>
-                                                                    <span>{displayPick}{line ? ` ${line}` : ''}</span>
-                                                                    <span className="my-bet-row-leg-odds">{formatOdds(leg.odds, oddsFormat)}</span>
-                                                                    <span className={`my-bet-row-leg-status ${legTheme}`}>{formatStatus(leg.status)}</span>
-                                                                </div>
-                                                            </div>
-                                                        );
-                                                    })}
-                                                </div>
-                                            ) : null}
-
-                                            {String(bet.type || '').toLowerCase() === 'reverse' && unitStake > 0 ? (
-                                                <div className="my-bet-row-note">Reverse ticket unit stake: {money(unitStake)} each way</div>
-                                            ) : null}
-
-                                            <div className="my-bet-row-detail-stats">
-                                                <div><span>Risk</span><strong>{money(risk)}</strong></div>
-                                                <div><span>Odds</span><strong>{formatOdds(bet.combinedOdds || bet.odds, oddsFormat)}</strong></div>
-                                                <div className="highlight">
-                                                    <span>{payoutLabel(status)}</span>
-                                                    <strong className={`my-bet-row-amount ${amount.theme}`}>
-                                                        {status === 'pending' ? money(ticketPayout) : amount.text}
-                                                    </strong>
-                                                </div>
-                                            </div>
+                            if (isMulti) {
+                                return (
+                                    <React.Fragment key={betId}>
+                                        <div className="my-bets-table-row parent">
+                                            <span className="my-bets-table-col-desc">{multiLegLabel(bet)}</span>
+                                            <span className="my-bets-table-col-risk">{money(risk)}</span>
+                                            <span className={`my-bets-table-col-win ${winTheme}`}>{winCell}</span>
                                         </div>
-                                    )}
-                                </article>
+                                        {selections.map((leg, idx) => {
+                                            const legTeam = legTeamForLogo(leg);
+                                            const legLogo = legTeam
+                                                ? (teamLogos[legTeam] || createFallbackTeamLogoDataUri(legTeam))
+                                                : null;
+                                            return (
+                                                <div key={`${betId}-leg-${idx}`} className="my-bets-table-row leg">
+                                                    <span className="my-bets-table-col-desc">
+                                                        {legLogo && (
+                                                            <img
+                                                                src={legLogo}
+                                                                alt=""
+                                                                className="my-bets-table-logo"
+                                                                loading="lazy"
+                                                                onError={(e) => { e.currentTarget.src = createFallbackTeamLogoDataUri(legTeam || ''); }}
+                                                            />
+                                                        )}
+                                                        <span className="my-bets-table-leg-text">{legDescription(leg, oddsFormat)}</span>
+                                                    </span>
+                                                    <span className="my-bets-table-col-risk" />
+                                                    <span className="my-bets-table-col-win" />
+                                                </div>
+                                            );
+                                        })}
+                                    </React.Fragment>
+                                );
+                            }
+
+                            const leg = selections[0] || {};
+                            const legTeam = legTeamForLogo(leg);
+                            const logoSrc = legTeam
+                                ? (teamLogos[legTeam] || createFallbackTeamLogoDataUri(legTeam))
+                                : null;
+                            return (
+                                <div key={betId} className="my-bets-table-row">
+                                    <span className="my-bets-table-col-desc">
+                                        {logoSrc && (
+                                            <img
+                                                src={logoSrc}
+                                                alt=""
+                                                className="my-bets-table-logo"
+                                                loading="lazy"
+                                                onError={(e) => { e.currentTarget.src = createFallbackTeamLogoDataUri(legTeam || ''); }}
+                                            />
+                                        )}
+                                        <span className="my-bets-table-leg-text">{legDescription(leg, oddsFormat)}</span>
+                                    </span>
+                                    <span className="my-bets-table-col-risk">{money(risk)}</span>
+                                    <span className={`my-bets-table-col-win ${winTheme}`}>{winCell}</span>
+                                </div>
                             );
                         })}
-                    </div>
-                    {/* Bottom totals — Pending shows risk + potential win,
-                        Graded shows net P/L (won profit minus lost risk;
-                        voids cancel out). Hidden when the list is empty
-                        (the empty state owns its own messaging). */}
-                    {visibleBets.length > 0 && (
-                        <div className={`my-bets-totals ${activeTab === 'graded' ? 'graded' : 'pending'}`}>
-                            {(() => {
-                                if (activeTab === 'pending') {
-                                    const totalRisk = visibleBets.reduce((sum, b) => sum + Number(b?.riskAmount || b?.amount || 0), 0);
-                                    const totalWin = visibleBets.reduce((sum, b) => {
-                                        const r = Number(b?.riskAmount || b?.amount || 0);
-                                        const p = Number(b?.potentialPayout || 0);
-                                        return sum + Math.max(0, p - r);
-                                    }, 0);
-                                    return (
-                                        <>
-                                            <span><span className="totals-label">Total Risk</span> <strong>{money(totalRisk)}</strong></span>
-                                            <span><span className="totals-label">Total Win</span> <strong>{money(totalWin)}</strong></span>
-                                        </>
-                                    );
-                                }
-                                const net = visibleBets.reduce((sum, b) => {
-                                    const s = normalizeStatus(b?.status);
+                        {/* Bottom totals row — same 3-column grid so the
+                            Risk + Win values land in their respective
+                            columns. Graded uses the same layout but the
+                            Win total is the signed Net P/L. */}
+                        {(() => {
+                            if (activeTab === 'pending') {
+                                const totalRisk = visibleBets.reduce((sum, b) => sum + Number(b?.riskAmount || b?.amount || 0), 0);
+                                const totalWin = visibleBets.reduce((sum, b) => {
                                     const r = Number(b?.riskAmount || b?.amount || 0);
                                     const p = Number(b?.potentialPayout || 0);
-                                    if (s === 'won') return sum + Math.max(0, p - r);
-                                    if (s === 'lost') return sum - r;
-                                    return sum;
+                                    return sum + Math.max(0, p - r);
                                 }, 0);
-                                const sign = net > 0 ? '+' : net < 0 ? '-' : '';
-                                const cls = net > 0 ? 'won' : net < 0 ? 'lost' : 'void';
                                 return (
-                                    <span className="my-bets-totals-net">
-                                        <span className="totals-label">Net P/L</span>
-                                        <strong className={cls}>{sign}${Math.abs(Math.round(net))}</strong>
-                                    </span>
+                                    <div className="my-bets-table-totals">
+                                        <span>Total Risk : <strong className="risk-total">{money(totalRisk)}</strong></span>
+                                        <span>Total Win : <strong>{money(totalWin)}</strong></span>
+                                    </div>
                                 );
-                            })()}
-                        </div>
-                    )}
+                            }
+                            const totalRisk = visibleBets.reduce((sum, b) => sum + (normalizeStatus(b?.status) === 'lost' ? Number(b?.riskAmount || b?.amount || 0) : 0), 0);
+                            const net = visibleBets.reduce((sum, b) => {
+                                const s = normalizeStatus(b?.status);
+                                const r = Number(b?.riskAmount || b?.amount || 0);
+                                const p = Number(b?.potentialPayout || 0);
+                                if (s === 'won') return sum + Math.max(0, p - r);
+                                if (s === 'lost') return sum - r;
+                                return sum;
+                            }, 0);
+                            const sign = net > 0 ? '+' : net < 0 ? '-' : '';
+                            const cls = net > 0 ? 'won' : net < 0 ? 'lost' : 'void';
+                            return (
+                                <div className="my-bets-table-totals">
+                                    <span>Total Risk : <strong className="risk-total">{money(totalRisk)}</strong></span>
+                                    <span>Net P/L : <strong className={cls}>{sign}${Math.abs(Math.round(net))}</strong></span>
+                                </div>
+                            );
+                        })()}
+                    </div>
                     </>
                 )}
             </div>

@@ -112,12 +112,13 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
     // still selected behind the scenes) and !betslipOpen (so opening the
     // slip from any view also drops Continue).
     const showContinueButton = mobileViewState === 'selected' && hasRealSportSelection && !betslipOpen && currentView === 'dashboard';
-    // Menu (the 9-square global app grid) is only useful on the odds
-    // board — once the user is inside My Bets, Casino, etc., Menu is
-    // duplicate navigation that just clutters the header. Tying it to
-    // the same dashboard-only gate as Continue keeps the header layout
-    // consistent across views.
-    const showMenuButton = currentView === 'dashboard' && !betslipOpen;
+    // Menu (the 9-square global app grid) is shown on all views so the
+    // header always has 5 cells and the layout never shifts when the user
+    // navigates away from the odds board. Hiding it only when the betslip
+    // is open (the Sports slot already becomes ← Back in that state and
+    // a second navigation icon is redundant) or when the Continue button
+    // is about to occupy the same slot.
+    const showMenuButton = !betslipOpen;
     const activeRefreshRef = useRef({ requestId: '', pendingListeners: new Set(), timeoutId: 0 });
 
     const clearActiveRefreshTimeout = () => {
