@@ -1,4 +1,4 @@
-import React, { Suspense } from 'react';
+import React, { Suspense, useEffect, useState } from 'react';
 import DashboardHeader from './DashboardHeader';
 import DashboardSidebar from './DashboardSidebar';
 import DashboardMain from './DashboardMain';
@@ -49,8 +49,26 @@ function UserDashboardShell({
   onTeaserPointsChange,
   onBetPlaced,
 }) {
+  // Mirror DashboardHeader's tabs-bar visibility check so the
+  // dashboard-content-area's padding-top can collapse from 124px →
+  // 64px whenever the STRAIGHT/PARLAY/... tabs row isn't rendering.
+  // Without this, views like My Bets — which never own that tabs row —
+  // leave a 60px white stripe between the top header and the page's
+  // own filter row whenever any sport checkbox is selected (which
+  // pushes mobileViewState off 'browsing'). The header still renders
+  // the tabs-bar when the betslip overlay is open from any view, so
+  // we keep the 124px reservation in that case.
+  const [betslipOpen, setBetslipOpen] = useState(false);
+  useEffect(() => {
+    const handleState = (e) => setBetslipOpen(Boolean(e?.detail?.open));
+    window.addEventListener('betslip:state', handleState);
+    return () => window.removeEventListener('betslip:state', handleState);
+  }, []);
+  const tabsBarHidden = mobileViewState === 'browsing'
+    || (dashboardView !== 'dashboard' && !betslipOpen);
+
   return (
-    <div className={`dashboard-layout ${mobileViewState === 'browsing' ? 'no-bet-tabs' : ''}`}>
+    <div className={`dashboard-layout ${tabsBarHidden ? 'no-bet-tabs' : ''}`}>
       <DashboardHeader
         username={user?.username || 'Guest'}
         realtimeConnectionState={realtimeConnectionState}

@@ -20,7 +20,7 @@ const normalizeStatus = (value) => String(value || 'pending').trim().toLowerCase
 // registration, so we use module state + read on mount.
 let pendingInitialFilter = null;
 export const setMyBetsInitialFilter = (filter) => {
-    if (['pending', 'graded', 'figures', 'transactions', 'won', 'lost', 'void', 'all'].includes(filter)) {
+    if (['pending', 'figures', 'transactions', 'graded', 'won', 'lost', 'void', 'all'].includes(filter)) {
         pendingInitialFilter = filter;
     }
 };
@@ -315,6 +315,9 @@ const BetDetailsPanel = ({ bet, oddsFormat }) => {
         : (firstLeg ? formatOdds(firstLeg.odds, oddsFormat) : '—');
     const risk = Number(bet?.riskAmount || bet?.amount || 0);
     const potential = Number(bet?.potentialPayout || 0);
+    // Credit/freeplay-based system: player never gets the stake returned,
+    // so "Potential Payout" is profit-only (= To Win), not risk + win.
+    const potentialToWin = Math.max(0, potential - risk);
     const placedAt = formatTimestamp(bet?.createdAt);
     const settledAt = ['won', 'lost', 'void'].includes(normalizeStatus(bet?.status))
         ? formatTimestamp(settledTimestamp(bet))
@@ -328,7 +331,7 @@ const BetDetailsPanel = ({ bet, oddsFormat }) => {
     rows.push(['Type', ticketTypeLabel(bet) + (isFreeplay ? ' (Freeplay)' : '')]);
     rows.push(['Odds', odds]);
     rows.push(['Risk', money(risk)]);
-    rows.push(['Potential Payout', money(potential)]);
+    rows.push(['Potential Payout', money(potentialToWin)]);
     rows.push(['Placed', placedAt]);
     if (settledAt) rows.push(['Settled', settledAt]);
     if (ticketIdShort) rows.push(['Ticket', `#${ticketIdShort}`]);
@@ -353,6 +356,152 @@ const WEEK_OPTIONS = [
     ...Array.from({ length: 10 }, (_, i) => ({ id: i + 2, label: `${i + 2} Weeks Ago` })),
 ];
 
+// Table-style ticket list shared between:
+//   - the Pending tab (mode='pending', shows Risk/To Win + a totals
+//     footer so the player can see committed-vs-potential at a glance)
+//   - the Figures tab's per-day expansion panel (mode='graded', shows
+//     Description/Profit only — totals already live in the figures
+//     row above as the day's P/L, so a footer would just duplicate it)
+// Each instance owns its own expanded-row state so opening a ticket
+// in Wednesday's drill-down doesn't toggle anything in Friday's panel.
+// The win-cell logic keys off the bet's status rather than mode (a
+// graded ticket renders +$X / -$X regardless of where it appears),
+// so the same row code works for both modes — only header columns,
+// the optional totals footer, and the Risk column visibility change.
+const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending', showTotals = false }) => {
+    const [expandedBetId, setExpandedBetId] = useState(null);
+    const toggleExpanded = (id) => setExpandedBetId((cur) => (cur === id ? null : id));
+    const isGraded = mode === 'graded';
+
+    if (!Array.isArray(bets) || bets.length === 0) return null;
+
+    return (
+        <div className={`my-bets-table${isGraded ? ' graded' : ''}`}>
+            <div className="my-bets-table-header">
+                <span className="my-bets-table-col-desc">Description</span>
+                {isGraded ? (
+                    <span className="my-bets-table-col-win">Profit</span>
+                ) : (
+                    <>
+                        <span className="my-bets-table-col-risk">Risk</span>
+                        <span className="my-bets-table-col-win">To Win</span>
+                    </>
+                )}
+            </div>
+            {bets.map((bet) => {
+                const betId = bet.id || bet.ticketId;
+                const selections = Array.isArray(bet.selections) ? bet.selections : [];
+                const risk = Number(bet.riskAmount || bet.amount || 0);
+                const status = normalizeStatus(bet.status);
+                const ticketPayout = payoutValue(bet);
+                const amount = ticketAmount(bet);
+                const isMulti = isMultiLegBet(bet);
+                const isExpanded = expandedBetId === betId;
+                const winCell = status === 'pending' ? money(ticketPayout) : amount.text;
+                const winTheme = status === 'pending' ? 'pending' : amount.theme;
+
+                if (isMulti) {
+                    return (
+                        <React.Fragment key={betId}>
+                            <div
+                                className={`my-bets-table-row parent expandable${isExpanded ? ' expanded' : ''}`}
+                                role="button"
+                                tabIndex={0}
+                                onClick={() => toggleExpanded(betId)}
+                                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleExpanded(betId); } }}
+                            >
+                                <span className="my-bets-table-col-desc">
+                                    <span className={`my-bets-table-chevron${isExpanded ? ' open' : ''}`} aria-hidden="true">▸</span>
+                                    {multiLegLabel(bet)}
+                                </span>
+                                {!isGraded && <span className="my-bets-table-col-risk">{money(risk)}</span>}
+                                <span className={`my-bets-table-col-win ${winTheme}`}>{winCell}</span>
+                            </div>
+                            {selections.map((leg, idx) => {
+                                const legTeam = legTeamForLogo(leg);
+                                const legLogo = legTeam
+                                    ? (teamLogos[legTeam] || createFallbackTeamLogoDataUri(legTeam))
+                                    : null;
+                                return (
+                                    <div key={`${betId}-leg-${idx}`} className="my-bets-table-row leg">
+                                        <span className="my-bets-table-col-desc">
+                                            {legLogo && (
+                                                <img
+                                                    src={legLogo}
+                                                    alt=""
+                                                    className="my-bets-table-logo"
+                                                    loading="lazy"
+                                                    onError={(e) => { e.currentTarget.src = createFallbackTeamLogoDataUri(legTeam || ''); }}
+                                                />
+                                            )}
+                                            <span className="my-bets-table-leg-text">{legDescription(leg, oddsFormat)}</span>
+                                        </span>
+                                        {!isGraded && <span className="my-bets-table-col-risk" />}
+                                        <span className="my-bets-table-col-win" />
+                                    </div>
+                                );
+                            })}
+                            {isExpanded && (
+                                <BetDetailsPanel bet={bet} oddsFormat={oddsFormat} />
+                            )}
+                        </React.Fragment>
+                    );
+                }
+
+                const leg = selections[0] || {};
+                const legTeam = legTeamForLogo(leg);
+                const logoSrc = legTeam
+                    ? (teamLogos[legTeam] || createFallbackTeamLogoDataUri(legTeam))
+                    : null;
+                return (
+                    <React.Fragment key={betId}>
+                        <div
+                            className={`my-bets-table-row expandable${isExpanded ? ' expanded' : ''}`}
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => toggleExpanded(betId)}
+                            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleExpanded(betId); } }}
+                        >
+                            <span className="my-bets-table-col-desc">
+                                <span className={`my-bets-table-chevron${isExpanded ? ' open' : ''}`} aria-hidden="true">▸</span>
+                                {logoSrc && (
+                                    <img
+                                        src={logoSrc}
+                                        alt=""
+                                        className="my-bets-table-logo"
+                                        loading="lazy"
+                                        onError={(e) => { e.currentTarget.src = createFallbackTeamLogoDataUri(legTeam || ''); }}
+                                    />
+                                )}
+                                <span className="my-bets-table-leg-text">{legDescription(leg, oddsFormat)}</span>
+                            </span>
+                            {!isGraded && <span className="my-bets-table-col-risk">{money(risk)}</span>}
+                            <span className={`my-bets-table-col-win ${winTheme}`}>{winCell}</span>
+                        </div>
+                        {isExpanded && (
+                            <BetDetailsPanel bet={bet} oddsFormat={oddsFormat} />
+                        )}
+                    </React.Fragment>
+                );
+            })}
+            {showTotals && !isGraded && (() => {
+                const totalRisk = bets.reduce((sum, b) => sum + Number(b?.riskAmount || b?.amount || 0), 0);
+                const totalWin = bets.reduce((sum, b) => {
+                    const r = Number(b?.riskAmount || b?.amount || 0);
+                    const p = Number(b?.potentialPayout || 0);
+                    return sum + Math.max(0, p - r);
+                }, 0);
+                return (
+                    <div className="my-bets-table-totals">
+                        <span>Total Risk : <strong className="risk-total">{money(totalRisk)}</strong></span>
+                        <span>Total Win : <strong>{money(totalWin)}</strong></span>
+                    </div>
+                );
+            })()}
+        </div>
+    );
+};
+
 const MyBetsView = () => {
     const { oddsFormat } = useOddsFormat();
     const [bets, setBets] = useState([]);
@@ -361,17 +510,14 @@ const MyBetsView = () => {
     const [activeTab, setActiveTab] = useState(() => {
         const initial = pendingInitialFilter;
         pendingInitialFilter = null;
-        // Legacy filter values from AccountPanel collapse to the
-        // appropriate new tab: won/lost/void → graded, all → pending.
-        if (initial === 'won' || initial === 'lost' || initial === 'void') return 'graded';
+        // Legacy filter values redirect to the new 2-tab layout. The
+        // standalone "Graded" tab was retired in favour of drilling into
+        // a settled day from inside Figures, so any won/lost/void/graded
+        // hand-off lands on Figures instead. "all" → Pending stays.
+        if (['won', 'lost', 'void', 'graded'].includes(initial)) return 'figures';
         if (initial === 'all') return 'pending';
         return initial || 'pending';
     });
-    // Click-to-expand state for ticket rows. Exactly one row can be
-    // open at a time so the list never balloons; clicking the open row
-    // again collapses it.
-    const [expandedBetId, setExpandedBetId] = useState(null);
-    const toggleExpanded = (id) => setExpandedBetId((cur) => (cur === id ? null : id));
     // Map<team name, logo url> populated lazily as bets land. We render
     // an SVG initials fallback immediately and replace with the real
     // crest when fetchTeamBadgeUrl resolves, so the row never shows a
@@ -510,24 +656,17 @@ const MyBetsView = () => {
         );
     }
 
-    const visibleBets = activeTab === 'pending' ? pendingBets : activeTab === 'graded' ? gradedBets : [];
-
     return (
         <div className="my-bets-page">
             <div className="my-bets-shell">
-                {/* Ticket Center hero (title + Updated timestamp + refresh
-                    icon) and the 4-card summary strip (Total Tickets /
-                    Pending / At Risk / Total Risked) used to live here.
-                    Both got removed: the top header already shows the
-                    live PENDING tile (= same SUM as the old At Risk
-                    card), and the per-ticket cards below carry their
-                    own RISK/ODDS/WIN footers — the summary grid was
-                    visual noise duplicating numbers a player can read
-                    directly. Auto-refresh still runs every 20s. */}
+                {/* Filter row collapsed from 4 chips to 3: the standalone
+                    "Graded" tab was retired in favour of expanding a
+                    settled day inside Figures, where the player can see
+                    the day's P/L AND the tickets that produced it in one
+                    place instead of cross-referencing two tabs. */}
                 <div className="my-bets-filter-row">
                     {[
                         { id: 'pending', label: 'Pending' },
-                        { id: 'graded', label: 'Graded' },
                         { id: 'figures', label: 'Figures' },
                         { id: 'transactions', label: 'Transactions' },
                     ].map((option) => (
@@ -543,199 +682,38 @@ const MyBetsView = () => {
                 </div>
 
                 {activeTab === 'figures' ? (
-                    <FiguresTab />
+                    <FiguresTab gradedBets={gradedBets} oddsFormat={oddsFormat} teamLogos={teamLogos} />
                 ) : activeTab === 'transactions' ? (
                     <TransactionsTab />
-                ) : visibleBets.length === 0 ? (
+                ) : pendingBets.length === 0 ? (
                     <div className="my-bets-empty">
                         <div className="my-bets-empty-icon"><i className="fa-solid fa-receipt"></i></div>
                         <h3>No bets in this view</h3>
-                        <p>{activeTab === 'pending' ? 'No pending tickets right now.' : 'No graded tickets yet.'}</p>
+                        <p>No pending tickets right now.</p>
                     </div>
                 ) : (
-                    <>
-                    {/* Table-style ticket list:
-                          [Description] [Risk] [To Win]
-                        Multi-leg tickets render a parent row with the
-                        ticket-level Risk/Win, then each leg as an
-                        indented sub-row whose Risk/Win cells stay
-                        empty (the parent already owns the totals).
-                        Single-game tickets render as a single row. */}
-                    {/* Graded view drops the Risk column — the bet is
-                        settled, so only the realised profit/loss
-                        matters. Pending keeps the 3-col Risk + To Win
-                        breakdown so the player can see exactly what is
-                        committed and what could come back. */}
-                    <div className={`my-bets-table${activeTab === 'graded' ? ' graded' : ''}`}>
-                        <div className="my-bets-table-header">
-                            <span className="my-bets-table-col-desc">Description</span>
-                            {activeTab === 'graded' ? (
-                                <span className="my-bets-table-col-win">Profit</span>
-                            ) : (
-                                <>
-                                    <span className="my-bets-table-col-risk">Risk</span>
-                                    <span className="my-bets-table-col-win">To Win</span>
-                                </>
-                            )}
-                        </div>
-                        {visibleBets.map((bet) => {
-                            const betId = bet.id || bet.ticketId;
-                            const selections = Array.isArray(bet.selections) ? bet.selections : [];
-                            const risk = Number(bet.riskAmount || bet.amount || 0);
-                            const status = normalizeStatus(bet.status);
-                            const ticketPayout = payoutValue(bet);
-                            const amount = ticketAmount(bet);
-                            const isMulti = isMultiLegBet(bet);
-                            const isExpanded = expandedBetId === betId;
-                            // For graded rows, "To Win" cell shows the
-                            // signed outcome (+$X green / -$X red /
-                            // Refund grey). Pending shows the unsigned
-                            // potential win in neutral text so it
-                            // matches the competitor reference exactly.
-                            const winCell = status === 'pending' ? money(ticketPayout) : amount.text;
-                            const winTheme = status === 'pending' ? 'pending' : amount.theme;
-
-                            if (isMulti) {
-                                return (
-                                    <React.Fragment key={betId}>
-                                        <div
-                                            className={`my-bets-table-row parent expandable${isExpanded ? ' expanded' : ''}`}
-                                            role="button"
-                                            tabIndex={0}
-                                            onClick={() => toggleExpanded(betId)}
-                                            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleExpanded(betId); } }}
-                                        >
-                                            <span className="my-bets-table-col-desc">
-                                                <span className={`my-bets-table-chevron${isExpanded ? ' open' : ''}`} aria-hidden="true">▸</span>
-                                                {multiLegLabel(bet)}
-                                            </span>
-                                            {activeTab !== 'graded' && (
-                                                <span className="my-bets-table-col-risk">{money(risk)}</span>
-                                            )}
-                                            <span className={`my-bets-table-col-win ${winTheme}`}>{winCell}</span>
-                                        </div>
-                                        {selections.map((leg, idx) => {
-                                            const legTeam = legTeamForLogo(leg);
-                                            const legLogo = legTeam
-                                                ? (teamLogos[legTeam] || createFallbackTeamLogoDataUri(legTeam))
-                                                : null;
-                                            return (
-                                                <div key={`${betId}-leg-${idx}`} className="my-bets-table-row leg">
-                                                    <span className="my-bets-table-col-desc">
-                                                        {legLogo && (
-                                                            <img
-                                                                src={legLogo}
-                                                                alt=""
-                                                                className="my-bets-table-logo"
-                                                                loading="lazy"
-                                                                onError={(e) => { e.currentTarget.src = createFallbackTeamLogoDataUri(legTeam || ''); }}
-                                                            />
-                                                        )}
-                                                        <span className="my-bets-table-leg-text">{legDescription(leg, oddsFormat)}</span>
-                                                    </span>
-                                                    {activeTab !== 'graded' && <span className="my-bets-table-col-risk" />}
-                                                    <span className="my-bets-table-col-win" />
-                                                </div>
-                                            );
-                                        })}
-                                        {isExpanded && (
-                                            <BetDetailsPanel bet={bet} oddsFormat={oddsFormat} />
-                                        )}
-                                    </React.Fragment>
-                                );
-                            }
-
-                            const leg = selections[0] || {};
-                            const legTeam = legTeamForLogo(leg);
-                            const logoSrc = legTeam
-                                ? (teamLogos[legTeam] || createFallbackTeamLogoDataUri(legTeam))
-                                : null;
-                            return (
-                                <React.Fragment key={betId}>
-                                    <div
-                                        className={`my-bets-table-row expandable${isExpanded ? ' expanded' : ''}`}
-                                        role="button"
-                                        tabIndex={0}
-                                        onClick={() => toggleExpanded(betId)}
-                                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleExpanded(betId); } }}
-                                    >
-                                        <span className="my-bets-table-col-desc">
-                                            <span className={`my-bets-table-chevron${isExpanded ? ' open' : ''}`} aria-hidden="true">▸</span>
-                                            {logoSrc && (
-                                                <img
-                                                    src={logoSrc}
-                                                    alt=""
-                                                    className="my-bets-table-logo"
-                                                    loading="lazy"
-                                                    onError={(e) => { e.currentTarget.src = createFallbackTeamLogoDataUri(legTeam || ''); }}
-                                                />
-                                            )}
-                                            <span className="my-bets-table-leg-text">{legDescription(leg, oddsFormat)}</span>
-                                        </span>
-                                        {activeTab !== 'graded' && (
-                                            <span className="my-bets-table-col-risk">{money(risk)}</span>
-                                        )}
-                                        <span className={`my-bets-table-col-win ${winTheme}`}>{winCell}</span>
-                                    </div>
-                                    {isExpanded && (
-                                        <BetDetailsPanel bet={bet} oddsFormat={oddsFormat} />
-                                    )}
-                                </React.Fragment>
-                            );
-                        })}
-                        {/* Bottom totals row — same 3-column grid so the
-                            Risk + Win values land in their respective
-                            columns. Graded uses the same layout but the
-                            Win total is the signed Net P/L. */}
-                        {(() => {
-                            if (activeTab === 'pending') {
-                                const totalRisk = visibleBets.reduce((sum, b) => sum + Number(b?.riskAmount || b?.amount || 0), 0);
-                                const totalWin = visibleBets.reduce((sum, b) => {
-                                    const r = Number(b?.riskAmount || b?.amount || 0);
-                                    const p = Number(b?.potentialPayout || 0);
-                                    return sum + Math.max(0, p - r);
-                                }, 0);
-                                return (
-                                    <div className="my-bets-table-totals">
-                                        <span>Total Risk : <strong className="risk-total">{money(totalRisk)}</strong></span>
-                                        <span>Total Win : <strong>{money(totalWin)}</strong></span>
-                                    </div>
-                                );
-                            }
-                            // Graded view shows Net P/L only — the previous
-                            // "Total Risk" tally summed only LOST bets, which
-                            // displayed as "$0" when every settled bet won
-                            // and confused players into thinking nothing was
-                            // ever wagered.
-                            const net = visibleBets.reduce((sum, b) => {
-                                const s = normalizeStatus(b?.status);
-                                const r = Number(b?.riskAmount || b?.amount || 0);
-                                const p = Number(b?.potentialPayout || 0);
-                                if (s === 'won') return sum + Math.max(0, p - r);
-                                if (s === 'lost') return sum - r;
-                                return sum;
-                            }, 0);
-                            const sign = net > 0 ? '+' : net < 0 ? '-' : '';
-                            const cls = net > 0 ? 'won' : net < 0 ? 'lost' : 'void';
-                            return (
-                                <div className="my-bets-table-totals">
-                                    <span>Net P/L : <strong className={cls}>{sign}${Math.abs(Math.round(net))}</strong></span>
-                                </div>
-                            );
-                        })()}
-                    </div>
-                    </>
+                    <BetTable
+                        bets={pendingBets}
+                        oddsFormat={oddsFormat}
+                        teamLogos={teamLogos}
+                        mode="pending"
+                        showTotals
+                    />
                 )}
             </div>
         </div>
     );
 };
 
-const FiguresTab = () => {
+const FiguresTab = ({ gradedBets = [], oddsFormat, teamLogos = {} }) => {
     const [weekOffset, setWeekOffset] = useState(0);
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    // Drill-down state: at most one day is expanded at a time so the
+    // figures table never grows unbounded. Switching weeks collapses any
+    // open panel since the indexed day no longer maps to the same date.
+    const [expandedDayIndex, setExpandedDayIndex] = useState(null);
 
     useEffect(() => {
         const token = localStorage.getItem('token');
@@ -759,6 +737,10 @@ const FiguresTab = () => {
         return () => { cancelled = true; };
     }, [weekOffset]);
 
+    useEffect(() => {
+        setExpandedDayIndex(null);
+    }, [weekOffset]);
+
     const renderAmount = (value) => {
         const n = Number(value || 0);
         const className = n > 0 ? 'figures-amount positive' : n < 0 ? 'figures-amount negative' : 'figures-amount';
@@ -771,6 +753,33 @@ const FiguresTab = () => {
         || Number(data.carryForward || 0) !== 0
         || (Array.isArray(data.days) && data.days.some((d) => Number(d.pl || 0) !== 0))
     );
+
+    // Match the backend's UTC-day indexing exactly: the `days` array is
+    // weekStart..weekStart+6 in UTC, with each P/L computed from bets
+    // whose settledAt falls in that 24h UTC window. Mirror the same
+    // boundary here so the drill-down lists exactly the tickets that
+    // contributed to the row's P/L number — anything else risks showing
+    // a ticket on a day whose total doesn't include it (or vice versa)
+    // when the user's local timezone differs from UTC.
+    const betsForDayIndex = (dayIndex) => {
+        if (!data?.weekStart) return [];
+        const start = new Date(`${data.weekStart}T00:00:00Z`);
+        if (Number.isNaN(start.getTime())) return [];
+        start.setUTCDate(start.getUTCDate() + dayIndex);
+        const end = new Date(start);
+        end.setUTCDate(end.getUTCDate() + 1);
+        return gradedBets.filter((bet) => {
+            const ts = bet?.settledAt || bet?.updatedAt || bet?.createdAt;
+            if (!ts) return false;
+            const settled = new Date(ts);
+            if (Number.isNaN(settled.getTime())) return false;
+            return settled >= start && settled < end;
+        });
+    };
+
+    const toggleDay = (i) => {
+        setExpandedDayIndex((cur) => (cur === i ? null : i));
+    };
 
     return (
         <div className="figures-tab">
@@ -807,12 +816,53 @@ const FiguresTab = () => {
                         <span className="figures-label">Carry forward</span>
                         <span className="figures-amount">{money(data.carryForward)}</span>
                     </div>
-                    {data.days.map((d) => (
-                        <div key={d.label} className="figures-row">
-                            <span className="figures-label">{d.label} <span className="figures-date">({d.date})</span></span>
-                            {renderAmount(d.pl)}
-                        </div>
-                    ))}
+                    {data.days.map((d, i) => {
+                        const canExpand = Number(d.pl || 0) !== 0;
+                        const isExpanded = expandedDayIndex === i;
+                        const dayBets = isExpanded ? betsForDayIndex(i) : [];
+                        return (
+                            <React.Fragment key={d.label}>
+                                <div
+                                    className={`figures-row${canExpand ? ' expandable' : ''}${isExpanded ? ' expanded' : ''}`}
+                                    role={canExpand ? 'button' : undefined}
+                                    tabIndex={canExpand ? 0 : undefined}
+                                    onClick={canExpand ? () => toggleDay(i) : undefined}
+                                    onKeyDown={canExpand ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleDay(i); } } : undefined}
+                                    aria-expanded={canExpand ? isExpanded : undefined}
+                                >
+                                    <span className="figures-label">
+                                        {canExpand && (
+                                            <span className={`figures-chevron${isExpanded ? ' open' : ''}`} aria-hidden="true">▸</span>
+                                        )}
+                                        {d.label} <span className="figures-date">({d.date})</span>
+                                    </span>
+                                    {renderAmount(d.pl)}
+                                </div>
+                                {isExpanded && (
+                                    <div className="figures-day-panel">
+                                        {dayBets.length === 0 ? (
+                                            // Edge case: a non-zero day P/L
+                                            // can come from settled tickets
+                                            // we couldn't fetch (older
+                                            // pagination boundary, void
+                                            // refunds outside the bets
+                                            // collection, etc.) — surface
+                                            // that explicitly instead of
+                                            // hiding the empty panel.
+                                            <div className="figures-day-empty">No graded tickets to show for this day.</div>
+                                        ) : (
+                                            <BetTable
+                                                bets={dayBets}
+                                                oddsFormat={oddsFormat}
+                                                teamLogos={teamLogos}
+                                                mode="graded"
+                                            />
+                                        )}
+                                    </div>
+                                )}
+                            </React.Fragment>
+                        );
+                    })}
                     <div className="figures-row figures-row-total">
                         <span className="figures-label">Week total</span>
                         {renderAmount(data.weekTotal)}
