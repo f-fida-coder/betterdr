@@ -752,7 +752,7 @@ const TransactionsTab = () => {
             const signedTypes = {
                 bet_placed: -1, fp_bet_placed: -1,
                 casino_bet_debit: -1, withdrawal: -1, bet_lost: -1, fp_bet_lost: -1,
-                bet_won: 1, fp_bet_won: 1, bet_void: 1, fp_bet_void: 1, bet_void_admin: 1,
+                bet_won: 1, fp_bet_won: 1, bet_void: 1, fp_bet_void: 1, bet_void_admin: 1, fp_bet_void_admin: 1,
                 fp_deposit: 1, deposit: 1, casino_bet_credit: 1,
             };
             const sign = signedTypes[String(tx.type || '').toLowerCase()] || 0;

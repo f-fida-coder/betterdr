@@ -24,7 +24,7 @@ const DEFAULT_TYPE_OPTIONS = [
 
 const normalizeTypeValue = (value) => String(value || '').trim().toLowerCase();
 const WAGER_TYPES = new Set(['bet_placed', 'bet_placed_admin', 'bet_lost', 'casino_bet_debit']);
-const PAYOUT_TYPES = new Set(['bet_won', 'bet_refund', 'bet_void', 'bet_void_admin', 'casino_bet_credit']);
+const PAYOUT_TYPES = new Set(['bet_won', 'bet_refund', 'bet_void', 'bet_void_admin', 'fp_bet_void_admin', 'casino_bet_credit']);
 const ADJUSTMENT_TYPES = new Set(['adjustment', 'credit_adj', 'debit_adj']);
 const DEBIT_TYPES = new Set(['withdrawal', 'bet_placed', 'bet_placed_admin', 'bet_lost', 'fee', 'debit', 'casino_bet_debit']);
 const FREEPLAY_REASONS = new Set(['freeplay_adjustment', 'deposit_freeplay_bonus', 'referral_freeplay_bonus', 'new_player_freeplay_bonus']);

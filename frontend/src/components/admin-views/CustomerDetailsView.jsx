@@ -770,7 +770,19 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
       setPendingBetDeletingId(betId);
       setPendingBetsError('');
       setPendingBetsNotice('');
-      await deleteAdminBet(betId, token);
+      const result = await deleteAdminBet(betId, token);
+      // Apply the refunded balances returned by the backend so the player
+      // card's Pending / Available / Balance / Freeplay tiles update in
+      // place — without this they stay stale until a full reload.
+      const updated = result?.user;
+      if (updated) {
+        setCustomer((prev) => prev ? {
+          ...prev,
+          balance: toMoneyNumber(updated.balance, prev.balance),
+          pendingBalance: toMoneyNumber(updated.pendingBalance, prev.pendingBalance),
+          freeplayBalance: toMoneyNumber(updated.freeplayBalance, prev.freeplayBalance),
+        } : prev);
+      }
       setPendingBetsNotice('Bet deleted.');
       await loadPendingBets(false);
     } catch (err) {

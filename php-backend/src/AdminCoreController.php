@@ -11520,18 +11520,11 @@ final class AdminCoreController
                     return;
                 }
 
-                $stake = $this->num($bet['amount'] ?? 0);
-                $balanceBefore = $this->num($lockedUser['balance'] ?? 0);
-                $pendingBefore = $this->num($lockedUser['pendingBalance'] ?? 0);
-                $balanceAfter = $balanceBefore + $stake;
-                $pendingAfter = max(0, $pendingBefore - $stake);
-                $now = SqlRepository::nowUtc();
+                $refund = BetVoidRefund::compute($bet, $lockedUser);
+                $now    = SqlRepository::nowUtc();
 
-                $this->db->updateOne('users', ['id' => SqlRepository::id($userId)], [
-                    'balance' => $balanceAfter,
-                    'pendingBalance' => $pendingAfter,
-                    'updatedAt' => $now,
-                ]);
+                $userUpdate = $refund['userUpdate'] + ['updatedAt' => $now];
+                $this->db->updateOne('users', ['id' => SqlRepository::id($userId)], $userUpdate);
 
                 $sport = 'Unknown';
                 $matchId = (string) ($bet['matchId'] ?? '');
@@ -11543,7 +11536,7 @@ final class AdminCoreController
                 $this->db->insertOne('deletedwagers', [
                     'userId' => SqlRepository::id($userId),
                     'betId' => SqlRepository::id($id),
-                    'amount' => $stake,
+                    'amount' => $refund['stake'],
                     'sport' => $sport,
                     'reason' => trim('Deleted by ' . (string) ($actor['role'] ?? '') . ' ' . (string) ($actor['username'] ?? '')),
                     'status' => 'deleted',
@@ -11554,15 +11547,16 @@ final class AdminCoreController
 
                 $this->db->insertOne('transactions', [
                     'userId' => SqlRepository::id($userId),
-                    'amount' => $stake,
-                    'type' => 'bet_void_admin',
+                    'amount' => $refund['stake'],
+                    'type' => $refund['transactionType'],
                     'status' => 'completed',
-                    'balanceBefore' => $balanceBefore,
-                    'balanceAfter' => $balanceAfter,
+                    'isFreeplay' => $refund['isFreeplay'],
+                    'balanceBefore' => $refund['isFreeplay'] ? $refund['freeplayBefore'] : $refund['balanceBefore'],
+                    'balanceAfter' => $refund['isFreeplay'] ? $refund['freeplayAfter'] : $refund['balanceAfter'],
                     'referenceType' => 'Bet',
                     'referenceId' => SqlRepository::id($id),
-                    'reason' => 'BET_VOID_ADMIN',
-                    'description' => 'Admin/TicketWriter voided pending bet',
+                    'reason' => $refund['transactionReason'],
+                    'description' => $refund['transactionDescription'],
                     'createdBy' => (string) ($actor['id'] ?? ''),
                     'createdByRole' => (string) ($actor['role'] ?? ''),
                     'createdByUsername' => (string) ($actor['username'] ?? ''),
@@ -11580,7 +11574,19 @@ final class AdminCoreController
 
                 $this->db->deleteOne('bets', ['id' => SqlRepository::id($id)]);
                 $this->db->commit();
-                Response::json(['message' => 'Bet deleted successfully', 'id' => $id]);
+                Response::json([
+                    'message' => 'Bet deleted successfully',
+                    'id' => $id,
+                    'isFreeplay' => $refund['isFreeplay'],
+                    'stake' => $refund['stake'],
+                    'user' => [
+                        'id' => $userId,
+                        'balance' => $refund['balanceAfter'],
+                        'pendingBalance' => $refund['pendingAfter'],
+                        'freeplayBalance' => $refund['freeplayAfter'],
+                        'available' => $refund['availableAfter'],
+                    ],
+                ]);
             } catch (Throwable $txe) {
                 $this->db->rollback();
                 throw $txe;

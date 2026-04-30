@@ -39,6 +39,7 @@ require_once __DIR__ . '/../src/CasinoController.php';
 require_once __DIR__ . '/../src/AgentController.php';
 require_once __DIR__ . '/../src/AgentCutsController.php';
 require_once __DIR__ . '/../src/PaymentsController.php';
+require_once __DIR__ . '/../src/BetVoidRefund.php';
 require_once __DIR__ . '/../src/AdminCoreController.php';
 require_once __DIR__ . '/../src/ThesportsdbProxyController.php';
 require_once __DIR__ . '/../src/AdminEntityCatalog.php';

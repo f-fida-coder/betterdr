@@ -171,7 +171,7 @@ final class WalletController
                     'adjustment',
                     'fp_deposit',
                     'casino_bet_debit', 'casino_bet_credit',
-                    'bet_placed_admin', 'bet_void_admin',
+                    'bet_placed_admin', 'bet_void_admin', 'fp_bet_void_admin',
                 ]],
             ], [
                 'sort' => ['createdAt' => -1],
@@ -363,7 +363,8 @@ final class WalletController
             'fp_bet_won' => 'Freeplay Won',
             'bet_lost' => 'Bet Lost',
             'fp_bet_lost' => 'Freeplay Lost',
-            'bet_void', 'fp_bet_void', 'bet_void_admin' => 'Bet Refund',
+            'bet_void', 'bet_void_admin' => 'Bet Refund',
+            'fp_bet_void', 'fp_bet_void_admin' => 'Freeplay Refund',
             'adjustment' => 'Credit Adjusted',
             'fp_deposit' => 'Freeplay Grant',
             'deposit' => 'Deposit',
