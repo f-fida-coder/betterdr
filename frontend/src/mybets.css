@@ -136,68 +136,51 @@
   color: #b45309;
 }
 
-/* ── Filter Chips — horizontal scroll on narrow screens ── */
+/* ── Filter Tabs — full-width segmented bar matching the top
+   STRAIGHT/PARLAY/TEASER/IF BET/REVERSE tabs (.tabs-bar / .tab-item
+   in dashboard.css). Same light-grey inactive / blue active treatment,
+   same uppercase label, same border-right separators between segments,
+   same 60px row height — so on My Bets the two stacked rows read as
+   one continuous tab system rather than mismatched components. */
 .my-bets-filter-row {
   display: flex;
-  flex-wrap: nowrap;
-  gap: 6px;
-  align-items: center;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
-  padding: 2px 0;
-}
-
-.my-bets-filter-row::-webkit-scrollbar {
-  display: none;
+  width: auto;
+  height: 60px;
+  /* Negative margins break the row out of .my-bets-page's horizontal +
+     top padding so it sits flush against the viewport edges, exactly
+     like the top STRAIGHT/PARLAY/TEASER/IF BET/REVERSE tabs row in
+     the header. The mobile @media block below mirrors the smaller
+     page padding so the edge-to-edge alignment holds at every width. */
+  margin: -16px -16px 0;
+  border-bottom: 1px solid #ccc;
 }
 
 .my-bets-filter-chip {
-  display: inline-flex;
+  flex: 1;
+  display: flex;
   align-items: center;
-  gap: 6px;
-  border: 1px solid #e2e8f0;
-  border-radius: 999px;
-  background: #ffffff;
-  color: #475569;
-  padding: 7px 14px;
-  font-size: 12.5px;
+  justify-content: center;
+  background-color: #e6e6e6;
+  border: none;
+  border-right: 1px solid #ccc;
+  color: #000;
+  font-size: 12px;
   font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
   cursor: pointer;
-  transition: all 0.15s ease;
-  flex-shrink: 0;
+  transition: background-color 0.15s ease, color 0.15s ease;
   white-space: nowrap;
+  padding: 0 8px;
+  min-width: 0;
 }
 
-.my-bets-filter-chip:hover {
-  background: #f1f5f9;
-  border-color: #cbd5e1;
+.my-bets-filter-chip:last-child {
+  border-right: none;
 }
 
 .my-bets-filter-chip.active {
-  background: #0f172a;
-  border-color: #0f172a;
-  color: #ffffff;
-  box-shadow: 0 4px 12px -4px rgba(15, 23, 42, 0.3);
-}
-
-.my-bets-filter-count {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 20px;
-  height: 18px;
-  padding: 0 6px;
-  border-radius: 999px;
-  background: rgba(15, 23, 42, 0.08);
-  color: #475569;
-  font-size: 10.5px;
-  font-weight: 800;
-  font-variant-numeric: tabular-nums;
-}
-
-.my-bets-filter-chip.active .my-bets-filter-count {
-  background: rgba(255, 255, 255, 0.18);
+  background-color: #0088cc;
   color: #ffffff;
 }
 
@@ -205,7 +188,246 @@
 .my-bets-list {
   display: flex;
   flex-direction: column;
+  gap: 8px;
+}
+
+/* ── Collapsed one-line ticket row ──
+   Default state: a single tap target showing `[summary] [amount]`
+   on one line. Tapping reveals .my-bet-row-detail inline. The card
+   stays a clean white pill on the light-grey page background; the
+   right-hand amount adopts a colour theme keyed off the bet status
+   (green=won, red=lost, muted=void/refund, neutral=pending). */
+.my-bet-row {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  overflow: hidden;
+  transition: box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.my-bet-row.expanded {
+  border-color: #cbd5e1;
+  box-shadow: 0 6px 16px -8px rgba(15, 23, 42, 0.18);
+}
+
+.my-bet-row-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 12px;
+  width: 100%;
+  padding: 14px 16px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  color: #0f172a;
+}
+
+.my-bet-row-summary:active {
+  background: #f8fafc;
+}
+
+.my-bet-row-label {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.005em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.my-bet-row-amount {
+  font-size: 15px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.my-bet-row-amount.won { color: #16a34a; }
+.my-bet-row-amount.lost { color: #dc2626; }
+.my-bet-row-amount.void { color: #64748b; }
+.my-bet-row-amount.pending { color: #475569; }
+
+/* Expanded detail panel — same data the dense card used to show by
+   default (matchup, ticket id + bet type, leg breakdown, Risk/Odds/Win
+   stats). Hidden until the user taps the summary row. */
+.my-bet-row-detail {
+  border-top: 1px solid #f1f5f9;
+  padding: 12px 16px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: #fafbfd;
+}
+
+.my-bet-row-detail-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+}
+
+.my-bet-row-detail-dot {
+  color: #cbd5e1;
+}
+
+.my-bet-row-detail-ticket {
+  font-family: 'SF Mono', 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  color: #64748b;
+}
+
+.my-bet-row-legs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-radius: 8px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  padding: 8px 10px;
+}
+
+.my-bet-row-leg {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 0;
+  border-bottom: 1px dashed #e2e8f0;
+}
+
+.my-bet-row-leg:last-child { border-bottom: none; }
+
+.my-bet-row-leg-teams {
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+}
+
+.my-bet-row-leg-pick {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12.5px;
+  color: #0f172a;
+}
+
+.my-bet-row-leg-market {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #4338ca;
+  background: #eef2ff;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.my-bet-row-leg-odds {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  margin-left: auto;
+}
+
+.my-bet-row-leg-status {
+  font-size: 9.5px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.my-bet-row-leg-status.won { background: #d1fae5; color: #065f46; }
+.my-bet-row-leg-status.lost { background: #fee2e2; color: #991b1b; }
+.my-bet-row-leg-status.void { background: #f1f5f9; color: #475569; }
+
+.my-bet-row-note {
+  font-size: 11.5px;
+  color: #64748b;
+  font-style: italic;
+}
+
+.my-bet-row-detail-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.my-bet-row-detail-stats > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+}
+
+.my-bet-row-detail-stats > div span {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #64748b;
+}
+
+.my-bet-row-detail-stats > div strong {
+  font-size: 14px;
+  font-weight: 800;
+  color: #0f172a;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Bottom-of-list totals strip. Pending = Total Risk + Total Win,
+   Graded = Net P/L (signed, coloured). Lives below the list and
+   above the page bottom-padding so it never collides with the
+   floating chat bubble or the safe-area inset. */
+.my-bets-totals {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  margin-top: 6px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #475569;
+}
+
+.my-bets-totals .totals-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #64748b;
+  margin-right: 6px;
+}
+
+.my-bets-totals strong {
+  font-weight: 800;
+  color: #0f172a;
+  font-variant-numeric: tabular-nums;
+}
+
+.my-bets-totals strong.won { color: #16a34a; }
+.my-bets-totals strong.lost { color: #dc2626; }
+
+.my-bets-totals-net {
+  display: inline-flex;
+  align-items: center;
 }
 
 /* ── Bet Card ── */
@@ -557,6 +779,20 @@
 @media (max-width: 768px) {
   .my-bets-page {
     padding: 12px 10px calc(120px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .my-bets-filter-row {
+    /* Mirror the smaller mobile page padding so the segmented tab row
+       still sits edge-to-edge instead of leaving 6px of gutter on the
+       sides where the top STRAIGHT/PARLAY/... tabs row above it has
+       no gutter. */
+    margin: -12px -10px 0;
+    height: 56px;
+  }
+
+  .my-bets-filter-chip {
+    font-size: 11px;
+    padding: 0 4px;
   }
 
   .my-bets-summary-grid {

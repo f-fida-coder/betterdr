@@ -36,9 +36,9 @@ const ODDS_FORMAT_LABELS = {
 // promoted to its own amber token so it still reads as a caution tile
 // instead of blending into the neutral slate.
 const palette = {
-    bg: '#f4f6fb',
+    bg: '#f1f5f9',
     cardBg: '#ffffff',
-    cardBorder: '#e5e7eb',
+    cardBorder: '#e2e8f0',
     textPrimary: '#0f172a',
     textMuted: '#64748b',
     textFaint: '#94a3b8',
@@ -400,10 +400,13 @@ const BetDefaultsCard = ({ user, onSaved }) => {
                 </div>
 
                 {/* Quick stake chips — leftmost/rightmost auto-bound to the
-                    admin-set Min to Win / Max to Win (read-only); middle two
-                    are user-customizable and persist into settings.betDefaults.
-                    Limits are win-anchored per the credit-bookie convention,
-                    so the labels read "to Win" not just "Bet". */}
+                    admin-set Min/Max bet (read-only); middle two are
+                    user-customizable and persist into settings.betDefaults.
+                    Validation is win-anchored under the hood (the value
+                    shown is the per-ticket WIN cap), but the chip label
+                    reads "Min Bet" / "Max Bet" — the universal sportsbook
+                    shorthand — and the betslip's inline warning explains
+                    the win-anchored rule when it bites. */}
                 <div>
                     <div style={{ fontSize: 11, fontWeight: 700, color: palette.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
                         Quick stake buttons
@@ -411,7 +414,7 @@ const BetDefaultsCard = ({ user, onSaved }) => {
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 18 }}>
                         {quickStakes.map((value, idx) => {
                             const locked = idx === 0 || idx === 3;
-                            const lockedLabel = idx === 0 ? 'Min to Win' : idx === 3 ? 'Max to Win' : '';
+                            const lockedLabel = idx === 0 ? 'Min Bet' : idx === 3 ? 'Max Bet' : '';
                             return (
                                 <div
                                     key={idx}
@@ -561,8 +564,8 @@ const AccountPanel = ({
     const creditLimitSpec = Number(user?.creditLimit);
     const settleLimitSpec = Number(user?.balanceOwed);
     const heroSpecs = [
-        { label: 'Min to Win', value: Number.isFinite(minBetSpec) && minBetSpec > 0 ? `$${formatMoneyWhole(minBetSpec)}` : '—' },
-        { label: 'Max to Win', value: Number.isFinite(maxBetSpec) && maxBetSpec > 0 ? `$${formatMoneyWhole(maxBetSpec)}` : '—' },
+        { label: 'Min Bet', value: Number.isFinite(minBetSpec) && minBetSpec > 0 ? `$${formatMoneyWhole(minBetSpec)}` : '—' },
+        { label: 'Max Bet', value: Number.isFinite(maxBetSpec) && maxBetSpec > 0 ? `$${formatMoneyWhole(maxBetSpec)}` : '—' },
         { label: 'Credit Limit', value: Number.isFinite(creditLimitSpec) && creditLimitSpec > 0 ? `$${formatMoneyWhole(creditLimitSpec)}` : '—' },
         { label: 'Settle Limit', value: Number.isFinite(settleLimitSpec) && settleLimitSpec > 0 ? `± $${formatMoneyWhole(settleLimitSpec)}` : '—' },
     ];
@@ -609,59 +612,36 @@ const AccountPanel = ({
                     flexDirection: 'column',
                 }}
             >
-                {/* Hero header — compact: LOGIN/USERNAME + a single
-                    tile that stacks live balances (Balance/Pending/
-                    Available) on top of admin-set limits (Min/Max to
-                    Win, Credit Limit, Settle Limit), separated by a
-                    thicker divider. Tightening font sizes and merging
-                    the two tiles brings the hero down from ~470px to
-                    ~280px on mobile. */}
+                {/* Header strip — LOGIN/USERNAME + close button. Light
+                    surface, matches the rest of the panel so switching
+                    between tabs (Account ↔ Pending ↔ Graded ↔ Figures ↔
+                    Transactions) feels like one continuous app rather
+                    than jumping into a dark nav block. */}
                 <div style={{
-                    background: `linear-gradient(135deg, ${palette.brand} 0%, ${palette.brandDark} 100%)`,
-                    padding: '14px 14px 16px',
-                    color: '#fff',
-                    position: 'relative',
+                    background: palette.cardBg,
+                    padding: '14px 16px',
+                    borderBottom: `1px solid ${palette.cardBorder}`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 12,
                 }}>
-                    <button
-                        type="button"
-                        onClick={onClose}
-                        aria-label="Close account panel"
-                        style={{
-                            position: 'absolute',
-                            top: 10,
-                            right: 10,
-                            width: 28,
-                            height: 28,
-                            border: 'none',
-                            background: 'rgba(255,255,255,0.18)',
-                            color: '#fff',
-                            borderRadius: 8,
-                            cursor: 'pointer',
-                            fontSize: 12,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                        }}
-                        onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.3)'; }}
-                        onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.18)'; }}
-                    >
-                        <i className="fa-solid fa-xmark" />
-                    </button>
-                    <div style={{ minWidth: 0, paddingRight: 36 }}>
+                    <div style={{ minWidth: 0 }}>
                         <div style={{
-                            fontSize: 9,
+                            fontSize: 10,
                             textTransform: 'uppercase',
                             letterSpacing: 0.7,
-                            opacity: 0.8,
                             fontWeight: 700,
-                            marginBottom: 1,
+                            color: palette.textMuted,
+                            marginBottom: 2,
                         }}>
                             {heroLabel}
                         </div>
                         <div style={{
-                            fontSize: 15,
+                            fontSize: 18,
                             fontWeight: 800,
                             letterSpacing: 0.2,
+                            color: palette.textPrimary,
                             overflow: 'hidden',
                             textOverflow: 'ellipsis',
                             whiteSpace: 'nowrap',
@@ -669,70 +649,149 @@ const AccountPanel = ({
                             {username}
                         </div>
                     </div>
-
-                    {/* Combined balances + limits tile. Live numbers
-                        (Balance / Pending / Available) sit on top of
-                        admin-set limits (Min/Max to Win, Credit, Settle)
-                        with a single, slightly heavier divider between
-                        the two groups. All seven rows share the same
-                        type scale + spacing so the whole block reads as
-                        one tidy table — the live group leads with full
-                        white text, limits follow at slightly softer
-                        weight to preserve scan order without feeling
-                        inconsistent. */}
-                    <div style={{
-                        marginTop: 12,
-                        background: 'rgba(0,0,0,0.22)',
-                        borderRadius: 10,
-                        padding: '4px 14px',
-                    }}>
-                        {[
-                            { label: 'Balance', value: `$${formatMoney(balance)}`, live: true, divider: false },
-                            { label: 'Pending', value: `$${formatMoney(pending)}`, live: true, divider: true, dividerSoft: true },
-                            { label: 'Available', value: `$${formatMoney(headerAvailable)}`, live: true, divider: true, dividerSoft: true },
-                            { label: heroSpecs[0].label, value: heroSpecs[0].value, live: false, divider: true, dividerSoft: false },
-                            { label: heroSpecs[1].label, value: heroSpecs[1].value, live: false, divider: true, dividerSoft: true },
-                            { label: heroSpecs[2].label, value: heroSpecs[2].value, live: false, divider: true, dividerSoft: true },
-                            { label: heroSpecs[3].label, value: heroSpecs[3].value, live: false, divider: true, dividerSoft: true },
-                        ].map((row) => (
-                            <div
-                                key={row.label}
-                                style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'space-between',
-                                    gap: 12,
-                                    padding: '6px 0',
-                                    borderTop: row.divider
-                                        ? `1px solid rgba(255,255,255,${row.dividerSoft ? 0.08 : 0.22})`
-                                        : 'none',
-                                }}
-                            >
-                                <span style={{
-                                    fontSize: 9,
-                                    opacity: row.live ? 0.78 : 0.62,
-                                    letterSpacing: 0.7,
-                                    fontWeight: 700,
-                                    textTransform: 'uppercase',
-                                }}>
-                                    {row.label}
-                                </span>
-                                <span style={{
-                                    fontSize: 11,
-                                    fontWeight: row.live ? 800 : 700,
-                                    letterSpacing: 0.2,
-                                    fontVariantNumeric: 'tabular-nums',
-                                    opacity: row.live ? 1 : 0.85,
-                                }}>
-                                    {row.value}
-                                </span>
-                            </div>
-                        ))}
-                    </div>
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        aria-label="Close account panel"
+                        style={{
+                            width: 32,
+                            height: 32,
+                            border: `1px solid ${palette.cardBorder}`,
+                            background: '#fff',
+                            color: palette.textPrimary,
+                            borderRadius: 8,
+                            cursor: 'pointer',
+                            fontSize: 12,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0,
+                        }}
+                        onMouseEnter={(e) => { e.currentTarget.style.background = palette.slateSoft; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.background = '#fff'; }}
+                    >
+                        <i className="fa-solid fa-xmark" />
+                    </button>
                 </div>
 
                 {/* Content */}
                 <div style={{ padding: '16px 16px 24px', flex: 1, display: 'flex', flexDirection: 'column', gap: 16 }}>
+                    {/* Live balances — 3 white stat cards in a grid,
+                        same shape as the Total Tickets / Pending tiles
+                        on the My Bets screen. Balance / Pending /
+                        Available tracks the top header at a glance. */}
+                    <section>
+                        <div style={{
+                            fontSize: 11,
+                            color: palette.textMuted,
+                            textTransform: 'uppercase',
+                            letterSpacing: 0.6,
+                            fontWeight: 700,
+                            marginBottom: 8,
+                            paddingLeft: 2,
+                        }}>
+                            Balances
+                        </div>
+                        <div style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+                            gap: 8,
+                        }}>
+                            {[
+                                { label: 'Balance', value: `$${formatMoney(balance)}` },
+                                { label: 'Pending', value: `$${formatMoney(pending)}` },
+                                { label: 'Available', value: `$${formatMoney(headerAvailable)}` },
+                            ].map((card) => (
+                                <div
+                                    key={card.label}
+                                    style={{
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        gap: 2,
+                                        padding: '12px 14px',
+                                        borderRadius: 12,
+                                        background: palette.cardBg,
+                                        border: `1px solid ${palette.cardBorder}`,
+                                        minWidth: 0,
+                                    }}
+                                >
+                                    <span style={{
+                                        color: palette.textMuted,
+                                        fontSize: 10.5,
+                                        fontWeight: 700,
+                                        textTransform: 'uppercase',
+                                        letterSpacing: '0.06em',
+                                    }}>{card.label}</span>
+                                    <strong style={{
+                                        fontSize: 18,
+                                        lineHeight: 1.1,
+                                        fontWeight: 800,
+                                        color: palette.textPrimary,
+                                        fontVariantNumeric: 'tabular-nums',
+                                    }}>{card.value}</strong>
+                                </div>
+                            ))}
+                        </div>
+                    </section>
+
+                    {/* Account limits — single white card with one row
+                        per admin-set limit. Min Bet / Max Bet labels are
+                        the universal sportsbook shorthand; the underlying
+                        validation stays win-anchored, so a $25 risk that
+                        wins under the min still gets blocked with an
+                        informative inline warning in the betslip. */}
+                    <section>
+                        <div style={{
+                            fontSize: 11,
+                            color: palette.textMuted,
+                            textTransform: 'uppercase',
+                            letterSpacing: 0.6,
+                            fontWeight: 700,
+                            marginBottom: 8,
+                            paddingLeft: 2,
+                        }}>
+                            Account Limits
+                        </div>
+                        <div style={{
+                            background: palette.cardBg,
+                            border: `1px solid ${palette.cardBorder}`,
+                            borderRadius: 12,
+                            padding: '4px 14px',
+                        }}>
+                            {heroSpecs.map((row, idx) => (
+                                <div
+                                    key={row.label}
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'space-between',
+                                        gap: 12,
+                                        padding: '10px 0',
+                                        borderTop: idx === 0 ? 'none' : `1px solid ${palette.cardBorder}`,
+                                    }}
+                                >
+                                    <span style={{
+                                        fontSize: 10.5,
+                                        color: palette.textMuted,
+                                        letterSpacing: 0.6,
+                                        fontWeight: 700,
+                                        textTransform: 'uppercase',
+                                    }}>
+                                        {row.label}
+                                    </span>
+                                    <span style={{
+                                        fontSize: 14,
+                                        fontWeight: 800,
+                                        color: palette.textPrimary,
+                                        letterSpacing: 0.2,
+                                        fontVariantNumeric: 'tabular-nums',
+                                    }}>
+                                        {row.value}
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
+                    </section>
                     {/* Preferences */}
                     <section>
                         <div style={{

@@ -496,20 +496,20 @@ const ModeBetPanel = ({
                 const minBreach = hasMin && win > 0 && win < minBet;
                 const maxBreach = hasMax && win > maxBet;
                 if (minBreach && !messages.min) {
-                    messages.min = `Min bet to win $${minBet} — ${labelFor(sel)} only wins $${fmt(win)}`;
+                    messages.min = `Min bet $${minBet} — ${labelFor(sel)} wins only $${fmt(win)}`;
                 }
                 if (maxBreach && !messages.max) {
-                    messages.max = `Max bet to win $${maxBet} — ${labelFor(sel)} wins $${fmt(win)} (over limit)`;
+                    messages.max = `Max bet $${maxBet} — ${labelFor(sel)} wins $${fmt(win)}`;
                 }
                 if (minBreach || maxBreach) violatingIds.add(sel.id);
             }
         } else if (effectiveCombinedRisk > 0) {
             const winValue = effectiveCombinedRisk * Math.max(0, Number(ticketDecimalOdds) - 1);
             if (hasMin && winValue > 0 && winValue < minBet) {
-                messages.min = `Min bet to win $${minBet} — ticket only wins $${fmt(winValue)}`;
+                messages.min = `Min bet $${minBet} — ticket wins only $${fmt(winValue)}`;
             }
             if (hasMax && winValue > maxBet) {
-                messages.max = `Max bet to win $${maxBet} — ticket wins $${fmt(winValue)} (over limit)`;
+                messages.max = `Max bet $${maxBet} — ticket wins $${fmt(winValue)}`;
             }
         }
         return { violatingIds, messages };
@@ -1227,15 +1227,18 @@ const ModeBetPanel = ({
                         )}
 
                         {/* Row 2: quick stakes — leftmost / rightmost are
-                            pinned to the player's admin-set Min to Win /
-                            Max to Win (with a small label underneath); the
-                            middle two stay at fixed presets. Limits are
-                            win-anchored per the credit-bookie convention,
-                            so the labels read "to Win" not just "Bet". */}
+                            pinned to the player's admin-set Min/Max bet
+                            (with a small label underneath); the middle two
+                            stay at fixed presets. Validation under the hood
+                            is win-anchored (the configured value caps the
+                            per-ticket WIN), but the chip label reads
+                            "Min Bet" / "Max Bet" — the universal sportsbook
+                            shorthand — and the inline amount warning above
+                            spells out the win-anchored rule when it bites. */}
                         <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', alignItems: 'flex-start' }}>
                             {customQuickStakes.map((v, i) => {
                                 const active = Number(wager) === Number(v);
-                                const limitLabel = i === 0 ? 'Min to Win' : i === customQuickStakes.length - 1 ? 'Max to Win' : '';
+                                const limitLabel = i === 0 ? 'Min Bet' : i === customQuickStakes.length - 1 ? 'Max Bet' : '';
                                 return (
                                     <div
                                         key={`${v}-${i}`}
@@ -1725,11 +1728,15 @@ const ModeBetPanel = ({
 
                                 {/* Per-leg limit chip — surfaces *why* this
                                     card was flagged when its *win* exceeds
-                                    Max to Win or sits under Min to Win.
-                                    Mirrors the global amount warning pill
-                                    but pinned to the offending leg so
-                                    multi-leg slips don't leave the user
-                                    hunting for the breach. */}
+                                    the player's max or sits under the min.
+                                    The label says "Max Bet" / "Min Bet"
+                                    (universal sportsbook shorthand), but
+                                    the message text leads with the actual
+                                    win amount so the win-anchored rule is
+                                    still legible. Mirrors the global amount
+                                    warning pill but pinned to the offending
+                                    leg so multi-leg slips don't leave the
+                                    user hunting for the breach. */}
                                 {legViolatesLimit && (legOverMax || legUnderMin) && (
                                     <div
                                         role="alert"
@@ -1751,8 +1758,8 @@ const ModeBetPanel = ({
                                         <i className="fa-solid fa-triangle-exclamation" style={{ fontSize: 11 }} />
                                         <span>
                                             {legOverMax
-                                                ? `Wins $${formatMoney(win)} — over your $${formatMoney(legLimitMaxBet)} Max to Win`
-                                                : `Only wins $${formatMoney(win)} — under your $${formatMoney(legLimitMinBet)} Min to Win`}
+                                                ? `Wins $${formatMoney(win)} — over your $${formatMoney(legLimitMaxBet)} Max Bet`
+                                                : `Wins only $${formatMoney(win)} — under your $${formatMoney(legLimitMinBet)} Min Bet`}
                                         </span>
                                     </div>
                                 )}

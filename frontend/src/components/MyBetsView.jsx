@@ -95,6 +95,71 @@ const matchLabel = (bet) => {
     return 'Ticket';
 };
 
+// Last token of a team name as the player-facing short label —
+// "New York Knicks" → "Knicks", "Los Angeles Angels" → "Angels".
+// Falls back to the whole string when there's only one token, so
+// single-word names ("Suns", "Heat") survive untouched.
+const shortTeam = (name) => {
+    const trimmed = String(name || '').trim();
+    if (!trimmed) return '';
+    const tokens = trimmed.split(/\s+/);
+    return tokens[tokens.length - 1];
+};
+
+// One-line collapsed summary for the LEFT side of the ticket row.
+// Produces "Knicks -19.5", "Over 220.5", "Lakers ML", or
+// "3-leg Parlay" — the same shorthand a player would speak aloud
+// instead of the full matchup + market badge breakdown the expanded
+// view shows. For combined modes (parlay/teaser/if_bet/reverse) we
+// always lead with leg count so the row stays scannable in lists
+// mixing single-game tickets with multi-leg ones.
+const ticketSummary = (bet) => {
+    const selections = Array.isArray(bet?.selections) ? bet.selections : [];
+    const type = String(bet?.type || 'straight').toLowerCase();
+    if (selections.length > 1 || type === 'parlay' || type === 'teaser' || type === 'if_bet' || type === 'reverse') {
+        const label = type === 'teaser' ? 'Teaser'
+            : type === 'if_bet' ? 'If Bet'
+                : type === 'reverse' ? 'Reverse'
+                    : 'Parlay';
+        return `${selections.length || 1}-leg ${label}`;
+    }
+    const leg = selections[0] || {};
+    const market = String(leg?.marketType || '').toLowerCase();
+    const point = Number.isFinite(Number(leg?.point)) ? Number(leg.point) : null;
+    const selection = String(leg?.selection || '').trim();
+    if (market === 'spreads') {
+        const line = point === null ? '' : formatLineValue(point, { signed: true });
+        const team = shortTeam(selection) || selection;
+        return line ? `${team} ${line}` : team || 'Spread';
+    }
+    if (market === 'totals') {
+        const isUnder = selection.toLowerCase().startsWith('u');
+        const line = point === null ? '' : formatLineValue(Math.abs(point));
+        return line ? `${isUnder ? 'Under' : 'Over'} ${line}` : (isUnder ? 'Under' : 'Over');
+    }
+    // h2h / moneyline / fallback
+    const team = shortTeam(selection) || selection || 'Pick';
+    return `${team} ML`;
+};
+
+// Right-side amount + sign + colour theme for the collapsed row.
+//   won  → +profit, green
+//   lost → -risk, red
+//   void → "Refund $X", muted
+//   pending → potential win, neutral (no sign)
+// Returns { text, theme } so the renderer can apply a single class
+// without re-deriving the status logic at the call site.
+const ticketAmount = (bet) => {
+    const status = normalizeStatus(bet?.status);
+    const risk = Number(bet?.riskAmount || bet?.amount || 0);
+    const potential = Number(bet?.potentialPayout || 0);
+    const profit = Math.max(0, potential - risk);
+    if (status === 'won') return { text: `+$${Math.round(profit)}`, theme: 'won' };
+    if (status === 'lost') return { text: `-$${Math.round(risk)}`, theme: 'lost' };
+    if (status === 'void') return { text: `Refund $${Math.round(risk)}`, theme: 'void' };
+    return { text: `$${Math.round(profit)}`, theme: 'pending' };
+};
+
 const payoutLabel = (status) => {
     const normalized = normalizeStatus(status);
     if (normalized === 'won') return 'Won';
@@ -149,6 +214,19 @@ const MyBetsView = () => {
         if (initial === 'all') return 'pending';
         return initial || 'pending';
     });
+    // Set of bet ids the user has expanded. Tap-to-expand replaces the
+    // dense per-card top row + meta line + leg list + 3-column footer
+    // that used to render unconditionally; the collapsed view now shows
+    // only `[summary] [amount]`, and the rest reveals on tap.
+    const [expandedIds, setExpandedIds] = useState(() => new Set());
+    const toggleExpanded = (id) => {
+        setExpandedIds((prev) => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
+            return next;
+        });
+    };
 
     const fetchBets = async ({ silent = false } = {}) => {
         const token = localStorage.getItem('token');
@@ -214,11 +292,6 @@ const MyBetsView = () => {
         });
     }, [bets]);
 
-    const tabCounts = {
-        pending: pendingBets.length,
-        graded: gradedBets.length,
-    };
-
     if (loading) {
         return (
             <div className="my-bets-page">
@@ -266,8 +339,8 @@ const MyBetsView = () => {
                     directly. Auto-refresh still runs every 20s. */}
                 <div className="my-bets-filter-row">
                     {[
-                        { id: 'pending', label: 'Pending', showCount: true },
-                        { id: 'graded', label: 'Graded', showCount: true },
+                        { id: 'pending', label: 'Pending' },
+                        { id: 'graded', label: 'Graded' },
                         { id: 'figures', label: 'Figures' },
                         { id: 'transactions', label: 'Transactions' },
                     ].map((option) => (
@@ -277,10 +350,7 @@ const MyBetsView = () => {
                             className={`my-bets-filter-chip ${activeTab === option.id ? 'active' : ''}`}
                             onClick={() => setActiveTab(option.id)}
                         >
-                            <span>{option.label}</span>
-                            {option.showCount ? (
-                                <span className="my-bets-filter-count">{tabCounts[option.id] || 0}</span>
-                            ) : null}
+                            {option.label}
                         </button>
                     ))}
                 </div>
@@ -296,6 +366,7 @@ const MyBetsView = () => {
                         <p>{activeTab === 'pending' ? 'No pending tickets right now.' : 'No graded tickets yet.'}</p>
                     </div>
                 ) : (
+                    <>
                     <div className="my-bets-list">
                         {visibleBets.map((bet) => {
                             const betId = bet.id || bet.ticketId;
@@ -303,85 +374,120 @@ const MyBetsView = () => {
                             const risk = Number(bet.riskAmount || bet.amount || 0);
                             const unitStake = Number(bet.unitStake || 0);
                             const status = normalizeStatus(bet.status);
-                            const theme = statusTheme(status);
                             const ticketPayout = payoutValue(bet);
                             const betType = String(bet.type || 'straight').replace(/_/g, ' ').toUpperCase();
-                            const isMulti = selections.length > 1;
+                            const summary = ticketSummary(bet);
+                            const amount = ticketAmount(bet);
+                            const expanded = expandedIds.has(betId);
 
                             return (
-                                <article key={betId} className={`my-bet-card ${theme}`}>
-                                    <div className="my-bet-card-top">
-                                        <div className="my-bet-card-meta">
-                                            <span className={`my-bet-status ${theme}`}>{formatStatus(status)}</span>
-                                            <span className="my-bet-type">{betType}</span>
-                                            {bet.ticketId ? <span className="my-bet-ticket">#{String(bet.ticketId).slice(0, 12)}</span> : null}
-                                        </div>
-                                        <div className="my-bet-card-time">{formatTimestamp(bet.createdAt)}</div>
-                                    </div>
+                                <article key={betId} className={`my-bet-row ${amount.theme} ${expanded ? 'expanded' : ''}`}>
+                                    <button
+                                        type="button"
+                                        className="my-bet-row-summary"
+                                        onClick={() => toggleExpanded(betId)}
+                                        aria-expanded={expanded}
+                                    >
+                                        <span className="my-bet-row-label">{summary}</span>
+                                        <span className={`my-bet-row-amount ${amount.theme}`}>{amount.text}</span>
+                                    </button>
+                                    {expanded && (
+                                        <div className="my-bet-row-detail">
+                                            <div className="my-bet-row-detail-meta">
+                                                <span>{matchLabel(bet)}</span>
+                                                <span className="my-bet-row-detail-dot">•</span>
+                                                <span>{formatTimestamp(bet.createdAt)}</span>
+                                            </div>
+                                            <div className="my-bet-row-detail-meta">
+                                                <span>{betType}</span>
+                                                {bet.ticketId ? <><span className="my-bet-row-detail-dot">•</span><span className="my-bet-row-detail-ticket">#{String(bet.ticketId).slice(0, 12)}</span></> : null}
+                                            </div>
 
-                                    <div className="my-bet-card-title">
-                                        <div className="my-bet-match" title={matchLabel(bet)}>{matchLabel(bet)}</div>
-                                        <div className="my-bet-subtext">
-                                            {isMulti ? `${selections.length} legs` : '1 leg'}
-                                            <span className="my-bet-subdot">•</span>
-                                            {statusLabel(status)}
-                                        </div>
-                                    </div>
+                                            {selections.length > 0 ? (
+                                                <div className="my-bet-row-legs">
+                                                    {selections.map((leg, idx) => {
+                                                        const legTheme = statusTheme(leg?.status);
+                                                        const home = leg?.matchSnapshot?.homeTeam || '';
+                                                        const away = leg?.matchSnapshot?.awayTeam || '';
+                                                        const rawPick = leg?.selection || '';
+                                                        const { label, pick, line } = legPickLabel(leg);
+                                                        const displayPick = pick || rawPick || '—';
+                                                        return (
+                                                            <div key={`${betId}-leg-${idx}`} className="my-bet-row-leg">
+                                                                <div className="my-bet-row-leg-teams">{away || 'Away'} @ {home || 'Home'}</div>
+                                                                <div className="my-bet-row-leg-pick">
+                                                                    <span className="my-bet-row-leg-market">{label}</span>
+                                                                    <span>{displayPick}{line ? ` ${line}` : ''}</span>
+                                                                    <span className="my-bet-row-leg-odds">{formatOdds(leg.odds, oddsFormat)}</span>
+                                                                    <span className={`my-bet-row-leg-status ${legTheme}`}>{formatStatus(leg.status)}</span>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            ) : null}
 
-                                    {selections.length > 0 ? (
-                                        <div className="my-bet-leg-list">
-                                            {selections.map((leg, idx) => {
-                                                const legTheme = statusTheme(leg?.status);
-                                                const home = leg?.matchSnapshot?.homeTeam || '';
-                                                const away = leg?.matchSnapshot?.awayTeam || '';
-                                                const rawPick = leg?.selection || '';
-                                                const { label, pick, line } = legPickLabel(leg);
-                                                const displayPick = pick || rawPick || '—';
-                                                const pickIsAway = away && rawPick && rawPick.toLowerCase() === away.toLowerCase();
-                                                const pickIsHome = home && rawPick && rawPick.toLowerCase() === home.toLowerCase();
-                                                return (
-                                                    <div key={`${betId}-leg-${idx}`} className="my-bet-leg-item">
-                                                        <div className="my-bet-leg-teams">
-                                                            <span className={`my-bet-team ${pickIsAway ? 'picked' : ''}`}>{away || 'Away'}</span>
-                                                            <span className="my-bet-team-vs">@</span>
-                                                            <span className={`my-bet-team ${pickIsHome ? 'picked' : ''}`}>{home || 'Home'}</span>
-                                                        </div>
-                                                        <div className="my-bet-leg-pick-row">
-                                                            <span className="my-bet-leg-market">{label}</span>
-                                                            <span className="my-bet-leg-pick">{displayPick}{line ? ` ${line}` : ''}</span>
-                                                            <span className="my-bet-leg-odds">{formatOdds(leg.odds, oddsFormat)}</span>
-                                                            <span className={`my-bet-leg-status ${legTheme}`}>{formatStatus(leg.status)}</span>
-                                                        </div>
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
-                                    ) : null}
+                                            {String(bet.type || '').toLowerCase() === 'reverse' && unitStake > 0 ? (
+                                                <div className="my-bet-row-note">Reverse ticket unit stake: {money(unitStake)} each way</div>
+                                            ) : null}
 
-                                    {String(bet.type || '').toLowerCase() === 'reverse' && unitStake > 0 ? (
-                                        <div className="my-bet-note">Reverse ticket unit stake: {money(unitStake)} each way</div>
-                                    ) : null}
-
-                                    <div className="my-bet-stats">
-                                        <div className="my-bet-stat">
-                                            <span>Risk</span>
-                                            <strong>{money(risk)}</strong>
+                                            <div className="my-bet-row-detail-stats">
+                                                <div><span>Risk</span><strong>{money(risk)}</strong></div>
+                                                <div><span>Odds</span><strong>{formatOdds(bet.combinedOdds || bet.odds, oddsFormat)}</strong></div>
+                                                <div className="highlight">
+                                                    <span>{payoutLabel(status)}</span>
+                                                    <strong className={`my-bet-row-amount ${amount.theme}`}>
+                                                        {status === 'pending' ? money(ticketPayout) : amount.text}
+                                                    </strong>
+                                                </div>
+                                            </div>
                                         </div>
-                                        <div className="my-bet-stat">
-                                            <span>Odds</span>
-                                            <strong>{formatOdds(bet.combinedOdds || bet.odds, oddsFormat)}</strong>
-                                        </div>
-                                        <div className="my-bet-stat highlight">
-                                            <span>{payoutLabel(status)}</span>
-                                            <strong>
-                                                {status === 'won' ? `+${money(ticketPayout)}` : money(ticketPayout)}
-                                            </strong>
-                                        </div>
-                                    </div>
+                                    )}
                                 </article>
                             );
                         })}
                     </div>
+                    {/* Bottom totals — Pending shows risk + potential win,
+                        Graded shows net P/L (won profit minus lost risk;
+                        voids cancel out). Hidden when the list is empty
+                        (the empty state owns its own messaging). */}
+                    {visibleBets.length > 0 && (
+                        <div className={`my-bets-totals ${activeTab === 'graded' ? 'graded' : 'pending'}`}>
+                            {(() => {
+                                if (activeTab === 'pending') {
+                                    const totalRisk = visibleBets.reduce((sum, b) => sum + Number(b?.riskAmount || b?.amount || 0), 0);
+                                    const totalWin = visibleBets.reduce((sum, b) => {
+                                        const r = Number(b?.riskAmount || b?.amount || 0);
+                                        const p = Number(b?.potentialPayout || 0);
+                                        return sum + Math.max(0, p - r);
+                                    }, 0);
+                                    return (
+                                        <>
+                                            <span><span className="totals-label">Total Risk</span> <strong>{money(totalRisk)}</strong></span>
+                                            <span><span className="totals-label">Total Win</span> <strong>{money(totalWin)}</strong></span>
+                                        </>
+                                    );
+                                }
+                                const net = visibleBets.reduce((sum, b) => {
+                                    const s = normalizeStatus(b?.status);
+                                    const r = Number(b?.riskAmount || b?.amount || 0);
+                                    const p = Number(b?.potentialPayout || 0);
+                                    if (s === 'won') return sum + Math.max(0, p - r);
+                                    if (s === 'lost') return sum - r;
+                                    return sum;
+                                }, 0);
+                                const sign = net > 0 ? '+' : net < 0 ? '-' : '';
+                                const cls = net > 0 ? 'won' : net < 0 ? 'lost' : 'void';
+                                return (
+                                    <span className="my-bets-totals-net">
+                                        <span className="totals-label">Net P/L</span>
+                                        <strong className={cls}>{sign}${Math.abs(Math.round(net))}</strong>
+                                    </span>
+                                );
+                            })()}
+                        </div>
+                    )}
+                    </>
                 )}
             </div>
         </div>

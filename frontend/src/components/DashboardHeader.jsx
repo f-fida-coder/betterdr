@@ -23,7 +23,6 @@ const META_SPORT_FILTERS = new Set(['up-next', 'featured']);
 
 const DashboardHeader = ({ username, userId = null, balance, pendingBalance, availableBalance, freeplayBalance, freeplayExpiresAt = null, creditLimit = 0, creditAvailable = 0, balanceOwed = 0, nonPostedCasino = 0, minBet = null, maxBet = null, userSettings = null, onViewChange, activeBetMode = 'straight', onBetModeChange, currentView, onToggleSidebar, selectedSports = [], onContinue, onMobileBack, onLogout, mobileViewState = 'browsing', onHomeClick, role, unlimitedBalance, slipCount = 0, realtimeConnectionState = 'idle', lastRealtimeEventAt = null }) => {
     const hasRealSportSelection = selectedSports.some((id) => !META_SPORT_FILTERS.has(id));
-    const showContinueButton = mobileViewState === 'selected' && hasRealSportSelection;
     const [showAccountPanel, setShowAccountPanel] = useState(false);
     // Credit-style accounts run their cash balance at $0 and bet against the
     // credit line, so the "Available" / "Available Credit" headline tile
@@ -70,7 +69,17 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
     // Tapping the BALANCE / PENDING / AVAILABLE summary anywhere in the
     // header should open My Bets on the Pending tab. Single navigation
     // target — no per-row separation — matches the reference book.
+    //
+    // The betslip (ModeBetPanel) is a separate fixed overlay (z-index
+    // 1200) with its own local `isOpen` state, so simply switching the
+    // underlying view leaves the slip on top covering My Bets — the user
+    // experiences the click as a no-op even though navigation actually
+    // ran. Firing `betslip:close` first dismisses the overlay; the slip's
+    // selections live in App-level state (`slipSelections`) so they
+    // persist for when the user comes back. The event is a no-op when
+    // the slip isn't open, so we can dispatch it unconditionally.
     const goToMyBetsPending = () => {
+        window.dispatchEvent(new CustomEvent('betslip:close', { detail: { source: 'header-balance' } }));
         setMyBetsInitialFilter('pending');
         if (onViewChange) onViewChange('my-bets');
     };
@@ -94,6 +103,21 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
         window.addEventListener('betslip:state', handleState);
         return () => window.removeEventListener('betslip:state', handleState);
     }, []);
+
+    // Continue is only meaningful on the odds board (where it commits the
+    // user's sport-checkbox selection). Anywhere else — My Bets, Casino,
+    // betslip overlay, etc. — there's nothing to "continue" toward, so
+    // the top-right slot should be Account. We gate on currentView ===
+    // 'dashboard' (so it never shows on My Bets even when checkboxes are
+    // still selected behind the scenes) and !betslipOpen (so opening the
+    // slip from any view also drops Continue).
+    const showContinueButton = mobileViewState === 'selected' && hasRealSportSelection && !betslipOpen && currentView === 'dashboard';
+    // Menu (the 9-square global app grid) is only useful on the odds
+    // board — once the user is inside My Bets, Casino, etc., Menu is
+    // duplicate navigation that just clutters the header. Tying it to
+    // the same dashboard-only gate as Continue keeps the header layout
+    // consistent across views.
+    const showMenuButton = currentView === 'dashboard' && !betslipOpen;
     const activeRefreshRef = useRef({ requestId: '', pendingListeners: new Set(), timeoutId: 0 });
 
     const clearActiveRefreshTimeout = () => {
@@ -400,15 +424,17 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
                         <span style={mhCellLabelStyle}>{betslipOpen ? 'Back' : 'Sports'}</span>
                     </button>
 
-                    <button
-                        type="button"
-                        onClick={onToggleSidebar}
-                        aria-label="Open menu"
-                        style={mhCellBtnStyle}
-                    >
-                        <i className="fa-solid fa-th" style={mhCellIconStyle}></i>
-                        <span style={mhCellLabelStyle}>Menu</span>
-                    </button>
+                    {showMenuButton && (
+                        <button
+                            type="button"
+                            onClick={onToggleSidebar}
+                            aria-label="Open menu"
+                            style={mhCellBtnStyle}
+                        >
+                            <i className="fa-solid fa-th" style={mhCellIconStyle}></i>
+                            <span style={mhCellLabelStyle}>Menu</span>
+                        </button>
+                    )}
 
                     <button
                         type="button"

@@ -3250,20 +3250,34 @@ body.dashboard-mode {
             z-index: 1000;
         }
 
+        /* Cumulative sticky-header height on small mobile = top-header
+           (64px, set by inline minHeight on the JSX) + tabs-bar (60px,
+           matching the >=481 breakpoint and the betslip overlay's
+           top: 124). Padding-top on the content area MUST equal that
+           cumulative height or the first slice of page content slides
+           under the fixed header. The betslip is also fixed at top: 124,
+           so when the user opens it on a view that owns its own
+           secondary tab row (e.g. My Bets' Pending/Graded/Figures/
+           Transactions), keeping the cumulative at exactly 124 means
+           the betslip overlay sits flush with the tabs-bar — no gap
+           below the tabs that would let the secondary tabs poke
+           through half-clipped. Previous values (50/110/60) left a
+           10px gap below the tabs-bar where the secondary row's chips
+           were partially visible behind the betslip overlay. */
         .dashboard-content-area {
-            padding-top: 110px;
+            padding-top: 124px;
         }
 
         .dashboard-layout.no-bet-tabs .dashboard-content-area {
-            padding-top: 60px;
+            padding-top: 64px;
         }
 
         .top-header {
-            height: 60px;
+            height: 64px;
         }
 
         .tabs-bar {
-            height: 50px;
+            height: 60px;
         }
 
         .tab-letter {
