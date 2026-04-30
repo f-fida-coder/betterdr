@@ -2,6 +2,7 @@ import React from 'react';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { updateProfile, getStoredAuthToken } from '../api';
 import { useToast } from '../contexts/ToastContext';
+import { setMyBetsInitialFilter } from './MyBetsView';
 
 const DEFAULT_QUICK_STAKES = [10, 25, 50, 100];
 // `bet` was removed — it behaved identically to `risk` and confused users
@@ -699,22 +700,38 @@ const AccountPanel = ({
                         }}>
                             {[
                                 { label: 'Balance', value: `$${formatMoney(balance)}` },
-                                { label: 'Pending', value: `$${formatMoney(pending)}` },
+                                // Pending is wired as a button: tapping navigates
+                                // to My Bets → Pending tab so the user can drill
+                                // straight from "I have $780 at risk" to the
+                                // tickets behind that number. Mirrors the header
+                                // BALANCE box, with the AccountPanel closing on
+                                // the way through so they land on My Bets cleanly.
+                                {
+                                    label: 'Pending',
+                                    value: `$${formatMoney(pending)}`,
+                                    onTap: () => {
+                                        setMyBetsInitialFilter('pending');
+                                        onClose?.();
+                                        onViewChange?.('my-bets');
+                                    },
+                                },
                                 { label: 'Available', value: `$${formatMoney(headerAvailable)}` },
-                            ].map((card) => (
-                                <div
-                                    key={card.label}
-                                    style={{
-                                        display: 'flex',
-                                        flexDirection: 'column',
-                                        gap: 2,
-                                        padding: '12px 14px',
-                                        borderRadius: 12,
-                                        background: palette.cardBg,
-                                        border: `1px solid ${palette.cardBorder}`,
-                                        minWidth: 0,
-                                    }}
-                                >
+                            ].map((card) => {
+                                const cardStyle = {
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    gap: 2,
+                                    padding: '12px 14px',
+                                    borderRadius: 12,
+                                    background: palette.cardBg,
+                                    border: `1px solid ${palette.cardBorder}`,
+                                    minWidth: 0,
+                                    textAlign: 'left',
+                                    fontFamily: 'inherit',
+                                    cursor: card.onTap ? 'pointer' : 'default',
+                                    transition: 'border-color 120ms ease, background 120ms ease',
+                                };
+                                const labelEl = (
                                     <span style={{
                                         color: palette.textMuted,
                                         fontSize: 10.5,
@@ -722,6 +739,8 @@ const AccountPanel = ({
                                         textTransform: 'uppercase',
                                         letterSpacing: '0.06em',
                                     }}>{card.label}</span>
+                                );
+                                const valueEl = (
                                     <strong style={{
                                         fontSize: 18,
                                         lineHeight: 1.1,
@@ -729,8 +748,30 @@ const AccountPanel = ({
                                         color: palette.textPrimary,
                                         fontVariantNumeric: 'tabular-nums',
                                     }}>{card.value}</strong>
-                                </div>
-                            ))}
+                                );
+                                if (card.onTap) {
+                                    return (
+                                        <button
+                                            key={card.label}
+                                            type="button"
+                                            onClick={card.onTap}
+                                            aria-label={`View ${card.label.toLowerCase()} bets`}
+                                            style={cardStyle}
+                                            onMouseEnter={(e) => { e.currentTarget.style.borderColor = palette.slate; }}
+                                            onMouseLeave={(e) => { e.currentTarget.style.borderColor = palette.cardBorder; }}
+                                        >
+                                            {labelEl}
+                                            {valueEl}
+                                        </button>
+                                    );
+                                }
+                                return (
+                                    <div key={card.label} style={cardStyle}>
+                                        {labelEl}
+                                        {valueEl}
+                                    </div>
+                                );
+                            })}
                         </div>
                     </section>
 
