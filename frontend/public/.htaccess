@@ -13,12 +13,12 @@ RewriteCond %{REQUEST_FILENAME} -f [OR]
 RewriteCond %{REQUEST_FILENAME} -d
 RewriteRule ^ - [L]
 
-# Always revalidate SPA shell so new hashed assets are picked up quickly.
+# Browser revalidates the SPA shell; CDN may cache briefly because assets are content-hashed.
 <IfModule mod_headers.c>
 <Files "index.html">
-Header always set Cache-Control "no-cache, no-store, must-revalidate, max-age=0"
-Header always set Pragma "no-cache"
-Header always set Expires "0"
+Header always set Cache-Control "public, max-age=0, must-revalidate, s-maxage=60, stale-while-revalidate=300"
+Header always unset Pragma
+Header always unset Expires
 </Files>
 SetEnvIfNoCase Request_URI "^/games/(baccarat|blackjack)/.*\.(html|js)$" IS_LOCAL_GAME_RUNTIME=1
 Header always set Cache-Control "no-cache, no-store, must-revalidate, max-age=0" env=IS_LOCAL_GAME_RUNTIME
