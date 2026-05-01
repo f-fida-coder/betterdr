@@ -291,6 +291,21 @@ const expandedSport = (bet) => {
     return firstLeg?.matchSnapshot?.sport ? String(firstLeg.matchSnapshot.sport) : null;
 };
 
+// Game start time for the expanded panel. Walks the same fallback chain
+// expandedMatchup uses so a single-leg ticket shows its match's tip-off
+// regardless of where the snapshot landed (top-level `match` for fresh
+// rows, `matchSnapshot` on the bet for older shapes, or the first leg's
+// snapshot for legs whose parent doesn't carry one). Returns the raw ISO
+// string — the caller runs it through formatTimestamp so the row reads
+// "Apr 28 at 7:11 PM" alongside the existing Placed timestamp.
+const expandedGameTime = (bet) => {
+    if (bet?.match?.startTime) return bet.match.startTime;
+    if (bet?.matchSnapshot?.startTime) return bet.matchSnapshot.startTime;
+    const firstLeg = Array.isArray(bet?.selections) ? bet.selections[0] : null;
+    if (firstLeg?.matchSnapshot?.startTime) return firstLeg.matchSnapshot.startTime;
+    return null;
+};
+
 const ticketTypeLabel = (bet) => {
     const type = String(bet?.type || 'straight').toLowerCase();
     if (type === 'parlay') return 'Parlay';
@@ -325,9 +340,18 @@ const BetDetailsPanel = ({ bet, oddsFormat }) => {
     const ticketIdShort = String(bet?.ticketId || bet?.id || '').slice(-8).toUpperCase();
     const isFreeplay = !!bet?.isFreeplay;
 
+    const gameTime = !isMulti ? expandedGameTime(bet) : null;
+    const gameTimeLabel = gameTime ? formatTimestamp(gameTime) : null;
+
     const rows = [];
     if (!isMulti && matchup) rows.push(['Matchup', matchup]);
     if (sport) rows.push(['Sport', sport]);
+    // Game start time sits next to Matchup so players can answer
+    // "was this yesterday's bet or tonight's?" without leaving the row.
+    // Multi-leg tickets skip it because each leg has its own snapshot
+    // and rendering the first leg's time would mislead the eye into
+    // thinking it applies to the whole ticket.
+    if (gameTimeLabel) rows.push(['Game Time', gameTimeLabel]);
     rows.push(['Type', ticketTypeLabel(bet) + (isFreeplay ? ' (Freeplay)' : '')]);
     rows.push(['Odds', odds]);
     rows.push(['Risk', money(risk)]);

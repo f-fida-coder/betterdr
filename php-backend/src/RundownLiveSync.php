@@ -883,10 +883,18 @@ final class RundownLiveSync
     private static function buildScoreFromRundown(mixed $score): array
     {
         if (!is_array($score)) return [];
+        // Canonical score keys are score_home / score_away — that's what
+        // SportsbookBetSupport::selectionResult reads to grade H2H,
+        // spread, and total bets, what OddsSyncService writes for the
+        // OddsAPI path, and what every frontend scoreboard reads. Older
+        // versions of this builder stored `home` / `away`, which silently
+        // resolved as 0-0 in the grader and voided every Rundown-finalized
+        // ticket. Keep the JSON shape aligned across both feed paths so
+        // either source can drive settlement end-to-end.
         $out = [
             'event_status' => (string) ($score['event_status'] ?? ''),
-            'home' => (int) ($score['score_home'] ?? 0),
-            'away' => (int) ($score['score_away'] ?? 0),
+            'score_home' => (int) ($score['score_home'] ?? 0),
+            'score_away' => (int) ($score['score_away'] ?? 0),
             'period' => (int) ($score['game_period'] ?? 0),
             'clock' => (string) ($score['game_clock'] ?? ''),
             'updated_at' => (string) ($score['updated_at'] ?? ''),

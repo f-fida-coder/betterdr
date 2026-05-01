@@ -497,11 +497,32 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
             };
         });
 
-        // Chronological order is the contract the day-divider grouping
-        // depends on. Sort here as a client-side safety belt: even if
-        // the backend hands us events in a different order, the list
-        // never renders a future day before an earlier one.
+        // Sort key: sport first (using the user's sidebar selection
+        // order so MLB-then-NBA selection puts every MLB row above every
+        // NBA row), then chronological inside each sport block. Without
+        // the sport-primary key, an early NBA tip-off slipped between
+        // two MLB games whose first pitches straddled it, leaving the
+        // odds board hopping back-and-forth between leagues. Sports not
+        // in realSelected (e.g. virtual buckets like LIVE NOW) fall to
+        // the end so they never break a real selection's grouping.
+        const sportPriority = new Map();
+        realSelected.forEach((id, idx) => {
+            const item = findSportItemById(id);
+            const keys = Array.isArray(item?.sportKeys) ? item.sportKeys : [];
+            keys.forEach((k) => {
+                const norm = String(k || '').toLowerCase();
+                if (norm && !sportPriority.has(norm)) sportPriority.set(norm, idx);
+            });
+        });
+        const priorityFor = (m) => {
+            const key = String(m.sportKey || '').toLowerCase();
+            if (sportPriority.has(key)) return sportPriority.get(key);
+            return Number.POSITIVE_INFINITY;
+        };
         formatted.sort((a, b) => {
+            const pa = priorityFor(a);
+            const pb = priorityFor(b);
+            if (pa !== pb) return pa - pb;
             const aTs = a.startDate ? a.startDate.getTime() : Number.POSITIVE_INFINITY;
             const bTs = b.startDate ? b.startDate.getTime() : Number.POSITIVE_INFINITY;
             return aTs - bTs;
@@ -728,31 +749,44 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
     // header (e.g. "MLB Game", "NBA 1H") so the cards visually self-describe.
     // Single-sport view stays as-is — the sport title at the top of the
     // panel already provides that context, so an extra header would be
-    // redundant noise. The header sits between the day divider and the
-    // match cards so the day → league hierarchy reads top-to-bottom.
+    // redundant noise.
+    //
+    // Hierarchy (with sport-primary sort): league header anchors a
+    // contiguous block of matches for ONE sport, then day dividers split
+    // that block by date. So a multi-day MLB schedule reads
+    //     [MLB Game]
+    //       [Today]   ...mlb today rows
+    //       [Tomorrow] ...mlb tomorrow rows
+    //     [NBA Game]
+    //       [Today]   ...nba today rows
+    // — the user gets all of one sport in a single column, with day
+    // context preserved within each sport. Day key resets every league
+    // boundary so the first day inside the next sport always re-emits.
     const showLeagueHeaders = realSelected.length >= 2;
     const periodSuffixLabel = activePeriod && activePeriod.label ? activePeriod.label : 'Game';
     const groupedEntries = React.useMemo(() => {
         const entries = [];
-        let currentDayKey = null;
         let currentLeagueKey = null;
+        let currentDayKey = null;
         orderedMatches.forEach(match => {
+            const leagueKey = String(match.sportKey || match.sport || '').toLowerCase();
+            if (showLeagueHeaders && leagueKey && leagueKey !== currentLeagueKey) {
+                currentLeagueKey = leagueKey;
+                currentDayKey = null;
+                const leagueLabel = sportLabelForKey(leagueKey) || (match.sport || leagueKey);
+                entries.push({
+                    type: 'league',
+                    id: `league-${leagueKey}`,
+                    label: `${leagueLabel} ${periodSuffixLabel}`.trim(),
+                });
+            }
             if (match.dayKey && match.dayKey !== currentDayKey) {
                 currentDayKey = match.dayKey;
-                currentLeagueKey = null; // re-emit league header at the top of each new day
-                entries.push({ type: 'day', id: `day-${currentDayKey}`, label: match.dayLabel });
-            }
-            if (showLeagueHeaders) {
-                const leagueKey = String(match.sportKey || match.sport || '').toLowerCase();
-                if (leagueKey && leagueKey !== currentLeagueKey) {
-                    currentLeagueKey = leagueKey;
-                    const leagueLabel = sportLabelForKey(leagueKey) || (match.sport || leagueKey);
-                    entries.push({
-                        type: 'league',
-                        id: `league-${currentDayKey || 'all'}-${leagueKey}`,
-                        label: `${leagueLabel} ${periodSuffixLabel}`.trim(),
-                    });
-                }
+                entries.push({
+                    type: 'day',
+                    id: `day-${leagueKey || 'all'}-${currentDayKey}`,
+                    label: match.dayLabel,
+                });
             }
             entries.push({ type: 'match', id: `match-${match.id}`, match });
         });
@@ -881,29 +915,38 @@ const MatchCard = ({ match, oddsFormat, onAddToSlip, selectedKeys, visibleMarket
         <div style={matchCardStyle}>
             {/* Broadcast row sits at the very top so the player sees
                 "[TIME] EST - [GAME CONTEXT] - [NETWORK]" before scanning
-                team rows. Omitted entirely when no broadcast info is
-                available; never rendered as a placeholder. */}
-            {match.broadcast ? (
+                team rows. Rendered whenever Rundown returned an event
+                name OR a recognized network chip — the EST broadcast
+                time alone wouldn't gate it (every game has a startTime,
+                so that would render the strip for every row), but once
+                a real piece of broadcast metadata is present we surface
+                the time alongside it. The chip is still gated on the
+                resolved brand so unknown RSN strings never render as a
+                styled placeholder; in that case the row degrades to
+                just "[TIME] EST - [EVENT NAME]". */}
+            {(match.broadcast || match.eventName) ? (
                 <div style={broadcastRowStyle}>
                     <span style={broadcastTextStyle}>
                         {match.broadcastTime}
                         {match.eventName ? (
                             <>
-                                <span style={broadcastSepStyle}> - </span>
+                                {match.broadcastTime ? <span style={broadcastSepStyle}> - </span> : null}
                                 <span style={broadcastContextStyle}>{match.eventName.toUpperCase()}</span>
                             </>
                         ) : null}
                     </span>
-                    <span
-                        style={{
-                            ...broadcastChipStyle,
-                            background: match.broadcast.bg,
-                            color: match.broadcast.fg,
-                        }}
-                        title={match.broadcast.raw}
-                    >
-                        {match.broadcast.name}
-                    </span>
+                    {match.broadcast ? (
+                        <span
+                            style={{
+                                ...broadcastChipStyle,
+                                background: match.broadcast.bg,
+                                color: match.broadcast.fg,
+                            }}
+                            title={match.broadcast.raw}
+                        >
+                            {match.broadcast.name}
+                        </span>
+                    ) : null}
                 </div>
             ) : null}
 
