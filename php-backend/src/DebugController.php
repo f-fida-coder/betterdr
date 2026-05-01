@@ -222,11 +222,9 @@ final class DebugController
 
     /**
      * User-triggered Live Now refresh. Auth: either valid JWT (any role)
-     * OR shared X-Tick-Secret. Same RundownLiveSync::tick() body as cron,
-     * but a SHORTER per-IP rate guard so spam-clicking the button doesn't
-     * thrash the cron's 30s rate guard. Returns the same shape as
-     * GET /api/matches?status=live so the frontend can swap one for the
-     * other transparently.
+     * OR shared X-Tick-Secret. Refreshes live odds from OddsAPI and returns
+     * the same shape as GET /api/matches?status=live so the frontend can
+     * swap one for the other transparently.
      */
     private function userLiveSync(): void
     {
@@ -248,34 +246,27 @@ final class DebugController
 
         if (!$throttled) {
             $tickLogId = $this->logTickStart('user_live');
-            $lockOk = $this->db->acquireNamedLock('live_tick_rundown', 0);
+            $lockOk = $this->db->acquireNamedLock('live_tick_oddsapi', 0);
             if (!$lockOk) {
-                // Concurrent cron tick is already running — caller still
-                // gets fresh data once that finishes, so don't fail.
+                // Concurrent live tick is already running — caller still
+                // gets current data, so don't fail.
                 $this->logTickFinish($tickLogId, 'skipped_concurrent', null, null);
                 $throttled = true;
             } else {
                 try {
-                    if (!RundownService::isEnabled()) {
-                        $this->logTickFinish($tickLogId, 'failed', null, 'rundown_disabled');
-                    } else {
-                        $result = RundownLiveSync::tick($this->db);
-                        // If quota was capped during the tick, surface the
-                        // throttle so the frontend can show the toast.
-                        if (($result['errors'] ?? 0) > 0 && ApiQuotaGuard::currentCount('rundown') >= (int) Env::get('RUNDOWN_MAX_CALLS_PER_MINUTE', '30')) {
-                            $this->logTickFinish($tickLogId, 'skipped_quota_cap', $result, 'rundown_quota');
-                            $throttled = true;
-                        } else {
-                            $this->markUserSyncRan($throttleKey);
-                            $this->markTickRan('rundown');
-                            $this->logTickFinish($tickLogId, 'ok', $result, null);
-                        }
-                    }
+                    $result = OddsSyncService::syncLiveOdds($this->db);
+                    $this->markUserSyncRan($throttleKey);
+                    $this->markTickRan('oddsapi_live');
+                    $this->logTickFinish($tickLogId, 'ok', [
+                        'sportsTried' => (int) ($result['sportsChecked'] ?? 0),
+                        'eventsSeen' => (int) ($result['liveScoreEvents'] ?? 0),
+                        'updated' => (int) ($result['updated'] ?? 0) + (int) ($result['created'] ?? 0),
+                    ], null);
                 } catch (Throwable $e) {
                     Logger::exception($e, 'user-live-sync error');
                     $this->logTickFinish($tickLogId, 'failed', null, $e->getMessage());
                 } finally {
-                    try { $this->db->releaseNamedLock('live_tick_rundown'); } catch (Throwable $_) {}
+                    try { $this->db->releaseNamedLock('live_tick_oddsapi'); } catch (Throwable $_) {}
                 }
             }
         }
@@ -390,34 +381,16 @@ final class DebugController
         $rows = $db->findMany('matches', ['status' => 'live'], ['limit' => 200]);
         if (!is_array($rows)) return [];
         $now = time();
-        $coveredKeys = RundownLiveSync::coveredSportKeysSet();
-        return array_values(array_filter($rows, static function ($m) use ($now, $coveredKeys) {
+        return array_values(array_filter($rows, static function ($m) use ($now) {
             if (!is_array($m)) return false;
-            // Resolve sportKey from either doc.sportKey (new format) or
-            // doc.sport (legacy format) so old-schema rows aren't silently
-            // dropped before the first Rundown sync backfills sportKey.
-            $sportKey = RundownLiveSync::resolveSportKey($m);
-            if ($sportKey === '' || !isset($coveredKeys[$sportKey])) return false;
-            // oddsSource must be 'rundown' OR the row must have been freshly
-            // synced this tick (lastOddsSyncAt within window). Rows that were
-            // live before the first Rundown sync have oddsSource=null; we
-            // include them if they are in covered sports and have been synced.
+            $sportKey = strtolower((string) ($m['sportKey'] ?? ''));
+            if ($sportKey === '') return false;
             $src = strtolower((string) ($m['oddsSource'] ?? ''));
+            if ($src !== 'oddsapi') return false;
             $last = (string) ($m['lastOddsSyncAt'] ?? '');
             $lastTs = $last !== '' ? strtotime($last) : false;
-            // If oddsSource is 'rundown' and freshness check passes → show.
-            if ($src === 'rundown') {
-                if ($lastTs === false) return false;
-                return ($now - $lastTs) <= MatchesController::liveFreshnessSecondsForSport($sportKey);
-            }
-            // For rows not yet synced by Rundown (oddsSource null/other),
-            // include them temporarily so Live Now isn't empty while the
-            // first tick is in-flight — but only for up to 5 minutes from
-            // their lastUpdated timestamp so stale rows eventually drop off.
-            $lastUpdated = (string) ($m['lastUpdated'] ?? ($m['updatedAt'] ?? ''));
-            $updatedTs = $lastUpdated !== '' ? strtotime($lastUpdated) : false;
-            if ($updatedTs === false) return false;
-            return ($now - $updatedTs) <= 300; // 5-minute grace for pre-sync rows
+            if ($lastTs === false) return false;
+            return ($now - $lastTs) <= MatchesController::liveFreshnessSecondsForSport($sportKey);
         }));
     }
 

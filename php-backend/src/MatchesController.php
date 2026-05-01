@@ -254,27 +254,15 @@ final class MatchesController
                 return ($now - $lastTs) <= $prematchMaxAge;
             }));
         } elseif ($desiredStatus === 'live') {
-            // Live Now is RUNDOWN-EXCLUSIVE per business rule. A row passes
-            // only if all three hold:
-            //   1. status='live'
-            //   2. sportKey is in Rundown's coverage set (defense in depth
-            //      so a stale row from a sport we removed from the Rundown
-            //      map cannot leak in)
-            //   3. oddsSource='rundown' AND lastOddsSyncAt within the
-            //      per-sport freshness window (LIVE_FRESHNESS_SECONDS_<KEY>,
-            //      LIVE_FRESHNESS_SECONDS_DEFAULT, or RUNDOWN_LIVE_FRESHNESS_SECONDS;
-            //      hard-defaults to 90s but production typically sets 300s).
-            //
-            // Mirrors DebugController::currentLiveRows() so GET /api/matches?status=live
-            // returns the same shape as POST /api/sync/live — auto-poll and
-            // user-triggered Refresh land on identical filter logic.
+            // Live Now is OddsAPI-backed. Accept fresh live rows written by
+            // OddsSyncService::syncLiveOdds(), regardless of sport coverage,
+            // so every live event OddsAPI returns can appear in the UI.
             $now = time();
-            $coveredKeys = RundownLiveSync::coveredSportKeysSet();
-            $annotated = array_values(array_filter($annotated, static function (array $match) use ($now, $coveredKeys): bool {
+            $annotated = array_values(array_filter($annotated, static function (array $match) use ($now): bool {
                 if (strtolower((string) ($match['status'] ?? '')) !== 'live') return false;
                 $sportKey = strtolower((string) ($match['sportKey'] ?? ''));
-                if ($sportKey === '' || !isset($coveredKeys[$sportKey])) return false;
-                if (strtolower((string) ($match['oddsSource'] ?? '')) !== 'rundown') return false;
+                if ($sportKey === '') return false;
+                if (strtolower((string) ($match['oddsSource'] ?? '')) !== 'oddsapi') return false;
                 $last = (string) ($match['lastOddsSyncAt'] ?? '');
                 $lastTs = $last !== '' ? strtotime($last) : false;
                 if ($lastTs === false) return false;

@@ -122,40 +122,39 @@ while (true) {
         break;
     }
 
-    // Sleep until the next main-cycle tick, but interleave a ~10s
-    // TheRundown live-only sync so in-progress matches refresh much
-    // faster than the main worker's per-tier cadence (2-5 min). The
-    // live tick is cheap when nothing is in-progress (mostly cache
-    // hits + early exits) and bounded by RUNDOWN_LIVE_MAX_SPORTS_PER_TICK.
-    // Pre-match / scheduled odds remain owned by OddsSyncService above.
+    // Sleep until the next main-cycle tick, but interleave a live OddsAPI
+    // sweep so in-progress matches refresh much faster than the main
+    // worker's per-tier cadence. Pre-match / scheduled odds remain owned
+    // by the normal OddsSyncService update cycle above.
     $elapsed = (int) max(0, round(microtime(true) - $started));
     $remaining = max(1, $intervalSeconds - $elapsed);
     $liveTickSeconds = max(5, (int) Env::get('RUNDOWN_LIVE_TICK_SECONDS', '10'));
-    $liveEnabled = RundownService::isEnabled();
+    $liveEnabled = strtolower((string) Env::get('SPORTS_API_ENABLED', 'true')) === 'true'
+        && (string) Env::get('ODDS_API_KEY', '') !== '';
     $deadline = microtime(true) + $remaining;
     while (microtime(true) < $deadline) {
         $chunkStart = microtime(true);
         if ($liveEnabled) {
             try {
                 $repoLive = new SqlRepository($dbUri, $dbName);
-                $r = RundownLiveSync::tick($repoLive);
+                $r = OddsSyncService::syncLiveOdds($repoLive);
                 // Log every tick — even quiet ones — so operators can confirm
                 // the live tick is alive without grepping for sporadic updates.
                 // Quiet ticks are short ("events=0") and shouldn't dominate
                 // log volume; ticks that touched data get the full breakdown.
-                if (($r['updated'] ?? 0) > 0 || ($r['errors'] ?? 0) > 0 || ($r['eventsSeen'] ?? 0) > 0) {
+                if (($r['updated'] ?? 0) > 0 || ($r['created'] ?? 0) > 0 || ($r['errors'] ?? 0) > 0 || ($r['liveScoreEvents'] ?? 0) > 0) {
                     $logWorker('info', sprintf(
-                        "rundown live tick sports=%d events=%d matched=%d updated=%d errors=%d",
-                        (int) ($r['sportsTried'] ?? 0),
-                        (int) ($r['eventsSeen'] ?? 0),
-                        (int) ($r['matched'] ?? 0),
-                        (int) ($r['updated'] ?? 0),
+                        "oddsapi live tick sports=%d live=%d withOdds=%d changed=%d errors=%d",
+                        (int) ($r['sportsChecked'] ?? 0),
+                        (int) ($r['liveScoreEvents'] ?? 0),
+                        count((array) ($r['matches'] ?? [])),
+                        (int) ($r['updated'] ?? 0) + (int) ($r['created'] ?? 0),
                         (int) ($r['errors'] ?? 0)
                     ));
                 }
                 unset($repoLive);
             } catch (Throwable $e) {
-                $logWorker('error', 'rundown live tick failed: ' . $e->getMessage());
+                $logWorker('error', 'oddsapi live tick failed: ' . $e->getMessage());
             }
         }
         $chunkElapsed = microtime(true) - $chunkStart;

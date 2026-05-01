@@ -89,6 +89,44 @@ final class OddsSyncService
     }
 
     /**
+     * Resolve active sports for the live sweep. Uses the batched HTTP helper
+     * so Live Now is not constrained by the prematch quota guard.
+     *
+     * @return list<string>
+     */
+    private static function resolveSportsListForLive(string $apiKey, string $apiBase): array
+    {
+        $url = $apiBase . '/sports?' . http_build_query(['apiKey' => $apiKey, 'all' => 'false']);
+        $responses = self::httpGetManyDetailed(['sports' => $url]);
+        $body = $responses['sports']['body'] ?? null;
+        if (!is_string($body) || $body === '') {
+            return self::resolveSportsList($apiKey, $apiBase);
+        }
+
+        $decoded = json_decode($body, true);
+        if (!is_array($decoded)) {
+            return self::resolveSportsList($apiKey, $apiBase);
+        }
+
+        $keys = [];
+        foreach ($decoded as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $key = isset($row['key']) ? (string) $row['key'] : '';
+            if ($key === '' || preg_match('/_winner$/', $key) === 1) {
+                continue;
+            }
+            if (array_key_exists('has_markets', $row) && empty($row['has_markets']) && !empty($row['has_outrights'])) {
+                continue;
+            }
+            $keys[] = $key;
+        }
+
+        return array_values(array_unique($keys));
+    }
+
+    /**
      * Tier configuration parsed from env.
      * Returns sport→tier map, per-tier cadence in seconds, and tier3 extended-sync flag.
      *
@@ -830,6 +868,175 @@ final class OddsSyncService
     }
 
     /**
+     * Fetch every currently-live OddsAPI event with odds and persist it for
+     * Live Now. This intentionally ignores the prematch tier cadence: live
+     * odds need a full upstream sweep whenever the Live Now path refreshes.
+     *
+     * @return array{ok:bool,sportsChecked:int,liveScoreEvents:int,liveSports:int,oddsCalls:int,created:int,updated:int,finished:int,errors:int,matches:list<array<string,mixed>>,perSport:array<string,array<string,int>>}
+     */
+    public static function syncLiveOdds(SqlRepository $db): array
+    {
+        $apiKey = (string) Env::get('ODDS_API_KEY', '');
+        $sportsApiEnabled = strtolower((string) Env::get('SPORTS_API_ENABLED', 'true')) === 'true';
+        $result = [
+            'ok' => false,
+            'sportsChecked' => 0,
+            'liveScoreEvents' => 0,
+            'liveSports' => 0,
+            'oddsCalls' => 0,
+            'created' => 0,
+            'updated' => 0,
+            'finished' => 0,
+            'errors' => 0,
+            'matches' => [],
+            'perSport' => [],
+        ];
+
+        if (!$sportsApiEnabled || $apiKey === '') {
+            $result['errors']++;
+            return $result;
+        }
+
+        $apiBase = 'https://api.the-odds-api.com/v4';
+        $sports = self::resolveSportsListForLive($apiKey, $apiBase);
+        $result['sportsChecked'] = count($sports);
+        if ($sports === []) {
+            $result['ok'] = true;
+            return $result;
+        }
+
+        $scoreUrlsBySport = [];
+        foreach ($sports as $sportKey) {
+            $scoreQuery = ['apiKey' => $apiKey, 'dateFormat' => 'iso'];
+            $scoreQuery['daysFrom'] = self::scoresDaysFrom();
+            $scoreUrlsBySport[$sportKey] = $apiBase . '/sports/' . rawurlencode($sportKey) . '/scores?' . http_build_query($scoreQuery);
+        }
+
+        $liveScoresBySport = [];
+        foreach (self::httpGetManyDetailed($scoreUrlsBySport) as $sportKey => $scoreResponse) {
+            $raw = $scoreResponse['body'] ?? null;
+            if (!is_string($raw) || $raw === '') {
+                $result['errors']++;
+                continue;
+            }
+            $scoreRows = json_decode($raw, true);
+            if (!is_array($scoreRows)) {
+                $result['errors']++;
+                continue;
+            }
+            foreach ($scoreRows as $scoreEvent) {
+                if (!self::isOddsApiLiveScoreEvent($scoreEvent)) {
+                    continue;
+                }
+                $externalId = (string) ($scoreEvent['id'] ?? '');
+                if ($externalId === '') {
+                    continue;
+                }
+                $scoreEvent['_sportKey'] = $sportKey;
+                $liveScoresBySport[$sportKey][$externalId] = $scoreEvent;
+                $result['liveScoreEvents']++;
+            }
+        }
+
+        $result['liveSports'] = count($liveScoresBySport);
+        if ($liveScoresBySport === []) {
+            $result['ok'] = true;
+            return $result;
+        }
+
+        $regions = (string) Env::get('ODDS_API_REGIONS', 'us');
+        $markets = (string) Env::get('ODDS_API_MARKETS', 'h2h,spreads,totals');
+        $oddsFormat = (string) Env::get('ODDS_API_ODDS_FORMAT', 'decimal');
+        $bookmakers = (string) Env::get('ODDS_API_BOOKMAKERS', '');
+
+        $oddsUrlsBySport = [];
+        foreach (array_keys($liveScoresBySport) as $sportKey) {
+            $query = [
+                'apiKey' => $apiKey,
+                'regions' => $regions,
+                'markets' => $markets,
+                'oddsFormat' => $oddsFormat,
+            ];
+            if ($bookmakers !== '') {
+                $query['bookmakers'] = $bookmakers;
+            }
+            $oddsUrlsBySport[$sportKey] = $apiBase . '/sports/' . rawurlencode($sportKey) . '/odds?' . http_build_query($query);
+        }
+
+        foreach (self::httpGetManyDetailed($oddsUrlsBySport) as $sportKey => $oddsResponse) {
+            $result['oddsCalls']++;
+            $raw = $oddsResponse['body'] ?? null;
+            if (!is_string($raw) || $raw === '') {
+                $result['errors']++;
+                continue;
+            }
+            $events = json_decode($raw, true);
+            if (!is_array($events)) {
+                $result['errors']++;
+                continue;
+            }
+
+            $result['perSport'][$sportKey] ??= ['live' => count($liveScoresBySport[$sportKey] ?? []), 'withOdds' => 0, 'created' => 0, 'updated' => 0];
+            foreach ($events as $event) {
+                if (!is_array($event)) {
+                    continue;
+                }
+                $externalId = (string) ($event['id'] ?? '');
+                if ($externalId === '' || !isset($liveScoresBySport[$sportKey][$externalId])) {
+                    continue;
+                }
+                if (!is_array($event['bookmakers'] ?? null) || count($event['bookmakers']) === 0) {
+                    continue;
+                }
+
+                $homeTeam = (string) ($event['home_team'] ?? ($liveScoresBySport[$sportKey][$externalId]['home_team'] ?? 'Unknown Home'));
+                $awayTeam = (string) ($event['away_team'] ?? ($liveScoresBySport[$sportKey][$externalId]['away_team'] ?? 'Unknown Away'));
+                $mergedEvent = array_merge($event, $liveScoresBySport[$sportKey][$externalId]);
+                $statusAndScore = self::extractScoreAndStatus($mergedEvent, $homeTeam, $awayTeam);
+                $statusAndScore['status'] = 'live';
+                $doc = self::buildOddsDocument($event, $sportKey, $externalId, $homeTeam, $awayTeam, $statusAndScore);
+                $doc['status'] = 'live';
+                $doc['oddsSource'] = 'oddsapi';
+
+                $existing = $db->findOne('matches', ['externalId' => $externalId], ['projection' => ['id' => 1, 'odds' => 1, 'status' => 1]]);
+                if ($existing === null) {
+                    $doc['createdAt'] = SqlRepository::nowUtc();
+                    $db->insertOne('matches', $doc);
+                    $result['created']++;
+                    $result['perSport'][$sportKey]['created']++;
+                } else {
+                    $existingOdds = is_array($existing['odds'] ?? null) ? $existing['odds'] : [];
+                    if (isset($existingOdds['extendedMarkets']) && is_array($existingOdds['extendedMarkets'])) {
+                        $doc['odds']['extendedMarkets'] = $existingOdds['extendedMarkets'];
+                    }
+                    $db->updateOne('matches', ['id' => SqlRepository::id((string) $existing['id'])], $doc);
+                    $result['updated']++;
+                    $result['perSport'][$sportKey]['updated']++;
+                }
+
+                $result['perSport'][$sportKey]['withOdds']++;
+                $result['matches'][] = $doc;
+            }
+        }
+
+        SportsbookHealth::recordOddsApiSuccess($db, true);
+        SportsbookCache::invalidatePublicMatchCaches();
+
+        if (class_exists('RealtimeEventBus')) {
+            foreach (array_keys($liveScoresBySport) as $sportKey) {
+                RealtimeEventBus::publish('odds:sport:sync', [
+                    'sport_key' => $sportKey,
+                    'source' => 'oddsapi-live',
+                    'time' => gmdate(DATE_ATOM),
+                ]);
+            }
+        }
+
+        $result['ok'] = true;
+        return $result;
+    }
+
+    /**
      * @return array<string,mixed>
      */
     private static function circuitSnapshot(): array
@@ -1266,6 +1473,7 @@ final class OddsSyncService
             'sport' => $event['sport_title'] ?? ($event['sport'] ?? $sportKey),
             'sportKey' => $sportKey,
             'status' => $statusAndScore['status'],
+            'oddsSource' => 'oddsapi',
             'odds' => $oddsData,
             'score' => $statusAndScore['score'],
             'lastUpdated' => $now,
@@ -1388,6 +1596,18 @@ final class OddsSyncService
     {
         $raw = Env::get('ODDS_SCORES_DAYS_FROM', '1');
         return is_numeric($raw) ? max(1, (int) $raw) : 1;
+    }
+
+    private static function isOddsApiLiveScoreEvent(mixed $scoreEvent): bool
+    {
+        if (!is_array($scoreEvent)) {
+            return false;
+        }
+        if (($scoreEvent['completed'] ?? null) === true) {
+            return false;
+        }
+        $scores = $scoreEvent['scores'] ?? null;
+        return is_array($scores) && count($scores) > 0;
     }
 
     /**
@@ -1641,6 +1861,9 @@ final class OddsSyncService
         }
 
         $status = SportsMatchStatus::normalize((string) ($event['status'] ?? ''), is_scalar($eventStatus) ? (string) $eventStatus : null);
+        if (($event['completed'] ?? null) === false && is_array($scoresArray) && count($scoresArray) > 0) {
+            $status = 'live';
+        }
         if (($event['completed'] ?? null) === true) {
             $status = 'finished';
         }
