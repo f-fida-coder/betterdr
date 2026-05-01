@@ -67,7 +67,7 @@ final class BetsController
             $selections = is_array($body['selections'] ?? null) ? $body['selections'] : [];
             $teaserPoints = (float) ($body['teaserPoints'] ?? 0);
 
-            $betAmount = is_numeric($amount) ? (float) floor((float) $amount) : 0.0;
+            $betAmount = is_numeric($amount) ? (float) round((float) $amount) : 0.0;
             if (!is_finite($betAmount) || $betAmount <= 0) {
                 throw new ApiException('Bet amount must be positive', 400);
             }
@@ -939,8 +939,8 @@ final class BetsController
             'message' => 'Bet placed successfully',
             'bets' => $this->loadEnrichedBetsByIds($betIds),
             'requestId' => $meta['requestId'] ?? null,
-            'balance' => (float) floor($this->num($meta['balance'] ?? 0)),
-            'pendingBalance' => (float) floor($this->num($meta['pendingBalance'] ?? 0)),
+            'balance' => (float) round($this->num($meta['balance'] ?? 0)),
+            'pendingBalance' => (float) round($this->num($meta['pendingBalance'] ?? 0)),
         ];
     }
 

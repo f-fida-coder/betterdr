@@ -4,7 +4,7 @@ import { formatOdds } from '../utils/odds';
 
 const formatAmount = (value) => {
   const n = Number(value);
-  return Number.isFinite(n) ? String(Math.floor(n)) : '0';
+  return Number.isFinite(n) ? String(Math.round(n)) : '0';
 };
 
 const prettyMode = (mode) => String(mode || 'straight').replace('_', ' ').toUpperCase();
@@ -26,6 +26,7 @@ const BetConfirmationModal = ({
   wager = 0,
   totalRisk = 0,
   potentialPayout = 0,
+  legStakes = null,
   isFreeplay = false,
   onConfirm,
   onCancel,
@@ -38,6 +39,10 @@ const BetConfirmationModal = ({
   const second = selections[1];
   const isIfBet = betType === 'if_bet';
   const isReverse = betType === 'reverse';
+  const isStraight = betType === 'straight';
+  // Each STRAIGHT leg is its own bet, so render its own Risk/Win line
+  // when the parent passes per-leg stakes. Win = stake × (decimal − 1).
+  const showPerLegStakes = isStraight && Array.isArray(legStakes) && legStakes.length === selections.length;
 
   return (
     <div style={{
@@ -68,21 +73,40 @@ const BetConfirmationModal = ({
         <div style={{ padding: 18 }}>
           <div style={{ fontSize: 13, color: '#b8c3d8', marginBottom: 8 }}>Selections</div>
           <div style={{ border: '1px solid rgba(255,255,255,0.12)', borderRadius: 10, overflow: 'hidden' }}>
-            {selections.map((selection, idx) => (
-              <div
-                key={`${selection.matchId || 'sel'}-${idx}`}
-                style={{
-                  padding: '10px 12px',
-                  borderTop: idx === 0 ? 'none' : '1px solid rgba(255,255,255,0.08)',
-                  fontSize: 13,
-                }}
-              >
-                <div style={{ color: '#d8e2f5' }}>{selection.matchName || selection.matchId}</div>
-                <div style={{ color: '#ffd776', fontWeight: 700 }}>
-                  {selection.selection} {marketShortLabel(selection)} {formatOdds(selection.odds, oddsFormat)}
+            {selections.map((selection, idx) => {
+              const legStake = showPerLegStakes ? Number(legStakes[idx] || 0) : 0;
+              const decimalOdds = Number(selection.odds || 0);
+              const legWin = showPerLegStakes && legStake > 0 && decimalOdds > 1
+                ? legStake * (decimalOdds - 1)
+                : 0;
+              return (
+                <div
+                  key={`${selection.matchId || 'sel'}-${idx}`}
+                  style={{
+                    padding: '10px 12px',
+                    borderTop: idx === 0 ? 'none' : '1px solid rgba(255,255,255,0.08)',
+                    fontSize: 13,
+                  }}
+                >
+                  <div style={{ color: '#d8e2f5' }}>{selection.matchName || selection.matchId}</div>
+                  <div style={{ color: '#ffd776', fontWeight: 700 }}>
+                    {selection.selection} {marketShortLabel(selection)} {formatOdds(selection.odds, oddsFormat)}
+                  </div>
+                  {showPerLegStakes && legStake > 0 && (
+                    <div style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      marginTop: 6,
+                      fontSize: 12,
+                      color: '#b8c3d8',
+                    }}>
+                      <span>Risk <strong style={{ color: '#fff' }}>${formatAmount(legStake)}</strong></span>
+                      <span>Win <strong style={{ color: '#7ee7a8' }}>${formatAmount(legWin)}</strong></span>
+                    </div>
+                  )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           {isIfBet && first && second && (

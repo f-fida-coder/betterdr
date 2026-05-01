@@ -142,7 +142,7 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
         if (value === null || value === undefined || value === '') return '—';
         const num = Number(value);
         if (Number.isNaN(num)) return '—';
-        return `$ ${Math.floor(num)}`;
+        return `$ ${Math.round(num).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
     };
 
     // Compact two-decimal comma-separated formatter for the mobile header
@@ -155,7 +155,7 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
         if (value === null || value === undefined || value === '') return '$0';
         const num = Number(value);
         if (Number.isNaN(num)) return '$0';
-        return `$${Math.floor(num).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
+        return `$${Math.round(num).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
     };
 
     // Color the balance amount by sign — green positive, red negative, white

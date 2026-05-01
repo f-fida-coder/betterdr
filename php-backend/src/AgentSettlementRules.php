@@ -89,20 +89,20 @@ final class AgentSettlementRules
         $commissionableProfit = 0.0;
 
         if ($netCollections > 0.0 && $previousMakeup > 0.0) {
-            $makeupReduction = round(min($netCollections, $previousMakeup), 2);
-            $commissionableProfit = round(max(0.0, $netCollections - $makeupReduction), 2);
+            $makeupReduction = (float) round(min($netCollections, $previousMakeup));
+            $commissionableProfit = (float) round(max(0.0, $netCollections - $makeupReduction));
         } elseif ($netCollections > 0.0) {
-            $commissionableProfit = round($netCollections, 2);
+            $commissionableProfit = (float) round($netCollections);
         }
 
         // ── Step 2: Split commissionable profit (agent% / house%) ─────
         $agentSplit = 0.0;
         $kickToHouse = 0.0;
         if ($commissionableProfit > 0.0 && $agentPercent !== null && $agentPercent >= 0 && $agentPercent <= 100) {
-            $agentSplit = round($commissionableProfit * $agentPercent / 100, 2);
-            $kickToHouse = round($commissionableProfit - $agentSplit, 2);
+            $agentSplit = (float) round($commissionableProfit * $agentPercent / 100);
+            $kickToHouse = (float) round($commissionableProfit - $agentSplit);
         } elseif ($commissionableProfit > 0.0) {
-            $agentSplit = round($commissionableProfit, 2);
+            $agentSplit = (float) round($commissionableProfit);
         }
 
         // ── Step 3: Deduct player fees from agent's share AFTER split ─
@@ -110,14 +110,14 @@ final class AgentSettlementRules
         if ($commissionableProfit > 0.0) {
             if ($agentSplit >= $totalPlayerFees) {
                 // Agent's share covers all fees
-                $agentSplit = round($agentSplit - $totalPlayerFees, 2);
+                $agentSplit = (float) round($agentSplit - $totalPlayerFees);
             } elseif ($commissionableProfit >= $totalPlayerFees) {
                 // Agent's share alone can't cover, but full profit can —
                 // agent earns nothing, no makeup needed
                 $agentSplit = 0.0;
             } else {
                 // Even full profit can't cover fees — real deficit → makeup
-                $uncoveredFees = round($totalPlayerFees - $commissionableProfit, 2);
+                $uncoveredFees = (float) round($totalPlayerFees - $commissionableProfit);
                 $agentSplit = 0.0;
             }
         }
@@ -125,13 +125,13 @@ final class AgentSettlementRules
         // ── Step 4: House Profit ──────────────────────────────────────
         // House gets everything agent doesn't
         $houseProfit = ($commissionableProfit > 0.0)
-            ? round($commissionableProfit - $agentSplit, 2)
+            ? (float) round($commissionableProfit - $agentSplit)
             : 0.0;
 
         // ── Step 5: Makeup (cumulative) ───────────────────────────────
         if ($netCollections <= 0.0) {
             // Negative week: full deficit + fees → makeup
-            $weeklyMakeupAddition = round(abs($netCollections) + $totalPlayerFees, 2);
+            $weeklyMakeupAddition = (float) round(abs($netCollections) + $totalPlayerFees);
         } elseif ($commissionableProfit <= 0.0) {
             // Positive net but no commissionable profit — fees → makeup
             $weeklyMakeupAddition = $totalPlayerFees;
@@ -146,9 +146,9 @@ final class AgentSettlementRules
 
         // ── Step 6: Balance Owed ──────────────────────────────────────
         if ($commissionableProfit > 0.0) {
-            $balanceOwed = round($previousBalanceOwed + $houseProfit - $houseCollections, 2);
+            $balanceOwed = (float) round($previousBalanceOwed + $houseProfit - $houseCollections);
         } else {
-            $balanceOwed = round($previousBalanceOwed + $agentCollections, 2);
+            $balanceOwed = (float) round($previousBalanceOwed + $agentCollections);
         }
 
         return [

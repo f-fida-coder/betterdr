@@ -245,7 +245,7 @@ const PropsView = () => {
                             {!myBetsLoading && !myBetsError && myBets.slice(0, 10).map((bet) => (
                                 <div key={bet.id} className="props-bet-row">
                                     <span>{String(bet.type || 'bet').toUpperCase()}</span>
-                                    <span>${Math.floor(Number(bet.amount || 0))}</span>
+                                    <span>${Math.round(Number(bet.amount || 0))}</span>
                                     <span className={`status ${String(bet.status || 'pending').toLowerCase()}`}>{bet.status || 'pending'}</span>
                                 </div>
                             ))}
@@ -334,7 +334,7 @@ const formatStartTime = (startTime) => {
     if (!startTime) return 'Live';
     const date = new Date(startTime);
     if (Number.isNaN(date.getTime())) return 'Live';
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' });
 };
 
 export default PropsView;

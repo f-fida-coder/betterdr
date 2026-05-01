@@ -62,15 +62,15 @@ final class WalletController
                 return;
             }
 
-            $balance = (float) floor($this->num($user['balance'] ?? 0));
-            $pendingBalance = (float) floor($this->num($user['pendingBalance'] ?? 0));
+            $balance = (float) round($this->num($user['balance'] ?? 0));
+            $pendingBalance = (float) round($this->num($user['pendingBalance'] ?? 0));
             $availableBalance = max(0, $balance - $pendingBalance);
             $limits = is_array($user['gamblingLimits'] ?? null) ? $user['gamblingLimits'] : [];
             $accountMinBet = isset($user['minBet']) && is_numeric($user['minBet']) && (float) $user['minBet'] > 0
-                ? (float) floor((float) $user['minBet'])
+                ? (float) round((float) $user['minBet'])
                 : null;
             $accountMaxBet = isset($user['maxBet']) && is_numeric($user['maxBet']) && (float) $user['maxBet'] > 0
-                ? (float) floor((float) $user['maxBet'])
+                ? (float) round((float) $user['maxBet'])
                 : null;
 
             Response::json([
@@ -79,7 +79,7 @@ final class WalletController
                 'availableBalance' => $availableBalance,
                 'minBet' => $accountMinBet,
                 'maxBet' => $accountMaxBet,
-                'totalWinnings' => (float) floor($this->num($user['totalWinnings'] ?? 0)),
+                'totalWinnings' => (float) round($this->num($user['totalWinnings'] ?? 0)),
                 'gamblingLimits' => $limits,
                 'remainingLimits' => $this->computeRemainingLimits($user, $limits),
             ]);
@@ -189,7 +189,7 @@ final class WalletController
                 $balanceBefore = isset($tx['balanceBefore']) ? $this->num($tx['balanceBefore']) : null;
                 $balanceAfter = isset($tx['balanceAfter']) ? $this->num($tx['balanceAfter']) : null;
                 $delta = ($balanceBefore !== null && $balanceAfter !== null)
-                    ? round($balanceAfter - $balanceBefore, 2)
+                    ? (float) round($balanceAfter - $balanceBefore)
                     : null;
                 return [
                     'id' => $tx['id'] ?? null,
@@ -334,7 +334,7 @@ final class WalletController
                 $days[] = [
                     'label' => $dayNames[$i],
                     'date' => $d->format('n/j'),
-                    'pl' => round($dailyPL[$i], 2),
+                    'pl' => (float) round($dailyPL[$i]),
                 ];
             }
 
@@ -342,11 +342,11 @@ final class WalletController
                 'weekOffset' => $weekOffset,
                 'weekStart' => $weekStart->format('Y-m-d'),
                 'weekEnd' => $weekEnd->modify('-1 day')->format('Y-m-d'),
-                'carryForward' => round($carryForward, 2),
+                'carryForward' => (float) round($carryForward),
                 'days' => $days,
-                'weekTotal' => round($weekTotal, 2),
-                'transactions' => round($transactionsTotal, 2),
-                'endBalance' => round($endBalance, 2),
+                'weekTotal' => (float) round($weekTotal),
+                'transactions' => (float) round($transactionsTotal),
+                'endBalance' => (float) round($endBalance),
             ]);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error', 'error' => $e->getMessage()], 500);

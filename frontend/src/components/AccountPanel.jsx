@@ -62,13 +62,13 @@ const palette = {
 const formatMoney = (value) => {
     const number = Number(value);
     if (!Number.isFinite(number)) return '0';
-    return Math.floor(number).toLocaleString(undefined, { maximumFractionDigits: 0 });
+    return Math.round(number).toLocaleString('en-US', { maximumFractionDigits: 0 });
 };
 
 const formatMoneyWhole = (value) => {
     const number = Number(value);
     if (!Number.isFinite(number)) return '0';
-    return Math.floor(number).toLocaleString(undefined, { maximumFractionDigits: 0 });
+    return Math.round(number).toLocaleString('en-US', { maximumFractionDigits: 0 });
 };
 
 const initialsOf = (name) => {

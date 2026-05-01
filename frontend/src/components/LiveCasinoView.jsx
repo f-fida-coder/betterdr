@@ -183,8 +183,8 @@ const LiveCasinoView = () => {
                                     <div className="table-info">
                                         <div className="table-name">{game.name}</div>
                                         <div className="table-limits">
-                                            <span>Min: ${Math.floor(Number(game.minBet || 0))}</span>
-                                            <span>Max: ${Math.floor(Number(game.maxBet || 0))}</span>
+                                            <span>Min: ${Math.round(Number(game.minBet || 0))}</span>
+                                            <span>Max: ${Math.round(Number(game.maxBet || 0))}</span>
                                         </div>
                                         <button
                                             className="join-table-btn"

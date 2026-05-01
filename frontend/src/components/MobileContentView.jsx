@@ -110,10 +110,16 @@ const formatMatchDateTime = (startDate) => {
     const daysDiff = Math.round((sdMidnight - todayMidnight) / 86400000);
 
     const mdy = `${startDate.getMonth() + 1}/${startDate.getDate()}`;
-    const time = startDate
-        .toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+    // toLocaleTimeString with timeZoneName: 'short' yields e.g. "6:10 PM PST"
+    // — keep the AM/PM lowercased compact format but preserve the space
+    // before the timezone abbr so it reads "6:10pm PST" not "6:10pmPST".
+    const formatted = startDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
+    const tzMatch = formatted.match(/\s([A-Z]+)$/);
+    const tz = tzMatch ? ` ${tzMatch[1]}` : '';
+    const timeOnly = (tzMatch ? formatted.slice(0, tzMatch.index) : formatted)
         .toLowerCase()
         .replace(/\s+/g, '');
+    const time = `${timeOnly}${tz}`;
 
     let prefix = '';
     if (daysDiff === 0) prefix = 'Today';
@@ -482,7 +488,7 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
                 isBettable: match.isBettable !== false,
                 bettingBlockedReason: match.bettingBlockedReason || '',
                 startDate,
-                time: startDate ? startDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
+                time: startDate ? startDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' }) : '',
                 // Self-describing "Today 4/23 6:10pm" variant for each row
                 // so scrolling past the day divider doesn't hide context.
                 timeDisplay: formatMatchDateTime(startDate),

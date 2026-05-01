@@ -17,7 +17,7 @@ function PropsView() {
   const [deleteLoadingId, setDeleteLoadingId] = useState(null);
 
   const parseMoney = (value) => Number(String(value).replace(/[^0-9.-]+/g, '')) || 0;
-  const formatMoney = (value) => `$${Math.floor(Number(value || 0)).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+  const formatMoney = (value) => `$${Math.round(Number(value || 0)).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
   const matchesAmountRange = (value, range) => {
     if (range === 'any') return true;
     if (range === 'under-100') return value < 100;

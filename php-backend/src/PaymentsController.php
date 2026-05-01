@@ -354,7 +354,7 @@ final class PaymentsController
      */
     private function resolveDepositFreePlayBonus(array $user, float $depositAmount): array
     {
-        $normalizedDeposit = (float) floor(max(0.0, $depositAmount));
+        $normalizedDeposit = (float) round(max(0.0, $depositAmount));
         if ($normalizedDeposit <= 0) {
             return [
                 'bonusAmount' => 0.0,
@@ -376,7 +376,7 @@ final class PaymentsController
             ];
         }
 
-        $rawBonus = (float) floor($normalizedDeposit * ($percent / 100));
+        $rawBonus = (float) round($normalizedDeposit * ($percent / 100));
         if ($rawBonus <= 0) {
             return [
                 'bonusAmount' => 0.0,
@@ -388,10 +388,10 @@ final class PaymentsController
 
         $capSource = $settings['maxFpCredit'] ?? ($user['maxFpCredit'] ?? null);
         $capRaw = $this->num($capSource === null ? 0.0 : $capSource);
-        $cap = (float) floor(max(0.0, $capRaw));
+        $cap = (float) round(max(0.0, $capRaw));
         $unlimited = ($capSource === null || $capRaw <= 0);
         $bonusAmount = (!$unlimited && $cap > 0) ? min($rawBonus, $cap) : $rawBonus;
-        $bonusAmount = (float) floor(max(0.0, $bonusAmount));
+        $bonusAmount = (float) round(max(0.0, $bonusAmount));
 
         return [
             'bonusAmount' => $bonusAmount,
@@ -445,7 +445,7 @@ final class PaymentsController
     ): void {
         $referredUserId = trim((string) ($referredUser['id'] ?? ''));
         $referrerUserId = trim((string) ($referredUser['referredByUserId'] ?? ''));
-        $normalizedDepositAmount = (float) floor(max(0.0, $depositAmount));
+        $normalizedDepositAmount = (float) round(max(0.0, $depositAmount));
         if (
             $referredUserId === ''
             || preg_match('/^[a-f0-9]{24}$/i', $referredUserId) !== 1
@@ -469,7 +469,7 @@ final class PaymentsController
         $awardTimestamp = $now ?? SqlRepository::nowUtc();
         $referralBonusAmount = 200.0;
         $freeplayBefore = $this->num($referrer['freeplayBalance'] ?? 0);
-        $freeplayAfter = (float) floor($freeplayBefore + $referralBonusAmount);
+        $freeplayAfter = (float) round($freeplayBefore + $referralBonusAmount);
 
         $this->db->updateOne('users', ['id' => SqlRepository::id($referrerUserId)], [
             'freeplayBalance' => $freeplayAfter,

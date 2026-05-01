@@ -319,24 +319,24 @@ final class AgentCutsController
                 } else {
                     $branchPct = $agentToBranchPct[$aid] ?? null;
                     $cutPct = ($actorPercent !== null && $branchPct !== null)
-                        ? round($actorPercent - $branchPct, 2)
+                        ? (float) round($actorPercent - $branchPct)
                         : $agentOwnPct;
                 }
                 if ($cutPct === null) $cutPct = 0.0;
 
-                $periodNet = round($periodNetByAgent[$aid] ?? 0.0, 2);
-                $ytdNet = round($ytdNetByAgent[$aid] ?? 0.0, 2);
-                $lifetimeNet = round($lifetimeNetByAgent[$aid] ?? 0.0, 2);
+                $periodNet = (float) round($periodNetByAgent[$aid] ?? 0.0);
+                $ytdNet = (float) round($ytdNetByAgent[$aid] ?? 0.0);
+                $lifetimeNet = (float) round($lifetimeNetByAgent[$aid] ?? 0.0);
                 $settlement = $weeklySettlementByAgent[$aid] ?? [];
-                $weeklyCommissionableProfit = round($settlement['commissionableProfit'] ?? 0.0, 2);
+                $weeklyCommissionableProfit = (float) round($settlement['commissionableProfit'] ?? 0.0);
                 $periodBasis = $periodType === 'week'
                     ? $weeklyCommissionableProfit
                     : $periodNet;
-                $periodAmount = round($cutPct / 100 * $periodBasis, 2);
-                $ytdAmount = round($cutPct / 100 * $ytdNet, 2);
-                $lifetimeAmount = round($cutPct / 100 * $lifetimeNet, 2);
-                $owedAmount = round($settlement['owedAmount'] ?? 0.0, 2);
-                $makeupAmount = round($settlement['makeupAmount'] ?? 0.0, 2);
+                $periodAmount = (float) round($cutPct / 100 * $periodBasis);
+                $ytdAmount = (float) round($cutPct / 100 * $ytdNet);
+                $lifetimeAmount = (float) round($cutPct / 100 * $lifetimeNet);
+                $owedAmount = (float) round($settlement['owedAmount'] ?? 0.0);
+                $makeupAmount = (float) round($settlement['makeupAmount'] ?? 0.0);
                 $totalPeriodAmount += $periodAmount;
                 $totalYtdAmount += $ytdAmount;
                 $totalLifetimeAmount += $lifetimeAmount;
@@ -374,11 +374,11 @@ final class AgentCutsController
                 'ytdLabel' => $ytdLabel,
                 'agents' => $flatAgents,
                 'totals' => [
-                    'owedAmount'     => round($totalOwedAmount, 2),
-                    'periodAmount'   => round($totalPeriodAmount, 2),
-                    'ytdAmount'      => round($totalYtdAmount, 2),
-                    'lifetimeAmount' => round($totalLifetimeAmount, 2),
-                    'makeupAmount'   => round($totalMakeupAmount, 2),
+                    'owedAmount'     => (float) round($totalOwedAmount),
+                    'periodAmount'   => (float) round($totalPeriodAmount),
+                    'ytdAmount'      => (float) round($totalYtdAmount),
+                    'lifetimeAmount' => (float) round($totalLifetimeAmount),
+                    'makeupAmount'   => (float) round($totalMakeupAmount),
                 ],
             ]);
         } catch (Throwable $e) {
@@ -685,11 +685,11 @@ final class AgentCutsController
             );
             $summary = $this->applySettlementBalanceAdjustments($summary, $agentId, $weekStart);
             $fundingAdjustment = $this->getAgentFundingAdjustment($agentId, $weekStart, $weekEnd);
-            $summary['balanceOwed'] = round($this->num($summary['balanceOwed'] ?? 0) - $fundingAdjustment, 2);
+            $summary['balanceOwed'] = (float) round($this->num($summary['balanceOwed'] ?? 0) - $fundingAdjustment);
             $settlementByAgent[$agentId] = [
-                'owedAmount' => round($this->num($summary['balanceOwed'] ?? 0), 2),
-                'makeupAmount' => round($this->num($summary['cumulativeMakeup'] ?? 0), 2),
-                'commissionableProfit' => round($this->num($summary['commissionableProfit'] ?? 0), 2),
+                'owedAmount' => (float) round($this->num($summary['balanceOwed'] ?? 0)),
+                'makeupAmount' => (float) round($this->num($summary['cumulativeMakeup'] ?? 0)),
+                'commissionableProfit' => (float) round($this->num($summary['commissionableProfit'] ?? 0)),
             ];
         }
 
@@ -714,7 +714,7 @@ final class AgentCutsController
             $total += $this->num($row['amount'] ?? 0);
         }
 
-        return round($total, 2);
+        return (float) round($total);
     }
 
     /**
@@ -727,7 +727,7 @@ final class AgentCutsController
         $balanceAdjustment = $this->getSettlementBalanceAdjustmentTotal($agentId, $weekStart);
         $summary['computedBalanceOwed'] = $computedBalanceOwed;
         $summary['balanceAdjustment'] = $balanceAdjustment;
-        $summary['balanceOwed'] = round($computedBalanceOwed + $balanceAdjustment, 2);
+        $summary['balanceOwed'] = (float) round($computedBalanceOwed + $balanceAdjustment);
 
         return $summary;
     }
@@ -770,7 +770,7 @@ final class AgentCutsController
             }
         }
 
-        return round($net, 2);
+        return (float) round($net);
     }
 
     private function isAgentFundingTransaction(array $transaction): bool

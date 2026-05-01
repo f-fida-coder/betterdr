@@ -19,7 +19,7 @@ function BetTickerView() {
           type: b.matchSnapshot?.status === 'live' ? 'LIVE' : 'UPCOMING', // Infer from snapshot or Match
           match: b.description || (b.matchSnapshot ? `${b.matchSnapshot.homeTeam} vs ${b.matchSnapshot.awayTeam}` : 'Unknown Match'),
           bet: `${b.selection} @ ${parseFloat(b.odds).toFixed(2)}`,
-          amount: `$${Math.floor(parseFloat(b.amount))}`,
+          amount: `$${Math.round(parseFloat(b.amount))}`,
           odds: parseFloat(b.odds).toFixed(2),
           time: new Date(b.createdAt).toLocaleTimeString(),
           status: b.matchSnapshot?.status === 'live' ? 'LIVE' : 'UPCOMING', // Simplified status mapping
@@ -139,7 +139,7 @@ function BetTickerView() {
           </div>
           <div className="summary-stat">
             <span className="label">Total Wagered</span>
-            <span className="value">${Math.floor(bets.reduce((sum, b) => sum + parseFloat(b.amount.replace(/[$,]/g, '')), 0)).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+            <span className="value">${Math.round(bets.reduce((sum, b) => sum + parseFloat(b.amount.replace(/[$,]/g, '')), 0)).toLocaleString('en-US', { maximumFractionDigits: 0 })}</span>
           </div>
           <div className="summary-stat">
             <span className="label">Avg Odds</span>

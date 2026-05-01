@@ -39,6 +39,12 @@ export const toMoneyNumber = (value, fallback = 0) => {
 
 export const getMoneyToneClass = (value) => {
   const num = toMoneyNumber(value, 0);
-  if (Math.abs(num) < 0.5) return 'neutral';
+  if (Math.abs(num) < 0.005) return 'neutral';
   return num < 0 ? 'neg' : 'pos';
+};
+
+// Format money preserving decimals as stored in DB. Always shows 2dp.
+export const formatMoneyDecimal = (value) => {
+  const num = toMoneyNumber(value, 0);
+  return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };

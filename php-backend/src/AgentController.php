@@ -973,7 +973,7 @@ final class AgentController
                 $aUsername = strtoupper(trim((string) ($a['username'] ?? '')));
                 $agentOwnPct = isset($a['agentPercent']) ? (float) $a['agentPercent'] : null;
                 $playerCount = $userAgentMap[$aid] ?? 0;
-                $weeklyNet = round($weeklyNetByAgent[$aid] ?? 0.0, 2);
+                $weeklyNet = (float) round($weeklyNetByAgent[$aid] ?? 0.0);
                 $totalPlayers += $playerCount;
 
                 $maUsername = $aUsername . 'MA';
@@ -995,12 +995,12 @@ final class AgentController
                     // Master agent: myPercent - directChildBranch%
                     $branchPct = $agentToBranchPct[$aid] ?? null;
                     $displayCut = ($myPercent !== null && $branchPct !== null)
-                        ? round($myPercent - $branchPct, 2) : $agentOwnPct;
+                        ? (float) round($myPercent - $branchPct) : $agentOwnPct;
                 }
 
                 // Profit = CUT% × weekly collection
                 $profit = ($displayCut !== null && $weeklyNet != 0)
-                    ? round($displayCut / 100 * $weeklyNet, 2) : 0.0;
+                    ? (float) round($displayCut / 100 * $weeklyNet) : 0.0;
 
                 $flatAgents[] = [
                     'id'               => $aid,
@@ -1008,7 +1008,7 @@ final class AgentController
                     'myCut'            => $displayCut,
                     'weeklyCollection' => $weeklyNet,
                     'profit'           => $profit,
-                    'yearlyProfit'     => round($profit * 52, 2),
+                    'yearlyProfit'     => (float) round($profit * 52),
                     'totalPlayerCount' => $playerCount,
                     'isFrontLine'      => $isFrontLine,
                 ];
@@ -1031,8 +1031,8 @@ final class AgentController
             foreach ($flatAgents as $fa) {
                 $totalWeeklyCollection += ($fa['weeklyCollection'] ?? 0.0);
             }
-            $housePct = ($actorRole === 'admin') ? 5.0 : round(100 - $myPercent, 2);
-            $houseProfit = round($housePct / 100 * $totalWeeklyCollection, 2);
+            $housePct = ($actorRole === 'admin') ? 5.0 : (float) round(100 - $myPercent);
+            $houseProfit = (float) round($housePct / 100 * $totalWeeklyCollection);
 
             Response::json([
                 'agents' => $flatAgents,
@@ -1249,10 +1249,10 @@ final class AgentController
                 if ($role !== 'agent') {
                     continue;
                 }
-                $periodNet = round($periodNetByAgent[$aid] ?? 0.0, 2);
-                $lifetimeNet = round($lifetimeNetByAgent[$aid] ?? 0.0, 2);
-                $periodAmount = round($HOUSE_CUT_PCT / 100 * $periodNet, 2);
-                $lifetimeAmount = round($HOUSE_CUT_PCT / 100 * $lifetimeNet, 2);
+                $periodNet = (float) round($periodNetByAgent[$aid] ?? 0.0);
+                $lifetimeNet = (float) round($lifetimeNetByAgent[$aid] ?? 0.0);
+                $periodAmount = (float) round($HOUSE_CUT_PCT / 100 * $periodNet);
+                $lifetimeAmount = (float) round($HOUSE_CUT_PCT / 100 * $lifetimeNet);
                 $totalPeriodAmount += $periodAmount;
                 $totalLifetimeAmount += $lifetimeAmount;
                 $flatAgents[] = [
@@ -1281,8 +1281,8 @@ final class AgentController
                 ],
                 'agents' => $flatAgents,
                 'totals' => [
-                    'periodAmount'   => round($totalPeriodAmount, 2),
-                    'lifetimeAmount' => round($totalLifetimeAmount, 2),
+                    'periodAmount'   => (float) round($totalPeriodAmount),
+                    'lifetimeAmount' => (float) round($totalLifetimeAmount),
                 ],
             ]);
         } catch (Throwable $e) {
@@ -1487,7 +1487,7 @@ final class AgentController
                     Response::json(['message' => 'playerRate cannot be negative'], 400);
                     return;
                 }
-                $playerRate = round($rate, 2);
+                $playerRate = (float) round($rate);
             }
             $hiringAgentPercent = null;
             if (isset($body['hiringAgentPercent']) && is_numeric($body['hiringAgentPercent'])) {

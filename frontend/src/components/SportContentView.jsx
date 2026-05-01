@@ -511,7 +511,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
 
                 return {
                     id: match.id || match.externalId,
-                    time: match.startTime ? new Date(match.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
+                    time: match.startTime ? new Date(match.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' }) : '',
                     date: match.startTime ? new Date(match.startTime).toLocaleDateString() : '',
                     // Broadcast row above the match-header. Resolved client-side
                     // so we can keep the chip palette in one place; raw string

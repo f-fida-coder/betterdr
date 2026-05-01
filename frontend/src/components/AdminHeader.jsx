@@ -208,25 +208,25 @@ function AdminHeader({
     if (value === null || value === undefined) return null;
     const num = Number(value);
     if (Number.isNaN(num)) return null;
-    const rounded = Math.floor(num);
+    const rounded = Math.round(num);
     return Object.is(rounded, -0) ? 0 : rounded;
   };
 
   const formatCurrency = (value) => {
-    const rounded = roundForDisplay(value);
-    if (rounded === null) return '—';
+    const num = roundForDisplay(value);
+    if (num === null) return '—';
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'USD',
       minimumFractionDigits: 0,
       maximumFractionDigits: 0
-    }).format(rounded);
+    }).format(num);
   };
 
   const formatAbsoluteCurrency = (value) => {
-    const rounded = roundForDisplay(value);
-    if (rounded === null) return '—';
-    return formatCurrency(Math.abs(rounded));
+    const num = roundForDisplay(value);
+    if (num === null) return '—';
+    return formatCurrency(Math.abs(num));
   };
 
   const getSignedValueClass = (value) => {

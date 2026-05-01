@@ -179,7 +179,12 @@ final class BetSettlementService
                     );
 
                     $ticketStatus = (string) ($evaluation['status'] ?? 'pending');
-                    $ticketPayout = round(self::num($evaluation['payout'] ?? 0), 2);
+                    // Whole-dollar settlement (PPH convention): cash settles in
+                    // physical bills between agent and player, so balances must
+                    // never carry cents. Round payout to nearest dollar at grade
+                    // time so balance reads identical everywhere downstream
+                    // (header, transaction list, agent figures).
+                    $ticketPayout = (float) round(self::num($evaluation['payout'] ?? 0));
 
                     if ($ticketStatus === 'pending') {
                         $db->updateOne('bets', ['id' => SqlRepository::id($betId)], [
@@ -237,17 +242,17 @@ final class BetSettlementService
                     if ($ticketStatus === 'void') {
                         if ($isFreeplay) {
                             // Refund the freeplay stake back to freeplayBalance
-                            $balanceAfter = $freeplayBalance + $riskAmount;
+                            $balanceAfter = (float) round($freeplayBalance + $riskAmount);
                             $userUpdate['freeplayBalance'] = $balanceAfter;
                             $transactionType = 'fp_bet_void';
                         } elseif ($isCreditAccount) {
                             // Credit account: stake was never debited from balance at
                             // placement, so void freeing pendingBalance restores the
                             // pre-placement state. Do NOT credit balance.
-                            $balanceAfter = $balance;
+                            $balanceAfter = (float) round($balance);
                             $transactionType = 'bet_void';
                         } else {
-                            $balanceAfter = $balance + $riskAmount;
+                            $balanceAfter = (float) round($balance + $riskAmount);
                             $userUpdate['balance'] = $balanceAfter;
                             $transactionType = 'bet_void';
                         }
@@ -256,33 +261,28 @@ final class BetSettlementService
                         $results['voided']++;
                     } elseif ($ticketStatus === 'won') {
                         if ($isFreeplay) {
-                            // Freeplay win: credit PROFIT ONLY to real balance (stake is not returned).
-                            // e.g. $10 freeplay wins $25 payout → user gets $15 profit in real balance.
-                            $profit = max(0.0, $ticketPayout - $riskAmount);
+                            $profit = (float) round(max(0.0, $ticketPayout - $riskAmount));
                             $balanceBefore = $balance;
-                            $balanceAfter  = $balance + $profit;
+                            $balanceAfter  = (float) round($balance + $profit);
                             $userUpdate['balance'] = $balanceAfter;
-                            $userUpdate['totalWinnings'] = self::num($user['totalWinnings'] ?? 0) + $profit;
+                            $userUpdate['totalWinnings'] = (float) round(self::num($user['totalWinnings'] ?? 0) + $profit);
                             $transactionType  = 'fp_bet_won';
                             $transactionAmount = $profit;
                             $description = strtoupper((string) ($bet['type'] ?? 'straight')) . ' freeplay bet won - profit credited';
                         } elseif ($isCreditAccount) {
-                            // Credit account win: stake was never debited from balance,
-                            // so credit only the profit (payout − risk). Crediting full
-                            // payout would gift the user an extra `risk` of credit.
-                            $profit = max(0.0, $ticketPayout - $riskAmount);
+                            $profit = (float) round(max(0.0, $ticketPayout - $riskAmount));
                             $balanceBefore = $balance;
-                            $balanceAfter  = $balance + $profit;
+                            $balanceAfter  = (float) round($balance + $profit);
                             $userUpdate['balance'] = $balanceAfter;
-                            $userUpdate['totalWinnings'] = self::num($user['totalWinnings'] ?? 0) + $profit;
+                            $userUpdate['totalWinnings'] = (float) round(self::num($user['totalWinnings'] ?? 0) + $profit);
                             $transactionType  = 'bet_won';
                             $transactionAmount = $profit;
                             $description = strtoupper((string) ($bet['type'] ?? 'straight')) . ' bet won - profit credited (credit account)';
                         } else {
                             $balanceBefore = $balance;
-                            $balanceAfter  = $balance + $ticketPayout;
+                            $balanceAfter  = (float) round($balance + $ticketPayout);
                             $userUpdate['balance'] = $balanceAfter;
-                            $userUpdate['totalWinnings'] = self::num($user['totalWinnings'] ?? 0) + max(0, $ticketPayout - $riskAmount);
+                            $userUpdate['totalWinnings'] = (float) round(self::num($user['totalWinnings'] ?? 0) + max(0, $ticketPayout - $riskAmount));
                             $transactionType  = 'bet_won';
                             $transactionAmount = $ticketPayout;
                             $description = strtoupper((string) ($bet['type'] ?? 'straight')) . ' bet won';
@@ -297,7 +297,7 @@ final class BetSettlementService
                         // exact symptom NJG101 reported.
                         if ($isCreditAccount) {
                             $balanceBefore = $balance;
-                            $balanceAfter  = $balance - $riskAmount;
+                            $balanceAfter  = (float) round($balance - $riskAmount);
                             $userUpdate['balance'] = $balanceAfter;
                             $description = strtoupper((string) ($bet['type'] ?? 'straight')) . ' bet lost - balance debited (credit account)';
                         }

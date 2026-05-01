@@ -1370,7 +1370,7 @@ final class AdminCoreController
                 // Credits reduce what agent owes, debits increase it.
                 $fundingAdjustment = $this->getAgentFundingAdjustment($actorId, $startOfWeek);
                 $settlementSummary['fundingAdjustment'] = $fundingAdjustment;
-                $settlementSummary['balanceOwed'] = round($this->num($settlementSummary['balanceOwed'] ?? 0) - $fundingAdjustment, 2);
+                $settlementSummary['balanceOwed'] = (float) round($this->num($settlementSummary['balanceOwed'] ?? 0) - $fundingAdjustment);
 
                 // NOTE: we intentionally do NOT sync agent.balance to settlementSummary['balanceOwed'] here.
                 // agent.balance is the agent funding account (updated only by updateAgentCredit); overwriting it
@@ -1408,8 +1408,8 @@ final class AdminCoreController
                             }
 
                             $share = ($idx === $lastIdx)
-                                ? round($distributableAmount - $allocatedTotal, 2)
-                                : round($distributableAmount * $effectivePct / 100, 2);
+                                ? (float) round($distributableAmount - $allocatedTotal)
+                                : (float) round($distributableAmount * $effectivePct / 100);
                             $allocatedTotal += $share;
                             $commissionDistribution[] = [
                                 'id' => $node['id'],
@@ -2264,24 +2264,24 @@ final class AdminCoreController
                 } else {
                     $branchPct = $agentToBranchPct[$aid] ?? null;
                     $cutPct = ($actorPercent !== null && $branchPct !== null)
-                        ? round($actorPercent - $branchPct, 2)
+                        ? (float) round($actorPercent - $branchPct)
                         : $agentOwnPct;
                 }
                 if ($cutPct === null) $cutPct = 0.0;
 
-                $periodNet = round($periodNetByAgent[$aid] ?? 0.0, 2);
-                $ytdNet = round($ytdNetByAgent[$aid] ?? 0.0, 2);
-                $lifetimeNet = round($lifetimeNetByAgent[$aid] ?? 0.0, 2);
+                $periodNet = (float) round($periodNetByAgent[$aid] ?? 0.0);
+                $ytdNet = (float) round($ytdNetByAgent[$aid] ?? 0.0);
+                $lifetimeNet = (float) round($lifetimeNetByAgent[$aid] ?? 0.0);
                 $settlement = $weeklySettlementByAgent[$aid] ?? [];
-                $weeklyCommissionableProfit = round($settlement['commissionableProfit'] ?? 0.0, 2);
+                $weeklyCommissionableProfit = (float) round($settlement['commissionableProfit'] ?? 0.0);
                 $periodBasis = $periodType === 'week'
                     ? $weeklyCommissionableProfit
                     : $periodNet;
-                $periodAmount = round($cutPct / 100 * $periodBasis, 2);
-                $ytdAmount = round($cutPct / 100 * $ytdNet, 2);
-                $lifetimeAmount = round($cutPct / 100 * $lifetimeNet, 2);
-                $owedAmount = round($settlement['owedAmount'] ?? 0.0, 2);
-                $makeupAmount = round($settlement['makeupAmount'] ?? 0.0, 2);
+                $periodAmount = (float) round($cutPct / 100 * $periodBasis);
+                $ytdAmount = (float) round($cutPct / 100 * $ytdNet);
+                $lifetimeAmount = (float) round($cutPct / 100 * $lifetimeNet);
+                $owedAmount = (float) round($settlement['owedAmount'] ?? 0.0);
+                $makeupAmount = (float) round($settlement['makeupAmount'] ?? 0.0);
                 $totalPeriodAmount += $periodAmount;
                 $totalYtdAmount += $ytdAmount;
                 $totalLifetimeAmount += $lifetimeAmount;
@@ -2317,11 +2317,11 @@ final class AdminCoreController
                 'ytdLabel' => $ytdLabel,
                 'agents' => $flatAgents,
                 'totals' => [
-                    'owedAmount'     => round($totalOwedAmount, 2),
-                    'periodAmount'   => round($totalPeriodAmount, 2),
-                    'ytdAmount'      => round($totalYtdAmount, 2),
-                    'lifetimeAmount' => round($totalLifetimeAmount, 2),
-                    'makeupAmount'   => round($totalMakeupAmount, 2),
+                    'owedAmount'     => (float) round($totalOwedAmount),
+                    'periodAmount'   => (float) round($totalPeriodAmount),
+                    'ytdAmount'      => (float) round($totalYtdAmount),
+                    'lifetimeAmount' => (float) round($totalLifetimeAmount),
+                    'makeupAmount'   => (float) round($totalMakeupAmount),
                 ],
             ]);
         } catch (Throwable $e) {
@@ -2586,11 +2586,11 @@ final class AdminCoreController
             );
             $summary = $this->applySettlementBalanceAdjustments($summary, $agentId, $weekStart);
             $fundingAdjustment = $this->getAgentFundingAdjustment($agentId, $weekStart, $weekEnd);
-            $summary['balanceOwed'] = round($this->num($summary['balanceOwed'] ?? 0) - $fundingAdjustment, 2);
+            $summary['balanceOwed'] = (float) round($this->num($summary['balanceOwed'] ?? 0) - $fundingAdjustment);
             $settlementByAgent[$agentId] = [
-                'owedAmount' => round($this->num($summary['balanceOwed'] ?? 0), 2),
-                'makeupAmount' => round($this->num($summary['cumulativeMakeup'] ?? 0), 2),
-                'commissionableProfit' => round($this->num($summary['commissionableProfit'] ?? 0), 2),
+                'owedAmount' => (float) round($this->num($summary['balanceOwed'] ?? 0)),
+                'makeupAmount' => (float) round($this->num($summary['cumulativeMakeup'] ?? 0)),
+                'commissionableProfit' => (float) round($this->num($summary['commissionableProfit'] ?? 0)),
             ];
         }
 
@@ -2765,7 +2765,7 @@ final class AdminCoreController
 
                 if ($operationMode === 'transaction') {
                     $delta = $requestedDirection === 'credit' ? $requestedAmount : -$requestedAmount;
-                    $nextFreeplay = round($freeplayBefore + $delta, 2);
+                    $nextFreeplay = (float) round($freeplayBefore + $delta);
                 }
 
                 $fpExpiresAt = null;
@@ -4397,7 +4397,7 @@ final class AdminCoreController
                         'reason' => 'DEPOSIT_FREEPLAY_BONUS',
                         'description' => $fpBonusDesc2,
                         'metadata' => [
-                            'depositAmount' => round(abs($amount), 2),
+                            'depositAmount' => (float) round(abs($amount)),
                             'freePlayPercent' => $freePlayBonusPercent,
                             'maxFpCredit' => $freePlayBonusCap,
                             'approvedDepositTransactionId' => $transactionId,
@@ -4481,8 +4481,8 @@ final class AdminCoreController
                 return;
             }
 
-            $newMakeup = isset($body['cumulativeMakeup']) ? round((float) $body['cumulativeMakeup'], 2) : null;
-            $newBalanceOwed = isset($body['balanceOwed']) ? round((float) $body['balanceOwed'], 2) : null;
+            $newMakeup = isset($body['cumulativeMakeup']) ? (float) round((float) $body['cumulativeMakeup']) : null;
+            $newBalanceOwed = isset($body['balanceOwed']) ? (float) round((float) $body['balanceOwed']) : null;
 
             if ($newMakeup === null || $newBalanceOwed === null) {
                 Response::json(['message' => 'cumulativeMakeup and balanceOwed are required'], 400);
@@ -4580,7 +4580,7 @@ final class AdminCoreController
                 return;
             }
 
-            $amount = round((float) $rawAmount, 2);
+            $amount = (float) round((float) $rawAmount);
             if (abs($amount) < 0.005) {
                 Response::json(['message' => 'Amount must be greater than zero'], 400);
                 return;
@@ -4660,7 +4660,7 @@ final class AdminCoreController
             $total += $this->num($row['amount'] ?? 0);
         }
 
-        return round($total, 2);
+        return (float) round($total);
     }
 
     /**
@@ -4679,7 +4679,7 @@ final class AdminCoreController
 
         $summary['computedBalanceOwed'] = $computedBalanceOwed;
         $summary['balanceAdjustment'] = $balanceAdjustment;
-        $summary['balanceOwed'] = round($computedBalanceOwed + $balanceAdjustment, 2);
+        $summary['balanceOwed'] = (float) round($computedBalanceOwed + $balanceAdjustment);
 
         return $summary;
     }
@@ -4743,7 +4743,7 @@ final class AdminCoreController
             }
         }
 
-        return round($net, 2);
+        return (float) round($net);
     }
 
     private function resolveSettlementCarryForward(string $agentId, DateTimeImmutable $currentWeekStart, array $agentDoc): array
@@ -4974,7 +4974,7 @@ final class AdminCoreController
         $summary = $this->applySettlementBalanceAdjustments($summary, $agentId, $prevWeekStart);
         $fundingAdjustment = $this->getAgentFundingAdjustment($agentId, $prevWeekStart, $prevWeekEnd);
         $summary['fundingAdjustment'] = $fundingAdjustment;
-        $summary['balanceOwed'] = round($this->num($summary['balanceOwed'] ?? 0) - $fundingAdjustment, 2);
+        $summary['balanceOwed'] = (float) round($this->num($summary['balanceOwed'] ?? 0) - $fundingAdjustment);
 
         // Guard: if an existing snapshot has non-zero financial activity but
         // the recomputation produced all zeros, preserve the existing snapshot.
@@ -6546,8 +6546,8 @@ final class AdminCoreController
                         $side = strtoupper(trim((string) ($rootTx['entrySide'] ?? '')));
                         $currentBal = $this->num($lockedAgent['balance'] ?? 0);
                         $reversedBal = $side === 'CREDIT'
-                            ? round($currentBal - $amt, 2)
-                            : round($currentBal + $amt, 2);
+                            ? (float) round($currentBal - $amt)
+                            : (float) round($currentBal + $amt);
                         $this->db->updateOne('agents', ['id' => SqlRepository::id($agentIdForFunding)], ['balance' => $reversedBal]);
 
                         // Sync reversed balance to linked counterpart (agent ↔ MA)
@@ -6695,7 +6695,7 @@ final class AdminCoreController
                         if ($balanceNeedsUpdate) {
                             $currentBalance = $this->num($lockedUser['balance'] ?? 0);
                             $nextBalanceRaw = $currentBalance - $mainBalanceDelta;
-                            $userUpdates['balance'] = round($nextBalanceRaw, 2);
+                            $userUpdates['balance'] = (float) round($nextBalanceRaw);
                         }
 
                         if ($freeplayNeedsUpdate) {
@@ -6704,12 +6704,12 @@ final class AdminCoreController
                             if ($nextFreeplayRaw < -0.00001) {
                                 throw new RuntimeException('Cannot delete transaction because linked free play bonus has already been used.');
                             }
-                            $userUpdates['freeplayBalance'] = max(0.0, round($nextFreeplayRaw, 2));
+                            $userUpdates['freeplayBalance'] = max(0.0, (float) round($nextFreeplayRaw));
                         }
 
                         if ($lifetimeNeedsUpdate) {
                             $currentLifetime = $this->num($lockedUser['lifetime'] ?? 0);
-                            $userUpdates['lifetime'] = round($currentLifetime - $lifetimeDelta, 2);
+                            $userUpdates['lifetime'] = (float) round($currentLifetime - $lifetimeDelta);
                         }
 
                         if ($shouldResetReferralBonus) {
@@ -7860,7 +7860,7 @@ final class AdminCoreController
             if (isset($body['playerRate']) && is_numeric($body['playerRate'])) {
                 $rate = (float) $body['playerRate'];
                 if ($rate >= 0) {
-                    $doc['playerRate'] = round($rate, 2);
+                    $doc['playerRate'] = (float) round($rate);
                 }
             }
             if (isset($body['hiringAgentPercent']) && is_numeric($body['hiringAgentPercent'])) {
@@ -8113,7 +8113,7 @@ final class AdminCoreController
                     Response::json(['message' => 'playerRate cannot be negative'], 400);
                     return;
                 }
-                $updates['playerRate'] = round($rate, 2);
+                $updates['playerRate'] = (float) round($rate);
             }
             if (array_key_exists('hiringAgentPercent', $body) && is_numeric($body['hiringAgentPercent'])) {
                 $hPct = (float) $body['hiringAgentPercent'];
@@ -8258,7 +8258,7 @@ final class AdminCoreController
             }
 
             $body = Http::jsonBody();
-            $amount = round((float) ($body['amount'] ?? 0), 2);
+            $amount = (float) round((float) ($body['amount'] ?? 0));
             if ($amount <= 0) {
                 Response::json(['message' => 'Amount must be greater than 0'], 400);
                 return;
@@ -8290,7 +8290,7 @@ final class AdminCoreController
 
                 $balanceBefore = $this->num($locked['balance'] ?? 0);
                 $diff = $direction === 'credit' ? $amount : -$amount;
-                $balanceAfter = round($balanceBefore + $diff, 2);
+                $balanceAfter = (float) round($balanceBefore + $diff);
 
                 if ($direction === 'debit' && $balanceAfter < 0) {
                     // Allow negative balance for agents (tracks debt)
@@ -10353,7 +10353,7 @@ final class AdminCoreController
                     Response::json(['message' => 'Balance is required'], 400);
                     return;
                 }
-                $nextBalanceTarget = max(0.0, (float) floor((float) $body['balance']));
+                $nextBalanceTarget = max(0.0, (float) round((float) $body['balance']));
             }
 
             $applyDepositFreePlayBonus = true;
@@ -10413,7 +10413,7 @@ final class AdminCoreController
                 $balanceBefore = $this->num($lockedUser['balance'] ?? 0);
                 if ($operationMode === 'transaction') {
                     $diff = $requestedDirection === 'credit' ? $requestedAmount : -$requestedAmount;
-                    $nextBalance = (float) floor($balanceBefore + $diff);
+                    $nextBalance = (float) round($balanceBefore + $diff);
                 } else {
                     $nextBalance = $nextBalanceTarget;
                     $diff = $nextBalance - $balanceBefore;
@@ -10483,7 +10483,7 @@ final class AdminCoreController
                             'reason' => 'DEPOSIT_FREEPLAY_BONUS',
                             'description' => $fpBonusDesc3,
                             'metadata' => [
-                                'depositAmount' => round(abs($diff), 2),
+                                'depositAmount' => (float) round(abs($diff)),
                                 'freePlayPercent' => $freePlayBonusPercent,
                                 'maxFpCredit' => $freePlayBonusCap,
                             ],
@@ -10532,7 +10532,7 @@ final class AdminCoreController
                 }
 
                 if (is_array($lockedAgent)) {
-                    $agentBalanceOut = round($agentBalance - $diff, 2);
+                    $agentBalanceOut = (float) round($agentBalance - $diff);
                     $this->db->updateOne('agents', ['id' => SqlRepository::id((string) $actor['id'])], [
                         'balance' => $agentBalanceOut,
                         'updatedAt' => SqlRepository::nowUtc(),
@@ -12271,7 +12271,7 @@ final class AdminCoreController
      */
     private function resolveDepositFreePlayBonus(array $user, float $depositAmount): array
     {
-        $normalizedDeposit = round(max(0.0, $depositAmount), 2);
+        $normalizedDeposit = (float) round(max(0.0, $depositAmount));
         if ($normalizedDeposit <= 0) {
             return [
                 'bonusAmount' => 0.0,
@@ -12293,7 +12293,7 @@ final class AdminCoreController
             ];
         }
 
-        $rawBonus = round($normalizedDeposit * ($percent / 100), 2);
+        $rawBonus = (float) round($normalizedDeposit * ($percent / 100));
         if ($rawBonus <= 0) {
             return [
                 'bonusAmount' => 0.0,
@@ -12305,10 +12305,10 @@ final class AdminCoreController
 
         $capSource = $settings['maxFpCredit'] ?? ($user['maxFpCredit'] ?? null);
         $capRaw = $this->numOr($capSource === null ? 0.0 : $capSource, 0.0);
-        $cap = round(max(0.0, $capRaw), 2);
+        $cap = (float) round(max(0.0, $capRaw));
         $unlimited = ($capSource === null || $capRaw <= 0);
         $bonusAmount = (!$unlimited && $cap > 0) ? min($rawBonus, $cap) : $rawBonus;
-        $bonusAmount = round(max(0.0, $bonusAmount), 2);
+        $bonusAmount = (float) round(max(0.0, $bonusAmount));
 
         return [
             'bonusAmount' => $bonusAmount,
@@ -12354,7 +12354,7 @@ final class AdminCoreController
     ): array {
         $referredUserId = trim((string) ($referredUser['id'] ?? ''));
         $referrerUserId = trim((string) ($referredUser['referredByUserId'] ?? ''));
-        $normalizedDepositAmount = round(max(0.0, $depositAmount), 2);
+        $normalizedDepositAmount = (float) round(max(0.0, $depositAmount));
         if (
             $referredUserId === ''
             || preg_match('/^[a-f0-9]{24}$/i', $referredUserId) !== 1
@@ -12378,7 +12378,7 @@ final class AdminCoreController
         $awardTimestamp = $now ?? SqlRepository::nowUtc();
         $referralBonusAmount = 200.0;
         $freeplayBefore = $this->num($referrer['freeplayBalance'] ?? 0);
-        $freeplayAfter = round($freeplayBefore + $referralBonusAmount, 2);
+        $freeplayAfter = (float) round($freeplayBefore + $referralBonusAmount);
 
         $this->db->updateOne('users', ['id' => SqlRepository::id($referrerUserId)], [
             'freeplayBalance' => $freeplayAfter,
@@ -13366,8 +13366,8 @@ final class AdminCoreController
                 $epct = $effectivePcts[$idx];
                 $share = ($idx === $lastIdx)
                     // Give the last node the remainder to avoid floating-point drift
-                    ? round($amount - $allocatedTotal, 2)
-                    : round($amount * $epct / 100, 2);
+                    ? (float) round($amount - $allocatedTotal)
+                    : (float) round($amount * $epct / 100);
 
                 $allocatedTotal += $share;
                 $distributions[] = [
@@ -13871,7 +13871,7 @@ final class AdminCoreController
             $emptySettlement = $this->applySettlementBalanceAdjustments($emptySettlement, $actorId, $weekStart);
             $fundingAdjustment = $this->getAgentFundingAdjustment($actorId, $weekStart);
             $emptySettlement['fundingAdjustment'] = $fundingAdjustment;
-            $emptySettlement['balanceOwed'] = round($this->num($emptySettlement['balanceOwed'] ?? 0) - $fundingAdjustment, 2);
+            $emptySettlement['balanceOwed'] = (float) round($this->num($emptySettlement['balanceOwed'] ?? 0) - $fundingAdjustment);
         } else {
             $emptySettlement = AgentSettlementRules::summarize(0.0, 0.0, 0.0, 0.0);
             $emptySettlement['fundingAdjustment'] = 0.0;

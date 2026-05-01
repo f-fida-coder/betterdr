@@ -1272,11 +1272,11 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
     };
   }, [transactions, pendingBalance, customerBalance, available, isAgent, agentSettlementBalance, displayedAgentBalance]);
 
-  // Floor on display so users can never see an inflated balance — what they
-  // see is what they can actually withdraw. e.g. stored 9.84 displays as 9
-  // and the player can withdraw up to 9 successfully.
+  // PPH whole-dollar display — settlement happens in physical cash so
+  // balances never carry cents. The backend round()s payouts at grade
+  // time; this matches that and keeps header/transaction/figures in sync.
   const roundDisplayedMoney = (value) => {
-    return Math.floor(toMoneyNumber(value, 0));
+    return Math.round(toMoneyNumber(value, 0));
   };
 
   const amountFromDisplayedMoney = (value) => String(Math.abs(roundDisplayedMoney(value)));
@@ -1287,7 +1287,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
 
   const formatDetailMoney = (value) => {
     const num = toMoneyNumber(value, 0);
-    return `$${Math.floor(num).toLocaleString('en-US')}`;
+    return `$${Math.round(num).toLocaleString('en-US')}`;
   };
 
   const handleImpersonate = async () => {
@@ -1716,7 +1716,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
   const roundMoney = (value) => {
     const num = toMoneyNumber(value, 0);
     if (!Number.isFinite(num)) return 0;
-    return Math.floor(num);
+    return Math.round(num * 100) / 100;
   };
 
   const getSignedBalanceColor = (value) => {
@@ -2706,13 +2706,13 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
                             <td className="commission-username">{d.isSharedNode && d.linkedUsername ? `${d.username}/${d.linkedUsername}` : (d.username || '—')}</td>
                             <td>{d.role ? d.role.replace(/_/g, ' ') : '—'}</td>
                             <td>{d.effectivePercent != null ? `${d.effectivePercent}%` : (d.agentPercent != null ? `${d.agentPercent}%` : '—')}</td>
-                            <td className="commission-amount">${Math.floor(Number(d.amount || 0))}</td>
+                            <td className="commission-amount">${Math.round(Number(d.amount || 0))}</td>
                           </tr>
                         ))}
                         <tr className="commission-total-row">
                           <td colSpan={3}><strong>Total</strong></td>
                           <td className="commission-amount">
-                            <strong>${Math.floor(calcResult.distributions.reduce((s, d) => s + Number(d.amount || 0), 0))}</strong>
+                            <strong>${Math.round(calcResult.distributions.reduce((s, d) => s + Number(d.amount || 0), 0))}</strong>
                           </td>
                         </tr>
                       </tbody>
@@ -2949,7 +2949,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
                   ) : performanceRows.map((row) => (
                     <tr key={row.key} className={performanceSelectedKey === row.key ? 'selected' : ''} onClick={() => setPerformanceSelectedKey(row.key)}>
                       <td>{row.periodLabel}</td>
-                      <td>{Math.floor(Number(row.net || 0))}</td>
+                      <td>{Math.round(Number(row.net || 0))}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -2970,7 +2970,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
                   ) : performanceDayBets.map((wager) => (
                     <tr key={wager.id} className={wager?.synthetic ? 'perf-synthetic' : ''}>
                       <td>{wager.label || 'Wager'}</td>
-                      <td>{Math.floor(Number(wager.amount || 0))}</td>
+                      <td>{Math.round(Number(wager.amount || 0))}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -2990,8 +2990,8 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
                 <option value="all">All Time</option>
               </select>
             </div>
-            <div className="tx-stat"><label>Balance</label><b>{Math.floor(Number(freePlayBalance))}</b></div>
-            <div className="tx-stat"><label>Pending</label><b>{Math.floor(Number(freePlayPending))}</b></div>
+            <div className="tx-stat"><label>Balance</label><b>{Math.round(Number(freePlayBalance))}</b></div>
+            <div className="tx-stat"><label>Pending</label><b>{Math.round(Number(freePlayPending))}</b></div>
           </div>
 
           <div className="tx-table-wrap">
@@ -3032,9 +3032,9 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
                       <td>{toTxDate(txn.date)}</td>
                       <td>{displayDescription}</td>
                       <td>{notes}</td>
-                      <td>{credit > 0 ? Math.floor(credit) : '—'}</td>
-                      <td>{debit > 0 ? Math.floor(debit) : '—'}</td>
-                      <td>{Math.floor(rowBalance)}</td>
+                      <td>{credit > 0 ? Math.round(credit) : '—'}</td>
+                      <td>{debit > 0 ? Math.round(debit) : '—'}</td>
+                      <td>{Math.round(Number(rowBalance))}</td>
                       <td>{enteredBy}</td>
                       <td className="tx-actions-col">
                         <button

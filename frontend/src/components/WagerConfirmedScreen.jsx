@@ -5,7 +5,7 @@ import { formatOdds, formatLineValue } from '../utils/odds';
 const fmtMoney = (value) => {
     const n = Number(value);
     if (!Number.isFinite(n)) return '0';
-    return Math.floor(n).toLocaleString();
+    return Math.round(n).toLocaleString('en-US', { maximumFractionDigits: 0 });
 };
 
 const fmtTimestamp = (value) => {

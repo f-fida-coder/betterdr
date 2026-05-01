@@ -29,7 +29,7 @@ function AgentAdminView() {
     if (value === null || value === undefined || value === '') return '—';
     const num = Number(value);
     if (Number.isNaN(num)) return '—';
-    return `$${Math.floor(num)}`;
+    return `$${Math.round(num)}`;
   };
 
   React.useEffect(() => {

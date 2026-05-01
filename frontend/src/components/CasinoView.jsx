@@ -108,7 +108,7 @@ const resolveWalletBalance = (payload, fallbackValue = null) => {
 
 const normalizePositiveNumber = (value) => {
     const num = Number(value);
-    return Number.isFinite(num) && num > 0 ? Math.floor(num) : null;
+    return Number.isFinite(num) && num > 0 ? num : null;
 };
 
 const buildLocalGameBetLimits = (activeGame, walletPayload, availableBalance) => {
@@ -124,9 +124,9 @@ const buildLocalGameBetLimits = (activeGame, walletPayload, availableBalance) =>
         accountMaxBet: null,
         gameMinBet,
         gameMaxBet,
-        effectiveMinBet: Number.isFinite(effectiveMinBet) ? Math.floor(effectiveMinBet) : 0,
-        effectiveMaxBet: effectiveMaxBet === null ? null : Math.floor(effectiveMaxBet),
-        availableBalance: Number.isFinite(Number(availableBalance)) ? Math.floor(Number(availableBalance)) : null,
+        effectiveMinBet: Number.isFinite(effectiveMinBet) ? effectiveMinBet : 0,
+        effectiveMaxBet: effectiveMaxBet === null ? null : effectiveMaxBet,
+        availableBalance: Number.isFinite(Number(availableBalance)) ? Number(availableBalance) : null,
         lineMin: 1,
         lineMax: 20,
         coinStep: 0.05,
@@ -145,7 +145,7 @@ const resolveLocalGameOrigin = (gameLike) => {
 
 const buildRoundResultSummary = (r) => {
     if (!r) return null;
-    const fmt = (v) => `$${Math.floor(Math.abs(Number(v) || 0)).toLocaleString()}`;
+    const fmt = (v) => `$${Math.round(Math.abs(Number(v) || 0)).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
     if (r.jackpotWon) {
         return { label: 'JACKPOT!', detail: `+${fmt(r.jackpotPayout)}`, type: 'jackpot' };
     }
@@ -568,12 +568,12 @@ const CasinoView = () => {
         const min = Number(minBet);
         const max = Number(maxBet);
         if (!Number.isFinite(min) || !Number.isFinite(max)) return 'MIN/MAX set by table rules';
-        return `MIN: $${Math.floor(min)} | MAX: $${Math.floor(max)}`;
+        return `MIN: $${Math.round(min)} | MAX: $${Math.round(max)}`;
     };
     const formatMoney = (value) => {
         const num = Number(value || 0);
         if (Number.isNaN(num)) return '$0';
-        return `$${Math.floor(num)}`;
+        return `$${Math.round(num).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
     };
     const formatGameLabel = (value) => {
         switch (String(value || '').toLowerCase()) {
@@ -904,7 +904,7 @@ const CasinoView = () => {
                         <div className="game-overlay-balance">
                             <span className="game-overlay-balance-label">Balance</span>
                             <span className="game-overlay-balance-value">
-                                ${Math.floor(gameDisplayBalance).toLocaleString()}
+                                ${Math.round(Number(gameDisplayBalance)).toLocaleString('en-US', { maximumFractionDigits: 0 })}
                             </span>
                         </div>
                     )}
