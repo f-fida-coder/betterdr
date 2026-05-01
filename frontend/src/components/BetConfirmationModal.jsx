@@ -44,6 +44,7 @@ const BetConfirmationModal = ({
   totalRisk = 0,
   potentialPayout = 0,
   legStakes = null,
+  legWins = null,
   isFreeplay = false,
   onConfirm,
   onCancel,
@@ -58,8 +59,17 @@ const BetConfirmationModal = ({
   const isReverse = betType === 'reverse';
   const isStraight = betType === 'straight';
   // Each STRAIGHT leg is its own bet, so render its own Risk/Win line
-  // when the parent passes per-leg stakes. Win = stake × (decimal − 1).
+  // when the parent passes per-leg stakes.
   const showPerLegStakes = isStraight && Array.isArray(legStakes) && legStakes.length === selections.length;
+  const hasLegWins = showPerLegStakes && Array.isArray(legWins) && legWins.length === selections.length;
+  // For STRAIGHT mode, prefer the parent-supplied per-leg win sum over
+  // recomputing from `potentialPayout - totalRisk`. The recompute drifts
+  // by ±$1 when the odds are stored at 2dp precision (e.g. 1.87 instead
+  // of exact 1.86956…), making the modal disagree with the actual stored
+  // bet which uses American-integer math at placement time.
+  const displayedTotalWin = hasLegWins
+    ? legWins.reduce((sum, w) => sum + (Number(w) || 0), 0)
+    : Math.max(0, potentialPayout - totalRisk);
 
   return (
     <div style={{
@@ -97,10 +107,15 @@ const BetConfirmationModal = ({
           <div style={{ border: '1px solid rgba(255,255,255,0.12)', borderRadius: 10, overflow: 'hidden' }}>
             {selections.map((selection, idx) => {
               const legStake = showPerLegStakes ? Number(legStakes[idx] || 0) : 0;
+              // Prefer the parent-supplied legWin (American-integer math)
+              // over recomputing from decimal odds — the recompute drifts
+              // by ±$1 when odds are stored at 2dp precision.
               const decimalOdds = Number(selection.odds || 0);
-              const legWin = showPerLegStakes && legStake > 0 && decimalOdds > 1
-                ? legStake * (decimalOdds - 1)
-                : 0;
+              const legWin = hasLegWins
+                ? Number(legWins[idx] || 0)
+                : (showPerLegStakes && legStake > 0 && decimalOdds > 1
+                    ? legStake * (decimalOdds - 1)
+                    : 0);
               return (
                 <div
                   key={`${selection.matchId || 'sel'}-${idx}`}
@@ -164,7 +179,7 @@ const BetConfirmationModal = ({
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
               <span>Win</span>
-              <strong style={{ color: '#7ee7a8' }}>${formatAmount(Math.max(0, potentialPayout - totalRisk))}</strong>
+              <strong style={{ color: '#7ee7a8' }}>${formatAmount(displayedTotalWin)}</strong>
             </div>
             {betType === 'parlay' && selections.length > 1 && totalRisk > 0 && (
               <>

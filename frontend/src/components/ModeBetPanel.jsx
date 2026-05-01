@@ -2070,10 +2070,19 @@ const ModeBetPanel = ({
                 wager={normalizedMode === 'straight' ? straightTotalRisk : effectiveCombinedRisk}
                 totalRisk={totalRisk}
                 potentialPayout={potentialPayout}
-                // Per-leg stakes for STRAIGHT mode so the review modal can
-                // render Risk/Win for each leg (every leg is its own bet).
+                // Per-leg stakes + the user's intended Win for STRAIGHT mode.
+                // Win values come from resolveStake (American-integer math),
+                // not recomputed from rounded decimal odds in the modal — that
+                // recompute drifts to $1001 on a typed $1000 win when odds are
+                // stored at 2-decimal precision (e.g. 1.87 vs exact 1.86956…).
                 legStakes={normalizedMode === 'straight'
                     ? selections.map((sel) => wagerForSelection(sel))
+                    : null}
+                legWins={normalizedMode === 'straight'
+                    ? selections.map((sel) => {
+                        const { win } = effectiveStakeForSelection(sel);
+                        return Number.isFinite(win) && win > 0 ? Math.round(win) : 0;
+                    })
                     : null}
                 isFreeplay={useFreeplay && hasFreeplay}
                 onCancel={() => setShowConfirm(false)}
