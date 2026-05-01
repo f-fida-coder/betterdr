@@ -352,7 +352,7 @@
 }
 
 .my-bets-table-header {
-  background: #ef5350;
+  background: #1e3a8a;
   color: #ffffff;
   font-size: 13px;
   font-weight: 700;
@@ -363,11 +363,11 @@
 
 .my-bets-table-header .my-bets-table-col-risk,
 .my-bets-table-header .my-bets-table-col-win {
-  text-align: left;
+  text-align: right;
   font-weight: 700;
   /* Force white in the header — the per-column rules below paint Risk
-     red and Win dark for body rows, which would otherwise leak into
-     the header and tint "Risk" red against its own red background. */
+     blue and Win dark for body rows, which would otherwise leak into
+     the header and tint "Risk" blue against its own blue background. */
   color: #ffffff;
 }
 
@@ -511,15 +511,17 @@
 }
 
 .my-bets-table-col-risk {
-  color: #dc2626;
+  color: #1e3a8a;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
+  text-align: right;
 }
 
 .my-bets-table-col-win {
   color: #0f172a;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+  text-align: right;
 }
 
 .my-bets-table-col-win.won { color: #16a34a; font-weight: 700; }
@@ -553,7 +555,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-.my-bets-table-totals strong.risk-total { color: #dc2626; }
+.my-bets-table-totals strong.risk-total { color: #1e3a8a; }
 .my-bets-table-totals strong.won { color: #16a34a; }
 .my-bets-table-totals strong.lost { color: #dc2626; }
 

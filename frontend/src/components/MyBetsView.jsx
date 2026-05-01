@@ -436,7 +436,6 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending', showTota
                                 onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleExpanded(betId); } }}
                             >
                                 <span className="my-bets-table-col-desc">
-                                    <span className={`my-bets-table-chevron${isExpanded ? ' open' : ''}`} aria-hidden="true">▸</span>
                                     {multiLegLabel(bet)}
                                 </span>
                                 {!isGraded && <span className="my-bets-table-col-risk">{money(risk)}</span>}
@@ -488,7 +487,6 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending', showTota
                             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleExpanded(betId); } }}
                         >
                             <span className="my-bets-table-col-desc">
-                                <span className={`my-bets-table-chevron${isExpanded ? ' open' : ''}`} aria-hidden="true">▸</span>
                                 {logoSrc && (
                                     <img
                                         src={logoSrc}
