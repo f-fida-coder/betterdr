@@ -61,7 +61,7 @@ function DeletedWagersView() {
     if (amount === null || amount === undefined) return '—';
     const num = Number(amount);
     if (Number.isNaN(num)) return '—';
-    return `$${Math.round(num)}`;
+    return `$${Math.floor(num)}`;
   };
 
   return (

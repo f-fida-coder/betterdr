@@ -179,7 +179,7 @@ final class BetSettlementService
                     );
 
                     $ticketStatus = (string) ($evaluation['status'] ?? 'pending');
-                    $ticketPayout = round(self::num($evaluation['payout'] ?? 0));
+                    $ticketPayout = round(self::num($evaluation['payout'] ?? 0), 2);
 
                     if ($ticketStatus === 'pending') {
                         $db->updateOne('bets', ['id' => SqlRepository::id($betId)], [

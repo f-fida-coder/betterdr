@@ -108,10 +108,10 @@ function UserStatisticsView({ userId, onBack }) {
 
                     <div className="stat-section">
                         <h4>Financials</h4>
-                        <div className="detail-row"><label>Balance:</label> <span>${Math.ceil(Number(user.balance || 0))}</span></div>
-                        <div className="detail-row"><label>Credit Limit:</label> <span>${Math.ceil(Number(user.creditLimit || 0))}</span></div>
-                        <div className="detail-row"><label>Owed:</label> <span>${Math.ceil(Number(user.balanceOwed || 0))}</span></div>
-                        <div className="detail-row"><label>Net Earnings:</label> <span className={(stats.netProfit || 0) >= 0 ? 'text-success' : 'text-danger'}>${Math.ceil(Number(stats.netProfit || 0))}</span></div>
+                        <div className="detail-row"><label>Balance:</label> <span>${Math.floor(Number(user.balance || 0))}</span></div>
+                        <div className="detail-row"><label>Credit Limit:</label> <span>${Math.floor(Number(user.creditLimit || 0))}</span></div>
+                        <div className="detail-row"><label>Owed:</label> <span>${Math.floor(Number(user.balanceOwed || 0))}</span></div>
+                        <div className="detail-row"><label>Net Earnings:</label> <span className={(stats.netProfit || 0) >= 0 ? 'text-success' : 'text-danger'}>${Math.floor(Number(stats.netProfit || 0))}</span></div>
                     </div>
 
                     <div className="stat-section full-width">
@@ -126,11 +126,11 @@ function UserStatisticsView({ userId, onBack }) {
                                 <span className="stat-label">W - L - V</span>
                             </div>
                             <div className="stat-card">
-                                <span className="stat-value">${Math.round(Number(stats.totalWagered || 0))}</span>
+                                <span className="stat-value">${Math.floor(Number(stats.totalWagered || 0))}</span>
                                 <span className="stat-label">Total Wagered</span>
                             </div>
                             <div className="stat-card">
-                                <span className="stat-value text-success">${Math.round(Number(stats.totalWon || 0))}</span>
+                                <span className="stat-value text-success">${Math.floor(Number(stats.totalWon || 0))}</span>
                                 <span className="stat-label">Total Won</span>
                             </div>
                         </div>

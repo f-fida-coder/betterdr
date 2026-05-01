@@ -667,7 +667,7 @@ function CustomerAdminView({ onViewChange }) {
     if (balance === null || balance === undefined || balance === '') return '—';
     const num = toMoneyNumber(balance, NaN);
     if (Number.isNaN(num)) return '—';
-    return `$${Math.round(num).toLocaleString('en-US')}`;
+    return `$${Math.floor(num).toLocaleString('en-US')}`;
   };
 
   const canCreateCustomer = !viewOnly

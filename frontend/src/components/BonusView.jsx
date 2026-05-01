@@ -26,7 +26,7 @@ const WITHDRAW_METHODS = [
 
 const QUICK_AMOUNTS = [25, 50, 100, 250, 500, 1000];
 
-const money = (value) => `$${Math.round(Number(value || 0))}`;
+const money = (value) => `$${Math.floor(Number(value || 0))}`;
 
 const BonusView = () => {
     const token = localStorage.getItem('token');
@@ -112,7 +112,9 @@ const BonusView = () => {
     }, [transactions]);
 
     const handleDepositRequest = async () => {
-        const amount = Number(depositAmount);
+        // floor() so deposit is always an integer dollar amount — decimal
+        // cents are silently dropped (e.g. user typing 10.99 deposits 10).
+        const amount = Math.floor(Number(depositAmount));
         if (Number.isNaN(amount) || amount < 10) {
             setError('Deposit must be at least $10');
             return;
@@ -132,12 +134,15 @@ const BonusView = () => {
     };
 
     const handleWithdrawalRequest = async () => {
-        const amount = Number(withdrawAmount);
+        // floor() so withdraw is integer-only — e.g. balance 9.84 floors
+        // to 9 in the displayed availableBalance, so user can withdraw 9
+        // (succeeds) but a typed 10 is rejected here before the API call.
+        const amount = Math.floor(Number(withdrawAmount));
         if (Number.isNaN(amount) || amount < 20) {
             setError('Withdrawal must be at least $20');
             return;
         }
-        if (amount > balance.availableBalance) {
+        if (amount > Math.floor(Number(balance.availableBalance || 0))) {
             setError('Withdrawal exceeds available balance');
             return;
         }
@@ -245,8 +250,9 @@ const BonusView = () => {
                                     <input
                                         type="number"
                                         min="10"
+                                        step="1"
                                         value={depositAmount}
-                                        onChange={(e) => setDepositAmount(e.target.value)}
+                                        onChange={(e) => setDepositAmount(String(e.target.value).replace(/\D/g, ''))}
                                         placeholder="Enter amount"
                                     />
                                 </div>
@@ -301,8 +307,9 @@ const BonusView = () => {
                                     <input
                                         type="number"
                                         min="20"
+                                        step="1"
                                         value={withdrawAmount}
-                                        onChange={(e) => setWithdrawAmount(e.target.value)}
+                                        onChange={(e) => setWithdrawAmount(String(e.target.value).replace(/\D/g, ''))}
                                         placeholder="Enter amount"
                                     />
                                 </div>

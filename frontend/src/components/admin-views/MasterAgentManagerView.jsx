@@ -263,7 +263,7 @@ function MasterAgentManagerView() {
                                     <td><span className="badge">{agent.role === 'master_agent' ? 'Master Agent' : 'Agent'}</span></td>
                                     <td><span className={`badge ${agent.status}`}>{agent.status}</span></td>
                                     <td>{agent.userCount || 0}</td>
-                                    <td>${Math.ceil(Number(agent.balance || 0))}</td>
+                                    <td>${Math.floor(Number(agent.balance || 0))}</td>
                                     <td>
                                         <button className="btn-small" onClick={() => openEditModal(agent)}>Edit</button>
                                         <button className="btn-small" onClick={() => {

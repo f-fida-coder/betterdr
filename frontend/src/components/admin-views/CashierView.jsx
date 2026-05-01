@@ -198,7 +198,7 @@ function CashierView() {
     if (amount === null || amount === undefined) return '—';
     const num = Number(amount);
     if (Number.isNaN(num)) return '—';
-    return `$${Math.ceil(num).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
+    return `$${Math.floor(num).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
   };
 
   const getEntryUserOptions = (entry) => {
@@ -237,7 +237,7 @@ function CashierView() {
   const roundMoney = (value) => {
     const num = Number(value);
     if (!Number.isFinite(num)) return 0;
-    return Math.round(num * 100) / 100;
+    return Math.floor(num);
   };
 
   const updateEntryById = (id, updater, isAgentMode = false) => {

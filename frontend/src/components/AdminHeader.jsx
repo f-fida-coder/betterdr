@@ -204,15 +204,11 @@ function AdminHeader({
     };
   }, [role, selectedWeekStart]);
 
-  // ceil() (not round) so admin/agent header figures never read below the
-  // stored value — keeps player and admin views in sync. PHP backend's
-  // buildAuthPayload also ceil()s on the read path, so the API → UI chain
-  // is internally consistent.
   const roundForDisplay = (value) => {
     if (value === null || value === undefined) return null;
     const num = Number(value);
     if (Number.isNaN(num)) return null;
-    const rounded = Math.ceil(num);
+    const rounded = Math.floor(num);
     return Object.is(rounded, -0) ? 0 : rounded;
   };
 

@@ -62,15 +62,15 @@ final class WalletController
                 return;
             }
 
-            $balance = (float) ceil($this->num($user['balance'] ?? 0));
-            $pendingBalance = (float) ceil($this->num($user['pendingBalance'] ?? 0));
+            $balance = (float) floor($this->num($user['balance'] ?? 0));
+            $pendingBalance = (float) floor($this->num($user['pendingBalance'] ?? 0));
             $availableBalance = max(0, $balance - $pendingBalance);
             $limits = is_array($user['gamblingLimits'] ?? null) ? $user['gamblingLimits'] : [];
             $accountMinBet = isset($user['minBet']) && is_numeric($user['minBet']) && (float) $user['minBet'] > 0
-                ? (float) ceil((float) $user['minBet'])
+                ? (float) floor((float) $user['minBet'])
                 : null;
             $accountMaxBet = isset($user['maxBet']) && is_numeric($user['maxBet']) && (float) $user['maxBet'] > 0
-                ? (float) ceil((float) $user['maxBet'])
+                ? (float) floor((float) $user['maxBet'])
                 : null;
 
             Response::json([
@@ -79,7 +79,7 @@ final class WalletController
                 'availableBalance' => $availableBalance,
                 'minBet' => $accountMinBet,
                 'maxBet' => $accountMaxBet,
-                'totalWinnings' => (float) ceil($this->num($user['totalWinnings'] ?? 0)),
+                'totalWinnings' => (float) floor($this->num($user['totalWinnings'] ?? 0)),
                 'gamblingLimits' => $limits,
                 'remainingLimits' => $this->computeRemainingLimits($user, $limits),
             ]);

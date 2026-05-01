@@ -4,7 +4,7 @@ import { formatOdds } from '../utils/odds';
 
 const formatAmount = (value) => {
   const n = Number(value);
-  return Number.isFinite(n) ? String(Math.round(n)) : '0';
+  return Number.isFinite(n) ? String(Math.floor(n)) : '0';
 };
 
 const prettyMode = (mode) => String(mode || 'straight').replace('_', ' ').toUpperCase();

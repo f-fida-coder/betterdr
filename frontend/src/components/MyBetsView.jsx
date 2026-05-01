@@ -5,11 +5,11 @@ import { formatLineValue, formatOdds } from '../utils/odds';
 import { fetchTeamBadgeUrl, createFallbackTeamLogoDataUri } from '../utils/teamLogos';
 import '../mybets.css';
 
-const money = (value) => `$${Math.round(Number(value || 0))}`;
+const money = (value) => `$${Math.floor(Number(value || 0))}`;
 const moneySigned = (value) => {
     const n = Number(value || 0);
-    if (n > 0) return `+$${Math.abs(Math.round(n))}`;
-    if (n < 0) return `-$${Math.abs(Math.round(n))}`;
+    if (n > 0) return `+$${Math.floor(Math.abs(n))}`;
+    if (n < 0) return `-$${Math.floor(Math.abs(n))}`;
     return '$0';
 };
 const normalizeStatus = (value) => String(value || 'pending').trim().toLowerCase();
@@ -225,10 +225,10 @@ const ticketAmount = (bet) => {
     const risk = Number(bet?.riskAmount || bet?.amount || 0);
     const potential = Number(bet?.potentialPayout || 0);
     const profit = Math.max(0, potential - risk);
-    if (status === 'won') return { text: `+$${Math.round(profit)}`, theme: 'won' };
-    if (status === 'lost') return { text: `-$${Math.round(risk)}`, theme: 'lost' };
-    if (status === 'void') return { text: `Refund $${Math.round(risk)}`, theme: 'void' };
-    return { text: `$${Math.round(profit)}`, theme: 'pending' };
+    if (status === 'won') return { text: `+$${Math.floor(profit)}`, theme: 'won' };
+    if (status === 'lost') return { text: `-$${Math.floor(risk)}`, theme: 'lost' };
+    if (status === 'void') return { text: `Refund $${Math.floor(risk)}`, theme: 'void' };
+    return { text: `$${Math.floor(profit)}`, theme: 'pending' };
 };
 
 const payoutLabel = (status) => {

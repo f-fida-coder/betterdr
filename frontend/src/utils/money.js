@@ -39,7 +39,6 @@ export const toMoneyNumber = (value, fallback = 0) => {
 
 export const getMoneyToneClass = (value) => {
   const num = toMoneyNumber(value, 0);
-  const rounded = Math.round(num);
-  if (Math.abs(rounded) < 0.5) return 'neutral';
-  return rounded < 0 ? 'neg' : 'pos';
+  if (Math.abs(num) < 0.5) return 'neutral';
+  return num < 0 ? 'neg' : 'pos';
 };

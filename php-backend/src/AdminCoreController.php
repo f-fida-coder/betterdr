@@ -2726,7 +2726,7 @@ final class AdminCoreController
                     Response::json(['message' => 'Amount is required'], 400);
                     return;
                 }
-                $requestedAmount = round((float) $body['amount'], 2);
+                $requestedAmount = (float) floor((float) $body['amount']);
                 if ($requestedAmount <= 0) {
                     Response::json(['message' => 'Amount must be greater than 0'], 400);
                     return;
@@ -10334,7 +10334,7 @@ final class AdminCoreController
                     Response::json(['message' => 'Amount is required'], 400);
                     return;
                 }
-                $requestedAmount = round((float) $body['amount'], 2);
+                $requestedAmount = (float) floor((float) $body['amount']);
                 if ($requestedAmount <= 0) {
                     Response::json(['message' => 'Amount must be greater than 0'], 400);
                     return;
@@ -10353,7 +10353,7 @@ final class AdminCoreController
                     Response::json(['message' => 'Balance is required'], 400);
                     return;
                 }
-                $nextBalanceTarget = max(0.0, round((float) $body['balance'], 2));
+                $nextBalanceTarget = max(0.0, (float) floor((float) $body['balance']));
             }
 
             $applyDepositFreePlayBonus = true;
@@ -10413,7 +10413,7 @@ final class AdminCoreController
                 $balanceBefore = $this->num($lockedUser['balance'] ?? 0);
                 if ($operationMode === 'transaction') {
                     $diff = $requestedDirection === 'credit' ? $requestedAmount : -$requestedAmount;
-                    $nextBalance = round($balanceBefore + $diff, 2);
+                    $nextBalance = (float) floor($balanceBefore + $diff);
                 } else {
                     $nextBalance = $nextBalanceTarget;
                     $diff = $nextBalance - $balanceBefore;

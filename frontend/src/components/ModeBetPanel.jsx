@@ -28,7 +28,7 @@ const MODE_TABS = [
 
 const formatAmount = (value) => {
     const n = Number(value);
-    return Number.isFinite(n) ? String(Math.ceil(n)) : '0';
+    return Number.isFinite(n) ? String(Math.floor(n)) : '0';
 };
 
 const getTeaserMultiplier = (rule, legCount) => {
@@ -120,8 +120,7 @@ const resolveStake = (mode, amount, decimalOdds) => {
 const formatMoney = (value) => {
     const n = Number(value);
     if (!Number.isFinite(n) || n === 0) return '0';
-    // Match backend stake rounding and confirm-modal display.
-    return String(Math.round(n));
+    return String(Math.floor(n));
 };
 
 // Trim trailing zeros: 1.50 -> "1.5", 47.0 -> "47", 47.5 -> "47.5".
@@ -324,8 +323,8 @@ const ModeBetPanel = ({
     // hardcoded extremes when the player has no min/max configured.
     const playerMinBet = Number(user?.minBet);
     const playerMaxBet = Number(user?.maxBet);
-    const minBetChip = Number.isFinite(playerMinBet) && playerMinBet > 0 ? Math.round(playerMinBet) : QUICK_STAKES[0];
-    const maxBetChip = Number.isFinite(playerMaxBet) && playerMaxBet > 0 ? Math.round(playerMaxBet) : QUICK_STAKES[3];
+    const minBetChip = Number.isFinite(playerMinBet) && playerMinBet > 0 ? Math.floor(playerMinBet) : QUICK_STAKES[0];
+    const maxBetChip = Number.isFinite(playerMaxBet) && playerMaxBet > 0 ? Math.floor(playerMaxBet) : QUICK_STAKES[3];
     const customQuickStakes = [minBetChip, QUICK_STAKES[1], QUICK_STAKES[2], maxBetChip];
 
     // Single shared Bet/Risk/Win mode for the whole slip. The `wager`

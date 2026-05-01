@@ -62,16 +62,13 @@ const palette = {
 const formatMoney = (value) => {
     const number = Number(value);
     if (!Number.isFinite(number)) return '0';
-    return Math.ceil(number).toLocaleString(undefined, { maximumFractionDigits: 0 });
+    return Math.floor(number).toLocaleString(undefined, { maximumFractionDigits: 0 });
 };
 
-// Whole-dollar formatter — same as formatMoney now (ceil), kept as separate
-// export because callers depend on the name. Both round up to the nearest
-// dollar so balances never display fractional cents.
 const formatMoneyWhole = (value) => {
     const number = Number(value);
     if (!Number.isFinite(number)) return '0';
-    return Math.ceil(number).toLocaleString(undefined, { maximumFractionDigits: 0 });
+    return Math.floor(number).toLocaleString(undefined, { maximumFractionDigits: 0 });
 };
 
 const initialsOf = (name) => {

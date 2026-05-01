@@ -5,10 +5,7 @@ import { formatOdds, formatLineValue } from '../utils/odds';
 const fmtMoney = (value) => {
     const n = Number(value);
     if (!Number.isFinite(n)) return '0';
-    // Round to a clean integer for the headline tiles — that's what the
-    // user's reference design ("Risking 1100 / To Win 1000") shows. Sub-
-    // dollar precision is preserved on the per-leg stake row below.
-    return Math.round(n).toLocaleString();
+    return Math.floor(n).toLocaleString();
 };
 
 const fmtTimestamp = (value) => {
