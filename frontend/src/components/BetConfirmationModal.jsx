@@ -19,6 +19,23 @@ const marketShortLabel = (selection = {}) => {
   return '';
 };
 
+const formatGameTime = (selection = {}) => {
+  const iso = selection?.matchSnapshot?.startTime
+    || selection?.match?.startTime
+    || selection?.startTime
+    || selection?.commenceTime;
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZoneName: 'short',
+  });
+};
+
 const BetConfirmationModal = ({
   isOpen,
   betType,
@@ -92,6 +109,12 @@ const BetConfirmationModal = ({
                   <div style={{ color: '#ffd776', fontWeight: 700 }}>
                     {selection.selection} {marketShortLabel(selection)} {formatOdds(selection.odds, oddsFormat)}
                   </div>
+                  {formatGameTime(selection) && (
+                    <div style={{ color: '#9aa5bd', fontSize: 11, marginTop: 4 }}>
+                      <i className="fa-regular fa-clock" style={{ marginRight: 4 }} />
+                      {formatGameTime(selection)}
+                    </div>
+                  )}
                   {showPerLegStakes && legStake > 0 && (
                     <div style={{
                       display: 'flex',

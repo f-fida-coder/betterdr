@@ -18,6 +18,7 @@ const fmtTimestamp = (value) => {
         year: 'numeric',
         hour: '2-digit',
         minute: '2-digit',
+        timeZoneName: 'short',
     });
 };
 
@@ -33,6 +34,20 @@ const matchTitle = (leg) => {
     const away = leg?.matchSnapshot?.awayTeam || leg?.match?.awayTeam;
     if (home && away) return `${away} @ ${home}`;
     return leg?.matchName || '';
+};
+
+const matchStartTime = (leg) => {
+    const iso = leg?.matchSnapshot?.startTime || leg?.match?.startTime || leg?.startTime;
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '';
+    return d.toLocaleString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        timeZoneName: 'short',
+    });
 };
 
 /**
@@ -179,6 +194,12 @@ const WagerConfirmedScreen = ({
                                                 <div style={{ fontSize: 11, color: '#64748b' }}>
                                                     {matchTitle(leg) || (leg.matchId || '')}
                                                 </div>
+                                                {matchStartTime(leg) && (
+                                                    <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
+                                                        <i className="fa-regular fa-clock" style={{ marginRight: 4 }} />
+                                                        {matchStartTime(leg)}
+                                                    </div>
+                                                )}
                                             </div>
                                             <div style={{ fontSize: 12, fontWeight: 700, color: '#0f172a', whiteSpace: 'nowrap' }}>
                                                 {formatOdds(leg.odds, oddsFormat)}

@@ -1477,6 +1477,22 @@ const ModeBetPanel = ({
                         : (win > 0 ? formatMoney(win) : '');
                     const matchupTitle = String(sel.matchName || sel.selection || '').toUpperCase();
                     const betTypeText = betTypeLineLabel(sel);
+                    // Game start time with the user's timezone abbreviation
+                    // so a glance at the bet slip answers "is this tonight?"
+                    // without leaving the panel.
+                    const startIso = sel?.matchSnapshot?.startTime || sel?.match?.startTime || sel?.startTime;
+                    const matchTimeLabel = (() => {
+                        if (!startIso) return '';
+                        const d = new Date(startIso);
+                        if (Number.isNaN(d.getTime())) return '';
+                        return d.toLocaleString(undefined, {
+                            month: 'short',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            timeZoneName: 'short',
+                        });
+                    })();
                     const market = String(sel.marketType || '').toLowerCase();
                     const supportsBuyPoints = market === 'spreads' || market === 'totals';
                     const buyPointsOptions = supportsBuyPoints ? buildBuyPointsOptions(sel) : [];
@@ -1566,10 +1582,23 @@ const ModeBetPanel = ({
                                     fontWeight: 800,
                                     color: palette.textPrimary,
                                     lineHeight: 1.3,
-                                    marginBottom: 8,
+                                    marginBottom: matchTimeLabel ? 4 : 8,
                                 }}>
                                     {sel.selection}
                                 </div>
+                                {matchTimeLabel && (
+                                    <div style={{
+                                        fontSize: 11,
+                                        color: palette.textMuted || '#6b7280',
+                                        marginBottom: 8,
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: 4,
+                                    }}>
+                                        <i className="fa-regular fa-clock" />
+                                        {matchTimeLabel}
+                                    </div>
+                                )}
 
                                 {/* Bet type + line on the left, American odds
                                     (always green) on the right. ML bets only
