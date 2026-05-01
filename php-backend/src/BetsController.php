@@ -220,6 +220,24 @@ final class BetsController
 
             $totalRisk = SportsbookBetSupport::ticketRiskAmount($type, $betAmount);
             $potentialPayout = SportsbookBetSupport::calculatePotentialPayout($type, $betAmount, $validatedSelections, $modeRule);
+
+            // Win-mode pinning: when the client typed in Win mode and sent
+            // `requestedWin`, lock potentialPayout = totalRisk + requestedWin
+            // so the player gets exactly what they typed. Otherwise the
+            // round(risk × decimal) recompute drifts to $999/$1001 on a
+            // typed $1000 win for non-round odds. Range-checked so a stray
+            // / malicious value can't manipulate payout — must be within
+            // ±$2 of the computed payout, which is the worst-case rounding
+            // drift for any single integer-risk leg.
+            $requestedWinRaw = $body['requestedWin'] ?? null;
+            if (is_numeric($requestedWinRaw)) {
+                $requestedWin = (float) round((float) $requestedWinRaw);
+                $pinnedPayout = $totalRisk + $requestedWin;
+                if ($requestedWin > 0 && abs($pinnedPayout - $potentialPayout) <= 2.0) {
+                    $potentialPayout = $pinnedPayout;
+                }
+            }
+
             $combinedOdds = SportsbookBetSupport::combinedOdds($totalRisk, $potentialPayout);
 
             // Win-anchored min/max validation. The agent's exposure on a

@@ -76,18 +76,23 @@ const BetConfirmationModal = ({
       <div style={{
         width: '100%',
         maxWidth: 520,
+        // Cap to viewport so a long selection list stays scrollable inside the
+        // modal without pushing the Cancel/Confirm footer off-screen.
+        maxHeight: 'calc(100vh - 32px)',
+        display: 'flex',
+        flexDirection: 'column',
         borderRadius: 12,
         border: '1px solid rgba(255,255,255,0.15)',
         background: 'linear-gradient(180deg, rgba(18,26,43,0.98), rgba(13,19,30,0.98))',
         color: '#fff',
         boxShadow: '0 16px 44px rgba(0,0,0,0.35)',
       }}>
-        <div style={{ padding: '16px 18px', borderBottom: '1px solid rgba(255,255,255,0.12)' }}>
+        <div style={{ padding: '16px 18px', borderBottom: '1px solid rgba(255,255,255,0.12)', flexShrink: 0 }}>
           <div style={{ fontSize: 12, color: '#9ec6ff', letterSpacing: '0.08em' }}>BET REVIEW</div>
           <div style={{ fontSize: 18, fontWeight: 800, marginTop: 3 }}>{prettyMode(betType)}</div>
         </div>
 
-        <div style={{ padding: 18 }}>
+        <div style={{ padding: 18, overflowY: 'auto', flex: 1, minHeight: 0 }}>
           <div style={{ fontSize: 13, color: '#b8c3d8', marginBottom: 8 }}>Selections</div>
           <div style={{ border: '1px solid rgba(255,255,255,0.12)', borderRadius: 10, overflow: 'hidden' }}>
             {selections.map((selection, idx) => {
@@ -187,6 +192,7 @@ const BetConfirmationModal = ({
           display: 'flex',
           justifyContent: 'flex-end',
           gap: 10,
+          flexShrink: 0,
         }}>
           <button
             onClick={onCancel}

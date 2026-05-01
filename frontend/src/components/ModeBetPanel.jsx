@@ -477,6 +477,19 @@ const ModeBetPanel = ({
         return Number.isFinite(risk) && risk > 0 ? risk : 0;
     }, [normalizedMode, effectiveStakeForSelection]);
 
+    // Per-leg user-intended Win for STRAIGHT mode. When the user typed in
+    // Win mode (or edited the per-card Win input), this is the exact $$$
+    // they want the bet to pay — passed to the backend as `requestedWin`
+    // so potentialPayout is pinned to (risk + requestedWin) instead of
+    // back-computed from rounded risk × decimal odds (which drifts to
+    // $999 / $1001 on a typed $1000 win).
+    const winForSelection = React.useCallback((sel) => {
+        if (normalizedMode !== 'straight') return 0;
+        const { win, source } = effectiveStakeForSelection(sel);
+        if (source !== 'win' && stakeMode !== 'win') return 0;
+        return Number.isFinite(win) && win > 0 ? Math.round(win) : 0;
+    }, [normalizedMode, effectiveStakeForSelection, stakeMode]);
+
     const straightTotalRisk = useMemo(() => {
         if (normalizedMode !== 'straight') return 0;
         return selections.reduce((acc, sel) => acc + wagerForSelection(sel), 0);
@@ -841,17 +854,21 @@ const ModeBetPanel = ({
                 // stay in the slip as untouched so the user can come back
                 // to them without re-adding.
                 const legsToSubmit = selections
-                    .map((sel) => ({ sel, amount: wagerForSelection(sel) }))
+                    .map((sel) => ({ sel, amount: wagerForSelection(sel), requestedWin: winForSelection(sel) }))
                     .filter(({ amount }) => amount > 0);
                 // Collect each leg's placement response so the Wager
                 // Confirmed sheet can show one ticket card per leg —
                 // straight mode places N independent tickets, all of
                 // which are receipts the user expects to see.
                 const placedTickets = [];
-                for (const { sel, amount } of legsToSubmit) {
+                for (const { sel, amount, requestedWin } of legsToSubmit) {
                     const payload = {
                         type: 'straight',
                         amount,
+                        // Pin the user's typed Win so the backend doesn't
+                        // back-compute payout from rounded risk × odds (which
+                        // drifts to $999/$1001 on a typed $1000 win).
+                        ...(requestedWin > 0 ? { requestedWin } : {}),
                         teaserPoints: 0,
                         useFreeplay: useFp,
                         selections: [{
@@ -924,9 +941,13 @@ const ModeBetPanel = ({
             // The backend wants the actual Risk amount; if the user typed
             // in Win mode we already converted to Risk via resolveStake
             // against the ticket's combined decimal odds.
+            const combinedRequestedWin = stakeMode === 'win' && Number.isFinite(Number(wager)) && Number(wager) > 0
+                ? Math.round(Number(wager))
+                : 0;
             const payload = {
                 type: normalizedMode,
                 amount: effectiveCombinedRisk,
+                ...(combinedRequestedWin > 0 ? { requestedWin: combinedRequestedWin } : {}),
                 teaserPoints: normalizedMode === 'teaser' ? teaserPointValue : 0,
                 useFreeplay: useFp,
                 selections: selections.map((sel) => ({
