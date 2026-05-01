@@ -513,7 +513,7 @@ final class WalletController
         }
 
         $collection = $this->collectionByRole($role);
-        $actor = $this->db->findOne($collection, ['id' => SqlRepository::id($id)]);
+        $actor = Jwt::cachedUser($this->db, $collection, $id);
         if ($actor === null) {
             Response::json(['message' => 'Not authorized, user not found'], 403);
             return null;
@@ -540,18 +540,26 @@ final class WalletController
         }
 
         if ($ip !== 'unknown') {
-            $ownerModel = IpUtils::ownerModelForRole((string) ($actor['role'] ?? 'user'));
-            $this->db->updateOneUpsert('iplogs', $this->ownerFilter($actor, $ip), [
-                'userAgent' => Http::header('user-agent') !== '' ? Http::header('user-agent') : null,
-                'lastActive' => SqlRepository::nowUtc(),
-                'userModel' => $ownerModel,
-                'updatedAt' => SqlRepository::nowUtc(),
-            ], [
-                'country' => 'Unknown',
-                'city' => 'Unknown',
-                'status' => 'active',
-                'createdAt' => SqlRepository::nowUtc(),
-            ]);
+            // Throttle the lastActive update to at most once per 60 s per user-IP pair.
+            $ipTrackKey = 'ip_active:' . (string) ($actor['id'] ?? '') . ':' . $ip;
+            $alreadyTracked = function_exists('apcu_fetch') && apcu_fetch($ipTrackKey) !== false;
+            if (!$alreadyTracked) {
+                $ownerModel = IpUtils::ownerModelForRole((string) ($actor['role'] ?? 'user'));
+                $this->db->updateOneUpsert('iplogs', $this->ownerFilter($actor, $ip), [
+                    'userAgent' => Http::header('user-agent') !== '' ? Http::header('user-agent') : null,
+                    'lastActive' => SqlRepository::nowUtc(),
+                    'userModel' => $ownerModel,
+                    'updatedAt' => SqlRepository::nowUtc(),
+                ], [
+                    'country' => 'Unknown',
+                    'city' => 'Unknown',
+                    'status' => 'active',
+                    'createdAt' => SqlRepository::nowUtc(),
+                ]);
+                if (function_exists('apcu_store')) {
+                    apcu_store($ipTrackKey, 1, 60);
+                }
+            }
         }
 
         return $actor;

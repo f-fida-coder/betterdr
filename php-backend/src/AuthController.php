@@ -462,7 +462,7 @@ final class AuthController
             // Restore session purely from the httpOnly cookie (called on page reload).
             $cookieToken = $_COOKIE['auth_token'] ?? '';
             if ($cookieToken === '') {
-                Response::json(['message' => 'No session cookie'], 401);
+                Response::json(['authenticated' => false], 200, 'no-store');
                 return;
             }
 
@@ -483,7 +483,7 @@ final class AuthController
             }
 
             $collection = $this->collectionByRole($role);
-            $user = $this->db->findOne($collection, ['id' => SqlRepository::id($id)]);
+            $user = Jwt::cachedUser($this->db, $collection, $id);
             if ($user === null) {
                 Response::json(['message' => 'User not found'], 401);
                 return;
@@ -560,7 +560,7 @@ final class AuthController
         }
 
         $collection = $this->collectionByRole($role);
-        $user = $this->db->findOne($collection, ['id' => SqlRepository::id($id)]);
+        $user = Jwt::cachedUser($this->db, $collection, $id);
         if ($user === null) {
             Response::json(['message' => 'Not authorized, user not found'], 403);
             return null;
@@ -741,7 +741,7 @@ final class AuthController
         }
 
         $collection = $this->collectionByRole($role);
-        $user = $this->db->findOne($collection, ['id' => SqlRepository::id($id)]);
+        $user = Jwt::cachedUser($this->db, $collection, $id);
         if ($user === null) {
             Response::json(['message' => 'Not authorized, user not found'], 403);
             return null;
@@ -799,17 +799,27 @@ final class AuthController
         }
 
         if ($ip !== 'unknown') {
-            $ownerModel = IpUtils::ownerModelForRole((string) ($user['role'] ?? 'user'));
-            $this->db->updateOneUpsert('iplogs', $this->ownerFilter($user, $ip), [
-                'userAgent' => Http::header('user-agent') !== '' ? Http::header('user-agent') : null,
-                'lastActive' => SqlRepository::nowUtc(),
-                'userModel' => $ownerModel,
-            ], [
-                'country' => 'Unknown',
-                'city' => 'Unknown',
-                'status' => 'active',
-                'createdAt' => SqlRepository::nowUtc(),
-            ]);
+            // Throttle the lastActive update to at most once per 60 s per user-IP pair.
+            // Without this, every authenticated request (e.g. bets poll every 30 s) fires
+            // a DB write — a major source of unnecessary write IOPS under high traffic.
+            $ipTrackKey = 'ip_active:' . $id . ':' . $ip;
+            $alreadyTracked = function_exists('apcu_fetch') && apcu_fetch($ipTrackKey) !== false;
+            if (!$alreadyTracked) {
+                $ownerModel = IpUtils::ownerModelForRole((string) ($user['role'] ?? 'user'));
+                $this->db->updateOneUpsert('iplogs', $this->ownerFilter($user, $ip), [
+                    'userAgent' => Http::header('user-agent') !== '' ? Http::header('user-agent') : null,
+                    'lastActive' => SqlRepository::nowUtc(),
+                    'userModel' => $ownerModel,
+                ], [
+                    'country' => 'Unknown',
+                    'city' => 'Unknown',
+                    'status' => 'active',
+                    'createdAt' => SqlRepository::nowUtc(),
+                ]);
+                if (function_exists('apcu_store')) {
+                    apcu_store($ipTrackKey, 1, 60);
+                }
+            }
         }
 
         return $user;

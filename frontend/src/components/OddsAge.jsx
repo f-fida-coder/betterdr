@@ -18,7 +18,9 @@ const OddsAge = ({ timestamp, live = false, className, style: extraStyle }) => {
     const [nowTick, setNowTick] = useState(() => Date.now());
 
     useEffect(() => {
-        const id = window.setInterval(() => setNowTick(Date.now()), TICK_MS);
+        const id = window.setInterval(() => {
+            if (!document.hidden) setNowTick(Date.now());
+        }, TICK_MS);
         return () => window.clearInterval(id);
     }, []);
 

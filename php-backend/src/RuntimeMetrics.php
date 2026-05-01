@@ -153,7 +153,13 @@ final class RuntimeMetrics
         }
 
         try {
-            if (!@flock($handle, LOCK_EX)) {
+            // LOCK_NB: non-blocking — if another worker holds the lock, skip
+            // this write rather than stalling the HTTP request. Under high
+            // concurrency (20k+ users) a blocking lock here would queue every
+            // single request behind one file write. Losing a few metric
+            // samples is acceptable; adding 50-200ms latency to every request
+            // is not.
+            if (!@flock($handle, LOCK_EX | LOCK_NB)) {
                 return;
             }
 

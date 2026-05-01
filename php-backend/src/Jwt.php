@@ -65,4 +65,32 @@ final class Jwt
         }
         return $decoded;
     }
+
+    /**
+     * Fetch a user record by collection + id, using APCu as a per-worker
+     * 15-second cache to avoid a DB round-trip on every authenticated request.
+     *
+     * The short TTL ensures that suspension/status changes propagate within
+     * 15 s — acceptable for all current access-control paths. The cache is
+     * stored in-process (APCu), so there is no cross-worker broadcast needed.
+     */
+    public static function cachedUser(SqlRepository $db, string $collection, string $id): ?array
+    {
+        $cacheKey = 'ua:' . $collection . ':' . $id;
+
+        if (function_exists('apcu_fetch')) {
+            $cached = apcu_fetch($cacheKey, $found);
+            if ($found) {
+                return is_array($cached) ? $cached : null;
+            }
+        }
+
+        $user = $db->findOne($collection, ['id' => SqlRepository::id($id)]);
+
+        if ($user !== null && function_exists('apcu_store')) {
+            apcu_store($cacheKey, $user, 15);
+        }
+
+        return $user;
+    }
 }

@@ -188,7 +188,25 @@ export function useWebSocket({
 
   useEffect(() => {
     connect();
+
+    // Visibility-based connection management: disconnect when the tab is
+    // hidden (saves a server-side WS connection + 25s heartbeat traffic for
+    // every idle user), reconnect as soon as the tab comes back into focus.
+    // On reconnect, the app re-subscribes and the next realtime event / poll
+    // cycle refreshes any stale data, so no data is lost.
+    const handleVisibility = () => {
+      if (document.hidden) {
+        disconnect();
+      } else {
+        // Reset attempts so the first reconnect after un-hiding is immediate.
+        reconnectAttemptsRef.current = 0;
+        connect();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibility);
     return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
       disconnect();
     };
   }, [connect, disconnect]);

@@ -353,7 +353,12 @@ final class CostMonitor
         }
 
         try {
-            if (!@flock($handle, LOCK_EX)) {
+            // Non-blocking — if another worker holds the lock, skip this
+            // cost-monitor write rather than stalling the HTTP response.
+            // CostMonitor is observability-only; dropping a sample is
+            // acceptable. Blocking 20k concurrent requests to update a
+            // JSON file is not.
+            if (!@flock($handle, LOCK_EX | LOCK_NB)) {
                 return;
             }
 

@@ -621,7 +621,7 @@ const MyBetsView = () => {
         const interval = window.setInterval(() => {
             if (document.hidden) return;
             void fetchBets({ silent: true });
-        }, 20000);
+        }, 30000);
 
         document.addEventListener('visibilitychange', handleVisibilityChange);
 

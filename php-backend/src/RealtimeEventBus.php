@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 final class RealtimeEventBus
 {
-    private const DEFAULT_MAX_LOG_BYTES = 5_242_880; // 5 MB
+    private const DEFAULT_MAX_LOG_BYTES = 5242880; // 5 MB
 
     public static function eventLogPath(): string
     {
@@ -44,7 +44,22 @@ final class RealtimeEventBus
             return false;
         }
 
-        return @file_put_contents($path, $line . "\n", FILE_APPEND | LOCK_EX) !== false;
+        // Use non-blocking exclusive lock so a slow/busy writer never stalls
+        // a bet-placement or live-sync request. If the log file is locked by
+        // another FPM worker, we skip this event — the WebSocket tail reader
+        // tolerates occasional gaps without breaking clients.
+        $handle = @fopen($path, 'a');
+        if ($handle === false) {
+            return false;
+        }
+        if (!@flock($handle, LOCK_EX | LOCK_NB)) {
+            @fclose($handle);
+            return false; // Another worker is writing; skip rather than block.
+        }
+        $written = @fwrite($handle, $line . "\n");
+        @flock($handle, LOCK_UN);
+        @fclose($handle);
+        return $written !== false;
     }
 
     private static function rotateIfNeeded(string $path): void
@@ -53,7 +68,7 @@ final class RealtimeEventBus
             return;
         }
 
-        $maxBytes = max(262_144, (int) Env::get('WS_EVENT_LOG_MAX_BYTES', (string) self::DEFAULT_MAX_LOG_BYTES));
+        $maxBytes = max(262144, (int) Env::get('WS_EVENT_LOG_MAX_BYTES', (string) self::DEFAULT_MAX_LOG_BYTES));
         $size = @filesize($path);
         if (!is_int($size) || $size < $maxBytes) {
             return;

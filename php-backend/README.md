@@ -56,6 +56,37 @@ Use existing project `.env` plus optional PHP-specific variable:
 
 If `ext-pdo_mysql` is not available, the PHP API returns `503`.
 
+## Production PHP-FPM and OPcache baseline
+
+Recommended high-concurrency baseline settings are provided in:
+
+- `php-backend/config/php-fpm-opcache-phase13.conf`
+
+Key values in that template:
+
+- `opcache.memory_consumption=256`
+- `opcache.max_accelerated_files=20000`
+- `opcache.jit_buffer_size=64M`
+- `pm=dynamic`
+- `pm.max_children=50`
+- `pm.start_servers=10`
+
+Apply those values to your server-level PHP config (`php.ini` and FPM pool file), then tune by available RAM and measured worker RSS.
+
+To verify effective runtime values on production over SSH:
+
+```bash
+./scripts/verify-php-runtime-config.sh user@host
+```
+
+Example:
+
+```bash
+./scripts/verify-php-runtime-config.sh u487877829@srv2052.hstgr.io
+```
+
+The script checks OPcache values directly from `ini_get` and attempts a best-effort read of PHP-FPM pool settings via `php-fpm -tt`.
+
 ## Local run
 
 From project root:

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import SportContentView from './SportContentView';
 import { findSportItemById } from '../data/sportsData';
 
@@ -67,7 +67,7 @@ const DashboardMain = ({ selectedSports = [], activeBetMode = 'straight' }) => {
         soccer: 'epl',
     };
 
-    const getSportSections = () => {
+    const sportSections = useMemo(() => {
         if (isDefault) {
             // No sport selected → show only the top 6 freshest matches
             // (live + upcoming, server-side freshness-gated). Avoids the
@@ -108,9 +108,8 @@ const DashboardMain = ({ selectedSports = [], activeBetMode = 'straight' }) => {
         });
 
         return sections.length > 0 ? sections : [{ sportId: null, filter: null }];
-    };
-
-    const sportSections = getSportSections();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedSports, isDefault]);
 
     // Stable key that changes when selection changes, forcing remount
     const sectionKey = selectedSports.join(',') || 'default';

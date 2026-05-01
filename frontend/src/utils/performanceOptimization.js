@@ -250,8 +250,17 @@ export function registerServiceWorker() {
           if (import.meta.env.DEV) {
             console.log('Service Worker registered:', reg);
           }
-          // Check for updates periodically
-          setInterval(() => reg.update(), 300000);
+          // Check for updates once per hour on tab focus instead of a
+          // fixed 5-minute polling interval that fires even for inactive tabs.
+          let lastUpdateCheck = 0;
+          const checkForUpdate = () => {
+            if (document.hidden) return;
+            const now = Date.now();
+            if (now - lastUpdateCheck < 3_600_000) return; // 1 hour
+            lastUpdateCheck = now;
+            reg.update().catch(() => {}); // best-effort
+          };
+          document.addEventListener('visibilitychange', checkForUpdate);
 
           // If a new worker is waiting, activate it immediately.
           if (reg.waiting) {
@@ -441,41 +450,6 @@ export function prefetchLikelyRoutes(currentPath) {
 }
 
 /**
- * Preload critical resources for immediate rendering.
- * Loads before Main bundle parsing.
- */
-export function preloadCriticalResources() {
-  const criticalAssets = [
-    {
-      href: '/assets/vendor-react-[hash].js',
-      as: 'script',
-      id: 'preload-vendor-react'
-    },
-    {
-      href: '/assets/app-api-[hash].js',
-      as: 'script',
-      id: 'preload-app-api'
-    },
-    {
-      href: '/assets/utils-shared-[hash].js',
-      as: 'script',
-      id: 'preload-utils'
-    }
-  ];
-
-  criticalAssets.forEach(asset => {
-    if (document.getElementById(asset.id)) return; // Already added
-    
-    const link = document.createElement('link');
-    link.id = asset.id;
-    link.rel = 'preload';
-    link.as = asset.as;
-    link.href = asset.href;
-    document.head.appendChild(link);
-  });
-}
-
-/**
  * DNS prefetch for multiple domains.
  * Reduces DNS lookup latency by 20-50ms per domain.
  */
@@ -596,9 +570,6 @@ function reportWebVital(metricName, value, endpoint) {
 export function initializePhase3AOptimizations() {
   // Load external presentation assets (fonts, icons)
   loadExternalPresentationAssets({ immediate: false });
-
-  // Preload critical resources
-  preloadCriticalResources();
 
   // Add DNS prefetch for multiple domains
   addAdvancedDnsPrefetch();

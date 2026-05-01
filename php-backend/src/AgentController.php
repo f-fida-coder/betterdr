@@ -1753,7 +1753,7 @@ final class AgentController
         }
 
         $collection = $this->collectionByRole($role);
-        $actor = $this->db->findOne($collection, ['id' => SqlRepository::id($id)]);
+        $actor = Jwt::cachedUser($this->db, $collection, $id);
         if ($actor === null) {
             Response::json(['message' => 'Not authorized, user not found'], 403);
             return null;

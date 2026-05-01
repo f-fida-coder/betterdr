@@ -176,7 +176,9 @@ final class SharedFileCache
         }
 
         $tempFile = $cacheFile . '.tmp.' . uniqid('', true);
-        @file_put_contents($tempFile, $encoded, LOCK_EX);
+        // No LOCK_EX needed: the temp filename is unique per-process via uniqid(),
+        // so no other worker can access it before the atomic rename.
+        @file_put_contents($tempFile, $encoded);
         @rename($tempFile, $cacheFile);
 
         $apcuKey = self::apcuKey($namespace, $key);

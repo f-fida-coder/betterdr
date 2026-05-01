@@ -18,8 +18,6 @@ final class RequestDeduplicator
     /** @var array<string, array{promise: mixed, waiting: bool}> */
     private array $pending = [];
 
-    private const MAX_WAIT_ATTEMPTS = 500; // ~50ms total at 100us sleep
-    
     private function __construct() {}
 
     public static function getInstance(): self
@@ -43,43 +41,25 @@ final class RequestDeduplicator
      */
     public function coalesce(string $key, callable $callback): mixed
     {
-        // If already computed/pending, wait for result
+        // PHP-FPM is single-process-per-request, so $pending can only hold
+        // results accumulated within the same request (e.g. two calls to the
+        // same helper in one codepath). The usleep/polling loop from the
+        // original implementation could never unblock because no other
+        // concurrent code runs in the same process. It has been removed to
+        // avoid up to 50ms of wasted sleep.
         if (isset($this->pending[$key])) {
-            // Still computing, wait with simple polling (microsleep)
-            $attempts = 0;
-            while (isset($this->pending[$key]) && $this->pending[$key]['waiting'] && $attempts < self::MAX_WAIT_ATTEMPTS) {
-                usleep(100); // 100 microseconds
-                $attempts++;
-            }
-
-            if (isset($this->pending[$key]) && !$this->pending[$key]['waiting']) {
-                return $this->pending[$key]['promise'];
-            }
+            return $this->pending[$key]['promise'];
         }
 
-        // Mark as pending
-        $this->pending[$key] = [
-            'promise' => null,
-            'waiting' => true,
-        ];
-
         try {
-            // Compute result
             $result = $callback();
-            
-            // Store result
-            $this->pending[$key] = [
-                'promise' => $result,
-                'waiting' => false,
-            ];
-            
+            $this->pending[$key] = ['promise' => $result, 'waiting' => false];
             return $result;
         } catch (Throwable $e) {
-            // Remove pending entry on error
             unset($this->pending[$key]);
             throw $e;
         } finally {
-            // Important: never keep completed values forever, otherwise stale data can leak across requests.
+            // Clear after use so stale data never leaks to a later call with the same key.
             unset($this->pending[$key]);
         }
     }

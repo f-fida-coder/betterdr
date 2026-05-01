@@ -595,7 +595,9 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
     }, [scopeKey, statusFilter]);
 
     React.useEffect(() => {
-        const id = setInterval(() => setNowTick(Date.now()), TICK_MS);
+        const id = setInterval(() => {
+            if (!document.hidden) setNowTick(Date.now());
+        }, TICK_MS);
         return () => clearInterval(id);
     }, []);
 
@@ -886,7 +888,77 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
     );
 };
 
-const MatchCard = ({ match, oddsFormat, onAddToSlip, selectedKeys, visibleMarkets, marketCount, onToggleFavorite }) => {
+const matchCardSignature = (match) => {
+    const odds = match?.odds || {};
+    const broadcast = match?.broadcast || {};
+    return [
+        match?.id,
+        match?.externalId,
+        match?.team1,
+        match?.team2,
+        match?.team1Short,
+        match?.team2Short,
+        match?.team1Record,
+        match?.team2Record,
+        match?.timeDisplay,
+        match?.time,
+        match?.status,
+        match?.isLive,
+        match?.liveStatusLabel,
+        match?.lastOddsSyncAt,
+        match?.isBettable,
+        match?.bettingBlockedReason,
+        match?.eventName,
+        match?.broadcastTime,
+        broadcast?.name,
+        broadcast?.raw,
+        broadcast?.bg,
+        broadcast?.fg,
+        odds?.spreadAwayPoint,
+        odds?.spreadAwayPrice,
+        odds?.moneylineAway,
+        odds?.totalPoint,
+        odds?.totalOverPrice,
+        odds?.spreadHomePoint,
+        odds?.spreadHomePrice,
+        odds?.moneylineHome,
+        odds?.totalUnderPrice,
+        match?.rotation?.away,
+        match?.rotation?.home,
+    ].join('|');
+};
+
+const matchCardSelectionSnapshot = (match, selectedKeys) => {
+    if (!match?.id || !selectedKeys) return '';
+    const key = (marketType, selection) => `${match.id}|${marketType}|${selection}`;
+    return [
+        selectedKeys.has(key('spreads', match.team1)),
+        selectedKeys.has(key('spreads', match.team2)),
+        selectedKeys.has(key('h2h', match.team1)),
+        selectedKeys.has(key('h2h', match.team2)),
+        selectedKeys.has(key('totals', 'Over')),
+        selectedKeys.has(key('totals', 'Under')),
+    ].join('|');
+};
+
+const areMatchCardPropsEqual = (prevProps, nextProps) => {
+    if (prevProps.oddsFormat !== nextProps.oddsFormat) return false;
+    if (prevProps.marketCount !== nextProps.marketCount) return false;
+    if (
+        prevProps.visibleMarkets?.showSpread !== nextProps.visibleMarkets?.showSpread ||
+        prevProps.visibleMarkets?.showMoneyline !== nextProps.visibleMarkets?.showMoneyline ||
+        prevProps.visibleMarkets?.showTotals !== nextProps.visibleMarkets?.showTotals
+    ) return false;
+
+    const sameSelection = matchCardSelectionSnapshot(prevProps.match, prevProps.selectedKeys) ===
+        matchCardSelectionSnapshot(nextProps.match, nextProps.selectedKeys);
+    if (!sameSelection) return false;
+
+    if (prevProps.match === nextProps.match) return true;
+    return matchCardSignature(prevProps.match) === matchCardSignature(nextProps.match);
+};
+
+const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, visibleMarkets, marketCount, onToggleFavorite }) => {
     const matchName = `${match.team1} vs ${match.team2}`;
     const blocked = match.isBettable === false;
     const rotationAway = match.rotation?.away;
@@ -1220,7 +1292,7 @@ const MatchCard = ({ match, oddsFormat, onAddToSlip, selectedKeys, visibleMarket
             )}
         </div>
     );
-};
+}, areMatchCardPropsEqual);
 
 const TeamAvatar = ({ team }) => {
     // Start with whatever the synchronous map / warm cache knows about this

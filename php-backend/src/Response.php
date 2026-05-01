@@ -42,16 +42,8 @@ final class Response
         }
         
         echo json_encode($payload, JSON_UNESCAPED_SLASHES);
-        
-        // Log errors for debugging if status is 500 or 4xx
-        if ($status >= 400) {
-            $logFile = __DIR__ . '/../logs/api-errors.log';
-            $logDir = dirname($logFile);
-            if (!is_dir($logDir)) {
-                @mkdir($logDir, 0775, true);
-            }
-            $logMsg = date('Y-m-d H:i:s') . " [{$status}] " . json_encode($payload) . "\n";
-            @file_put_contents($logFile, $logMsg, FILE_APPEND);
-        }
+        // Error logging is handled by Logger via the shutdown function in
+        // index.php. The duplicate file_put_contents here was a blocking
+        // write on every 4xx/5xx and is no longer needed.
     }
 }

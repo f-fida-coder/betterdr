@@ -115,33 +115,43 @@ if (isset($_SERVER['HTTP_ACCEPT_ENCODING']) &&
     !headers_sent() &&
     extension_loaded('zlib')) {
     ob_start('ob_gzhandler');
+    // Inform CDNs and proxies that the response encoding varies by
+    // client capability so they store and serve the correct variant.
+    header('Vary: Accept-Encoding', false);
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
 $origin  = $_SERVER['HTTP_ORIGIN'] ?? '';
-$appEnvForCors = strtolower((string) Env::get('APP_ENV', 'production'));
-$isProductionCors = $appEnvForCors === 'production';
 
-// Parse and sanitise the allowed-origins list.
-$rawAllowedOrigins = array_values(array_filter(array_map('trim', explode(',', Env::get('CORS_ORIGIN', '')))));
-
-$allowedOrigins = [];
-foreach ($rawAllowedOrigins as $candidate) {
-    // Reject bare wildcards — browsers refuse credentials with Access-Control-Allow-Origin: *
-    if ($candidate === '*') {
-        continue;
+// Phase 5: Cache the parsed allowed-origins list in a static variable so
+// the explode/preg_match parsing only runs once per PHP-FPM worker process
+// instead of on every request. CORS_ORIGIN and APP_ENV are immutable at
+// runtime, so this is safe for the full worker lifetime.
+static $_cachedAllowedOrigins = null;
+if ($_cachedAllowedOrigins === null) {
+    $appEnvForCors = strtolower((string) Env::get('APP_ENV', 'production'));
+    $isProductionCors = $appEnvForCors === 'production';
+    // Parse and sanitise the allowed-origins list.
+    $rawAllowedOrigins = array_values(array_filter(array_map('trim', explode(',', Env::get('CORS_ORIGIN', '')))));
+    $_cachedAllowedOrigins = [];
+    foreach ($rawAllowedOrigins as $candidate) {
+        // Reject bare wildcards — browsers refuse credentials with Access-Control-Allow-Origin: *
+        if ($candidate === '*') {
+            continue;
+        }
+        // Must look like a URL with a scheme (http/https)
+        if (!preg_match('#^https?://#i', $candidate)) {
+            continue;
+        }
+        // Strip localhost/127.x/::1 origins in production to prevent local-machine attacks
+        if ($isProductionCors && preg_match('#^https?://(localhost|127\.\d+\.\d+\.\d+|\[?::1\]?)#i', $candidate)) {
+            continue;
+        }
+        $_cachedAllowedOrigins[] = rtrim($candidate, '/'); // normalise: no trailing slash
     }
-    // Must look like a URL with a scheme (http/https)
-    if (!preg_match('#^https?://#i', $candidate)) {
-        continue;
-    }
-    // Strip localhost/127.x/::1 origins in production to prevent local-machine attacks
-    if ($isProductionCors && preg_match('#^https?://(localhost|127\.\d+\.\d+\.\d+|\[?::1\]?)#i', $candidate)) {
-        continue;
-    }
-    $allowedOrigins[] = rtrim($candidate, '/'); // normalise: no trailing slash
 }
+$allowedOrigins = $_cachedAllowedOrigins;
 
 $originAllowed = $origin !== '' && in_array(rtrim($origin, '/'), $allowedOrigins, true);
 
@@ -184,7 +194,15 @@ if ($contentLength > 1_048_576) {
 // ─── Startup env validation ───────────────────────────────────────────────────
 // In production: hard-fail with HTTP 500 listing every misconfigured var.
 // In development: emit X-Config-Warning headers so issues show in devtools.
+// Phase 5: Once validated successfully in a worker, skip on subsequent requests.
+// Config is immutable at runtime; re-running 8+ Env::get() + regex calls per
+// request is pure overhead after the first pass.
 (static function (): void {
+    static $validated = false;
+    if ($validated) {
+        return;
+    }
+
     $appEnv  = strtolower((string) Env::get('APP_ENV', 'production'));
     $isProd  = $appEnv === 'production';
 
@@ -266,8 +284,10 @@ if ($contentLength > 1_048_576) {
     // Development: surface warnings as response headers (visible in browser devtools)
     foreach ($warnings as $i => $w) {
         header("X-Config-Warning-{$i}: {$w}");
-        Logger::warning($w, [], 'error');
     }
+
+    // Mark as validated so subsequent requests in this worker skip the checks.
+    $validated = true;
 })();
 // ─────────────────────────────────────────────────────────────────────────────
 

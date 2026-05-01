@@ -748,7 +748,10 @@ export const getAvailableSports = async ({ signal, timeoutMs = 5000 } = {}) => {
     try {
         const response = await fetch(buildApiUrl('/matches/sports'), {
             headers: getHeaders(),
-            cache: 'no-store',
+            // 'default' lets the browser honour the server's Cache-Control
+            // (public, max-age=10). Sports names are not odds/prices — safe
+            // to serve from HTTP cache for 10 s per user session.
+            cache: 'default',
             signal: controller.signal,
         });
         if (!response.ok) return [];

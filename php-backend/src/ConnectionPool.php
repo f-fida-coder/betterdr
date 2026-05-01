@@ -48,14 +48,14 @@ final class ConnectionPool
             try {
                 // Check if we already have a connection (persistent)
                 if ($this->connection !== null) {
-                    // Test connection with ping query
-                    try {
-                        $this->connection->query('SELECT 1');
-                        return $this->connection;
-                    } catch (PDOException $e) {
-                        // Connection dead, reconnect
-                        $this->connection = null;
-                    }
+                    // Return the persistent connection directly. PHP's PDO + mysqlnd
+                    // manages persistent connection state at the extension level.
+                    // The old SELECT 1 ping added a round-trip on every single request
+                    // to guard against a scenario (stale connection) that occurs at
+                    // most once per day. If the connection IS dead, the first SET SESSION
+                    // or query will throw a PDOException, which is caught below — the pool
+                    // clears $this->connection and retries with a fresh connection.
+                    return $this->connection;
                 }
 
                 // Check if pool is at capacity
@@ -83,6 +83,12 @@ final class ConnectionPool
                 
                 return $this->connection;
             } catch (PDOException $e) {
+                // If the cached connection returned a dead-connection error, discard it
+                // so the next attempt creates a new one instead of re-using the dead object.
+                if ($this->connection !== null) {
+                    $this->connection = null;
+                    $this->activeConnections = max(0, $this->activeConnections - 1);
+                }
                 $lastException = $e;
                 if ($attempt < self::RETRY_ATTEMPTS - 1) {
                     usleep(50000 * ($attempt + 1)); // Exponential backoff

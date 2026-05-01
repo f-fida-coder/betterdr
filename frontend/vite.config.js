@@ -23,6 +23,11 @@ export default defineConfig({
     minify: 'esbuild',
     sourcemap: 'hidden', // Debugging without exposing source
     target: 'es2020',
+    // Strip console.* and debugger statements from prod bundle — reduces
+    // bundle size and prevents internal log leakage to end users.
+    esbuildOptions: {
+      drop: ['console', 'debugger'],
+    },
     rollupOptions: {
       output: {
         // Explicit content-hash filenames for aggressive caching
@@ -34,14 +39,13 @@ export default defineConfig({
         manualChunks: (id) => {
           // Core framework chunks
           if (id.includes('node_modules')) {
-            if (id.includes('react') && id.includes('react-dom')) {
+            // Fix: react and react-dom are separate packages — use || not &&
+            // so each package resolves to the shared vendor-react chunk.
+            if (id.includes('/react-dom/') || id.includes('/react/')) {
               return 'vendor-react';
             }
             if (id.includes('react-router') || id.includes('@tanstack/react-query')) {
               return 'vendor-routing';
-            }
-            if (id.includes('axios') || id.includes('fetch')) {
-              return 'vendor-http';
             }
             if (id.includes('recharts') || id.includes('chart.js')) {
               return 'vendor-charts';

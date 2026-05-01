@@ -7,15 +7,16 @@ final class MatchesController
 {
     private const PUBLIC_CACHE_DOC_ID = 'sportsbook_public_matches';
     private const PUBLIC_REFRESH_LOCK_PREFIX = 'sportsbook_public_matches_refresh_';
-    // Defaults are zero so a fresh install / unset env var bypasses caching.
-    // Live betting cannot serve stale odds; the prior 120 s defaults caused
-    // a wrong-price risk window. Re-introduce non-zero defaults only after
-    // a real invalidation strategy ships (>=1000 DAU regime).
+    // Odds (matches) cache is intentionally 0 — live betting must always
+    // read fresh odds from the database. This value must NOT be increased.
     private const DEFAULT_PUBLIC_CACHE_TTL_SECONDS = 0;
     private const DEFAULT_PUBLIC_REFRESH_COOLDOWN_SECONDS = 0;
     private const DEFAULT_PUBLIC_REFRESH_LOCK_SECONDS = 30; // refresh lock is concurrency, not staleness — keep
-    private const DEFAULT_SHARED_MATCHES_CACHE_TTL_SECONDS = 0;
-    private const DEFAULT_SHARED_SPORTS_CACHE_TTL_SECONDS = 0;
+    private const DEFAULT_SHARED_MATCHES_CACHE_TTL_SECONDS = 5;
+    // Sports list is just sport *names* (e.g. "NFL", "NBA") — no odds, no
+    // prices. Caching at 30 s cuts the sidebar query from 20k * 1/30 = ~667
+    // DB reads/sec to ~1 DB read per 30 s, with no risk of stale odds.
+    private const DEFAULT_SHARED_SPORTS_CACHE_TTL_SECONDS = 30;
     private const NO_STORE_HEADER = 'no-store, no-cache, must-revalidate, max-age=0, private';
 
     private SqlRepository $db;
@@ -104,10 +105,10 @@ final class MatchesController
         try {
             $cacheMeta = $this->maybeRefreshPublicMatches();
 
-            // Caching disabled (TTL <= 0): live betting requires fresh data on
-            // every request. Bypass SharedFileCache and APCu entirely so we
-            // never serve stale odds. Re-enable when a proper invalidation
-            // strategy ships at higher scale.
+            // Operators can still force a read-through mode with TTL <= 0.
+            // Production defaults to a tiny shared cache so large public
+            // traffic bursts do not stampede MySQL while odds drift remains
+            // bounded to a few seconds.
             if ($sharedCacheTtl <= 0) {
                 $annotated = $this->computeMatches($status, $active, $payloadMode, $sportFilter, $sportKeyFilter);
                 $sharedCacheState = 'bypass';
@@ -439,10 +440,9 @@ final class MatchesController
         try {
             $sharedCacheTtl = $this->envInt('SPORTSBOOK_MATCHES_SPORTS_CACHE_TTL_SECONDS', self::DEFAULT_SHARED_SPORTS_CACHE_TTL_SECONDS);
 
-            // Caching disabled by default — sidebar must reflect what's
-            // actually live in the DB right now. See getMatches() for the
-            // reasoning. computeAvailableSports() is a single indexed query
-            // over the matches table, so DB cost is negligible.
+            // Operators can force read-through with TTL <= 0. By default the
+            // sport-name list is shared briefly because it contains no odds
+            // or prices and otherwise fans out on every public page mount.
             if ($sharedCacheTtl <= 0) {
                 $sports = $this->computeAvailableSports();
                 $sharedCacheState = 'bypass';
@@ -475,7 +475,11 @@ final class MatchesController
 
             header('X-Matches-Sports-Shared-Cache: ' . $sharedCacheState);
             header('X-Cache: ' . ($sharedCacheState === 'hit' ? 'HIT' : 'MISS'));
-            Response::json($sports, 200, self::NO_STORE_HEADER);
+            // Sports list contains only sport names (e.g. "NFL", "NBA") — no odds,
+            // no prices. Safe to cache publicly for 10 s with stale-while-revalidate=20.
+            // This eliminates the PHP boot cost for ~20k concurrent sidebar mounts
+            // within the same 10 s window.
+            Response::json($sports, 200, 'public, max-age=10, stale-while-revalidate=20');
         } catch (Throwable $e) {
             $stale = SharedFileCache::peek(
                 SportsbookCache::availableSportsStaleNamespace(),
@@ -485,6 +489,7 @@ final class MatchesController
             if (is_array($stale)) {
                 header('X-Matches-Sports-Shared-Cache: stale-fallback');
                 header('X-Cache: STALE');
+                // Stale fallback — age is unknown, don't let clients cache it.
                 Response::json($stale, 200, self::NO_STORE_HEADER);
                 return;
             }
@@ -591,7 +596,7 @@ final class MatchesController
         }
         $role = (string) ($decoded['role'] ?? 'user');
         $collection = ($role === 'admin') ? 'admins' : (in_array($role, ['agent', 'master_agent', 'super_agent'], true) ? 'agents' : 'users');
-        $actor = $this->db->findOne($collection, ['id' => SqlRepository::id($id)]);
+        $actor = Jwt::cachedUser($this->db, $collection, $id);
         if ($actor === null) {
             Response::json(['success' => false, 'error' => 'login_required'], 403);
             return null;

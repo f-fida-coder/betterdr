@@ -7,15 +7,22 @@
  */
 
 -- =============================================================================
--- 1. QUERY CACHE OPTIMIZATION
+-- 1. InnoDB BUFFER POOL (replaces removed query_cache)
 -- =============================================================================
--- Enable query caching for SELECT statements (cache up to 64MB)
-SET GLOBAL query_cache_type = 1;                    -- 1=ON, 0=OFF
-SET GLOBAL query_cache_size = 67108864;             -- 64MB cache
-SET GLOBAL query_cache_limit = 2097152;             -- 2MB max per query
+-- NOTE: MySQL 8.0 REMOVED the query cache entirely (query_cache_type,
+-- query_cache_size, query_cache_limit). Applying those settings on MySQL 8
+-- causes an error and must NOT be run. Use InnoDB buffer pool tuning instead —
+-- it achieves the same effect (hot data served from memory) more reliably.
 
--- Verify settings
-SHOW VARIABLES LIKE 'query_cache%';
+-- Set buffer pool to 70-80% of total RAM (adjust to your server).
+-- For 4 GB server → 3G. For 8 GB server → 6G. For 16 GB server → 12G.
+-- This is the single most impactful MySQL tuning parameter.
+SET GLOBAL innodb_buffer_pool_size = 3221225472;    -- 3 GB example (adjust to your RAM)
+
+-- Verify current buffer pool size
+SHOW VARIABLES LIKE 'innodb_buffer_pool_size';
+SHOW STATUS  LIKE 'Innodb_buffer_pool_read_requests';
+SHOW STATUS  LIKE 'Innodb_buffer_pool_reads'; -- should be <5% of read_requests
 
 -- =============================================================================
 -- 2. CONNECTION POOL OPTIMIZATION
@@ -95,28 +102,32 @@ SHOW VARIABLES LIKE 'innodb_flush%';
 -- =============================================================================
 -- 7. PREPARED STATEMENT OPTIMIZATION
 -- =============================================================================
--- Enable query plan caching for prepared statements
-SET GLOBAL query_cache_wlock_invalidate = OFF;      -- Keep cache for writes to same table
+-- NOTE: query_cache_wlock_invalidate was also removed in MySQL 8.0 — do not apply.
+-- Prepared statement plan caching is automatic in MySQL 8.0 via the optimizer.
+-- Enforce strict mode (prevents silent data truncation / bad inserts).
 SET SESSION sql_mode = 'STRICT_TRANS_TABLES,NO_ZERO_DATE,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION';
 
 -- =============================================================================
--- 8. MONITORING QUERY PERFORMANCE
+-- 8. MONITORING QUERY PERFORMANCE (MySQL 8.0 compatible)
 -- =============================================================================
--- Check current query cache stats (cache hits vs misses)
-SHOW STATUS LIKE 'Qcache%';
+-- Buffer pool efficiency (cache-hit ratio should be >99%)
+SHOW STATUS LIKE 'Innodb_buffer_pool_read_requests';
+SHOW STATUS LIKE 'Innodb_buffer_pool_reads';
 
--- Expected output:
--- Qcache_hits: Number of cache hits (should be growing)
--- Qcache_inserts: New queries added to cache
--- Qcache_queries_in_cache: Currently cached queries
--- Qcache_free_memory: Available cache space
-
--- Monitor connection usage
+-- Connection usage
 SHOW STATUS LIKE 'Threads_connected';
 SHOW STATUS LIKE 'Threads_running';
+SHOW STATUS LIKE 'Connection_errors_max_connections';
 
--- Monitor slow queries (check /var/log/mysql/slow-query.log on Unix)
--- SELECT * FROM mysql.slow_log;
+-- Top slow queries from performance_schema (MySQL 8.0 replacement for slow_log)
+SELECT schema_name, digest_text, count_star, avg_timer_wait/1e12 AS avg_sec
+FROM performance_schema.events_statements_summary_by_digest
+ORDER BY avg_timer_wait DESC
+LIMIT 20;
+
+-- Monitor InnoDB row lock waits (indicates lock contention)
+SHOW STATUS LIKE 'Innodb_row_lock_waits';
+SHOW STATUS LIKE 'Innodb_row_lock_time_avg';
 
 -- =============================================================================
 -- 9. CLEANUP: REMOVE OLD QUERY CACHE DATA

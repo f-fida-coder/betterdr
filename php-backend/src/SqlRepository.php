@@ -19,6 +19,9 @@ final class SqlRepository
     // Phase 2A: Schema metadata cache TTL (1 hour)
     private const SCHEMA_CACHE_TTL = 3600;
 
+    /** @var array<int, bool> Tracks PDO object IDs whose session settings are already applied. */
+    private static array $sessionInitializedPdoIds = [];
+
     /** @param string $_dsn Unused legacy parameter (kept for call-site compatibility) */
     public function __construct(string $_dsn, string $dbName)
     {
@@ -50,16 +53,24 @@ final class SqlRepository
             );
         }, 5000);
         
-        // Phase 13: Apply session-level optimizations (don't require SUPER privilege)
-        try {
-            $this->pdo->exec("SET SESSION sql_mode = 'STRICT_TRANS_TABLES,NO_ZERO_DATE,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION'");
-            $this->pdo->exec("SET SESSION max_execution_time = 30000");     // 30s for SELECT queries
-            $this->pdo->exec("SET SESSION net_read_timeout = 120");         // 2min for reads
-            $this->pdo->exec("SET SESSION net_write_timeout = 120");        // 2min for writes
-            $this->pdo->exec("SET SESSION optimizer_switch = 'index_merge=on,index_merge_union=on,index_merge_sort_union=on,index_merge_intersection=on'");
-        } catch (PDOException $e) {
-            // Session settings are non-fatal if they fail
-            error_log("Warning: Could not set session optimizations: " . $e->getMessage());
+        // Phase 13: Apply session-level optimizations (don't require SUPER privilege).
+        // Guard with a per-PDO-object flag: persistent connections are reused across
+        // requests within the same FPM worker, so the session settings from the first
+        // request survive. Running 5 SET SESSION statements on every request is
+        // unnecessary round-trips — skip them when the connection is already initialized.
+        $pdoId = spl_object_id($this->pdo);
+        if (!isset(self::$sessionInitializedPdoIds[$pdoId])) {
+            try {
+                $this->pdo->exec("SET SESSION sql_mode = 'STRICT_TRANS_TABLES,NO_ZERO_DATE,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION'");
+                $this->pdo->exec("SET SESSION max_execution_time = 30000");     // 30s for SELECT queries
+                $this->pdo->exec("SET SESSION net_read_timeout = 120");         // 2min for reads
+                $this->pdo->exec("SET SESSION net_write_timeout = 120");        // 2min for writes
+                $this->pdo->exec("SET SESSION optimizer_switch = 'index_merge=on,index_merge_union=on,index_merge_sort_union=on,index_merge_intersection=on'");
+                self::$sessionInitializedPdoIds[$pdoId] = true;
+            } catch (PDOException $e) {
+                // Session settings are non-fatal if they fail
+                error_log("Warning: Could not set session optimizations: " . $e->getMessage());
+            }
         }
     }
 
@@ -329,15 +340,43 @@ final class SqlRepository
      */
     public function updateMany(string $collection, array $filter, array $set): int
     {
-        $docs = $this->findMany($collection, $filter, ['projection' => ['id' => 1]]);
-        $updated = 0;
-        foreach ($docs as $doc) {
-            $id = (string) ($doc['id'] ?? '');
-            if ($id !== '') {
-                $this->updateOne($collection, ['id' => $id], $set);
-                $updated++;
-            }
+        // Phase 5: Fetch full docs in one query so we can merge $set and
+        // UPDATE each by primary key directly — avoids the N extra findOne
+        // calls that the old id-only projection + updateOne path triggered.
+        $docs = $this->findMany($collection, $filter);
+        if ($docs === []) {
+            return 0;
         }
+
+        $table = $this->tableName($collection);
+        $this->ensureTable($table);
+        $normalizedSet = $this->normalizeForStorage($set);
+        $updated = 0;
+
+        foreach ($docs as $existing) {
+            $id = (string) ($existing['id'] ?? '');
+            if ($id === '') {
+                continue;
+            }
+
+            $merged = $existing;
+            foreach ($normalizedSet as $k => $v) {
+                $merged[(string) $k] = $v;
+            }
+            unset($merged['id']);
+
+            $this->circuitBreaker->execute("database:update:{$collection}", function() use ($table, $id, $merged) {
+                $stmt = $this->pdo->prepare("UPDATE `{$table}` SET `doc`=:doc, `created_at`=:created_at, `updated_at`=:updated_at, `migrated_at`=CURRENT_TIMESTAMP WHERE `id`=:id LIMIT 1");
+                $stmt->execute([
+                    ':id' => $id,
+                    ':doc' => $this->encodeDoc($merged),
+                    ':created_at' => $this->toMysqlDateTime($merged['createdAt'] ?? null),
+                    ':updated_at' => $this->toMysqlDateTime($merged['updatedAt'] ?? null),
+                ]);
+            }, 2500);
+            $updated++;
+        }
+
         return $updated;
     }
 
@@ -382,17 +421,43 @@ final class SqlRepository
         if (count($filter) === 0) {
             throw new \RuntimeException('deleteMany() requires a non-empty filter to prevent accidental full-table wipe');
         }
-        $deleted = 0;
-        while ($deleted < $maxIterations) {
-            $count = $this->deleteOne($collection, $filter);
-            if ($count === 0) {
-                break;
+
+        // Phase 5: Gather all matching IDs in one query then batch-DELETE
+        // them in a single WHERE IN statement. The old loop called deleteOne
+        // per document, each of which ran a full findOne (potentially a
+        // full table scan for unindexed collections like login_failures).
+        $table = $this->tableName($collection);
+        $this->ensureTable($table);
+
+        $docs = $this->findMany($collection, $filter, ['projection' => ['id' => 1]]);
+        if ($docs === []) {
+            return 0;
+        }
+
+        $ids = [];
+        foreach ($docs as $doc) {
+            $id = (string) ($doc['id'] ?? '');
+            if ($id !== '') {
+                $ids[] = $id;
             }
-            $deleted += $count;
         }
-        if ($deleted >= $maxIterations) {
-            error_log("[SAFETY] deleteMany() hit max iteration limit ({$maxIterations}) on collection={$collection}");
+
+        if ($ids === []) {
+            return 0;
         }
+
+        if (count($ids) > $maxIterations) {
+            $ids = array_slice($ids, 0, $maxIterations);
+            error_log("[SAFETY] deleteMany() truncated to maxIterations ({$maxIterations}) on collection={$collection}");
+        }
+
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $deleted = (int) $this->circuitBreaker->execute("database:delete:{$collection}", function() use ($table, $placeholders, $ids) {
+            $stmt = $this->pdo->prepare("DELETE FROM `{$table}` WHERE `id` IN ({$placeholders})");
+            $stmt->execute($ids);
+            return (int) $stmt->rowCount();
+        }, 5000);
+
         return $deleted;
     }
 
@@ -682,7 +747,7 @@ KEY `idx_updated_at` (`updated_at`)
 
     private function supportsSqlReadOptimization(string $collection): bool
     {
-        return in_array($collection, ['casino_bets', 'casino_round_audit', 'transactions', 'casinogames', 'users', 'agents', 'bets', 'betselections', 'matches', 'messages', 'iplogs', 'master_agents', 'admins', 'admin_audit_log', 'rate_limits', 'betrequests', 'betmoderules', 'faqs', 'manualsections', 'feedbacks'], true);
+        return in_array($collection, ['casino_bets', 'casino_round_audit', 'transactions', 'casinogames', 'users', 'agents', 'bets', 'betselections', 'matches', 'messages', 'iplogs', 'master_agents', 'admins', 'admin_audit_log', 'rate_limits', 'betrequests', 'betmoderules', 'faqs', 'manualsections', 'feedbacks', 'login_failures'], true);
     }
 
     /**
@@ -1174,6 +1239,9 @@ KEY `idx_updated_at` (`updated_at`)
                 'subject' => 'j_subject',
                 'status' => 'j_status',
             ],
+            'login_failures' => [
+                'userId' => 'j_user_id',
+            ],
         ];
 
         if (isset($generatedColumns[$collection][$field])) {
@@ -1524,6 +1592,30 @@ KEY `idx_updated_at` (`updated_at`)
                     self::$indexExistsCache[$table . '.' . $index] = true;
                 }
             }
+        }
+
+        if ($collection === 'login_failures') {
+            $columns = [
+                'j_user_id' => "ALTER TABLE `{$table}` ADD COLUMN `j_user_id` VARCHAR(64) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(`doc`, _utf8mb4'$.userId'))) STORED",
+            ];
+            foreach ($columns as $column => $sql) {
+                if (!$this->columnExists($table, $column)) {
+                    $this->pdo->exec($sql);
+                    self::$columnExistsCache[$table . '.' . $column] = true;
+                }
+            }
+
+            $indexes = [
+                'idx_login_failures_user_id' => "ALTER TABLE `{$table}` ADD KEY `idx_login_failures_user_id` (`j_user_id`)",
+            ];
+            foreach ($indexes as $index => $sql) {
+                if (!$this->indexExists($table, $index)) {
+                    $this->pdo->exec($sql);
+                    self::$indexExistsCache[$table . '.' . $index] = true;
+                }
+            }
+
+            return;
         }
     }
 

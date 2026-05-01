@@ -141,7 +141,23 @@ final class Logger
                 $entry['context'] = self::sanitize($context, self::MAX_CONTEXT_DEPTH);
             }
 
-            @file_put_contents($path, json_encode($entry, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . "\n", FILE_APPEND | LOCK_EX);
+            // FILE_APPEND on Linux/ext4 is atomic for small writes, so we
+            // attempt a non-blocking lock first. If the lock is taken by
+            // another worker, fall back to lockless append — losing one log
+            // line is far better than stalling the HTTP response under 20k
+            // concurrent requests.
+            $handle = @fopen($path, 'a');
+            if ($handle !== false) {
+                $line = json_encode($entry, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . "\n";
+                if (@flock($handle, LOCK_EX | LOCK_NB)) {
+                    @fwrite($handle, $line);
+                    @flock($handle, LOCK_UN);
+                } else {
+                    // Lock contention — write without lock (atomic on Linux for small payloads)
+                    @fwrite($handle, $line);
+                }
+                @fclose($handle);
+            }
         } catch (Throwable $ignored) {
             // Logging must never crash the application.
         }

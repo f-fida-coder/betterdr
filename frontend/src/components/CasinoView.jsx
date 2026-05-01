@@ -446,7 +446,10 @@ const CasinoView = () => {
 
         syncJackpotPool();
 
-        const intervalId = setInterval(syncJackpotPool, 15000);
+        const intervalId = setInterval(() => {
+            if (document.hidden) return;
+            syncJackpotPool();
+        }, 15000);
 
         const handleVisibilityChange = () => {
             if (!document.hidden) {

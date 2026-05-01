@@ -135,6 +135,31 @@ const filterMatches = (normalized, statusFilter) => {
     return normalized;
 };
 
+const matchFingerprintToken = (match) => {
+    const odds = match?.odds || {};
+    return [
+        match?.id,
+        match?.lastOddsSyncAt,
+        match?.status,
+        match?.isBettable,
+        odds?.spreadAwayPoint,
+        odds?.spreadAwayPrice,
+        odds?.moneylineAway,
+        odds?.totalPoint,
+        odds?.totalOverPrice,
+        odds?.spreadHomePoint,
+        odds?.spreadHomePrice,
+        odds?.moneylineHome,
+        odds?.totalUnderPrice,
+    ].join('~');
+};
+
+const buildMatchesFingerprint = (matches) => {
+    const rows = Array.isArray(matches) ? matches : [];
+    if (rows.length === 0) return '0';
+    return `${rows.length}|${rows.map(matchFingerprintToken).join('||')}`;
+};
+
 export default function useMatches(options = {}) {
     const statusFilter = (options.status || 'all').toString().toLowerCase();
     const scopeKey = (options.scopeKey || '').toString();
@@ -169,7 +194,15 @@ export default function useMatches(options = {}) {
         // / loading-state UX for first visits.
         const cacheKey = createMatchesCacheKey(statusFilter, scopeKey || 'global');
         const lastKnown = lastKnownByScope.get(cacheKey);
-        setMatches(lastKnown || []);
+        const applyMatchesIfChanged = (nextMatches) => {
+            const normalizedNext = Array.isArray(nextMatches) ? nextMatches : [];
+            const nextFingerprint = buildMatchesFingerprint(normalizedNext);
+            setMatches((prev) => {
+                const prevFingerprint = buildMatchesFingerprint(prev);
+                return prevFingerprint === nextFingerprint ? prev : normalizedNext;
+            });
+        };
+        applyMatchesIfChanged(lastKnown || []);
 
         const emitRefreshProgress = (phase, detail) => {
             if (typeof window === 'undefined') return;
@@ -203,7 +236,7 @@ export default function useMatches(options = {}) {
                     const cached = matchesResponseCache.get(cacheKey);
                     if (cached && (now - cached.ts) < LOCAL_MATCHES_CACHE_TTL_MS) {
                         if (mounted && fetchId === fetchIdRef.current) {
-                            setMatches(cached.data);
+                            applyMatchesIfChanged(cached.data);
                             success = true;
                         }
                         return;
@@ -252,7 +285,7 @@ export default function useMatches(options = {}) {
                 if (filtered.length > 0) {
                     lastKnownByScope.set(cacheKey, filtered);
                 }
-                setMatches(filtered);
+                applyMatchesIfChanged(filtered);
                 success = true;
 
                 // Empty live result during the natural startup race (Rundown
@@ -283,7 +316,7 @@ export default function useMatches(options = {}) {
                 inFlightRequests.delete(cacheKey);
                 errorMessage = err?.message || 'Failed to fetch matches';
                 if (mounted && fetchId === fetchIdRef.current) {
-                    setMatches([]);
+                    applyMatchesIfChanged([]);
                 }
             } finally {
                 if (typeof window !== 'undefined') {
@@ -402,6 +435,9 @@ export default function useMatches(options = {}) {
         // local cache) so we always exercise the network and pick up odds
         // changes from the worker / on-demand refreshes by other clients.
         // Pauses when tab hidden, fires immediately on becoming visible.
+        // Poll cadence: live/active views stay at 30 s (odds change fast);
+        // all other views use 60 s to halve background DB load.
+        const pollIntervalMs = (statusFilter === 'live' || statusFilter === 'active') ? 30000 : 60000;
         let pollTimer = null;
         const isPageVisible = () => typeof document === 'undefined'
             || document.visibilityState !== 'hidden';
@@ -411,7 +447,7 @@ export default function useMatches(options = {}) {
                 if (!isPageVisible()) return;
                 matchesResponseCache.delete(createMatchesCacheKey(statusFilter, scopeKey || 'global'));
                 fetchMatches({ trigger: 'auto-poll', refresh: false });
-            }, AUTO_POLL_MS);
+            }, pollIntervalMs);
         };
         const stopPolling = () => {
             if (pollTimer) clearInterval(pollTimer);
