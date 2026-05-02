@@ -13,3 +13,11 @@ dist/.env
 dist/env.runtime
 dist/php-backend/.env
 dist/php-backend/env.runtime
+
+# Root env files — must NEVER be tracked. Currently still tracked from
+# earlier history; remove with `git rm --cached .env .env.production .env.copy`
+# and rotate every secret. See php-backend/config/tier-c-secrets-rotation.md.
+# .env.example stays tracked because it's the template.
+.env
+.env.production
+.env.copy

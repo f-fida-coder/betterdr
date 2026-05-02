@@ -226,5 +226,12 @@ const mountApp = () => {
 // Fresh-session wipe runs before React mounts so the login screen
 // renders in a clean, unauthenticated state. If the wipe itself
 // throws (shouldn't — it already swallows), still mount so the app
-// is reachable.
-clearIfFreshBrowserSession().catch(() => {}).finally(mountApp);
+// is reachable. Log unexpected failures so they show up in the
+// browser console during dev / in any error monitoring in prod.
+clearIfFreshBrowserSession()
+  .catch((err) => {
+    if (typeof console !== 'undefined' && console.error) {
+      console.error('clearIfFreshBrowserSession failed', err);
+    }
+  })
+  .finally(mountApp);

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { getAdminBets } from '../../api';
 
 function BetTickerView() {
@@ -56,9 +56,28 @@ function BetTickerView() {
     };
   }, []);
 
-  const filteredBets = filterType === 'all'
-    ? bets
-    : bets.filter(b => b.type.toLowerCase() === filterType.toLowerCase());
+  const filteredBets = useMemo(
+    () => (filterType === 'all'
+      ? bets
+      : bets.filter(b => b.type.toLowerCase() === filterType.toLowerCase())),
+    [bets, filterType],
+  );
+
+  const summary = useMemo(() => {
+    let liveCount = 0;
+    let totalWagered = 0;
+    let oddsSum = 0;
+    for (const b of bets) {
+      if (b.status === 'LIVE') liveCount++;
+      totalWagered += parseFloat(String(b.amount).replace(/[$,]/g, '')) || 0;
+      oddsSum += parseFloat(b.odds) || 0;
+    }
+    return {
+      liveCount,
+      totalWagered: Math.round(totalWagered).toLocaleString('en-US', { maximumFractionDigits: 0 }),
+      avgOdds: bets.length > 0 ? (oddsSum / bets.length).toFixed(2) : '0.00',
+    };
+  }, [bets]);
 
   return (
     <div className="admin-view">
@@ -135,15 +154,15 @@ function BetTickerView() {
         <div className="ticker-summary">
           <div className="summary-stat">
             <span className="label">Live Bets</span>
-            <span className="value">{bets.filter(b => b.status === 'LIVE').length}</span>
+            <span className="value">{summary.liveCount}</span>
           </div>
           <div className="summary-stat">
             <span className="label">Total Wagered</span>
-            <span className="value">${Math.round(bets.reduce((sum, b) => sum + parseFloat(b.amount.replace(/[$,]/g, '')), 0)).toLocaleString('en-US', { maximumFractionDigits: 0 })}</span>
+            <span className="value">${summary.totalWagered}</span>
           </div>
           <div className="summary-stat">
             <span className="label">Avg Odds</span>
-            <span className="value">{bets.length > 0 ? (bets.reduce((sum, b) => sum + parseFloat(b.odds), 0) / bets.length).toFixed(2) : '0.00'}</span>
+            <span className="value">{summary.avgOdds}</span>
           </div>
         </div>
       </div>

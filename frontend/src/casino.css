@@ -1,12 +1,12 @@
 .casino-wrapper {
-    --casino-bg: #f3f7fc;
-    --casino-card: #ffffff;
-    --casino-border: #d7e2ef;
-    --casino-text: #1f2f44;
-    --casino-muted: #627b97;
-    --casino-accent: #0f5db3;
-    --casino-accent-soft: #e8f1ff;
-    --casino-success: #0f9d6a;
+    --casino-bg: var(--bg-light);
+    --casino-card: var(--bg-light);
+    --casino-border: var(--border-light);
+    --casino-text: var(--text-on-light);
+    --casino-muted: var(--text-muted);
+    --casino-accent: var(--brand-primary);
+    --casino-accent-soft: var(--bg-light-alt);
+    --casino-success: var(--status-success);
 
     width: 100%;
     max-width: 100%;
@@ -281,8 +281,8 @@
 
 .casino-play-btn {
     width: 100%;
-    border: 1px solid #0f5db3;
-    background: #0f5db3;
+    border: 1px solid var(--brand-primary);
+    background: var(--brand-primary);
     color: #ffffff;
     border-radius: 9px;
     font-size: 13px;

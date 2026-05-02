@@ -1,10 +1,10 @@
 .support-container {
-    --sp-bg: #f2f6fb;
-    --sp-card: #ffffff;
-    --sp-border: #d8e4f1;
-    --sp-text: #20354f;
-    --sp-muted: #687f9c;
-    --sp-accent: #0f5db3;
+    --sp-bg: var(--bg-light);
+    --sp-card: var(--bg-light);
+    --sp-border: var(--border-light);
+    --sp-text: var(--text-on-light);
+    --sp-muted: var(--text-muted);
+    --sp-accent: var(--brand-primary);
 
     min-height: calc(100vh - 72px);
     width: 100%;

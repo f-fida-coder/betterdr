@@ -1,13 +1,13 @@
 .bonus-view-container {
-    --bonus-bg: #f2f6fb;
-    --bonus-panel: #ffffff;
-    --bonus-border: #d7e3f0;
-    --bonus-text: #1f3148;
-    --bonus-muted: #637d9b;
-    --bonus-accent: #0f5db3;
-    --bonus-accent-soft: #eaf2ff;
-    --bonus-success: #0f9d6a;
-    --bonus-danger: #b73a3a;
+    --bonus-bg: var(--bg-light);
+    --bonus-panel: var(--bg-light);
+    --bonus-border: var(--border-light);
+    --bonus-text: var(--text-on-light);
+    --bonus-muted: var(--text-muted);
+    --bonus-accent: var(--brand-primary);
+    --bonus-accent-soft: var(--bg-light-alt);
+    --bonus-success: var(--status-success);
+    --bonus-danger: var(--status-error);
 
     width: 100%;
     min-height: calc(100vh - 72px);
@@ -308,16 +308,16 @@
 }
 
 .chip.active {
-    background: #0f5db3;
+    background: var(--brand-primary);
     color: #fff;
-    border-color: #0f5db3;
+    border-color: var(--brand-primary);
 }
 
 .primary-btn {
     margin-top: 10px;
     width: 100%;
-    border: 1px solid #0f5db3;
-    background: #0f5db3;
+    border: 1px solid var(--brand-primary);
+    background: var(--brand-primary);
     color: #fff;
     border-radius: 8px;
     padding: 10px 12px;
@@ -363,7 +363,7 @@
 
 .progress-bar > div {
     height: 100%;
-    background: linear-gradient(90deg, #0f5db3, #20a4ff);
+    background: linear-gradient(90deg, var(--brand-primary), var(--brand-hover));
 }
 
 .bonus-card.full {

@@ -30,5 +30,12 @@ Header always set Cache-Control "public, max-age=31536000, immutable" "expr=%{RE
 </FilesMatch>
 </IfModule>
 
+# Defense-in-depth: deny any request for sourcemap files. Vite is
+# configured (frontend/vite.config.js) to not emit maps, but if a stray
+# .map ever ships, this rule prevents it from being served.
+<FilesMatch "\.map$">
+    Require all denied
+</FilesMatch>
+
 # SPA fallback for frontend routes only.
 RewriteRule ^ index.html [L]

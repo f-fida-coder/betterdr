@@ -94,9 +94,9 @@ const Hero = () => {
                     </div>
                 </div>
                 <div className="hero-controls">
-                    {BANNER_DATA.map((_, index) => (
+                    {BANNER_DATA.map((banner, index) => (
                         <div
-                            key={index}
+                            key={banner.webp}
                             className={`control-dot ${index === currentIndex ? 'active' : ''}`}
                             onClick={() => setCurrentIndex(index)}
                         ></div>

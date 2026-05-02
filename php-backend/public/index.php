@@ -2,6 +2,14 @@
 
 declare(strict_types=1);
 
+// Tier C: register the class autoloader as a safety net BEFORE any
+// require_once. The require_once chain below still loads critical hot
+// classes eagerly (preserves current behavior); the autoloader covers
+// any class not pre-required so new files don't need a require_once
+// line each. See src/Autoloader.php for the migration path.
+require_once __DIR__ . '/../src/Autoloader.php';
+Autoloader::register();
+
 require_once __DIR__ . '/../src/Env.php';
 require_once __DIR__ . '/../src/Logger.php';
 require_once __DIR__ . '/../src/Http.php';
@@ -15,6 +23,7 @@ require_once __DIR__ . '/../src/SportsbookHealth.php';
 require_once __DIR__ . '/../src/SportsbookBetSupport.php';
 require_once __DIR__ . '/../src/SqlRepository.php';
 require_once __DIR__ . '/../src/QueryCache.php';
+require_once __DIR__ . '/../src/RedisCache.php';
 require_once __DIR__ . '/../src/RequestDeduplicator.php';
 require_once __DIR__ . '/../src/ConnectionPool.php';
 require_once __DIR__ . '/../src/CircuitBreaker.php';

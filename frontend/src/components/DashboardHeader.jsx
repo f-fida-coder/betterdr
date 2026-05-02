@@ -908,8 +908,8 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
                             </div>
 
                             <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
-                                {languages.map((lang, index) => (
-                                    <div key={index} style={{
+                                {languages.map((lang) => (
+                                    <div key={lang.name} style={{
                                         display: 'flex',
                                         justifyContent: 'space-between',
                                         alignItems: 'center',

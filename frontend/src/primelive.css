@@ -1,15 +1,15 @@
 .prime-live-wrapper {
-    --prime-bg: #f4f7fb;
-    --prime-card: #ffffff;
-    --prime-card-soft: #f8fafc;
-    --prime-border: #d9e3ef;
-    --prime-text: #1b2430;
-    --prime-muted: #5a6b80;
-    --prime-accent: #0f5db3;
-    --prime-accent-soft: #e7f0ff;
-    --prime-green: #0f9d6a;
-    --prime-green-soft: #e7f8f1;
-    --prime-shadow: 0 2px 8px rgba(18, 36, 72, 0.06);
+    --prime-bg: var(--bg-light);
+    --prime-card: var(--bg-light);
+    --prime-card-soft: var(--bg-light-alt);
+    --prime-border: var(--border-light);
+    --prime-text: var(--text-on-light);
+    --prime-muted: var(--text-muted);
+    --prime-accent: var(--brand-primary);
+    --prime-accent-soft: var(--bg-light-alt);
+    --prime-green: var(--status-success);
+    --prime-green-soft: var(--bg-light-alt);
+    --prime-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 
     background: var(--prime-bg);
     min-height: calc(100vh - 72px);
@@ -290,7 +290,7 @@
 }
 
 .prime-score {
-    color: #0f5db3;
+    color: var(--brand-primary);
     font-weight: 800;
     font-size: 15px;
     min-width: 32px;
@@ -353,7 +353,7 @@
 
 .prime-odd-btn .prime-odd-val {
     font-size: 14px;
-    color: #0f5db3;
+    color: var(--brand-primary);
     font-weight: 800;
 }
 

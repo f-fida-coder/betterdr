@@ -1,12 +1,12 @@
 .props-container {
-    --props-bg: #f2f6fb;
-    --props-panel: #ffffff;
-    --props-border: #d9e4f1;
-    --props-text: #1f3148;
-    --props-muted: #637d9b;
-    --props-accent: #0f5db3;
-    --props-accent-soft: #eaf2ff;
-    --props-success: #0f9d6a;
+    --props-bg: var(--bg-light);
+    --props-panel: var(--bg-light);
+    --props-border: var(--border-light);
+    --props-text: var(--text-on-light);
+    --props-muted: var(--text-muted);
+    --props-accent: var(--brand-primary);
+    --props-accent-soft: var(--bg-light-alt);
+    --props-success: var(--status-success);
 
     display: flex;
     width: 100%;
@@ -256,9 +256,9 @@
 }
 
 .props-market-tab.active {
-    background: #0f5db3;
+    background: var(--brand-primary);
     color: #fff;
-    border-color: #0f5db3;
+    border-color: var(--brand-primary);
 }
 
 .props-race-grid {
@@ -353,7 +353,7 @@
 }
 
 .props-odds-btn strong {
-    color: #0f5db3;
+    color: var(--brand-primary);
     font-size: 13px;
 }
 

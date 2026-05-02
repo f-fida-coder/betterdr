@@ -516,8 +516,9 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending', showTota
                 }, 0);
                 return (
                     <div className="my-bets-table-totals">
-                        <span>Total Risk : <strong className="risk-total">{money(totalRisk)}</strong></span>
-                        <span>Total Win : <strong>{money(totalWin)}</strong></span>
+                        <span className="my-bets-table-col-desc">Total :</span>
+                        <span className="my-bets-table-col-risk">{money(totalRisk)}</span>
+                        <span className="my-bets-table-col-win">{money(totalWin)}</span>
                     </div>
                 );
             })()}

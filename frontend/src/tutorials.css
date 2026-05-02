@@ -1,10 +1,10 @@
 .tutorials-container {
-    --tt-bg: #f2f6fb;
-    --tt-card: #ffffff;
-    --tt-border: #d8e4f1;
-    --tt-text: #20354f;
-    --tt-muted: #67819d;
-    --tt-accent: #0f5db3;
+    --tt-bg: var(--bg-light);
+    --tt-card: var(--bg-light);
+    --tt-border: var(--border-light);
+    --tt-text: var(--text-on-light);
+    --tt-muted: var(--text-muted);
+    --tt-accent: var(--brand-primary);
 
     min-height: calc(100vh - 72px);
     width: 100%;
@@ -89,8 +89,8 @@
 }
 
 .tag-chip.active {
-    border-color: #0f5db3;
-    background: #0f5db3;
+    border-color: var(--brand-primary);
+    background: var(--brand-primary);
     color: #fff;
 }
 

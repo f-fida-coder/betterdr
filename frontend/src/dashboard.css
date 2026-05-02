@@ -1,24 +1,24 @@
 
 :root {
-    --dash-header-bg: #1a1a1a;
-    
-    --dash-nav-bg: #2d2d2d;
-    --dash-green: #00703c;
-    
-    --dash-dark-green: #005c31;
+    --dash-header-bg: var(--bg-primary);
+
+    --dash-nav-bg: var(--bg-secondary);
+    --dash-green: var(--status-action);
+
+    --dash-dark-green: var(--status-success-dark);
     --dash-accent-gold: #cfaa56;
-    
-    --dash-bg: #f4f7f6;
-    
-    --dash-card-bg: #ffffff;
-    --dash-text: #222222;
-    --dash-border: #e6e6e6;
-    --dash-blue: #0056b3;
-    --dash-red: #d32f2f;
+
+    --dash-bg: var(--bg-light-alt);
+
+    --dash-card-bg: var(--bg-light);
+    --dash-text: var(--text-on-light);
+    --dash-border: var(--border-light);
+    --dash-blue: var(--status-info);
+    --dash-red: var(--brand-primary);
     --dash-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.05);
     --dash-shadow-md: 0 4px 6px rgba(0, 0, 0, 0.07);
     --dash-shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1);
-    --dash-font-main: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --dash-font-main: var(--font-main);
 }
 
 body.dashboard-mode {
@@ -171,7 +171,7 @@ body.dashboard-mode {
 }
 
 .dash-balance-trigger:focus-visible {
-    outline: 2px solid #4ade80;
+    outline: 2px solid var(--status-success);
     outline-offset: 3px;
     border-radius: 8px;
 }
@@ -746,8 +746,8 @@ body.dashboard-mode {
 }
 
 .theme-dot.active {
-    background: #ff4444;
-    border-color: #ff4444;
+    background: var(--brand-primary);
+    border-color: var(--brand-primary);
     box-shadow: 0 0 5px rgba(255, 68, 68, 0.5);
 }
 
@@ -790,7 +790,7 @@ body.dashboard-mode {
 }
 
 .sidebar-icon i.fa-baseball-bat-ball {
-    color: #d32f2f;
+    color: var(--brand-primary);
 }
 
 .sidebar-icon i.fa-hockey-puck {
@@ -810,11 +810,11 @@ body.dashboard-mode {
 }
 
 .sidebar-icon i.fa-tv {
-    color: #0066cc;
+    color: var(--status-info);
 }
 
 .sidebar-icon i.fa-mitten {
-    color: #cc0000;
+    color: var(--brand-primary);
 }
 
 .sidebar-icon i.fa-hand-fist {
@@ -930,7 +930,7 @@ body.dashboard-mode {
 
 .sidebar-blue-icon {
     font-size: 12px;
-    color: #007bff;
+    color: var(--status-info);
     margin-right: 8px;
     width: 20px;
     display: flex;
@@ -939,7 +939,7 @@ body.dashboard-mode {
 }
 
 .blue-expand-arrow {
-    color: #007bff;
+    color: var(--status-info);
     font-size: 9px;
     margin-right: 6px;
     transition: transform 0.2s;
@@ -1011,14 +1011,14 @@ body.dashboard-mode {
 }
 
 .props-plus-arrow {
-    color: #dc3545;
+    color: var(--status-error);
     margin-right: 6px;
     font-size: 12px;
     flex-shrink: 0;
 }
 
 .props-plus-badge {
-    color: #28a745;
+    color: var(--status-success);
     font-weight: bold;
     font-size: 14px;
     margin-left: 2px;
@@ -1173,7 +1173,7 @@ body.dashboard-mode {
     .feedback-btn {
         width: 100%;
         padding: 15px;
-        background: #0088cc;
+        background: var(--status-info);
         color: white;
         text-align: center;
         font-weight: bold;
@@ -1229,7 +1229,7 @@ body.dashboard-mode {
         width: 18px;
         height: 18px;
         cursor: pointer;
-        accent-color: #0088cc;
+        accent-color: var(--status-info);
     }
 
     
@@ -1252,7 +1252,7 @@ body.dashboard-mode {
 
     .dash-sidebar .blue-expand-arrow i {
         font-size: 14px;
-        color: #0088cc;
+        color: var(--status-info);
     }
 
     .dash-sidebar .black-expand-arrow {
@@ -1276,7 +1276,7 @@ body.dashboard-mode {
     }
 
     .dash-sidebar .icon-baseball i {
-        color: #ff4444 !important;
+        color: var(--brand-primary) !important;
     }
 
     .dash-sidebar .icon-hockey i {
@@ -1405,7 +1405,7 @@ body.dashboard-mode {
     .mobile-feedback-btn {
         width: 100%;
         padding: 15px;
-        background: #0088cc;
+        background: var(--status-info);
         color: white;
         text-align: center;
         font-weight: bold;
@@ -1727,8 +1727,8 @@ body.dashboard-mode {
 }
 
 .bonus-tab-item.active {
-    border-bottom: 2px solid #0099ff;
-    color: #0099ff;
+    border-bottom: 2px solid var(--status-info);
+    color: var(--status-info);
     font-weight: bold;
 }
 
@@ -1797,7 +1797,7 @@ body.dashboard-mode {
 }
 
 .deposit-method-card:hover {
-    border-color: #0099ff;
+    border-color: var(--status-info);
     box-shadow: 0 4px 12px rgba(0, 153, 255, 0.1);
 }
 
@@ -1821,12 +1821,12 @@ body.dashboard-mode {
 
 .method-status {
     font-size: 12px;
-    color: #4CAF50;
+    color: var(--status-success);
     font-weight: 600;
 }
 
 .method-select-btn {
-    background: #0099ff;
+    background: var(--status-info);
     color: white;
     border: none;
     padding: 8px 20px;
@@ -1838,7 +1838,7 @@ body.dashboard-mode {
 }
 
 .method-select-btn:hover {
-    background: #007acc;
+    background: var(--status-info);
 }
 
 
@@ -2141,7 +2141,7 @@ body.dashboard-mode {
     }
 
     .balance-amount {
-        color: #76ff76;
+        color: var(--status-success);
         
         font-size: 20px;
         font-weight: 900;
@@ -2200,7 +2200,7 @@ body.dashboard-mode {
     }
 
     .tab-item.active {
-        background-color: #0088cc;
+        background-color: var(--status-info);
         
         color: white;
     }
@@ -2250,7 +2250,7 @@ body.dashboard-mode {
     }
 
     .mobile-login-btn {
-        background: linear-gradient(135deg, #ff1e1e 0%, #a30000 100%);
+        background: linear-gradient(135deg, var(--brand-primary) 0%, #a30000 100%);
         color: white;
         border: none;
         padding: 8px 16px;
@@ -2263,7 +2263,7 @@ body.dashboard-mode {
     }
 
     .mobile-join-btn {
-        background: linear-gradient(135deg, #cc0000 0%, #800000 100%);
+        background: linear-gradient(135deg, var(--brand-primary) 0%, #800000 100%);
         color: white;
         border: none;
         padding: 8px 16px;
@@ -2301,7 +2301,7 @@ body.dashboard-mode {
     }
 
     .mobile-continue-btn {
-        background: #2e7d32;
+        background: var(--status-success-dark);
         color: white;
         border: none;
         padding: 10px 22px;
@@ -2322,7 +2322,7 @@ body.dashboard-mode {
     }
 
     .mobile-continue-btn:active {
-        background: #1b5e20;
+        background: var(--status-success-dark);
         transform: scale(0.97);
     }
 
@@ -2458,7 +2458,7 @@ body.dashboard-mode {
 
     .badge-sgp {
         background: #ffebee;
-        color: #d32f2f;
+        color: var(--brand-primary);
     }
 
     .promo-time {
@@ -2517,7 +2517,7 @@ body.dashboard-mode {
 
     .more-selections {
         margin-top: 15px;
-        color: #ff5252;
+        color: var(--brand-primary);
         font-weight: 700;
         font-size: 13px;
     }
@@ -2544,7 +2544,7 @@ body.dashboard-mode {
     }
 
     .odds-arrow {
-        color: #4CAF50;
+        color: var(--status-success);
         font-size: 16px;
         font-weight: 900;
     }
@@ -2556,7 +2556,7 @@ body.dashboard-mode {
     }
 
     .promo-bet-btn {
-        background: #ff5252;
+        background: var(--brand-primary);
         color: white;
         border: none;
         padding: 10px 25px;
@@ -2582,7 +2582,7 @@ body.dashboard-mode {
     }
 
     .promo-pagination .dot.active {
-        background: #ff5252;
+        background: var(--brand-primary);
         width: 10px;
         height: 10px;
     }
@@ -2712,7 +2712,7 @@ body.dashboard-mode {
         width: 18px;
         height: 18px;
         cursor: pointer;
-        accent-color: #0088cc;
+        accent-color: var(--status-info);
     }
 
     /* ── Arrows / chevrons ──────────────────────────────────── */
@@ -2741,7 +2741,7 @@ body.dashboard-mode {
 
     .dash-sidebar .blue-expand-arrow i {
         font-size: 11px;
-        color: #0088cc;
+        color: var(--status-info);
         transition: transform 0.2s ease;
     }
 
@@ -2800,18 +2800,18 @@ body.dashboard-mode {
     .dash-sidebar .props-plus-row .sidebar-label-text {
         font-size: 12px;
         font-weight: 600;
-        color: #0088cc;
+        color: var(--status-info);
     }
 
     .dash-sidebar .props-plus-arrow {
-        color: #dc3545;
+        color: var(--status-error);
         margin-right: 6px;
         font-size: 12px;
         flex-shrink: 0;
     }
 
     .dash-sidebar .props-plus-badge {
-        color: #28a745;
+        color: var(--status-success);
         font-weight: bold;
         font-size: 13px;
         margin-left: 2px;
@@ -2819,7 +2819,7 @@ body.dashboard-mode {
 
     
     .dash-sidebar .sidebar-item-row[data-sport-id="commercial-live"] .sidebar-main-icon i {
-        color: #007bff !important;
+        color: var(--status-info) !important;
     }
 
     .dash-sidebar .sidebar-item-row[data-sport-id="football"] .sidebar-main-icon i {
@@ -2827,7 +2827,7 @@ body.dashboard-mode {
     }
 
     .dash-sidebar .sidebar-item-row[data-sport-id="baseball"] .sidebar-main-icon i {
-        color: #ff4444 !important;
+        color: var(--brand-primary) !important;
     }
 
     .dash-sidebar .sidebar-item-row[data-sport-id="basketball"] .sidebar-main-icon i {
@@ -2884,7 +2884,7 @@ body.dashboard-mode {
     .mobile-only.feedback-btn-container {
         flex-shrink: 0;
         padding: 0;
-        background: #0088cc;
+        background: var(--status-info);
         border-top: none;
         display: block !important;
         z-index: 100;
@@ -2894,7 +2894,7 @@ body.dashboard-mode {
         display: block;
         width: 100%;
         padding: 14px 15px;
-        background: #0088cc;
+        background: var(--status-info);
         color: white;
         text-align: center;
         font-weight: 700;
@@ -3158,7 +3158,7 @@ body.dashboard-mode {
     }
 
     .mobile-live-now-row .sidebar-main-icon i {
-        color: #007bff !important;
+        color: var(--status-info) !important;
     }
 
     /* Mobile Content View Styles */
@@ -3704,7 +3704,7 @@ body.dashboard-mode {
 
 .bet-btn {
     padding: 8px 20px;
-    background: linear-gradient(135deg, #ff5252 0%, #dd0000 100%);
+    background: linear-gradient(135deg, var(--brand-primary) 0%, #dd0000 100%);
     color: white;
     border: none;
     border-radius: 4px;
@@ -3777,7 +3777,7 @@ body.dashboard-mode {
 .score-value {
     font-size: 16px;
     font-weight: 900;
-    color: #0088cc;
+    color: var(--status-info);
 }
 
 
@@ -3973,7 +3973,7 @@ body.dashboard-mode {
     width: 56px;
     
     height: 56px;
-    background: linear-gradient(135deg, #d32f2f, #b71c1c);
+    background: linear-gradient(135deg, var(--brand-primary), #b71c1c);
     
     border-radius: 50%;
     display: flex;

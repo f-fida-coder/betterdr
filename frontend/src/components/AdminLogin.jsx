@@ -94,11 +94,14 @@ const AdminLogin = () => {
                 margin: '20px'
             }}>
                 <div style={{ textAlign: 'center', marginBottom: '30px' }}>
-                    <img
-                        src="/logo.png"
-                        alt="Admin"
-                        style={{ height: '60px', marginBottom: '20px' }}
-                    />
+                    <picture>
+                        <source srcSet="/logo.webp" type="image/webp" />
+                        <img
+                            src="/logo.png"
+                            alt="Admin"
+                            style={{ height: '60px', marginBottom: '20px' }}
+                        />
+                    </picture>
                     <h2 style={{
                         margin: 0,
                         color: '#0d3b5c',

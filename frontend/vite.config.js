@@ -21,7 +21,14 @@ export default defineConfig({
     outDir: '../dist',
     emptyOutDir: true,
     minify: 'esbuild',
-    sourcemap: 'hidden', // Debugging without exposing source
+    // Hardened: previously 'hidden' (maps generated but not referenced).
+    // 'hidden' still emits .map files to dist/ which can be fetched directly
+    // from the web server even without a sourceMappingURL hint, leaking the
+    // entire codebase. Disable map emission outright. If you later wire up a
+    // private error-monitoring service (Sentry, Bugsnag), flip this back to
+    // 'hidden' AND add a post-build step that uploads maps to that service
+    // and deletes them from dist/ before deploy.
+    sourcemap: false,
     target: 'es2020',
     // Strip console.* and debugger statements from prod bundle — reduces
     // bundle size and prevents internal log leakage to end users.

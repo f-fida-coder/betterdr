@@ -1,12 +1,12 @@
 .ultra-live-wrapper {
-    --ultra-bg: #f4f7fb;
-    --ultra-card: #ffffff;
-    --ultra-border: #d9e4f0;
-    --ultra-text: #1f2b3a;
-    --ultra-muted: #61758f;
-    --ultra-accent: #0f5db3;
-    --ultra-accent-soft: #eaf2ff;
-    --ultra-green: #0f9d6a;
+    --ultra-bg: var(--bg-light);
+    --ultra-card: var(--bg-light);
+    --ultra-border: var(--border-light);
+    --ultra-text: var(--text-on-light);
+    --ultra-muted: var(--text-muted);
+    --ultra-accent: var(--brand-primary);
+    --ultra-accent-soft: var(--bg-light-alt);
+    --ultra-green: var(--status-success);
 
     background: var(--ultra-bg);
     min-height: calc(100vh - 72px);

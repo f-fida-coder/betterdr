@@ -1,10 +1,10 @@
 .live-casino-wrapper {
-    --lc-bg: #f2f6fb;
-    --lc-card: #ffffff;
-    --lc-border: #d8e4f2;
-    --lc-text: #1f3550;
-    --lc-muted: #67829d;
-    --lc-accent: #0f5db3;
+    --lc-bg: var(--bg-light);
+    --lc-card: var(--bg-light);
+    --lc-border: var(--border-light);
+    --lc-text: var(--text-on-light);
+    --lc-muted: var(--text-muted);
+    --lc-accent: var(--brand-primary);
 
     width: 100%;
     max-width: 100%;
@@ -270,8 +270,8 @@
 }
 
 .join-table-btn {
-    border: 1px solid #0f5db3;
-    background: #0f5db3;
+    border: 1px solid var(--brand-primary);
+    background: var(--brand-primary);
     color: #fff;
     border-radius: 8px;
     padding: 9px;
