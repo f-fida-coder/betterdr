@@ -1,6 +1,6 @@
 
 :root {
-    --dash-header-bg: var(--bg-primary);
+    --dash-header-bg: var(--surface-topbar);
 
     --dash-nav-bg: var(--bg-secondary);
     --dash-green: var(--status-action);
@@ -12,9 +12,11 @@
 
     --dash-card-bg: var(--bg-light);
     --dash-text: var(--text-on-light);
+    --dash-text-muted: var(--text-muted);
     --dash-border: var(--border-light);
     --dash-blue: var(--status-info);
     --dash-red: var(--brand-primary);
+    --dash-tile: var(--surface-tile);
     --dash-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.05);
     --dash-shadow-md: 0 4px 6px rgba(0, 0, 0, 0.07);
     --dash-shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1);
@@ -86,14 +88,13 @@ body.dashboard-mode {
 }
 
 .dash-nav-item.active {
-    background: linear-gradient(to bottom, rgba(0, 112, 60, 0.1), rgba(0, 112, 60, 0.2));
-    border-bottom-color: var(--dash-green);
+    background: linear-gradient(to bottom, rgba(255, 77, 79, 0.10), rgba(255, 77, 79, 0.20));
+    border-bottom-color: var(--dash-red);
     color: white;
 }
 
 .dash-nav-item.active .dash-nav-icon i {
-    text-shadow: 0 0 10px rgba(0, 255, 102, 0.4);
-    
+    text-shadow: 0 0 10px rgba(255, 77, 79, 0.45);
 }
 
 .dash-nav-icon {
@@ -253,7 +254,11 @@ body.dashboard-mode {
     height: 56px;
 }
 .bet-type-item:hover { background: #f4f6f7; }
-.bet-type-item.active { background: var(--dash-blue); color: white; }
+.bet-type-item.active {
+    background: var(--dash-red);
+    color: white;
+    box-shadow: inset 0 -3px 0 var(--brand-hover);
+}
 .bet-type-letter { font-weight: 900; font-size: 16px; line-height: 1; }
 .bet-type-label { font-size: 10px; font-weight: 800; margin-top: 4px; }
 
@@ -385,46 +390,43 @@ body.dashboard-mode {
 }
 
 .sidebar-header {
-    background: #f8f9fa;
-    color: #888;
+    background: var(--dash-tile);
+    color: var(--dash-text);
     padding: 10px 16px;
     font-size: 10px;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    border-bottom: 1px solid #eee;
+    border-bottom: 1px solid var(--dash-border);
+    border-left: 3px solid var(--dash-red);
 }
 
 .sidebar-item {
     padding: 14px 20px;
-    border-bottom: 1px solid #f0f0f0;
+    border-bottom: 1px solid var(--dash-border);
     font-size: 14px;
     font-weight: 700;
     cursor: pointer;
     display: flex;
     align-items: center;
     gap: 14px;
-    color: #333;
+    color: var(--dash-text);
     transition: all 0.2s;
     position: relative;
     overflow: hidden;
 }
 
 .sidebar-item:hover {
-    background-color: #fafafa;
-    color: var(--dash-green);
+    background-color: var(--dash-tile);
+    color: var(--dash-red);
     padding-left: 24px;
-    
 }
 
 
-.sidebar-item.active,
-.sidebar-item-row.selected {
-    background-color: rgba(0, 112, 60, 0.08);
-    
-    color: var(--dash-green);
-    border-left: 4px solid var(--dash-green);
-    
+.sidebar-item.active {
+    background-color: rgba(255, 77, 79, 0.10);
+    color: var(--dash-red);
+    border-left: 4px solid var(--dash-red);
 }
 
 .sidebar-subitem {
@@ -825,7 +827,7 @@ body.dashboard-mode {
     display: flex;
     align-items: center;
     min-height: 44px;
-    border-bottom: 1px solid #f0f0f0;
+    border-bottom: 1px solid var(--dash-border);
     cursor: pointer;
     transition: background 0.15s ease;
     padding: 0 16px;
@@ -833,27 +835,23 @@ body.dashboard-mode {
 }
 
 .sidebar-item-row:hover {
-    background: #f5f5f5;
+    background: var(--dash-tile);
 }
 
-/* Selected sport row needs a clearly visible background — the previous 6%
-   green tint was barely distinguishable from hover, so users couldn't tell
-   which sport was active at a glance. Bumped to 14% with a 4px green left
-   accent and bold label so the active sport stands out among siblings. */
 .sidebar-item-row.selected {
-    background: rgba(0, 112, 60, 0.14);
-    border-left: 4px solid var(--dash-green);
+    background: rgba(255, 77, 79, 0.12);
+    border-left: 4px solid var(--dash-red);
     padding-left: 12px;
 }
 
 .sidebar-item-row.selected .sidebar-label-text {
-    color: var(--dash-green);
+    color: var(--dash-red);
     font-weight: 700;
 }
 
 .sidebar-item-row.expander-only {
     cursor: pointer;
-    background: #f8f9fa;
+    background: var(--dash-tile);
 }
 
 .sidebar-item-row.expander-only .sidebar-label-text {
@@ -3472,11 +3470,12 @@ body.dashboard-mode {
     border-radius: 8px;
     overflow: hidden;
     border: 1px solid var(--dash-border);
-    transition: box-shadow 0.15s ease;
+    transition: box-shadow 0.15s ease, border-color 0.15s ease;
 }
 
 .match-card:hover {
     box-shadow: var(--dash-shadow-md);
+    border-color: var(--dash-red);
 }
 
 /* Broadcast row — sits above the dark match-header so the chip reads

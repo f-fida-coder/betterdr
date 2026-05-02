@@ -8,24 +8,26 @@
 
   /* Light surfaces (scoreboard, figures, tables) */
   --bg-light: #FFFFFF;
-  --bg-light-alt: #F5F5F5;
+  --bg-light-alt: #F2F2F2;
+  --surface-tile: #D9D9D9;
+  --surface-topbar: #3A3A3C;
 
   /* Brand red */
-  --brand-primary: #E63946;
-  --brand-hover: #D32F3D;
-  --brand-active: #FF4A5C;
+  --brand-primary: #FF4D4F;
+  --brand-hover: #E63E40;
+  --brand-active: #FF6E70;
 
   /* Text */
   --text-primary: #FFFFFF;
   --text-secondary: #B8B8B8;
-  --text-muted: #7A7A7A;
+  --text-muted: #8E8E93;
   --text-disabled: #5A5A5A;
-  --text-on-light: #1A1A1A;
+  --text-on-light: #1C1C1E;
 
   /* Status */
   --status-success: #4CAF50;
   --status-success-dark: #1B5E20;
-  --status-error: #E63946;
+  --status-error: #FF4D4F;
   --status-error-dark: #C62828;
   --status-warning: #FFC107;
   --status-info: #1E88E5;
@@ -34,8 +36,8 @@
   /* Borders */
   --border-main: #3A3A3A;
   --border-subtle: #2C2C2C;
-  --border-light: #E0E0E0;
-  --border-active: #E63946;
+  --border-light: #C7C7CC;
+  --border-active: #FF4D4F;
 
   /* Typography */
   --font-main: 'Roboto Condensed', 'Arial Narrow', 'Helvetica Neue', sans-serif;
