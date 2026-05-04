@@ -365,7 +365,6 @@ final class BetSettlementService
             'matchesSettled' => 0,
             'betsSettled' => 0,
             'errors' => 0,
-            'expiredSkipped' => 0,
             'matchIds' => array_keys($matchIds),
         ];
 
@@ -378,11 +377,11 @@ final class BetSettlementService
                 $summary['matchesChecked']++;
                 $annotated = SportsMatchStatus::annotate($match);
                 $status = (string) ($annotated['status'] ?? '');
-                if ($status === 'expired') {
-                    $summary['expiredSkipped']++;
-                    continue;
-                }
-                if (!in_array($status, ['finished', 'canceled'], true)) {
+                // 'expired' = past startTime + grace with no upstream data —
+                // selectionResult voids these, so settleMatch refunds stakes.
+                // Skipping them here was the bug that left tickets pending
+                // forever once the upstream feed dropped a game.
+                if (!in_array($status, ['finished', 'canceled', 'expired'], true)) {
                     continue;
                 }
 
