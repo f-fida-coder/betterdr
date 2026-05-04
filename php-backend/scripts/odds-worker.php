@@ -129,19 +129,23 @@ while (true) {
     $elapsed = (int) max(0, round(microtime(true) - $started));
     $remaining = max(1, $intervalSeconds - $elapsed);
     $liveTickSeconds = max(5, (int) Env::get('RUNDOWN_LIVE_TICK_SECONDS', '10'));
-    $liveEnabled = strtolower((string) Env::get('SPORTS_API_ENABLED', 'true')) === 'true'
+    // Live-odds provider toggles. Default keeps existing behavior (OddsAPI
+    // on, Rundown off). Flip in .env without touching code:
+    //   LIVE_ODDS_ODDSAPI=true|false
+    //   LIVE_ODDS_RUNDOWN=true|false
+    // Both can be true (parallel, OddsAPI then Rundown each chunk).
+    $oddsApiLiveOn = strtolower((string) Env::get('LIVE_ODDS_ODDSAPI', 'true')) === 'true'
+        && strtolower((string) Env::get('SPORTS_API_ENABLED', 'true')) === 'true'
         && (string) Env::get('ODDS_API_KEY', '') !== '';
+    $rundownLiveOn = strtolower((string) Env::get('LIVE_ODDS_RUNDOWN', 'false')) === 'true'
+        && (string) Env::get('RUNDOWN_API_KEY', '') !== '';
     $deadline = microtime(true) + $remaining;
     while (microtime(true) < $deadline) {
         $chunkStart = microtime(true);
-        if ($liveEnabled) {
+        if ($oddsApiLiveOn) {
             try {
                 $repoLive = new SqlRepository($dbUri, $dbName);
                 $r = OddsSyncService::syncLiveOdds($repoLive);
-                // Log every tick — even quiet ones — so operators can confirm
-                // the live tick is alive without grepping for sporadic updates.
-                // Quiet ticks are short ("events=0") and shouldn't dominate
-                // log volume; ticks that touched data get the full breakdown.
                 if (($r['updated'] ?? 0) > 0 || ($r['created'] ?? 0) > 0 || ($r['errors'] ?? 0) > 0 || ($r['liveScoreEvents'] ?? 0) > 0) {
                     $logWorker('info', sprintf(
                         "oddsapi live tick sports=%d live=%d withOdds=%d changed=%d errors=%d",
@@ -155,6 +159,26 @@ while (true) {
                 unset($repoLive);
             } catch (Throwable $e) {
                 $logWorker('error', 'oddsapi live tick failed: ' . $e->getMessage());
+            }
+        }
+        if ($rundownLiveOn) {
+            try {
+                $repoLive = new SqlRepository($dbUri, $dbName);
+                $r = RundownLiveSync::tick($repoLive);
+                if (($r['updated'] ?? 0) > 0 || ($r['matched'] ?? 0) > 0 || ($r['errors'] ?? 0) > 0 || ($r['finished'] ?? 0) > 0) {
+                    $logWorker('info', sprintf(
+                        "rundown live tick sports=%d events=%d matched=%d updated=%d finished=%d errors=%d",
+                        (int) ($r['sportsTried'] ?? 0),
+                        (int) ($r['eventsSeen'] ?? 0),
+                        (int) ($r['matched'] ?? 0),
+                        (int) ($r['updated'] ?? 0),
+                        (int) ($r['finished'] ?? 0),
+                        (int) ($r['errors'] ?? 0)
+                    ));
+                }
+                unset($repoLive);
+            } catch (Throwable $e) {
+                $logWorker('error', 'rundown live tick failed: ' . $e->getMessage());
             }
         }
         $chunkElapsed = microtime(true) - $chunkStart;
