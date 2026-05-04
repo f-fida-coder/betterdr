@@ -1,2 +1,2 @@
 Deploy trigger file — touch/modify to force Hostinger Git auto-pull.
-Last trigger: 2026-05-04 (live-odds provider toggles: LIVE_ODDS_ODDSAPI / LIVE_ODDS_RUNDOWN — restart odds-worker on prod)
+Last trigger: 2026-05-04 (Rundown live disabled — OddsAPI-only; restart odds-worker on prod)
