@@ -35,7 +35,7 @@ body.dashboard-mode {
 
 
 .dash-topbar {
-    background: linear-gradient(to right, #1a1a1a, #252525);
+    background: #424242;
     color: white;
     height: 72px;
     
@@ -235,7 +235,6 @@ body.dashboard-mode {
 .bet-type-bar {
     display: flex;
     align-items: stretch;
-    gap: 6px;
     flex: 1 1 auto;
     overflow-x: auto;
 }
@@ -246,9 +245,9 @@ body.dashboard-mode {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    border-right: 1px solid #e0e0e0;
+    border-right: 4px solid #595959;
     cursor: pointer;
-    background: #e9ecef;
+    background: #e8e8e8;
     color: #333;
     transition: background 0.15s ease;
     height: 56px;
@@ -389,9 +388,55 @@ body.dashboard-mode {
     color: var(--dash-green);
 }
 
-.sidebar-header {
+.sidebar-search-results {
+    background: var(--dash-bg);
+    border-bottom: 1px solid var(--dash-border);
+    max-height: 50vh;
+    overflow-y: auto;
+}
+
+.sidebar-search-loading,
+.sidebar-search-empty {
+    padding: 12px 16px;
+    color: var(--dash-text-muted, #888);
+    font-size: 13px;
+}
+
+.sidebar-search-result-row {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--dash-border);
+    cursor: pointer;
     background: var(--dash-tile);
+}
+
+.sidebar-search-result-row.disabled {
+    cursor: default;
+    opacity: 0.6;
+}
+
+.sidebar-search-result-row:hover:not(.disabled) {
+    background: var(--dash-row-hover, rgba(255, 255, 255, 0.05));
+}
+
+.sidebar-search-teams {
     color: var(--dash-text);
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.sidebar-search-sport {
+    color: var(--dash-text-muted, #888);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+}
+
+.sidebar-header {
+    background: #2b2b2b;
+    color: #fff;
     padding: 10px 16px;
     font-size: 10px;
     font-weight: 700;
@@ -449,7 +494,7 @@ body.dashboard-mode {
 
 .dash-main {
     margin-left: 260px;
-    background: var(--dash-bg);
+    background: #595959;
     min-height: calc(100vh - 132px);
     padding: 20px;
     transition: margin 0.3s ease;
@@ -835,23 +880,28 @@ body.dashboard-mode {
 }
 
 .sidebar-item-row:hover {
-    background: var(--dash-tile);
+    background: #f5f5f5;
 }
 
 .sidebar-item-row.selected {
-    background: rgba(255, 77, 79, 0.12);
-    border-left: 4px solid var(--dash-red);
+    background: #ff5051;
+    border-left: 4px solid #ff5051;
     padding-left: 12px;
 }
 
 .sidebar-item-row.selected .sidebar-label-text {
-    color: var(--dash-red);
+    color: #fff;
     font-weight: 700;
+}
+
+.sidebar-item-row.selected .sidebar-main-icon,
+.sidebar-item-row.selected .sidebar-blue-icon {
+    color: #fff;
 }
 
 .sidebar-item-row.expander-only {
     cursor: pointer;
-    background: var(--dash-tile);
+    background: #fff;
 }
 
 .sidebar-item-row.expander-only .sidebar-label-text {
@@ -2181,6 +2231,9 @@ body.dashboard-mode {
         display: flex;
         width: 100%;
         height: 60px;
+        border-top: 2px solid #595959;
+        border-bottom: 2px solid #595959;
+        box-sizing: border-box;
     }
 
     .tab-item {
@@ -2189,17 +2242,17 @@ body.dashboard-mode {
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        background-color: #e6e6e6;
-        
-        border-right: 1px solid #ccc;
+        background-color: #e8e8e8;
+
+        border-right: 2px solid #595959;
         cursor: pointer;
         color: #000;
         position: relative;
     }
 
     .tab-item.active {
-        background-color: var(--status-info);
-        
+        background-color: #ff5051;
+
         color: white;
     }
 
@@ -2676,14 +2729,14 @@ body.dashboard-mode {
     .dash-sidebar .sidebar-item-row.level-1.selected,
     .dash-sidebar .sidebar-item-row.level-2.selected,
     .dash-sidebar .sidebar-item-row.level-3.selected {
-        background: rgba(0, 112, 60, 0.08);
-        border-left-color: var(--dash-green);
+        background: #ff5051;
+        border-left-color: #ff5051;
     }
 
     .dash-sidebar .sidebar-item-row.level-1.selected .sidebar-label-text,
     .dash-sidebar .sidebar-item-row.level-2.selected .sidebar-label-text,
     .dash-sidebar .sidebar-item-row.level-3.selected .sidebar-label-text {
-        color: #111;
+        color: #fff;
         font-weight: 800;
     }
 
@@ -3409,10 +3462,10 @@ body.dashboard-mode {
     justify-content: space-between;
     align-items: center;
     margin-bottom: 16px;
-    background: #fff;
+    background: #ff5051;
     padding: 12px 16px;
     border-radius: 8px;
-    border: 1px solid var(--dash-border);
+    border: 1px solid #ff5051;
 }
 
 .content-title {
@@ -3421,12 +3474,12 @@ body.dashboard-mode {
     gap: 10px;
     font-size: 14px;
     font-weight: 700;
-    color: var(--dash-text);
+    color: #fff;
 }
 
 .content-title i {
     font-size: 18px;
-    color: #555;
+    color: #fff;
 }
 
 .content-tabs {
@@ -4185,8 +4238,8 @@ body.dashboard-mode {
     .dash-sidebar .sidebar-item-row.level-1.selected,
     .dash-sidebar .sidebar-item-row.level-2.selected,
     .dash-sidebar .sidebar-item-row.level-3.selected {
-        background: rgba(0, 112, 60, 0.08) !important;
-        border-left: 3px solid var(--dash-green) !important;
+        background: #ff5051 !important;
+        border-left: 3px solid #ff5051 !important;
         padding-left: 37px !important;
     }
 
@@ -4194,12 +4247,12 @@ body.dashboard-mode {
     .dash-sidebar .sidebar-item-row.level-2.selected .sidebar-label-text,
     .dash-sidebar .sidebar-item-row.level-3.selected .sidebar-label-text {
         font-weight: 800 !important;
-        color: #111 !important;
+        color: #fff !important;
     }
 
     /* Parent sport row: subtle context when a child is selected */
     .dash-sidebar .sidebar-item-row.level-0.has-active-child {
-        background: rgba(0, 112, 60, 0.04) !important;
+        background: #fff !important;
     }
 
     .dash-sidebar .sidebar-item-row.level-0.has-active-child .sidebar-label-text {
@@ -4210,28 +4263,35 @@ body.dashboard-mode {
 /* ── Mobile sidebar: selected state clarity ────────────── */
 @media (max-width: 768px) {
     /* Selected parent sport on mobile */
-    .dash-sidebar .sidebar-item-row.level-0.selected,
-    .dash-sidebar .sidebar-item-row.level-0.has-active-child {
-        background: rgba(0, 112, 60, 0.06) !important;
+    .dash-sidebar .sidebar-item-row.level-0.selected {
+        background: #ff5051 !important;
     }
 
-    .dash-sidebar .sidebar-item-row.level-0.selected .sidebar-label-text,
+    .dash-sidebar .sidebar-item-row.level-0.has-active-child {
+        background: #fff !important;
+    }
+
+    .dash-sidebar .sidebar-item-row.level-0.selected .sidebar-label-text {
+        color: #fff !important;
+        font-weight: 800 !important;
+    }
+
     .dash-sidebar .sidebar-item-row.level-0.has-active-child .sidebar-label-text {
         font-weight: 800 !important;
     }
 
-    /* Selected child on mobile — reinforce existing green system */
+    /* Selected child on mobile */
     .dash-sidebar .sidebar-item-row.level-1.selected,
     .dash-sidebar .sidebar-item-row.level-2.selected,
     .dash-sidebar .sidebar-item-row.level-3.selected {
-        background: rgba(0, 112, 60, 0.08) !important;
-        border-left-color: var(--dash-green) !important;
+        background: #ff5051 !important;
+        border-left-color: #ff5051 !important;
     }
 
     .dash-sidebar .sidebar-item-row.level-1.selected .sidebar-label-text,
     .dash-sidebar .sidebar-item-row.level-2.selected .sidebar-label-text,
     .dash-sidebar .sidebar-item-row.level-3.selected .sidebar-label-text {
-        color: #111 !important;
+        color: #fff !important;
         font-weight: 800 !important;
     }
 }

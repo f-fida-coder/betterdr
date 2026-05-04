@@ -194,7 +194,7 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
         minWidth: 56,
         minHeight: 64,
         padding: '6px 6px',
-        background: '#000000',
+        background: '#595959',
         border: 'none',
         borderRight: '1px solid rgba(255,255,255,0.12)',
         color: '#fff',
@@ -217,7 +217,7 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
     const mhBalanceCellStyle = {
         flex: '1 1 auto',
         minWidth: 0,
-        background: 'linear-gradient(180deg, #6c7b8a 0%, #56636e 100%)',
+        background: '#595959',
         borderLeft: '1px solid rgba(0,0,0,0.25)',
         borderRight: '1px solid rgba(0,0,0,0.25)',
         boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 0 rgba(0,0,0,0.18)',
@@ -402,7 +402,7 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
                         alignItems: 'stretch',
                         padding: 0,
                         minHeight: 64,
-                        background: '#000000',
+                        background: '#595959',
                     }}
                 >
                     <button

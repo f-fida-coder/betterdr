@@ -1437,16 +1437,16 @@ const containerStyle = {
 
 const sportHeaderStyle = {
     padding: '12px 14px',
-    backgroundColor: '#fff',
-    borderBottom: '1px solid #e0e0e0',
+    backgroundColor: '#ff5051',
+    borderBottom: '1px solid #ff5051',
     flexShrink: 0,
     display: 'flex',
     alignItems: 'center',
     gap: '10px',
 };
 
-const sportTitleStyle = { fontSize: '15px', fontWeight: 700, color: '#111', lineHeight: 1.3 };
-const sportSubtitleStyle = { fontSize: '11px', color: '#999', fontWeight: 500, marginTop: '2px', letterSpacing: '0.2px' };
+const sportTitleStyle = { fontSize: '15px', fontWeight: 700, color: '#fff', lineHeight: 1.3 };
+const sportSubtitleStyle = { fontSize: '11px', color: 'rgba(255,255,255,0.85)', fontWeight: 500, marginTop: '2px', letterSpacing: '0.2px' };
 const emptyStateStyle = { textAlign: 'center', padding: '60px 20px', color: '#bbb' };
 
 const refreshButtonStyle = {

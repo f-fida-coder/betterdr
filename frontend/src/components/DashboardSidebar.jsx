@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { getSportKeywords, buildMergedSportsTree } from '../data/sportsData';
-import { getAvailableSports } from '../api';
+import { getAvailableSports, getUpcomingMatches } from '../api';
 
 // Return only children whose sport keys currently have data per
 // /api/matches/sports. When `liveSet` is null (probe pending or
@@ -171,6 +171,11 @@ const DashboardSidebar = ({
     const [expandedIds, setExpandedIds] = useState(new Set());
     const [liveSet, setLiveSet] = useState(null);
     const [searchQuery, setSearchQuery] = useState('');
+    // Team-name search index: lazily populated when the user starts typing.
+    // Holds upcoming matches so we can match against home/away team names
+    // — the static sport tree only knows category/league labels.
+    const [matchesForSearch, setMatchesForSearch] = useState(null);
+    const [matchesSearchLoading, setMatchesSearchLoading] = useState(false);
 
     // Health-probe the sports feed. Hard 5s budget: if the backend or
     // upstream API is slow/unavailable, we abort and leave liveSet=null,
@@ -216,6 +221,74 @@ const DashboardSidebar = ({
     const displaySports = isRestrictedMode
         ? mergedSports.filter(s => parlaySportsIds.has(s.id))
         : mergedSports;
+
+    // Lazy-load upcoming matches the first time the user types ≥2 chars.
+    // We don't prefetch on mount — most sessions never use the search box,
+    // and a 200-row payload would be wasted bandwidth.
+    useEffect(() => {
+        const q = searchQuery.trim();
+        if (q.length < 2) return;
+        if (matchesForSearch !== null || matchesSearchLoading) return;
+        let cancelled = false;
+        setMatchesSearchLoading(true);
+        (async () => {
+            try {
+                const data = await getUpcomingMatches({ limit: 200, payload: 'core' });
+                if (cancelled) return;
+                setMatchesForSearch(Array.isArray(data) ? data : []);
+            } catch {
+                if (!cancelled) setMatchesForSearch([]);
+            } finally {
+                if (!cancelled) setMatchesSearchLoading(false);
+            }
+        })();
+        return () => { cancelled = true; };
+    }, [searchQuery, matchesForSearch, matchesSearchLoading]);
+
+    // Walk the merged sport tree (static catalog + backend-discovered
+    // leagues) and find the first leaf whose sportKeys array contains the
+    // given Odds API sport key. Used to map a match → selectable sidebar id.
+    const findLeafBySportKey = (sportKey) => {
+        const target = String(sportKey || '').toLowerCase();
+        if (!target) return null;
+        const search = (items) => {
+            for (const item of items) {
+                if (Array.isArray(item.sportKeys) && item.sportKeys.some((k) => String(k).toLowerCase() === target)) {
+                    return item;
+                }
+                if (Array.isArray(item.children)) {
+                    const found = search(item.children);
+                    if (found) return found;
+                }
+            }
+            return null;
+        };
+        return search(mergedSports);
+    };
+
+    // Filter cached matches by team name. Capped to avoid flooding the
+    // sidebar when a generic word matches dozens of games.
+    const teamSearchResults = useMemo(() => {
+        const q = searchQuery.trim().toLowerCase();
+        if (q.length < 2 || !Array.isArray(matchesForSearch)) return [];
+        const results = [];
+        for (const m of matchesForSearch) {
+            const home = String(m?.homeTeam || m?.home_team || '').toLowerCase();
+            const away = String(m?.awayTeam || m?.away_team || '').toLowerCase();
+            if (home.includes(q) || away.includes(q)) {
+                results.push(m);
+                if (results.length >= 12) break;
+            }
+        }
+        return results;
+    }, [searchQuery, matchesForSearch]);
+
+    const handleSearchResultClick = (match) => {
+        const leaf = findLeafBySportKey(match?.sportKey);
+        if (!leaf) return;
+        onToggleSport(leaf.id, { replace: true });
+        setSearchQuery('');
+    };
 
     const filteredSports = useMemo(() => {
         // Hide a parent category if every one of its children was filtered
@@ -266,6 +339,37 @@ const DashboardSidebar = ({
                 </button>
                 <button className="mobile-tab-btn active-default">&ndash; FEATURED &ndash;</button>
             </div>
+
+            {/* Team search results: shown when query has ≥2 chars. Sits
+                above the static sport list so users see team matches first. */}
+            {searchQuery.trim().length >= 2 && (
+                <div className="sidebar-search-results">
+                    {matchesSearchLoading && teamSearchResults.length === 0 && (
+                        <div className="sidebar-search-loading">Searching teams…</div>
+                    )}
+                    {!matchesSearchLoading && teamSearchResults.length === 0 && matchesForSearch !== null && (
+                        <div className="sidebar-search-empty">No teams found for "{searchQuery.trim()}"</div>
+                    )}
+                    {teamSearchResults.map((m) => {
+                        const home = m?.homeTeam || m?.home_team || '';
+                        const away = m?.awayTeam || m?.away_team || '';
+                        const leaf = findLeafBySportKey(m?.sportKey);
+                        const sportLabel = leaf?.label || String(m?.sport || m?.sportKey || '').toUpperCase();
+                        return (
+                            <div
+                                key={m.id || `${m.sportKey}-${away}-${home}`}
+                                className={`sidebar-search-result-row${leaf ? '' : ' disabled'}`}
+                                onClick={leaf ? () => handleSearchResultClick(m) : undefined}
+                                role={leaf ? 'button' : undefined}
+                                tabIndex={leaf ? 0 : undefined}
+                            >
+                                <span className="sidebar-search-teams">{away} @ {home}</span>
+                                <span className="sidebar-search-sport">{sportLabel}</span>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
 
             {/* Sports list */}
             <div className="sidebar-content">
