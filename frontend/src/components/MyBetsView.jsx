@@ -855,9 +855,6 @@ const FiguresTab = ({ gradedBets = [], oddsFormat, teamLogos = {} }) => {
                                     aria-expanded={canExpand ? isExpanded : undefined}
                                 >
                                     <span className="figures-label">
-                                        {canExpand && (
-                                            <span className={`figures-chevron${isExpanded ? ' open' : ''}`} aria-hidden="true">▸</span>
-                                        )}
                                         {d.label} <span className="figures-date">({d.date})</span>
                                     </span>
                                     {renderAmount(d.pl)}

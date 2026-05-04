@@ -133,11 +133,6 @@ const SidebarItem = ({
                     {isPropsPlus && <span className="props-plus-badge">+</span>}
                 </div>
 
-                {level === 0 && hasChildren && (
-                    <span className={`main-cat-arrow ${isExpanded ? 'expanded' : ''}`}>
-                        <i className="fa-solid fa-chevron-down"></i>
-                    </span>
-                )}
             </div>
 
             {hasChildren && isExpanded && (
