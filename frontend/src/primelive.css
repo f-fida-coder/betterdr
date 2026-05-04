@@ -1,15 +1,18 @@
 .prime-live-wrapper {
-    --prime-bg: var(--bg-light);
-    --prime-card: var(--bg-light);
-    --prime-card-soft: var(--bg-light-alt);
-    --prime-border: var(--border-light);
-    --prime-text: var(--text-on-light);
-    --prime-muted: var(--text-muted);
-    --prime-accent: var(--brand-primary);
-    --prime-accent-soft: var(--bg-light-alt);
-    --prime-green: var(--status-success);
-    --prime-green-soft: var(--bg-light-alt);
-    --prime-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+    --prime-bg: #232532;
+    --prime-card: #232532;
+    --prime-card-soft: #2c2f3e;
+    --prime-card-elev: #353849;
+    --prime-border: rgba(255, 255, 255, 0.08);
+    --prime-divider: rgba(255, 255, 255, 0.05);
+    --prime-text: #e8eaed;
+    --prime-muted: #9aa3ad;
+    --prime-accent: #ff5051;
+    --prime-accent-soft: rgba(255, 80, 81, 0.15);
+    --prime-odd: #facc15;
+    --prime-green: #34d399;
+    --prime-green-soft: rgba(52, 211, 153, 0.15);
+    --prime-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
 
     background: var(--prime-bg);
     min-height: calc(100vh - 72px);
@@ -50,8 +53,8 @@
 
 .prime-sidebar-input {
     width: 100%;
-    background: #f5f8fc;
-    border: 1px solid #d7e2f0;
+    background: var(--prime-card-soft);
+    border: 1px solid var(--prime-border);
     padding: 10px 12px;
     border-radius: 6px;
     color: var(--prime-text);
@@ -60,13 +63,13 @@
 }
 
 .prime-sidebar-input::placeholder {
-    color: #8ea1b8;
+    color: var(--prime-muted);
 }
 
 .prime-sidebar-input:focus {
     outline: none;
-    border-color: #8bb4e8;
-    box-shadow: 0 0 0 3px rgba(15, 93, 179, 0.12);
+    border-color: var(--prime-accent);
+    box-shadow: 0 0 0 3px var(--prime-accent-soft);
 }
 
 .prime-sidebar-item {
@@ -75,7 +78,7 @@
     justify-content: space-between;
     align-items: center;
     cursor: pointer;
-    border-bottom: 1px solid #f0f4f9;
+    border-bottom: 1px solid var(--prime-divider);
     font-size: 13px;
     font-weight: 700;
     color: var(--prime-muted);
@@ -83,26 +86,26 @@
 }
 
 .prime-sidebar-item:hover {
-    background: #f5f8fc;
+    background: var(--prime-card-soft);
     color: var(--prime-text);
 }
 
 .prime-sidebar-item.active {
-    background: linear-gradient(90deg, var(--prime-accent-soft), #f7fbff);
+    background: var(--prime-accent-soft);
     color: var(--prime-accent);
     border-left: 3px solid var(--prime-accent);
 }
 
 .prime-badge {
-    background: #eef3f9;
-    color: #2f4d73;
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--prime-text);
     padding: 4px 10px;
     border-radius: 999px;
     font-size: 11px;
     font-weight: 800;
     min-width: 34px;
     text-align: center;
-    border: 1px solid #dde7f3;
+    border: 1px solid var(--prime-border);
 }
 
 .prime-main {
@@ -140,9 +143,9 @@
 }
 
 .prime-status-pill {
-    border: 1px solid #d4e0ee;
-    background: #f6f9fd;
-    color: #375171;
+    border: 1px solid var(--prime-border);
+    background: var(--prime-card-soft);
+    color: var(--prime-muted);
     border-radius: 6px;
     padding: 7px 10px;
     font-size: 12px;
@@ -158,9 +161,9 @@
 
 .prime-refresh-btn,
 .prime-text-btn {
-    border: 1px solid #d4e0ee;
-    background: #ffffff;
-    color: #284a72;
+    border: 1px solid var(--prime-border);
+    background: var(--prime-card-soft);
+    color: var(--prime-text);
     border-radius: 6px;
     padding: 7px 10px;
     font-size: 12px;
@@ -175,8 +178,8 @@
 
 .prime-market-toggle {
     display: inline-flex;
-    background: #f1f5fa;
-    border: 1px solid #dce5f0;
+    background: var(--prime-card-soft);
+    border: 1px solid var(--prime-border);
     border-radius: 6px;
     overflow: hidden;
 }
@@ -187,19 +190,19 @@
     padding: 7px 10px;
     font-size: 12px;
     font-weight: 700;
-    color: #52739a;
+    color: var(--prime-muted);
     cursor: pointer;
 }
 
 .prime-market-toggle button.active {
-    background: #fff;
+    background: var(--prime-card-elev);
     color: var(--prime-accent);
-    box-shadow: inset 0 0 0 1px #d2dff0;
+    box-shadow: inset 0 0 0 1px var(--prime-border);
 }
 
 .prime-subtitle {
     padding: 10px 16px;
-    color: #516881;
+    color: var(--prime-muted);
     font-size: 13px;
 }
 
@@ -217,14 +220,14 @@
 }
 
 .prime-match-header {
-    background: linear-gradient(90deg, #f9fbff, #f4f8fd);
+    background: var(--prime-card-soft);
     padding: 12px 14px;
     font-size: 13px;
     font-weight: 800;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    color: #26476d;
+    color: var(--prime-text);
     border-bottom: 1px solid var(--prime-border);
     cursor: pointer;
 }
@@ -233,7 +236,7 @@
     display: inline-flex;
     gap: 10px;
     align-items: center;
-    color: #5c789b;
+    color: var(--prime-muted);
     font-size: 12px;
 }
 
@@ -245,13 +248,13 @@
     display: grid;
     grid-template-columns: 3fr 2fr;
     padding: 10px 14px;
-    background: #fcfdff;
+    background: var(--prime-card-soft);
     font-size: 11px;
-    color: #6c809a;
+    color: var(--prime-muted);
     text-transform: uppercase;
     font-weight: 800;
     letter-spacing: 1px;
-    border-bottom: 1px solid #edf2f8;
+    border-bottom: 1px solid var(--prime-border);
 }
 
 .prime-markets-header {
@@ -264,7 +267,7 @@
 .prime-match-row {
     display: grid;
     grid-template-columns: 3fr 2fr;
-    border-bottom: 1px solid #edf2f8;
+    border-bottom: 1px solid var(--prime-divider);
 }
 
 .prime-match-row:last-child {
@@ -277,7 +280,7 @@
     flex-direction: column;
     justify-content: center;
     gap: 8px;
-    border-right: 1px solid #edf2f8;
+    border-right: 1px solid var(--prime-divider);
 }
 
 .prime-team {
@@ -285,12 +288,12 @@
     justify-content: space-between;
     font-weight: 700;
     font-size: 14px;
-    color: #213549;
+    color: var(--prime-text);
     align-items: center;
 }
 
 .prime-score {
-    color: var(--brand-primary);
+    color: var(--prime-odd);
     font-weight: 800;
     font-size: 15px;
     min-width: 32px;
@@ -299,7 +302,7 @@
 
 .prime-time-info {
     font-size: 11px;
-    color: #6b8098;
+    color: var(--prime-muted);
     font-weight: 700;
     margin-top: 2px;
     display: flex;
@@ -308,9 +311,9 @@
 }
 
 .prime-live-pill {
-    background: #f0f5fb;
-    color: #3e5e83;
-    border: 1px solid #d6e0ec;
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--prime-muted);
+    border: 1px solid var(--prime-border);
     border-radius: 999px;
     font-size: 10px;
     padding: 2px 8px;
@@ -319,7 +322,7 @@
 .prime-live-pill.live {
     background: var(--prime-green-soft);
     color: var(--prime-green);
-    border-color: #bcebd7;
+    border-color: rgba(52, 211, 153, 0.35);
 }
 
 .prime-odds-grid {
@@ -331,8 +334,8 @@
 }
 
 .prime-odd-btn {
-    background: #f7fafe;
-    border: 1px solid #dbe6f2;
+    background: var(--prime-card-soft);
+    border: 1px solid var(--prime-border);
     border-radius: 6px;
     display: flex;
     flex-direction: column;
@@ -341,26 +344,26 @@
     cursor: pointer;
     min-height: 54px;
     font-weight: 700;
-    color: #3b5675;
+    color: var(--prime-text);
     transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
 }
 
 .prime-odd-btn:hover:not(:disabled) {
-    border-color: #7aa7db;
-    background: #eef5ff;
+    border-color: var(--prime-accent);
+    background: var(--prime-card-elev);
     transform: translateY(-1px);
 }
 
 .prime-odd-btn .prime-odd-val {
     font-size: 14px;
-    color: var(--brand-primary);
+    color: var(--prime-odd);
     font-weight: 800;
 }
 
 .prime-odd-btn.selected {
-    border-color: #0f9d6a;
-    background: #e8f8f1;
-    box-shadow: inset 0 0 0 1px rgba(15, 157, 106, 0.25);
+    border-color: var(--prime-green);
+    background: var(--prime-green-soft);
+    box-shadow: inset 0 0 0 1px rgba(52, 211, 153, 0.35);
 }
 
 .prime-odd-btn:disabled {
@@ -372,7 +375,7 @@
     margin: 20px 12px;
     padding: 36px;
     text-align: center;
-    color: #6f859d;
+    color: var(--prime-muted);
     background: var(--prime-card);
     border: 1px solid var(--prime-border);
     border-radius: 10px;
@@ -385,7 +388,7 @@
 
 .prime-empty-state h3 {
     margin: 0;
-    color: #2d4869;
+    color: var(--prime-text);
 }
 
 .prime-empty-state p {
@@ -395,7 +398,7 @@
 .prime-slip-tabs {
     display: flex;
     border-bottom: 1px solid var(--prime-border);
-    background: #fbfdff;
+    background: var(--prime-card-soft);
 }
 
 .prime-slip-tab {
@@ -404,7 +407,7 @@
     text-align: center;
     font-size: 12px;
     font-weight: 800;
-    color: #7990ab;
+    color: var(--prime-muted);
     text-transform: uppercase;
 }
 
@@ -424,17 +427,17 @@
     border: 1px solid var(--prime-border);
     border-radius: 8px;
     padding: 14px;
-    background: #fbfdff;
+    background: var(--prime-card-soft);
 }
 
 .prime-side-card h4 {
     margin: 0 0 8px;
-    color: #2a4668;
+    color: var(--prime-text);
 }
 
 .prime-side-card p {
     margin: 0;
-    color: #6b8098;
+    color: var(--prime-muted);
     font-size: 13px;
     line-height: 1.5;
 }
@@ -442,10 +445,10 @@
 .prime-side-btn {
     width: 100%;
     margin-top: 8px;
-    border: 1px solid #d6e2ef;
+    border: 1px solid var(--prime-border);
     border-radius: 8px;
-    background: #fff;
-    color: #294b73;
+    background: var(--prime-card-elev);
+    color: var(--prime-text);
     font-weight: 700;
     padding: 9px 10px;
     text-align: left;
@@ -498,7 +501,7 @@
 
     .prime-match-teams {
         border-right: none;
-        border-bottom: 1px solid #edf2f8;
+        border-bottom: 1px solid var(--prime-divider);
     }
 
     .prime-market-toggle {

@@ -1,10 +1,12 @@
 .live-casino-wrapper {
-    --lc-bg: var(--bg-light);
-    --lc-card: var(--bg-light);
-    --lc-border: var(--border-light);
-    --lc-text: var(--text-on-light);
-    --lc-muted: var(--text-muted);
-    --lc-accent: var(--brand-primary);
+    --lc-bg: #1a1d22;
+    --lc-card: #252a31;
+    --lc-card-elev: #2c323a;
+    --lc-border: rgba(255, 255, 255, 0.08);
+    --lc-text: #e8eaed;
+    --lc-muted: #9aa3ad;
+    --lc-accent: #ff5051;
+    --lc-accent-soft: rgba(255, 80, 81, 0.15);
 
     width: 100%;
     max-width: 100%;
@@ -117,9 +119,9 @@
 }
 
 .live-cat-btn {
-    border: 1px solid #d7e4f4;
-    background: #fff;
-    color: #3e638c;
+    border: 1px solid var(--lc-border);
+    background: var(--lc-card);
+    color: var(--lc-muted);
     border-radius: 8px;
     padding: 8px 10px;
     display: inline-flex;
@@ -134,8 +136,8 @@
     min-width: 18px;
     height: 18px;
     border-radius: 999px;
-    background: #edf4ff;
-    color: #335d8b;
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--lc-text);
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -143,39 +145,43 @@
 }
 
 .live-cat-btn.active {
-    border-color: #90b6e3;
-    background: #edf5ff;
+    border-color: var(--lc-accent);
+    background: var(--lc-accent-soft);
     color: var(--lc-accent);
 }
 
 .live-search {
-    border: 1px solid #d7e4f3;
+    border: 1px solid var(--lc-border);
     border-radius: 9px;
-    background: #fff;
+    background: var(--lc-card);
     color: var(--lc-text);
     padding: 9px 10px;
     min-width: 240px;
     font-size: 13px;
 }
 
+.live-search::placeholder {
+    color: var(--lc-muted);
+}
+
 .live-search:focus {
     outline: none;
-    border-color: #90b5e1;
-    box-shadow: 0 0 0 3px rgba(15, 93, 179, 0.12);
+    border-color: var(--lc-accent);
+    box-shadow: 0 0 0 3px var(--lc-accent-soft);
 }
 
 .live-state {
     border: 1px solid var(--lc-border);
-    background: #fff;
+    background: var(--lc-card);
     border-radius: 8px;
     padding: 24px;
     text-align: center;
-    color: #607d9f;
+    color: var(--lc-muted);
     font-weight: 700;
 }
 
 .live-state.error {
-    color: #a83c3c;
+    color: #ff7a7a;
 }
 
 .live-section-title {
@@ -183,14 +189,14 @@
     align-items: center;
     gap: 8px;
     font-size: 25px;
-    color: #24496f;
+    color: var(--lc-text);
     font-weight: 900;
     text-transform: uppercase;
     margin-top: 2px;
 }
 
 .live-section-title span {
-    color: #c7922d;
+    color: #facc15;
 }
 
 .tables-grid {
@@ -200,27 +206,27 @@
 }
 
 .live-table-card {
-    border: 1px solid #d8e4f2;
-    background: #fff;
+    border: 1px solid var(--lc-border);
+    background: var(--lc-card);
     border-radius: 8px;
     overflow: hidden;
     display: flex;
     flex-direction: column;
-    box-shadow: 0 4px 8px rgba(19, 39, 67, 0.08);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
 }
 
 .table-preview {
     height: 122px;
     position: relative;
-    background: linear-gradient(130deg, #e6effb, #d9e7f7);
+    background: linear-gradient(130deg, #2a3140, #1f2530);
 }
 
-.theme-blackjack .table-preview { background: linear-gradient(135deg, #dbeef0, #b8e0df); }
-.theme-roulette .table-preview { background: linear-gradient(135deg, #f4dadd, #f1c2cb); }
-.theme-baccarat .table-preview { background: linear-gradient(135deg, #eadcf8, #d9c1f2); }
-.theme-poker .table-preview { background: linear-gradient(135deg, #d9f0e8, #b9e3d4); }
-.theme-special .table-preview { background: linear-gradient(135deg, #d7ecfb, #b5ddf6); }
-.theme-default .table-preview { background: linear-gradient(135deg, #e5eefb, #d3e2f6); }
+.theme-blackjack .table-preview { background: linear-gradient(135deg, #244e71, #102a42); }
+.theme-roulette .table-preview { background: linear-gradient(135deg, #6f1d2a, #2c0f16); }
+.theme-baccarat .table-preview { background: linear-gradient(135deg, #4d1f59, #251132); }
+.theme-poker .table-preview { background: linear-gradient(135deg, #1c4d46, #0f2f2b); }
+.theme-special .table-preview { background: linear-gradient(135deg, #0f4f72, #15314f); }
+.theme-default .table-preview { background: linear-gradient(135deg, #1f446e, #122942); }
 
 .live-badge {
     position: absolute;
@@ -241,7 +247,7 @@
     bottom: 8px;
     font-size: 11px;
     font-weight: 800;
-    color: #314f73;
+    color: rgba(255, 255, 255, 0.85);
 }
 
 .dealer-name i {
@@ -257,7 +263,7 @@
 .table-name {
     font-size: 17px;
     font-weight: 800;
-    color: #244b75;
+    color: var(--lc-text);
 }
 
 .table-limits {
@@ -265,13 +271,13 @@
     justify-content: space-between;
     gap: 10px;
     font-size: 12px;
-    color: #6a86a6;
+    color: var(--lc-muted);
     font-weight: 700;
 }
 
 .join-table-btn {
-    border: 1px solid var(--brand-primary);
-    background: var(--brand-primary);
+    border: 1px solid var(--lc-accent);
+    background: var(--lc-accent);
     color: #fff;
     border-radius: 8px;
     padding: 9px;
