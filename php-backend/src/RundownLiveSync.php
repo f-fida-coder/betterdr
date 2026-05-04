@@ -542,10 +542,25 @@ final class RundownLiveSync
         }
         try {
             $db->updateOne('matches', ['id' => SqlRepository::id((string) $row['id'])], $update);
-            return ['matched' => true, 'finalized' => true, 'sportKey' => (string) ($row['sportKey'] ?? '')];
         } catch (Throwable $_) {
             return ['matched' => true, 'finalized' => false, 'sportKey' => (string) ($row['sportKey'] ?? '')];
         }
+
+        // Settle pending bets for this match immediately. Without this hop,
+        // tickets sat 'pending' for up to ODDS_CRON_MINUTES (default 10 min)
+        // until the next OddsSyncService sweep — even though Rundown had
+        // already reported the final 10s after the whistle.
+        $matchId = (string) $row['id'];
+        try {
+            if ($db->countDocuments('betselections', ['matchId' => SqlRepository::id($matchId), 'status' => 'pending']) > 0) {
+                BetSettlementService::settleMatch($db, $matchId, null, 'system');
+            }
+        } catch (Throwable $_) {
+            // A settlement error must not abort the live tick. The 10-min
+            // OddsSyncService sweep will retry this match on its next pass.
+        }
+
+        return ['matched' => true, 'finalized' => true, 'sportKey' => (string) ($row['sportKey'] ?? '')];
     }
 
     /**
