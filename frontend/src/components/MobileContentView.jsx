@@ -1743,13 +1743,13 @@ const oddsCellDisabledStyle = {
 };
 const oddsCellSelectedStyle = {
     ...oddsCellStyle,
-    background: '#1a73e8',
-    borderColor: '#1a73e8',
+    background: '#ff5051',
+    borderColor: '#ff5051',
 };
 const oddsCellMainStyle = { fontSize: '13px', fontWeight: 600, color: '#111827', whiteSpace: 'nowrap' };
 const oddsCellJuiceStyle = { fontSize: '11px', fontWeight: 500, color: '#666', whiteSpace: 'nowrap' };
 const oddsCellMainSelectedStyle = { ...oddsCellMainStyle, color: '#fff' };
-const oddsCellJuiceSelectedStyle = { ...oddsCellJuiceStyle, color: '#dbeafe' };
+const oddsCellJuiceSelectedStyle = { ...oddsCellJuiceStyle, color: '#ffe4e1' };
 
 const blockedBannerStyle = {
     marginTop: 8,
