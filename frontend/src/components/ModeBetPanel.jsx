@@ -3,6 +3,7 @@ import { placeBet, normalizeBetMode, createRequestId } from '../api';
 import { useToast } from '../contexts/ToastContext';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { formatOdds, decimalToAmerican, americanToDecimal } from '../utils/odds';
+import { formatSiteDateTime } from '../utils/timezone';
 import BetConfirmationModal from './BetConfirmationModal';
 import WagerConfirmedScreen from './WagerConfirmedScreen';
 
@@ -501,9 +502,18 @@ const ModeBetPanel = ({
     // decimal odds. `bet` and `risk` pass straight through; `win` flips
     // the user-typed amount from "I want to win this much" into the
     // back-calculated Risk that produces that profit.
+    //
+    // Reverse is special: a 2-leg reverse is two if-bets (A→B and B→A),
+    // each staking `unitStake`. Total risk = 2 × unitStake; total max
+    // win = 2 × unitStake × (decAB − 1). The user types ONE number
+    // (`wager`) and expects it to be the *total* — i.e. typing $1000 in
+    // RISK mode should risk $1000, not $2000. So derive the per-direction
+    // unitStake from half the wager, which is what the backend stores
+    // as `amount` and doubles back to total risk.
     const effectiveCombinedRisk = useMemo(() => {
         if (normalizedMode === 'straight') return 0;
-        const { risk } = resolveStake(stakeMode, wagerAmount, ticketDecimalOdds);
+        const sourceWager = normalizedMode === 'reverse' ? wagerAmount / 2 : wagerAmount;
+        const { risk } = resolveStake(stakeMode, sourceWager, ticketDecimalOdds);
         return Number.isFinite(risk) && risk > 0 ? risk : 0;
     }, [normalizedMode, stakeMode, wagerAmount, ticketDecimalOdds]);
 
@@ -532,7 +542,7 @@ const ModeBetPanel = ({
     //     used to flag the offending card with a red border.
     const limitFlags = useMemo(() => {
         const violatingIds = new Set();
-        const messages = { min: null, max: null };
+        const messages = { min: null, max: null, capInfo: null };
         const minBet = Number(user?.minBet);
         const maxBet = Number(user?.maxBet);
         const hasMin = Number.isFinite(minBet) && minBet > 0;
@@ -561,11 +571,19 @@ const ModeBetPanel = ({
             }
         } else if (effectiveCombinedRisk > 0) {
             const winValue = effectiveCombinedRisk * Math.max(0, Number(ticketDecimalOdds) - 1);
+            // Combined modes (parlay/teaser/if_bet/reverse) use a separate
+            // cap from straight tickets — by policy, the operator's max
+            // exposure on a parlay is 3× maxBet. Tickets that would win
+            // *more* than that aren't rejected; they just get their
+            // payout capped at the parlay limit. So we suppress the
+            // hard-block max message (the bet is placeable) and surface
+            // an informational "win capped" note instead.
+            const parlayPayoutCap = hasMax ? maxBet * 3 : 0;
             if (hasMin && winValue > 0 && winValue < minBet) {
                 messages.min = `Min bet $${minBet} — ticket wins only $${fmt(winValue)}`;
             }
-            if (hasMax && winValue > maxBet) {
-                messages.max = `Max bet $${maxBet} — ticket wins $${fmt(winValue)}`;
+            if (parlayPayoutCap > 0 && winValue > parlayPayoutCap) {
+                messages.capInfo = `Max parlay payout $${fmt(parlayPayoutCap)} — winnings capped (uncapped: $${fmt(winValue)})`;
             }
         }
         return { violatingIds, messages };
@@ -663,6 +681,24 @@ const ModeBetPanel = ({
         : normalizedMode === 'straight'
             ? straightTotalRisk
             : effectiveCombinedRisk;
+
+    // Combined-mode parlay payout cap: 3 × the player's max bet. Mirrors
+    // the server-side clamp in BetsController so the Win readout never
+    // promises more than the player will actually be paid out.
+    const parlayPayoutCap = useMemo(() => {
+        if (normalizedMode === 'straight') return 0;
+        const maxBet = Number(user?.maxBet);
+        return Number.isFinite(maxBet) && maxBet > 0 ? maxBet * 3 : 0;
+    }, [normalizedMode, user?.maxBet]);
+
+    // Display win = profit on full payoff. For combined modes, clamp at
+    // the parlay payout cap so the user sees the same number the book
+    // will actually credit.
+    const displayWinAmount = useMemo(() => {
+        const rawWin = Math.max(0, potentialPayout - totalRisk);
+        if (parlayPayoutCap > 0 && rawWin > parlayPayoutCap) return parlayPayoutCap;
+        return rawWin;
+    }, [potentialPayout, totalRisk, parlayPayoutCap]);
     // Use the same pool the top bar's AVAILABLE tile shows: creditAvailable
     // for credit accounts, availableBalance for cash accounts. Otherwise the
     // bet-placement guard rejects with "Insufficient balance: $0.00" while
@@ -676,9 +712,14 @@ const ModeBetPanel = ({
     // the Bet Amount input. Matches the prefixes the validation builder
     // emits so the same string drives both the inline pill and the
     // disabled-button state.
+    // Cap notices ("Max parlay payout …") are informational, not blocking
+    // — they don't enter validationErrors, so the user can still place
+    // the bet. Actual settled winnings are clamped server-side at the
+    // same cap. Falls back to the cap message when no Min/Max bet error
+    // is present.
     const amountWarning = validationErrors.find((e) =>
         typeof e === 'string' && (e.startsWith('Min bet') || e.startsWith('Max bet'))
-    ) || '';
+    ) || limitFlags.messages.capInfo || '';
     const hasSelections = legCount > 0;
     const [isOpen, setIsOpen] = useState(false);
 
@@ -1498,22 +1539,11 @@ const ModeBetPanel = ({
                         : (win > 0 ? formatMoney(win) : '');
                     const matchupTitle = String(sel.matchName || sel.selection || '').toUpperCase();
                     const betTypeText = betTypeLineLabel(sel);
-                    // Game start time with the user's timezone abbreviation
-                    // so a glance at the bet slip answers "is this tonight?"
-                    // without leaving the panel.
+                    // Game start time pinned to the site timezone (ET) so a
+                    // glance at the bet slip answers "is this tonight?" the
+                    // same way for every browser locale.
                     const startIso = sel?.matchSnapshot?.startTime || sel?.match?.startTime || sel?.startTime;
-                    const matchTimeLabel = (() => {
-                        if (!startIso) return '';
-                        const d = new Date(startIso);
-                        if (Number.isNaN(d.getTime())) return '';
-                        return d.toLocaleString(undefined, {
-                            month: 'short',
-                            day: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit',
-                            timeZoneName: 'short',
-                        });
-                    })();
+                    const matchTimeLabel = startIso ? formatSiteDateTime(startIso) : '';
                     const market = String(sel.marketType || '').toLowerCase();
                     const supportsBuyPoints = market === 'spreads' || market === 'totals';
                     const buyPointsOptions = supportsBuyPoints ? buildBuyPointsOptions(sel) : [];
@@ -1920,8 +1950,8 @@ const ModeBetPanel = ({
                                 gap: 6,
                             }}>
                                 <span style={{ fontSize: 10, fontWeight: 700, color: palette.textMuted, textTransform: 'uppercase', letterSpacing: 0.4 }}>Risk:</span>
-                                <span style={{ fontSize: 13, fontWeight: 800, color: effectiveCombinedRisk > 0 ? palette.textPrimary : palette.textFaint, fontVariantNumeric: 'tabular-nums' }}>
-                                    ${formatMoney(effectiveCombinedRisk)}
+                                <span style={{ fontSize: 13, fontWeight: 800, color: totalRisk > 0 ? palette.textPrimary : palette.textFaint, fontVariantNumeric: 'tabular-nums' }}>
+                                    ${formatMoney(totalRisk)}
                                 </span>
                             </div>
                             <div style={{
@@ -1935,8 +1965,8 @@ const ModeBetPanel = ({
                                 gap: 6,
                             }}>
                                 <span style={{ fontSize: 10, fontWeight: 700, color: palette.textMuted, textTransform: 'uppercase', letterSpacing: 0.4 }}>Win:</span>
-                                <span style={{ fontSize: 13, fontWeight: 800, color: potentialPayout > effectiveCombinedRisk ? palette.success : palette.textFaint, fontVariantNumeric: 'tabular-nums' }}>
-                                    ${formatMoney(Math.max(0, potentialPayout - effectiveCombinedRisk))}
+                                <span style={{ fontSize: 13, fontWeight: 800, color: displayWinAmount > 0 ? palette.success : palette.textFaint, fontVariantNumeric: 'tabular-nums' }}>
+                                    ${formatMoney(displayWinAmount)}
                                 </span>
                             </div>
                         </div>

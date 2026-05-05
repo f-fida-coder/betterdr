@@ -86,8 +86,31 @@ const initialsForName = (name = '') => {
     return (words[0][0] + words[words.length - 1][0]).toUpperCase();
 };
 
-const dayKeyOf = (d) => (d ? `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}` : '');
-const dayLabelOf = (d) => (d ? `${WEEKDAYS_LONG[d.getDay()]}, ${MONTHS_SHORT[d.getMonth()]} ${d.getDate()}` : '');
+// Day-bucket keys/labels resolve in ET (the site timezone). Without this a
+// 9 PM ET game would land on the *next* day for a user in GMT+5, splitting
+// what's really a single MLB slate across two day-divider rows.
+const etPartsOf = (date) => {
+    if (!date) return null;
+    const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/New_York',
+        year: 'numeric', month: 'numeric', day: 'numeric', weekday: 'long',
+    }).formatToParts(date);
+    const get = (t) => parts.find(p => p.type === t)?.value;
+    return {
+        y: Number(get('year')),
+        m: Number(get('month')),
+        d: Number(get('day')),
+        weekday: String(get('weekday') || '').toUpperCase(),
+    };
+};
+const dayKeyOf = (d) => {
+    const p = etPartsOf(d);
+    return p ? `${p.y}-${p.m - 1}-${p.d}` : '';
+};
+const dayLabelOf = (d) => {
+    const p = etPartsOf(d);
+    return p ? `${p.weekday}, ${MONTHS_SHORT[p.m - 1]} ${p.d}` : '';
+};
 
 // US Eastern time formatter for the broadcast row — matches the
 // reference book's "09:30 PM EST" prefix.
@@ -104,29 +127,44 @@ const WEEKDAYS_SHORT = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
 // past a day divider never has to guess which date they're betting on.
 const formatMatchDateTime = (startDate) => {
     if (!startDate || Number.isNaN(startDate.getTime?.())) return '';
-    const now = new Date();
-    const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-    const sdMidnight = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate()).getTime();
+    // Pin all date math to ET (the site timezone). Otherwise a user in
+    // GMT+5 would see "Today" flip a day earlier than the actual US
+    // sports schedule does, and the day-divider rows would disagree with
+    // the per-row timestamp.
+    const partsOf = (date) => {
+        const parts = new Intl.DateTimeFormat('en-US', {
+            timeZone: 'America/New_York',
+            year: 'numeric', month: 'numeric', day: 'numeric',
+        }).formatToParts(date);
+        const get = (t) => Number(parts.find(p => p.type === t)?.value);
+        return { y: get('year'), m: get('month'), d: get('day') };
+    };
+    const today = partsOf(new Date());
+    const sd = partsOf(startDate);
+    const todayMidnight = Date.UTC(today.y, today.m - 1, today.d);
+    const sdMidnight = Date.UTC(sd.y, sd.m - 1, sd.d);
     const daysDiff = Math.round((sdMidnight - todayMidnight) / 86400000);
 
-    const mdy = `${startDate.getMonth() + 1}/${startDate.getDate()}`;
-    // toLocaleTimeString with timeZoneName: 'short' yields e.g. "6:10 PM PST"
-    // — keep the AM/PM lowercased compact format but preserve the space
-    // before the timezone abbr so it reads "6:10pm PST" not "6:10pmPST".
-    const formatted = startDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
-    const tzMatch = formatted.match(/\s([A-Z]+)$/);
-    const tz = tzMatch ? ` ${tzMatch[1]}` : '';
-    const timeOnly = (tzMatch ? formatted.slice(0, tzMatch.index) : formatted)
-        .toLowerCase()
-        .replace(/\s+/g, '');
-    const time = `${timeOnly}${tz}`;
+    const mdy = `${sd.m}/${sd.d}`;
+    // "6:10pm ET" — same lowercased compact format as before, but the
+    // hour/minute and the timezone label both come from ET.
+    const formatted = startDate.toLocaleTimeString('en-US', {
+        timeZone: 'America/New_York',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+    });
+    const timeOnly = formatted.toLowerCase().replace(/\s+/g, '');
+    const time = `${timeOnly} ET`;
+
+    const dayOfWeek = new Date(Date.UTC(sd.y, sd.m - 1, sd.d)).getUTCDay();
 
     let prefix = '';
     if (daysDiff === 0) prefix = 'Today';
     else if (daysDiff === 1) prefix = 'Tomorrow';
     else if (daysDiff === -1) prefix = 'Yesterday';
-    else if (daysDiff > 1 && daysDiff < 7) prefix = WEEKDAYS_SHORT[startDate.getDay()].charAt(0)
-        + WEEKDAYS_SHORT[startDate.getDay()].slice(1).toLowerCase();
+    else if (daysDiff > 1 && daysDiff < 7) prefix = WEEKDAYS_SHORT[dayOfWeek].charAt(0)
+        + WEEKDAYS_SHORT[dayOfWeek].slice(1).toLowerCase();
     return prefix ? `${prefix} ${mdy} ${time}` : `${mdy} ${time}`;
 };
 
@@ -488,7 +526,7 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
                 isBettable: match.isBettable !== false,
                 bettingBlockedReason: match.bettingBlockedReason || '',
                 startDate,
-                time: startDate ? startDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' }) : '',
+                time: startDate ? `${startDate.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', hour12: true })} ET` : '',
                 // Self-describing "Today 4/23 6:10pm" variant for each row
                 // so scrolling past the day divider doesn't hide context.
                 timeDisplay: formatMatchDateTime(startDate),
@@ -1513,17 +1551,14 @@ const dayHeaderStyle = {
     textTransform: 'uppercase',
 };
 
-// Lighter than dayHeaderStyle so the visual hierarchy reads
-// day → league → match top-to-bottom without competing.
 const leagueHeaderStyle = {
     padding: '8px 16px',
-    background: '#f3f4f6',
-    color: '#111827',
+    background: '#1f2937',
+    color: '#fff',
     fontSize: '12px',
     fontWeight: 700,
     letterSpacing: '0.4px',
     textTransform: 'uppercase',
-    borderBottom: '1px solid #e5e7eb',
 };
 
 const matchCardStyle = {

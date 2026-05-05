@@ -181,7 +181,7 @@ const ScoreboardSidebar = ({ onClose }) => {
         if (match.status === 'live') return <span className="text-danger fw-bold">LIVE</span>;
         if (!match.startTime) return 'TBD';
         const date = new Date(match.startTime);
-        return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
+        return `${date.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit', hour12: true })} ET`;
     };
 
     const getScore = (match, side) => {

@@ -1,6 +1,7 @@
 import React from 'react';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { formatOdds } from '../utils/odds';
+import { formatSiteDateTime } from '../utils/timezone';
 
 const formatAmount = (value) => {
   const n = Number(value);
@@ -25,15 +26,7 @@ const formatGameTime = (selection = {}) => {
     || selection?.startTime
     || selection?.commenceTime;
   if (!iso) return '';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    timeZoneName: 'short',
-  });
+  return formatSiteDateTime(iso);
 };
 
 const BetConfirmationModal = ({

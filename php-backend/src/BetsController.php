@@ -257,7 +257,23 @@ final class BetsController
                     ['code' => 'BELOW_MIN_BET']
                 );
             }
-            if ($maxBetLimit > 0 && $winAmount > $maxBetLimit) {
+            // Combined modes (parlay/teaser/if_bet/reverse) follow a
+            // different rule: instead of rejecting bets that win more
+            // than maxBet, cap the *payout* at the parlay limit (default
+            // 3 × maxBet). The user can still place the bet — they just
+            // won't be paid more than the cap if it hits. Straight
+            // tickets still hard-block above maxBet, since they're sized
+            // one-leg-at-a-time and the operator wants the max-win
+            // ceiling enforced per leg.
+            $isCombinedMode = in_array($type, ['parlay', 'teaser', 'if_bet', 'reverse'], true);
+            if ($isCombinedMode && $maxBetLimit > 0) {
+                $parlayPayoutCap = $maxBetLimit * 3.0;
+                if ($winAmount > $parlayPayoutCap) {
+                    $potentialPayout = (float) $totalRisk + $parlayPayoutCap;
+                    $winAmount = $parlayPayoutCap;
+                    $combinedOdds = SportsbookBetSupport::combinedOdds($totalRisk, $potentialPayout);
+                }
+            } elseif ($maxBetLimit > 0 && $winAmount > $maxBetLimit) {
                 throw new ApiException(
                     'Max bet to win is $' . rtrim(rtrim(number_format($maxBetLimit, 2, '.', ''), '0'), '.')
                     . ' — this ticket wins $' . rtrim(rtrim(number_format($winAmount, 2, '.', ''), '0'), '.') . ' (over limit)',
@@ -806,11 +822,8 @@ final class BetsController
             ]);
         }
 
-        $markets = [];
         $oddsRoot = $match['odds'] ?? [];
-        if (is_array($oddsRoot) && isset($oddsRoot['markets']) && is_array($oddsRoot['markets'])) {
-            $markets = $oddsRoot['markets'];
-        }
+        $markets = $this->collectMatchMarkets($match);
 
         $normalizedType = BetModeRules::normalize($type);
         $market = $this->findMarket($markets, $normalizedType);
@@ -818,6 +831,29 @@ final class BetsController
             $market = $this->findMarket($markets, 'h2h')
                 ?? $this->findMarket($markets, 'moneyline')
                 ?? $this->findMarket($markets, 'ml');
+        }
+
+        // Player-prop and alt/period markets aren't pre-loaded onto the match
+        // doc — they're filled lazily by ensureEventExtendedOdds() when a
+        // user opens the prop builder. If a leg references one of those
+        // keys but the match was never expanded (or expansion expired),
+        // refresh on demand and re-look up so the user can actually place
+        // the bet they were just shown.
+        if ($market === null && $this->isExtendedMarketKey($normalizedType) && class_exists('OddsSyncService')) {
+            try {
+                OddsSyncService::ensureEventExtendedOdds($this->db, (string) ($match['id'] ?? ''));
+                $refreshed = $this->db->findOne('matches', ['id' => SqlRepository::id($matchId)]);
+                if (is_array($refreshed)) {
+                    $match = SportsbookHealth::applyBettingAvailability($this->db, $refreshed);
+                    $oddsRoot = $match['odds'] ?? [];
+                    $markets = $this->collectMatchMarkets($match);
+                    $market = $this->findMarket($markets, $normalizedType);
+                }
+            } catch (Throwable $_) {
+                // Fail-open: leave $market null so the existing UNAVAILABLE
+                // error fires below — better than blocking placement on a
+                // transient upstream hiccup.
+            }
         }
 
         if ($market === null && is_array($oddsRoot) && !isset($oddsRoot['markets'])) {
@@ -851,6 +887,7 @@ final class BetsController
         }
 
         $outcome = null;
+        $isPropMarket = $this->isPlayerPropKey($normalizedType);
         foreach (($market['outcomes'] ?? []) as $candidate) {
             $name = (string) ($candidate['name'] ?? '');
             if ($name === $selection) {
@@ -860,6 +897,24 @@ final class BetsController
             if ($normalizedType === 'totals' && str_contains(strtolower($name), strtolower($selection))) {
                 $outcome = $candidate;
                 break;
+            }
+            // Player props: outcomes are {name: 'Over'|'Under', description:
+            // <player>, point: <line>, price}. The frontend stitches those
+            // into "Chandler Simpson Over 0.5" before sending — match by
+            // re-stitching the candidate the same way.
+            if ($isPropMarket) {
+                $description = (string) ($candidate['description'] ?? '');
+                $pointRaw = $candidate['point'] ?? null;
+                $pointLabel = '';
+                if ($pointRaw !== null && $pointRaw !== '' && is_numeric($pointRaw)) {
+                    $pointFloat = (float) $pointRaw;
+                    $pointLabel = rtrim(rtrim(number_format($pointFloat, 2, '.', ''), '0'), '.');
+                }
+                $stitched = trim($description . ' ' . $name . ($pointLabel !== '' ? ' ' . $pointLabel : ''));
+                if ($stitched !== '' && strcasecmp($stitched, $selection) === 0) {
+                    $outcome = $candidate;
+                    break;
+                }
             }
         }
 
@@ -1069,6 +1124,66 @@ final class BetsController
             }
         }
         return null;
+    }
+
+    /**
+     * Build the full market lookup pool for a match: core markets, period/
+     * alt markets, and player props. Validation needs all three because
+     * each can be the source of a leg (h2h/spreads/totals from `odds.markets`,
+     * `spreads_h1` etc. from `odds.extendedMarkets`, `batter_*` from
+     * `playerProps`).
+     *
+     * @param array<string, mixed> $match
+     * @return list<array<string, mixed>>
+     */
+    private function collectMatchMarkets(array $match): array
+    {
+        $pool = [];
+        $oddsRoot = $match['odds'] ?? [];
+        if (is_array($oddsRoot)) {
+            if (isset($oddsRoot['markets']) && is_array($oddsRoot['markets'])) {
+                foreach ($oddsRoot['markets'] as $m) {
+                    if (is_array($m)) $pool[] = $m;
+                }
+            }
+            if (isset($oddsRoot['extendedMarkets']) && is_array($oddsRoot['extendedMarkets'])) {
+                foreach ($oddsRoot['extendedMarkets'] as $m) {
+                    if (is_array($m)) $pool[] = $m;
+                }
+            }
+        }
+        if (isset($match['playerProps']) && is_array($match['playerProps'])) {
+            foreach ($match['playerProps'] as $m) {
+                if (is_array($m)) $pool[] = $m;
+            }
+        }
+        return $pool;
+    }
+
+    /**
+     * Market keys that aren't on the base match doc by default — props,
+     * alternates, period markets. Used to decide whether a missing market
+     * warrants a lazy per-event refresh against the upstream provider.
+     */
+    private function isExtendedMarketKey(string $key): bool
+    {
+        if ($this->isPlayerPropKey($key)) return true;
+        if (str_contains($key, 'alternate')) return true;
+        // Period suffixes Odds API uses: _h1, _h2, _q1..q4, _p1..p3,
+        // _1st_5_innings, _1st_inning, _1st_3_innings, etc.
+        if (preg_match('/_(h1|h2|q[1-4]|p[1-3]|\d+(st|nd|rd|th)_)/i', $key) === 1) return true;
+        return false;
+    }
+
+    private function isPlayerPropKey(string $key): bool
+    {
+        if (class_exists('OddsMarketCatalog')) {
+            return OddsMarketCatalog::isPropMarket(strtolower($key));
+        }
+        $k = strtolower($key);
+        return str_starts_with($k, 'batter_')
+            || str_starts_with($k, 'pitcher_')
+            || str_starts_with($k, 'player_');
     }
 
     private function findOutcomeByName(array $outcomes, string $selection): ?array

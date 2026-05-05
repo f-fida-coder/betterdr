@@ -252,7 +252,7 @@ const PrimeLiveView = () => {
                                             const status = (match.status || '').toString().toLowerCase();
                                             const isLive = status === 'live' || String(match.score?.event_status || '').toUpperCase().includes('IN_PROGRESS');
                                             const startTime = match.startTime ? new Date(match.startTime) : null;
-                                            const timeLabel = isLive && period ? `${period}` : (startTime ? startTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' }) : '');
+                                            const timeLabel = isLive && period ? `${period}` : (startTime ? `${startTime.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', hour12: true })} ET` : '');
                                             const matchId = match.id || match.externalId;
 
                                             const homeSpread = getSpread(match, home);

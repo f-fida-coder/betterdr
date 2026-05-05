@@ -133,9 +133,16 @@ const MatchDetailView = ({ match, onClose, sgpMode = false }) => {
         if (!matchId || !Number.isFinite(price)) return;
         const selection = selectionText || outcome?.name || 'Selection';
         const key = `${marketKey}|${selection}`;
+        // The App-level betslip:add handler already toggles — sending the
+        // same {matchId, marketType, selection} a second time removes the
+        // leg from the slip. Mirror that here so the local highlight
+        // releases on the second tap; otherwise the button stays painted
+        // orange and the user can't visually "unlock" a pick they no
+        // longer want.
         setSelectedKeys((prev) => {
             const next = new Set(prev);
-            next.add(key);
+            if (next.has(key)) next.delete(key);
+            else next.add(key);
             return next;
         });
         window.dispatchEvent(new CustomEvent('betslip:add', {
@@ -201,6 +208,31 @@ const MatchDetailView = ({ match, onClose, sgpMode = false }) => {
         cursor: 'pointer',
     };
     const bodyStyle = { flex: 1, overflowY: 'auto', padding: '0 0 24px' };
+    // A second back row pinned to the top of the scrollable body. The
+    // existing top-of-sheet Back button can get hidden behind the page's
+    // sticky mobile header on some iOS Safari layouts, so this duplicates
+    // the affordance right above GAME SPREAD where the user is actually
+    // looking — guarantees a visible exit no matter how the modal is
+    // composited above the page chrome.
+    const stickyBackBarStyle = {
+        position: 'sticky',
+        top: 0,
+        zIndex: 2,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        padding: '10px 14px',
+        background: '#0f0f0f',
+        borderBottom: '1px solid #1e1e1e',
+    };
+    const stickyBackBtnStyle = {
+        ...backBtnStyle,
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 6,
+        padding: '8px 14px',
+        fontSize: 13,
+    };
     const sectionHeaderStyle = {
         display: 'flex',
         alignItems: 'center',
@@ -394,6 +426,16 @@ const MatchDetailView = ({ match, onClose, sgpMode = false }) => {
                 </div>
 
                 <div style={bodyStyle}>
+                    <div style={stickyBackBarStyle}>
+                        <button style={stickyBackBtnStyle} onClick={onClose} aria-label="Back to matches">
+                            <i className="fa-solid fa-chevron-left" />
+                            Back
+                        </button>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: '#ddd', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'center' }}>{matchName}</span>
+                        <button style={toggleAllBtnStyle} onClick={allOpen ? closeAll : openAll}>
+                            {allOpen ? 'Close All' : 'Open All'}
+                        </button>
+                    </div>
                     {sgpMode && (
                         <div style={{
                             margin: '10px 14px 2px',

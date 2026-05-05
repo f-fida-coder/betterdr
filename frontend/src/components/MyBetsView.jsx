@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { getMyBets, getUserFigures, getUserTransactions } from '../api';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { formatLineValue, formatOdds } from '../utils/odds';
+import { formatSiteDateTime } from '../utils/timezone';
 import { fetchTeamBadgeUrl, createFallbackTeamLogoDataUri } from '../utils/teamLogos';
 import '../mybets.css';
 
@@ -251,18 +252,7 @@ const payoutValue = (bet) => {
     return profit;
 };
 
-const formatTimestamp = (value) => {
-    if (!value) return '—';
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return '—';
-    return date.toLocaleString(undefined, {
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        timeZoneName: 'short',
-    });
-};
+const formatTimestamp = (value) => formatSiteDateTime(value);
 
 const settledTimestamp = (bet) => bet?.settledAt || bet?.updatedAt || bet?.createdAt;
 
