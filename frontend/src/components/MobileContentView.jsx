@@ -1545,14 +1545,14 @@ const periodTabStyle = {
 };
 const periodTabActiveStyle = {
     ...periodTabStyle,
-    background: '#0f172a',
+    background: '#595959',
     color: '#fff',
-    boxShadow: '0 4px 12px -6px rgba(15,23,42,0.4)',
+    boxShadow: '0 4px 12px -6px rgba(89,89,89,0.4)',
 };
 
 const dayHeaderStyle = {
     padding: '10px 16px',
-    background: '#1f2937',
+    background: '#595959',
     color: '#fff',
     fontSize: '11px',
     fontWeight: 700,
@@ -1562,7 +1562,7 @@ const dayHeaderStyle = {
 
 const leagueHeaderStyle = {
     padding: '8px 16px',
-    background: '#1f2937',
+    background: '#595959',
     color: '#fff',
     fontSize: '12px',
     fontWeight: 700,
