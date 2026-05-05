@@ -352,6 +352,21 @@ function AppInner() {
     applyOddsFormat(preferredFormat, currentUser.id);
   }, [currentUser?.id, currentUser?.settings?.oddsFormat, applyOddsFormat]);
 
+  // Hydrate the display timezone from the persisted user setting. The
+  // localStorage copy is just a fast-path mirror; the backend's
+  // settings.timezone is the source of truth so the player's choice
+  // follows them across browsers and devices.
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    const stored = currentUser?.settings?.timezone;
+    if (typeof stored === 'string' && stored.length > 0) {
+      // setSiteTimezone validates the value, writes localStorage, and
+      // dispatches the `siteTimezone:change` event for any view that
+      // wants to repaint.
+      import('./utils/timezone').then(({ setSiteTimezone }) => setSiteTimezone(stored));
+    }
+  }, [currentUser?.id, currentUser?.settings?.timezone]);
+
   // Redirect admins/agents who land on root "/" to their dashboard (once).
   useEffect(() => {
     if (!currentUser || hasRedirectedRole.current) return;

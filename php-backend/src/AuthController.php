@@ -618,6 +618,28 @@ final class AuthController
                 $user['settings'] = $existingSettings;
                 $updates['settings'] = $existingSettings;
             }
+            // Display timezone — frontend renders match/bet times in this
+            // zone (utils/timezone.js). Storage and bet logic stay UTC,
+            // so this preference never affects placement, grading, or
+            // settlement — it's purely how strings are formatted on screen.
+            // Stored alongside oddsFormat in the existing settings JSON
+            // so we don't add another column for a display-only field.
+            if (array_key_exists('timezone', $incomingSettings)) {
+                $timezone = trim((string) $incomingSettings['timezone']);
+                $allowedTimezones = [
+                    'America/New_York', 'America/Chicago', 'America/Denver',
+                    'America/Phoenix', 'America/Los_Angeles', 'America/Anchorage',
+                    'Pacific/Honolulu', 'UTC',
+                ];
+                if (!in_array($timezone, $allowedTimezones, true)) {
+                    Response::json(['message' => 'timezone is not a supported zone'], 400);
+                    return;
+                }
+                $existingSettings = is_array($user['settings'] ?? null) ? $user['settings'] : [];
+                $existingSettings['timezone'] = $timezone;
+                $user['settings'] = $existingSettings;
+                $updates['settings'] = $existingSettings;
+            }
             // Bet defaults — pre-fill the betslip on open so the user
             // doesn't retype their unit size every time. Stored inside
             // the existing settings JSON (alongside oddsFormat) instead

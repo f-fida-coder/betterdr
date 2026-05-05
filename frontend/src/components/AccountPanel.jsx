@@ -513,6 +513,7 @@ const AccountPanel = ({
     onLogout,
 }) => {
     const { oddsFormat, setOddsFormat, isUpdatingOddsFormat } = useOddsFormat();
+    const { showToast } = useToast();
     const [language, setLanguage] = React.useState('English');
     const [siteTimezone, setSiteTimezoneState] = React.useState(() => getSiteTimezone());
 
@@ -877,9 +878,19 @@ const AccountPanel = ({
                                 label="Timezone"
                                 icon="fa-clock"
                                 value={siteTimezone}
-                                onChange={(e) => {
+                                onChange={async (e) => {
                                     const next = setSiteTimezone(e.target.value);
                                     setSiteTimezoneState(next);
+                                    // Persist to the user record so the
+                                    // preference travels across browsers
+                                    // and devices, not just this localStorage.
+                                    const token = getStoredAuthToken();
+                                    if (!token) return;
+                                    try {
+                                        await updateProfile({ settings: { timezone: next } }, token);
+                                    } catch (err) {
+                                        showToast('Timezone updated locally, but profile sync failed.', 'warning');
+                                    }
                                 }}
                                 options={SITE_TZ_OPTIONS.map((opt) => ({
                                     value: opt.value,
