@@ -99,6 +99,29 @@ while (true) {
         $logWorker('error', sprintf("[%s] update failed: %s", $ts, $e->getMessage()));
     }
 
+    // Run the settlement sweep on its own, independent of the odds-sync
+    // outcome above. The sweep inside OddsSyncService::updateMatches only
+    // fires when upstream calls succeed — if the API is down, rate-limited,
+    // or the circuit breaker is open, finished matches were never voided
+    // and tickets piled up "Pending" forever. Running it here every tick
+    // means yesterday's games drain on time even when the odds feed is
+    // misbehaving.
+    try {
+        $repoSettle = new SqlRepository($dbUri, $dbName);
+        $sweep = BetSettlementService::settlePendingMatches($repoSettle, 250, 'worker');
+        $logWorker('info', sprintf(
+            "[%s] settle sweep checked=%d settled=%d bets=%d errors=%d",
+            $ts,
+            (int) ($sweep['matchesChecked'] ?? 0),
+            (int) ($sweep['matchesSettled'] ?? 0),
+            (int) ($sweep['betsSettled'] ?? 0),
+            (int) ($sweep['errors'] ?? 0)
+        ));
+        unset($repoSettle);
+    } catch (Throwable $e) {
+        $logWorker('error', sprintf("[%s] settle sweep failed: %s", $ts, $e->getMessage()));
+    }
+
     // Worker health alert: if no successful odds tick in WORKER_HEALTH_ALERT_SECONDS
     // (default 600s = 10 min), log a critical row. Threshold + audit row are
     // owned by SportsbookHealth so admins can also surface this in dashboards.
