@@ -15,6 +15,11 @@ final class SportsbookCache
     // getAvailableSports.
     private const PUBLIC_MATCHES_STALE_NAMESPACE = 'sportsbook-public-matches-stale';
     private const AVAILABLE_SPORTS_STALE_NAMESPACE = 'sportsbook-available-sports-stale';
+    // Throttle key for the per-user opportunistic settlement sweep that
+    // runs at the top of getMyBets. One entry per user, short TTL — keeps
+    // the sweep from thrashing when a client hammers /api/bets/my-bets
+    // (auto-refresh, multiple tabs, etc.).
+    private const USER_BET_SWEEP_NAMESPACE = 'sportsbook-user-bet-sweep';
 
     public static function publicMatchesNamespace(): string
     {
@@ -39,6 +44,11 @@ final class SportsbookCache
     public static function availableSportsStaleNamespace(): string
     {
         return self::AVAILABLE_SPORTS_STALE_NAMESPACE;
+    }
+
+    public static function userBetSweepNamespace(): string
+    {
+        return self::USER_BET_SWEEP_NAMESPACE;
     }
 
     public static function publicMatchesKey(string $status, string $active): string

@@ -340,6 +340,72 @@ final class BetSettlementService
     /**
      * @return array<string, mixed>
      */
+    /**
+     * Per-user variant of settlePendingMatches. Scopes the sweep to the
+     * matches THIS user has pending bets on so an opportunistic call from
+     * getMyBets() doesn't thrash through every other player's queue.
+     * Used as a self-healing fallback for environments where the
+     * background worker isn't running yet — viewing your own bets list
+     * triggers settlement of any expired/finished matches you have a
+     * stake in. No-op when the user has no pending tickets.
+     *
+     * @return array<string, mixed>
+     */
+    public static function settlePendingMatchesForUser(SqlRepository $db, string $userId, string $settledBy = 'system'): array
+    {
+        if (preg_match('/^[a-f0-9]{24}$/i', $userId) !== 1) {
+            return ['matchesChecked' => 0, 'matchesSettled' => 0, 'betsSettled' => 0, 'errors' => 0, 'matchIds' => []];
+        }
+        $pendingBets = $db->findMany('bets', [
+            'userId' => SqlRepository::id($userId),
+            'status' => 'pending',
+        ], [
+            'projection' => ['id' => 1, 'matchId' => 1, 'selections' => 1],
+            'limit' => 200,
+        ]);
+
+        $matchIds = [];
+        foreach ($pendingBets as $bet) {
+            // Straight: top-level matchId.
+            $mid = (string) ($bet['matchId'] ?? '');
+            if ($mid !== '' && preg_match('/^[a-f0-9]{24}$/i', $mid) === 1) {
+                $matchIds[$mid] = true;
+            }
+            // Combined modes (parlay/teaser/if_bet/reverse): each leg
+            // carries its own matchId in the selections array.
+            $sels = $bet['selections'] ?? null;
+            if (is_array($sels)) {
+                foreach ($sels as $sel) {
+                    if (!is_array($sel)) continue;
+                    $smid = (string) ($sel['matchId'] ?? '');
+                    if ($smid !== '' && preg_match('/^[a-f0-9]{24}$/i', $smid) === 1) {
+                        $matchIds[$smid] = true;
+                    }
+                }
+            }
+        }
+
+        $summary = ['matchesChecked' => 0, 'matchesSettled' => 0, 'betsSettled' => 0, 'errors' => 0, 'matchIds' => array_keys($matchIds)];
+        foreach (array_keys($matchIds) as $matchId) {
+            try {
+                $match = $db->findOne('matches', ['id' => SqlRepository::id($matchId)]);
+                if ($match === null) continue;
+                $summary['matchesChecked']++;
+                $annotated = SportsMatchStatus::annotate($match);
+                $status = (string) ($annotated['status'] ?? '');
+                if (!in_array($status, ['finished', 'canceled', 'expired'], true)) continue;
+                $result = self::settleMatch($db, $matchId, null, $settledBy);
+                if (((int) ($result['total'] ?? 0)) > 0) {
+                    $summary['matchesSettled']++;
+                    $summary['betsSettled'] += count((array) ($result['settledBetIds'] ?? []));
+                }
+            } catch (Throwable $e) {
+                $summary['errors']++;
+            }
+        }
+        return $summary;
+    }
+
     public static function settlePendingMatches(SqlRepository $db, int $limit = 250, string $settledBy = 'system'): array
     {
         $pendingSelections = $db->findMany('betselections', [

@@ -681,6 +681,37 @@ final class BetsController
 
             // Cache user bet history per status filter
             $userId = (string) $user['id'];
+
+            // Self-healing: opportunistically settle this user's stuck
+            // tickets *before* reading. Covers the case where the
+            // background worker isn't running on this environment yet —
+            // pulling up the My Bets list drains expired/finished
+            // matches the user actually has stake in. Cheap when there's
+            // nothing to settle (no DB writes); skipped automatically if
+            // a recent sweep already touched this user. Throttled to one
+            // sweep per user per 30 s so a fast-refresh client doesn't
+            // thrash the bets table.
+            try {
+                $throttleNs = SportsbookCache::userBetSweepNamespace();
+                $throttleKey = 'sweep:' . $userId;
+                // 30 s TTL — long enough to absorb tab refreshes and
+                // poll loops, short enough that a finished match drains
+                // within seconds of the user pulling up their bets.
+                $recent = SharedFileCache::get($throttleNs, $throttleKey, 30);
+                if ($recent === null) {
+                    BetSettlementService::settlePendingMatchesForUser($this->db, $userId, 'on-read');
+                    SharedFileCache::put($throttleNs, $throttleKey, ['at' => time()]);
+                }
+            } catch (Throwable $sweepErr) {
+                // Fail-open: settlement issues here mustn't block the
+                // user from seeing their bets. Logged so an admin can
+                // notice if it's failing repeatedly.
+                Logger::warn('on-read settlement sweep failed', [
+                    'userId' => $userId,
+                    'error' => $sweepErr->getMessage(),
+                ], 'bets');
+            }
+
             $cacheKey = 'bets:' . $userId . ':' . ($status ?: 'all') . ':' . $limit;
             $cache = QueryCache::getInstance();
             $formatted = $cache->get($cacheKey);
