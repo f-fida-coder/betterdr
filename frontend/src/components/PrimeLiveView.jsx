@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import '../primelive.css';
 import useMatches from '../hooks/useMatches';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
+import { getSiteTimezone, getSiteTimezoneLabel } from '../utils/timezone';
 import {
     formatLineValue,
     formatOdds,
@@ -252,7 +253,8 @@ const PrimeLiveView = () => {
                                             const status = (match.status || '').toString().toLowerCase();
                                             const isLive = status === 'live' || String(match.score?.event_status || '').toUpperCase().includes('IN_PROGRESS');
                                             const startTime = match.startTime ? new Date(match.startTime) : null;
-                                            const timeLabel = isLive && period ? `${period}` : (startTime ? `${startTime.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', hour12: true })} ET` : '');
+                                            const tz = getSiteTimezone();
+                                            const timeLabel = isLive && period ? `${period}` : (startTime ? `${startTime.toLocaleTimeString('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: true })} ${getSiteTimezoneLabel(tz)}` : '');
                                             const matchId = match.id || match.externalId;
 
                                             const homeSpread = getSpread(match, home);

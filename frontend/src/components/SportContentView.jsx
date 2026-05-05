@@ -6,6 +6,7 @@ import { useToast } from '../contexts/ToastContext';
 import { createFallbackTeamLogoDataUri, fetchTeamBadgeUrl } from '../utils/teamLogos';
 import { resolveBroadcast } from '../utils/broadcast';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
+import { getSiteTimezone, getSiteTimezoneLabel } from '../utils/timezone';
 import { getSportKeywords, findSportItemById } from '../data/sportsData';
 import {
     formatOdds,
@@ -30,22 +31,22 @@ const teamRecordStyle = {
     marginLeft: 4,
 };
 
-// Format the start time as a US Eastern Time clock string ("09:30 PM EST")
-// for the broadcast row. The reference book the player is comparing
-// against shows wall-clock ET; we follow that even when the user's
-// browser is in a different zone so the channel/time line reads the
-// same regardless of locale.
+// Format the start time in the site timezone (default ET, override via
+// Account → Preferences) so the broadcast row matches the same wall-clock
+// the player set their schedule against. Falls back to ET when no
+// override is stored.
 const formatBroadcastTimeET = (iso) => {
     if (!iso) return '';
     const date = new Date(iso);
     if (Number.isNaN(date.getTime())) return '';
+    const tz = getSiteTimezone();
     const formatted = date.toLocaleTimeString('en-US', {
-        timeZone: 'America/New_York',
+        timeZone: tz,
         hour: '2-digit',
         minute: '2-digit',
         hour12: true,
     });
-    return `${formatted} EST`;
+    return `${formatted} ${getSiteTimezoneLabel(tz)}`;
 };
 
 // Module-level dedupe: when the user multi-selects sports, every mounted

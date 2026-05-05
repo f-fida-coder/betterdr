@@ -2,6 +2,7 @@ import React from 'react';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { updateProfile, getStoredAuthToken } from '../api';
 import { useToast } from '../contexts/ToastContext';
+import { SITE_TZ_OPTIONS, getSiteTimezone, setSiteTimezone } from '../utils/timezone';
 import { setMyBetsInitialFilter } from './MyBetsView';
 
 const DEFAULT_QUICK_STAKES = [10, 25, 50, 100];
@@ -513,6 +514,7 @@ const AccountPanel = ({
 }) => {
     const { oddsFormat, setOddsFormat, isUpdatingOddsFormat } = useOddsFormat();
     const [language, setLanguage] = React.useState('English');
+    const [siteTimezone, setSiteTimezoneState] = React.useState(() => getSiteTimezone());
 
     // Lock body scroll while the sheet is open on mobile.
     React.useEffect(() => {
@@ -830,7 +832,19 @@ const AccountPanel = ({
                             ))}
                         </div>
                     </section>
-                    {/* Preferences */}
+                    {/* Bet defaults — sits directly under Account Limits
+                        because the operator wants players to see their
+                        default Risk/Win unit alongside their min/max
+                        before scrolling into Preferences. Pre-populates
+                        the betslip on open so the user doesn't retype
+                        their unit size every time. Persists to
+                        settings.betDefaults. */}
+                    <BetDefaultsCard user={user} />
+
+                    {/* Preferences — Language / Odds Format / Timezone.
+                        Timezone is local-only (localStorage), drives the
+                        site-wide formatSiteDateTime util so the player's
+                        choice flows into match/bet timestamps everywhere. */}
                     <section>
                         <div style={{
                             fontSize: 11,
@@ -859,13 +873,21 @@ const AccountPanel = ({
                                 disabled={isUpdatingOddsFormat}
                                 options={Object.entries(ODDS_FORMAT_LABELS).map(([v, l]) => ({ value: v, label: l }))}
                             />
+                            <SelectField
+                                label="Timezone"
+                                icon="fa-clock"
+                                value={siteTimezone}
+                                onChange={(e) => {
+                                    const next = setSiteTimezone(e.target.value);
+                                    setSiteTimezoneState(next);
+                                }}
+                                options={SITE_TZ_OPTIONS.map((opt) => ({
+                                    value: opt.value,
+                                    label: `${opt.label} — ${opt.value.replace('_', ' ')}`,
+                                }))}
+                            />
                         </div>
                     </section>
-
-                    {/* Bet defaults — pre-populates the betslip on open
-                        so the user doesn't retype their unit size every
-                        time. Persists to settings.betDefaults. */}
-                    <BetDefaultsCard user={user} />
 
                     {/* Agent controls (only for agent-like roles) */}
                     {isAgentLike && (

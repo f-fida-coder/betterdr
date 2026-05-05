@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { getMatches, getAdminMatches } from '../api';
 import { createFallbackTeamLogoDataUri, fetchTeamBadgeUrl } from '../utils/teamLogos';
+import { getSiteTimezone, getSiteTimezoneLabel } from '../utils/timezone';
 
 const SCOREBOARD_CACHE_KEY = 'admin_scoreboard_matches_cache_v1';
 
@@ -181,7 +182,8 @@ const ScoreboardSidebar = ({ onClose }) => {
         if (match.status === 'live') return <span className="text-danger fw-bold">LIVE</span>;
         if (!match.startTime) return 'TBD';
         const date = new Date(match.startTime);
-        return `${date.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit', hour12: true })} ET`;
+        const tz = getSiteTimezone();
+        return `${date.toLocaleTimeString('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit', hour12: true })} ${getSiteTimezoneLabel(tz)}`;
     };
 
     const getScore = (match, side) => {

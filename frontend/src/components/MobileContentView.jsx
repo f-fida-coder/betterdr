@@ -15,6 +15,7 @@ import {
 } from '../utils/odds';
 import { logoUrlForTeam, fetchTeamBadgeUrl, prewarmTeamBadges } from '../utils/teamLogos';
 import { resolveBroadcast } from '../utils/broadcast';
+import { getSiteTimezone, getSiteTimezoneLabel } from '../utils/timezone';
 import PropBuilderModal from './PropBuilderModal';
 import MatchDetailView from './MatchDetailView';
 import OddsAge from './OddsAge';
@@ -86,13 +87,14 @@ const initialsForName = (name = '') => {
     return (words[0][0] + words[words.length - 1][0]).toUpperCase();
 };
 
-// Day-bucket keys/labels resolve in ET (the site timezone). Without this a
-// 9 PM ET game would land on the *next* day for a user in GMT+5, splitting
-// what's really a single MLB slate across two day-divider rows.
+// Day-bucket keys/labels resolve in the site timezone (default ET, but
+// each player can override in Account → Preferences). Without this a
+// late-night game would land on the wrong day-divider for users in
+// non-US zones, splitting a single sports slate across two rows.
 const etPartsOf = (date) => {
     if (!date) return null;
     const parts = new Intl.DateTimeFormat('en-US', {
-        timeZone: 'America/New_York',
+        timeZone: getSiteTimezone(),
         year: 'numeric', month: 'numeric', day: 'numeric', weekday: 'long',
     }).formatToParts(date);
     const get = (t) => parts.find(p => p.type === t)?.value;
@@ -112,13 +114,15 @@ const dayLabelOf = (d) => {
     return p ? `${p.weekday}, ${MONTHS_SHORT[p.m - 1]} ${p.d}` : '';
 };
 
-// US Eastern time formatter for the broadcast row — matches the
-// reference book's "09:30 PM EST" prefix.
+// Site-timezone formatter for the broadcast row — matches the
+// reference book's "09:30 PM ET" prefix, with the label tracking the
+// player's selected timezone.
 const formatBroadcastTimeET = (iso) => {
     if (!iso) return '';
     const date = new Date(iso);
     if (Number.isNaN(date.getTime())) return '';
-    return `${date.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', hour12: true })} EST`;
+    const tz = getSiteTimezone();
+    return `${date.toLocaleTimeString('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: true })} ${getSiteTimezoneLabel(tz)}`;
 };
 
 const WEEKDAYS_SHORT = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
@@ -127,13 +131,14 @@ const WEEKDAYS_SHORT = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
 // past a day divider never has to guess which date they're betting on.
 const formatMatchDateTime = (startDate) => {
     if (!startDate || Number.isNaN(startDate.getTime?.())) return '';
-    // Pin all date math to ET (the site timezone). Otherwise a user in
-    // GMT+5 would see "Today" flip a day earlier than the actual US
-    // sports schedule does, and the day-divider rows would disagree with
-    // the per-row timestamp.
+    // Pin all date math to the site timezone (player override or ET).
+    // Otherwise "Today" would flip on the user's local midnight instead
+    // of the operator's sports-schedule midnight, and the day-divider
+    // rows would disagree with the per-row timestamp.
+    const tz = getSiteTimezone();
     const partsOf = (date) => {
         const parts = new Intl.DateTimeFormat('en-US', {
-            timeZone: 'America/New_York',
+            timeZone: tz,
             year: 'numeric', month: 'numeric', day: 'numeric',
         }).formatToParts(date);
         const get = (t) => Number(parts.find(p => p.type === t)?.value);
@@ -146,16 +151,16 @@ const formatMatchDateTime = (startDate) => {
     const daysDiff = Math.round((sdMidnight - todayMidnight) / 86400000);
 
     const mdy = `${sd.m}/${sd.d}`;
-    // "6:10pm ET" — same lowercased compact format as before, but the
-    // hour/minute and the timezone label both come from ET.
+    // Compact lowercased "6:10pm ET" with the label tracking the
+    // player's selected timezone.
     const formatted = startDate.toLocaleTimeString('en-US', {
-        timeZone: 'America/New_York',
+        timeZone: tz,
         hour: 'numeric',
         minute: '2-digit',
         hour12: true,
     });
     const timeOnly = formatted.toLowerCase().replace(/\s+/g, '');
-    const time = `${timeOnly} ET`;
+    const time = `${timeOnly} ${getSiteTimezoneLabel(tz)}`;
 
     const dayOfWeek = new Date(Date.UTC(sd.y, sd.m - 1, sd.d)).getUTCDay();
 
@@ -526,7 +531,10 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
                 isBettable: match.isBettable !== false,
                 bettingBlockedReason: match.bettingBlockedReason || '',
                 startDate,
-                time: startDate ? `${startDate.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', hour12: true })} ET` : '',
+                time: startDate ? (() => {
+                    const tz = getSiteTimezone();
+                    return `${startDate.toLocaleTimeString('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: true })} ${getSiteTimezoneLabel(tz)}`;
+                })() : '',
                 // Self-describing "Today 4/23 6:10pm" variant for each row
                 // so scrolling past the day divider doesn't hide context.
                 timeDisplay: formatMatchDateTime(startDate),
