@@ -4,10 +4,11 @@ declare(strict_types=1);
 
 /**
  * Single source of truth for the short team name + record fields rendered on
- * the public odds board. Both the OddsAPI sync (pre-match feed) and the
- * Rundown live sync push through these helpers so the matches doc always
- * carries `homeTeamShort`, `awayTeamShort`, `homeTeamRecord`, `awayTeamRecord`
- * regardless of which feed last touched the row.
+ * the public odds board. The OddsAPI sync (pre-match feed) and the ESPN
+ * scoreboard sync (records + broadcast metadata) push through these helpers
+ * so the matches doc always carries `homeTeamShort`, `awayTeamShort`,
+ * `homeTeamRecord`, `awayTeamRecord` regardless of which feed last touched
+ * the row.
  */
 final class TeamNormalizer
 {
@@ -84,8 +85,24 @@ final class TeamNormalizer
     ];
 
     /**
+     * Normalise a flat record string ("46-20" / "(46-20)" / "Record: 46-20-2")
+     * into the canonical W-L (or W-L-T for tie sports) shape, or null if the
+     * input doesn't parse. Lets feeds that ship a pre-formatted summary
+     * string (e.g. ESPN's `records[].summary`) hand it straight to this
+     * helper without copying the cleaning logic.
+     */
+    public static function recordFromString(?string $raw, string $sportKey): ?string
+    {
+        if ($raw === null) return null;
+        $sportKey = strtolower(trim($sportKey));
+        $includeTies = isset(self::TIE_SPORTS[$sportKey]);
+        $clean = self::cleanRecordString($raw, $includeTies);
+        return $clean === '' ? null : $clean;
+    }
+
+    /**
      * Compute the short display name for a team. Prefers the explicit
-     * override map, falls back to the Rundown-supplied mascot, falls back
+     * override map, falls back to a feed-supplied mascot, falls back
      * again to the trailing-token of the full name. Always returns a
      * non-empty string when given a non-empty input.
      */
@@ -103,9 +120,9 @@ final class TeamNormalizer
         $globalMap = self::OVERRIDES['__GLOBAL__'];
         if (isset($globalMap[$key])) return $globalMap[$key];
 
-        // Rundown gives us the mascot directly — strongly preferred over
-        // splitting the full name (handles "Trail Blazers" / "Maple Leafs"
-        // without needing the override).
+        // Some feeds ship the mascot directly (e.g. ESPN's `team.shortDisplayName`
+        // / `team.name`) — strongly preferred over splitting the full name
+        // (handles "Trail Blazers" / "Maple Leafs" without the override).
         if ($mascot !== null) {
             $m = trim($mascot);
             if ($m !== '') return $m;
@@ -123,56 +140,6 @@ final class TeamNormalizer
     }
 
     /**
-     * Extract a display record (e.g. "60-22" or "38-22-8") from a Rundown
-     * team payload. Returns null when no usable record is present so the
-     * frontend can suppress the parenthetical instead of rendering "()".
-     *
-     * @param array<string, mixed> $team Rundown team object
-     */
-    public static function recordFromRundownTeam(array $team, string $sportKey): ?string
-    {
-        $sportKey = strtolower(trim($sportKey));
-        $includeTies = isset(self::TIE_SPORTS[$sportKey]);
-
-        // Rundown V2 sometimes ships a flat string ("56-26"), sometimes an
-        // object with wins/losses/ties or current_season. Cover both shapes.
-        $raw = $team['record'] ?? ($team['records'] ?? null);
-
-        // Case 1: flat string already in W-L or W-L-T form.
-        if (is_string($raw)) {
-            $clean = self::cleanRecordString($raw, $includeTies);
-            return $clean === '' ? null : $clean;
-        }
-
-        // Case 2: array of season records — pick the regular/current season.
-        if (is_array($raw) && self::isList($raw)) {
-            foreach ($raw as $entry) {
-                if (!is_array($entry)) continue;
-                $type = strtolower((string) ($entry['type'] ?? $entry['name'] ?? ''));
-                if ($type !== '' && strpos($type, 'current') === false && strpos($type, 'season') === false && strpos($type, 'regular') === false) {
-                    continue;
-                }
-                $candidate = self::recordFromObject($entry, $includeTies);
-                if ($candidate !== null) return $candidate;
-            }
-            // Fallback to the first entry if none looked "current".
-            if (isset($raw[0]) && is_array($raw[0])) {
-                return self::recordFromObject($raw[0], $includeTies);
-            }
-            return null;
-        }
-
-        // Case 3: object with wins / losses / (ties) at the top level.
-        if (is_array($raw)) {
-            return self::recordFromObject($raw, $includeTies);
-        }
-
-        // Case 4: no `record` key at all but wins/losses live directly on
-        // the team object — happens with some normalized Rundown payloads.
-        return self::recordFromObject($team, $includeTies);
-    }
-
-    /**
      * Detect whether the OddsAPI sportKey sport tracks ties separately so
      * frontends can decide on display formatting if they ever build a
      * record string from a wins/losses/ties tuple themselves.
@@ -180,33 +147,6 @@ final class TeamNormalizer
     public static function sportTracksTies(string $sportKey): bool
     {
         return isset(self::TIE_SPORTS[strtolower(trim($sportKey))]);
-    }
-
-    /** @param array<string, mixed> $entry */
-    private static function recordFromObject(array $entry, bool $includeTies): ?string
-    {
-        // Prefer pre-formatted strings over numeric reconstruction — less
-        // chance of off-by-one across regular-season vs total record.
-        foreach (['current_season', 'record', 'season', 'value'] as $field) {
-            if (isset($entry[$field]) && is_string($entry[$field])) {
-                $clean = self::cleanRecordString($entry[$field], $includeTies);
-                if ($clean !== '') return $clean;
-            }
-        }
-        $wins = $entry['wins'] ?? null;
-        $losses = $entry['losses'] ?? null;
-        if (is_numeric($wins) && is_numeric($losses)) {
-            $w = (int) $wins;
-            $l = (int) $losses;
-            if ($includeTies) {
-                $t = $entry['ties'] ?? ($entry['draws'] ?? null);
-                if (is_numeric($t)) {
-                    return $w . '-' . $l . '-' . (int) $t;
-                }
-            }
-            return $w . '-' . $l;
-        }
-        return null;
     }
 
     /**
@@ -229,12 +169,5 @@ final class TeamNormalizer
             return $w . '-' . $l;
         }
         return '';
-    }
-
-    /** @param array<mixed, mixed> $arr */
-    private static function isList(array $arr): bool
-    {
-        if ($arr === []) return true;
-        return array_keys($arr) === range(0, count($arr) - 1);
     }
 }

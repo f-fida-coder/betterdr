@@ -16,7 +16,7 @@ const AUTO_POLL_MS = 30000;
 // trigger a force-refetch on first paint and on tab-becomes-visible.
 const COLD_LOAD_FRESHNESS_MS = 90000;
 // When the live filter returns an empty list (e.g. user landed before
-// the Rundown overlay tick had a chance to populate any rows), retry
+// the worker's live tick had a chance to populate any rows), retry
 // with backoff instead of waiting AUTO_POLL_MS for the next poll.
 const LIVE_EMPTY_RETRY_DELAYS_MS = [4000, 9000];
 // No-op cache: same Map surface (.get/.set/.delete/.size) so the rest of
@@ -288,8 +288,8 @@ export default function useMatches(options = {}) {
                 applyMatchesIfChanged(filtered);
                 success = true;
 
-                // Empty live result during the natural startup race (Rundown
-                // tick hasn't populated any rows yet) — schedule one or two
+                // Empty live result during the natural startup race (the
+                // live tick hasn't populated any rows yet) — schedule one or two
                 // short retries instead of forcing the user to wait the full
                 // AUTO_POLL_MS or hit refresh manually. Other status filters
                 // are not affected.

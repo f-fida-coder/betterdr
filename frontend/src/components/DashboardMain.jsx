@@ -80,13 +80,11 @@ const DashboardMain = ({ selectedSports = [], activeBetMode = 'straight' }) => {
         }
 
         if (selectedSports.includes('commercial-live')) {
-            // Live Now is Rundown-EXCLUSIVE: strict `'live'` status. The
-            // backend filter additionally requires oddsSource='rundown',
-            // a per-sport freshness window, and the row's sportKey to be
-            // in Rundown's coverage set — so any leftover stale or
-            // upcoming rows are filtered out server-side. Showing
-            // scheduled games here would be wrong: the user tapped LIVE
-            // NOW expecting in-play action only.
+            // Live Now: strict `'live'` status. The backend filter applies
+            // a per-sport freshness window so any leftover stale or
+            // upcoming rows are filtered out server-side. Showing scheduled
+            // games here would be wrong: the user tapped LIVE NOW expecting
+            // in-play action only.
             return [{ sportId: null, filter: null, status: 'live' }];
         }
 

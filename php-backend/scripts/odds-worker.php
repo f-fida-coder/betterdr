@@ -21,18 +21,11 @@ require_once __DIR__ . '/../src/SportsbookHealth.php';
 require_once __DIR__ . '/../src/SportsbookBetSupport.php';
 require_once __DIR__ . '/../src/BetSettlementService.php';
 require_once __DIR__ . '/../src/OddsMarketCatalog.php';
-// RundownService::httpGet calls ApiQuotaGuard::reserve to cap upstream
-// calls per minute. The web bootstrap (public/index.php) requires this
-// already, but the worker was missing it — every Rundown live tick was
-// throwing "Class ApiQuotaGuard not found", which is exactly why live
-// rows go stale and the freshness filter was dropping them. Loading it
-// here brings the live overlay back online.
 require_once __DIR__ . '/../src/ApiQuotaGuard.php';
 require_once __DIR__ . '/../src/TeamNormalizer.php';
 require_once __DIR__ . '/../src/OddsSyncService.php';
 require_once __DIR__ . '/../src/RealtimeEventBus.php';
-require_once __DIR__ . '/../src/RundownService.php';
-require_once __DIR__ . '/../src/RundownLiveSync.php';
+require_once __DIR__ . '/../src/EspnScoreboardSync.php';
 
 $projectRoot = dirname(__DIR__, 2);
 $phpBackendDir = dirname(__DIR__);
@@ -152,16 +145,19 @@ while (true) {
     $elapsed = (int) max(0, round(microtime(true) - $started));
     $remaining = max(1, $intervalSeconds - $elapsed);
     $liveTickSeconds = max(5, (int) Env::get('RUNDOWN_LIVE_TICK_SECONDS', '10'));
-    // Live-odds provider toggles. Default keeps existing behavior (OddsAPI
-    // on, Rundown off). Flip in .env without touching code:
+    // Live-odds toggle. Defaults on; flip in .env if you want a quiet
+    // worker that only handles other queues:
     //   LIVE_ODDS_ODDSAPI=true|false
-    //   LIVE_ODDS_RUNDOWN=true|false
-    // Both can be true (parallel, OddsAPI then Rundown each chunk).
     $oddsApiLiveOn = strtolower((string) Env::get('LIVE_ODDS_ODDSAPI', 'true')) === 'true'
         && strtolower((string) Env::get('SPORTS_API_ENABLED', 'true')) === 'true'
         && (string) Env::get('ODDS_API_KEY', '') !== '';
-    $rundownLiveOn = strtolower((string) Env::get('LIVE_ODDS_RUNDOWN', 'false')) === 'true'
-        && (string) Env::get('RUNDOWN_API_KEY', '') !== '';
+    // ESPN scoreboard meta (records + broadcast strings) is fetched on a
+    // separate, slower cadence — see $espnMetaInterval below. The boolean
+    // toggle just lets ops disable the side-channel entirely if ESPN ever
+    // becomes flaky for the workload.
+    $espnMetaOn = strtolower((string) Env::get('LIVE_ODDS_ESPN_META', 'true')) === 'true';
+    $espnMetaInterval = max(60, (int) Env::get('ESPN_META_TICK_SECONDS', '300'));
+    $espnMetaNextRun = 0;
     $deadline = microtime(true) + $remaining;
     while (microtime(true) < $deadline) {
         $chunkStart = microtime(true);
@@ -184,25 +180,25 @@ while (true) {
                 $logWorker('error', 'oddsapi live tick failed: ' . $e->getMessage());
             }
         }
-        if ($rundownLiveOn) {
+        if ($espnMetaOn && microtime(true) >= $espnMetaNextRun) {
             try {
                 $repoLive = new SqlRepository($dbUri, $dbName);
-                $r = RundownLiveSync::tick($repoLive);
-                if (($r['updated'] ?? 0) > 0 || ($r['matched'] ?? 0) > 0 || ($r['errors'] ?? 0) > 0 || ($r['finished'] ?? 0) > 0) {
+                $r = EspnScoreboardSync::tick($repoLive);
+                if (($r['updated'] ?? 0) > 0 || ($r['matched'] ?? 0) > 0 || ($r['errors'] ?? 0) > 0) {
                     $logWorker('info', sprintf(
-                        "rundown live tick sports=%d events=%d matched=%d updated=%d finished=%d errors=%d",
+                        "espn meta tick sports=%d events=%d matched=%d updated=%d errors=%d",
                         (int) ($r['sportsTried'] ?? 0),
                         (int) ($r['eventsSeen'] ?? 0),
                         (int) ($r['matched'] ?? 0),
                         (int) ($r['updated'] ?? 0),
-                        (int) ($r['finished'] ?? 0),
                         (int) ($r['errors'] ?? 0)
                     ));
                 }
                 unset($repoLive);
             } catch (Throwable $e) {
-                $logWorker('error', 'rundown live tick failed: ' . $e->getMessage());
+                $logWorker('error', 'espn meta tick failed: ' . $e->getMessage());
             }
+            $espnMetaNextRun = microtime(true) + $espnMetaInterval;
         }
         $chunkElapsed = microtime(true) - $chunkStart;
         $sleepFor = max(1, $liveTickSeconds - (int) round($chunkElapsed));

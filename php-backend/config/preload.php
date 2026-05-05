@@ -73,8 +73,7 @@ $hotClasses = [
     'TeamNormalizer.php',
     'ApiQuotaGuard.php',
     'OddsSyncService.php',
-    'RundownService.php',
-    'RundownLiveSync.php',
+    'EspnScoreboardSync.php',
 
     // ─── Bet / settlement rules ──────────────────────────────────────────
     'BetModeRules.php',

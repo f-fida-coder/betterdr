@@ -629,8 +629,9 @@ export const getUpcomingMatches = async (options = {}) => getMatches('upcoming',
 
 /**
  * On-demand Live Now sync. POSTs to /api/sync/live which synchronously
- * pokes Rundown, then returns the same shape as GET /api/matches?status=live.
- * The endpoint NEVER errors: even when throttled or quota-capped, it
+ * pokes OddsAPI's live endpoint, then returns the same shape as
+ * GET /api/matches?status=live. The endpoint NEVER errors: even when
+ * throttled or quota-capped, it
  * returns 200 with the latest cached rows and an X-Sync-Throttled: 1
  * header. Resolves with `{ data, throttled }` so the caller can decide
  * whether to show the throttle toast.

@@ -111,12 +111,12 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
     const liveSyncLastClickRef = React.useRef(0);
 
     const handleRefreshClick = React.useCallback(() => {
-        // Live Now path: synchronous Rundown sync via POST /api/sync/live.
-        // The endpoint returns fresh rows (or cached ones if throttled) in
-        // a single round-trip. Once it resolves, fire matches:force-refetch
-        // so useMatches re-reads from the now-fresh DB.
-        // 60s cooldown mirrors USER_LIVE_SYNC_MIN_INTERVAL_SECONDS on the
-        // backend — live odds update every 60-90s via Rundown cron anyway.
+        // Live Now path: synchronous OddsAPI live sync via POST
+        // /api/sync/live. The endpoint returns fresh rows (or cached ones
+        // if throttled) in a single round-trip. Once it resolves, fire
+        // matches:force-refetch so useMatches re-reads from the now-fresh
+        // DB. 60s cooldown mirrors USER_LIVE_SYNC_MIN_INTERVAL_SECONDS on
+        // the backend.
         if (status === 'live') {
             const sinceLast = Date.now() - liveSyncLastClickRef.current;
             if (liveSyncSpinning || sinceLast < 60000) return;
@@ -194,9 +194,9 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
     const rawMatchesRef = React.useRef(rawMatches);
     React.useEffect(() => { rawMatchesRef.current = rawMatches; }, [rawMatches]);
 
-    // LIVE NOW open: fire one synchronous Rundown sync so the first paint
-    // shows the freshest possible odds instead of waiting up to 30s for
-    // AUTO_POLL or for the rundown cron's next tick. Backend has a 15s
+    // LIVE NOW open: fire one synchronous OddsAPI live sync so the first
+    // paint shows the freshest possible odds instead of waiting up to 30s
+    // for AUTO_POLL or for the worker's next live tick. Backend has a 15s
     // per-IP throttle on /api/sync/live, so re-mounting cheaply skips the
     // upstream call when it would be redundant. Anonymous browsers go
     // through a different auth path (X-Tick-Secret only) — here we require
@@ -516,12 +516,13 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                     date: match.startTime ? new Date(match.startTime).toLocaleDateString() : '',
                     // Broadcast row above the match-header. Resolved client-side
                     // so we can keep the chip palette in one place; raw string
-                    // comes from Rundown via the matches projection.
+                    // comes from ESPN's scoreboard side-channel via the
+                    // matches projection.
                     broadcast: resolveBroadcast(match.broadcast),
                     eventName: typeof match.eventName === 'string' ? match.eventName.trim() : '',
                     broadcastTime: formatBroadcastTimeET(match.startTime),
                     // shortName + record are populated server-side by
-                    // TeamNormalizer (Rundown live feed for records, both
+                    // TeamNormalizer (ESPN scoreboard for records, both
                     // feeds for short names). They fall back to the full
                     // name / empty record when the row predates the layer.
                     team1: {

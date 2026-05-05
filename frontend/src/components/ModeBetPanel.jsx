@@ -223,8 +223,8 @@ const nextAmericanOddsStep = (current) => {
 };
 
 // Build up to 5 alternate-line options for a Spread/Total selection.
-// Prefers `sel.alternateLines` (Rundown feed shape: { line, odds }) when
-// upstream has attached them; otherwise falls back to a local generator
+// Prefers `sel.alternateLines` (upstream-supplied { line, odds } pairs)
+// when available; otherwise falls back to a local generator
 // stepping ±0.5 in the favorable direction with ~10 cents of juice per
 // step. Returns [original, ...alts] with the original flagged so the
 // dropdown can render its checkmark.

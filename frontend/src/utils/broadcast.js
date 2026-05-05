@@ -1,10 +1,11 @@
-// Broadcast network → display chip resolution. Rundown returns network
-// names as raw strings ("ESPN", "TNT", "Prime Video", "ESPN/ESPN+",
-// "Bally Sports Southwest", etc.). We normalize them into a small set
-// of recognized brands with brand-correct chip colors. Unrecognized
-// strings (random RSNs, generic placeholders) return null so the chip
-// is hidden — a generic "Local TV" badge added noise without telling
-// the user which channel actually carries the game.
+// Broadcast network → display chip resolution. The backend writes the
+// raw network name (or slash-joined list) onto each match from ESPN's
+// scoreboard feed: "ESPN", "TNT", "Prime Video", "ESPN/ESPN+",
+// "Bally Sports Southwest", etc. We normalize those raw strings into a
+// small set of recognized brands with brand-correct chip colors.
+// Unrecognized strings (random RSNs, generic placeholders) return null
+// so the chip is hidden — a generic "Local TV" badge added noise
+// without telling the user which channel actually carries the game.
 //
 // To keep the bundle small we use color-only chips with the brand name
 // printed inside — no SVG logo set. That's enough to be visually

@@ -25,8 +25,7 @@ Specifically known to be in commits:
 | `JWT_SECRET`        | All authenticated requests | Forge any user's JWT    |
 | `MYSQL_PASSWORD`    | Backend → DB connection    | Direct DB access if reachable |
 | `ODDS_API_KEY`      | OddsSyncService            | Drain the paid API quota |
-| `RUNDOWN_API_KEY`   | RundownLiveSync            | Drain paid API quota    |
-| `RUNDOWN_TICK_SECRET` | Cron-callable rundown tick endpoint | Trigger ticks at will |
+| `INTERNAL_TICK_SECRET` | Cron-callable internal tick endpoints | Trigger ticks at will |
 | `STRIPE_SECRET_KEY` | PaymentsController         | Issue refunds, list customers |
 | `STRIPE_WEBHOOK_SECRET` | PaymentsController     | Forge webhook events    |
 
@@ -47,8 +46,7 @@ history are dead by the time you push.
   server. Restart php-fpm.
 - **ODDS_API_KEY**: log in to https://the-odds-api.com/, regenerate the
   key, update env on server, kill + restart odds-worker.
-- **RUNDOWN_API_KEY**: same flow at https://therundown.io/.
-- **RUNDOWN_TICK_SECRET**: regenerate with `openssl rand -hex 32`.
+- **INTERNAL_TICK_SECRET**: regenerate with `openssl rand -hex 32`.
   Update on server AND in your cron config that calls the tick endpoint.
 - **STRIPE_SECRET_KEY**: in the Stripe dashboard, roll the key. Stripe
   gives you a 24-hour window where both work — use that to update env

@@ -582,9 +582,9 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
                             { id: 'straight', label: 'STRAIGHT', letter: 'S' },
                             { id: 'parlay', label: 'PARLAY', letter: 'P' },
                             { id: 'teaser', label: 'TEASER', letter: 'T' },
+                            { id: 'round_robin', label: 'R ROBIN', letter: 'RR' },
                             { id: 'if_bet', label: 'IF BET', letter: 'I' },
-                            { id: 'reverse', label: 'REVERSE', letter: 'R' },
-                            { id: 'round_robin', label: 'ROBIN', letter: 'R' }
+                            { id: 'reverse', label: 'REVERSE', letter: 'R' }
                         ].map((mode) => (
                             <div
                                 key={mode.id}
@@ -828,9 +828,9 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
                                 { id: 'straight', label: 'STRAIGHT', icon: 'S' },
                                 { id: 'parlay', label: 'PARLAY', icon: 'P' },
                                 { id: 'teaser', label: 'TEASER', icon: 'T' },
+                                { id: 'round_robin', label: 'R ROBIN', icon: 'RR' },
                                 { id: 'if_bet', label: 'IF BET', icon: 'I' },
-                                { id: 'reverse', label: 'REVERSE', icon: 'R' },
-                                { id: 'round_robin', label: 'ROBIN', icon: 'R' }
+                                { id: 'reverse', label: 'REVERSE', icon: 'R' }
                             ].map((mode) => (
                                 <div
                                     key={mode.id}

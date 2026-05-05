@@ -595,12 +595,6 @@ final class OddsSyncService
                         $createdId = $db->insertOne('matches', $doc);
                         $result['created']++;
                         $result['settled'] += self::maybeSettleMatch($db, $createdId, $doc['status'] ?? '');
-                    } elseif (self::isRundownLiveOwned($existing)) {
-                        // Rundown is currently the live source for this row —
-                        // skip the OddsAPI overwrite so live odds stay 100%
-                        // Rundown-driven. OddsAPI takes back over once Rundown
-                        // stops touching the row (game ended / lost feed).
-                        $result['skippedRundownLive'] = ($result['skippedRundownLive'] ?? 0) + 1;
                     } else {
                         $oldStatus = (string) ($existing['status'] ?? '');
                         // Preserve extendedMarkets (period markets, alt
@@ -813,9 +807,6 @@ final class OddsSyncService
             if ($existing === null) {
                 $doc['createdAt'] = SqlRepository::nowUtc();
                 $db->insertOne('matches', $doc);
-            } elseif (self::isRundownLiveOwned($existing)) {
-                // See bulk-sync path: skip overwriting rows that Rundown is
-                // actively updating, so live odds remain Rundown-only.
             } else {
                 $existingOdds = is_array($existing['odds'] ?? null) ? $existing['odds'] : [];
                 if (isset($existingOdds['extendedMarkets']) && is_array($existingOdds['extendedMarkets'])) {
@@ -1465,8 +1456,9 @@ final class OddsSyncService
             'awayTeam' => $awayTeam,
             // Short display names so the public odds board can render
             // "Thunder" / "Suns" instead of the full city+mascot. Records
-            // come from the Rundown live feed (OddsAPI doesn't carry them)
-            // and are merged in by RundownLiveSync without being touched here.
+            // come from ESPN's free scoreboard feed (OddsAPI doesn't carry
+            // them) and are merged in by EspnScoreboardSync without being
+            // touched here.
             'homeTeamShort' => TeamNormalizer::shortName($homeTeam, $sportKey),
             'awayTeamShort' => TeamNormalizer::shortName($awayTeam, $sportKey),
             'startTime' => $event['commence_time'] ?? null,
@@ -1743,8 +1735,8 @@ final class OddsSyncService
      */
     private static function httpGetDetailed(string $url): array
     {
-        // Hard cap on OddsAPI calls per minute. Mirrors the Rundown guard
-        // — protects monthly quota from runaway loops or burst spike.
+        // Hard cap on OddsAPI calls per minute — protects the monthly
+        // quota from runaway loops or burst spikes.
         $cap = (int) Env::get('ODDSAPI_MAX_CALLS_PER_MINUTE', '60');
         if (!ApiQuotaGuard::reserve('oddsapi', $cap)) {
             return ['body' => null, 'status' => 0, 'error' => 'quota_capped', 'headers' => []];
@@ -1798,26 +1790,6 @@ final class OddsSyncService
         }
 
         $handle = null;
-    }
-
-    /**
-     * Whether a match row is currently being driven by the Rundown live
-     * overlay — used to gate OddsAPI overwrites so live odds stay
-     * Rundown-only. A row is "Rundown-owned" if it has oddsSource='rundown'
-     * AND its lastOddsSyncAt is fresh (within RUNDOWN_LIVE_FRESHNESS_SECONDS).
-     * Once Rundown stops touching the row (game ends / feed lost) the row
-     * goes stale and OddsAPI takes back over on the next tick.
-     */
-    private static function isRundownLiveOwned(array $existing): bool
-    {
-        if (strtolower((string) ($existing['oddsSource'] ?? '')) !== 'rundown') {
-            return false;
-        }
-        $last = (string) ($existing['lastOddsSyncAt'] ?? '');
-        $lastTs = $last !== '' ? strtotime($last) : false;
-        if ($lastTs === false) return false;
-        $maxAge = max(60, (int) Env::get('RUNDOWN_LIVE_FRESHNESS_SECONDS', '300'));
-        return (time() - $lastTs) <= $maxAge;
     }
 
     private static function extractScoreAndStatus(array $event, string $homeTeam, string $awayTeam): array

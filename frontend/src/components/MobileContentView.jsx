@@ -329,8 +329,8 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
         [selectedSports],
     );
 
-    // LIVE NOW: strict `'live'` status — Rundown-only, freshness-gated
-    // server-side. The previous `'live-upcoming'` envelope was leaking
+    // LIVE NOW: strict `'live'` status — freshness-gated server-side.
+    // The previous `'live-upcoming'` envelope was leaking
     // scheduled games into the LIVE NOW list (e.g. "Tomorrow 4/28 12am"
     // appearing under Live Now), which is wrong: the user tapped LIVE
     // NOW expecting in-play action only.
@@ -483,7 +483,7 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
             const isLive = match.status === 'live' || eventStatus.includes('IN_PROGRESS') || eventStatus.includes('LIVE');
             const startDate = match.startTime ? new Date(match.startTime) : null;
             // Build a compact `Q2 5:43` / `H1 23:11` / `IN_PROGRESS`
-            // style label from the Rundown-supplied score fields.
+            // style label from the OddsAPI-supplied score fields.
             // Period maps to a sport-appropriate prefix (Q for football
             // /basketball, P for hockey, H for soccer); falls back to a
             // cleaned event_status when period isn't set.
@@ -513,10 +513,10 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
                 team1: awayName,
                 team2: homeName,
                 // Short names + records come pre-computed from the backend
-                // (TeamNormalizer joins them onto the matches row from
-                // either the OddsAPI or Rundown feed). Falling back to the
-                // full name preserves the old behavior when a row predates
-                // the normalization layer.
+                // (TeamNormalizer joins short names from OddsAPI; records
+                // come from the ESPN scoreboard side-channel). Falling
+                // back to the full name preserves the old behavior when a
+                // row predates the normalization layer.
                 team1Short: match.awayTeamShort || awayName,
                 team2Short: match.homeTeamShort || homeName,
                 team1Record: match.awayTeamRecord || '',
@@ -690,8 +690,8 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
     const { trigger: triggerSportRefresh, isRefreshing: isSportRefreshing, cooldownRemainingSec } = useSportOddsRefresh(visibleSportKeys, { showToast });
 
     // LIVE NOW open (mobile): mirror SportContentView and fire a single
-    // synchronous Rundown sync so the first paint shows the freshest odds
-    // possible. Backend's 15s per-IP throttle on /api/sync/live silently
+    // synchronous OddsAPI live sync so the first paint shows the freshest
+    // odds possible. Backend's 15s per-IP throttle on /api/sync/live silently
     // collapses redundant calls, so re-mounting LIVE NOW or rapid back/forth
     // navigation never hammers the upstream.
     React.useEffect(() => {
@@ -1040,7 +1040,7 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
         <div style={matchCardStyle}>
             {/* Broadcast row sits at the very top so the player sees
                 "[TIME] EST - [GAME CONTEXT] - [NETWORK]" before scanning
-                team rows. Rendered whenever Rundown returned an event
+                team rows. Rendered whenever ESPN returned an event
                 name OR a recognized network chip — the EST broadcast
                 time alone wouldn't gate it (every game has a startTime,
                 so that would render the strip for every row), but once
