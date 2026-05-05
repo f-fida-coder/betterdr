@@ -31,6 +31,7 @@ require_once __DIR__ . '/../src/BetModeRules.php';
 require_once __DIR__ . '/../src/AgentSettlementRules.php';
 require_once __DIR__ . '/../src/AgentSettlementSnapshotService.php';
 require_once __DIR__ . '/../src/BetSettlementService.php';
+require_once __DIR__ . '/../src/RoundRobinService.php';
 require_once __DIR__ . '/../src/OddsMarketCatalog.php';
 require_once __DIR__ . '/../src/ApiQuotaGuard.php';
 require_once __DIR__ . '/../src/TeamNormalizer.php';

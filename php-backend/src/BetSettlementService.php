@@ -323,6 +323,26 @@ final class BetSettlementService
 
                     $results['settledBetIds'][] = $betId;
                     $db->commit();
+
+                    // If this child belongs to a Round Robin group,
+                    // recompute the group's aggregate status so the
+                    // user's grouped view (won/lost/partial/void)
+                    // tracks the children as they settle. Runs outside
+                    // the per-bet transaction — the child write is
+                    // already durable, and a recompute failure here
+                    // mustn't roll back a successful settlement.
+                    $parentGroupId = (string) ($bet['parentGroupId'] ?? '');
+                    if ($parentGroupId !== '' && class_exists('RoundRobinService')) {
+                        try {
+                            RoundRobinService::recomputeGroupStatus($db, $parentGroupId);
+                        } catch (Throwable $rrErr) {
+                            // Logged but not fatal — the per-child
+                            // status is already correct in `bets`. The
+                            // group display row will catch up on the
+                            // next sibling's settlement or a manual
+                            // recompute trigger.
+                        }
+                    }
                 } catch (Throwable $e) {
                     $db->rollback();
                     $results['errors']++;

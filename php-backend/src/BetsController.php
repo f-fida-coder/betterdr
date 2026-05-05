@@ -32,6 +32,16 @@ final class BetsController
             $this->getSettleEligibility();
             return true;
         }
+        // GET /api/bets/group/{24-hex}/children — lazy-loaded child
+        // parlays for a Round Robin group. The group row in getMyBets
+        // returns just metadata (sizes, parlayCount, totals) so the
+        // initial bets list stays a fixed shape; the user clicks the
+        // expand chevron and the frontend fetches the children on
+        // demand. Auth-gated to the group's owner.
+        if ($method === 'GET' && preg_match('#^/api/bets/group/([a-f0-9]{24})/children$#i', $path, $m) === 1) {
+            $this->getRoundRobinChildren($m[1]);
+            return true;
+        }
 
         return false;
     }
@@ -217,6 +227,29 @@ final class BetsController
                 ]);
             }
             $requestDocOwned = true;
+
+            // Round Robin diverges hard from single-ticket placement —
+            // it fans out into N child parlay rows + 1 group row inside
+            // its own transaction. Everything BEFORE this point (auth,
+            // leg validation, idempotency lock) is shared; everything
+            // AFTER is the single-ticket flow that the other 5 modes
+            // need. Dispatch and return so we don't drag round-robin
+            // through code that assumes one bet per placement.
+            if ($type === 'round_robin') {
+                $this->placeRoundRobin(
+                    $user,
+                    $userId,
+                    $body,
+                    $requestId,
+                    $requestDocId,
+                    $validatedSelections,
+                    $modeRule,
+                    $useFreeplay,
+                    $betAmount
+                );
+                $requestDocOwned = false; // placeRoundRobin owns the doc closure now
+                return;
+            }
 
             $totalRisk = SportsbookBetSupport::ticketRiskAmount($type, $betAmount);
             $potentialPayout = SportsbookBetSupport::calculatePotentialPayout($type, $betAmount, $validatedSelections, $modeRule);
@@ -491,6 +524,326 @@ final class BetsController
         }
     }
 
+    /**
+     * Round Robin placement — generate N child parlays from the user's
+     * selection set + chosen sizes, debit the total stake atomically,
+     * write one display-only group row, and return the group + child
+     * ids. Each child row in `bets` has type='parlay' so the entire
+     * settlement / commission / figures pipeline treats it like any
+     * other parlay (financial truth lives in the children, see
+     * RoundRobinService doc comment).
+     *
+     * Freeplay policy (decision 2026-05-05): Round Robin is treated
+     * identically to a parlay for freeplay purposes — the entire
+     * `totalRisk` is debited from `freeplayBalance`, every child is
+     * marked `isFreeplay=true`, and partial wins credit profit
+     * per-child to real balance via the existing freeplay branches in
+     * BetSettlementService::settleMatch. There is no separate
+     * eligibility flag today; if production exposure dictates one, add
+     * `freeplayEligible` to BetModeRules instead of branching here.
+     *
+     * @param array<string, mixed> $user
+     * @param array<string, mixed> $body
+     * @param array<int, array<string, mixed>> $validatedSelections
+     * @param array<string, mixed> $modeRule
+     */
+    private function placeRoundRobin(
+        array $user,
+        string $userId,
+        array $body,
+        string $requestId,
+        string $requestDocId,
+        array $validatedSelections,
+        array $modeRule,
+        bool $useFreeplay,
+        float $stakePerParlay
+    ): void {
+        $selectionCount = count($validatedSelections);
+
+        // ── Parse + validate sizes ───────────────────────────────────────
+        $rawSizes = is_array($body['sizes'] ?? null) ? $body['sizes'] : [];
+        $sizes = [];
+        foreach ($rawSizes as $s) {
+            if (!is_numeric($s)) continue;
+            $intSize = (int) $s;
+            if ($intSize < 2 || $intSize >= $selectionCount) {
+                throw new ApiException(
+                    'Round Robin sizes must be between 2 and ' . ($selectionCount - 1) . ' for ' . $selectionCount . ' selections',
+                    400,
+                    ['code' => 'INVALID_ROUND_ROBIN_SIZE']
+                );
+            }
+            $sizes[] = $intSize;
+        }
+        $sizes = array_values(array_unique($sizes));
+        sort($sizes);
+        if ($sizes === []) {
+            throw new ApiException('Round Robin requires at least one size', 400, [
+                'code' => 'ROUND_ROBIN_SIZES_REQUIRED',
+            ]);
+        }
+
+        // ── Combinations + cap check ─────────────────────────────────────
+        $parlayCount = RoundRobinService::combinationCount($selectionCount, $sizes);
+        if ($parlayCount === 0) {
+            throw new ApiException('Round Robin sizes produced zero combinations', 400);
+        }
+        $maxParlays = isset($modeRule['maxParlaysPerGroup']) && is_numeric($modeRule['maxParlaysPerGroup'])
+            ? (int) $modeRule['maxParlaysPerGroup']
+            : 50;
+        if ($parlayCount > $maxParlays) {
+            throw new ApiException(
+                'Round Robin generates ' . $parlayCount . ' parlays — limit is ' . $maxParlays
+                . '. Pick fewer sizes or selections.',
+                400,
+                ['code' => 'MAX_PARLAYS_EXCEEDED']
+            );
+        }
+
+        // ── Build per-child plans (combo + odds + payout, capped) ─────────
+        $maxBetLimit = isset($user['maxBet']) && is_numeric($user['maxBet']) ? (float) $user['maxBet'] : 0.0;
+        $minBetLimit = isset($user['minBet']) && is_numeric($user['minBet']) ? (float) $user['minBet'] : 0.0;
+        $childPlans = [];
+        $totalPayoutMax = 0.0;
+        foreach ($sizes as $size) {
+            $combinations = RoundRobinService::generateCombinations($validatedSelections, $size);
+            foreach ($combinations as $combo) {
+                $combinedDecimal = 1.0;
+                foreach ($combo as $sel) {
+                    $combinedDecimal *= (float) ($sel['odds'] ?? 0);
+                }
+                if ($combinedDecimal <= 1.0) {
+                    throw new ApiException('Round Robin child has non-positive odds', 400);
+                }
+                $childPayout = round($stakePerParlay * $combinedDecimal, 2);
+
+                // Per-child win cap follows the parlay convention: the
+                // operator's exposure on each child is the win amount,
+                // not the stake. Mirrors the placeBet $isCombinedMode
+                // path so a Round Robin child can't sneak past the
+                // 3 × maxBet ceiling that a standalone parlay obeys.
+                $childWin = max(0.0, $childPayout - $stakePerParlay);
+                if ($maxBetLimit > 0) {
+                    $cap = $maxBetLimit * 3.0;
+                    if ($childWin > $cap) {
+                        $childPayout = $stakePerParlay + $cap;
+                        $childWin = $cap;
+                    }
+                }
+                if ($minBetLimit > 0 && $childWin < $minBetLimit) {
+                    throw new ApiException(
+                        'Min bet to win is $' . rtrim(rtrim(number_format($minBetLimit, 2, '.', ''), '0'), '.')
+                        . ' — a Round Robin child only wins $' . rtrim(rtrim(number_format($childWin, 2, '.', ''), '0'), '.'),
+                        400,
+                        ['code' => 'BELOW_MIN_BET']
+                    );
+                }
+                $totalPayoutMax += $childPayout;
+                $childPlans[] = [
+                    'selections' => $combo,
+                    'combinedDecimal' => $combinedDecimal,
+                    'potentialPayout' => $childPayout,
+                ];
+            }
+        }
+
+        $totalRisk = round($stakePerParlay * $parlayCount, 2);
+        $ticketId = SportsbookBetSupport::idempotencyDocumentId('sportsbook_ticket', $userId, $requestId);
+        $groupId = SportsbookBetSupport::idempotencyDocumentId('rr_group', $userId, $requestId);
+
+        // ── Transaction: balance debit + group + children + ledger ────────
+        $createdBetIds = [];
+        $newBalance = 0.0;
+        $newPending = 0.0;
+        $newFreeplay = 0.0;
+
+        $this->db->beginTransaction();
+        try {
+            $lockedUser = $this->db->findOneForUpdate('users', ['id' => SqlRepository::id((string) $user['id'])]);
+            if ($lockedUser === null) {
+                $this->db->rollback();
+                throw new ApiException('User not found', 404);
+            }
+
+            $balance         = $this->num($lockedUser['balance'] ?? 0);
+            $pending         = $this->num($lockedUser['pendingBalance'] ?? 0);
+            $freeplayBalance = $this->num($lockedUser['freeplayBalance'] ?? 0);
+            $creditLimit     = $this->num($lockedUser['creditLimit'] ?? 0);
+            $role            = strtolower((string) ($lockedUser['role'] ?? 'user'));
+            $isCreditAccount = $role === 'user' && $creditLimit > 0;
+            $available       = $isCreditAccount
+                ? max(0.0, $creditLimit + $balance - $pending)
+                : max(0.0, $balance - $pending);
+
+            if ($useFreeplay) {
+                if ($freeplayBalance <= 0) {
+                    $this->db->rollback();
+                    throw new ApiException('Your freeplay credits have expired or been used.', 400, ['code' => 'FREEPLAY_EXPIRED']);
+                }
+                if ($freeplayBalance < $totalRisk) {
+                    $this->db->rollback();
+                    throw new ApiException('Insufficient freeplay balance. Available: $' . number_format($freeplayBalance, 0), 400, ['code' => 'INSUFFICIENT_FREEPLAY_BALANCE']);
+                }
+                $newBalance  = $balance;
+                $newPending  = $pending;
+                $newFreeplay = $freeplayBalance - $totalRisk;
+                $this->db->updateOne('users', ['id' => SqlRepository::id((string) $lockedUser['id'])], [
+                    'freeplayBalance' => $newFreeplay,
+                    'betCount'        => ((int) ($lockedUser['betCount'] ?? 0)) + 1,
+                    'updatedAt'       => SqlRepository::nowUtc(),
+                ]);
+            } else {
+                if ($available < $totalRisk) {
+                    $this->db->rollback();
+                    throw new ApiException('Insufficient available balance', 400, ['code' => 'INSUFFICIENT_BALANCE']);
+                }
+                $gamblingLimits = is_array($lockedUser['gamblingLimits'] ?? null) ? $lockedUser['gamblingLimits'] : [];
+                $lossLimitMsg = $this->checkLossLimits($lockedUser, $gamblingLimits, $totalRisk);
+                if ($lossLimitMsg !== null) {
+                    $this->db->rollback();
+                    throw new ApiException($lossLimitMsg, 400);
+                }
+                $newBalance  = $isCreditAccount ? $balance : ($balance - $totalRisk);
+                $newPending  = $pending + $totalRisk;
+                $newFreeplay = $freeplayBalance;
+                $this->db->updateOne('users', ['id' => SqlRepository::id((string) $lockedUser['id'])], [
+                    'balance'        => $newBalance,
+                    'pendingBalance' => $newPending,
+                    'betCount'       => ((int) ($lockedUser['betCount'] ?? 0)) + 1,
+                    'totalWagered'   => $this->num($lockedUser['totalWagered'] ?? 0) + $totalRisk,
+                    'updatedAt'      => SqlRepository::nowUtc(),
+                ]);
+            }
+
+            $ipAddress = IpUtils::clientIp();
+            $userAgent = Http::header('user-agent');
+            $now = SqlRepository::nowUtc();
+
+            // 1) Group row — display metadata only. Never summed by
+            //    accounting code; commissions / figures / settlement all
+            //    iterate the child rows in `bets`.
+            $this->db->insertOne('round_robin_groups', [
+                'id' => $groupId,
+                'userId' => $userId,
+                'ticketId' => $ticketId,
+                'requestId' => $requestId,
+                'sizes' => $sizes,
+                'selectionCount' => $selectionCount,
+                'parlayCount' => $parlayCount,
+                'stakePerParlay' => $stakePerParlay,
+                'totalRisk' => $totalRisk,
+                'totalPotentialPayout' => round($totalPayoutMax, 2),
+                'totalPayout' => 0.0,
+                'status' => 'pending',
+                'isFreeplay' => $useFreeplay,
+                'createdAt' => $now,
+                'updatedAt' => $now,
+            ]);
+
+            // 2) N child parlay rows. type='parlay' so existing settlement,
+            //    commission, agent reports, and admin streams treat each
+            //    one as the standalone parlay it really is.
+            foreach ($childPlans as $idx => $plan) {
+                $childCombinedOdds = SportsbookBetSupport::combinedOdds($stakePerParlay, $plan['potentialPayout']);
+                $selectionDocs = array_map(fn (array $row): array => $this->selectionForInsert($row), $plan['selections']);
+                $childDoc = [
+                    'userId' => $userId,
+                    'requestId' => $requestId,
+                    'ticketId' => $ticketId,
+                    'parentGroupId' => $groupId,
+                    'roundRobinSize' => count($plan['selections']),
+                    'roundRobinIndex' => $idx,
+                    'amount' => $stakePerParlay,
+                    'riskAmount' => $stakePerParlay,
+                    'unitStake' => $stakePerParlay,
+                    'type' => 'parlay',
+                    'potentialPayout' => $plan['potentialPayout'],
+                    'combinedOdds' => $childCombinedOdds,
+                    'status' => 'pending',
+                    'isFreeplay' => $useFreeplay,
+                    'ipAddress' => $ipAddress,
+                    'userAgent' => $userAgent,
+                    'teaserPoints' => 0.0,
+                    'selections' => $selectionDocs,
+                    'matchId' => null,
+                    'selection' => 'MULTI',
+                    'odds' => $childCombinedOdds,
+                    'oddsAmerican' => null,
+                    'marketType' => 'parlay',
+                    'description' => SportsbookBetSupport::descriptionForSelections($selectionDocs),
+                    'matchSnapshot' => new stdClass(),
+                    'createdAt' => $now,
+                    'updatedAt' => $now,
+                ];
+                $childBetId = $this->db->insertOne('bets', $childDoc);
+                $createdBetIds[] = $childBetId;
+                $createdBet = $this->db->findOne('bets', ['id' => SqlRepository::id($childBetId)]) ?? array_merge($childDoc, ['id' => $childBetId]);
+                SportsbookBetSupport::upsertSelectionRowsForBet($this->db, $createdBet, $selectionDocs);
+            }
+
+            // 3) Single ledger row for the whole Round Robin debit. The
+            //    children are settlement-time entries; this is the user's
+            //    record of "I staked $X on a round robin".
+            $this->db->insertOne('transactions', [
+                'userId' => $userId,
+                'amount' => $totalRisk,
+                'type' => $useFreeplay ? 'fp_bet_placed' : 'bet_placed',
+                'status' => 'completed',
+                'isFreeplay' => $useFreeplay,
+                'balanceBefore' => $useFreeplay ? $freeplayBalance : $balance,
+                'balanceAfter'  => $useFreeplay ? $newFreeplay  : $newBalance,
+                'referenceType' => 'RoundRobinGroup',
+                'referenceId' => SqlRepository::id($groupId),
+                'reason' => $useFreeplay ? 'FP_BET_PLACED' : 'BET_PLACED',
+                'description' => 'ROUND ROBIN' . ($useFreeplay ? ' freeplay' : '') . ' — ' . $parlayCount . ' parlays',
+                'ipAddress' => $ipAddress,
+                'userAgent' => $userAgent,
+                'createdAt' => $now,
+                'updatedAt' => $now,
+            ]);
+
+            $this->db->commit();
+        } catch (Throwable $txErr) {
+            $this->db->rollback();
+            throw $txErr;
+        }
+
+        // Mark the betrequest as completed so a duplicate POST replays
+        // the response instead of double-charging.
+        $this->db->updateOne('betrequests', ['id' => SqlRepository::id($requestDocId)], [
+            'status' => 'completed',
+            'betIds' => $createdBetIds,
+            'groupId' => $groupId,
+            'ticketId' => $ticketId,
+            'responseBalance' => $newBalance,
+            'responsePendingBalance' => $newPending,
+            'updatedAt' => SqlRepository::nowUtc(),
+        ]);
+
+        QueryCache::getInstance()->forgetPattern('bets:' . $userId . ':*');
+
+        $childResponses = $this->loadEnrichedBetsByIds($createdBetIds);
+        $response = [
+            'message' => 'Round Robin placed successfully',
+            'requestId' => $requestId,
+            'group' => [
+                'id' => $groupId,
+                'ticketId' => $ticketId,
+                'sizes' => $sizes,
+                'selectionCount' => $selectionCount,
+                'parlayCount' => $parlayCount,
+                'stakePerParlay' => $stakePerParlay,
+                'totalRisk' => $totalRisk,
+                'totalPotentialPayout' => round($totalPayoutMax, 2),
+                'status' => 'pending',
+            ],
+            'bets' => $childResponses,
+            'balance' => $newBalance,
+            'pendingBalance' => $newPending,
+        ];
+        Response::json($response, 201);
+    }
+
     private function settleMatch(): void
     {
         try {
@@ -743,12 +1096,103 @@ final class BetsController
             'limit' => $limit,
         ]);
 
-        $formatted = [];
+        // Round Robin children carry parentGroupId. They're real parlay
+        // rows for accounting purposes (financial truth lives in them),
+        // but the user-facing list rolls them up into a single grouped
+        // entry. Pull the children out here, then synthesize one
+        // 'round_robin' display row per group below. Other readers of
+        // the bets table (commission, agent reports, settlement, admin
+        // streams, weekly figures) keep seeing the children unchanged.
+        $childrenByGroup = [];
+        $standaloneBets = [];
         foreach ($bets as $bet) {
             if (!is_array($bet)) {
                 continue;
             }
+            $parentGroupId = (string) ($bet['parentGroupId'] ?? '');
+            if ($parentGroupId !== '') {
+                $childrenByGroup[$parentGroupId][] = $bet;
+                continue;
+            }
+            $standaloneBets[] = $bet;
+        }
+
+        $formatted = [];
+        foreach ($standaloneBets as $bet) {
             $formatted[] = $this->enrichBetDocument($bet);
+        }
+
+        if ($childrenByGroup !== []) {
+            // Pull each group's metadata in one swoop. The group row
+            // carries display-only fields (sizes, parlayCount, totals,
+            // aggregate status); the children stay authoritative for
+            // every numeric reader elsewhere.
+            $groupIds = array_keys($childrenByGroup);
+            $groups = $this->db->findMany('round_robin_groups', [
+                'id' => ['$in' => array_map(fn(string $id) => SqlRepository::id($id), $groupIds)],
+            ]);
+            $groupById = [];
+            foreach ($groups as $g) {
+                if (is_array($g) && isset($g['id'])) {
+                    $groupById[(string) $g['id']] = $g;
+                }
+            }
+            foreach ($childrenByGroup as $groupId => $children) {
+                $group = $groupById[$groupId] ?? null;
+                if ($group === null) {
+                    // Defensive — orphaned children. Treat them as
+                    // standalone parlays so the user still sees them.
+                    foreach ($children as $bet) {
+                        $formatted[] = $this->enrichBetDocument($bet);
+                    }
+                    continue;
+                }
+                // Status filter: if the user is filtering pending/won/lost,
+                // only show the group when its aggregate matches.
+                $groupStatus = (string) ($group['status'] ?? 'pending');
+                if ($status !== '' && $status !== 'all' && $groupStatus !== $status) {
+                    continue;
+                }
+                // Sort children deterministically (by roundRobinIndex if
+                // present, else createdAt) so the expanded view reads
+                // top-to-bottom in placement order.
+                usort($children, function (array $a, array $b): int {
+                    $ai = isset($a['roundRobinIndex']) ? (int) $a['roundRobinIndex'] : PHP_INT_MAX;
+                    $bi = isset($b['roundRobinIndex']) ? (int) $b['roundRobinIndex'] : PHP_INT_MAX;
+                    return $ai <=> $bi;
+                });
+                // Children are NOT embedded here — the frontend fetches
+                // them lazily via GET /api/bets/group/:id/children when
+                // the user expands the group row. Keeps the My Bets list
+                // payload bounded regardless of how many parlays the
+                // round robin generated. We do return parlayCount so the
+                // collapsed row label ("Round Robin — N Parlays") is
+                // correct without a fetch.
+                $formatted[] = [
+                    'id' => (string) ($group['id'] ?? $groupId),
+                    'groupId' => (string) ($group['id'] ?? $groupId),
+                    'ticketId' => (string) ($group['ticketId'] ?? ''),
+                    'type' => 'round_robin',
+                    'status' => $groupStatus,
+                    'createdAt' => $group['createdAt'] ?? ($children[0]['createdAt'] ?? ''),
+                    'settledAt' => $group['settledAt'] ?? null,
+                    'amount' => (float) ($group['totalRisk'] ?? 0),
+                    'riskAmount' => (float) ($group['totalRisk'] ?? 0),
+                    'potentialPayout' => (float) ($group['totalPotentialPayout'] ?? 0),
+                    'payout' => (float) ($group['totalPayout'] ?? 0),
+                    'sizes' => is_array($group['sizes'] ?? null) ? array_values($group['sizes']) : [],
+                    'selectionCount' => (int) ($group['selectionCount'] ?? 0),
+                    'parlayCount' => (int) ($group['parlayCount'] ?? count($children)),
+                    'stakePerParlay' => (float) ($group['stakePerParlay'] ?? 0),
+                    'isFreeplay' => (bool) ($group['isFreeplay'] ?? false),
+                    'description' => 'Round Robin — ' . ($group['parlayCount'] ?? count($children)) . ' parlays',
+                    // selections empty + combinedOdds 1.0 keeps shape
+                    // compatibility with the multi-leg renderer; children
+                    // carry the actual legs (lazy-loaded).
+                    'selections' => [],
+                    'combinedOdds' => 1.0,
+                ];
+            }
         }
 
         $casinoQuery = ['userId' => SqlRepository::id($userId)];
@@ -1046,6 +1490,63 @@ final class BetsController
             'balance' => (float) round($this->num($meta['balance'] ?? 0)),
             'pendingBalance' => (float) round($this->num($meta['pendingBalance'] ?? 0)),
         ];
+    }
+
+    /**
+     * GET /api/bets/group/:groupId/children
+     *
+     * Lazy-loaded children for a Round Robin group. Returns the array
+     * of enriched parlay rows (same shape as a regular parlay in
+     * getMyBets) sorted by roundRobinIndex so the expanded view reads
+     * top-to-bottom in placement order. Auth-gated to the group's
+     * owner — admins go through their own bet listing endpoints.
+     */
+    private function getRoundRobinChildren(string $groupId): void
+    {
+        try {
+            $user = $this->protect();
+            if ($user === null) {
+                return;
+            }
+            if (preg_match('/^[a-f0-9]{24}$/i', $groupId) !== 1) {
+                Response::json(['message' => 'Invalid group id'], 400);
+                return;
+            }
+
+            $group = $this->db->findOne('round_robin_groups', ['id' => SqlRepository::id($groupId)]);
+            if ($group === null) {
+                Response::json(['message' => 'Round Robin group not found'], 404);
+                return;
+            }
+            // Ownership check — a player can only see their own group's
+            // children. Compare as strings to handle both ObjectId-style
+            // and plain-hex stored userId values.
+            if ((string) ($group['userId'] ?? '') !== (string) ($user['id'] ?? '')) {
+                Response::json(['message' => 'Not authorized for this group'], 403);
+                return;
+            }
+
+            $children = $this->db->findMany('bets', [
+                'parentGroupId' => $groupId,
+            ]);
+
+            usort($children, function (array $a, array $b): int {
+                $ai = isset($a['roundRobinIndex']) ? (int) $a['roundRobinIndex'] : PHP_INT_MAX;
+                $bi = isset($b['roundRobinIndex']) ? (int) $b['roundRobinIndex'] : PHP_INT_MAX;
+                return $ai <=> $bi;
+            });
+
+            $rows = array_map(fn(array $b) => $this->enrichBetDocument($b), $children);
+
+            Response::json([
+                'groupId' => $groupId,
+                'parlayCount' => (int) ($group['parlayCount'] ?? count($rows)),
+                'status' => (string) ($group['status'] ?? 'pending'),
+                'children' => $rows,
+            ]);
+        } catch (Throwable $e) {
+            Response::json(['message' => 'Error fetching round robin children'], 500);
+        }
     }
 
     /**

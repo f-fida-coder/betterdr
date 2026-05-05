@@ -54,6 +54,25 @@ final class BetModeRules
             'payoutProfile' => ['type' => 'odds_product'],
             'isActive' => true,
         ],
+        // Round Robin = automatic parlay generator. The user picks N legs
+        // (3..8) and one or more "By X's" sizes; the system creates one
+        // child parlay per nCr combination. minLegs/maxLegs apply to the
+        // *selection set*, not per-parlay. maxParlaysPerGroup caps the
+        // total combinations a single placement can fan out into so a
+        // greedy "By 2's,3's,4's on 8 legs" doesn't drop ~250 child rows
+        // in one transaction. Children are stored as standard parlay
+        // rows (type='parlay', with parentGroupId pointing at the group)
+        // so settlement, commission, and figures arithmetic all keep
+        // their existing parlay-flow semantics.
+        [
+            'mode' => 'round_robin',
+            'minLegs' => 3,
+            'maxLegs' => 8,
+            'teaserPointOptions' => [],
+            'payoutProfile' => ['type' => 'odds_product'],
+            'maxParlaysPerGroup' => 50,
+            'isActive' => true,
+        ],
     ];
 
     public static function normalize(string $mode): string

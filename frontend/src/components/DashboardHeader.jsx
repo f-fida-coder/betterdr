@@ -583,7 +583,8 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
                             { id: 'parlay', label: 'PARLAY', letter: 'P' },
                             { id: 'teaser', label: 'TEASER', letter: 'T' },
                             { id: 'if_bet', label: 'IF BET', letter: 'I' },
-                            { id: 'reverse', label: 'REVERSE', letter: 'R' }
+                            { id: 'reverse', label: 'REVERSE', letter: 'R' },
+                            { id: 'round_robin', label: 'ROUND ROBIN', letter: 'RR' }
                         ].map((mode) => (
                             <div
                                 key={mode.id}
@@ -828,7 +829,8 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
                                 { id: 'parlay', label: 'PARLAY', icon: 'P' },
                                 { id: 'teaser', label: 'TEASER', icon: 'T' },
                                 { id: 'if_bet', label: 'IF BET', icon: 'I' },
-                                { id: 'reverse', label: 'REVERSE', icon: 'R' }
+                                { id: 'reverse', label: 'REVERSE', icon: 'R' },
+                                { id: 'round_robin', label: 'ROUND ROBIN', icon: 'RR' }
                             ].map((mode) => (
                                 <div
                                     key={mode.id}

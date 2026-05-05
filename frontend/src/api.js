@@ -833,6 +833,20 @@ export const getMyBets = async (token) => {
     return response.json();
 };
 
+// Lazy-load the child parlays of a Round Robin group. The /bets/my-bets
+// payload returns groups as a single row (with parlayCount, sizes,
+// totals); the user expands the row in My Bets and the frontend fetches
+// the children on demand. Keeps the initial bets list bounded regardless
+// of how many parlays the round robin generated.
+export const getRoundRobinChildren = async (groupId, token) => {
+    if (!groupId) return { children: [] };
+    const response = await fetch(buildApiUrl(`/bets/group/${encodeURIComponent(groupId)}/children`), {
+        headers: getHeaders(token),
+    });
+    if (!response.ok) throw new Error('Failed to fetch round robin children');
+    return response.json();
+};
+
 export const getUserFigures = async (token, weekOffset = 0) => {
     const response = await fetch(buildApiUrl('/user/figures', { week_offset: String(weekOffset) }), {
         headers: getHeaders(token),

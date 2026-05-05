@@ -600,9 +600,9 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
     };
 
     const normalizedMode = String(activeBetMode || 'straight').toLowerCase().replace(/-/g, '_');
-    const showSpread = ['straight', 'parlay', 'teaser', 'if_bet', 'reverse'].includes(normalizedMode);
-    const showMoneyline = ['straight', 'parlay', 'if_bet', 'reverse'].includes(normalizedMode);
-    const showTotals = ['straight', 'parlay', 'teaser', 'if_bet', 'reverse'].includes(normalizedMode);
+    const showSpread = ['straight', 'parlay', 'teaser', 'if_bet', 'reverse', 'round_robin'].includes(normalizedMode);
+    const showMoneyline = ['straight', 'parlay', 'if_bet', 'reverse', 'round_robin'].includes(normalizedMode);
+    const showTotals = ['straight', 'parlay', 'teaser', 'if_bet', 'reverse', 'round_robin'].includes(normalizedMode);
 
     const hasValidOdds = (value) => parseOddsNumber(value) !== null;
 

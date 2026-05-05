@@ -12,11 +12,16 @@ import WagerConfirmedScreen from './WagerConfirmedScreen';
 const DEFAULT_RULES = {
     // Straight isn't a single-leg limit — each selection is a separate
     // independent wager. Cap at 12 matches parlay for consistency.
-    straight: { minLegs: 1, maxLegs: 12, teaserPointOptions: [], payoutProfile: { type: 'odds_product', multipliers: {} } },
-    parlay:   { minLegs: 2, maxLegs: 12, teaserPointOptions: [], payoutProfile: { type: 'odds_product', multipliers: {} } },
-    teaser:   { minLegs: 2, maxLegs: 6,  teaserPointOptions: [], payoutProfile: { type: 'table_multiplier', multipliers: {} } },
-    if_bet:   { minLegs: 2, maxLegs: 2,  teaserPointOptions: [], payoutProfile: { type: 'odds_product', multipliers: {} } },
-    reverse:  { minLegs: 2, maxLegs: 2,  teaserPointOptions: [], payoutProfile: { type: 'odds_product', multipliers: {} } },
+    straight:     { minLegs: 1, maxLegs: 12, teaserPointOptions: [], payoutProfile: { type: 'odds_product', multipliers: {} } },
+    parlay:       { minLegs: 2, maxLegs: 12, teaserPointOptions: [], payoutProfile: { type: 'odds_product', multipliers: {} } },
+    teaser:       { minLegs: 2, maxLegs: 6,  teaserPointOptions: [], payoutProfile: { type: 'table_multiplier', multipliers: {} } },
+    if_bet:       { minLegs: 2, maxLegs: 2,  teaserPointOptions: [], payoutProfile: { type: 'odds_product', multipliers: {} } },
+    reverse:      { minLegs: 2, maxLegs: 2,  teaserPointOptions: [], payoutProfile: { type: 'odds_product', multipliers: {} } },
+    // Round Robin = automatic parlay generator. minLegs/maxLegs apply to
+    // the selection set (not per-parlay); maxParlaysPerGroup caps the
+    // total nCr fan-out so a "By 2's,3's,4's on 8 legs" placement can't
+    // drop ~250 child rows in one transaction. Mirrors backend rule.
+    round_robin:  { minLegs: 3, maxLegs: 8,  teaserPointOptions: [], maxParlaysPerGroup: 50, payoutProfile: { type: 'odds_product', multipliers: {} } },
 };
 
 const MODE_TABS = [
@@ -24,8 +29,32 @@ const MODE_TABS = [
     { id: 'parlay', label: 'PARLAY', icon: 'P' },
     { id: 'teaser', label: 'TEASER', icon: 'T' },
     { id: 'if_bet', label: 'IF BET', icon: 'I' },
-    { id: 'reverse', label: 'REVERSE', icon: 'R' }
+    { id: 'reverse', label: 'REVERSE', icon: 'R' },
+    { id: 'round_robin', label: 'ROUND ROBIN', icon: 'RR' },
 ];
+
+// nCr-based combination count for the Round Robin live readout. n is the
+// selection count, `sizes` is the user's chosen "By X's" set. Mirrors
+// php-backend RoundRobinService::combinationCount.
+const nCr = (n, k) => {
+    if (k < 0 || k > n) return 0;
+    if (k === 0 || k === n) return 1;
+    k = Math.min(k, n - k);
+    let result = 1;
+    for (let i = 0; i < k; i++) {
+        result = Math.floor((result * (n - i)) / (i + 1));
+    }
+    return result;
+};
+const roundRobinCombinationCount = (selectionCount, sizes) => {
+    let total = 0;
+    for (const size of (sizes || [])) {
+        const k = Number(size);
+        if (!Number.isFinite(k) || k < 2 || k >= selectionCount) continue;
+        total += nCr(selectionCount, k);
+    }
+    return total;
+};
 
 const formatAmount = (value) => {
     const n = Number(value);
@@ -334,6 +363,12 @@ const ModeBetPanel = ({
     // leg's odds at render-time (see resolveStake helper). Replaces the
     // old per-selection wager map — there's now exactly one input.
     const [stakeMode, setStakeMode] = useState(defaultStakeMode);
+    // Round Robin: which "By X's" sizes the user has selected. Multi-
+    // select; empty = no parlays will be generated (Confirm disabled).
+    // Reset whenever the slip's selection count changes so a previously
+    // chosen size that's now out of range (e.g. picked "By 4's" with 5
+    // legs, then dropped a leg) doesn't silently linger.
+    const [roundRobinSizes, setRoundRobinSizes] = useState([]);
     // Track the user-prefs `betDefaults` signature so a refreshed
     // /auth/me payload (e.g. user just saved new defaults in Account)
     // re-seeds the slip mode without forcing a remount.
@@ -374,6 +409,16 @@ const ModeBetPanel = ({
     const normalizedMode = normalizeBetMode(mode);
     const rule = rulesByMode[normalizedMode] || DEFAULT_RULES[normalizedMode] || DEFAULT_RULES.straight;
     const legCount = selections.length;
+
+    // Round Robin: stake input is per-parlay risk, and a "Win $X" target
+    // is undefined when each child parlay has different combined odds.
+    // Force Risk and lock the toggle off so the user can't land in an
+    // ambiguous state.
+    useEffect(() => {
+        if (normalizedMode === 'round_robin' && stakeMode !== 'risk') {
+            setStakeMode('risk');
+        }
+    }, [normalizedMode, stakeMode]);
     // Raw user-typed amount in the shared Bet Amount input. Always parsed
     // as a number for arithmetic but kept untouched in `wager` so React
     // doesn't fight the user mid-typing ("10.", "1.5", etc.).
@@ -589,6 +634,79 @@ const ModeBetPanel = ({
         return { violatingIds, messages };
     }, [normalizedMode, selections, effectiveStakeForSelection, effectiveCombinedRisk, ticketDecimalOdds, user?.minBet, user?.maxBet]);
 
+    // ── Round Robin derived state ────────────────────────────────────
+    // Available "By X's" sizes given the current selection count. Round
+    // Robin is undefined for fewer than 3 legs and capped at 8; sizes
+    // outside [2, n-1] aren't generated by the backend so we don't
+    // offer them either. Drops sizes that fall out of range whenever
+    // the slip's legCount changes.
+    const roundRobinAvailableSizes = useMemo(() => {
+        if (legCount < 3) return [];
+        const sizes = [];
+        for (let k = 2; k < legCount; k++) sizes.push(k);
+        return sizes;
+    }, [legCount]);
+    useEffect(() => {
+        if (normalizedMode !== 'round_robin') return;
+        const allowed = new Set(roundRobinAvailableSizes);
+        setRoundRobinSizes(prev => {
+            const filtered = prev.filter(s => allowed.has(s));
+            return filtered.length === prev.length ? prev : filtered;
+        });
+    }, [normalizedMode, roundRobinAvailableSizes]);
+
+    const roundRobinParlayCount = useMemo(() => {
+        if (normalizedMode !== 'round_robin') return 0;
+        return roundRobinCombinationCount(legCount, roundRobinSizes);
+    }, [normalizedMode, legCount, roundRobinSizes]);
+
+    const roundRobinMaxParlays = Number(rule?.maxParlaysPerGroup) > 0
+        ? Number(rule.maxParlaysPerGroup)
+        : DEFAULT_RULES.round_robin.maxParlaysPerGroup;
+
+    // Per-parlay stake — the wager input is interpreted as "stake per
+    // parlay" in Round Robin mode (the spec is explicit on this) so
+    // typing $25 with 6 parlays = $150 total risk. Stake stays in Risk
+    // mode regardless of the global Risk/Win toggle: a "win $X" target
+    // is ambiguous when each child parlay has different combined odds,
+    // and the standard sportsbook UX is per-parlay risk.
+    const roundRobinStakePerParlay = useMemo(() => {
+        if (normalizedMode !== 'round_robin') return 0;
+        const n = Number(wagerAmount);
+        return Number.isFinite(n) && n > 0 ? n : 0;
+    }, [normalizedMode, wagerAmount]);
+
+    const roundRobinTotalRisk = roundRobinStakePerParlay * roundRobinParlayCount;
+
+    // Sum of every child parlay's max payout — read-only display.
+    const roundRobinMaxWin = useMemo(() => {
+        if (normalizedMode !== 'round_robin' || roundRobinParlayCount === 0 || roundRobinStakePerParlay <= 0) return 0;
+        let total = 0;
+        for (const size of roundRobinSizes) {
+            const k = Number(size);
+            if (!Number.isFinite(k) || k < 2 || k >= legCount) continue;
+            // For each combination at this size, payout = stake × product(odds).
+            // Iterating combinations to sum exactly matches the backend's
+            // child-by-child accumulator and handles uneven leg odds
+            // correctly (no shortcut average works here).
+            const visit = (start, acc) => {
+                if (acc.length === k) {
+                    let combined = 1;
+                    for (const idx of acc) combined *= Number(selections[idx]?.odds || 0);
+                    total += roundRobinStakePerParlay * combined;
+                    return;
+                }
+                for (let i = start; i < legCount; i++) {
+                    acc.push(i);
+                    visit(i + 1, acc);
+                    acc.pop();
+                }
+            };
+            visit(0, []);
+        }
+        return total;
+    }, [normalizedMode, roundRobinSizes, roundRobinStakePerParlay, roundRobinParlayCount, legCount, selections]);
+
     const validationErrors = useMemo(() => {
         const errors = [];
         if (normalizedMode === 'straight') {
@@ -610,7 +728,21 @@ const ModeBetPanel = ({
             if (legCount < rule.minLegs || legCount > rule.maxLegs) {
                 errors.push(`${MODE_TABS.find(t => t.id === normalizedMode)?.label || 'MODE'} requires ${rule.minLegs === rule.maxLegs ? rule.minLegs : `${rule.minLegs}-${rule.maxLegs}`} selections`);
             }
-            if (effectiveCombinedRisk <= 0) {
+            // Round Robin substitutes its own wager rule (per-parlay
+            // stake × N parlays) for the single-ticket effectiveCombinedRisk
+            // check; the regular check would mis-fire because there's no
+            // single combined-odds figure for an N-parlay fan-out.
+            if (normalizedMode === 'round_robin') {
+                if (roundRobinSizes.length === 0) {
+                    errors.push('Pick at least one Round Robin size (e.g. By 2’s)');
+                }
+                if (roundRobinStakePerParlay <= 0) {
+                    errors.push('Enter a stake per parlay');
+                }
+                if (roundRobinParlayCount > roundRobinMaxParlays) {
+                    errors.push(`Round Robin generates ${roundRobinParlayCount} parlays — limit is ${roundRobinMaxParlays}. Pick fewer sizes or selections.`);
+                }
+            } else if (effectiveCombinedRisk <= 0) {
                 errors.push('Enter a valid wager amount');
             }
         }
@@ -635,7 +767,7 @@ const ModeBetPanel = ({
         if (limitFlags.messages.min) errors.push(limitFlags.messages.min);
         if (limitFlags.messages.max) errors.push(limitFlags.messages.max);
         return errors;
-    }, [legCount, normalizedMode, rule, selections, effectiveCombinedRisk, teaserValid, hasAnyStraightAmount, limitFlags]);
+    }, [legCount, normalizedMode, rule, selections, effectiveCombinedRisk, teaserValid, hasAnyStraightAmount, limitFlags, roundRobinSizes, roundRobinStakePerParlay, roundRobinParlayCount, roundRobinMaxParlays]);
 
     const ticketSignature = useMemo(() => JSON.stringify({
         type: normalizedMode,
@@ -673,14 +805,23 @@ const ModeBetPanel = ({
             const firstTwo = selections.slice(0, 2).reduce((acc, sel) => acc * Number(sel.odds || 1), 1);
             return effectiveCombinedRisk * firstTwo * 2;
         }
+        if (normalizedMode === 'round_robin') {
+            // Gross payout (stake + profit) summed across every generated
+            // child parlay. Matches the betslip's Max Win: the modal then
+            // computes profit as potentialPayout − totalRisk and shows the
+            // same number the user just saw on the slip.
+            return roundRobinMaxWin;
+        }
         return 0;
-    }, [effectiveCombinedRisk, legCount, normalizedMode, selections, rule, wagerForSelection]);
+    }, [effectiveCombinedRisk, legCount, normalizedMode, selections, rule, wagerForSelection, roundRobinMaxWin]);
 
     const totalRisk = normalizedMode === 'reverse'
         ? effectiveCombinedRisk * 2
         : normalizedMode === 'straight'
             ? straightTotalRisk
-            : effectiveCombinedRisk;
+            : normalizedMode === 'round_robin'
+                ? roundRobinTotalRisk
+                : effectiveCombinedRisk;
 
     // Combined-mode parlay payout cap: 3 × the player's max bet. Mirrors
     // the server-side clamp in BetsController so the Win readout never
@@ -981,14 +1122,19 @@ const ModeBetPanel = ({
             // Non-straight modes: single request carrying all legs.
             // The backend wants the actual Risk amount; if the user typed
             // in Win mode we already converted to Risk via resolveStake
-            // against the ticket's combined decimal odds.
+            // against the ticket's combined decimal odds. Round Robin
+            // overrides this — the wager input represents per-parlay
+            // stake (the spec is explicit), and total risk = N parlays
+            // × that stake; backend computes the same.
             const combinedRequestedWin = stakeMode === 'win' && Number.isFinite(Number(wager)) && Number(wager) > 0
                 ? Math.round(Number(wager))
                 : 0;
             const payload = {
                 type: normalizedMode,
-                amount: effectiveCombinedRisk,
-                ...(combinedRequestedWin > 0 ? { requestedWin: combinedRequestedWin } : {}),
+                amount: normalizedMode === 'round_robin' ? roundRobinStakePerParlay : effectiveCombinedRisk,
+                ...(normalizedMode === 'round_robin'
+                    ? { sizes: [...roundRobinSizes].sort((a, b) => a - b) }
+                    : (combinedRequestedWin > 0 ? { requestedWin: combinedRequestedWin } : {})),
                 teaserPoints: normalizedMode === 'teaser' ? teaserPointValue : 0,
                 useFreeplay: useFp,
                 selections: selections.map((sel) => ({
@@ -1092,7 +1238,7 @@ const ModeBetPanel = ({
     const palette = {
         panelBg: '#f5f7fb',
         panelBorder: 'rgba(15,23,42,0.08)',
-        headerBg: '#0f172a',
+        headerBg: '#595959',
         accent: '#1e40af',
         accentSoft: '#dbeafe',
         cardBg: '#ffffff',
@@ -1151,7 +1297,7 @@ const ModeBetPanel = ({
                 top-left header slot now swaps to "← Back" while the slip
                 is open (see DashboardHeader). The APPLY TO ALL panel
                 below is now the visual top of the slip body. */}
-            <div style={{ padding: '14px 14px 18px', overflowY: 'auto' }}>
+            <div style={{ flex: 1, minHeight: 0, padding: '14px 14px 18px', overflowY: 'auto' }}>
                 {/* Consolidated APPLY TO ALL panel — now the visual top
                     of the slip body. Owns: mode toggle, Bet Amount input,
                     quick-stake row, Use Freeplay. The previous duplicate
@@ -1185,7 +1331,7 @@ const ModeBetPanel = ({
                                 textTransform: 'uppercase',
                                 letterSpacing: 0.6,
                             }}>
-                                Apply to all
+                                {normalizedMode === 'round_robin' ? 'Stake per parlay' : 'Apply to all'}
                             </span>
                             <span style={{ fontSize: 10, color: palette.textFaint }}>
                                 Available Credit <span style={{ color: palette.textPrimary, fontWeight: 700 }}>${formatAmount(headerAvailable)}</span>
@@ -1209,26 +1355,32 @@ const ModeBetPanel = ({
                             }}>
                                 {STAKE_MODES.map((m, i) => {
                                     const active = stakeMode === m.id;
+                                    const lockedOut = normalizedMode === 'round_robin' && m.id === 'win';
                                     return (
                                         <button
                                             key={m.id}
                                             type="button"
-                                            onClick={() => setStakeMode(m.id)}
+                                            onClick={() => { if (!lockedOut) setStakeMode(m.id); }}
+                                            disabled={lockedOut}
+                                            title={lockedOut ? 'Not available for Round Robin — use stake per parlay' : undefined}
                                             style={{
-                                                background: active
-                                                    ? (m.id === 'risk' ? '#ea580c' : m.id === 'win' ? '#16a34a' : '#0f172a')
-                                                    : '#475569',
-                                                color: '#fff',
+                                                background: lockedOut
+                                                    ? '#cbd5e1'
+                                                    : active
+                                                        ? (m.id === 'risk' ? '#ea580c' : m.id === 'win' ? '#16a34a' : '#0f172a')
+                                                        : '#475569',
+                                                color: lockedOut ? '#94a3b8' : '#fff',
                                                 border: 'none',
                                                 borderLeft: i === 0 ? 'none' : '1px solid rgba(255,255,255,0.15)',
                                                 padding: '8px 14px',
                                                 fontWeight: 800,
                                                 fontSize: 12,
                                                 letterSpacing: 0.4,
-                                                cursor: 'pointer',
+                                                cursor: lockedOut ? 'not-allowed' : 'pointer',
                                                 textTransform: 'uppercase',
                                                 transition: 'background 100ms ease',
                                                 minWidth: 50,
+                                                opacity: lockedOut ? 0.7 : 1,
                                             }}
                                         >
                                             {m.label}
@@ -1408,6 +1560,55 @@ const ModeBetPanel = ({
                                 </span>
                             </label>
                         )}
+
+                        {normalizedMode === 'round_robin' && (() => {
+                            const hasExposure = roundRobinTotalRisk > 0;
+                            const maxProfit = Math.max(0, roundRobinMaxWin - roundRobinTotalRisk);
+                            return (
+                                <div style={{
+                                    marginTop: 10,
+                                    padding: '10px 12px',
+                                    borderRadius: 8,
+                                    background: hasExposure ? palette.accentSoft : '#f8fafc',
+                                    border: `1px solid ${hasExposure ? palette.accent : palette.cardBorder}`,
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    gap: 6,
+                                }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                                        <span style={{ fontSize: 10, fontWeight: 800, color: palette.textMuted, textTransform: 'uppercase', letterSpacing: 0.6 }}>
+                                            Total Risk
+                                            <span style={{ color: palette.textFaint, fontWeight: 700, marginLeft: 6 }}>
+                                                {roundRobinParlayCount > 0
+                                                    ? `(${roundRobinParlayCount} ${roundRobinParlayCount === 1 ? 'parlay' : 'parlays'})`
+                                                    : '(pick sizes)'}
+                                            </span>
+                                        </span>
+                                        <span style={{
+                                            fontSize: 15,
+                                            fontWeight: 800,
+                                            color: hasExposure ? palette.accent : palette.textFaint,
+                                            fontVariantNumeric: 'tabular-nums',
+                                        }}>
+                                            ${formatMoney(roundRobinTotalRisk)}
+                                        </span>
+                                    </div>
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                                        <span style={{ fontSize: 10, fontWeight: 800, color: palette.textMuted, textTransform: 'uppercase', letterSpacing: 0.6 }}>
+                                            Max Win
+                                        </span>
+                                        <span style={{
+                                            fontSize: 15,
+                                            fontWeight: 800,
+                                            color: maxProfit > 0 ? palette.success : palette.textFaint,
+                                            fontVariantNumeric: 'tabular-nums',
+                                        }}>
+                                            ${formatMoney(maxProfit)}
+                                        </span>
+                                    </div>
+                                </div>
+                            );
+                        })()}
                     </div>
                 )}
 
@@ -1897,7 +2098,7 @@ const ModeBetPanel = ({
                     Hidden for straight mode (each card owns its own numbers)
                     and when there are <2 selections in modes that need them
                     (the warning banner above already nudges the user). */}
-                {legCount >= 2 && normalizedMode !== 'straight' && (
+                {legCount >= 2 && normalizedMode !== 'straight' && normalizedMode !== 'round_robin' && (
                     <div style={{
                         marginTop: 12,
                         background: '#fff',
@@ -1973,6 +2174,104 @@ const ModeBetPanel = ({
                     </div>
                 )}
 
+                {/* Round Robin: multi-select size chips + live readout. Sits
+                    above the teaser block (only one mode is active at a
+                    time so they never collide). Disabled until ≥3 legs
+                    are picked; when fewer, render an explanation chip
+                    instead of the chip row so the user sees why nothing
+                    is happening. */}
+                {normalizedMode === 'round_robin' && (
+                    <div style={{ marginTop: 14 }}>
+                        <div style={{
+                            fontSize: 11,
+                            fontWeight: 700,
+                            color: palette.textMuted,
+                            textTransform: 'uppercase',
+                            letterSpacing: 0.6,
+                            marginBottom: 8,
+                        }}>Round Robin Sizes</div>
+                        {legCount < 3 ? (
+                            <div style={{
+                                padding: '10px 12px',
+                                border: `1px dashed ${palette.cardBorder}`,
+                                borderRadius: 8,
+                                fontSize: 12,
+                                color: palette.textMuted,
+                                background: '#fafbfc',
+                            }}>
+                                {legCount === 0
+                                    ? 'Add at least 3 selections to start.'
+                                    : `Round Robin needs at least 3 selections — add ${3 - legCount} more.`}
+                            </div>
+                        ) : (
+                            <>
+                                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                    {roundRobinAvailableSizes.map(size => {
+                                        const selected = roundRobinSizes.includes(size);
+                                        return (
+                                            <button
+                                                key={size}
+                                                type="button"
+                                                onClick={() => setRoundRobinSizes(prev => (
+                                                    prev.includes(size)
+                                                        ? prev.filter(s => s !== size)
+                                                        : [...prev, size].sort((a, b) => a - b)
+                                                ))}
+                                                style={{
+                                                    padding: '7px 14px',
+                                                    border: `1px solid ${selected ? palette.headerBg : palette.cardBorder}`,
+                                                    background: selected ? palette.headerBg : '#fff',
+                                                    color: selected ? '#fff' : palette.textPrimary,
+                                                    fontSize: 12,
+                                                    fontWeight: 700,
+                                                    cursor: 'pointer',
+                                                    borderRadius: 999,
+                                                    transition: 'all 120ms ease',
+                                                }}
+                                            >
+                                                By {size}’s
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                                <div style={{
+                                    marginTop: 10,
+                                    padding: '10px 12px',
+                                    background: '#f8fafc',
+                                    border: `1px solid ${palette.cardBorder}`,
+                                    borderRadius: 8,
+                                    fontSize: 12,
+                                    color: palette.textPrimary,
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    gap: 4,
+                                }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                        <span style={{ color: palette.textMuted }}>Parlays</span>
+                                        <strong style={{
+                                            color: roundRobinParlayCount > roundRobinMaxParlays ? palette.danger : palette.textPrimary,
+                                            fontVariantNumeric: 'tabular-nums',
+                                        }}>
+                                            {roundRobinParlayCount}{roundRobinParlayCount > roundRobinMaxParlays ? ` (limit ${roundRobinMaxParlays})` : ''}
+                                        </strong>
+                                    </div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                        <span style={{ color: palette.textMuted }}>Total Risk</span>
+                                        <strong style={{ fontVariantNumeric: 'tabular-nums' }}>${formatMoney(roundRobinTotalRisk)}</strong>
+                                    </div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                        <span style={{ color: palette.textMuted }}>Max Win</span>
+                                        <strong style={{
+                                            color: roundRobinMaxWin > 0 ? palette.success : palette.textFaint,
+                                            fontVariantNumeric: 'tabular-nums',
+                                        }}>${formatMoney(Math.max(0, roundRobinMaxWin - roundRobinTotalRisk))}</strong>
+                                    </div>
+                                </div>
+                            </>
+                        )}
+                    </div>
+                )}
+
                 {normalizedMode === 'teaser' && Array.isArray(rule.teaserPointOptions) && rule.teaserPointOptions.length > 0 && (
                     <div style={{ marginTop: 14 }}>
                         <div style={{
@@ -2010,23 +2309,21 @@ const ModeBetPanel = ({
                     </div>
                 )}
 
-                {validationErrors.map(err => (
-                    submitAttempted ? (
-                        <div key={err} style={{
-                            color: palette.danger,
-                            background: palette.dangerSoft,
-                            padding: '8px 12px',
-                            borderRadius: 8,
-                            fontSize: 12,
-                            marginTop: 10,
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 6,
-                        }}>
-                            <i className="fa-solid fa-circle-exclamation" /> {err}
-                        </div>
-                    ) : null
-                )).filter(Boolean)}
+                {legCount > 0 && validationErrors.map(err => (
+                    <div key={err} style={{
+                        color: palette.danger,
+                        background: palette.dangerSoft,
+                        padding: '8px 12px',
+                        borderRadius: 8,
+                        fontSize: 12,
+                        marginTop: 10,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                    }}>
+                        <i className="fa-solid fa-circle-exclamation" /> {err}
+                    </div>
+                ))}
                 {message && (
                     <div style={{
                         color: message.type === 'error' ? palette.danger : palette.success,

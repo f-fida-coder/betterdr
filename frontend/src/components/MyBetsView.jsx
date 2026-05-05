@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { getMyBets, getUserFigures, getUserTransactions } from '../api';
+import { getMyBets, getUserFigures, getUserTransactions, getRoundRobinChildren } from '../api';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { formatLineValue, formatOdds } from '../utils/odds';
 import { formatSiteDateTime } from '../utils/timezone';
@@ -118,6 +118,14 @@ const shortTeam = (name) => {
 const ticketSummary = (bet) => {
     const selections = Array.isArray(bet?.selections) ? bet.selections : [];
     const type = String(bet?.type || 'straight').toLowerCase();
+    if (type === 'round_robin') {
+        const sizes = Array.isArray(bet?.sizes) ? bet.sizes : [];
+        const sizesLabel = sizes.length > 0
+            ? sizes.map(s => `By ${s}’s`).join(', ')
+            : 'Round Robin';
+        const parlayCount = Number.isFinite(Number(bet?.parlayCount)) ? Number(bet.parlayCount) : (bet?.childBets?.length || 0);
+        return `${sizesLabel} — ${parlayCount} parlays`;
+    }
     if (selections.length > 1 || type === 'parlay' || type === 'teaser' || type === 'if_bet' || type === 'reverse') {
         const label = type === 'teaser' ? 'Teaser'
             : type === 'if_bet' ? 'If Bet'
@@ -170,6 +178,10 @@ const legDescription = (leg, oddsFormat) => {
 // Parent-row label for multi-leg tickets, e.g. "Parlay - 3 Teams".
 const multiLegLabel = (bet) => {
     const type = String(bet?.type || '').toLowerCase();
+    if (type === 'round_robin') {
+        const parlayCount = Number.isFinite(Number(bet?.parlayCount)) ? Number(bet.parlayCount) : (bet?.childBets?.length || 0);
+        return `Round Robin — ${parlayCount} Parlays`;
+    }
     const count = Array.isArray(bet?.selections) ? bet.selections.length : 0;
     const noun = type === 'teaser' ? 'Teaser'
         : type === 'if_bet' ? 'If Bet'
@@ -180,9 +192,15 @@ const multiLegLabel = (bet) => {
 
 const isMultiLegBet = (bet) => {
     const type = String(bet?.type || '').toLowerCase();
-    if (type === 'parlay' || type === 'teaser' || type === 'if_bet' || type === 'reverse') return true;
+    if (type === 'parlay' || type === 'teaser' || type === 'if_bet' || type === 'reverse' || type === 'round_robin') return true;
     return Array.isArray(bet?.selections) && bet.selections.length > 1;
 };
+
+// Round Robin groups don't ship their child parlays in the My Bets
+// payload — children are fetched on demand from
+// GET /api/bets/group/:id/children when the user expands a group row.
+// Keeps the My Bets response a fixed shape regardless of parlay count.
+const isRoundRobinGroup = (bet) => String(bet?.type || '').toLowerCase() === 'round_robin';
 
 // Team name to use when rendering a leg's logo. For totals we pull
 // from matchSnapshot since the selection is "Over"/"Under", not a team.
@@ -385,7 +403,37 @@ const WEEK_OPTIONS = [
 // the optional totals footer, and the Risk column visibility change.
 const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending', showTotals = false }) => {
     const [expandedBetId, setExpandedBetId] = useState(null);
+    // Per-group child cache. Populated on first expand of a Round
+    // Robin row; subsequent expands of the same group serve from
+    // cache. Keyed by groupId so different groups don't collide.
+    //   roundRobinChildren[groupId] = { state: 'loading'|'ready'|'error', children: [...], error: '...' }
+    const [roundRobinChildren, setRoundRobinChildren] = useState({});
+
     const toggleExpanded = (id) => setExpandedBetId((cur) => (cur === id ? null : id));
+
+    // Kicked off when a Round Robin row gets expanded for the first
+    // time. No-op when the cache already has the group (or a fetch is
+    // in flight for it). Errors are surfaced inline under the row so
+    // the user can retry by collapsing/re-expanding.
+    const ensureRoundRobinChildren = React.useCallback((groupId) => {
+        if (!groupId) return;
+        const entry = roundRobinChildren[groupId];
+        if (entry && (entry.state === 'loading' || entry.state === 'ready')) return;
+        setRoundRobinChildren(prev => ({ ...prev, [groupId]: { state: 'loading', children: [] } }));
+        const token = localStorage.getItem('token');
+        getRoundRobinChildren(groupId, token)
+            .then(payload => {
+                const children = Array.isArray(payload?.children) ? payload.children : [];
+                setRoundRobinChildren(prev => ({ ...prev, [groupId]: { state: 'ready', children } }));
+            })
+            .catch(err => {
+                setRoundRobinChildren(prev => ({
+                    ...prev,
+                    [groupId]: { state: 'error', children: [], error: err?.message || 'Failed to load parlays' },
+                }));
+            });
+    }, [roundRobinChildren]);
+
     const isGraded = mode === 'graded';
 
     if (!Array.isArray(bets) || bets.length === 0) return null;
@@ -414,6 +462,112 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending', showTota
                 const isExpanded = expandedBetId === betId;
                 const winCell = status === 'pending' ? money(ticketPayout) : amount.text;
                 const winTheme = status === 'pending' ? 'pending' : amount.theme;
+
+                if (isRoundRobinGroup(bet)) {
+                    // Round Robin parent row. Children are lazy-loaded
+                    // from /api/bets/group/:id/children on the first
+                    // expand and cached in `roundRobinChildren` so the
+                    // initial My Bets payload stays bounded regardless
+                    // of parlay count. The expanded view reuses the
+                    // standard parlay-leg rendering for each child.
+                    const groupId = String(bet?.groupId || bet?.id || '');
+                    const cacheEntry = roundRobinChildren[groupId];
+                    const childrenState = cacheEntry?.state || 'idle';
+                    const children = cacheEntry?.children || [];
+                    const handleToggle = () => {
+                        toggleExpanded(betId);
+                        // Fire fetch on the open transition. (We can't
+                        // read the post-update expandedBetId here, so
+                        // gate on the *current* state — if we're about
+                        // to open, ensure the cache.)
+                        if (expandedBetId !== betId) {
+                            ensureRoundRobinChildren(groupId);
+                        }
+                    };
+                    return (
+                        <React.Fragment key={betId}>
+                            <div
+                                className={`my-bets-table-row parent expandable${isExpanded ? ' expanded' : ''}`}
+                                role="button"
+                                tabIndex={0}
+                                onClick={handleToggle}
+                                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleToggle(); } }}
+                            >
+                                <span className="my-bets-table-col-desc">
+                                    {multiLegLabel(bet)}
+                                </span>
+                                {!isGraded && <span className="my-bets-table-col-risk">{money(risk)}</span>}
+                                <span className={`my-bets-table-col-win ${winTheme}`}>{winCell}</span>
+                            </div>
+                            {isExpanded && childrenState === 'loading' && (
+                                <div className="my-bets-table-row leg" style={{ justifyContent: 'center', padding: '14px 16px' }}>
+                                    <span className="my-bets-table-col-desc" style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#6b7280' }}>
+                                        <i className="fa-solid fa-spinner fa-spin" />
+                                        Loading parlays…
+                                    </span>
+                                    {!isGraded && <span className="my-bets-table-col-risk" />}
+                                    <span className="my-bets-table-col-win" />
+                                </div>
+                            )}
+                            {isExpanded && childrenState === 'error' && (
+                                <div className="my-bets-table-row leg" style={{ padding: '14px 16px' }}>
+                                    <span className="my-bets-table-col-desc" style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#dc2626' }}>
+                                        <i className="fa-solid fa-circle-exclamation" />
+                                        {cacheEntry?.error || 'Failed to load parlays'} — collapse and re-expand to retry.
+                                    </span>
+                                    {!isGraded && <span className="my-bets-table-col-risk" />}
+                                    <span className="my-bets-table-col-win" />
+                                </div>
+                            )}
+                            {isExpanded && childrenState === 'ready' && children.map((child, ci) => {
+                                const childRisk = Number(child?.riskAmount || child?.amount || 0);
+                                const childStatus = normalizeStatus(child?.status);
+                                const childPayout = payoutValue(child);
+                                const childAmount = ticketAmount(child);
+                                const childWinCell = childStatus === 'pending' ? money(childPayout) : childAmount.text;
+                                const childWinTheme = childStatus === 'pending' ? 'pending' : childAmount.theme;
+                                const childSelections = Array.isArray(child?.selections) ? child.selections : [];
+                                return (
+                                    <React.Fragment key={`${betId}-child-${child?.id || ci}`}>
+                                        <div className="my-bets-table-row leg">
+                                            <span className="my-bets-table-col-desc">
+                                                <span className="my-bets-table-leg-text" style={{ fontWeight: 600 }}>
+                                                    Parlay {ci + 1} · {childSelections.length}-leg
+                                                </span>
+                                            </span>
+                                            {!isGraded && <span className="my-bets-table-col-risk">{money(childRisk)}</span>}
+                                            <span className={`my-bets-table-col-win ${childWinTheme}`}>{childWinCell}</span>
+                                        </div>
+                                        {childSelections.map((leg, idx) => {
+                                            const legTeam = legTeamForLogo(leg);
+                                            const legLogo = legTeam
+                                                ? (teamLogos[legTeam] || createFallbackTeamLogoDataUri(legTeam))
+                                                : null;
+                                            return (
+                                                <div key={`${betId}-child-${ci}-leg-${idx}`} className="my-bets-table-row leg" style={{ paddingLeft: 24 }}>
+                                                    <span className="my-bets-table-col-desc">
+                                                        {legLogo && (
+                                                            <img
+                                                                src={legLogo}
+                                                                alt=""
+                                                                className="my-bets-table-logo"
+                                                                loading="lazy"
+                                                                onError={(e) => { e.currentTarget.src = createFallbackTeamLogoDataUri(legTeam || ''); }}
+                                                            />
+                                                        )}
+                                                        <span className="my-bets-table-leg-text">{legDescription(leg, oddsFormat)}</span>
+                                                    </span>
+                                                    {!isGraded && <span className="my-bets-table-col-risk" />}
+                                                    <span className="my-bets-table-col-win" />
+                                                </div>
+                                            );
+                                        })}
+                                    </React.Fragment>
+                                );
+                            })}
+                        </React.Fragment>
+                    );
+                }
 
                 if (isMulti) {
                     return (

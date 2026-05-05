@@ -266,6 +266,7 @@ const BET_MODE_LABELS = {
     teaser: 'Teaser',
     if_bet: 'If Bet',
     reverse: 'Reverse',
+    round_robin: 'Round Robin',
 };
 
 const selectionKey = (matchId, marketType, selection) => `${matchId}|${marketType}|${selection}`;

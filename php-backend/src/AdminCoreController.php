@@ -11520,6 +11520,153 @@ final class AdminCoreController
                     return;
                 }
 
+                // ── Round Robin cascade ──────────────────────────────────────
+                // If this bet is a child of a Round Robin group, cancel
+                // every pending sibling and mark the group canceled —
+                // all in this single transaction. Cancelling one child
+                // in isolation would leave the group with status=
+                // 'partial' after the next aggregator recompute and
+                // mismatch the user's "Cancel = nullify" expectation.
+                $parentGroupId = (string) ($bet['parentGroupId'] ?? '');
+                if ($parentGroupId !== '') {
+                    $group = $this->db->findOneForUpdate('round_robin_groups', ['id' => SqlRepository::id($parentGroupId)]);
+                    if ($group === null) {
+                        $this->db->rollback();
+                        Response::json(['message' => 'Round Robin group not found'], 404);
+                        return;
+                    }
+                    if ((string) ($group['status'] ?? '') !== 'pending') {
+                        $this->db->rollback();
+                        Response::json([
+                            'message' => 'Round Robin group is already settled or canceled — cannot cancel children.',
+                        ], 400);
+                        return;
+                    }
+
+                    $siblings = $this->db->findMany('bets', [
+                        'parentGroupId' => $parentGroupId,
+                        'status' => 'pending',
+                    ]);
+                    if (count($siblings) === 0) {
+                        $this->db->rollback();
+                        Response::json(['message' => 'No pending children remain in this Round Robin group'], 400);
+                        return;
+                    }
+
+                    $now = SqlRepository::nowUtc();
+                    $cumulativeUser = $lockedUser;
+                    $totalStake = 0.0;
+                    $childIds = [];
+                    $cascadeRefunds = [];
+
+                    foreach ($siblings as $sibling) {
+                        if (!is_array($sibling)) continue;
+                        $siblingId = (string) ($sibling['id'] ?? '');
+                        if ($siblingId === '') continue;
+
+                        // BetVoidRefund::compute is pure math; we feed
+                        // it the cumulative user state from the prior
+                        // iteration so a 50-child cascade reflects the
+                        // running balances correctly. The userUpdate it
+                        // returns is the absolute set of fields, which
+                        // we apply once at the end.
+                        $r = BetVoidRefund::compute($sibling, $cumulativeUser);
+                        $totalStake += (float) $r['stake'];
+                        $childIds[] = $siblingId;
+                        $cascadeRefunds[] = ['betId' => $siblingId, 'refund' => $r];
+
+                        // Thread the post-refund balances forward.
+                        $cumulativeUser['balance']         = $r['balanceAfter'];
+                        $cumulativeUser['pendingBalance']  = $r['pendingAfter'];
+                        $cumulativeUser['freeplayBalance'] = $r['freeplayAfter'];
+                    }
+
+                    $finalUserUpdate = [
+                        'balance'         => $cumulativeUser['balance'],
+                        'pendingBalance'  => $cumulativeUser['pendingBalance'],
+                        'freeplayBalance' => $cumulativeUser['freeplayBalance'],
+                        'updatedAt'       => $now,
+                    ];
+                    $this->db->updateOne('users', ['id' => SqlRepository::id($userId)], $finalUserUpdate);
+
+                    $sport = 'Unknown';
+                    foreach ($cascadeRefunds as $entry) {
+                        $childBetId = $entry['betId'];
+                        $r = $entry['refund'];
+
+                        // One deletedwagers + one transactions row per
+                        // child so the cancel trail per ticket survives
+                        // — admin reports already iterate these tables
+                        // by betId and don't need group-awareness.
+                        $this->db->insertOne('deletedwagers', [
+                            'userId' => SqlRepository::id($userId),
+                            'betId' => SqlRepository::id($childBetId),
+                            'amount' => $r['stake'],
+                            'sport' => $sport,
+                            'reason' => trim('Round Robin cancel by ' . (string) ($actor['role'] ?? '') . ' ' . (string) ($actor['username'] ?? '') . ' (group ' . $parentGroupId . ')'),
+                            'status' => 'deleted',
+                            'deletedAt' => $now,
+                            'createdAt' => $now,
+                            'updatedAt' => $now,
+                        ]);
+                        $this->db->insertOne('transactions', [
+                            'userId' => SqlRepository::id($userId),
+                            'amount' => $r['stake'],
+                            'type' => $r['transactionType'],
+                            'status' => 'completed',
+                            'isFreeplay' => $r['isFreeplay'],
+                            'balanceBefore' => $r['isFreeplay'] ? $r['freeplayBefore'] : $r['balanceBefore'],
+                            'balanceAfter'  => $r['isFreeplay'] ? $r['freeplayAfter']  : $r['balanceAfter'],
+                            'referenceType' => 'Bet',
+                            'referenceId' => SqlRepository::id($childBetId),
+                            'reason' => $r['transactionReason'],
+                            'description' => $r['transactionDescription'] . ' (Round Robin cascade)',
+                            'createdBy' => (string) ($actor['id'] ?? ''),
+                            'createdByRole' => (string) ($actor['role'] ?? ''),
+                            'createdByUsername' => (string) ($actor['username'] ?? ''),
+                            'createdAt' => $now,
+                            'updatedAt' => $now,
+                        ]);
+
+                        // Selection rows + bet row delete — same pattern
+                        // the standalone delete uses below.
+                        $selectionRows = $this->db->findMany('betselections', ['betId' => SqlRepository::id($childBetId)], ['projection' => ['id' => 1]]);
+                        foreach ($selectionRows as $sr) {
+                            $sId = (string) ($sr['id'] ?? '');
+                            if ($sId !== '') $this->db->deleteOne('betselections', ['id' => SqlRepository::id($sId)]);
+                        }
+                        $this->db->deleteOne('bets', ['id' => SqlRepository::id($childBetId)]);
+                    }
+
+                    // Mark the group itself canceled. Don't call
+                    // RoundRobinService::recomputeGroupStatus here —
+                    // its rules turn an all-void child set into 'void',
+                    // and we want the explicit 'canceled' label on
+                    // admin-cancellation so audit/reporting can tell
+                    // the difference.
+                    $this->db->updateOne('round_robin_groups', ['id' => SqlRepository::id($parentGroupId)], [
+                        'status' => 'canceled',
+                        'totalPayout' => round($totalStake, 2),
+                        'updatedAt' => $now,
+                        'settledAt' => $now,
+                    ]);
+
+                    $this->db->commit();
+                    Response::json([
+                        'message' => 'Round Robin group canceled — ' . count($childIds) . ' parlays voided',
+                        'groupId' => $parentGroupId,
+                        'canceledChildIds' => $childIds,
+                        'totalRefund' => $totalStake,
+                        'user' => [
+                            'id' => $userId,
+                            'balance' => $cumulativeUser['balance'],
+                            'pendingBalance' => $cumulativeUser['pendingBalance'],
+                            'freeplayBalance' => $cumulativeUser['freeplayBalance'],
+                        ],
+                    ]);
+                    return;
+                }
+
                 $refund = BetVoidRefund::compute($bet, $lockedUser);
                 $now    = SqlRepository::nowUtc();
 
