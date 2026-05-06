@@ -273,19 +273,19 @@ final class BetsController
 
             $combinedOdds = SportsbookBetSupport::combinedOdds($totalRisk, $potentialPayout);
 
-            // Win-anchored min/max validation. The agent's exposure on a
-            // ticket is potentialPayout - totalRisk (the profit paid out
-            // if the bet hits) — that's what the player's minBet/maxBet
-            // limits cap, not the risk amount. A heavy favorite like
-            // -500 can take a $5,000 risk to win $1,000 against a $3,000
-            // max because the bookie's exposure is still only $1,000.
+            // Min bet is risk-anchored: every ticket must stake at least
+            // $minBet. Max bet stays win-anchored — the operator's exposure
+            // is potentialPayout - totalRisk (the profit paid out if the
+            // bet hits), and a heavy favorite like -500 can still take a
+            // $5,000 risk to win $1,000 against a $3,000 max because the
+            // bookie's exposure is only $1,000.
             $winAmount = max(0.0, (float) $potentialPayout - (float) $totalRisk);
             $minBetLimit = isset($user['minBet']) && is_numeric($user['minBet']) ? (float) $user['minBet'] : 0.0;
             $maxBetLimit = isset($user['maxBet']) && is_numeric($user['maxBet']) ? (float) $user['maxBet'] : 0.0;
-            if ($minBetLimit > 0 && $winAmount < $minBetLimit) {
+            if ($minBetLimit > 0 && (float) $totalRisk < $minBetLimit) {
                 throw new ApiException(
-                    'Min bet to win is $' . rtrim(rtrim(number_format($minBetLimit, 2, '.', ''), '0'), '.')
-                    . ' — this ticket only wins $' . rtrim(rtrim(number_format($winAmount, 2, '.', ''), '0'), '.'),
+                    'Min bet is $' . rtrim(rtrim(number_format($minBetLimit, 2, '.', ''), '0'), '.')
+                    . ' — this ticket only risks $' . rtrim(rtrim(number_format((float) $totalRisk, 2, '.', ''), '0'), '.'),
                     400,
                     ['code' => 'BELOW_MIN_BET']
                 );
@@ -630,10 +630,10 @@ final class BetsController
                         $childWin = $cap;
                     }
                 }
-                if ($minBetLimit > 0 && $childWin < $minBetLimit) {
+                if ($minBetLimit > 0 && (float) $stakePerParlay < $minBetLimit) {
                     throw new ApiException(
-                        'Min bet to win is $' . rtrim(rtrim(number_format($minBetLimit, 2, '.', ''), '0'), '.')
-                        . ' — a Round Robin child only wins $' . rtrim(rtrim(number_format($childWin, 2, '.', ''), '0'), '.'),
+                        'Min bet is $' . rtrim(rtrim(number_format($minBetLimit, 2, '.', ''), '0'), '.')
+                        . ' — each Round Robin child only risks $' . rtrim(rtrim(number_format((float) $stakePerParlay, 2, '.', ''), '0'), '.'),
                         400,
                         ['code' => 'BELOW_MIN_BET']
                     );

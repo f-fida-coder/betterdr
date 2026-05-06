@@ -600,14 +600,17 @@ const ModeBetPanel = ({
             return t ? `"${t}"` : 'one leg';
         };
 
+        // Min bet is risk-anchored: every ticket (or every straight leg) must
+        // stake at least $minBet. Max bet stays win-anchored — that caps the
+        // operator's exposure (potential payout), not the player's stake.
         if (normalizedMode === 'straight') {
             for (const sel of selections) {
                 const { risk, win } = effectiveStakeForSelection(sel);
                 if (!(risk > 0) && !(win > 0)) continue;
-                const minBreach = hasMin && win > 0 && win < minBet;
+                const minBreach = hasMin && risk > 0 && risk < minBet;
                 const maxBreach = hasMax && win > maxBet;
                 if (minBreach && !messages.min) {
-                    messages.min = `Min bet $${minBet} — ${labelFor(sel)} wins only $${fmt(win)}`;
+                    messages.min = `Min bet $${minBet} — ${labelFor(sel)} risks only $${fmt(risk)}`;
                 }
                 if (maxBreach && !messages.max) {
                     messages.max = `Max bet $${maxBet} — ${labelFor(sel)} wins $${fmt(win)}`;
@@ -624,8 +627,8 @@ const ModeBetPanel = ({
             // hard-block max message (the bet is placeable) and surface
             // an informational "win capped" note instead.
             const parlayPayoutCap = hasMax ? maxBet * 3 : 0;
-            if (hasMin && winValue > 0 && winValue < minBet) {
-                messages.min = `Min bet $${minBet} — ticket wins only $${fmt(winValue)}`;
+            if (hasMin && effectiveCombinedRisk < minBet) {
+                messages.min = `Min bet $${minBet} — ticket risks only $${fmt(effectiveCombinedRisk)}`;
             }
             if (parlayPayoutCap > 0 && winValue > parlayPayoutCap) {
                 messages.capInfo = `Max parlay payout $${fmt(parlayPayoutCap)} — winnings capped (uncapped: $${fmt(winValue)})`;

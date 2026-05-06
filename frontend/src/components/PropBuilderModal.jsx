@@ -116,6 +116,21 @@ const PropBuilderModal = ({ match, onClose }) => {
     const matchId = match?.id || match?.externalId || '';
     const matchName = `${match?.awayTeam || match?.away_team || 'Away'} @ ${match?.homeTeam || match?.home_team || 'Home'}`;
 
+    // Reuse the same `match-detail:state` / `match-detail:close` events the
+    // matchup detail sheet uses, so DashboardHeader swaps its leftmost cell
+    // into a sticky Back button while this prop sheet is open. The two
+    // sheets are never open at the same time, so a single shared signal is
+    // enough — keeps the header logic in one place.
+    React.useEffect(() => {
+        window.dispatchEvent(new CustomEvent('match-detail:state', { detail: { open: true } }));
+        const handleClose = () => onClose?.();
+        window.addEventListener('match-detail:close', handleClose);
+        return () => {
+            window.removeEventListener('match-detail:close', handleClose);
+            window.dispatchEvent(new CustomEvent('match-detail:state', { detail: { open: false } }));
+        };
+    }, [onClose]);
+
     React.useEffect(() => {
         let cancelled = false;
         setLoading(true);
@@ -179,7 +194,9 @@ const PropBuilderModal = ({ match, onClose }) => {
         position: 'fixed',
         inset: 0,
         background: 'rgba(0, 0, 0, 0.72)',
-        zIndex: 9999,
+        // Sit just under the page DashboardHeader (which carries our sticky
+        // Back cell) so the header stays clickable above the modal.
+        zIndex: 9998,
         display: 'flex',
         alignItems: 'flex-end',
         justifyContent: 'center',
@@ -280,7 +297,6 @@ const PropBuilderModal = ({ match, onClose }) => {
                         <strong style={{ fontSize: 15 }}>Prop Builder</strong>
                         <span style={{ fontSize: 12, color: '#9aa' }}>{matchName}</span>
                     </div>
-                    <button style={closeBtnStyle} onClick={onClose} aria-label="Close">×</button>
                 </div>
 
                 <div style={toolbarStyle}>
