@@ -394,7 +394,7 @@
   background: var(--bg-light);
 }
 .my-bets-table-row.expandable.expanded {
-  background: #1a1a1a;
+  background: #595959;
   color: #ffffff;
 }
 
