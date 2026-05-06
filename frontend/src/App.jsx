@@ -475,9 +475,6 @@ function AppInner() {
   const handleBetModeChange = useCallback((mode) => {
     const normalized = normalizeBetMode(mode);
     setBetMode(normalized);
-    if (normalized === 'straight') {
-      setSlipSelections(prev => (prev.length > 0 ? [prev[prev.length - 1]] : []));
-    }
   }, []);
 
   const handleHomeClick = useCallback(() => {

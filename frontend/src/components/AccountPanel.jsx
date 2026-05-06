@@ -530,6 +530,7 @@ const AccountPanel = ({
     const username = user?.username || 'Guest';
     const pending = user?.pendingBalance ?? 0;
     const balance = user?.balance ?? 0;
+    const freeplay = user?.freeplayBalance ?? 0;
     // Credit line the user can still wager against = creditLimit - balanceOwed.
     // Backend now ships the computed `creditAvailable`; we prefer it and
     // fall back to the raw limit so older payloads still render something
@@ -695,7 +696,7 @@ const AccountPanel = ({
                         </div>
                         <div style={{
                             display: 'grid',
-                            gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+                            gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
                             gap: 8,
                         }}>
                             {[
@@ -715,6 +716,7 @@ const AccountPanel = ({
                                         onViewChange?.('my-bets');
                                     },
                                 },
+                                { label: 'Freeplay', value: `$${formatMoney(freeplay)}` },
                                 { label: 'Available', value: `$${formatMoney(headerAvailable)}` },
                             ].map((card) => {
                                 const cardStyle = {

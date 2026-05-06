@@ -83,6 +83,20 @@ const MatchDetailView = ({ match, onClose, sgpMode = false }) => {
     const awayTeam = match?.awayTeam || match?.away_team || 'Away';
     const matchName = `${awayTeam} @ ${homeTeam}`;
 
+    // Tell the page chrome (DashboardHeader) the matchup sheet is open so it
+    // can swap its leftmost cell into a sticky Back button. Also accept
+    // remote-close requests from that header tap. Mirrors the betslip
+    // overlay's `betslip:state` / `betslip:close` event pair.
+    React.useEffect(() => {
+        window.dispatchEvent(new CustomEvent('match-detail:state', { detail: { open: true } }));
+        const handleClose = () => onClose?.();
+        window.addEventListener('match-detail:close', handleClose);
+        return () => {
+            window.removeEventListener('match-detail:close', handleClose);
+            window.dispatchEvent(new CustomEvent('match-detail:state', { detail: { open: false } }));
+        };
+    }, [onClose]);
+
     React.useEffect(() => {
         let cancelled = false;
         setLoading(true);
@@ -415,8 +429,7 @@ const MatchDetailView = ({ match, onClose, sgpMode = false }) => {
         <div style={overlayStyle} onClick={onClose}>
             <div style={sheetStyle} onClick={(e) => e.stopPropagation()}>
                 <div style={headerStyle}>
-                    <button style={backBtnStyle} onClick={onClose}>Back</button>
-                    <div style={{ ...titleStyle, flex: 1, textAlign: 'center' }}>
+                    <div style={{ ...titleStyle, flex: 1, textAlign: 'left' }}>
                         <strong style={{ fontSize: 14 }}>{matchName}</strong>
                         <span style={{ fontSize: 11, color: '#9aa' }}>Main Bets</span>
                     </div>
@@ -427,11 +440,7 @@ const MatchDetailView = ({ match, onClose, sgpMode = false }) => {
 
                 <div style={bodyStyle}>
                     <div style={stickyBackBarStyle}>
-                        <button style={stickyBackBtnStyle} onClick={onClose} aria-label="Back to matches">
-                            <i className="fa-solid fa-chevron-left" />
-                            Back
-                        </button>
-                        <span style={{ fontSize: 12, fontWeight: 700, color: '#ddd', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'center' }}>{matchName}</span>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: '#ddd', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{matchName}</span>
                         <button style={toggleAllBtnStyle} onClick={allOpen ? closeAll : openAll}>
                             {allOpen ? 'Close All' : 'Open All'}
                         </button>
