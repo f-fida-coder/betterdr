@@ -3,6 +3,7 @@ import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { updateProfile, getStoredAuthToken } from '../api';
 import { useToast } from '../contexts/ToastContext';
 import { SITE_TZ_OPTIONS, getSiteTimezone, setSiteTimezone } from '../utils/timezone';
+import { computeMidQuickStakes } from '../utils/money';
 import { setMyBetsInitialFilter } from './MyBetsView';
 
 const DEFAULT_QUICK_STAKES = [10, 25, 50, 100];
@@ -216,12 +217,15 @@ const BetDefaultsCard = ({ user, onSaved }) => {
     // lockedMax. Pull the saved customizations from positions 1 & 2 of the
     // stored array (whatever shape was saved before — if a previous version
     // saved 4 fully-custom values, the outer two are silently overridden).
+    // When no saved value exists, auto-distribute two round numbers evenly
+    // between min and max so the chip row is useful out of the box.
+    const [autoMid1, autoMid2] = computeMidQuickStakes(lockedMin, lockedMax);
     const initialMid1 = Array.isArray(stored?.quickStakes) && stored.quickStakes[1] != null
         ? String(stored.quickStakes[1])
-        : String(DEFAULT_QUICK_STAKES[1]);
+        : String(autoMid1);
     const initialMid2 = Array.isArray(stored?.quickStakes) && stored.quickStakes[2] != null
         ? String(stored.quickStakes[2])
-        : String(DEFAULT_QUICK_STAKES[2]);
+        : String(autoMid2);
 
     const [mode, setMode] = React.useState(initialMode);
     const [amount, setAmount] = React.useState(initialAmount);

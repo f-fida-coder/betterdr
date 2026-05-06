@@ -378,7 +378,7 @@
 }
 
 .my-bets-table-row:nth-child(even) {
-  background: #fafbfd;
+  background: #f3f4f6;
 }
 
 .my-bets-table-row.parent {
@@ -398,7 +398,7 @@
   background: var(--bg-light);
 }
 .my-bets-table-row.expandable.expanded {
-  background: #eef2ff;
+  background: #cbd5e1;
 }
 .my-bets-table-row.expandable:focus-visible {
   outline: 2px solid #6366f1;
@@ -511,15 +511,15 @@
 }
 
 .my-bets-table-col-risk {
-  color: #0f172a;
+  color: #dc2626;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   text-align: right;
 }
 
 .my-bets-table-col-win {
-  color: #0f172a;
-  font-weight: 600;
+  color: #16a34a;
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
   text-align: right;
 }
@@ -527,7 +527,7 @@
 .my-bets-table-col-win.won { color: #16a34a; font-weight: 700; }
 .my-bets-table-col-win.lost { color: #dc2626; font-weight: 700; }
 .my-bets-table-col-win.void { color: #64748b; }
-.my-bets-table-col-win.pending { color: #0f172a; }
+.my-bets-table-col-win.pending { color: #16a34a; }
 
 /* Bottom totals row inherits the body grid (1fr 100px 100px) so the
    value cells sit directly under their Risk / To Win columns. */

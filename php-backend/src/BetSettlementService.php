@@ -197,6 +197,15 @@ final class BetSettlementService
 
                     $riskAmount     = SportsbookBetSupport::riskAmount($bet);
                     $isFreeplay     = (bool) ($bet['isFreeplay'] ?? false);
+                    // Exact freeplay dollars applied at placement. Pure
+                    // freeplay tickets equal riskAmount; partial-freeplay
+                    // tickets are < riskAmount; non-freeplay tickets are 0.
+                    // Legacy bets predating this column have isFreeplay set
+                    // but no stored amount — fall back to riskAmount so old
+                    // pure-freeplay tickets still settle correctly.
+                    $freeplayUsed = self::num($bet['freeplayAmountUsed'] ?? ($isFreeplay ? $riskAmount : 0));
+                    $freeplayUsed = max(0.0, min($freeplayUsed, $riskAmount));
+                    $realPortion  = (float) max(0.0, $riskAmount - $freeplayUsed);
                     $balance        = self::num($user['balance'] ?? 0);
                     $pendingBalance = self::num($user['pendingBalance'] ?? 0);
                     $freeplayBalance = self::num($user['freeplayBalance'] ?? 0);
@@ -205,20 +214,19 @@ final class BetSettlementService
                     // Mirror the placement-time branch in BetsController.php:244 — credit
                     // accounts (creditLimit > 0) reserve stake in pendingBalance only and
                     // never debit `balance` at placement, so settlement must:
-                    //  • LOSS  → debit `balance` by riskAmount (user now owes the house)
+                    //  • LOSS  → debit `balance` by realPortion (user now owes the house)
                     //  • WIN   → credit `balance` by *profit only* (stake was never debited)
                     //  • VOID  → leave `balance` alone (nothing to refund)
                     // Cash accounts (creditLimit = 0) keep the existing semantics because
                     // their stake was already moved out of `balance` at placement.
-                    // Freeplay bets follow the freeplay branches below regardless of role.
+                    // The freeplay portion follows the freeplay rules regardless of role.
                     $creditLimit     = self::num($user['creditLimit'] ?? 0);
                     $userRole        = strtolower((string) ($user['role'] ?? 'user'));
-                    $isCreditAccount = !$isFreeplay && $userRole === 'user' && $creditLimit > 0;
+                    $isCreditAccount = $realPortion > 0 && $userRole === 'user' && $creditLimit > 0;
 
-                    // Freeplay bets never touched pendingBalance at placement, so don't adjust it.
-                    $newPendingBalance = $isFreeplay
-                        ? $pendingBalance
-                        : max(0.0, $pendingBalance - $riskAmount);
+                    // Only the real-balance portion was held in pendingBalance
+                    // at placement; the freeplay portion never touched pending.
+                    $newPendingBalance = max(0.0, $pendingBalance - $realPortion);
 
                     $db->updateOne('bets', ['id' => SqlRepository::id($betId)], [
                         'selections'    => $normalizedSelections,
@@ -240,64 +248,63 @@ final class BetSettlementService
                     $description      = strtoupper((string) ($bet['type'] ?? 'straight')) . ($isFreeplay ? ' freeplay' : '') . ' bet lost';
 
                     if ($ticketStatus === 'void') {
-                        if ($isFreeplay) {
-                            // Refund the freeplay stake back to freeplayBalance
-                            $balanceAfter = (float) round($freeplayBalance + $riskAmount);
-                            $userUpdate['freeplayBalance'] = $balanceAfter;
-                            $transactionType = 'fp_bet_void';
-                        } elseif ($isCreditAccount) {
-                            // Credit account: stake was never debited from balance at
-                            // placement, so void freeing pendingBalance restores the
-                            // pre-placement state. Do NOT credit balance.
-                            $balanceAfter = (float) round($balance);
-                            $transactionType = 'bet_void';
-                        } else {
-                            $balanceAfter = (float) round($balance + $riskAmount);
-                            $userUpdate['balance'] = $balanceAfter;
-                            $transactionType = 'bet_void';
+                        // Refund each pool to its source. Freeplay portion
+                        // returns to freeplayBalance; real portion returns
+                        // to balance for cash accounts (credit accounts'
+                        // real portion was held in pending only, so freeing
+                        // pending alone is the correct restore).
+                        $newFreeplayBalance = $freeplayBalance + $freeplayUsed;
+                        $balanceRefund = $isCreditAccount ? 0.0 : $realPortion;
+                        if ($freeplayUsed > 0) {
+                            $userUpdate['freeplayBalance'] = (float) round($newFreeplayBalance);
                         }
+                        if ($balanceRefund > 0) {
+                            $userUpdate['balance'] = (float) round($balance + $balanceRefund);
+                        }
+                        $balanceBefore = $isFreeplay && $realPortion <= 0 ? $freeplayBalance : $balance;
+                        $balanceAfter  = $isFreeplay && $realPortion <= 0
+                            ? (float) round($newFreeplayBalance)
+                            : (float) round($balance + $balanceRefund);
                         $transactionAmount = $riskAmount;
+                        $transactionType = $isFreeplay ? 'fp_bet_void' : 'bet_void';
                         $description = strtoupper((string) ($bet['type'] ?? 'straight')) . ($isFreeplay ? ' freeplay' : '') . ' bet voided - wager refunded';
                         $results['voided']++;
                     } elseif ($ticketStatus === 'won') {
-                        if ($isFreeplay) {
-                            $profit = (float) round(max(0.0, $ticketPayout - $riskAmount));
-                            $balanceBefore = $balance;
-                            $balanceAfter  = (float) round($balance + $profit);
-                            $userUpdate['balance'] = $balanceAfter;
-                            $userUpdate['totalWinnings'] = (float) round(self::num($user['totalWinnings'] ?? 0) + $profit);
-                            $transactionType  = 'fp_bet_won';
-                            $transactionAmount = $profit;
-                            $description = strtoupper((string) ($bet['type'] ?? 'straight')) . ' freeplay bet won - profit credited';
-                        } elseif ($isCreditAccount) {
-                            $profit = (float) round(max(0.0, $ticketPayout - $riskAmount));
-                            $balanceBefore = $balance;
-                            $balanceAfter  = (float) round($balance + $profit);
-                            $userUpdate['balance'] = $balanceAfter;
-                            $userUpdate['totalWinnings'] = (float) round(self::num($user['totalWinnings'] ?? 0) + $profit);
-                            $transactionType  = 'bet_won';
-                            $transactionAmount = $profit;
-                            $description = strtoupper((string) ($bet['type'] ?? 'straight')) . ' bet won - profit credited (credit account)';
-                        } else {
-                            $balanceBefore = $balance;
-                            $balanceAfter  = (float) round($balance + $ticketPayout);
-                            $userUpdate['balance'] = $balanceAfter;
-                            $userUpdate['totalWinnings'] = (float) round(self::num($user['totalWinnings'] ?? 0) + max(0, $ticketPayout - $riskAmount));
-                            $transactionType  = 'bet_won';
-                            $transactionAmount = $ticketPayout;
-                            $description = strtoupper((string) ($bet['type'] ?? 'straight')) . ' bet won';
+                        // Mixed-pool win: credit (ticketPayout - freeplayUsed)
+                        // to real balance. That's the freeplay's profit-only
+                        // share + the real portion's full return (stake +
+                        // profit). When freeplayUsed=0 it collapses to the
+                        // standard cash-account credit (full payout); when
+                        // freeplayUsed=riskAmount it's pure profit.
+                        $profit       = (float) round(max(0.0, $ticketPayout - $riskAmount));
+                        $balanceCredit = (float) round(max(0.0, $ticketPayout - $freeplayUsed));
+                        // Credit accounts never debited balance at placement,
+                        // so the real portion's stake should not be re-credited
+                        // here — only its profit. Subtract realPortion from the
+                        // mixed credit to leave just (freeplayProfit + realProfit).
+                        if ($isCreditAccount) {
+                            $balanceCredit = (float) round(max(0.0, $balanceCredit - $realPortion));
                         }
+                        $balanceBefore = $balance;
+                        $balanceAfter  = (float) round($balance + $balanceCredit);
+                        $userUpdate['balance'] = $balanceAfter;
+                        $userUpdate['totalWinnings'] = (float) round(self::num($user['totalWinnings'] ?? 0) + $profit);
+                        $transactionType  = $isFreeplay ? 'fp_bet_won' : 'bet_won';
+                        $transactionAmount = $isFreeplay || $isCreditAccount ? $profit : $ticketPayout;
+                        $description = strtoupper((string) ($bet['type'] ?? 'straight'))
+                            . ($isFreeplay ? ' freeplay' : '')
+                            . ($isCreditAccount && !$isFreeplay ? ' bet won - profit credited (credit account)' : ' bet won - profit credited');
                         $results['won']++;
                     } else {
-                        // LOSS path. Cash accounts already had stake debited from balance
-                        // at placement → no-op is correct. Credit accounts had stake held
-                        // in pendingBalance only, so LOSS must now debit balance to record
-                        // the user's debt to the house. Without this, freeing pending
-                        // would silently restore their available credit, which is the
-                        // exact symptom NJG101 reported.
-                        if ($isCreditAccount) {
+                        // LOSS. Freeplay portion: stake is gone (already
+                        // deducted at placement), nothing to do. Real portion:
+                        // cash accounts already had stake debited at placement
+                        // → no-op; credit accounts held the real stake in
+                        // pending only and must now debit balance to record
+                        // the debt.
+                        if ($isCreditAccount && $realPortion > 0) {
                             $balanceBefore = $balance;
-                            $balanceAfter  = (float) round($balance - $riskAmount);
+                            $balanceAfter  = (float) round($balance - $realPortion);
                             $userUpdate['balance'] = $balanceAfter;
                             $description = strtoupper((string) ($bet['type'] ?? 'straight')) . ' bet lost - balance debited (credit account)';
                         }

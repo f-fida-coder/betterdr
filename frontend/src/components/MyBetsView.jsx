@@ -293,13 +293,6 @@ const expandedMatchup = (bet) => {
     return null;
 };
 
-const expandedSport = (bet) => {
-    const fromMatch = bet?.match?.sport || bet?.matchSnapshot?.sport;
-    if (fromMatch) return String(fromMatch);
-    const firstLeg = Array.isArray(bet?.selections) ? bet.selections[0] : null;
-    return firstLeg?.matchSnapshot?.sport ? String(firstLeg.matchSnapshot.sport) : null;
-};
-
 // Game start time for the expanded panel. Walks the same fallback chain
 // expandedMatchup uses so a single-leg ticket shows its match's tip-off
 // regardless of where the snapshot landed (top-level `match` for fresh
@@ -331,17 +324,11 @@ const ticketTypeLabel = (bet) => {
 // that may be missing a field (sport, settlement timestamps, etc).
 const BetDetailsPanel = ({ bet, oddsFormat }) => {
     const matchup = expandedMatchup(bet);
-    const sport = expandedSport(bet);
     const isMulti = isMultiLegBet(bet);
     const firstLeg = Array.isArray(bet?.selections) ? bet.selections[0] : null;
     const odds = isMulti
         ? (Number.isFinite(Number(bet?.combinedOdds)) ? formatOdds(bet.combinedOdds, oddsFormat) : '—')
         : (firstLeg ? formatOdds(firstLeg.odds, oddsFormat) : '—');
-    const risk = Number(bet?.riskAmount || bet?.amount || 0);
-    const potential = Number(bet?.potentialPayout || 0);
-    // Credit/freeplay-based system: player never gets the stake returned,
-    // so "Potential Payout" is profit-only (= To Win), not risk + win.
-    const potentialToWin = Math.max(0, potential - risk);
     const placedAt = formatTimestamp(bet?.createdAt);
     const settledAt = ['won', 'lost', 'void'].includes(normalizeStatus(bet?.status))
         ? formatTimestamp(settledTimestamp(bet))
@@ -354,7 +341,6 @@ const BetDetailsPanel = ({ bet, oddsFormat }) => {
 
     const rows = [];
     if (!isMulti && matchup) rows.push(['Matchup', matchup]);
-    if (sport) rows.push(['Sport', sport]);
     // Game start time sits next to Matchup so players can answer
     // "was this yesterday's bet or tonight's?" without leaving the row.
     // Multi-leg tickets skip it because each leg has its own snapshot
@@ -363,8 +349,6 @@ const BetDetailsPanel = ({ bet, oddsFormat }) => {
     if (gameTimeLabel) rows.push(['Game Time', gameTimeLabel]);
     rows.push(['Type', ticketTypeLabel(bet) + (isFreeplay ? ' (Freeplay)' : '')]);
     rows.push(['Odds', odds]);
-    rows.push(['Risk', money(risk)]);
-    rows.push(['Potential Payout', money(potentialToWin)]);
     rows.push(['Placed', placedAt]);
     if (settledAt) rows.push(['Settled', settledAt]);
     if (ticketIdShort) rows.push(['Ticket', `#${ticketIdShort}`]);

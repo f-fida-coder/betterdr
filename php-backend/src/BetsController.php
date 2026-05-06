@@ -357,10 +357,14 @@ final class BetsController
                     }
                 }
 
+                // Partial-freeplay funding: if useFreeplay is checked and the
+                // ticket exceeds the freeplay balance, apply the entire
+                // freeplay pool first, then charge the remainder from the real
+                // balance. The bet record stores `freeplayAmountUsed` so the
+                // settlement service can split refunds and payouts correctly
+                // between the two pools.
+                $freeplayApplied = 0.0;
                 if ($useFreeplay) {
-                    // ── Freeplay path ──────────────────────────────────────────────
-                    // Freeplay credits are a separate pool — does not touch real balance
-                    // or pendingBalance. Winnings credit profit-only to real balance.
                     if ($freeplayBalance <= 0) {
                         $this->db->rollback();
                         throw new ApiException(
@@ -369,56 +373,52 @@ final class BetsController
                             ['code' => 'FREEPLAY_EXPIRED']
                         );
                     }
-                    if ($freeplayBalance < $totalRisk) {
+                    $freeplayApplied = min($freeplayBalance, $totalRisk);
+                }
+                $realPortion = (float) max(0.0, $totalRisk - $freeplayApplied);
+
+                if ($realPortion > 0) {
+                    if ($available < $realPortion) {
                         $this->db->rollback();
                         throw new ApiException(
-                            'Insufficient freeplay balance. Available: $' . number_format($freeplayBalance, 0),
+                            $useFreeplay
+                                ? 'Bet exceeds freeplay + available balance. Lower the stake or uncheck freeplay.'
+                                : 'Insufficient available balance',
                             400,
-                            ['code' => 'INSUFFICIENT_FREEPLAY_BALANCE']
+                            ['code' => 'INSUFFICIENT_BALANCE']
                         );
                     }
-                    $newBalance  = $balance;           // real balance unchanged
-                    $newPending  = $pending;           // real pending unchanged
-                    $newFreeplay = $freeplayBalance - $totalRisk;
-
-                    $this->db->updateOne('users', ['id' => SqlRepository::id((string) $lockedUser['id'])], [
-                        'freeplayBalance' => $newFreeplay,
-                        'betCount'        => ((int) ($lockedUser['betCount'] ?? 0)) + 1,
-                        'updatedAt'       => SqlRepository::nowUtc(),
-                    ]);
-                } else {
-                    // ── Real-balance path (existing logic) ─────────────────────────
-                    if ($available < $totalRisk) {
-                        $this->db->rollback();
-                        throw new ApiException('Insufficient available balance', 400, [
-                            'code' => 'INSUFFICIENT_BALANCE',
-                        ]);
-                    }
-
-                    // Check gambling loss limits (only applies to real-money bets)
+                    // Loss limits apply only to the real-money portion. The
+                    // freeplay portion is house-funded so it doesn't count
+                    // against the player's self-imposed loss caps.
                     $gamblingLimits = is_array($lockedUser['gamblingLimits'] ?? null) ? $lockedUser['gamblingLimits'] : [];
-                    $lossLimitMsg = $this->checkLossLimits($lockedUser, $gamblingLimits, $totalRisk);
+                    $lossLimitMsg = $this->checkLossLimits($lockedUser, $gamblingLimits, $realPortion);
                     if ($lossLimitMsg !== null) {
                         $this->db->rollback();
                         throw new ApiException($lossLimitMsg, 400);
                     }
-
-                    // Credit-account bettors reserve stake in pending only.
-                    // For these users, available = creditLimit + balance - pending,
-                    // so subtracting from balance *and* adding pending would
-                    // double-charge available credit.
-                    $newBalance  = $isCreditAccount ? $balance : ($balance - $totalRisk);
-                    $newPending  = $pending + $totalRisk;
-                    $newFreeplay = $freeplayBalance; // unchanged
-
-                    $this->db->updateOne('users', ['id' => SqlRepository::id((string) $lockedUser['id'])], [
-                        'balance'        => $newBalance,
-                        'pendingBalance' => $newPending,
-                        'betCount'       => ((int) ($lockedUser['betCount'] ?? 0)) + 1,
-                        'totalWagered'   => $this->num($lockedUser['totalWagered'] ?? 0) + $totalRisk,
-                        'updatedAt'      => SqlRepository::nowUtc(),
-                    ]);
                 }
+
+                // Cash accounts move stake out of `balance` at placement;
+                // credit accounts hold it in `pendingBalance` only and never
+                // debit `balance` until LOSS settlement (avoids double-
+                // charging available credit, which is balance + creditLimit
+                // - pending).
+                $newBalance  = $isCreditAccount ? $balance : ($balance - $realPortion);
+                $newPending  = $pending + $realPortion;
+                $newFreeplay = $freeplayBalance - $freeplayApplied;
+
+                $userUpdateFields = [
+                    'balance'         => $newBalance,
+                    'pendingBalance'  => $newPending,
+                    'freeplayBalance' => $newFreeplay,
+                    'betCount'        => ((int) ($lockedUser['betCount'] ?? 0)) + 1,
+                    'updatedAt'       => SqlRepository::nowUtc(),
+                ];
+                if ($realPortion > 0) {
+                    $userUpdateFields['totalWagered'] = $this->num($lockedUser['totalWagered'] ?? 0) + $realPortion;
+                }
+                $this->db->updateOne('users', ['id' => SqlRepository::id((string) $lockedUser['id'])], $userUpdateFields);
 
                 $ipAddress = IpUtils::clientIp();
                 $userAgent = Http::header('user-agent');
@@ -436,6 +436,12 @@ final class BetsController
                     'combinedOdds' => $combinedOdds,
                     'status' => 'pending',
                     'isFreeplay' => $useFreeplay,
+                    // Exact dollars sourced from freeplay. When equal to
+                    // riskAmount: pure freeplay ticket. When < riskAmount &&
+                    // > 0: partial freeplay (rest came from real balance /
+                    // credit). Settlement uses this to split refunds and
+                    // pending decrements between pools.
+                    'freeplayAmountUsed' => (float) $freeplayApplied,
                     'ipAddress' => $ipAddress,
                     'userAgent' => $userAgent,
                     'teaserPoints' => $type === 'teaser' ? $teaserPoints : 0.0,
@@ -465,12 +471,18 @@ final class BetsController
                     'type' => $useFreeplay ? 'fp_bet_placed' : 'bet_placed',
                     'status' => 'completed',
                     'isFreeplay' => $useFreeplay,
+                    'freeplayAmountUsed' => (float) $freeplayApplied,
                     'balanceBefore' => $useFreeplay ? $freeplayBalance : $balance,
                     'balanceAfter'  => $useFreeplay ? $newFreeplay  : $newBalance,
                     'referenceType' => 'Bet',
                     'referenceId' => SqlRepository::id($createdBetIds[0]),
                     'reason' => $useFreeplay ? 'FP_BET_PLACED' : 'BET_PLACED',
-                    'description' => strtoupper($type) . ($useFreeplay ? ' freeplay' : '') . ' bet placed',
+                    'description' => strtoupper($type)
+                        . ($useFreeplay ? ' freeplay' : '')
+                        . ' bet placed'
+                        . ($freeplayApplied > 0 && $realPortion > 0
+                            ? ' ($' . number_format($freeplayApplied, 0) . ' fp + $' . number_format($realPortion, 0) . ' bal)'
+                            : ''),
                     'ipAddress' => $ipAddress,
                     'userAgent' => $userAgent,
                     'createdAt' => $now,
@@ -675,45 +687,60 @@ final class BetsController
                 ? max(0.0, $creditLimit + $balance - $pending)
                 : max(0.0, $balance - $pending);
 
+            // Mirrors placeBet: useFreeplay applies the freeplay pool first
+            // (entire balance if it's smaller than the ticket), then charges
+            // the remainder from real balance / credit. Each child parlay
+            // inherits the per-child split via $childFreeplayApplied below.
+            $freeplayApplied = 0.0;
             if ($useFreeplay) {
                 if ($freeplayBalance <= 0) {
                     $this->db->rollback();
                     throw new ApiException('Your freeplay credits have expired or been used.', 400, ['code' => 'FREEPLAY_EXPIRED']);
                 }
-                if ($freeplayBalance < $totalRisk) {
+                $freeplayApplied = min($freeplayBalance, $totalRisk);
+            }
+            $realPortion = (float) max(0.0, $totalRisk - $freeplayApplied);
+
+            if ($realPortion > 0) {
+                if ($available < $realPortion) {
                     $this->db->rollback();
-                    throw new ApiException('Insufficient freeplay balance. Available: $' . number_format($freeplayBalance, 0), 400, ['code' => 'INSUFFICIENT_FREEPLAY_BALANCE']);
-                }
-                $newBalance  = $balance;
-                $newPending  = $pending;
-                $newFreeplay = $freeplayBalance - $totalRisk;
-                $this->db->updateOne('users', ['id' => SqlRepository::id((string) $lockedUser['id'])], [
-                    'freeplayBalance' => $newFreeplay,
-                    'betCount'        => ((int) ($lockedUser['betCount'] ?? 0)) + 1,
-                    'updatedAt'       => SqlRepository::nowUtc(),
-                ]);
-            } else {
-                if ($available < $totalRisk) {
-                    $this->db->rollback();
-                    throw new ApiException('Insufficient available balance', 400, ['code' => 'INSUFFICIENT_BALANCE']);
+                    throw new ApiException(
+                        $useFreeplay
+                            ? 'Bet exceeds freeplay + available balance. Lower the stake or uncheck freeplay.'
+                            : 'Insufficient available balance',
+                        400,
+                        ['code' => 'INSUFFICIENT_BALANCE']
+                    );
                 }
                 $gamblingLimits = is_array($lockedUser['gamblingLimits'] ?? null) ? $lockedUser['gamblingLimits'] : [];
-                $lossLimitMsg = $this->checkLossLimits($lockedUser, $gamblingLimits, $totalRisk);
+                $lossLimitMsg = $this->checkLossLimits($lockedUser, $gamblingLimits, $realPortion);
                 if ($lossLimitMsg !== null) {
                     $this->db->rollback();
                     throw new ApiException($lossLimitMsg, 400);
                 }
-                $newBalance  = $isCreditAccount ? $balance : ($balance - $totalRisk);
-                $newPending  = $pending + $totalRisk;
-                $newFreeplay = $freeplayBalance;
-                $this->db->updateOne('users', ['id' => SqlRepository::id((string) $lockedUser['id'])], [
-                    'balance'        => $newBalance,
-                    'pendingBalance' => $newPending,
-                    'betCount'       => ((int) ($lockedUser['betCount'] ?? 0)) + 1,
-                    'totalWagered'   => $this->num($lockedUser['totalWagered'] ?? 0) + $totalRisk,
-                    'updatedAt'      => SqlRepository::nowUtc(),
-                ]);
             }
+
+            $newBalance  = $isCreditAccount ? $balance : ($balance - $realPortion);
+            $newPending  = $pending + $realPortion;
+            $newFreeplay = $freeplayBalance - $freeplayApplied;
+            $userUpdateFields = [
+                'balance'         => $newBalance,
+                'pendingBalance'  => $newPending,
+                'freeplayBalance' => $newFreeplay,
+                'betCount'        => ((int) ($lockedUser['betCount'] ?? 0)) + 1,
+                'updatedAt'       => SqlRepository::nowUtc(),
+            ];
+            if ($realPortion > 0) {
+                $userUpdateFields['totalWagered'] = $this->num($lockedUser['totalWagered'] ?? 0) + $realPortion;
+            }
+            $this->db->updateOne('users', ['id' => SqlRepository::id((string) $lockedUser['id'])], $userUpdateFields);
+
+            // Per-child freeplay share: distribute the applied freeplay pro
+            // rata across the N children so each child's freeplayAmountUsed
+            // sums back to $freeplayApplied. Stake per child is identical
+            // ($stakePerParlay), so the share is just $freeplayApplied / N.
+            $childCount = max(1, count($childPlans));
+            $childFreeplayApplied = $freeplayApplied > 0 ? round($freeplayApplied / $childCount, 2) : 0.0;
 
             $ipAddress = IpUtils::clientIp();
             $userAgent = Http::header('user-agent');
@@ -761,6 +788,7 @@ final class BetsController
                     'combinedOdds' => $childCombinedOdds,
                     'status' => 'pending',
                     'isFreeplay' => $useFreeplay,
+                    'freeplayAmountUsed' => (float) min($childFreeplayApplied, $stakePerParlay),
                     'ipAddress' => $ipAddress,
                     'userAgent' => $userAgent,
                     'teaserPoints' => 0.0,

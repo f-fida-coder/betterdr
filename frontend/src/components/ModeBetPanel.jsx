@@ -3,6 +3,7 @@ import { placeBet, normalizeBetMode, createRequestId } from '../api';
 import { useToast } from '../contexts/ToastContext';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { formatOdds, decimalToAmerican, americanToDecimal } from '../utils/odds';
+import { computeMidQuickStakes } from '../utils/money';
 import { formatSiteDateTime } from '../utils/timezone';
 import BetConfirmationModal from './BetConfirmationModal';
 import WagerConfirmedScreen from './WagerConfirmedScreen';
@@ -347,15 +348,22 @@ const ModeBetPanel = ({
         : 0;
     // Quick stakes pin the leftmost / rightmost chip to the player's
     // admin-set Min Bet and Max Bet (so the limits are always one tap
-    // away). The middle two slots stay at fixed presets across all users
-    // — saved settings.betDefaults.quickStakes are still ignored here so
-    // every player sees the same mid-range chips. Falls back to the
-    // hardcoded extremes when the player has no min/max configured.
+    // away). The middle two slots prefer the player's saved
+    // settings.betDefaults.quickStakes[1..2]; if none are saved we
+    // auto-distribute two round numbers evenly between min and max so the
+    // chip row is useful out of the box. Falls back to the hardcoded
+    // extremes when the player has no min/max configured.
     const playerMinBet = Number(user?.minBet);
     const playerMaxBet = Number(user?.maxBet);
     const minBetChip = Number.isFinite(playerMinBet) && playerMinBet > 0 ? playerMinBet : QUICK_STAKES[0];
     const maxBetChip = Number.isFinite(playerMaxBet) && playerMaxBet > 0 ? playerMaxBet : QUICK_STAKES[3];
-    const customQuickStakes = [minBetChip, QUICK_STAKES[1], QUICK_STAKES[2], maxBetChip];
+    const savedQuickStakes = Array.isArray(userBetDefaults?.quickStakes) ? userBetDefaults.quickStakes : null;
+    const [autoMid1Chip, autoMid2Chip] = computeMidQuickStakes(minBetChip, maxBetChip);
+    const savedMid1 = Number(savedQuickStakes?.[1]);
+    const savedMid2 = Number(savedQuickStakes?.[2]);
+    const mid1Chip = Number.isFinite(savedMid1) && savedMid1 > 0 ? savedMid1 : autoMid1Chip;
+    const mid2Chip = Number.isFinite(savedMid2) && savedMid2 > 0 ? savedMid2 : autoMid2Chip;
+    const customQuickStakes = [minBetChip, mid1Chip, mid2Chip, maxBetChip];
 
     // Single shared Bet/Risk/Win mode for the whole slip. The `wager`
     // value (driven by onWagerChange) is the user-typed Bet Amount in
@@ -848,9 +856,13 @@ const ModeBetPanel = ({
     // bet-placement guard rejects with "Insufficient balance: $0.00" while
     // the user sees "AVAILABLE: $10,000".
     const parsedAvailableBalance = Number(headerAvailable);
+    // When freeplay is checked, the player can stake up to freeplay + real
+    // available — we apply freeplay first and charge the difference to the
+    // real balance / credit line. The backend mirrors this split.
+    const safeAvailable = Number.isFinite(parsedAvailableBalance) ? parsedAvailableBalance : 0;
     const effectiveAvailableBalance = useFreeplay
-        ? parsedFreeplayBalance
-        : (Number.isFinite(parsedAvailableBalance) ? parsedAvailableBalance : 0);
+        ? parsedFreeplayBalance + safeAvailable
+        : safeAvailable;
     const canPlace = validationErrors.length === 0 && !placing;
     // Pluck the amount-related warning (if any) for inline display under
     // the Bet Amount input. Matches the prefixes the validation builder
@@ -995,12 +1007,8 @@ const ModeBetPanel = ({
             return;
         }
         if (totalRisk > effectiveAvailableBalance) {
-            // Tell the user *which* pool came up short. Previously a
-            // freeplay-toggled bet that didn't fit fell through to the
-            // generic "Insufficient balance" toast — making it look like
-            // freeplay wasn't being honored at all.
             const msg = useFreeplay
-                ? `Freeplay balance insufficient. Available: $${formatAmount(parsedFreeplayBalance)}`
+                ? `Bet exceeds freeplay + available. Combined: $${formatAmount(effectiveAvailableBalance)}`
                 : `Insufficient balance for this bet. Available: $${formatAmount(effectiveAvailableBalance)}`;
             setMessage({ type: 'error', text: msg });
             showToast(msg, 'error');
@@ -1560,6 +1568,11 @@ const ModeBetPanel = ({
                                 />
                                 <span style={{ color: useFreeplay ? palette.success : palette.textPrimary, fontWeight: 700 }}>
                                     Use Freeplay (${formatAmount(parsedFreeplayBalance)})
+                                    {useFreeplay && totalRisk > parsedFreeplayBalance && totalRisk > 0 && (
+                                        <span style={{ marginLeft: 6, fontWeight: 600, color: palette.textPrimary }}>
+                                            + ${formatAmount(totalRisk - parsedFreeplayBalance)} from balance
+                                        </span>
+                                    )}
                                 </span>
                             </label>
                         )}
