@@ -377,10 +377,6 @@
   color: #0f172a;
 }
 
-.my-bets-table-row:nth-child(even) {
-  background: #f3f4f6;
-}
-
 .my-bets-table-row.parent {
   font-weight: 600;
 }
@@ -398,7 +394,12 @@
   background: var(--bg-light);
 }
 .my-bets-table-row.expandable.expanded {
-  background: #cbd5e1;
+  background: #1a1a1a;
+  color: #ffffff;
+}
+
+.my-bets-table-row.expandable.expanded .my-bets-table-col-desc {
+  color: #ffffff;
 }
 .my-bets-table-row.expandable:focus-visible {
   outline: 2px solid #6366f1;

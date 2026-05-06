@@ -355,8 +355,8 @@ const ModeBetPanel = ({
     const playerMaxBet = Number(user?.maxBet);
     const minBetChip = Number.isFinite(playerMinBet) && playerMinBet > 0 ? playerMinBet : QUICK_STAKES[0];
     const maxBetChip = Number.isFinite(playerMaxBet) && playerMaxBet > 0 ? playerMaxBet : QUICK_STAKES[3];
-    const [mid1Chip, mid2Chip] = computeMidQuickStakes(minBetChip, maxBetChip);
-    const customQuickStakes = [minBetChip, mid1Chip, mid2Chip, maxBetChip];
+    const [mid1Chip, mid2Chip, mid3Chip] = computeMidQuickStakes(minBetChip, maxBetChip);
+    const customQuickStakes = [minBetChip, mid1Chip, mid2Chip, mid3Chip, maxBetChip];
 
     // Single shared Bet/Risk/Win mode for the whole slip. The `wager`
     // value (driven by onWagerChange) is the user-typed Bet Amount in

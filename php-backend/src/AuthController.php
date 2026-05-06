@@ -646,7 +646,7 @@ final class AuthController
             // of as separate columns to avoid a schema migration; the
             // shape exposed to the client is `settings.betDefaults`:
             //   { mode: 'bet'|'risk'|'win', amount: number,
-            //     quickStakes: number[4] }
+            //     quickStakes: number[5] }
             if (array_key_exists('betDefaults', $incomingSettings)) {
                 $bd = is_array($incomingSettings['betDefaults']) ? $incomingSettings['betDefaults'] : [];
                 $mode = strtolower(trim((string) ($bd['mode'] ?? 'risk')));
@@ -669,9 +669,10 @@ final class AuthController
                 }
                 // PPH whole-dollar policy: bet defaults stored as integer too.
                 $amount = (float) round($amount);
-                $quickStakesRaw = is_array($bd['quickStakes'] ?? null) ? $bd['quickStakes'] : [10, 25, 50, 100];
-                // Normalize to exactly 4 positive integers so the betslip
-                // UI can rely on a fixed-width row of 4 buttons. Drop
+                $quickStakesRaw = is_array($bd['quickStakes'] ?? null) ? $bd['quickStakes'] : [10, 25, 50, 75, 100];
+                // Normalize to exactly 5 positive integers so the betslip
+                // UI can rely on a fixed-width row of 5 buttons (Min, three
+                // auto-derived mids at 25/50/75% of the range, Max). Drop
                 // anything non-numeric / non-positive and pad/truncate
                 // back to the expected shape.
                 $quickStakes = [];
@@ -679,10 +680,10 @@ final class AuthController
                     if (!is_numeric($v)) continue;
                     $n = (int) $v;
                     if ($n > 0 && $n <= 1000000) $quickStakes[] = $n;
-                    if (count($quickStakes) >= 4) break;
+                    if (count($quickStakes) >= 5) break;
                 }
-                while (count($quickStakes) < 4) {
-                    $quickStakes[] = [10, 25, 50, 100][count($quickStakes)];
+                while (count($quickStakes) < 5) {
+                    $quickStakes[] = [10, 25, 50, 75, 100][count($quickStakes)];
                 }
                 $existingSettings = is_array($user['settings'] ?? null) ? $user['settings'] : [];
                 $existingSettings['betDefaults'] = [

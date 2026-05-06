@@ -213,12 +213,18 @@ const BetDefaultsCard = ({ user, onSaved }) => {
     const initialAmount = Number.isFinite(Number(stored?.amount)) && Number(stored.amount) > 0
         ? String(stored.amount)
         : '';
-    // All 4 chips are auto-derived from the player's admin-set Min/Max so
+    // All 5 chips are auto-derived from the player's admin-set Min/Max so
     // agents don't have to configure quick-stake values per player. Outer
-    // two = locked Min/Max; middle two = evenly-distributed round numbers
-    // between them.
-    const [autoMid1, autoMid2] = computeMidQuickStakes(lockedMin, lockedMax);
-    const quickStakes = [String(lockedMin), String(autoMid1), String(autoMid2), String(lockedMax)];
+    // two = locked Min/Max; middle three = round numbers at the 25/50/75%
+    // positions of the [Min, Max] range.
+    const [autoMid1, autoMid2, autoMid3] = computeMidQuickStakes(lockedMin, lockedMax);
+    const quickStakes = [
+        String(lockedMin),
+        String(autoMid1),
+        String(autoMid2),
+        String(autoMid3),
+        String(lockedMax),
+    ];
 
     const [mode, setMode] = React.useState(initialMode);
     const [amount, setAmount] = React.useState(initialAmount);
@@ -379,17 +385,18 @@ const BetDefaultsCard = ({ user, onSaved }) => {
                     </div>
                 </div>
 
-                {/* Quick stake chips — all 4 auto-derived from the player's
+                {/* Quick stake chips — all 5 auto-derived from the player's
                     admin-set Min/Max bet (read-only). Outer two pin to Min /
-                    Max; middle two are evenly-distributed round numbers
-                    between them, so an agent only has to set Min/Max once. */}
+                    Max; middle three are round numbers at 25/50/75% of the
+                    [Min, Max] range, so an agent only has to set Min/Max
+                    once and every player gets a sensible chip row. */}
                 <div>
                     <div style={{ fontSize: 11, fontWeight: 700, color: palette.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
                         Quick stake buttons
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 18 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: `repeat(${quickStakes.length}, 1fr)`, gap: 6, marginBottom: 18 }}>
                         {quickStakes.map((value, idx) => {
-                            const lockedLabel = idx === 0 ? 'Min Bet' : idx === 3 ? 'Max Bet' : '';
+                            const lockedLabel = idx === 0 ? 'Min Bet' : idx === quickStakes.length - 1 ? 'Max Bet' : '';
                             return (
                                 <div
                                     key={idx}
@@ -402,7 +409,7 @@ const BetDefaultsCard = ({ user, onSaved }) => {
                                 >
                                     <span style={{
                                         position: 'absolute',
-                                        left: 8,
+                                        left: 6,
                                         top: '50%',
                                         transform: 'translateY(-50%)',
                                         fontSize: 11,
@@ -418,10 +425,10 @@ const BetDefaultsCard = ({ user, onSaved }) => {
                                         title={lockedLabel ? `${lockedLabel} (set by your agent)` : 'Auto-derived from Min/Max bet'}
                                         style={{
                                             width: '100%',
-                                            padding: '8px 6px 8px 18px',
+                                            padding: '8px 4px 8px 14px',
                                             border: 'none',
                                             outline: 'none',
-                                            fontSize: 13,
+                                            fontSize: 12,
                                             fontWeight: 700,
                                             color: palette.textPrimary,
                                             background: 'transparent',
