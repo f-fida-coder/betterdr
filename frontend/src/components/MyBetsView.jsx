@@ -575,7 +575,14 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending' }) => {
                                     ? (teamLogos[legTeam] || createFallbackTeamLogoDataUri(legTeam))
                                     : null;
                                 return (
-                                    <div key={`${betId}-leg-${idx}`} className="my-bets-table-row leg">
+                                    <div
+                                        key={`${betId}-leg-${idx}`}
+                                        className="my-bets-table-row leg expandable"
+                                        role="button"
+                                        tabIndex={0}
+                                        onClick={() => toggleExpanded(betId)}
+                                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleExpanded(betId); } }}
+                                    >
                                         <span className="my-bets-table-col-desc">
                                             {legLogo && (
                                                 <img

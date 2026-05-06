@@ -393,8 +393,15 @@
 .my-bets-table-row.expandable:focus-visible {
   background: var(--bg-light);
 }
-.my-bets-table-row.expandable.expanded {
-  background: #e8e8e8;
+.my-bets-table-row.expandable.expanded,
+.my-bets-table-row.expandable.expanded:hover,
+.my-bets-table-row.expandable.expanded:focus-visible {
+  background: #595959;
+  color: #ffffff;
+}
+.my-bets-table-row.expandable.expanded .my-bets-table-col-desc,
+.my-bets-table-row.expandable.expanded .my-bets-table-leg-text {
+  color: #ffffff;
 }
 .my-bets-table-row.expandable:focus-visible {
   outline: 2px solid #6366f1;
@@ -421,8 +428,7 @@
    Two-column key/value grid keeps long labels (Potential Payout)
    from squeezing the values out of view on narrow phones. */
 .my-bets-table-details {
-  background: #f8fafc;
-  border-top: 1px solid var(--bg-light-alt);
+  background: transparent;
   padding: 12px 14px 14px 38px;
   font-size: 13px;
   color: #0f172a;
