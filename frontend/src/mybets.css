@@ -1217,7 +1217,7 @@
 }
 
 .figures-row-total {
-  background: #f8fafc;
+  background: #e8e8e8;
   font-weight: 700;
 }
 
@@ -1262,8 +1262,10 @@
   background: var(--bg-light);
 }
 
-.figures-row.expandable.expanded {
-  background: #eef2ff;
+.figures-row.expandable.expanded,
+.figures-row.expandable.expanded:hover,
+.figures-row.expandable.expanded:focus-visible {
+  background: #e8e8e8;
 }
 
 .figures-row.expandable:focus-visible {
