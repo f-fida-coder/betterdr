@@ -213,26 +213,16 @@ const BetDefaultsCard = ({ user, onSaved }) => {
     const initialAmount = Number.isFinite(Number(stored?.amount)) && Number(stored.amount) > 0
         ? String(stored.amount)
         : '';
-    // Only positions 1 & 2 are editable; position 0 = lockedMin, position 3 =
-    // lockedMax. Pull the saved customizations from positions 1 & 2 of the
-    // stored array (whatever shape was saved before — if a previous version
-    // saved 4 fully-custom values, the outer two are silently overridden).
-    // When no saved value exists, auto-distribute two round numbers evenly
-    // between min and max so the chip row is useful out of the box.
+    // All 4 chips are auto-derived from the player's admin-set Min/Max so
+    // agents don't have to configure quick-stake values per player. Outer
+    // two = locked Min/Max; middle two = evenly-distributed round numbers
+    // between them.
     const [autoMid1, autoMid2] = computeMidQuickStakes(lockedMin, lockedMax);
-    const initialMid1 = Array.isArray(stored?.quickStakes) && stored.quickStakes[1] != null
-        ? String(stored.quickStakes[1])
-        : String(autoMid1);
-    const initialMid2 = Array.isArray(stored?.quickStakes) && stored.quickStakes[2] != null
-        ? String(stored.quickStakes[2])
-        : String(autoMid2);
+    const quickStakes = [String(lockedMin), String(autoMid1), String(autoMid2), String(lockedMax)];
 
     const [mode, setMode] = React.useState(initialMode);
     const [amount, setAmount] = React.useState(initialAmount);
-    const [midStakes, setMidStakes] = React.useState([initialMid1, initialMid2]);
     const [saving, setSaving] = React.useState(false);
-    // The composed 4-chip array shown in the UI: [Min, mid1, mid2, Max].
-    const quickStakes = [String(lockedMin), midStakes[0], midStakes[1], String(lockedMax)];
     // Reseed local form state when the user prop updates (e.g. after
     // /auth/me re-fetches and brings down a fresh `settings.betDefaults`).
     React.useEffect(() => {
@@ -241,20 +231,7 @@ const BetDefaultsCard = ({ user, onSaved }) => {
         if (next.mode === 'win' || next.mode === 'risk') setMode(next.mode);
         else if (next.mode === 'bet') setMode('risk'); // legacy → coerce
         if (Number.isFinite(Number(next.amount))) setAmount(String(next.amount || ''));
-        if (Array.isArray(next.quickStakes) && next.quickStakes.length === 4) {
-            setMidStakes([String(next.quickStakes[1] ?? ''), String(next.quickStakes[2] ?? '')]);
-        }
     }, [user?.settings?.betDefaults]);
-
-    const updateQuickStake = (idx, raw) => {
-        // Outer chips are bound to admin Min/Max; only middle 2 slots accept
-        // user input. Silently no-op on the locked positions so the existing
-        // grid <input onChange> wiring works unchanged.
-        if (idx === 0 || idx === 3) return;
-        const cleaned = String(raw).replace(/[^0-9]/g, '').slice(0, 6);
-        const midIdx = idx - 1; // 1 → 0, 2 → 1
-        setMidStakes((prev) => prev.map((v, i) => (i === midIdx ? cleaned : v)));
-    };
 
     const handleSave = async () => {
         const token = getStoredAuthToken();
@@ -402,21 +379,16 @@ const BetDefaultsCard = ({ user, onSaved }) => {
                     </div>
                 </div>
 
-                {/* Quick stake chips — leftmost/rightmost auto-bound to the
-                    admin-set Min/Max bet (read-only); middle two are
-                    user-customizable and persist into settings.betDefaults.
-                    Validation is win-anchored under the hood (the value
-                    shown is the per-ticket WIN cap), but the chip label
-                    reads "Min Bet" / "Max Bet" — the universal sportsbook
-                    shorthand — and the betslip's inline warning explains
-                    the win-anchored rule when it bites. */}
+                {/* Quick stake chips — all 4 auto-derived from the player's
+                    admin-set Min/Max bet (read-only). Outer two pin to Min /
+                    Max; middle two are evenly-distributed round numbers
+                    between them, so an agent only has to set Min/Max once. */}
                 <div>
                     <div style={{ fontSize: 11, fontWeight: 700, color: palette.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
                         Quick stake buttons
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 18 }}>
                         {quickStakes.map((value, idx) => {
-                            const locked = idx === 0 || idx === 3;
                             const lockedLabel = idx === 0 ? 'Min Bet' : idx === 3 ? 'Max Bet' : '';
                             return (
                                 <div
@@ -425,7 +397,7 @@ const BetDefaultsCard = ({ user, onSaved }) => {
                                         position: 'relative',
                                         border: `1px solid ${palette.cardBorder}`,
                                         borderRadius: 8,
-                                        background: locked ? '#f1f5f9' : '#fbfbfd',
+                                        background: '#f1f5f9',
                                     }}
                                 >
                                     <span style={{
@@ -441,10 +413,9 @@ const BetDefaultsCard = ({ user, onSaved }) => {
                                     <input
                                         type="text"
                                         inputMode="numeric"
-                                        readOnly={locked}
+                                        readOnly
                                         value={value}
-                                        onChange={(e) => updateQuickStake(idx, e.target.value)}
-                                        title={locked ? `${lockedLabel} (set by your agent)` : undefined}
+                                        title={lockedLabel ? `${lockedLabel} (set by your agent)` : 'Auto-derived from Min/Max bet'}
                                         style={{
                                             width: '100%',
                                             padding: '8px 6px 8px 18px',
@@ -457,10 +428,10 @@ const BetDefaultsCard = ({ user, onSaved }) => {
                                             boxSizing: 'border-box',
                                             borderRadius: 8,
                                             textAlign: 'center',
-                                            cursor: locked ? 'not-allowed' : 'text',
+                                            cursor: 'not-allowed',
                                         }}
                                     />
-                                    {locked && (
+                                    {lockedLabel && (
                                         <div style={{
                                             position: 'absolute',
                                             bottom: -16,

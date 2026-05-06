@@ -346,23 +346,16 @@ const ModeBetPanel = ({
     const defaultStakeAmount = Number.isFinite(Number(userBetDefaults?.amount)) && Number(userBetDefaults.amount) > 0
         ? Number(userBetDefaults.amount)
         : 0;
-    // Quick stakes pin the leftmost / rightmost chip to the player's
-    // admin-set Min Bet and Max Bet (so the limits are always one tap
-    // away). The middle two slots prefer the player's saved
-    // settings.betDefaults.quickStakes[1..2]; if none are saved we
-    // auto-distribute two round numbers evenly between min and max so the
-    // chip row is useful out of the box. Falls back to the hardcoded
-    // extremes when the player has no min/max configured.
+    // Quick stakes are fully auto-derived from the player's admin-set Min /
+    // Max bet so agents don't have to configure quick-stake values per
+    // player. Outer chips pin to Min / Max (limits one tap away); middle
+    // two are round numbers evenly distributed between them. Falls back to
+    // the hardcoded extremes when the player has no min/max configured.
     const playerMinBet = Number(user?.minBet);
     const playerMaxBet = Number(user?.maxBet);
     const minBetChip = Number.isFinite(playerMinBet) && playerMinBet > 0 ? playerMinBet : QUICK_STAKES[0];
     const maxBetChip = Number.isFinite(playerMaxBet) && playerMaxBet > 0 ? playerMaxBet : QUICK_STAKES[3];
-    const savedQuickStakes = Array.isArray(userBetDefaults?.quickStakes) ? userBetDefaults.quickStakes : null;
-    const [autoMid1Chip, autoMid2Chip] = computeMidQuickStakes(minBetChip, maxBetChip);
-    const savedMid1 = Number(savedQuickStakes?.[1]);
-    const savedMid2 = Number(savedQuickStakes?.[2]);
-    const mid1Chip = Number.isFinite(savedMid1) && savedMid1 > 0 ? savedMid1 : autoMid1Chip;
-    const mid2Chip = Number.isFinite(savedMid2) && savedMid2 > 0 ? savedMid2 : autoMid2Chip;
+    const [mid1Chip, mid2Chip] = computeMidQuickStakes(minBetChip, maxBetChip);
     const customQuickStakes = [minBetChip, mid1Chip, mid2Chip, maxBetChip];
 
     // Single shared Bet/Risk/Win mode for the whole slip. The `wager`
