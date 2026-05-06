@@ -394,12 +394,7 @@
   background: var(--bg-light);
 }
 .my-bets-table-row.expandable.expanded {
-  background: #595959;
-  color: #ffffff;
-}
-
-.my-bets-table-row.expandable.expanded .my-bets-table-col-desc {
-  color: #ffffff;
+  background: #e8e8e8;
 }
 .my-bets-table-row.expandable:focus-visible {
   outline: 2px solid #6366f1;

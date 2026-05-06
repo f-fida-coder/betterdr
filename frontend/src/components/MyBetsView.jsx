@@ -383,9 +383,9 @@ const WEEK_OPTIONS = [
 // in Wednesday's drill-down doesn't toggle anything in Friday's panel.
 // The win-cell logic keys off the bet's status rather than mode (a
 // graded ticket renders +$X / -$X regardless of where it appears),
-// so the same row code works for both modes — only header columns,
-// the optional totals footer, and the Risk column visibility change.
-const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending', showTotals = false }) => {
+// so the same row code works for both modes — only header columns
+// and the Risk column visibility change.
+const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending' }) => {
     const [expandedBetId, setExpandedBetId] = useState(null);
     // Per-group child cache. Populated on first expand of a Round
     // Robin row; subsequent expands of the same group serve from
@@ -635,21 +635,6 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending', showTota
                     </React.Fragment>
                 );
             })}
-            {showTotals && !isGraded && (() => {
-                const totalRisk = bets.reduce((sum, b) => sum + Number(b?.riskAmount || b?.amount || 0), 0);
-                const totalWin = bets.reduce((sum, b) => {
-                    const r = Number(b?.riskAmount || b?.amount || 0);
-                    const p = Number(b?.potentialPayout || 0);
-                    return sum + Math.max(0, p - r);
-                }, 0);
-                return (
-                    <div className="my-bets-table-totals">
-                        <span className="my-bets-table-col-desc">Total :</span>
-                        <span className="my-bets-table-col-risk">{money(totalRisk)}</span>
-                        <span className="my-bets-table-col-win">{money(totalWin)}</span>
-                    </div>
-                );
-            })()}
         </div>
     );
 };
@@ -849,7 +834,6 @@ const MyBetsView = () => {
                         oddsFormat={oddsFormat}
                         teamLogos={teamLogos}
                         mode="pending"
-                        showTotals
                     />
                 )}
             </div>
