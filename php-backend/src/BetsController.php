@@ -146,14 +146,59 @@ final class BetsController
                 throw new ApiException(strtoupper($type) . ' requires ' . $range . ' selections', 400);
             }
 
+            // Collect ODDS_CHANGED rejections across all legs into a single
+            // 409 response. Throwing on the first mismatch made the user
+            // chase moving prices one leg at a time — on a 3-leg parlay
+            // with 2 legs moved, they'd hit ODDS_CHANGED, the slip would
+            // still hold the stale prices (frontend never read the new
+            // official odds out of the error payload), and the next click
+            // would fail on the same leg again. Aggregating here lets the
+            // client patch every changed leg in one round-trip and the
+            // user accepts the whole new ticket with one tap.
             $validatedSelections = [];
-            foreach ($selectionInputs as $sel) {
-                $validatedSelections[] = $this->validateSelection(
-                    trim((string) ($sel['matchId'] ?? '')),
-                    trim((string) ($sel['selection'] ?? '')),
-                    $sel['odds'] ?? null,
-                    BetModeRules::normalize((string) ($sel['type'] ?? ($sel['marketType'] ?? 'straight')))
-                );
+            $priceChanges = [];
+            foreach ($selectionInputs as $idx => $sel) {
+                try {
+                    $validatedSelections[] = $this->validateSelection(
+                        trim((string) ($sel['matchId'] ?? '')),
+                        trim((string) ($sel['selection'] ?? '')),
+                        $sel['odds'] ?? null,
+                        BetModeRules::normalize((string) ($sel['type'] ?? ($sel['marketType'] ?? 'straight')))
+                    );
+                } catch (ApiException $e) {
+                    $details = $e->payload();
+                    if (($details['code'] ?? null) === 'ODDS_CHANGED') {
+                        $priceChanges[] = [
+                            'index' => $idx,
+                            'matchId' => (string) ($details['matchId'] ?? trim((string) ($sel['matchId'] ?? ''))),
+                            'selection' => (string) ($details['selection'] ?? trim((string) ($sel['selection'] ?? ''))),
+                            'marketType' => BetModeRules::normalize((string) ($sel['type'] ?? ($sel['marketType'] ?? 'straight'))),
+                            'officialOdds' => $details['officialOdds'] ?? null,
+                            'officialAmericanOdds' => $details['officialAmericanOdds'] ?? null,
+                        ];
+                        // Keep iterating so we surface every moved leg in
+                        // one error. Other validation failures (market
+                        // closed, selection unavailable, invalid odds)
+                        // still fast-fail because they aren't recoverable
+                        // by re-pricing the leg.
+                        continue;
+                    }
+                    throw $e;
+                }
+            }
+            if (count($priceChanges) > 0) {
+                $first = $priceChanges[0];
+                throw new ApiException('Odds changed. Please review the updated price before placing the bet.', 409, [
+                    'code' => 'ODDS_CHANGED',
+                    'legs' => $priceChanges,
+                    // Legacy single-leg fields kept for older clients that
+                    // don't read the legs array yet — they continue to see
+                    // the same payload they always did.
+                    'officialOdds' => $first['officialOdds'],
+                    'officialAmericanOdds' => $first['officialAmericanOdds'],
+                    'selection' => $first['selection'],
+                    'matchId' => $first['matchId'],
+                ]);
             }
 
             if ($type === 'teaser') {

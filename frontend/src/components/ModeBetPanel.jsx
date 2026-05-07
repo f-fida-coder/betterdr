@@ -1010,6 +1010,77 @@ const ModeBetPanel = ({
         setShowConfirm(true);
     };
 
+    // ODDS_CHANGED auto-recovery. The backend now returns every moved
+    // leg in a single 409 (`legs: [{matchId, selection, marketType,
+    // officialOdds, ...}]`); patch each leg's odds in the slip in place
+    // and surface a "review and confirm" banner so the user closes the
+    // loop with one explicit tap. Returns true when it handled the
+    // error so the calling catch can short-circuit its generic toast.
+    // Falls back to the legacy single-leg payload (officialOdds /
+    // selection / matchId at the top level) for older backends.
+    const handleOddsChanged = (error) => {
+        if (!error || String(error.code || '') !== 'ODDS_CHANGED') return false;
+        const rawLegs = Array.isArray(error.legs) && error.legs.length > 0
+            ? error.legs
+            : (error.matchId && error.officialOdds
+                ? [{
+                    matchId: error.matchId,
+                    selection: error.selection,
+                    marketType: error.marketType,
+                    officialOdds: error.officialOdds,
+                    officialAmericanOdds: error.officialAmericanOdds,
+                }]
+                : []);
+        if (rawLegs.length === 0) return false;
+
+        const matchKey = (matchId, marketType, selection) =>
+            `${String(matchId || '')}::${String(marketType || '').toLowerCase()}::${String(selection || '')}`;
+        const updates = new Map();
+        for (const leg of rawLegs) {
+            const odds = Number(leg?.officialOdds);
+            if (!Number.isFinite(odds) || odds <= 1) continue;
+            updates.set(matchKey(leg.matchId, leg.marketType, leg.selection), odds);
+        }
+        if (updates.size === 0) return false;
+
+        let patchedCount = 0;
+        onSelectionsChange((prev) => prev.map((s) => {
+            // Backend may not echo the marketType verbatim — try a
+            // marketType-qualified match first, then fall back to
+            // (matchId, selection) so a leg whose marketType lookup
+            // differs (e.g. spreads vs alternate spreads) still gets
+            // patched. Without the fallback, the slip would silently
+            // keep the stale price and the next click would fail again.
+            const qualified = updates.get(matchKey(s.matchId, s.marketType, s.selection));
+            const fallback = qualified === undefined
+                ? Array.from(updates.entries()).find(([k]) => k.startsWith(`${String(s.matchId || '')}::`) && k.endsWith(`::${String(s.selection || '')}`))?.[1]
+                : undefined;
+            const next = qualified ?? fallback;
+            if (next === undefined) return s;
+            patchedCount += 1;
+            // Drop any locally-typed wagerOverride: the user staked
+            // against the old price, so re-running it through the same
+            // override at a worse price would risk-bust their intent.
+            // Letting the top Bet Amount auto-flow through (or having
+            // them re-type) is the safe default after a price move.
+            const { wagerOverride: _drop, ...rest } = s;
+            return { ...rest, odds: next };
+        }));
+
+        // Force a fresh requestId on the next click — the slip
+        // signature changes when we patch odds, but we also clear
+        // explicitly here so the retry never collides with the
+        // failed request's idempotency record.
+        requestStateRef.current = { requestId: '', signature: '' };
+
+        const text = patchedCount > 1
+            ? `Odds updated on ${patchedCount} legs — review and tap PLACE to confirm at the new price.`
+            : 'Odds updated — review and tap PLACE to confirm at the new price.';
+        setMessage({ type: 'error', text });
+        showToast(text, 'warning');
+        return true;
+    };
+
     const executePlaceBet = async () => {
         if (submissionLockRef.current) {
             return;
@@ -1106,17 +1177,24 @@ const ModeBetPanel = ({
                     if (onBetPlaced) onBetPlaced();
                 } else {
                     const firstErr = failed[0].err;
-                    const errorText = firstErr?.message || 'Failed to place some bets';
-                    const partialSummary = placed.length > 0
-                        ? ` (${placed.length} of ${selections.length} placed first)`
-                        : '';
-                    setMessage({ type: 'error', text: errorText + partialSummary });
-                    showToast(errorText + partialSummary, 'error');
-                    // Drop the successfully-placed legs so the user can retry
-                    // only the remaining ones instead of double-charging.
+                    // Drop the successfully-placed legs first so the
+                    // remaining slip is exactly what still needs to go
+                    // through. Order matters: handleOddsChanged below
+                    // patches against the *post-drop* slip via the same
+                    // onSelectionsChange ref, so doing the drop first
+                    // avoids re-introducing already-placed legs when
+                    // the auto-update reads the stale `selections` array.
                     if (placed.length > 0) {
                         const placedIds = new Set(placed.map((s) => s.id));
                         onSelectionsChange(selections.filter((s) => !placedIds.has(s.id)));
+                    }
+                    if (!handleOddsChanged(firstErr)) {
+                        const errorText = firstErr?.message || 'Failed to place some bets';
+                        const partialSummary = placed.length > 0
+                            ? ` (${placed.length} of ${selections.length} placed first)`
+                            : '';
+                        setMessage({ type: 'error', text: errorText + partialSummary });
+                        showToast(errorText + partialSummary, 'error');
                     }
                     window.dispatchEvent(new Event('user:refresh'));
                 }
@@ -1169,6 +1247,9 @@ const ModeBetPanel = ({
             const blockingCodes = ['REQUEST_ID_REQUIRED', 'REQUEST_ID_REUSED'];
             if (blockingCodes.includes(String(error?.code || ''))) {
                 requestStateRef.current = { requestId: '', signature: '' };
+            }
+            if (handleOddsChanged(error)) {
+                return;
             }
             const errorText = error.message || 'Failed to place bet';
             setMessage({ type: 'error', text: errorText });
