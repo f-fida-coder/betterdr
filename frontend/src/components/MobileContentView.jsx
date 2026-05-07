@@ -883,7 +883,7 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
                 </button>
             </div>
 
-            {periods.length >= 1 && (
+            {periods.length > 1 && (
                 <div style={periodTabBarStyle}>
                     {periods.map(p => (
                         <button

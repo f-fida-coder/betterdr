@@ -542,6 +542,25 @@
 .my-bets-table-leg-status.lost { color: #dc2626; }
 .my-bets-table-leg-status.void { color: #64748b; }
 
+/* Inline LIVE indicator on a pending row whose game is currently in
+   progress. Solid red pill — bright enough to stand out against the
+   neutral row body, but compact so it doesn't crowd the team name on
+   narrow phone widths. */
+.my-bets-table-live-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #dc2626;
+  color: #fff;
+  font-weight: 800;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  line-height: 1.2;
+  flex-shrink: 0;
+}
+
 .my-bets-table-col-risk {
   color: #dc2626;
   font-weight: 700;

@@ -202,6 +202,45 @@ const isMultiLegBet = (bet) => {
 // Keeps the My Bets response a fixed shape regardless of parlay count.
 const isRoundRobinGroup = (bet) => String(bet?.type || '').toLowerCase() === 'round_robin';
 
+// True when the snapshot represents a game that's currently in progress.
+// Drives the inline "LIVE" badge on pending rows so the player can see at
+// a glance which of their tickets are tied to a game on the field right
+// now vs. one still scheduled. Mirrors ScoreboardSidebar.isLiveMatch but
+// also treats a pending leg whose start time is already in the past as
+// live — older snapshots don't always carry an explicit status flag, so
+// this fallback keeps the badge useful for in-flight tickets.
+const isLiveSnapshot = (snapshot, parentStatus) => {
+    if (!snapshot) return false;
+    const status = String(snapshot.status || '').toLowerCase();
+    if (status === 'live') return true;
+    const eventStatus = String(snapshot?.score?.event_status || '').toUpperCase();
+    if (eventStatus.includes('IN_PROGRESS') || eventStatus.includes('LIVE')) return true;
+    const startMs = snapshot.startTime ? new Date(snapshot.startTime).getTime() : NaN;
+    if (Number.isFinite(startMs) && startMs <= Date.now() && normalizeStatus(parentStatus) === 'pending') {
+        return true;
+    }
+    return false;
+};
+
+// Live check for a single ticket leg. Pulls from matchSnapshot (always
+// per-leg on parlays) and considers the leg pending only when both the
+// leg AND the parent ticket are still pending.
+const isLegLive = (leg, parentBet) => {
+    if (normalizeStatus(leg?.status) !== 'pending') return false;
+    return isLiveSnapshot(leg?.matchSnapshot, parentBet?.status);
+};
+
+// Live check for a straight (single-leg) ticket. Walks the same fallback
+// chain as expandedMatchup so it works whether the match data lives on
+// the bet or on its single leg's snapshot.
+const isStraightBetLive = (bet) => {
+    if (normalizeStatus(bet?.status) !== 'pending') return false;
+    if (isLiveSnapshot(bet?.match, bet?.status)) return true;
+    if (isLiveSnapshot(bet?.matchSnapshot, bet?.status)) return true;
+    const firstLeg = Array.isArray(bet?.selections) ? bet.selections[0] : null;
+    return isLiveSnapshot(firstLeg?.matchSnapshot, bet?.status);
+};
+
 // Team name to use when rendering a leg's logo. For totals we pull
 // from matchSnapshot since the selection is "Over"/"Under", not a team.
 const legTeamForLogo = (leg) => {
@@ -450,24 +489,32 @@ const WEEK_OPTIONS = [
 // and the Risk column visibility change.
 const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending' }) => {
     const [expandedBetId, setExpandedBetId] = useState(null);
-    // Per-leg drill-down state — separate from `expandedBetId` so a leg's
-    // detail panel can be toggled independently of the parent parlay's
-    // details. Keyed by `${betId}::${legIdx}` so multiple legs across
-    // multiple tickets can be open at the same time without collisions.
-    const [expandedLegs, setExpandedLegs] = useState(() => new Set());
+    // Per-leg drill-down state. Single key (`${betId}::${legIdx}`) — only
+    // one leg can be open at a time across the whole list, so opening a
+    // new leg auto-collapses the previous one. Opening a leg also clears
+    // the parent ticket's expanded details so the user only sees one
+    // detail panel at any moment, matching how a single sportsbook
+    // receipt drills into one row at a time.
+    const [expandedLegKey, setExpandedLegKey] = useState(null);
     // Per-group child cache. Populated on first expand of a Round
     // Robin row; subsequent expands of the same group serve from
     // cache. Keyed by groupId so different groups don't collide.
     //   roundRobinChildren[groupId] = { state: 'loading'|'ready'|'error', children: [...], error: '...' }
     const [roundRobinChildren, setRoundRobinChildren] = useState({});
 
-    const toggleExpanded = (id) => setExpandedBetId((cur) => (cur === id ? null : id));
-    const toggleExpandedLeg = (betId, legIdx) => setExpandedLegs((prev) => {
-        const next = new Set(prev);
+    // Opening a parent ticket detail closes any open leg detail so only
+    // ONE detail panel is ever visible at a time across the whole list.
+    const toggleExpanded = (id) => {
+        setExpandedLegKey(null);
+        setExpandedBetId((cur) => (cur === id ? null : id));
+    };
+    // Opening a leg detail closes any open parent detail (and any other
+    // open leg) so only one panel is visible at a time.
+    const toggleExpandedLeg = (betId, legIdx) => {
         const key = `${betId}::${legIdx}`;
-        if (next.has(key)) next.delete(key); else next.add(key);
-        return next;
-    });
+        setExpandedBetId(null);
+        setExpandedLegKey((cur) => (cur === key ? null : key));
+    };
 
     // Kicked off when a Round Robin row gets expanded for the first
     // time. No-op when the cache already has the group (or a fetch is
@@ -601,6 +648,7 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending' }) => {
                                             const legLogo = legTeam
                                                 ? (teamLogos[legTeam] || createFallbackTeamLogoDataUri(legTeam))
                                                 : null;
+                                            const childLegLive = isLegLive(leg, child);
                                             return (
                                                 <div key={`${betId}-child-${ci}-leg-${idx}`} className="my-bets-table-row leg" style={{ paddingLeft: 24 }}>
                                                     <span className="my-bets-table-col-desc">
@@ -614,6 +662,9 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending' }) => {
                                                             />
                                                         )}
                                                         <span className="my-bets-table-leg-text">{legDescription(leg, oddsFormat)}</span>
+                                                        {childLegLive && (
+                                                            <span className="my-bets-table-live-badge" aria-label="Live game">LIVE</span>
+                                                        )}
                                                     </span>
                                                     {!isGraded && <span className="my-bets-table-col-risk" />}
                                                     <span className="my-bets-table-col-win" />
@@ -653,8 +704,9 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending' }) => {
                                     : legStatus === 'lost' ? 'L'
                                     : legStatus === 'void' ? 'P'
                                     : '';
+                                const legLive = isLegLive(leg, bet);
                                 const legKey = `${betId}::${idx}`;
-                                const isLegExpanded = expandedLegs.has(legKey);
+                                const isLegExpanded = expandedLegKey === legKey;
                                 return (
                                     <React.Fragment key={`${betId}-leg-${idx}`}>
                                         <div
@@ -675,6 +727,9 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending' }) => {
                                                     />
                                                 )}
                                                 <span className="my-bets-table-leg-text">{legDescription(leg, oddsFormat)}</span>
+                                                {legLive && (
+                                                    <span className="my-bets-table-live-badge" aria-label="Live game">LIVE</span>
+                                                )}
                                                 {legStatusLetter && (
                                                     <span className={`my-bets-table-leg-status ${legStatus}`}>{legStatusLetter}</span>
                                                 )}
@@ -709,6 +764,7 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending' }) => {
                     : straightStatus === 'lost' ? 'L'
                     : straightStatus === 'void' ? 'P'
                     : '';
+                const straightLive = isStraightBetLive(bet);
                 return (
                     <React.Fragment key={betId}>
                         <div
@@ -729,6 +785,9 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending' }) => {
                                     />
                                 )}
                                 <span className="my-bets-table-leg-text">{legDescription(leg, oddsFormat)}</span>
+                                {straightLive && (
+                                    <span className="my-bets-table-live-badge" aria-label="Live game">LIVE</span>
+                                )}
                                 {straightStatusLetter && (
                                     <span className={`my-bets-table-leg-status ${straightStatus}`}>{straightStatusLetter}</span>
                                 )}
