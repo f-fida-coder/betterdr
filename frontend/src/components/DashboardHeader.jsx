@@ -579,7 +579,7 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
                     </div>
                 )}
 
-                {mobileViewState !== 'browsing' && (currentView === 'dashboard' || betslipOpen) && (
+                {(currentView === 'dashboard' || betslipOpen) && (
                     // STRAIGHT/PARLAY/TEASER/IF BET/REVERSE only make sense
                     // inside the betting flow — the odds board (currentView
                     // === 'dashboard') or the betslip overlay (which can be
@@ -591,6 +591,13 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
                     // mobile slip is a fixed overlay positioned at top:
                     // 124, which assumes both the 64px header AND this
                     // 60px tabs row are present above it.
+                    //
+                    // The earlier `mobileViewState !== 'browsing'` guard was
+                    // dropped so the front sports page (no sport selected
+                    // yet — the landing/browsing state) also shows the bet-
+                    // mode row, matching the desktop subheader which has
+                    // always rendered the same tabs unconditionally on the
+                    // dashboard view.
                     <div className="tabs-bar">
                         {[
                             { id: 'straight', label: 'STRAIGHT', letter: 'S' },
