@@ -1981,8 +1981,47 @@ const ModeBetPanel = ({
                                     color: palette.textPrimary,
                                     lineHeight: 1.3,
                                     marginBottom: matchTimeLabel ? 4 : 8,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    flexWrap: 'wrap',
+                                    gap: 8,
                                 }}>
-                                    {sel.selection}
+                                    <span>{sel.selection}</span>
+                                    {sel.isLive && (
+                                        // LIVE BET pill — flagged at add-to-slip
+                                        // time from match.isLive, which is true
+                                        // whenever the upstream odds API reports
+                                        // status='live' or score.event_status
+                                        // contains IN_PROGRESS / LIVE. Surfaces
+                                        // here so the user sees that this leg
+                                        // priced against in-play odds, not
+                                        // pre-game — useful for trader review
+                                        // and for distinguishing the line on
+                                        // settled tickets.
+                                        <span style={{
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: 4,
+                                            padding: '2px 8px',
+                                            borderRadius: 4,
+                                            background: '#ff5051',
+                                            color: '#fff',
+                                            fontSize: 10,
+                                            fontWeight: 800,
+                                            letterSpacing: 0.6,
+                                            textTransform: 'uppercase',
+                                            lineHeight: 1.2,
+                                        }}>
+                                            <span style={{
+                                                width: 6,
+                                                height: 6,
+                                                borderRadius: '50%',
+                                                background: '#fff',
+                                                display: 'inline-block',
+                                            }} />
+                                            Live Bet
+                                        </span>
+                                    )}
                                 </div>
                                 {matchTimeLabel && (
                                     <div style={{

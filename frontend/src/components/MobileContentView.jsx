@@ -782,7 +782,7 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
     const minutesAgo = Math.max(0, Math.floor(ageMs / 60000));
     const ageLabel = ageMs < 60000 ? 'Just updated' : `Updated ${minutesAgo}m ago`;
 
-    const handleAddToSlip = (matchId, selection, marketType, odds, matchName, marketLabel = marketType, line = null) => {
+    const handleAddToSlip = (matchId, selection, marketType, odds, matchName, marketLabel = marketType, line = null, meta = {}) => {
         const parsedOdds = parseOddsNumber(odds);
         if (!matchId || !selection || parsedOdds === null) return;
         const parsedLine = Number(line);
@@ -795,6 +795,12 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
                 matchName,
                 marketLabel,
                 line: Number.isFinite(parsedLine) ? parsedLine : null,
+                // isLive flag captured at add-time so the slip can label
+                // the leg as LIVE BET. Sourced from the same match doc
+                // the card derived its `match.isLive` from (status==='live'
+                // OR upstream event_status contains IN_PROGRESS / LIVE),
+                // so it tracks whatever the upstream odds API reports.
+                isLive: !!meta?.isLive,
             },
         }));
     };
@@ -1030,7 +1036,10 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
     const isSelected = (marketType, selection) => selectedKeys.has(`${match.id}|${marketType}|${selection}`);
     const addIfAllowed = (...args) => {
         if (blocked) return;
-        onAddToSlip(...args);
+        // Inject isLive once per card so every odds-button click on
+        // this match carries the live flag through to the slip without
+        // changing each onClick's signature.
+        onAddToSlip(...args, { isLive: !!match.isLive });
     };
     const [propsOpen, setPropsOpen] = React.useState(false);
     const [detailOpen, setDetailOpen] = React.useState(false);
