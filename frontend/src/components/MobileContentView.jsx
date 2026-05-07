@@ -818,7 +818,13 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
     // context preserved within each sport. Day key resets every league
     // boundary so the first day inside the next sport always re-emits.
     const showLeagueHeaders = realSelected.length >= 2;
-    const periodSuffixLabel = activePeriod && activePeriod.label ? activePeriod.label : 'Game';
+    // Suffix the league name with the active period chip ("1H", "2H",
+    // "1Q", etc.) only when one is selected — otherwise just show
+    // "NBA" / "MLB" on its own. The literal "Game" suffix that used
+    // to render was redundant noise: the matchup rows below already
+    // show that they're games, and at-a-glance scanning is faster
+    // when the header is just the league acronym.
+    const periodSuffixLabel = activePeriod && activePeriod.label ? activePeriod.label : '';
     const groupedEntries = React.useMemo(() => {
         const entries = [];
         let currentLeagueKey = null;
@@ -832,7 +838,9 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
                 entries.push({
                     type: 'league',
                     id: `league-${leagueKey}`,
-                    label: `${leagueLabel} ${periodSuffixLabel}`.trim(),
+                    label: periodSuffixLabel
+                        ? `${leagueLabel} ${periodSuffixLabel}`.trim()
+                        : leagueLabel,
                 });
             }
             if (match.dayKey && match.dayKey !== currentDayKey) {
@@ -1562,7 +1570,7 @@ const dayHeaderStyle = {
 
 const leagueHeaderStyle = {
     padding: '8px 16px',
-    background: '#595959',
+    background: '#ff5051',
     color: '#fff',
     fontSize: '12px',
     fontWeight: 700,

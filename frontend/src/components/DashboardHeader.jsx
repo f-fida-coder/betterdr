@@ -417,26 +417,46 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
                         background: '#595959',
                     }}
                 >
-                    <button
-                        type="button"
-                        onClick={() => {
-                            if (matchDetailOpen) {
-                                window.dispatchEvent(new CustomEvent('match-detail:close', { detail: { source: 'header' } }));
-                            } else if (betslipOpen) {
-                                window.dispatchEvent(new CustomEvent('betslip:close', { detail: { source: 'header' } }));
-                            } else if (onViewChange) {
-                                onViewChange('dashboard');
-                            }
-                        }}
-                        aria-label={(matchDetailOpen || betslipOpen) ? 'Back' : 'Sports categories'}
-                        style={mhCellBtnStyle}
-                    >
-                        <i
-                            className={(matchDetailOpen || betslipOpen) ? 'fa-solid fa-arrow-left' : 'fa-solid fa-bars'}
-                            style={mhCellIconStyle}
-                        ></i>
-                        <span style={mhCellLabelStyle}>{(matchDetailOpen || betslipOpen) ? 'Back' : 'Sports'}</span>
-                    </button>
+                    {(() => {
+                        // Sports cell doubles as a Back affordance whenever
+                        // there's a screen above the sport-selection menu
+                        // the user can return to: an open match-detail
+                        // overlay, the betslip overlay, OR the mobile
+                        // results view (sport already selected, looking
+                        // at games). Without the results-view branch,
+                        // a user who'd picked Baseball and tapped
+                        // Continue had no way to go back and add Hockey
+                        // without first emptying their selection — they
+                        // had to find another way out of the results
+                        // page. Routing the same cell to onMobileBack
+                        // preserves the selection and reopens the menu.
+                        const inResults = mobileViewState === 'results';
+                        const showBack = matchDetailOpen || betslipOpen || inResults;
+                        return (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    if (matchDetailOpen) {
+                                        window.dispatchEvent(new CustomEvent('match-detail:close', { detail: { source: 'header' } }));
+                                    } else if (betslipOpen) {
+                                        window.dispatchEvent(new CustomEvent('betslip:close', { detail: { source: 'header' } }));
+                                    } else if (inResults && onMobileBack) {
+                                        onMobileBack();
+                                    } else if (onViewChange) {
+                                        onViewChange('dashboard');
+                                    }
+                                }}
+                                aria-label={showBack ? 'Back' : 'Sports categories'}
+                                style={mhCellBtnStyle}
+                            >
+                                <i
+                                    className={showBack ? 'fa-solid fa-arrow-left' : 'fa-solid fa-bars'}
+                                    style={mhCellIconStyle}
+                                ></i>
+                                <span style={mhCellLabelStyle}>{showBack ? 'Back' : 'Sports'}</span>
+                            </button>
+                        );
+                    })()}
 
                     {showMenuButton && (
                         <button

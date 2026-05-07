@@ -430,6 +430,26 @@ const ModeBetPanel = ({
         || rule.teaserPointOptions.length === 0
         || rule.teaserPointOptions.includes(teaserPointValue);
 
+    // Snap a raw decimal price to the exact decimal derived from its
+    // American-integer rounding — the same basis the backend stores
+    // (`oddsAmerican` → `americanToDecimalExact`). Without this snap,
+    // a leg with raw upstream decimal 1.34 multiplied against another
+    // 1.81 produces a combined of 2.4254, while the backend's
+    // exact-decimal pair (1.34014 × 1.81301) is 2.4297. The two
+    // diverge on the Win readout: resolveStake snaps to American +143
+    // for Risk, but potentialPayout used the raw product, so a typed
+    // $1000 win rendered as $997. Snapping per leg keeps both sides
+    // using one consistent basis.
+    const exactDecimalForLeg = (rawDecimal) => {
+        const american = decimalToAmerican(rawDecimal);
+        if (american === null) {
+            const n = Number(rawDecimal);
+            return Number.isFinite(n) && n > 1 ? n : 1;
+        }
+        const exact = americanToDecimal(american);
+        return Number.isFinite(exact) && exact > 1 ? exact : 1;
+    };
+
     // Combined decimal odds the ticket pays at, by mode. Used to convert
     // a Win-mode shared input into the actual Risk amount the backend
     // receives for combined modes (parlay / teaser / if_bet / reverse).
@@ -440,12 +460,12 @@ const ModeBetPanel = ({
             return n > 0 ? n : null;
         }
         if (normalizedMode === 'parlay') {
-            return selections.reduce((acc, sel) => acc * Number(sel.odds || 1), 1);
+            return selections.reduce((acc, sel) => acc * exactDecimalForLeg(sel?.odds), 1);
         }
         if (normalizedMode === 'if_bet' || normalizedMode === 'reverse') {
             const firstTwo = selections.slice(0, 2);
             if (firstTwo.length < 2) return null;
-            return firstTwo.reduce((acc, sel) => acc * Number(sel.odds || 1), 1);
+            return firstTwo.reduce((acc, sel) => acc * exactDecimalForLeg(sel?.odds), 1);
         }
         return null;
     }, [normalizedMode, selections, legCount]);
@@ -696,7 +716,7 @@ const ModeBetPanel = ({
             const visit = (start, acc) => {
                 if (acc.length === k) {
                     let combined = 1;
-                    for (const idx of acc) combined *= Number(selections[idx]?.odds || 0);
+                    for (const idx of acc) combined *= exactDecimalForLeg(selections[idx]?.odds);
                     total += roundRobinStakePerParlay * combined;
                     return;
                 }
@@ -795,18 +815,23 @@ const ModeBetPanel = ({
         }
         if (effectiveCombinedRisk <= 0) return 0;
         if (normalizedMode === 'parlay') {
-            const combined = selections.reduce((acc, sel) => acc * Number(sel.odds || 1), 1);
+            // Snap each leg's decimal through American int (matches
+            // resolveStake's basis and the backend's exactDecimalForSelection).
+            // Raw-decimal multiplication previously made Win read $997
+            // for a typed $1000 because Risk used American int but
+            // payout used raw decimals.
+            const combined = selections.reduce((acc, sel) => acc * exactDecimalForLeg(sel?.odds), 1);
             return effectiveCombinedRisk * combined;
         }
         if (normalizedMode === 'teaser') {
             return effectiveCombinedRisk * getTeaserMultiplier(rule, legCount);
         }
         if (normalizedMode === 'if_bet') {
-            const firstTwo = selections.slice(0, 2).reduce((acc, sel) => acc * Number(sel.odds || 1), 1);
+            const firstTwo = selections.slice(0, 2).reduce((acc, sel) => acc * exactDecimalForLeg(sel?.odds), 1);
             return effectiveCombinedRisk * firstTwo;
         }
         if (normalizedMode === 'reverse') {
-            const firstTwo = selections.slice(0, 2).reduce((acc, sel) => acc * Number(sel.odds || 1), 1);
+            const firstTwo = selections.slice(0, 2).reduce((acc, sel) => acc * exactDecimalForLeg(sel?.odds), 1);
             return effectiveCombinedRisk * firstTwo * 2;
         }
         if (normalizedMode === 'round_robin') {
