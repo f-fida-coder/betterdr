@@ -201,9 +201,14 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
     // Icon cells are dark navy, balance cell is muted gray and flex-grows
     // to fill the middle. Each cell ≥44px tap target on the icon side; the
     // balance cell is informational and not interactive.
+    // Fixed width on all four icon cells (Sports / Menu / Betslip / Account)
+    // so they read as a uniform set. Without an explicit width the Betslip
+    // cell sized to its inner white circle and looked narrower than the
+    // others — locking width: 64 makes them all visually identical
+    // regardless of inner content.
     const mhCellBtnStyle = {
         flex: '0 0 auto',
-        minWidth: 56,
+        width: 64,
         minHeight: 64,
         padding: '6px 6px',
         background: '#595959',
@@ -479,18 +484,16 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
                     >
                         <div style={mhBalanceRowStyle}>
                             <span style={mhBalanceHeroLabelStyle}>Balance</span>
-                            <span style={{ ...mhBalanceHeroValueStyle, color: '#ffffff' }}>
+                            <span style={{ ...mhBalanceHeroValueStyle, color: balanceSignColor(balance) }}>
                                 {formatBalanceCell(balance)}
                             </span>
                         </div>
-                        <div style={mhBalanceRowDividerStyle} aria-hidden="true" />
                         <div style={mhBalanceRowStyle}>
                             <span style={mhBalanceHeroLabelStyle}>Pending</span>
                             <span style={{ ...mhBalanceHeroValueStyle, color: '#ffffff' }}>
                                 {formatBalanceCell(pendingBalance)}
                             </span>
                         </div>
-                        <div style={mhBalanceRowDividerStyle} aria-hidden="true" />
                         <div style={mhBalanceRowStyle}>
                             <span style={mhBalanceHeroLabelStyle}>Available</span>
                             <span style={{ ...mhBalanceHeroValueStyle, color: '#ffffff' }}>

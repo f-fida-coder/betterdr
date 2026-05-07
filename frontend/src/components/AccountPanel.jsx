@@ -682,7 +682,7 @@ const AccountPanel = ({
                             gap: 8,
                         }}>
                             {[
-                                { label: 'Balance', value: `$${formatMoney(balance)}` },
+                                { label: 'Balance', value: `$${formatMoney(balance)}`, numeric: Number(balance) || 0 },
                                 // Pending is wired as a button: tapping navigates
                                 // to My Bets → Pending tab so the user can drill
                                 // straight from "I have $780 at risk" to the
@@ -692,14 +692,15 @@ const AccountPanel = ({
                                 {
                                     label: 'Pending',
                                     value: `$${formatMoney(pending)}`,
+                                    numeric: Number(pending) || 0,
                                     onTap: () => {
                                         setMyBetsInitialFilter('pending');
                                         onClose?.();
                                         onViewChange?.('my-bets');
                                     },
                                 },
-                                { label: 'Freeplay', value: `$${formatMoney(freeplay)}` },
-                                { label: 'Available', value: `$${formatMoney(headerAvailable)}` },
+                                { label: 'Freeplay', value: `$${formatMoney(freeplay)}`, numeric: Number(freeplay) || 0 },
+                                { label: 'Available', value: `$${formatMoney(headerAvailable)}`, numeric: Number(headerAvailable) || 0 },
                             ].map((card) => {
                                 const cardStyle = {
                                     display: 'flex',
@@ -724,12 +725,21 @@ const AccountPanel = ({
                                         letterSpacing: '0.06em',
                                     }}>{card.label}</span>
                                 );
+                                // Sign-based color so the player reads the
+                                // number's meaning at a glance: red for owed
+                                // (negative balance / settle-down position),
+                                // green for ahead, neutral primary at zero.
+                                const valueColor = card.numeric > 0
+                                    ? '#16a34a'
+                                    : card.numeric < 0
+                                        ? '#dc2626'
+                                        : palette.textPrimary;
                                 const valueEl = (
                                     <strong style={{
                                         fontSize: 18,
                                         lineHeight: 1.1,
                                         fontWeight: 800,
-                                        color: palette.textPrimary,
+                                        color: valueColor,
                                         fontVariantNumeric: 'tabular-nums',
                                     }}>{card.value}</strong>
                                 );
