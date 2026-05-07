@@ -32,6 +32,15 @@ final class BetsController
             $this->getSettleEligibility();
             return true;
         }
+        // Self-healing endpoint for stuck-pending bets — used when the
+        // odds feed posted final scores but never flipped a match's
+        // `status` to `finished`, leaving the leg (and its parlay) stuck
+        // pending forever. Scans the caller's pending bets, force-flips
+        // any provably-finished matches, and runs settlement on them.
+        if ($path === '/api/bets/regrade-stuck' && $method === 'POST') {
+            $this->regradeStuckBets();
+            return true;
+        }
         // GET /api/bets/group/{24-hex}/children — lazy-loaded child
         // parlays for a Round Robin group. The group row in getMyBets
         // returns just metadata (sizes, parlayCount, totals) so the
@@ -931,6 +940,117 @@ final class BetsController
         return BetSettlementService::settleMatch($this->db, $matchId, $manualWinner, $settledBy);
     }
 
+    /**
+     * Self-healing pass for stuck-pending bets. The normal settlement
+     * pipeline only runs on matches whose `status` field is one of
+     * `finished` / `canceled` / `expired` (per SportsMatchStatus::
+     * effectiveStatus). When the upstream odds feed posts final scores
+     * but never flips that status field — a real edge case we've seen on
+     * several feeds — the legs and the parent parlay stay pending
+     * forever, surfacing as a stuck Pending balance in the header.
+     *
+     * This endpoint walks the caller's own pending bets, identifies
+     * matches that are *provably* over (have non-zero scores AND start
+     * time was at least the minimum game duration ago AND haven't been
+     * touched by the sync feed for ≥30 min) and force-flips their
+     * status to `finished`, then runs the regular settlement service so
+     * legs grade and parlays resolve.
+     *
+     * Auth-gated to the calling user only — never escalates to other
+     * users' bets, so safe to call from the player UI.
+     */
+    private function regradeStuckBets(): void
+    {
+        try {
+            $actor = $this->protect();
+            if ($actor === null) {
+                return;
+            }
+            $userId = (string) $actor['id'];
+
+            $pendingBets = $this->db->findMany('bets', [
+                'userId' => SqlRepository::id($userId),
+                'status' => 'pending',
+            ], ['projection' => ['id' => 1, 'matchId' => 1, 'selections' => 1], 'limit' => 200]);
+
+            $matchIds = [];
+            foreach ($pendingBets as $bet) {
+                $top = (string) ($bet['matchId'] ?? '');
+                if ($top !== '' && preg_match('/^[a-f0-9]{24}$/i', $top) === 1) {
+                    $matchIds[$top] = true;
+                }
+                if (is_array($bet['selections'] ?? null)) {
+                    foreach ($bet['selections'] as $sel) {
+                        if (!is_array($sel)) continue;
+                        $mid = (string) ($sel['matchId'] ?? '');
+                        if ($mid !== '' && preg_match('/^[a-f0-9]{24}$/i', $mid) === 1) {
+                            $matchIds[$mid] = true;
+                        }
+                    }
+                }
+            }
+
+            $now = time();
+            $forced = [];
+            $alreadyDone = [];
+            $notDone = [];
+
+            foreach (array_keys($matchIds) as $mid) {
+                $match = $this->db->findOne('matches', ['id' => SqlRepository::id($mid)]);
+                if ($match === null) continue;
+                $effective = SportsMatchStatus::effectiveStatus($match, $now);
+                if (in_array($effective, ['finished', 'canceled', 'expired'], true)) {
+                    $alreadyDone[] = $mid;
+                    continue;
+                }
+
+                if (BetSettlementService::looksProvablyFinished($match, $now)) {
+                    // All three signals (score posted, started long enough
+                    // ago, feed has gone quiet) agree the game is over —
+                    // force-finish and let settlement do the rest. Same
+                    // criteria the on-read sweep uses, so a player calling
+                    // this endpoint can't trigger anything more aggressive
+                    // than what runs automatically.
+                    $this->db->updateOne('matches', ['id' => SqlRepository::id($mid)], [
+                        'status' => 'finished',
+                        'updatedAt' => SqlRepository::nowUtc(),
+                        'autoFinishedReason' => 'stuck-pending-heal',
+                    ]);
+                    BetSettlementService::settleMatch($this->db, $mid, null, 'stuck-heal');
+                    $forced[] = $mid;
+                    Logger::info('regraded stuck match (manual)', [
+                        'userId' => $userId,
+                        'matchId' => $mid,
+                    ], 'bets');
+                } else {
+                    $startTs = strtotime((string) ($match['startTime'] ?? '')) ?: 0;
+                    $lastUpdatedRaw = (string) (($match['lastUpdated'] ?? '') ?: ($match['updatedAt'] ?? ''));
+                    $lastUpdatedTs = $lastUpdatedRaw !== '' ? (strtotime($lastUpdatedRaw) ?: 0) : 0;
+                    $homeScore = (float) ($match['score']['score_home'] ?? 0);
+                    $awayScore = (float) ($match['score']['score_away'] ?? 0);
+                    $hasScore = ($homeScore + $awayScore) > 0;
+                    $longEnoughAgo = $startTs > 0 && ($now - $startTs) >= 90 * 60;
+                    $notDone[] = [
+                        'matchId' => $mid,
+                        'reason' => !$hasScore ? 'no-score-yet'
+                            : (!$longEnoughAgo ? 'started-too-recently'
+                            : 'feed-still-syncing'),
+                    ];
+                }
+            }
+
+            Response::json([
+                'pendingBetsScanned' => count($pendingBets),
+                'matchesScanned' => count($matchIds),
+                'forcedFinished' => $forced,
+                'alreadyFinal' => $alreadyDone,
+                'stillPending' => $notDone,
+            ]);
+        } catch (Throwable $e) {
+            Response::json(['message' => $e->getMessage() ?: 'Error regrading stuck bets'], 500);
+        }
+    }
+
     private function getLegResult(array $leg, array $matchData, ?string $manualWinner, bool $isFinished, float $scoreHome, float $scoreAway, float $totalScore): string
     {
         $selection = (string) ($leg['selection'] ?? '');
@@ -1090,6 +1210,65 @@ final class BetsController
                 Logger::warn('on-read settlement sweep failed', [
                     'userId' => $userId,
                     'error' => $sweepErr->getMessage(),
+                ], 'bets');
+            }
+
+            // Pending-balance reconciler. The Pending header in the UI
+            // reads `users.pendingBalance`, which is incremented at
+            // placement and decremented at settlement inside DB
+            // transactions. Across edge cases (canceled placements,
+            // partial old data, manual edits) it can drift away from
+            // the true sum of riskAmount across pending bets — surfacing
+            // as a "stuck $4 pending" header even after every bet has
+            // settled. This recomputes from scratch and writes back if
+            // the cached aggregate disagrees with truth by ≥ $1.
+            // Throttled to once per user per 60 s so a fast-refresh
+            // client doesn't hammer the SUM query.
+            try {
+                $reconcileKey = 'pendrec:' . $userId;
+                $recent = SharedFileCache::get($throttleNs, $reconcileKey, 60);
+                if ($recent === null) {
+                    $pendingBets = $this->db->findMany('bets', [
+                        'userId' => SqlRepository::id($userId),
+                        'status' => 'pending',
+                    ], ['projection' => ['riskAmount' => 1, 'amount' => 1, 'freeplayAmountUsed' => 1, 'isFreeplay' => 1]]);
+                    $expectedPending = 0.0;
+                    foreach ($pendingBets as $pb) {
+                        // Mirror placement-time logic: only the real-balance
+                        // portion of a bet sits in pendingBalance — freeplay
+                        // dollars never touched it. Pure-freeplay tickets
+                        // contribute zero to expected pending.
+                        $risk = (float) ($pb['riskAmount'] ?? $pb['amount'] ?? 0);
+                        $fpUsed = (float) ($pb['freeplayAmountUsed'] ?? (!empty($pb['isFreeplay']) ? $risk : 0));
+                        $real = max(0.0, $risk - $fpUsed);
+                        $expectedPending += $real;
+                    }
+                    $expectedPending = (float) round($expectedPending);
+                    // Re-fetch the user — the settlement sweep above may
+                    // have just decremented pendingBalance, and `$user`
+                    // from $this->protect() is the pre-sweep snapshot. A
+                    // stale read would trigger an unnecessary write race.
+                    $freshUser = $this->db->findOne('users', ['id' => SqlRepository::id($userId)], [
+                        'projection' => ['pendingBalance' => 1],
+                    ]);
+                    $currentPending = (float) round((float) ($freshUser['pendingBalance'] ?? 0));
+                    if (abs($expectedPending - $currentPending) >= 1.0) {
+                        $this->db->updateOne('users', ['id' => SqlRepository::id($userId)], [
+                            'pendingBalance' => $expectedPending,
+                            'updatedAt' => SqlRepository::nowUtc(),
+                        ]);
+                        Logger::info('pending balance reconciled on read', [
+                            'userId' => $userId,
+                            'before' => $currentPending,
+                            'after' => $expectedPending,
+                        ], 'bets');
+                    }
+                    SharedFileCache::put($throttleNs, $reconcileKey, ['at' => time()]);
+                }
+            } catch (Throwable $reconErr) {
+                Logger::warn('pending balance reconcile failed', [
+                    'userId' => $userId,
+                    'error' => $reconErr->getMessage(),
                 ], 'bets');
             }
 

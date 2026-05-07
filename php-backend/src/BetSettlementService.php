@@ -153,11 +153,21 @@ final class BetSettlementService
                                 $row['updatedAt'] = $now;
                                 if ($resolvedStatus !== 'pending') {
                                     $row['settledAt'] = $now;
+                                    // Stash the final scores on the leg so the
+                                    // My Bets per-leg detail panel can show
+                                    // "Lost (Houston Rockets 99 — Los Angeles
+                                    // Lakers 105)" without a separate fetch.
+                                    // Match.score is the live score doc; once
+                                    // the match is finished it's the final.
+                                    $row['finalHomeScore'] = self::num($match['score']['score_home'] ?? 0);
+                                    $row['finalAwayScore'] = self::num($match['score']['score_away'] ?? 0);
                                 }
                                 $db->updateOne('betselections', ['id' => SqlRepository::id((string) ($row['id'] ?? ''))], [
                                     'status' => $resolvedStatus,
                                     'updatedAt' => $row['updatedAt'],
                                     'settledAt' => $row['settledAt'] ?? null,
+                                    'finalHomeScore' => $row['finalHomeScore'] ?? null,
+                                    'finalAwayScore' => $row['finalAwayScore'] ?? null,
                                 ]);
                                 $selectionDirty = true;
                             }
@@ -185,6 +195,27 @@ final class BetSettlementService
                     // time so balance reads identical everywhere downstream
                     // (header, transaction list, agent figures).
                     $ticketPayout = (float) round(self::num($evaluation['payout'] ?? 0));
+
+                    // Honor the placement-time pinned payout for fully-won
+                    // tickets so a player who typed "Win $1,000" gets exactly
+                    // $1,000 instead of $999/$1,001 from combined-odds
+                    // recompute drift. Mirrors the ±$2 win-mode pin in
+                    // BetsController::placeBet so settlement matches the
+                    // amount the player saw and accepted. Reads
+                    // `acceptedPayout` first (the placement-pinned value
+                    // stashed by line 237 below; survives re-grades that
+                    // overwrite `potentialPayout`) and falls back to
+                    // `potentialPayout` for first-time settlements before
+                    // `acceptedPayout` was populated. Skipped when a leg
+                    // pushes — the parlay reduces and the new payout is
+                    // intentionally different from the accepted value, so the
+                    // diff exceeds tolerance and we keep the recomputed value.
+                    if ($ticketStatus === 'won') {
+                        $pinnedPayout = (float) round(self::num($bet['acceptedPayout'] ?? $bet['potentialPayout'] ?? 0));
+                        if ($pinnedPayout > 0 && abs($pinnedPayout - $ticketPayout) <= 2.0) {
+                            $ticketPayout = $pinnedPayout;
+                        }
+                    }
 
                     if ($ticketStatus === 'pending') {
                         $db->updateOne('bets', ['id' => SqlRepository::id($betId)], [
@@ -412,7 +443,7 @@ final class BetSettlementService
             }
         }
 
-        $summary = ['matchesChecked' => 0, 'matchesSettled' => 0, 'betsSettled' => 0, 'errors' => 0, 'matchIds' => array_keys($matchIds)];
+        $summary = ['matchesChecked' => 0, 'matchesSettled' => 0, 'betsSettled' => 0, 'errors' => 0, 'matchIds' => array_keys($matchIds), 'stuckHealed' => 0];
         foreach (array_keys($matchIds) as $matchId) {
             try {
                 $match = $db->findOne('matches', ['id' => SqlRepository::id($matchId)]);
@@ -420,7 +451,34 @@ final class BetSettlementService
                 $summary['matchesChecked']++;
                 $annotated = SportsMatchStatus::annotate($match);
                 $status = (string) ($annotated['status'] ?? '');
-                if (!in_array($status, ['finished', 'canceled', 'expired'], true)) continue;
+                if (!in_array($status, ['finished', 'canceled', 'expired'], true)) {
+                    // Stuck-match heal: the upstream feed sometimes posts
+                    // final scores but never flips event_status to
+                    // FINAL/COMPLETE, leaving the match permanently in
+                    // `live`/`scheduled` and every dependent leg stuck
+                    // pending forever. Detect that with three independent
+                    // signals — non-zero score, started ≥90 min ago, and
+                    // no sync touch for ≥30 min — and force-finish so
+                    // settlement can run. All three must agree to avoid
+                    // misclassifying a live game whose score is in flux.
+                    if (self::looksProvablyFinished($match)) {
+                        $db->updateOne('matches', ['id' => SqlRepository::id($matchId)], [
+                            'status' => 'finished',
+                            'updatedAt' => SqlRepository::nowUtc(),
+                            'autoFinishedReason' => 'stuck-pending-heal',
+                        ]);
+                        $summary['stuckHealed']++;
+                        Logger::info('auto-healed stuck match before settle', [
+                            'userId' => $userId,
+                            'matchId' => $matchId,
+                            'startTime' => $match['startTime'] ?? null,
+                            'lastUpdated' => ($match['lastUpdated'] ?? null) ?: ($match['updatedAt'] ?? null),
+                            'score' => $match['score'] ?? null,
+                        ], 'bets');
+                    } else {
+                        continue;
+                    }
+                }
                 $result = self::settleMatch($db, $matchId, null, $settledBy);
                 if (((int) ($result['total'] ?? 0)) > 0) {
                     $summary['matchesSettled']++;
@@ -431,6 +489,30 @@ final class BetSettlementService
             }
         }
         return $summary;
+    }
+
+    /**
+     * Three-signal check that a match is over even though its `status`
+     * field hasn't been flipped to `finished` by the upstream feed.
+     * Conservative on purpose — every signal must agree, otherwise we
+     * risk grading a live game whose score is still moving. Used by both
+     * the on-read settlement sweep and the manual /api/bets/regrade-stuck
+     * endpoint so the heal criteria are identical in both paths.
+     */
+    public static function looksProvablyFinished(array $match, ?int $nowTs = null): bool
+    {
+        $now = $nowTs ?? time();
+        $startTs = strtotime((string) ($match['startTime'] ?? '')) ?: 0;
+        $lastUpdatedRaw = (string) (($match['lastUpdated'] ?? '') ?: ($match['updatedAt'] ?? ''));
+        $lastUpdatedTs = $lastUpdatedRaw !== '' ? (strtotime($lastUpdatedRaw) ?: 0) : 0;
+        $homeScore = self::num($match['score']['score_home'] ?? 0);
+        $awayScore = self::num($match['score']['score_away'] ?? 0);
+        $hasScore = ($homeScore + $awayScore) > 0;
+        $minGameSeconds = 90 * 60;   // 90 min — shortest realistic game length
+        $staleSeconds   = 30 * 60;   // 30 min since last sync touch
+        $longEnoughAgo  = $startTs > 0 && ($now - $startTs) >= $minGameSeconds;
+        $feedQuiet      = $lastUpdatedTs > 0 && ($now - $lastUpdatedTs) >= $staleSeconds;
+        return $hasScore && $longEnoughAgo && $feedQuiet;
     }
 
     public static function settlePendingMatches(SqlRepository $db, int $limit = 250, string $settledBy = 'system'): array

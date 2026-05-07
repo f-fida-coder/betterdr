@@ -396,12 +396,7 @@
 .my-bets-table-row.expandable.expanded,
 .my-bets-table-row.expandable.expanded:hover,
 .my-bets-table-row.expandable.expanded:focus-visible {
-  background: #595959;
-  color: #ffffff;
-}
-.my-bets-table-row.expandable.expanded .my-bets-table-col-desc,
-.my-bets-table-row.expandable.expanded .my-bets-table-leg-text {
-  color: #ffffff;
+  background: #e8e8e8;
 }
 .my-bets-table-row.expandable:focus-visible {
   outline: 2px solid #6366f1;
@@ -432,6 +427,25 @@
   padding: 12px 14px 14px 38px;
   font-size: 13px;
   color: #0f172a;
+}
+
+/* Per-leg drill-down panel rendered under an expanded leg inside a
+   multi-leg ticket. Slightly deeper left padding so the rows hang
+   under the leg's logo column rather than the ticket's outer edge,
+   making the parent/leg hierarchy obvious at a glance. */
+.my-bets-table-leg-details {
+  background: #f8fafc;
+  padding: 12px 14px 14px 56px;
+  font-size: 13px;
+  color: #0f172a;
+  border-top: 1px solid var(--bg-light-alt);
+  border-bottom: 1px solid var(--bg-light-alt);
+}
+
+@media (max-width: 600px) {
+  .my-bets-table-leg-details {
+    padding-left: 36px;
+  }
 }
 
 .my-bets-details-grid {
@@ -511,6 +525,22 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* Per-leg result letter rendered inline next to the leg description on
+   settled multi-leg tickets — green W for a leg that won, red L for a
+   leg that lost, muted P for a push/void. Unsettled (pending) legs
+   render no letter so the row stays uncluttered until grading. */
+.my-bets-table-leg-status {
+  display: inline-block;
+  margin-left: 6px;
+  font-weight: 800;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+}
+.my-bets-table-leg-status.won { color: #16a34a; }
+.my-bets-table-leg-status.lost { color: #dc2626; }
+.my-bets-table-leg-status.void { color: #64748b; }
 
 .my-bets-table-col-risk {
   color: #dc2626;

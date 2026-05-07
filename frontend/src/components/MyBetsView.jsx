@@ -317,6 +317,69 @@ const ticketTypeLabel = (bet) => {
     return 'Straight';
 };
 
+// Player-friendly market label for a single leg, used in the per-leg
+// drill-down panel. Mirrors the badge shorthand sportsbooks show on
+// settled tickets (Game Spread / Total / Moneyline) so the player
+// sees the same wording across the platform.
+const legMarketLabel = (leg) => {
+    const market = String(leg?.marketType || '').toLowerCase();
+    if (market === 'spreads') return 'Game Spread';
+    if (market === 'totals') return 'Total';
+    if (market === 'h2h' || market === 'moneyline' || market === 'ml') return 'Moneyline';
+    return market ? market.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : 'Pick';
+};
+
+// Per-leg detail panel rendered under an expanded leg row inside a
+// multi-leg ticket. Shows the same fields a sportsbook receipt prints
+// for each leg: status (with final score so the player can confirm
+// "we covered" / "we missed by 3"), the matchup, the market and
+// scheduled tip-off, the parent ticket's accepted-at timestamp, plus
+// any settlement note (e.g. push reason). Fields fall back gracefully
+// when older data shapes are missing fields so the panel stays useful
+// for legacy tickets too.
+const LegDetailsPanel = ({ leg, parentBet }) => {
+    const status = normalizeStatus(leg?.status);
+    const home = String(leg?.matchSnapshot?.homeTeam || '').trim();
+    const away = String(leg?.matchSnapshot?.awayTeam || '').trim();
+    const homeScore = Number(leg?.finalHomeScore);
+    const awayScore = Number(leg?.finalAwayScore);
+    const hasScore = Number.isFinite(homeScore) && Number.isFinite(awayScore)
+        && (homeScore > 0 || awayScore > 0 || ['won', 'lost', 'void'].includes(status));
+    const statusWord = status === 'won' ? 'Won'
+        : status === 'lost' ? 'Lost'
+        : status === 'void' ? 'Pushed'
+        : 'Pending';
+    const scoreLine = hasScore && home && away
+        ? `${statusWord} (${home} ${homeScore} — ${away} ${awayScore})`
+        : statusWord;
+
+    const matchup = home && away ? `${away} @ ${home}` : null;
+    const scheduled = leg?.matchSnapshot?.startTime ? formatTimestamp(leg.matchSnapshot.startTime) : null;
+    const accepted = parentBet?.createdAt ? formatTimestamp(parentBet.createdAt) : null;
+    const note = leg?.note ? String(leg.note).trim() : '';
+
+    const rows = [];
+    rows.push(['Status', scoreLine]);
+    if (matchup) rows.push(['Game', matchup]);
+    rows.push(['Selection', legMarketLabel(leg)]);
+    if (scheduled) rows.push(['Scheduled', scheduled]);
+    if (accepted) rows.push(['Accepted', accepted]);
+    if (note) rows.push(['Note', note]);
+
+    return (
+        <div className="my-bets-table-leg-details" role="region" aria-label="Leg details">
+            <dl className="my-bets-details-grid">
+                {rows.map(([label, value]) => (
+                    <div className="my-bets-details-row" key={label}>
+                        <dt>{label}</dt>
+                        <dd>{value}</dd>
+                    </div>
+                ))}
+            </dl>
+        </div>
+    );
+};
+
 // Detail panel rendered under an expanded ticket row. Pulls fields
 // straight off the bet — no extra fetch — so it doesn't change the
 // network shape and renders instantly. Cells fall back to "—" rather
@@ -387,6 +450,11 @@ const WEEK_OPTIONS = [
 // and the Risk column visibility change.
 const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending' }) => {
     const [expandedBetId, setExpandedBetId] = useState(null);
+    // Per-leg drill-down state — separate from `expandedBetId` so a leg's
+    // detail panel can be toggled independently of the parent parlay's
+    // details. Keyed by `${betId}::${legIdx}` so multiple legs across
+    // multiple tickets can be open at the same time without collisions.
+    const [expandedLegs, setExpandedLegs] = useState(() => new Set());
     // Per-group child cache. Populated on first expand of a Round
     // Robin row; subsequent expands of the same group serve from
     // cache. Keyed by groupId so different groups don't collide.
@@ -394,6 +462,12 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending' }) => {
     const [roundRobinChildren, setRoundRobinChildren] = useState({});
 
     const toggleExpanded = (id) => setExpandedBetId((cur) => (cur === id ? null : id));
+    const toggleExpandedLeg = (betId, legIdx) => setExpandedLegs((prev) => {
+        const next = new Set(prev);
+        const key = `${betId}::${legIdx}`;
+        if (next.has(key)) next.delete(key); else next.add(key);
+        return next;
+    });
 
     // Kicked off when a Round Robin row gets expanded for the first
     // time. No-op when the cache already has the group (or a fetch is
@@ -574,30 +648,44 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending' }) => {
                                 const legLogo = legTeam
                                     ? (teamLogos[legTeam] || createFallbackTeamLogoDataUri(legTeam))
                                     : null;
+                                const legStatus = normalizeStatus(leg?.status);
+                                const legStatusLetter = legStatus === 'won' ? 'W'
+                                    : legStatus === 'lost' ? 'L'
+                                    : legStatus === 'void' ? 'P'
+                                    : '';
+                                const legKey = `${betId}::${idx}`;
+                                const isLegExpanded = expandedLegs.has(legKey);
                                 return (
-                                    <div
-                                        key={`${betId}-leg-${idx}`}
-                                        className="my-bets-table-row leg expandable"
-                                        role="button"
-                                        tabIndex={0}
-                                        onClick={() => toggleExpanded(betId)}
-                                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleExpanded(betId); } }}
-                                    >
-                                        <span className="my-bets-table-col-desc">
-                                            {legLogo && (
-                                                <img
-                                                    src={legLogo}
-                                                    alt=""
-                                                    className="my-bets-table-logo"
-                                                    loading="lazy"
-                                                    onError={(e) => { e.currentTarget.src = createFallbackTeamLogoDataUri(legTeam || ''); }}
-                                                />
-                                            )}
-                                            <span className="my-bets-table-leg-text">{legDescription(leg, oddsFormat)}</span>
-                                        </span>
-                                        {!isGraded && <span className="my-bets-table-col-risk" />}
-                                        <span className="my-bets-table-col-win" />
-                                    </div>
+                                    <React.Fragment key={`${betId}-leg-${idx}`}>
+                                        <div
+                                            className={`my-bets-table-row leg expandable${isLegExpanded ? ' expanded' : ''}`}
+                                            role="button"
+                                            tabIndex={0}
+                                            onClick={() => toggleExpandedLeg(betId, idx)}
+                                            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleExpandedLeg(betId, idx); } }}
+                                        >
+                                            <span className="my-bets-table-col-desc">
+                                                {legLogo && (
+                                                    <img
+                                                        src={legLogo}
+                                                        alt=""
+                                                        className="my-bets-table-logo"
+                                                        loading="lazy"
+                                                        onError={(e) => { e.currentTarget.src = createFallbackTeamLogoDataUri(legTeam || ''); }}
+                                                    />
+                                                )}
+                                                <span className="my-bets-table-leg-text">{legDescription(leg, oddsFormat)}</span>
+                                                {legStatusLetter && (
+                                                    <span className={`my-bets-table-leg-status ${legStatus}`}>{legStatusLetter}</span>
+                                                )}
+                                            </span>
+                                            {!isGraded && <span className="my-bets-table-col-risk" />}
+                                            <span className="my-bets-table-col-win" />
+                                        </div>
+                                        {isLegExpanded && (
+                                            <LegDetailsPanel leg={leg} parentBet={bet} />
+                                        )}
+                                    </React.Fragment>
                                 );
                             })}
                             {isExpanded && (
@@ -612,6 +700,15 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending' }) => {
                 const logoSrc = legTeam
                     ? (teamLogos[legTeam] || createFallbackTeamLogoDataUri(legTeam))
                     : null;
+                // Straight tickets only have one leg, so the parent bet's
+                // status IS the leg's status — drive the W/L/P letter off
+                // the bet itself so a settled straight gets the same green
+                // W / red L / muted P treatment a settled parlay leg gets.
+                const straightStatus = status; // already normalized above
+                const straightStatusLetter = straightStatus === 'won' ? 'W'
+                    : straightStatus === 'lost' ? 'L'
+                    : straightStatus === 'void' ? 'P'
+                    : '';
                 return (
                     <React.Fragment key={betId}>
                         <div
@@ -632,6 +729,9 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending' }) => {
                                     />
                                 )}
                                 <span className="my-bets-table-leg-text">{legDescription(leg, oddsFormat)}</span>
+                                {straightStatusLetter && (
+                                    <span className={`my-bets-table-leg-status ${straightStatus}`}>{straightStatusLetter}</span>
+                                )}
                             </span>
                             {!isGraded && <span className="my-bets-table-col-risk">{money(risk)}</span>}
                             <span className={`my-bets-table-col-win ${winTheme}`}>{winCell}</span>

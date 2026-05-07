@@ -614,6 +614,17 @@ final class SportsbookBetSupport
             'teaserAdjustment' => isset($selection['teaserAdjustment']) && is_numeric($selection['teaserAdjustment']) ? (float) $selection['teaserAdjustment'] : null,
             'status' => $selection['status'] ?? 'pending',
             'matchSnapshot' => $selection['matchSnapshot'] ?? new stdClass(),
+            // Final scores (populated by BetSettlementService when the match
+            // finishes) so the per-leg drill-down can render "Lost (99 — 105)"
+            // without a separate match lookup. Null on pending legs.
+            'finalHomeScore' => isset($selection['finalHomeScore']) && is_numeric($selection['finalHomeScore'])
+                ? (float) $selection['finalHomeScore']
+                : null,
+            'finalAwayScore' => isset($selection['finalAwayScore']) && is_numeric($selection['finalAwayScore'])
+                ? (float) $selection['finalAwayScore']
+                : null,
+            'settledAt' => $selection['settledAt'] ?? null,
+            'note' => isset($selection['note']) ? (string) $selection['note'] : null,
         ];
     }
 
