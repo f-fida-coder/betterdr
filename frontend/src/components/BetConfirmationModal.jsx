@@ -3,9 +3,19 @@ import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { formatOdds } from '../utils/odds';
 import { formatSiteDateTime } from '../utils/timezone';
 
+// Confirmation-modal money formatter — always 2dp with thousands
+// separator. The slip card just below the betslip sheet shows the
+// same shape (PARLAY ODDS · RISK · WIN), so they need to match —
+// integer-rounded values previously hid the float drift between the
+// per-leg-snapped Win basis and the American-int Risk basis (e.g.
+// a typed $1000 win previewed as "$997"). Negative inputs clamp to
+// 0 so a transient potentialPayout < totalRisk during typing can't
+// flash "-0.30".
 const formatAmount = (value) => {
   const n = Number(value);
-  return Number.isFinite(n) ? String(Math.round(n)) : '0';
+  if (!Number.isFinite(n)) return '0.00';
+  const safe = n > 0 ? n : 0;
+  return safe.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
 
 const prettyMode = (mode) => String(mode || 'straight').replace('_', ' ').toUpperCase();

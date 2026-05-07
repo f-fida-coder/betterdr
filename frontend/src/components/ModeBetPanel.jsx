@@ -154,6 +154,21 @@ const formatMoney = (value) => {
     return String(Math.round(n));
 };
 
+// Slip-summary money formatter — always 2dp with thousands separator
+// ($699.30, $1,000.00, $12,345.67). Used for the parlay/teaser/etc.
+// summary card's RISK / WIN readouts where a typed $1000 win must
+// render as exactly "$1,000.00" instead of integer "$997" — the
+// integer rounding hid the per-leg float drift between the
+// American-int Risk basis and the per-leg-snapped Win basis. Negative
+// inputs clamp to 0 so a transient potentialPayout < totalRisk during
+// typing doesn't flash "-0.30".
+const formatMoney2dp = (value) => {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return '0.00';
+    const safe = n > 0 ? n : 0;
+    return safe.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
+
 // Trim trailing zeros: 1.50 -> "1.5", 47.0 -> "47", 47.5 -> "47.5".
 const trimNumber = (n) => {
     if (!Number.isFinite(n)) return '';
@@ -865,10 +880,26 @@ const ModeBetPanel = ({
     // the parlay payout cap so the user sees the same number the book
     // will actually credit.
     const displayWinAmount = useMemo(() => {
-        const rawWin = Math.max(0, potentialPayout - totalRisk);
+        // Win-mode pinning: when the user typed in WIN mode, the
+        // backend pins potentialPayout = totalRisk + requestedWin
+        // within ±$2 (BetsController.php:319-326), so the player is
+        // guaranteed exactly the amount they typed. Display the same
+        // value rather than the back-computed approximation —
+        // floating-point drift between the per-leg snapped decimals
+        // and the rounded-to-2dp Risk previously made a typed $1000
+        // render as $999.79 even though the placed bet pays $1000.
+        // Risk-mode keeps the recompute path because there's no
+        // single user-typed Win to anchor against; we want the
+        // payout based on actual stake × combined odds.
+        let rawWin;
+        if (stakeMode === 'win' && wagerAmount > 0 && legCount > 0 && normalizedMode !== 'straight') {
+            rawWin = wagerAmount;
+        } else {
+            rawWin = Math.max(0, potentialPayout - totalRisk);
+        }
         if (parlayPayoutCap > 0 && rawWin > parlayPayoutCap) return parlayPayoutCap;
         return rawWin;
-    }, [potentialPayout, totalRisk, parlayPayoutCap]);
+    }, [stakeMode, wagerAmount, legCount, normalizedMode, potentialPayout, totalRisk, parlayPayoutCap]);
     // Use the same pool the top bar's AVAILABLE tile shows: creditAvailable
     // for credit accounts, availableBalance for cash accounts. Otherwise the
     // bet-placement guard rejects with "Insufficient balance: $0.00" while
@@ -1705,7 +1736,7 @@ const ModeBetPanel = ({
                                             color: hasExposure ? palette.accent : palette.textFaint,
                                             fontVariantNumeric: 'tabular-nums',
                                         }}>
-                                            ${formatMoney(roundRobinTotalRisk)}
+                                            ${formatMoney2dp(roundRobinTotalRisk)}
                                         </span>
                                     </div>
                                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
@@ -1718,7 +1749,7 @@ const ModeBetPanel = ({
                                             color: maxProfit > 0 ? palette.success : palette.textFaint,
                                             fontVariantNumeric: 'tabular-nums',
                                         }}>
-                                            ${formatMoney(maxProfit)}
+                                            ${formatMoney2dp(maxProfit)}
                                         </span>
                                     </div>
                                 </div>
@@ -2267,7 +2298,7 @@ const ModeBetPanel = ({
                             }}>
                                 <span style={{ fontSize: 10, fontWeight: 700, color: palette.textMuted, textTransform: 'uppercase', letterSpacing: 0.4 }}>Risk:</span>
                                 <span style={{ fontSize: 13, fontWeight: 800, color: totalRisk > 0 ? palette.textPrimary : palette.textFaint, fontVariantNumeric: 'tabular-nums' }}>
-                                    ${formatMoney(totalRisk)}
+                                    ${formatMoney2dp(totalRisk)}
                                 </span>
                             </div>
                             <div style={{
@@ -2282,7 +2313,7 @@ const ModeBetPanel = ({
                             }}>
                                 <span style={{ fontSize: 10, fontWeight: 700, color: palette.textMuted, textTransform: 'uppercase', letterSpacing: 0.4 }}>Win:</span>
                                 <span style={{ fontSize: 13, fontWeight: 800, color: displayWinAmount > 0 ? palette.success : palette.textFaint, fontVariantNumeric: 'tabular-nums' }}>
-                                    ${formatMoney(displayWinAmount)}
+                                    ${formatMoney2dp(displayWinAmount)}
                                 </span>
                             </div>
                         </div>
@@ -2372,14 +2403,14 @@ const ModeBetPanel = ({
                                     </div>
                                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                                         <span style={{ color: palette.textMuted }}>Total Risk</span>
-                                        <strong style={{ fontVariantNumeric: 'tabular-nums' }}>${formatMoney(roundRobinTotalRisk)}</strong>
+                                        <strong style={{ fontVariantNumeric: 'tabular-nums' }}>${formatMoney2dp(roundRobinTotalRisk)}</strong>
                                     </div>
                                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                                         <span style={{ color: palette.textMuted }}>Max Win</span>
                                         <strong style={{
                                             color: roundRobinMaxWin > 0 ? palette.success : palette.textFaint,
                                             fontVariantNumeric: 'tabular-nums',
-                                        }}>${formatMoney(Math.max(0, roundRobinMaxWin - roundRobinTotalRisk))}</strong>
+                                        }}>${formatMoney2dp(Math.max(0, roundRobinMaxWin - roundRobinTotalRisk))}</strong>
                                     </div>
                                 </div>
                             </>
@@ -2511,7 +2542,15 @@ const ModeBetPanel = ({
                 selections={selections}
                 wager={normalizedMode === 'straight' ? straightTotalRisk : effectiveCombinedRisk}
                 totalRisk={totalRisk}
-                potentialPayout={potentialPayout}
+                // Pass the Win-pinned payout (totalRisk + displayWinAmount)
+                // for combined modes so the confirmation modal's
+                // "Win = potentialPayout − totalRisk" line matches what
+                // the slip just showed and what the backend will pay
+                // (BetsController.php:319-326 pins potentialPayout to
+                // totalRisk + requestedWin within ±$2). Otherwise the
+                // modal would re-derive Win from raw potentialPayout
+                // and drift back to $997 on a typed $1000.
+                potentialPayout={normalizedMode === 'straight' ? potentialPayout : (totalRisk + displayWinAmount)}
                 // Per-leg stakes + the user's intended Win for STRAIGHT mode.
                 // Win values come from resolveStake (American-integer math),
                 // not recomputed from rounded decimal odds in the modal — that
