@@ -1,8 +1,4 @@
 import React, { Suspense, useEffect, useState } from 'react';
-// Phase 8: dashboard.css is the largest CSS file (~85 KB) and is only needed
-// once a user is logged in. Importing here (inside the lazy-loaded shell)
-// keeps it out of the public landing-page bundle.
-import '../dashboard.css';
 import DashboardHeader from './DashboardHeader';
 import DashboardSidebar from './DashboardSidebar';
 import DashboardMain from './DashboardMain';

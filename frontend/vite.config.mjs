@@ -4,23 +4,15 @@ import compression from 'vite-plugin-compression'
 import { visualizer } from 'rollup-plugin-visualizer'
 import { constants as zlibConstants } from 'node:zlib'
 
-// Vite's manualChunks + cssCodeSplit emits stylesheet <link> tags in the entry
-// HTML for CSS that belongs to lazy-loaded route chunks (mybets, admin, etc).
-// That's render-blocking on the public landing page even though the JS itself
-// is lazy. Convert those specific links to async preload (`media=print` swap
-// pattern) so they download in parallel with the page paint instead of
-// blocking it. Vite's __vitePreload also loads them when the lazy JS chunk
-// triggers, so navigation to those routes still has the CSS ready.
+// PHASE 7 CSS DEFER PLUGIN DISABLED 2026-05-08: the rel="preload" -> stylesheet
+// swap was suspected of contributing to white-screen-on-login regression.
+// Reverted to vanilla Vite behavior (blocking <link rel=stylesheet>) until
+// a safe CSS-deferral path is validated end-to-end in browser.
 const deferLazyRouteCss = {
   name: 'defer-lazy-route-css',
   enforce: 'post',
   transformIndexHtml(html) {
-    return html.replace(
-      /<link rel="stylesheet"([^>]*?)href="([^"]*-views-[^"]+\.css)"([^>]*)>/g,
-      (_match, pre, href, post) =>
-        `<link rel="preload" as="style"${pre}href="${href}"${post} onload="this.onload=null;this.rel='stylesheet'">` +
-        `<noscript><link rel="stylesheet"${pre}href="${href}"${post}></noscript>`
-    );
+    return html;
   },
 };
 
