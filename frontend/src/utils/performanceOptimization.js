@@ -454,22 +454,9 @@ export function prefetchLikelyRoutes(currentPath) {
  * Reduces DNS lookup latency by 20-50ms per domain.
  */
 export function addAdvancedDnsPrefetch() {
-  const domains = [
-    { href: 'https://api.betterdr.local', rel: 'preconnect' },
-    { href: 'https://cdn.betterdr.local', rel: 'preconnect' },
-    { href: 'https://odds-api.com', rel: 'dns-prefetch' },
-    { href: 'https://analytics.betterdr.local', rel: 'dns-prefetch' }
-  ];
-
-  domains.forEach(domain => {
-    const link = document.createElement('link');
-    link.rel = domain.rel;
-    link.href = domain.href;
-    if (domain.rel === 'preconnect') {
-      link.crossOrigin = 'anonymous';
-    }
-    document.head.appendChild(link);
-  });
+  // All previously listed domains were placeholder/non-existent (.local mDNS
+  // addresses and an unused third-party). Removed to stop the browser from
+  // opening TCP+TLS connections to dead hosts on every page load.
 }
 
 /**
@@ -568,13 +555,11 @@ function reportWebVital(metricName, value, endpoint) {
  * Call from main.jsx at app startup.
  */
 export function initializePhase3AOptimizations() {
-  // Load external presentation assets (fonts, icons)
-  loadExternalPresentationAssets({ immediate: false });
+  // loadExternalPresentationAssets is called by main.jsx with a context-aware
+  // immediate flag before this function runs. The call here was a no-op (the
+  // externalPresentationAssetsQueued guard blocks it) so it is removed.
 
-  // Add DNS prefetch for multiple domains
-  addAdvancedDnsPrefetch();
-
-  // Add resource hints
+  // Add resource hints (dns-prefetch for VITE_API_URL if cross-origin)
   addResourceHints();
 
   // Setup lazy image loading
@@ -592,18 +577,8 @@ export function initializePhase3AOptimizations() {
   // Register Service Worker for offline support
   registerServiceWorker();
 
-  // Prefetch likely routes on navigation
-  const currentPath = window.location.pathname || '/';
-  prefetchLikelyRoutes(currentPath);
-
-  // Setup prefetch on route navigation
-  window.addEventListener('popstate', () => {
-    const newPath = window.location.pathname || '/';
-    prefetchLikelyRoutes(newPath);
-  });
-
   if (import.meta.env.DEV) {
-    console.log('✅ Phase 3A performance optimizations initialized');
+    console.log('Phase 3A performance optimizations initialized');
   }
 }
 

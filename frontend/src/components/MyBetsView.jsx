@@ -5,6 +5,7 @@ import { formatLineValue, formatOdds } from '../utils/odds';
 import { formatSiteDateTime } from '../utils/timezone';
 import { fetchTeamBadgeUrl, createFallbackTeamLogoDataUri } from '../utils/teamLogos';
 import '../mybets.css';
+import { consumeMyBetsInitialFilter } from './myBetsState';
 
 const money = (value) => `$${Math.round(Number(value || 0))}`;
 const moneySigned = (value) => {
@@ -15,16 +16,7 @@ const moneySigned = (value) => {
 };
 const normalizeStatus = (value) => String(value || 'pending').trim().toLowerCase();
 
-// Cross-render handoff: AccountPanel (and the header BALANCE box) sets
-// this before navigating to /my-bets so the view mounts with the
-// requested tab active. A window event would race the listener
-// registration, so we use module state + read on mount.
-let pendingInitialFilter = null;
-export const setMyBetsInitialFilter = (filter) => {
-    if (['pending', 'figures', 'transactions', 'graded', 'won', 'lost', 'void', 'all'].includes(filter)) {
-        pendingInitialFilter = filter;
-    }
-};
+
 
 // Player-facing market label + line for one leg row. Maps the internal
 // market type (h2h / spreads / totals) to the universal sportsbook
@@ -837,8 +829,7 @@ const MyBetsView = () => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [activeTab, setActiveTab] = useState(() => {
-        const initial = pendingInitialFilter;
-        pendingInitialFilter = null;
+        const initial = consumeMyBetsInitialFilter();
         // Legacy filter values redirect to the new 2-tab layout. The
         // standalone "Graded" tab was retired in favour of drilling into
         // a settled day from inside Figures, so any won/lost/void/graded

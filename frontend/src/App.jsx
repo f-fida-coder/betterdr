@@ -22,12 +22,6 @@ import LoadingSpinner from './components/LoadingSpinner';
 import { useToast } from './contexts/ToastContext';
 import { OddsFormatProvider } from './contexts/OddsFormatContext';
 import { normalizeOddsFormat, readStoredOddsFormat, writeStoredOddsFormat } from './utils/odds';
-import {
-  registerServiceWorker,
-  monitorCoreWebVitals,
-  optimizeImageLoading,
-  addResourceHints,
-} from './utils/performanceOptimization';
 import useWebSocket from './hooks/useWebSocket';
 import useNetworkStatus from './hooks/useNetworkStatus';
 import NetworkStatusBanner from './components/NetworkStatusBanner';
@@ -115,24 +109,7 @@ function AppInner() {
     }
   }, [selectedSports, mobileResultsActive]);
 
-  // Phase 13: Initialize performance monitoring and service worker
-  useEffect(() => {
-    // Register service worker for offline support and caching
-    registerServiceWorker();
-    
-    // Monitor Core Web Vitals for performance analysis
-    monitorCoreWebVitals((metric) => {
-      if (import.meta.env.DEV) {
-        console.debug('Performance Metric:', metric);
-      }
-    });
-    
-    // Optimize image loading strategies
-    optimizeImageLoading();
-    
-    // Add DNS prefetch and preconnect hints
-    addResourceHints();
-  }, []);
+
 
   const [user, setUser] = useState(null); // Store full user object
   const [oddsFormat, setOddsFormat] = useState(readStoredOddsFormat());

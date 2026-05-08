@@ -52,6 +52,12 @@ Header always set Cache-Control "public, max-age=31536000, immutable"
 <Files "manifest.json">
 Header always set Cache-Control "public, max-age=86400"
 </Files>
+# Service worker — always revalidate so CACHE_VERSION bumps propagate
+# immediately. no-cache sends a conditional GET (304 if unchanged) rather
+# than a full download, keeping the overhead negligible.
+<Files "sw.js">
+Header always set Cache-Control "no-cache"
+</Files>
 # Make caches/CDNs aware that responses vary by Accept-Encoding.
 Header append Vary "Accept-Encoding"
 </IfModule>

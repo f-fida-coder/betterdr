@@ -4,7 +4,7 @@ import ScoreboardSidebar from './ScoreboardSidebar';
 import SettingsModal from './SettingsModal';
 import PersonalizeSidebar from './PersonalizeSidebar';
 import AccountPanel from './AccountPanel';
-import { setMyBetsInitialFilter } from './MyBetsView';
+import { setMyBetsInitialFilter } from './myBetsState';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 
 const buildRefreshRequestId = () => {

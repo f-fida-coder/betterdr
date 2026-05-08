@@ -4,7 +4,7 @@ import { updateProfile, getStoredAuthToken } from '../api';
 import { useToast } from '../contexts/ToastContext';
 import { SITE_TZ_OPTIONS, getSiteTimezone, setSiteTimezone } from '../utils/timezone';
 import { computeMidQuickStakes } from '../utils/money';
-import { setMyBetsInitialFilter } from './MyBetsView';
+import { setMyBetsInitialFilter } from './myBetsState';
 
 const DEFAULT_QUICK_STAKES = [10, 25, 50, 100];
 // `bet` was removed — it behaved identically to `risk` and confused users

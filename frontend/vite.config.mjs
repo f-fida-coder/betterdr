@@ -137,6 +137,14 @@ export default defineConfig({
           }
           
           // Route-specific chunks (lazy loaded on demand)
+          // ErrorBoundary and LoadingSpinner are imported by both the entry
+          // (main.jsx) and lazy chunks (AdminPanel, UserDashboardShell).
+          // Without an explicit rule Rollup co-locates them in admin-views,
+          // making admin-views a static entry import and putting its CSS in
+          // <head> as a blocking stylesheet. Pin them to utils-shared instead.
+          if (id.includes('ErrorBoundary') || id.includes('LoadingSpinner')) {
+            return 'utils-shared';
+          }
           if (id.includes('Admin')) {
             return 'admin-views';
           }
