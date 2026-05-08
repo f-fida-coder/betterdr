@@ -34,6 +34,7 @@ function UserDashboardShell({
   slipSelections,
   wager,
   teaserPoints,
+  selectedTeaserTypeId,
   betModeRules,
   onLogout,
   onViewChange,
@@ -47,6 +48,7 @@ function UserDashboardShell({
   onSelectionsChange,
   onWagerChange,
   onTeaserPointsChange,
+  onTeaserTypeChange,
   onBetPlaced,
 }) {
   // Mirror DashboardHeader's tabs-bar visibility check so the
@@ -114,6 +116,8 @@ function UserDashboardShell({
                 selectedSports={selectedSports}
                 activeBetMode={betMode}
                 slipSelections={slipSelections}
+                teaserTypeId={selectedTeaserTypeId}
+                teaserRule={betModeRules?.teaser ?? null}
               />
             ) : isMobileViewport ? (
               <DashboardSidebar
@@ -212,6 +216,8 @@ function UserDashboardShell({
           onWagerChange={onWagerChange}
           teaserPoints={teaserPoints}
           onTeaserPointsChange={onTeaserPointsChange}
+          selectedTeaserTypeId={selectedTeaserTypeId}
+          onTeaserTypeChange={onTeaserTypeChange}
           rulesByMode={betModeRules}
           onBetPlaced={onBetPlaced}
         />

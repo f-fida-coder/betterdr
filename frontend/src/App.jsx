@@ -66,6 +66,12 @@ function AppInner() {
   const [slipSelections, setSlipSelections] = useState([]);
   const [wager, setWager] = useState('');
   const [teaserPoints, setTeaserPoints] = useState('');
+  // Picked teaser-type id (e.g. 'standard_6_4'). null until the user
+  // chooses a type from the picker; lifted to App so MobileContentView
+  // can use it to render adjusted spreads in the games board while
+  // ModeBetPanel uses it to drive the slip's payout/labels and to
+  // include teaserTypeId on the placement payload.
+  const [selectedTeaserTypeId, setSelectedTeaserTypeId] = useState(null);
   const [betModeRules, setBetModeRules] = useState(DEFAULT_BET_MODE_RULES);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [showPromo, setShowPromo] = useState(false);
@@ -417,6 +423,7 @@ function AppInner() {
     setSlipSelections([]);
     setWager('');
     setTeaserPoints('');
+    setSelectedTeaserTypeId(null);
     hasRedirectedRole.current = false; // allow redirect again on next login
     clearAuthBootstrapCache();
     invalidateMeCache(activeToken || '');
@@ -452,6 +459,14 @@ function AppInner() {
   const handleBetModeChange = useCallback((mode) => {
     const normalized = normalizeBetMode(mode);
     setBetMode(normalized);
+    // Drop the picked teaser type whenever we switch modes (incl.
+    // teaser→teaser via re-entry). The picker re-renders so the user
+    // makes a fresh choice — avoids carrying a 7/5 selection from
+    // last session into a brand-new slip.
+    if (normalized !== 'teaser') {
+      setSelectedTeaserTypeId(null);
+      setTeaserPoints('');
+    }
   }, []);
 
   const handleHomeClick = useCallback(() => {
@@ -582,6 +597,7 @@ function AppInner() {
             slipSelections={slipSelections}
             wager={wager}
             teaserPoints={teaserPoints}
+            selectedTeaserTypeId={selectedTeaserTypeId}
             betModeRules={currentBetModeRules}
             onLogout={handleLogout}
             onViewChange={handleViewChange}
@@ -595,6 +611,7 @@ function AppInner() {
             onSelectionsChange={setSlipSelections}
             onWagerChange={setWager}
             onTeaserPointsChange={setTeaserPoints}
+            onTeaserTypeChange={setSelectedTeaserTypeId}
             onBetPlaced={handleBetPlaced}
           />
         </Suspense>

@@ -200,6 +200,40 @@ const multiLegLabel = (bet) => {
     return `${noun} - ${count} Teams`;
 };
 
+// Teaser ticket sub-label: when one or more legs pushed (tied on the
+// adjusted line), surface the reduced effective leg count so the
+// player understands why a 4-team teaser graded with the 3-team
+// multiplier. Returns null when the bet had no pushes — caller skips
+// the row to avoid empty space under the parent label.
+const teaserPushSummary = (bet) => {
+    const type = String(bet?.type || '').toLowerCase();
+    if (type !== 'teaser') return null;
+    const legs = Array.isArray(bet?.selections) ? bet.selections : [];
+    if (legs.length === 0) return null;
+    // Hide on pending tickets — final outcome unknown, "reduced to N-team"
+    // and "refunded" wording are both misleading until grading completes.
+    const isPending = normalizeStatus(bet?.status) === 'pending'
+        || legs.some((leg) => normalizeStatus(leg?.status) === 'pending');
+    if (isPending) return null;
+    // Hide on losing tickets — any leg lost means the ticket lost
+    // regardless of pushes, and "reduced to N-team" would mislead the
+    // player into thinking they got the reduced multiplier.
+    const hasLost = legs.some((leg) => normalizeStatus(leg?.status) === 'lost')
+        || normalizeStatus(bet?.status) === 'lost';
+    if (hasLost) return null;
+    const pushCount = legs.filter((leg) => String(leg?.gradeReason || '') === 'push_tie').length;
+    if (pushCount === 0) return null;
+    const wonCount = legs.filter((leg) => normalizeStatus(leg?.status) === 'won').length;
+    const wordPush = pushCount === 1 ? 'push' : 'pushes';
+    if (wonCount < 2) {
+        // Fell below the 2-team minimum — settles as a refund. Match
+        // the backend's evaluateTicket teaser branch which voids the
+        // ticket in this case.
+        return 'Refunded — too many pushes';
+    }
+    return `Reduced to ${wonCount}-team teaser after ${pushCount} ${wordPush}`;
+};
+
 const isMultiLegBet = (bet) => {
     const type = String(bet?.type || '').toLowerCase();
     if (type === 'parlay' || type === 'teaser' || type === 'if_bet' || type === 'reverse' || type === 'round_robin') return true;
@@ -720,6 +754,23 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending' }) => {
                             >
                                 <span className="my-bets-table-col-desc">
                                     {multiLegLabel(bet)}
+                                    {(() => {
+                                        // Reduced-teaser note. Renders only
+                                        // when one or more legs pushed (tie
+                                        // on the adjusted line), so a clean
+                                        // 4-of-4 teaser stays uncluttered.
+                                        const note = teaserPushSummary(bet);
+                                        if (!note) return null;
+                                        return (
+                                            <span style={{
+                                                display: 'block',
+                                                fontSize: 11,
+                                                color: '#a16207',
+                                                fontWeight: 600,
+                                                marginTop: 2,
+                                            }}>{note}</span>
+                                        );
+                                    })()}
                                 </span>
                                 {!isGraded && <span className="my-bets-table-col-risk">{moneyExact(risk)}</span>}
                                 <span className={`my-bets-table-col-win ${winTheme}`}>{winCell}</span>
@@ -730,8 +781,17 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending' }) => {
                                     ? (teamLogos[legTeam] || createFallbackTeamLogoDataUri(legTeam))
                                     : null;
                                 const legStatus = normalizeStatus(leg?.status);
+                                const isPushTie = legStatus === 'void'
+                                    && String(leg?.gradeReason || '') === 'push_tie';
+                                // Distinguish teaser pushes ("PUSH") from
+                                // generic voids ("P"). Backend persists
+                                // gradeReason='push_tie' on legs that
+                                // tied exactly on the adjusted line so
+                                // we can surface the right word here
+                                // without re-deriving from match scores.
                                 const legStatusLetter = legStatus === 'won' ? 'W'
                                     : legStatus === 'lost' ? 'L'
+                                    : isPushTie ? 'PUSH'
                                     : legStatus === 'void' ? 'P'
                                     : '';
                                 const legLive = isLegLive(leg, bet);

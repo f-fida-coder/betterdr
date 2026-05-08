@@ -16,6 +16,7 @@ import {
 import { logoUrlForTeam, fetchTeamBadgeUrl, prewarmTeamBadges } from '../utils/teamLogos';
 import { resolveBroadcast } from '../utils/broadcast';
 import { getSiteTimezone, getSiteTimezoneLabel } from '../utils/timezone';
+import { adjustSpread, teaserSportGroup, teaserPointsForSport } from '../utils/teaserAdjustment';
 import PropBuilderModal from './PropBuilderModal';
 import MatchDetailView from './MatchDetailView';
 import OddsAge from './OddsAge';
@@ -314,7 +315,13 @@ const writeFavoriteIds = (set) => {
     } catch { /* quota / privacy — ignore */ }
 };
 
-const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', slipSelections = [] }) => {
+const MobileContentView = ({
+    selectedSports = [],
+    activeBetMode = 'straight',
+    slipSelections = [],
+    teaserTypeId = null,
+    teaserRule = null,
+}) => {
     const { oddsFormat } = useOddsFormat();
     const normalizedBetMode = normalizeMode(activeBetMode);
     const activeModeLabel = BET_MODE_LABELS[normalizedBetMode] || BET_MODE_LABELS.straight;
@@ -600,6 +607,24 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
     const selectedKeys = React.useMemo(() => {
         return new Set((slipSelections || []).map(sel => selectionKey(sel.matchId, sel.marketType, sel.selection)));
     }, [slipSelections]);
+
+    // Live teaser-line preview. Resolved once at the panel level; each
+    // MatchCard receives a `teaserPoints` number (the points to apply
+    // for THIS match's sport) and renders adjusted spreads/totals
+    // alongside the base lines. Backend re-applies the same math at
+    // placement (SportsbookBetSupport::applyTeaserAdjustment), so the
+    // slip values + grades stay consistent — this is display only.
+    const resolvedTeaserType = React.useMemo(() => {
+        if (normalizedBetMode !== 'teaser' || !teaserTypeId) return null;
+        const types = Array.isArray(teaserRule?.teaserTypes) ? teaserRule.teaserTypes : [];
+        return types.find((t) => t && t.id === teaserTypeId) || null;
+    }, [normalizedBetMode, teaserTypeId, teaserRule]);
+    const teaserPointsForMatch = React.useCallback((match) => {
+        if (!resolvedTeaserType) return 0;
+        const group = teaserSportGroup(match?.sportKey || match?.sport);
+        if (!group) return 0;
+        return teaserPointsForSport(resolvedTeaserType, group);
+    }, [resolvedTeaserType]);
 
     const [favoriteIds, setFavoriteIds] = React.useState(() => readFavoriteIds());
     const toggleFavorite = React.useCallback((matchId) => {
@@ -951,6 +976,7 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
                             visibleMarkets={visibleMarkets}
                             marketCount={marketCount}
                             onToggleFavorite={toggleFavorite}
+                            teaserPoints={teaserPointsForMatch(entry.match)}
                         />
                     );
                 })}
@@ -1015,6 +1041,10 @@ const matchCardSelectionSnapshot = (match, selectedKeys) => {
 const areMatchCardPropsEqual = (prevProps, nextProps) => {
     if (prevProps.oddsFormat !== nextProps.oddsFormat) return false;
     if (prevProps.marketCount !== nextProps.marketCount) return false;
+    // Teaser-points re-render trigger. When the user picks 6→6.5 or
+    // changes type, the resolved points number changes per match and
+    // every spread/total label needs to recompute.
+    if ((prevProps.teaserPoints || 0) !== (nextProps.teaserPoints || 0)) return false;
     if (
         prevProps.visibleMarkets?.showSpread !== nextProps.visibleMarkets?.showSpread ||
         prevProps.visibleMarkets?.showMoneyline !== nextProps.visibleMarkets?.showMoneyline ||
@@ -1029,7 +1059,31 @@ const areMatchCardPropsEqual = (prevProps, nextProps) => {
     return matchCardSignature(prevProps.match) === matchCardSignature(nextProps.match);
 };
 
-const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, visibleMarkets, marketCount, onToggleFavorite }) => {
+const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, visibleMarkets, marketCount, onToggleFavorite, teaserPoints = 0 }) => {
+    // Per-match teaser preview helper. Returns the line number to
+    // display — adjusted when teaserPoints > 0 and the market is
+    // teaser-eligible, otherwise the original. Memoized through the
+    // closure (parent supplies a stable teaserPoints number per match)
+    // so we don't allocate a new helper on every render.
+    const teaserPreview = React.useMemo(() => {
+        const points = Number(teaserPoints) || 0;
+        if (points <= 0) {
+            return {
+                spread: (raw) => raw,
+                total: (raw) => raw,
+            };
+        }
+        return {
+            spread: (raw) => {
+                const adj = adjustSpread({ marketType: 'spreads', point: raw }, points);
+                return adj ? adj.adjustedPoint : raw;
+            },
+            total: (raw, side) => {
+                const adj = adjustSpread({ marketType: 'totals', selection: side, point: raw }, points);
+                return adj ? adj.adjustedPoint : raw;
+            },
+        };
+    }, [teaserPoints]);
     const matchName = `${match.team1} vs ${match.team2}`;
     const blocked = match.isBettable === false;
     const rotationAway = match.rotation?.away;
@@ -1208,8 +1262,11 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                     <OddsCell
                         disabled={blocked || match.odds.spreadAwayPrice === null}
                         selected={isSelected('spreads', match.team1) && !blocked}
-                        main={formatLineValue(match.odds.spreadAwayPoint, { signed: true })}
+                        main={formatLineValue(teaserPreview.spread(match.odds.spreadAwayPoint), { signed: true })}
                         juice={formatOdds(match.odds.spreadAwayPrice, oddsFormat)}
+                        title={teaserPoints > 0 && Number.isFinite(Number(match.odds.spreadAwayPoint))
+                            ? `Was ${formatLineValue(match.odds.spreadAwayPoint, { signed: true })} (teaser +${teaserPoints})`
+                            : undefined}
                         onClick={() => addIfAllowed(match.id, match.team1, 'spreads', match.odds.spreadAwayPrice, matchName, 'Spread', match.odds.spreadAwayPoint)}
                     />
                 )}
@@ -1226,8 +1283,11 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                     <OddsCell
                         disabled={blocked || match.odds.totalOverPrice === null}
                         selected={isSelected('totals', 'Over') && !blocked}
-                        main={match.odds.totalPoint === null ? '—' : `O ${formatLineValue(match.odds.totalPoint)}`}
+                        main={match.odds.totalPoint === null ? '—' : `O ${formatLineValue(teaserPreview.total(match.odds.totalPoint, 'Over'))}`}
                         juice={formatOdds(match.odds.totalOverPrice, oddsFormat)}
+                        title={teaserPoints > 0 && match.odds.totalPoint !== null
+                            ? `Was O ${formatLineValue(match.odds.totalPoint)} (teaser −${teaserPoints})`
+                            : undefined}
                         onClick={() => addIfAllowed(match.id, 'Over', 'totals', match.odds.totalOverPrice, matchName, 'Total', match.odds.totalPoint)}
                     />
                 )}
@@ -1336,8 +1396,11 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                     <OddsCell
                         disabled={blocked || match.odds.spreadHomePrice === null}
                         selected={isSelected('spreads', match.team2) && !blocked}
-                        main={formatLineValue(match.odds.spreadHomePoint, { signed: true })}
+                        main={formatLineValue(teaserPreview.spread(match.odds.spreadHomePoint), { signed: true })}
                         juice={formatOdds(match.odds.spreadHomePrice, oddsFormat)}
+                        title={teaserPoints > 0 && Number.isFinite(Number(match.odds.spreadHomePoint))
+                            ? `Was ${formatLineValue(match.odds.spreadHomePoint, { signed: true })} (teaser +${teaserPoints})`
+                            : undefined}
                         onClick={() => addIfAllowed(match.id, match.team2, 'spreads', match.odds.spreadHomePrice, matchName, 'Spread', match.odds.spreadHomePoint)}
                     />
                 )}
@@ -1354,8 +1417,11 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                     <OddsCell
                         disabled={blocked || match.odds.totalUnderPrice === null}
                         selected={isSelected('totals', 'Under') && !blocked}
-                        main={match.odds.totalPoint === null ? '—' : `U ${formatLineValue(match.odds.totalPoint)}`}
+                        main={match.odds.totalPoint === null ? '—' : `U ${formatLineValue(teaserPreview.total(match.odds.totalPoint, 'Under'))}`}
                         juice={formatOdds(match.odds.totalUnderPrice, oddsFormat)}
+                        title={teaserPoints > 0 && match.odds.totalPoint !== null
+                            ? `Was U ${formatLineValue(match.odds.totalPoint)} (teaser +${teaserPoints})`
+                            : undefined}
                         onClick={() => addIfAllowed(match.id, 'Under', 'totals', match.odds.totalUnderPrice, matchName, 'Total', match.odds.totalPoint)}
                     />
                 )}
