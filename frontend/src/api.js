@@ -856,8 +856,12 @@ export const getUserFigures = async (token, weekOffset = 0) => {
     return response.json();
 };
 
-export const getUserTransactions = async (token, { limit = 50, offset = 0 } = {}) => {
-    const response = await fetch(buildApiUrl('/user/transactions', { limit: String(limit), offset: String(offset) }), {
+export const getUserTransactions = async (token, { limit = 50, offset = 0, weekOffset = 0 } = {}) => {
+    const response = await fetch(buildApiUrl('/user/transactions', {
+        limit: String(limit),
+        offset: String(offset),
+        week_offset: String(weekOffset),
+    }), {
         headers: getHeaders(token),
     });
     if (!response.ok) throw new Error('Failed to fetch transactions');

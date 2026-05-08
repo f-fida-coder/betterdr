@@ -1064,9 +1064,9 @@ const MyBetsView = () => {
                     place instead of cross-referencing two tabs. */}
                 <div className="my-bets-filter-row">
                     {[
-                        { id: 'pending', label: 'Pending' },
-                        { id: 'figures', label: 'Figures' },
-                        { id: 'transactions', label: 'Transactions' },
+                        { id: 'pending', label: 'Pending Bets' },
+                        { id: 'figures', label: 'Weekly Figures' },
+                        { id: 'transactions', label: 'Weekly Transactions' },
                     ].map((option) => (
                         <button
                             key={option.id}
@@ -1278,6 +1278,7 @@ const FiguresTab = ({ gradedBets = [], oddsFormat, teamLogos = {} }) => {
 const PAGE_SIZE = 50;
 
 const TransactionsTab = () => {
+    const [weekOffset, setWeekOffset] = useState(0);
     const [rows, setRows] = useState([]);
     const [offset, setOffset] = useState(0);
     const [hasMore, setHasMore] = useState(false);
@@ -1285,7 +1286,7 @@ const TransactionsTab = () => {
     const [loadingMore, setLoadingMore] = useState(false);
     const [error, setError] = useState(null);
 
-    const loadPage = async (pageOffset, append) => {
+    const loadPage = async (pageOffset, append, week = weekOffset) => {
         const token = localStorage.getItem('token');
         if (!token) {
             setError('Please login to view transactions.');
@@ -1295,7 +1296,7 @@ const TransactionsTab = () => {
         if (append) setLoadingMore(true); else setLoading(true);
         setError(null);
         try {
-            const res = await getUserTransactions(token, { limit: PAGE_SIZE, offset: pageOffset });
+            const res = await getUserTransactions(token, { limit: PAGE_SIZE, offset: pageOffset, weekOffset: week });
             const next = Array.isArray(res?.transactions) ? res.transactions : [];
             setRows((prev) => append ? [...prev, ...next] : next);
             setHasMore(Boolean(res?.hasMore));
@@ -1310,12 +1311,12 @@ const TransactionsTab = () => {
     };
 
     useEffect(() => {
-        void loadPage(0, false);
-    }, []);
+        void loadPage(0, false, weekOffset);
+    }, [weekOffset]);
 
     const handleLoadMore = () => {
         if (loadingMore || !hasMore) return;
-        void loadPage(offset + PAGE_SIZE, true);
+        void loadPage(offset + PAGE_SIZE, true, weekOffset);
     };
 
     const renderDelta = (tx) => {
@@ -1338,6 +1339,19 @@ const TransactionsTab = () => {
 
     return (
         <div className="transactions-tab">
+            <div className="figures-controls">
+                <select
+                    className="figures-week-select"
+                    value={weekOffset}
+                    onChange={(e) => setWeekOffset(Number(e.target.value))}
+                    aria-label="Select week"
+                >
+                    {WEEK_OPTIONS.map((opt) => (
+                        <option key={opt.id} value={opt.id}>{opt.label}</option>
+                    ))}
+                </select>
+            </div>
+
             {loading ? (
                 <div className="my-bets-empty">
                     <div className="my-bets-empty-icon"><i className="fa-solid fa-list"></i></div>
@@ -1350,7 +1364,7 @@ const TransactionsTab = () => {
             ) : rows.length === 0 ? (
                 <div className="my-bets-empty">
                     <div className="my-bets-empty-icon"><i className="fa-solid fa-list"></i></div>
-                    <h3>No transactions yet.</h3>
+                    <h3>No transactions this week.</h3>
                 </div>
             ) : (
                 <>

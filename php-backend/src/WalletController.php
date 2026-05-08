@@ -158,6 +158,18 @@ final class WalletController
             $offsetRaw = isset($_GET['offset']) ? (int) $_GET['offset'] : 0;
             $offset = max(0, $offsetRaw);
 
+            // Tuesday-anchored accounting week (matches /api/user/figures)
+            // so the Transactions tab and Figures tab show the same window
+            // when the player picks a given week.
+            $weekOffset = isset($_GET['week_offset']) ? max(0, min(11, (int) $_GET['week_offset'])) : 0;
+            $today = new DateTimeImmutable('today', new DateTimeZone('UTC'));
+            $todayDow = (int) $today->format('N');
+            $daysFromTue = ($todayDow - 2 + 7) % 7;
+            $weekStart = $today->modify('-' . ($daysFromTue + ($weekOffset * 7)) . ' days');
+            $weekEnd = $weekStart->modify('+7 days'); // exclusive
+            $weekStartIso = $weekStart->format('Y-m-d\TH:i:s\Z');
+            $weekEndIso = $weekEnd->format('Y-m-d\TH:i:s\Z');
+
             // Pull one extra row past `limit` so the client can detect that
             // a "Load More" page exists without a separate count query.
             $userId = SqlRepository::id((string) $actor['id']);
@@ -173,6 +185,7 @@ final class WalletController
                     'casino_bet_debit', 'casino_bet_credit',
                     'bet_placed_admin', 'bet_void_admin', 'fp_bet_void_admin',
                 ]],
+                'createdAt' => ['$gte' => $weekStartIso, '$lt' => $weekEndIso],
             ], [
                 'sort' => ['createdAt' => -1],
                 'limit' => $limit + 1,
