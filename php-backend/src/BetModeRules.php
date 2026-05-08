@@ -41,6 +41,8 @@ final class BetModeRules
                     '6' => 5.0,     // +400
                 ],
             ],
+            'minLegs' => 2,
+            'maxLegs' => 6,
             'isActive' => true,
             'sortOrder' => 1,
         ],
@@ -64,6 +66,8 @@ final class BetModeRules
                     '6' => 4.0,     // +300
                 ],
             ],
+            'minLegs' => 2,
+            'maxLegs' => 6,
             'isActive' => true,
             'sortOrder' => 2,
         ],
@@ -87,29 +91,43 @@ final class BetModeRules
                     '6' => 3.5,     // +250
                 ],
             ],
+            'minLegs' => 2,
+            'maxLegs' => 6,
             'isActive' => true,
             'sortOrder' => 3,
         ],
         [
-            'id' => 'standard_75_55',
-            'label' => '7.5 PT FB / 5.5 PT BK',
-            'description' => 'Sweetheart teaser — Ties Push',
+            'id' => 'super_10_team',
+            'label' => '10 PT FB Super Teaser',
+            'description' => 'Football-only · Ties Lose',
             'pointsBySport' => [
-                'football' => 7.5,
-                'basketball' => 5.5,
+                'football' => 10.0,
+                // Basketball intentionally omitted — Super Teasers are
+                // football-only by industry convention. If basketball
+                // support needed later, add 'basketball' => 8.0 here
+                // and seed appropriate multipliers.
             ],
-            'tiesRule' => 'push',
+            'tiesRule' => 'lose',
             'payoutMode' => 'multiplier',
             'payoutProfile' => [
                 'type' => 'table_multiplier',
                 'multipliers' => [
-                    '2' => 1.66667, // -150
-                    '3' => 1.5,     // -200
-                    '4' => 1.90909, // -110
-                    '5' => 2.2,     // +120
-                    '6' => 2.8,     // +180
+                    // TODO(ops): Industry-standard Super Teaser starting
+                    // pricing — book-favored defaults. Tune via betmoderules
+                    // DB row per your margin model. Reference ranges:
+                    //   3-team:  -120 to -150 (current: -150)
+                    //   4-team:  +110 to +180 (current: +110)
+                    //   5-team:  +160 to +400 (current: +160)
+                    //   6-team:  +250 to +900 (current: +250)
+                    '3' => 1.66667, // -150
+                    '4' => 2.10,    // +110
+                    '5' => 2.60,    // +160
+                    '6' => 3.50,    // +250
+                    // 2-team intentionally omitted — see minLegs below
                 ],
             ],
+            'minLegs' => 3, // Super Teasers restricted to 3+ teams
+            'maxLegs' => 6,
             'isActive' => true,
             'sortOrder' => 4,
         ],

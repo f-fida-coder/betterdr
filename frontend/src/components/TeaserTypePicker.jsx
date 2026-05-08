@@ -16,6 +16,20 @@ const formatTypeSegments = (type) => {
     if (Number.isFinite(fbPts) && fbPts > 0) segs.push(`${fbPts} pts FB`);
     if (Number.isFinite(bkPts) && bkPts > 0) segs.push(`${bkPts} pts BK`);
     segs.push(ties);
+    // Surface a leg-count badge only when the type carries stricter
+    // bounds than the generic teaser rule (2-6). Standard types stay
+    // unbadged because a "2-6 teams" tag on every card adds noise
+    // without information; Super Teasers (3-6) and any future single-
+    // leg-count product (e.g. 4-team-only specials) get the hint.
+    const minLegs = Number(type?.minLegs);
+    const maxLegs = Number(type?.maxLegs);
+    const hasCustomMin = Number.isFinite(minLegs) && minLegs > 2;
+    const hasCustomMax = Number.isFinite(maxLegs) && maxLegs < 6;
+    if (hasCustomMin || hasCustomMax) {
+        const lo = hasCustomMin ? minLegs : 2;
+        const hi = Number.isFinite(maxLegs) ? maxLegs : 6;
+        segs.push(lo === hi ? `${lo} teams` : `${lo}-${hi} teams`);
+    }
     return segs.join(' · ');
 };
 

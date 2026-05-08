@@ -396,8 +396,23 @@ const ModeBetPanel = ({
     // /auth/me payload (e.g. user just saved new defaults in Account)
     // re-seeds the slip mode without forcing a remount.
     const lastBetDefaultsSigRef = useRef('');
+    // First-open-per-session gate for the drawer-open setStakeMode
+    // reset below. Without this, every betslip:open event (including
+    // re-opens after the user closed the slip) would wipe a manual
+    // WIN selection back to the saved default. Reset to false on
+    // bet-mode change and user change so a fresh context picks up the
+    // saved default the first time the slip opens in that context.
+    const slipFirstOpenedRef = useRef(false);
     useEffect(() => {
-        const sig = JSON.stringify(userBetDefaults || {});
+        // Only the saved `mode` field drives defaultStakeMode. Hashing
+        // the whole userBetDefaults object would re-fire the reset on
+        // unrelated profile updates (amount changes, balance refresh
+        // bundles, etc.) and silently snap a manual WIN click back to
+        // the saved default. Narrow the sig so the reset only triggers
+        // when the user actually saves a new mode preference.
+        const sig = JSON.stringify({
+            mode: userBetDefaults?.mode ?? null,
+        });
         if (sig === lastBetDefaultsSigRef.current) return;
         lastBetDefaultsSigRef.current = sig;
         setStakeMode(defaultStakeMode);
@@ -961,6 +976,25 @@ const ModeBetPanel = ({
         if (teaserTypeRequired && !teaserTypeReady) {
             errors.push('Choose a teaser type to continue');
         }
+        // Type-specific leg-count bounds. Surfaces only when the picked
+        // type carries stricter bounds than the rule-level 2/6 above —
+        // Super Teaser starts at 3 because its multiplier table has no
+        // 2-team entry. Mirrors the backend check at BetsController so
+        // Place stays disabled before submit instead of round-tripping
+        // a 400 the user can't act on without re-staging the slip.
+        if (selectedTeaserType) {
+            const typeMin = Number.isFinite(Number(selectedTeaserType?.minLegs))
+                ? Number(selectedTeaserType.minLegs) : null;
+            const typeMax = Number.isFinite(Number(selectedTeaserType?.maxLegs))
+                ? Number(selectedTeaserType.maxLegs) : null;
+            const typeLabel = selectedTeaserType.label || 'Teaser type';
+            if (typeMin !== null && legCount < typeMin) {
+                errors.push(`${typeLabel} requires at least ${typeMin} teams`);
+            }
+            if (typeMax !== null && legCount > typeMax) {
+                errors.push(`${typeLabel} allows at most ${typeMax} teams`);
+            }
+        }
         // Teaser is point-shift only — moneylines have no line to shift,
         // so teaser legs must be spreads or totals exclusively. Blocks
         // accidental teaser tickets that the backend would reject anyway.
@@ -1002,7 +1036,7 @@ const ModeBetPanel = ({
         if (limitFlags.messages.min) errors.push(limitFlags.messages.min);
         if (limitFlags.messages.max) errors.push(limitFlags.messages.max);
         return errors;
-    }, [legCount, normalizedMode, rule, selections, effectiveCombinedRisk, teaserValid, hasAnyStraightAmount, limitFlags, roundRobinSizes, roundRobinStakePerParlay, roundRobinParlayCount, roundRobinMaxParlays, activeTeaserPointOptions, slipTeaserGroups]);
+    }, [legCount, normalizedMode, rule, selections, effectiveCombinedRisk, teaserValid, hasAnyStraightAmount, limitFlags, roundRobinSizes, roundRobinStakePerParlay, roundRobinParlayCount, roundRobinMaxParlays, activeTeaserPointOptions, slipTeaserGroups, selectedTeaserType, teaserTypeRequired, teaserTypeReady]);
 
     const ticketSignature = useMemo(() => JSON.stringify({
         type: normalizedMode,
@@ -1136,13 +1170,30 @@ const ModeBetPanel = ({
             if (defaultStakeAmount > 0 && (wager === '' || wager === null || wager === undefined)) {
                 onWagerChange(String(defaultStakeAmount));
             }
-            // Re-seed the mode whenever the slip opens so the
-            // user's most recently saved default is the one in effect.
-            setStakeMode(defaultStakeMode);
+            // Re-seed the mode only on the FIRST open per session/mode/
+            // user context so a manual WIN click doesn't get nuked when
+            // the user closes-and-reopens the slip. The ref is reset
+            // when normalizedMode or user?.id changes (see the dedicated
+            // effect below) so a context switch still picks up the
+            // saved default on its next first open.
+            if (!slipFirstOpenedRef.current) {
+                slipFirstOpenedRef.current = true;
+                setStakeMode(defaultStakeMode);
+            }
         };
         window.addEventListener('betslip:open', handleOpen);
         return () => window.removeEventListener('betslip:open', handleOpen);
     }, []);
+
+    // Reset the first-open gate on bet-mode change and user change.
+    // Mode change already clears teaser-specific state via the parent's
+    // onModeChange wrapper (selections/teaserTypeId reset there); this
+    // mirrors that for the stake-mode reset so a fresh context behaves
+    // like a fresh session. User change also resets so account switches
+    // (or login after logout) pick up the new user's saved default.
+    useEffect(() => {
+        slipFirstOpenedRef.current = false;
+    }, [normalizedMode, user?.id]);
 
     // External close signal — fired by the top-left header slot when it's
     // showing "← Back" (i.e. the slip is open). Keeping this on a window

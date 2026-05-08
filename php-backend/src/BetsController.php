@@ -296,6 +296,35 @@ final class BetsController
                             ['code' => 'INVALID_TEASER_TYPE', 'teaserTypeId' => $teaserTypeId]
                         );
                     }
+                    // Type-specific leg-count bounds. Stricter than the
+                    // rule-level minLegs/maxLegs (already checked above
+                    // for the teaser mode itself). Super Teasers restrict
+                    // to 3+ legs because their multiplier table starts at
+                    // 3 — without this gate a 2-leg ticket would fall
+                    // through to a missing key in calculatePotentialPayout
+                    // and grade as $0. Names prefixed with `type` to
+                    // avoid shadowing the rule-level $minLegs/$maxLegs.
+                    $typeMinLegs = isset($resolvedTeaserType['minLegs']) && is_numeric($resolvedTeaserType['minLegs'])
+                        ? (int) $resolvedTeaserType['minLegs']
+                        : null;
+                    $typeMaxLegs = isset($resolvedTeaserType['maxLegs']) && is_numeric($resolvedTeaserType['maxLegs'])
+                        ? (int) $resolvedTeaserType['maxLegs']
+                        : null;
+                    $typeLabel = (string) ($resolvedTeaserType['label'] ?? 'Teaser type');
+                    if ($typeMinLegs !== null && $legCount < $typeMinLegs) {
+                        throw new ApiException(
+                            sprintf('%s requires at least %d teams.', $typeLabel, $typeMinLegs),
+                            400,
+                            ['code' => 'TEASER_LEG_COUNT_BELOW_MIN', 'minLegs' => $typeMinLegs, 'actual' => $legCount]
+                        );
+                    }
+                    if ($typeMaxLegs !== null && $legCount > $typeMaxLegs) {
+                        throw new ApiException(
+                            sprintf('%s allows at most %d teams.', $typeLabel, $typeMaxLegs),
+                            400,
+                            ['code' => 'TEASER_LEG_COUNT_ABOVE_MAX', 'maxLegs' => $typeMaxLegs, 'actual' => $legCount]
+                        );
+                    }
                     $expectedPoints = isset($resolvedTeaserType['pointsBySport'][$teaserSportGroup])
                         && is_numeric($resolvedTeaserType['pointsBySport'][$teaserSportGroup])
                         ? (float) $resolvedTeaserType['pointsBySport'][$teaserSportGroup]
