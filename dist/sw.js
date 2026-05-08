@@ -9,7 +9,12 @@
 // hash; clients running v1.3 were serving an old cached index.html whose
 // <script src> pointed at JS files that no longer exist on origin, causing
 // React to never mount and only the LCP image preload to render.
-const CACHE_VERSION = 'v1.5';
+// 2026-05-08 — bumped to v1.6: teaser flow ships a board-level type
+// picker; clients on v1.5 had a cached `/api/betting/rules` response
+// that predated the teaserTypes catalog, so the picker stayed empty
+// even after deploy. Bumping invalidates API_CACHE so the next fetch
+// hits origin and pulls the new shape.
+const CACHE_VERSION = 'v1.6';
 const RUNTIME_CACHE = `runtime-${CACHE_VERSION}`;
 const ASSETS_CACHE = `assets-${CACHE_VERSION}`;
 const API_CACHE = `api-${CACHE_VERSION}`;

@@ -260,6 +260,27 @@ final class BetsController
                 }
                 $teaserSportGroup = $uniqueGroups[0];
 
+                // Defence-in-depth: when the rule ships a structured
+                // teaserTypes catalog, every placement MUST identify
+                // which type it's playing against. The frontend
+                // already gates the Place button on this; the backend
+                // check protects against direct API calls (curl /
+                // tampered client) that would otherwise place a teaser
+                // bet without a type snapshot, leaving settlement to
+                // grade against the rule-level fallback multipliers
+                // and losing the audit trail. Falls through for truly
+                // legacy DB rows whose teaserTypes is empty — those
+                // keep the pre-picker placement flow intact.
+                $hasTeaserCatalog = !empty($modeRule['teaserTypes'])
+                    && is_array($modeRule['teaserTypes']);
+                if ($hasTeaserCatalog && $teaserTypeId === null) {
+                    throw new ApiException(
+                        'A teaser type must be selected.',
+                        400,
+                        ['code' => 'TEASER_TYPE_REQUIRED']
+                    );
+                }
+
                 // Step 3a — if the new picker sent a teaserTypeId, resolve
                 // it to a structured type definition and let it drive the
                 // points + payout. The submitted `teaserPoints` must agree

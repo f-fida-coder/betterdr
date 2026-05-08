@@ -17,6 +17,7 @@ import { logoUrlForTeam, fetchTeamBadgeUrl, prewarmTeamBadges } from '../utils/t
 import { resolveBroadcast } from '../utils/broadcast';
 import { getSiteTimezone, getSiteTimezoneLabel } from '../utils/timezone';
 import { adjustSpread, teaserSportGroup, teaserPointsForSport } from '../utils/teaserAdjustment';
+import TeaserTypePicker from './TeaserTypePicker';
 import PropBuilderModal from './PropBuilderModal';
 import MatchDetailView from './MatchDetailView';
 import OddsAge from './OddsAge';
@@ -321,6 +322,7 @@ const MobileContentView = ({
     slipSelections = [],
     teaserTypeId = null,
     teaserRule = null,
+    onTeaserTypeChange,
 }) => {
     const { oddsFormat } = useOddsFormat();
     const normalizedBetMode = normalizeMode(activeBetMode);
@@ -911,6 +913,20 @@ const MobileContentView = ({
                     {(isRefreshing || isSportRefreshing) ? 'Updating…' : cooldownRemainingSec > 0 ? `Wait ${cooldownRemainingSec}s` : isStale ? 'Refresh for latest odds' : ageLabel}
                 </button>
             </div>
+
+            {/* Board-level teaser type picker. Visible immediately on the
+                Teaser tab so the user picks 6/6.5/7 BEFORE seeing teased
+                lines — putting it inside the slip drawer (the prior
+                location) hid it from anyone who tapped the tab without
+                opening the slip first. Self-gates on mode + types
+                length, so renders nothing on non-teaser tabs or when
+                the rule lacks a structured catalog. */}
+            <TeaserTypePicker
+                normalizedBetMode={normalizedBetMode}
+                teaserTypes={Array.isArray(teaserRule?.teaserTypes) ? teaserRule.teaserTypes : []}
+                selectedTeaserType={resolvedTeaserType}
+                onTeaserTypeChange={onTeaserTypeChange}
+            />
 
             {periods.length > 1 && (
                 <div style={periodTabBarStyle}>

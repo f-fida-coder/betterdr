@@ -469,6 +469,20 @@ function AppInner() {
     }
   }, []);
 
+  // Wrapper around setSelectedTeaserTypeId that also clears the
+  // legacy teaserPoints field whenever the type is reset to null
+  // (e.g. user tapped "Change" in the board picker). Without this
+  // a stale teaserPoints value from the previous type would survive
+  // until the user re-picks and the auto-sync useEffect in
+  // ModeBetPanel re-fires — visible as "Pick a teaser type" warning
+  // in the slip while teaserPoints is non-empty.
+  const handleTeaserTypeChange = useCallback((id) => {
+    setSelectedTeaserTypeId(id);
+    if (id === null) {
+      setTeaserPoints('');
+    }
+  }, []);
+
   const handleHomeClick = useCallback(() => {
     setDashboardView('dashboard');
     setSelectedSports([]);
@@ -611,7 +625,7 @@ function AppInner() {
             onSelectionsChange={setSlipSelections}
             onWagerChange={setWager}
             onTeaserPointsChange={setTeaserPoints}
-            onTeaserTypeChange={setSelectedTeaserTypeId}
+            onTeaserTypeChange={handleTeaserTypeChange}
             onBetPlaced={handleBetPlaced}
           />
         </Suspense>

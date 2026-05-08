@@ -118,6 +118,7 @@ function UserDashboardShell({
                 slipSelections={slipSelections}
                 teaserTypeId={selectedTeaserTypeId}
                 teaserRule={betModeRules?.teaser ?? null}
+                onTeaserTypeChange={onTeaserTypeChange}
               />
             ) : isMobileViewport ? (
               <DashboardSidebar

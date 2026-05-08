@@ -5,6 +5,7 @@ import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { formatOdds, decimalToAmerican, americanToDecimal } from '../utils/odds';
 import { computeMidQuickStakes } from '../utils/money';
 import { formatSiteDateTime } from '../utils/timezone';
+import { adjustSpread, teaserSportGroup, teaserPointsForSport } from '../utils/teaserAdjustment';
 import BetConfirmationModal from './BetConfirmationModal';
 import WagerConfirmedScreen from './WagerConfirmedScreen';
 
@@ -500,6 +501,68 @@ const ModeBetPanel = ({
         if (!selectedTeaserTypeId) return null;
         return teaserTypes.find((t) => t.id === selectedTeaserTypeId) || null;
     }, [teaserTypes, selectedTeaserTypeId]);
+
+    // Slip-card line preview. Mirrors the board's `teaserPreview` so the
+    // user sees the SAME teased line on their slip leg as on the
+    // games board. Returns either a plain string (no teaser adjustment
+    // applies) or a React fragment (adjusted line + muted "(BP …)"
+    // suffix). Display-only — the slip selection still stores the base
+    // point; backend re-applies the adjustment at placement.
+    //
+    // Plain function (not useCallback) so it picks up the freshly-
+    // computed `palette` each render. The work inside is cheap (one
+    // arithmetic op + string formatting), and the slip render loop
+    // calls it once per leg — memoizing buys nothing measurable.
+    const legPreviewLine = (sel) => {
+        const baseLabel = betTypeLineLabel(sel);
+        if (normalizedMode !== 'teaser' || !selectedTeaserType) return baseLabel;
+        const market = String(sel?.marketType || '').toLowerCase();
+        if (market !== 'spreads' && market !== 'totals') return baseLabel;
+        const sportGroup = teaserSportGroup(sel?.sportKey || sel?.sport);
+        if (!sportGroup) return baseLabel;
+        const points = teaserPointsForSport(selectedTeaserType, sportGroup);
+        if (!points || points <= 0) return baseLabel;
+        const adjusted = adjustSpread({
+            marketType: market,
+            selection: sel?.selection,
+            point: sel?.line,
+        }, points);
+        if (!adjusted || adjusted.teaserAdjustment === 0) return baseLabel;
+
+        // Format adjusted segment + base suffix. Spread keeps its
+        // signed convention (+8.5 / -3); totals get an O/U prefix on
+        // the base too so "(BP O 48.5)" reads cleanly.
+        const trim = (n) => Number(n).toFixed(2).replace(/\.?0+$/, '');
+        const baseN = Number(sel?.line);
+        const adjN = adjusted.adjustedPoint;
+        let mainText;
+        let bpText;
+        if (market === 'spreads') {
+            const adjSign = adjN > 0 ? `+${trim(adjN)}` : trim(adjN);
+            const baseSign = baseN > 0 ? `+${trim(baseN)}` : trim(baseN);
+            mainText = `Spread ${adjSign}`;
+            bpText = `(BP ${baseSign})`;
+        } else {
+            const isUnder = String(sel?.selection || '').toUpperCase().startsWith('U');
+            const sideWord = isUnder ? 'Under' : 'Over';
+            const sideShort = isUnder ? 'U' : 'O';
+            mainText = `Total ${sideWord} ${trim(Math.abs(adjN))}`;
+            bpText = `(BP ${sideShort} ${trim(Math.abs(baseN))})`;
+        }
+        return (
+            <>
+                {mainText}
+                <span style={{
+                    color: palette.textMuted || '#6b7280',
+                    fontWeight: 500,
+                    marginLeft: 6,
+                    fontSize: '0.92em',
+                }}>
+                    {bpText}
+                </span>
+            </>
+        );
+    };
 
     // When a teaser type is picked AND the slip has exactly one sport
     // group, auto-sync the legacy `teaserPoints` value from the type's
@@ -1570,154 +1633,60 @@ const ModeBetPanel = ({
                     exactly this reason — picking 6 vs 7 changes every
                     spread underneath, and showing the resulting lines
                     without first revealing the choice is confusing. */}
-                {/* Teaser type picker (NEW). Renders a list of available
-                    teaser variants — points + ties rule + payout — so the
-                    user picks ONE bundle before adding legs. Once picked,
-                    collapses to a summary chip with a "Change" link that
-                    re-opens the picker. Legacy fallback: when the rule
-                    has no teaserTypes (older DB seed), render the prior
-                    +6/+6.5/+7 point-button row. */}
-                {normalizedMode === 'teaser' && teaserTypes.length > 0 && !selectedTeaserType && (
+                {/* Read-only teaser-type summary line. The picker itself
+                    lives on the games board (TeaserTypePicker) so the
+                    slip never owns the choice — single source of UX.
+                    User changes the type from the board's "Change"
+                    button; here we just confirm what's in effect so
+                    the player isn't surprised by the teased lines on
+                    their slip legs. */}
+                {normalizedMode === 'teaser' && selectedTeaserType && (
                     <div style={{
-                        background: '#fff',
+                        background: '#f8fafc',
                         border: `1px solid ${palette.cardBorder}`,
                         borderRadius: 10,
-                        padding: '12px',
+                        padding: '8px 12px',
                         marginBottom: 12,
+                        fontSize: 12,
+                        color: palette.textMuted,
                     }}>
-                        <div style={{
-                            fontSize: 11,
+                        <span style={{
                             fontWeight: 700,
-                            color: palette.textMuted,
-                            textTransform: 'uppercase',
-                            letterSpacing: 0.6,
-                            marginBottom: 4,
-                        }}>Choose Teaser Type</div>
-                        <div style={{
-                            fontSize: 11,
-                            color: palette.textFaint,
-                            marginBottom: 10,
-                            lineHeight: 1.4,
-                        }}>
-                            Pick one variant to continue. Points and payout
-                            apply to every leg you add.
-                        </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                            {teaserTypes.map((type) => {
-                                const fbPts = Number(type?.pointsBySport?.football);
-                                const bkPts = Number(type?.pointsBySport?.basketball);
-                                const ties = String(type?.tiesRule || '').toLowerCase() === 'lose'
-                                    ? 'Ties Lose'
-                                    : 'Ties Push';
-                                const segments = [];
-                                if (Number.isFinite(fbPts) && fbPts > 0) segments.push(`${fbPts} pts FB`);
-                                if (Number.isFinite(bkPts) && bkPts > 0) segments.push(`${bkPts} pts BK`);
-                                segments.push(ties);
-                                return (
-                                    <button
-                                        key={type.id}
-                                        type="button"
-                                        onClick={() => onTeaserTypeChange && onTeaserTypeChange(type.id)}
-                                        style={{
-                                            textAlign: 'left',
-                                            padding: '10px 12px',
-                                            border: `1px solid ${palette.cardBorder}`,
-                                            background: '#fff',
-                                            borderRadius: 8,
-                                            cursor: 'pointer',
-                                            transition: 'all 120ms ease',
-                                        }}
-                                    >
-                                        <div style={{
-                                            fontSize: 13,
-                                            fontWeight: 800,
-                                            color: palette.textPrimary,
-                                            marginBottom: 2,
-                                        }}>{type.label || type.id}</div>
-                                        <div style={{
-                                            fontSize: 11,
-                                            color: palette.textMuted,
-                                            lineHeight: 1.4,
-                                        }}>{segments.join(' · ')}</div>
-                                    </button>
-                                );
-                            })}
-                        </div>
+                            color: palette.textPrimary,
+                            marginRight: 6,
+                        }}>Teaser type:</span>
+                        {selectedTeaserType.label || selectedTeaserType.id}
+                        {(() => {
+                            const fbPts = Number(selectedTeaserType?.pointsBySport?.football);
+                            const bkPts = Number(selectedTeaserType?.pointsBySport?.basketball);
+                            const segs = [];
+                            if (Number.isFinite(fbPts) && fbPts > 0) segs.push(`${fbPts} FB`);
+                            if (Number.isFinite(bkPts) && bkPts > 0) segs.push(`${bkPts} BK`);
+                            return segs.length > 0 ? ` (${segs.join(' / ')})` : '';
+                        })()}
                     </div>
                 )}
 
-                {/* Picked teaser type — summary chip. Shows the selected
-                    points / ties rule and a Change link that resets to
-                    the picker. The Change link clears teaserPoints too
-                    so a stale value from the previous type doesn't
-                    leak into the next pick. */}
-                {normalizedMode === 'teaser' && selectedTeaserType && (
+                {/* Warning banner — slip has legs but no type picked.
+                    The Place button is already gated by validationErrors
+                    ("Choose a teaser type to continue"); this is the
+                    visible nudge that points the user back to the board
+                    picker (which is where the choice lives). */}
+                {normalizedMode === 'teaser' && teaserTypes.length > 0 && !selectedTeaserType && legCount > 0 && (
                     <div style={{
-                        background: '#fff',
-                        border: `1px solid ${palette.cardBorder}`,
+                        background: '#fef3c7',
+                        border: '1px solid #fbbf24',
                         borderRadius: 10,
                         padding: '10px 12px',
                         marginBottom: 12,
+                        fontSize: 12,
+                        color: '#92400e',
                         display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
+                        alignItems: 'flex-start',
                         gap: 8,
                     }}>
-                        <div style={{ minWidth: 0 }}>
-                            <div style={{
-                                fontSize: 11,
-                                fontWeight: 700,
-                                color: palette.textMuted,
-                                textTransform: 'uppercase',
-                                letterSpacing: 0.6,
-                                marginBottom: 2,
-                            }}>Teaser Type</div>
-                            <div style={{
-                                fontSize: 13,
-                                fontWeight: 800,
-                                color: palette.textPrimary,
-                                whiteSpace: 'nowrap',
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                            }}>{selectedTeaserType.label || selectedTeaserType.id}</div>
-                            <div style={{
-                                fontSize: 11,
-                                color: palette.textFaint,
-                                marginTop: 2,
-                            }}>
-                                {(() => {
-                                    const fbPts = Number(selectedTeaserType?.pointsBySport?.football);
-                                    const bkPts = Number(selectedTeaserType?.pointsBySport?.basketball);
-                                    const ties = String(selectedTeaserType?.tiesRule || '').toLowerCase() === 'lose'
-                                        ? 'Ties Lose'
-                                        : 'Ties Push';
-                                    const segs = [];
-                                    if (Number.isFinite(fbPts) && fbPts > 0) segs.push(`${fbPts} FB`);
-                                    if (Number.isFinite(bkPts) && bkPts > 0) segs.push(`${bkPts} BK`);
-                                    segs.push(ties);
-                                    return segs.join(' · ');
-                                })()}
-                            </div>
-                        </div>
-                        <button
-                            type="button"
-                            onClick={() => {
-                                if (onTeaserTypeChange) onTeaserTypeChange(null);
-                                onTeaserPointsChange('');
-                            }}
-                            style={{
-                                background: 'transparent',
-                                border: 'none',
-                                color: palette.headerBg,
-                                fontSize: 12,
-                                fontWeight: 700,
-                                cursor: 'pointer',
-                                padding: '4px 6px',
-                                whiteSpace: 'nowrap',
-                            }}
-                        >
-                            Change
-                        </button>
+                        <i className="fa-solid fa-circle-exclamation" style={{ marginTop: 2 }} />
+                        <span>Pick a teaser type from the games board to continue.</span>
                     </div>
                 )}
 
@@ -2228,7 +2197,11 @@ const ModeBetPanel = ({
                         ? (sel?.wagerOverride?.winRaw ?? '')
                         : (win > 0 ? formatMoney(win) : '');
                     const matchupTitle = String(sel.matchName || sel.selection || '').toUpperCase();
-                    const betTypeText = betTypeLineLabel(sel);
+                    // Teaser-aware line text: legPreviewLine returns the
+                    // adjusted line + a muted "(BP …)" suffix when teaser
+                    // mode + a type is picked. Falls through to the plain
+                    // base label in every other mode.
+                    const betTypeText = legPreviewLine(sel);
                     // Game start time pinned to the site timezone (ET) so a
                     // glance at the bet slip answers "is this tonight?" the
                     // same way for every browser locale.

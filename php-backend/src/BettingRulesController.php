@@ -59,6 +59,16 @@ final class BettingRulesController
                     if (empty($rule['teaserTypes']) || !is_array($rule['teaserTypes'])) {
                         $rules[$idx]['teaserTypes'] = BetModeRules::defaultTeaserTypes();
                     }
+                    // Safety net: if BOTH the DB row AND defaultTeaserTypes()
+                    // come back empty (would only happen on a catastrophic
+                    // config regression — empty DEFAULT_TEASER_TYPES), the
+                    // frontend picker silently falls back to legacy point
+                    // buttons and the new flow looks broken. Log so a
+                    // future deploy regression surfaces in PHP error log
+                    // instead of as "picker doesn't render" tickets.
+                    if (empty($rules[$idx]['teaserTypes'])) {
+                        error_log('BettingRulesController: teaser rule emitting empty teaserTypes array — check BetModeRules::DEFAULT_TEASER_TYPES seed');
+                    }
                 }
             }
             // Bet mode rules are admin-managed and change infrequently. The
