@@ -44,6 +44,16 @@ final class BettingRulesController
 
             $this->ensureSeeded();
             $rules = $this->db->findMany('betmoderules', ['isActive' => true], ['sort' => ['mode' => 1]]);
+            // Inject the per-sport teaser point map onto the teaser rule so
+            // the frontend doesn't have to duplicate the constants. The
+            // legacy `teaserPointOptions` flat list stays as a fallback for
+            // any older client; new clients prefer `teaserPointOptionsBySport`
+            // and pick the per-sport list based on the slip's active sport.
+            foreach ($rules as $idx => $rule) {
+                if (($rule['mode'] ?? '') === 'teaser') {
+                    $rules[$idx]['teaserPointOptionsBySport'] = BetModeRules::teaserPointOptionsBySport();
+                }
+            }
             Response::json(['rules' => $rules]);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error fetching bet mode rules'], 500);

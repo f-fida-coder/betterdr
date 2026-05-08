@@ -205,7 +205,10 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
     // so they read as a uniform set. Without an explicit width the Betslip
     // cell sized to its inner white circle and looked narrower than the
     // others — locking width: 64 makes them all visually identical
-    // regardless of inner content.
+    // regardless of inner content. The right divider uses a darker tone
+    // (rgba black 0.45) so the vertical seams between cells stay visible
+    // against the slate gray background — the previous white-12% border
+    // was essentially invisible.
     const mhCellBtnStyle = {
         flex: '0 0 auto',
         width: 64,
@@ -213,7 +216,7 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
         padding: '6px 6px',
         background: '#595959',
         border: 'none',
-        borderRight: '1px solid rgba(255,255,255,0.12)',
+        borderRight: '1px solid rgba(0,0,0,0.45)',
         color: '#fff',
         display: 'flex',
         flexDirection: 'column',
@@ -235,8 +238,8 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
         flex: '1 1 auto',
         minWidth: 0,
         background: '#595959',
-        borderLeft: '1px solid rgba(0,0,0,0.25)',
-        borderRight: '1px solid rgba(0,0,0,0.25)',
+        borderLeft: '1px solid rgba(0,0,0,0.45)',
+        borderRight: '1px solid rgba(0,0,0,0.45)',
         boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 0 rgba(0,0,0,0.18)',
         padding: '4px 10px',
         display: 'flex',

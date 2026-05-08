@@ -37,6 +37,7 @@ const SidebarItem = ({
     className = '',
     isMobile = false,
     liveSet = null,
+    ancestorsWithSelection = null,
 }) => {
     const isExpanded = expandedIds.has(item.id);
     const isSelected = selectedIds.includes(item.id);
@@ -48,11 +49,19 @@ const SidebarItem = ({
 
     const hasChildren = activeChildren.length > 0;
 
-    // Check if any child is selected (for parent active context)
-    const hasSelectedChild = useMemo(() => {
-        if (!activeChildren.length) return false;
-        return activeChildren.some(child => selectedIds.includes(child.id));
-    }, [activeChildren, selectedIds]);
+    // True when this row has a selected DESCENDANT (any depth — direct
+    // child, grandchild, etc.). Drives the grey "you have leagues picked
+    // under here" highlight on the top-level sport rows so the user can
+    // navigate back to the sport list and immediately see which categories
+    // already have selections inside without having to expand each one.
+    //
+    // The parent component pre-computes the Set in O(N) once per render
+    // and we just do an O(1) lookup here. The previous implementation
+    // walked direct children only, which missed grandchild selections
+    // (e.g. picking a sub-market under NBA wouldn't light up Basketball).
+    const hasSelectedChild = ancestorsWithSelection
+        ? ancestorsWithSelection.has(item.id)
+        : false;
     const isSelectable = item.selectable !== false;
     const isPropsPlus = item.type === 'props-plus';
     const isFutures = item.type === 'futures';
@@ -148,6 +157,7 @@ const SidebarItem = ({
                             onToggleExpand={onToggleExpand}
                             isMobile={isMobile}
                             liveSet={liveSet}
+                            ancestorsWithSelection={ancestorsWithSelection}
                         />
                     ))}
                 </div>
@@ -210,17 +220,54 @@ const DashboardSidebar = ({
         });
     };
 
-    // Parlay/teaser modes limit to major sports
-    const parlaySportsIds = new Set(['football', 'baseball', 'basketball', 'hockey', 'soccer', 'martial-arts']);
-    const isRestrictedMode = ['parlay', 'teaser', 'if_bet', 'reverse'].includes(betMode);
+    // Per-mode sport allowlist. Teaser is intentionally narrower than the
+    // others: real US sportsbooks only offer teasers for football and
+    // basketball — baseball/soccer/hockey spreads don't move enough to
+    // make a teasable product, and offering them here would let users
+    // build tickets a real book would reject. Parlay / If-Bet / Reverse
+    // share the wider major-sports list since those don't depend on
+    // spread movement the same way.
+    const ALLOWED_SPORTS_BY_MODE = {
+        parlay: ['football', 'baseball', 'basketball', 'hockey', 'soccer', 'martial-arts'],
+        teaser: ['football', 'basketball'],
+        if_bet: ['football', 'baseball', 'basketball', 'hockey', 'soccer', 'martial-arts'],
+        reverse: ['football', 'baseball', 'basketball', 'hockey', 'soccer', 'martial-arts'],
+    };
+    const allowedSportsForMode = ALLOWED_SPORTS_BY_MODE[betMode] || null;
+    const isRestrictedMode = !!allowedSportsForMode;
 
     // Merge backend-discovered leagues into the static tree under their
     // parent sport (soccer_argentina_primera_division → SOCCER children),
     // instead of promoting them to flat top-level rows.
     const mergedSports = useMemo(() => buildMergedSportsTree(liveSet), [liveSet]);
     const displaySports = isRestrictedMode
-        ? mergedSports.filter(s => parlaySportsIds.has(s.id))
+        ? mergedSports.filter(s => allowedSportsForMode.includes(s.id))
         : mergedSports;
+
+    // Pre-compute the set of node IDs that have at least one selected
+    // descendant anywhere in their subtree. Built once per render in O(N)
+    // and looked up O(1) inside each SidebarItem, instead of every row
+    // independently scanning its children. Robust to deep nesting (grand-
+    // children, sub-markets) and a guard against an empty/undefined tree
+    // keeps it crash-safe even before mergedSports has populated.
+    const ancestorsWithSelection = useMemo(() => {
+        const result = new Set();
+        if (!Array.isArray(selectedSports) || selectedSports.length === 0) return result;
+        const selectedSet = new Set(selectedSports);
+        const walk = (items) => {
+            if (!Array.isArray(items) || items.length === 0) return false;
+            let foundAny = false;
+            for (const it of items) {
+                if (!it) continue;
+                const childHasSelected = walk(it.children);
+                if (childHasSelected) result.add(it.id);
+                if (childHasSelected || selectedSet.has(it.id)) foundAny = true;
+            }
+            return foundAny;
+        };
+        walk(mergedSports);
+        return result;
+    }, [mergedSports, selectedSports]);
 
     // Lazy-load upcoming matches the first time the user types ≥2 chars.
     // We don't prefetch on mount — most sessions never use the search box,
@@ -400,6 +447,7 @@ const DashboardSidebar = ({
                         className={item.id === 'commercial-live' || item.id === 'up-next' ? 'desktop-only' : ''}
                         isMobile={isMobileSportsSelectionMode}
                         liveSet={liveSet}
+                        ancestorsWithSelection={ancestorsWithSelection}
                     />
                 ))}
             </div>

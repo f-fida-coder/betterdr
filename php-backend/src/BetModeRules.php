@@ -75,6 +75,66 @@ final class BetModeRules
         ],
     ];
 
+    /**
+     * Per-sport teaser point options. US sportsbook standard:
+     *   NFL/NCAAF (americanfootball_*): 6, 6.5, 7 (some books also 10)
+     *   NBA/NCAAB (basketball_*): 4, 4.5, 5 (some books also 5.5)
+     * Indexed by the high-level sport group rather than sport-key prefix
+     * so the frontend can resolve a sport-tree id ("football", "basketball")
+     * to its allowed points without parsing odds-API keys. The actual
+     * teaser eligibility (which sports can be teased at all) lives at
+     * BetsController teaser-validation time and uses these exact groups.
+     */
+    private const TEASER_POINT_OPTIONS_BY_SPORT = [
+        'football' => [6, 6.5, 7],
+        'basketball' => [4, 4.5, 5],
+    ];
+
+    /**
+     * Map a sport key (Odds API style) or static-tree sport id to the
+     * teaser sport group used by TEASER_POINT_OPTIONS_BY_SPORT. Returns
+     * null when the sport doesn't have a teaser product (baseball,
+     * hockey, soccer, etc.). Single source of truth so frontend +
+     * backend agree on grouping.
+     */
+    public static function teaserSportGroup(string $sportKeyOrId): ?string
+    {
+        $key = strtolower(trim($sportKeyOrId));
+        if ($key === '') return null;
+        if (str_starts_with($key, 'americanfootball_') || $key === 'football') return 'football';
+        if (str_starts_with($key, 'basketball_') || $key === 'basketball') return 'basketball';
+        return null;
+    }
+
+    /**
+     * Allowed teaser point values for a given sport group, or empty
+     * array for sports that don't have a teaser product.
+     *
+     * @return array<int, float>
+     */
+    public static function teaserPointOptionsForSport(string $sportKeyOrId): array
+    {
+        $group = self::teaserSportGroup($sportKeyOrId);
+        if ($group === null) return [];
+        $options = self::TEASER_POINT_OPTIONS_BY_SPORT[$group] ?? [];
+        return array_map(static fn ($v) => (float) $v, $options);
+    }
+
+    /**
+     * Full per-sport map (for API serialization to the frontend so it
+     * doesn't need to duplicate the constants).
+     *
+     * @return array<string, array<int, float>>
+     */
+    public static function teaserPointOptionsBySport(): array
+    {
+        $out = [];
+        foreach (self::TEASER_POINT_OPTIONS_BY_SPORT as $group => $opts) {
+            $out[$group] = array_map(static fn ($v) => (float) $v, $opts);
+        }
+        return $out;
+    }
+
     public static function normalize(string $mode): string
     {
         return str_replace('-', '_', strtolower(trim($mode === '' ? 'straight' : $mode)));

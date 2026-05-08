@@ -222,22 +222,39 @@ const isLiveSnapshot = (snapshot, parentStatus) => {
     return false;
 };
 
-// Live check for a single ticket leg. Pulls from matchSnapshot (always
-// per-leg on parlays) and considers the leg pending only when both the
-// leg AND the parent ticket are still pending.
+// True when this leg/bet was placed AFTER the underlying game had already
+// started — i.e., it's an in-play / live wager. This is a permanent
+// historical fact about the ticket: once an in-play bet, always an
+// in-play bet. The badge persists through settlement so a player can
+// always tell at a glance "this was a live bet" alongside the W/L letter.
+const wasPlacedInPlay = (parentBet, snapshot) => {
+    const placedMs = parentBet?.createdAt ? new Date(parentBet.createdAt).getTime() : NaN;
+    const startMs = snapshot?.startTime ? new Date(snapshot.startTime).getTime() : NaN;
+    return Number.isFinite(placedMs) && Number.isFinite(startMs) && placedMs > startMs;
+};
+
+// Live check for a single ticket leg. Two things qualify:
+//   1. The leg was placed in-play (permanent — survives settlement so a
+//      settled in-play bet still reads as LIVE next to its W/L letter).
+//   2. The match is currently in progress AND the leg is still pending.
 const isLegLive = (leg, parentBet) => {
+    if (wasPlacedInPlay(parentBet, leg?.matchSnapshot)) return true;
     if (normalizeStatus(leg?.status) !== 'pending') return false;
     return isLiveSnapshot(leg?.matchSnapshot, parentBet?.status);
 };
 
 // Live check for a straight (single-leg) ticket. Walks the same fallback
 // chain as expandedMatchup so it works whether the match data lives on
-// the bet or on its single leg's snapshot.
+// the bet or on its single leg's snapshot. Same in-play-or-currently-live
+// rule as isLegLive.
 const isStraightBetLive = (bet) => {
+    const firstLeg = Array.isArray(bet?.selections) ? bet.selections[0] : null;
+    if (wasPlacedInPlay(bet, bet?.match)) return true;
+    if (wasPlacedInPlay(bet, bet?.matchSnapshot)) return true;
+    if (wasPlacedInPlay(bet, firstLeg?.matchSnapshot)) return true;
     if (normalizeStatus(bet?.status) !== 'pending') return false;
     if (isLiveSnapshot(bet?.match, bet?.status)) return true;
     if (isLiveSnapshot(bet?.matchSnapshot, bet?.status)) return true;
-    const firstLeg = Array.isArray(bet?.selections) ? bet.selections[0] : null;
     return isLiveSnapshot(firstLeg?.matchSnapshot, bet?.status);
 };
 

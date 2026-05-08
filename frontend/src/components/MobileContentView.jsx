@@ -801,6 +801,10 @@ const MobileContentView = ({ selectedSports = [], activeBetMode = 'straight', sl
                 // OR upstream event_status contains IN_PROGRESS / LIVE),
                 // so it tracks whatever the upstream odds API reports.
                 isLive: !!meta?.isLive,
+                // sportKey passed straight through so per-mode sport gates
+                // in the slip (teaser → football+basketball only) work
+                // without re-resolving the match.
+                sportKey: String(meta?.sportKey || '').toLowerCase(),
             },
         }));
     };
@@ -1036,10 +1040,15 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
     const isSelected = (marketType, selection) => selectedKeys.has(`${match.id}|${marketType}|${selection}`);
     const addIfAllowed = (...args) => {
         if (blocked) return;
-        // Inject isLive once per card so every odds-button click on
-        // this match carries the live flag through to the slip without
-        // changing each onClick's signature.
-        onAddToSlip(...args, { isLive: !!match.isLive });
+        // Inject isLive + sportKey once per card so every odds-button
+        // click on this match carries them through to the slip without
+        // changing each onClick's signature. sportKey lets the betslip
+        // enforce per-mode sport rules (e.g. teaser only allows football
+        // and basketball) without round-tripping the matchId.
+        onAddToSlip(...args, {
+            isLive: !!match.isLive,
+            sportKey: String(match?.sportKey || match?.sport || '').toLowerCase(),
+        });
     };
     const [propsOpen, setPropsOpen] = React.useState(false);
     const [detailOpen, setDetailOpen] = React.useState(false);

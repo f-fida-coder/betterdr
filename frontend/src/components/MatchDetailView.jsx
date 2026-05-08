@@ -167,6 +167,12 @@ const MatchDetailView = ({ match, onClose, sgpMode = false }) => {
                 odds: price,
                 matchName,
                 marketLabel,
+                // sportKey lets the betslip enforce per-mode sport rules
+                // (e.g. teaser only allows football + basketball). Without
+                // it, the slip would have to round-trip the matchId to
+                // resolve sport — adding it at dispatch time keeps the
+                // validation purely client-side and instantaneous.
+                sportKey: String(match?.sportKey || match?.sport || '').toLowerCase(),
             },
         }));
     };

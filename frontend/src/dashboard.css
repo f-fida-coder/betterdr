@@ -4250,9 +4250,11 @@ body.dashboard-mode {
         color: #fff !important;
     }
 
-    /* Parent sport row: subtle context when a child is selected */
+    /* Parent sport row: visible grey when at least one league/market
+       beneath it is selected, so users coming back from a sub-list see
+       at a glance which top-level sports already have picks inside. */
     .dash-sidebar .sidebar-item-row.level-0.has-active-child {
-        background: #fff !important;
+        background: #d1d5db !important;
     }
 
     .dash-sidebar .sidebar-item-row.level-0.has-active-child .sidebar-label-text {
@@ -4268,7 +4270,7 @@ body.dashboard-mode {
     }
 
     .dash-sidebar .sidebar-item-row.level-0.has-active-child {
-        background: #fff !important;
+        background: #d1d5db !important;
     }
 
     .dash-sidebar .sidebar-item-row.level-0.selected .sidebar-label-text {

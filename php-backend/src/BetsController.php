@@ -202,12 +202,57 @@ final class BetsController
             }
 
             if ($type === 'teaser') {
-                $allowed = $modeRule['teaserPointOptions'] ?? [];
-                if (is_array($allowed) && count($allowed) > 0 && !in_array($teaserPoints, array_map('floatval', $allowed), true)) {
-                    throw new ApiException('Invalid teaser points. Allowed: ' . implode(', ', $allowed), 400, [
-                        'code' => 'INVALID_TEASER_POINTS',
-                    ]);
+                // Step 1 — every leg must be a teaser-eligible sport
+                // (football or basketball). BetModeRules::teaserSportGroup
+                // is the single source of truth for that grouping. Other
+                // sports' spreads don't move enough for a teaser to be
+                // meaningful, so we reject before doing any work.
+                $legGroups = [];
+                foreach ($validatedSelections as $index => $validatedSelection) {
+                    $sportKey = strtolower((string) ($validatedSelection['matchSnapshot']['sportKey'] ?? ''));
+                    $group = BetModeRules::teaserSportGroup($sportKey);
+                    if ($group === null) {
+                        throw new ApiException(
+                            'Teasers are only available on football and basketball. Leg ' . ($index + 1) . ' (' . ($sportKey !== '' ? $sportKey : 'unknown sport') . ') is not eligible.',
+                            400,
+                            ['code' => 'TEASER_SPORT_NOT_ALLOWED', 'sportKey' => $sportKey, 'leg' => $index + 1]
+                        );
+                    }
+                    $legGroups[$index] = $group;
                 }
+
+                // Step 2 — all legs must share the same sport group. Real
+                // sportsbooks don't accept mixed-sport teasers because the
+                // teaser point values differ between football (6/6.5/7)
+                // and basketball (4/4.5/5); merging them in one ticket is
+                // a non-product. Reject with a clear message naming the
+                // groups so the user knows which legs to remove.
+                $uniqueGroups = array_values(array_unique($legGroups));
+                if (count($uniqueGroups) > 1) {
+                    throw new ApiException(
+                        'Teasers cannot mix sports. This ticket has ' . implode(' + ', $uniqueGroups) . ' legs — split into separate teasers per sport.',
+                        400,
+                        ['code' => 'TEASER_MIXED_SPORTS', 'sports' => $uniqueGroups]
+                    );
+                }
+                $teaserSportGroup = $uniqueGroups[0];
+
+                // Step 3 — teaserPoints must be in the per-sport allowed
+                // list. NFL = 6/6.5/7, NBA = 4/4.5/5. The legacy flat
+                // `teaserPointOptions` on the rule (loaded from DB) is
+                // ignored here: we trust BetModeRules over a possibly
+                // stale DB row, and emitting one consistent error message
+                // beats two ways the bet can be rejected on points.
+                $allowedForSport = BetModeRules::teaserPointOptionsForSport($teaserSportGroup);
+                if (count($allowedForSport) === 0 || !in_array((float) $teaserPoints, $allowedForSport, true)) {
+                    $allowedFmt = implode(', ', array_map(static fn ($v) => rtrim(rtrim(number_format((float) $v, 2, '.', ''), '0'), '.'), $allowedForSport));
+                    throw new ApiException(
+                        'Invalid teaser points for ' . $teaserSportGroup . '. Allowed: ' . $allowedFmt,
+                        400,
+                        ['code' => 'INVALID_TEASER_POINTS', 'sport' => $teaserSportGroup, 'allowed' => $allowedForSport]
+                    );
+                }
+
                 foreach ($validatedSelections as $index => $validatedSelection) {
                     $validatedSelections[$index] = SportsbookBetSupport::applyTeaserAdjustment($validatedSelection, $teaserPoints);
                 }

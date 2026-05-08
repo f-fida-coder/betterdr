@@ -440,10 +440,51 @@ const ModeBetPanel = ({
     // doesn't fight the user mid-typing ("10.", "1.5", etc.).
     const wagerAmount = Number(wager);
     const teaserPointValue = Number(teaserPoints || 0);
+
+    // Map a leg's sportKey to its teaser sport group. Mirrors
+    // BetModeRules::teaserSportGroup on the backend so frontend +
+    // backend agree on grouping. Returns null for sports that don't
+    // have a teaser product (baseball, soccer, hockey, etc.).
+    const teaserSportGroupOf = (sportKey) => {
+        const k = String(sportKey || '').toLowerCase();
+        if (!k) return null;
+        if (k.startsWith('americanfootball_') || k === 'football') return 'football';
+        if (k.startsWith('basketball_') || k === 'basketball') return 'basketball';
+        return null;
+    };
+
+    // Distinct sport groups present in the current slip. Used to pick
+    // which teaser-points list to show (football → 6/6.5/7, basketball
+    // → 4/4.5/5) and to flag mixed-sport teasers as invalid (the
+    // backend rejects them; surfacing the error here keeps the slip
+    // honest before the user taps Place).
+    const slipTeaserGroups = useMemo(() => {
+        const groups = new Set();
+        for (const sel of selections) {
+            const g = teaserSportGroupOf(sel?.sportKey);
+            if (g) groups.add(g);
+        }
+        return Array.from(groups);
+    }, [selections]);
+
+    // Resolve the effective teaser point options for the slip:
+    //   - exactly one sport group → use that group's per-sport list
+    //     (rule.teaserPointOptionsBySport[group], shipped from backend)
+    //   - mixed groups or none identified → fall back to the legacy
+    //     flat list rule.teaserPointOptions so older clients/data still
+    //     render something rather than an empty selector
+    const activeTeaserPointOptions = useMemo(() => {
+        if (normalizedMode !== 'teaser') return [];
+        const bySport = rule?.teaserPointOptionsBySport;
+        if (slipTeaserGroups.length === 1 && bySport && Array.isArray(bySport[slipTeaserGroups[0]])) {
+            return bySport[slipTeaserGroups[0]].map(Number);
+        }
+        return Array.isArray(rule?.teaserPointOptions) ? rule.teaserPointOptions.map(Number) : [];
+    }, [normalizedMode, rule, slipTeaserGroups]);
+
     const teaserValid = normalizedMode !== 'teaser'
-        || !Array.isArray(rule.teaserPointOptions)
-        || rule.teaserPointOptions.length === 0
-        || rule.teaserPointOptions.includes(teaserPointValue);
+        || activeTeaserPointOptions.length === 0
+        || activeTeaserPointOptions.includes(teaserPointValue);
 
     // Snap a raw decimal price to the exact decimal derived from its
     // American-integer rounding — the same basis the backend stores
@@ -786,7 +827,7 @@ const ModeBetPanel = ({
             }
         }
         if (!teaserValid) {
-            errors.push(`Select teaser points: ${rule.teaserPointOptions.join(', ')}`);
+            errors.push(`Select teaser points: ${activeTeaserPointOptions.join(', ')}`);
         }
         // Teaser is point-shift only — moneylines have no line to shift,
         // so teaser legs must be spreads or totals exclusively. Blocks
@@ -799,6 +840,29 @@ const ModeBetPanel = ({
             if (invalid.length > 0) {
                 errors.push('Teasers only accept spreads and totals — remove moneyline selections');
             }
+            // Per-sport teaser eligibility. Real US sportsbooks only offer
+            // teasers on football and basketball — other sports' spreads
+            // don't move enough to make a teaser meaningful. Legs without
+            // a sportKey (older dispatchers haven't been threaded through
+            // yet) are skipped at the frontend; the backend gate is the
+            // source of truth and will catch them at placement.
+            const ineligibleLegs = selections.filter((sel) => {
+                const key = String(sel?.sportKey || '').toLowerCase();
+                if (!key) return false;
+                return teaserSportGroupOf(key) === null;
+            });
+            if (ineligibleLegs.length > 0) {
+                errors.push('Teasers are only available on football and basketball — remove other-sport legs');
+            }
+            // Mixed-sport teasers are non-product. Football and
+            // basketball teasers use different point values (6/6.5/7
+            // vs 4/4.5/5), so a single ticket spanning both can't be
+            // priced consistently. Backend also rejects this; the
+            // matching frontend message keeps Place disabled and tells
+            // the user exactly what to do.
+            if (slipTeaserGroups.length > 1) {
+                errors.push(`Teasers can't mix sports — split your ${slipTeaserGroups.join(' + ')} legs into separate teaser tickets`);
+            }
         }
         if (!selections.every(sel => Number.isFinite(Number(sel.odds)) && Number(sel.odds) > 0)) {
             errors.push('One or more selections have invalid odds');
@@ -806,7 +870,7 @@ const ModeBetPanel = ({
         if (limitFlags.messages.min) errors.push(limitFlags.messages.min);
         if (limitFlags.messages.max) errors.push(limitFlags.messages.max);
         return errors;
-    }, [legCount, normalizedMode, rule, selections, effectiveCombinedRisk, teaserValid, hasAnyStraightAmount, limitFlags, roundRobinSizes, roundRobinStakePerParlay, roundRobinParlayCount, roundRobinMaxParlays]);
+    }, [legCount, normalizedMode, rule, selections, effectiveCombinedRisk, teaserValid, hasAnyStraightAmount, limitFlags, roundRobinSizes, roundRobinStakePerParlay, roundRobinParlayCount, roundRobinMaxParlays, activeTeaserPointOptions, slipTeaserGroups]);
 
     const ticketSignature = useMemo(() => JSON.stringify({
         type: normalizedMode,
@@ -1439,6 +1503,75 @@ const ModeBetPanel = ({
                 is open (see DashboardHeader). The APPLY TO ALL panel
                 below is now the visual top of the slip body. */}
             <div style={{ flex: 1, minHeight: 0, padding: '14px 14px 18px', overflowY: 'auto' }}>
+                {/* TEASER POINTS pinned to the top of the slip in teaser
+                    mode so the user picks the point value first; the leg
+                    cards below then show their already-shifted spreads.
+                    Real sportsbooks lead with the points selector for
+                    exactly this reason — picking 6 vs 7 changes every
+                    spread underneath, and showing the resulting lines
+                    without first revealing the choice is confusing. */}
+                {normalizedMode === 'teaser' && activeTeaserPointOptions.length > 0 && (
+                    <div style={{
+                        background: '#fff',
+                        border: `1px solid ${palette.cardBorder}`,
+                        borderRadius: 10,
+                        padding: '10px 12px',
+                        marginBottom: 12,
+                    }}>
+                        <div style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            marginBottom: 8,
+                        }}>
+                            <span style={{
+                                fontSize: 11,
+                                fontWeight: 700,
+                                color: palette.textMuted,
+                                textTransform: 'uppercase',
+                                letterSpacing: 0.6,
+                            }}>Teaser Points</span>
+                            {/* Tiny sport-group hint so the user understands
+                                why they see 6/6.5/7 for football and 4/4.5/5
+                                for basketball. Stays out of the way when no
+                                sport is identified yet. */}
+                            {slipTeaserGroups.length === 1 && (
+                                <span style={{
+                                    fontSize: 10,
+                                    fontWeight: 600,
+                                    color: palette.textFaint,
+                                    textTransform: 'uppercase',
+                                    letterSpacing: 0.4,
+                                }}>{slipTeaserGroups[0]}</span>
+                            )}
+                        </div>
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                            {activeTeaserPointOptions.map(point => {
+                                const selected = Number(teaserPoints) === Number(point);
+                                return (
+                                    <button
+                                        key={point}
+                                        onClick={() => onTeaserPointsChange(String(point))}
+                                        style={{
+                                            padding: '7px 14px',
+                                            border: `1px solid ${selected ? palette.headerBg : palette.cardBorder}`,
+                                            background: selected ? palette.headerBg : '#fff',
+                                            color: selected ? '#fff' : palette.textPrimary,
+                                            fontSize: 12,
+                                            fontWeight: 700,
+                                            cursor: 'pointer',
+                                            borderRadius: 999,
+                                            transition: 'all 120ms ease',
+                                        }}
+                                    >
+                                        +{point} pts
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </div>
+                )}
+
                 {/* Consolidated APPLY TO ALL panel — now the visual top
                     of the slip body. Owns: mode toggle, Bet Amount input,
                     quick-stake row, Use Freeplay. The previous duplicate
@@ -1508,11 +1641,11 @@ const ModeBetPanel = ({
                                                 background: lockedOut
                                                     ? '#cbd5e1'
                                                     : active
-                                                        ? (m.id === 'risk' ? '#ea580c' : m.id === 'win' ? '#16a34a' : '#0f172a')
-                                                        : '#475569',
-                                                color: lockedOut ? '#94a3b8' : '#fff',
+                                                        ? (m.id === 'risk' ? '#ff5051' : m.id === 'win' ? '#16a34a' : '#0f172a')
+                                                        : '#e8e8e8',
+                                                color: lockedOut ? '#94a3b8' : (active ? '#fff' : '#333'),
                                                 border: 'none',
-                                                borderLeft: i === 0 ? 'none' : '1px solid rgba(255,255,255,0.15)',
+                                                borderLeft: i === 0 ? 'none' : '1px solid rgba(0,0,0,0.15)',
                                                 padding: '8px 14px',
                                                 fontWeight: 800,
                                                 fontSize: 12,
@@ -2454,43 +2587,6 @@ const ModeBetPanel = ({
                                 </div>
                             </>
                         )}
-                    </div>
-                )}
-
-                {normalizedMode === 'teaser' && Array.isArray(rule.teaserPointOptions) && rule.teaserPointOptions.length > 0 && (
-                    <div style={{ marginTop: 14 }}>
-                        <div style={{
-                            fontSize: 11,
-                            fontWeight: 700,
-                            color: palette.textMuted,
-                            textTransform: 'uppercase',
-                            letterSpacing: 0.6,
-                            marginBottom: 8,
-                        }}>Teaser Points</div>
-                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                            {rule.teaserPointOptions.map(point => {
-                                const selected = Number(teaserPoints) === Number(point);
-                                return (
-                                    <button
-                                        key={point}
-                                        onClick={() => onTeaserPointsChange(String(point))}
-                                        style={{
-                                            padding: '7px 14px',
-                                            border: `1px solid ${selected ? palette.headerBg : palette.cardBorder}`,
-                                            background: selected ? palette.headerBg : '#fff',
-                                            color: selected ? '#fff' : palette.textPrimary,
-                                            fontSize: 12,
-                                            fontWeight: 700,
-                                            cursor: 'pointer',
-                                            borderRadius: 999,
-                                            transition: 'all 120ms ease',
-                                        }}
-                                    >
-                                        +{point} pts
-                                    </button>
-                                );
-                            })}
-                        </div>
                     </div>
                 )}
 
