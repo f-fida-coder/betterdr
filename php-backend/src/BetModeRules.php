@@ -15,12 +15,10 @@ final class BetModeRules
      * which are derived from the union of `pointsBySport` across active
      * types so older clients keep working.
      *
-     * TODO(ops): Standard book convention is higher points = lower payout.
-     * Industry reference (decimal odds) — adjust per your margin model:
-     *   2-team:  6pt ~1.83-1.91 | 6.5pt ~1.74-1.83 | 7pt ~1.67-1.77
-     *   4-team:  6pt ~4.0       | 6.5pt ~3.5       | 7pt ~3.0
-     * Currently all 3 tiers mirror existing 6/4 multipliers — no behavior
-     * change until tuned via betmoderules DB row.
+     * Higher-points tier = worse odds (more book hold). Stored value is
+     * DECIMAL ODDS — the backend computes total payout as risk × multiplier
+     * (SportsbookBetSupport::potentialPayout), and the slip mirrors that
+     * shape. Conversions: -110 = 1.90909, -140 = 1.71429, +160 = 2.6, etc.
      */
     private const DEFAULT_TEASER_TYPES = [
         [
@@ -36,11 +34,11 @@ final class BetModeRules
             'payoutProfile' => [
                 'type' => 'table_multiplier',
                 'multipliers' => [
-                    '2' => 1.8,
-                    '3' => 2.6,
-                    '4' => 4.0,
-                    '5' => 6.5,
-                    '6' => 9.5,
+                    '2' => 1.90909, // -110
+                    '3' => 1.71429, // -140
+                    '4' => 2.6,     // +160
+                    '5' => 3.5,     // +250
+                    '6' => 5.0,     // +400
                 ],
             ],
             'isActive' => true,
@@ -59,11 +57,11 @@ final class BetModeRules
             'payoutProfile' => [
                 'type' => 'table_multiplier',
                 'multipliers' => [
-                    '2' => 1.8,
-                    '3' => 2.6,
-                    '4' => 4.0,
-                    '5' => 6.5,
-                    '6' => 9.5,
+                    '2' => 1.83333, // -120
+                    '3' => 1.625,   // -160
+                    '4' => 2.3,     // +130
+                    '5' => 3.0,     // +200
+                    '6' => 4.0,     // +300
                 ],
             ],
             'isActive' => true,
@@ -82,15 +80,38 @@ final class BetModeRules
             'payoutProfile' => [
                 'type' => 'table_multiplier',
                 'multipliers' => [
-                    '2' => 1.8,
-                    '3' => 2.6,
-                    '4' => 4.0,
-                    '5' => 6.5,
-                    '6' => 9.5,
+                    '2' => 1.76923, // -130
+                    '3' => 1.55556, // -180
+                    '4' => 2.1,     // +110
+                    '5' => 2.6,     // +160
+                    '6' => 3.5,     // +250
                 ],
             ],
             'isActive' => true,
             'sortOrder' => 3,
+        ],
+        [
+            'id' => 'standard_75_55',
+            'label' => '7.5 PT FB / 5.5 PT BK',
+            'description' => 'Sweetheart teaser — Ties Push',
+            'pointsBySport' => [
+                'football' => 7.5,
+                'basketball' => 5.5,
+            ],
+            'tiesRule' => 'push',
+            'payoutMode' => 'multiplier',
+            'payoutProfile' => [
+                'type' => 'table_multiplier',
+                'multipliers' => [
+                    '2' => 1.66667, // -150
+                    '3' => 1.5,     // -200
+                    '4' => 1.90909, // -110
+                    '5' => 2.2,     // +120
+                    '6' => 2.8,     // +180
+                ],
+            ],
+            'isActive' => true,
+            'sortOrder' => 4,
         ],
     ];
 
@@ -120,17 +141,16 @@ final class BetModeRules
             // that read $rule['teaserPointOptions'] keep working.
             'teaserPointOptions' => [],
             // Ticket-level fallback used at placement when the request
-            // arrives without a `teaserTypeId` (legacy clients). Equal to
-            // standard_6_4's multipliers so behavior is unchanged for
-            // any teaser placed before the new picker ships.
+            // arrives without a `teaserTypeId` (legacy clients). Mirrors
+            // standard_6_4's multipliers so behavior is identical.
             'payoutProfile' => [
                 'type' => 'table_multiplier',
                 'multipliers' => [
-                    '2' => 1.8,
-                    '3' => 2.6,
-                    '4' => 4.0,
-                    '5' => 6.5,
-                    '6' => 9.5,
+                    '2' => 1.90909, // -110
+                    '3' => 1.71429, // -140
+                    '4' => 2.6,     // +160
+                    '5' => 3.5,     // +250
+                    '6' => 5.0,     // +400
                 ],
             ],
             // NEW: structured list of teaser variants. Frontend renders

@@ -637,15 +637,17 @@ const ModeBetPanel = ({
             return firstTwo.reduce((acc, sel) => acc * exactDecimalForLeg(sel?.odds), 1);
         }
         if (normalizedMode === 'teaser') {
-            // Teaser pays a fixed multiplier keyed by leg count (set by
-            // the rule, optionally overridden by the picked teaser type).
-            // Synthesize decimal odds = 1 + multiplier so resolveStake's
-            // Win→Risk back-calc works in Win mode; otherwise the slip
-            // would derive Risk = $0 from a typed Win and the validator
-            // would fire "Enter a valid wager amount" even though the
-            // intent is unambiguous.
+            // Teaser's stored "multiplier" IS already decimal odds — the
+            // backend computes total payout as risk × multiplier (see
+            // SportsbookBetSupport::potentialPayout), exactly the same
+            // shape parlay uses with combined decimal odds. So the slip's
+            // ticketDecimalOdds for teaser is just the multiplier value;
+            // resolveStake's Win→Risk back-calc then matches what the
+            // backend will price the bet at, rather than drifting (an
+            // earlier `1 + multiplier` form double-counted the +1 and
+            // produced a Risk preview ~38% too low for a typed Win).
             const m = getTeaserMultiplier(rule, legCount, selectedTeaserType);
-            return Number.isFinite(m) && m > 0 ? 1 + m : null;
+            return Number.isFinite(m) && m > 1 ? m : null;
         }
         return null;
     }, [normalizedMode, selections, legCount, rule, selectedTeaserType]);
