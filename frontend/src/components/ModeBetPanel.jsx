@@ -64,7 +64,10 @@ const formatAmount = (value) => {
     return Number.isFinite(n) ? String(Math.round(n)) : '0';
 };
 
-const getTeaserMultiplier = (rule, legCount) => {
+const getTeaserMultiplier = (rule, legCount, teaserType = null) => {
+    const typeRaw = teaserType?.payoutProfile?.multipliers?.[String(legCount)];
+    const typeParsed = Number(typeRaw);
+    if (Number.isFinite(typeParsed) && typeParsed > 0) return typeParsed;
     const raw = rule?.payoutProfile?.multipliers?.[String(legCount)];
     const parsed = Number(raw);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
@@ -633,8 +636,19 @@ const ModeBetPanel = ({
             if (firstTwo.length < 2) return null;
             return firstTwo.reduce((acc, sel) => acc * exactDecimalForLeg(sel?.odds), 1);
         }
+        if (normalizedMode === 'teaser') {
+            // Teaser pays a fixed multiplier keyed by leg count (set by
+            // the rule, optionally overridden by the picked teaser type).
+            // Synthesize decimal odds = 1 + multiplier so resolveStake's
+            // Win→Risk back-calc works in Win mode; otherwise the slip
+            // would derive Risk = $0 from a typed Win and the validator
+            // would fire "Enter a valid wager amount" even though the
+            // intent is unambiguous.
+            const m = getTeaserMultiplier(rule, legCount, selectedTeaserType);
+            return Number.isFinite(m) && m > 0 ? 1 + m : null;
+        }
         return null;
-    }, [normalizedMode, selections, legCount]);
+    }, [normalizedMode, selections, legCount, rule, selectedTeaserType]);
 
     // Resolve the single shared (mode, amount) input into a per-leg
     // {risk, win} pair using that leg's own decimal odds. The card
@@ -1019,7 +1033,7 @@ const ModeBetPanel = ({
             return effectiveCombinedRisk * combined;
         }
         if (normalizedMode === 'teaser') {
-            return effectiveCombinedRisk * getTeaserMultiplier(rule, legCount);
+            return effectiveCombinedRisk * getTeaserMultiplier(rule, legCount, selectedTeaserType);
         }
         if (normalizedMode === 'if_bet') {
             const firstTwo = selections.slice(0, 2).reduce((acc, sel) => acc * exactDecimalForLeg(sel?.odds), 1);
@@ -1037,7 +1051,7 @@ const ModeBetPanel = ({
             return roundRobinMaxWin;
         }
         return 0;
-    }, [effectiveCombinedRisk, legCount, normalizedMode, selections, rule, wagerForSelection, roundRobinMaxWin]);
+    }, [effectiveCombinedRisk, legCount, normalizedMode, selections, rule, selectedTeaserType, wagerForSelection, roundRobinMaxWin]);
 
     const totalRisk = normalizedMode === 'reverse'
         ? effectiveCombinedRisk * 2
@@ -2170,7 +2184,14 @@ const ModeBetPanel = ({
                     const startIso = sel?.matchSnapshot?.startTime || sel?.match?.startTime || sel?.startTime;
                     const matchTimeLabel = startIso ? formatSiteDateTime(startIso) : '';
                     const market = String(sel.marketType || '').toLowerCase();
-                    const supportsBuyPoints = market === 'spreads' || market === 'totals';
+                    // Buy Points is disabled in teaser mode: the tease
+                    // already shifts the line in the player's favor by
+                    // a fixed point count, and stacking a paid-juice
+                    // BP shift on top is a non-product combination
+                    // (real books burn BP entering a teaser). Hiding
+                    // the selector keeps the slip honest with what the
+                    // backend will price.
+                    const supportsBuyPoints = (market === 'spreads' || market === 'totals') && normalizedMode !== 'teaser';
                     const buyPointsOptions = supportsBuyPoints ? buildBuyPointsOptions(sel) : [];
                     const buyPointsOpen = openBuyPointsId === sel.id;
                     // Flags this leg if its *win* trips the user's per-account
