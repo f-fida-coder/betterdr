@@ -801,7 +801,10 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                 className="team-logo-image"
                                                 src={teamLogos[match.team1.name] || createFallbackTeamLogoDataUri(match.team1.name)}
                                                 alt={`${match.team1.name} logo`}
+                                                width="32"
+                                                height="32"
                                                 loading="lazy"
+                                                decoding="async"
                                                 onError={(event) => {
                                                     event.currentTarget.onerror = null;
                                                     event.currentTarget.src = createFallbackTeamLogoDataUri(match.team1.name);
@@ -828,7 +831,10 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                 className="team-logo-image"
                                                 src={teamLogos[match.team2.name] || createFallbackTeamLogoDataUri(match.team2.name)}
                                                 alt={`${match.team2.name} logo`}
+                                                width="32"
+                                                height="32"
                                                 loading="lazy"
+                                                decoding="async"
                                                 onError={(event) => {
                                                     event.currentTarget.onerror = null;
                                                     event.currentTarget.src = createFallbackTeamLogoDataUri(match.team2.name);

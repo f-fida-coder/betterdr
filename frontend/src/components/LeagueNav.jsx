@@ -21,7 +21,7 @@ const LeagueNav = ({ activeLeague, onSelectLeague }) => {
                             className={`league-item ${activeLeague === league.id ? 'active' : ''}`}
                             onClick={() => onSelectLeague(league.id)}
                         >
-                            <img src={league.icon} alt={league.name} />
+                            <img src={league.icon} alt={league.name} width="40" height="40" decoding="async" />
                             <span>{league.name}</span>
                         </div>
                     ))}

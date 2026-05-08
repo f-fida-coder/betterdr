@@ -31,8 +31,9 @@ import {
 import useWebSocket from './hooks/useWebSocket';
 import useNetworkStatus from './hooks/useNetworkStatus';
 import NetworkStatusBanner from './components/NetworkStatusBanner';
-import './index.css';
-import './dashboard.css';
+// index.css is already imported by main.jsx (entry).
+// dashboard.css moved into UserDashboardShell so it loads lazily with the
+// authenticated dashboard, not on the public landing page (Phase 8).
 
 const UserDashboardShell = React.lazy(() => import('./components/UserDashboardShell'));
 

@@ -73,7 +73,10 @@ const AgentLogin = () => {
                         <img
                             src="/logo.png"
                             alt="Agent"
-                            style={{ height: '60px', marginBottom: '20px' }}
+                            width="60"
+                            height="60"
+                            decoding="async"
+                            style={{ height: '60px', width: 'auto', marginBottom: '20px' }}
                         />
                     </picture>
                     <h2 style={{

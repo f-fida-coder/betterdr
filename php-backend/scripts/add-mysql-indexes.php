@@ -130,6 +130,33 @@ $indexes = [
             'description' => 'Agent status filtering',
         ],
     ],
+    // matches: hot table — every public page load runs
+    //   WHERE status IN ('scheduled','live') ORDER BY startTime ASC
+    // Requires generated columns j_status, j_start_time_dt, j_external_id,
+    // j_last_updated_dt, j_sport. Run `optimize-mysql-schema.php` first if
+    // these columns are not yet present on the target database.
+    'matches' => [
+        'idx_matches_j_status_start' => [
+            'columns' => ['j_status', 'j_start_time_dt'],
+            'type' => 'INDEX',
+            'description' => 'Public matches list: status filter + startTime sort',
+        ],
+        'idx_matches_j_external_id' => [
+            'columns' => ['j_external_id'],
+            'type' => 'INDEX',
+            'description' => 'OddsSyncService upsert lookups by externalId',
+        ],
+        'idx_matches_j_last_updated' => [
+            'columns' => ['j_last_updated_dt'],
+            'type' => 'INDEX',
+            'description' => 'Incremental sync: WHERE updatedAt >= ?',
+        ],
+        'idx_matches_j_sport' => [
+            'columns' => ['j_sport'],
+            'type' => 'INDEX',
+            'description' => 'Sport-scoped queries (EspnScoreboardSync)',
+        ],
+    ],
 ];
 
 /**

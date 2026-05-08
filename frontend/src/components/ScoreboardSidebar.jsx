@@ -221,6 +221,10 @@ const ScoreboardSidebar = ({ onClose }) => {
                                                 src={teamLogos[game.homeTeam] || createFallbackTeamLogoDataUri(game.homeTeam)}
                                                 alt={game.homeTeam}
                                                 className="game-logo"
+                                                width="24"
+                                                height="24"
+                                                loading="lazy"
+                                                decoding="async"
                                                 onError={(e) => { e.currentTarget.src = createFallbackTeamLogoDataUri(game.homeTeam); }}
                                             />
                                             <span>{game.homeTeam}</span>
@@ -233,6 +237,10 @@ const ScoreboardSidebar = ({ onClose }) => {
                                                 src={teamLogos[game.awayTeam] || createFallbackTeamLogoDataUri(game.awayTeam)}
                                                 alt={game.awayTeam}
                                                 className="game-logo"
+                                                width="24"
+                                                height="24"
+                                                loading="lazy"
+                                                decoding="async"
                                                 onError={(e) => { e.currentTarget.src = createFallbackTeamLogoDataUri(game.awayTeam); }}
                                             />
                                             <span>{game.awayTeam}</span>

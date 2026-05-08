@@ -3,7 +3,9 @@
 
 <head>
   <meta charset="UTF-8" />
-  <link rel="icon" type="image/png" href="/logo.png" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+  <link rel="icon" type="image/png" sizes="64x64" href="/favicon-64.png" />
+  <link rel="apple-touch-icon" sizes="192x192" href="/favicon-192.png" />
   <link rel="manifest" href="/manifest.json" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#0a2d1d" />
@@ -11,24 +13,44 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="bettorplays247" />
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Roboto+Condensed:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="preload" as="font" type="font/woff2" href="/fonts/roboto-condensed-latin.woff2" crossorigin>
+  <!--
+    LCP image preload (Phase 9): Hero.jsx renders /hero-banner-home.webp as the
+    first carousel slide. Without this hint, the browser only discovers the
+    image after React mounts and renders the <img>, costing ~200-500ms on slow
+    connections. fetchpriority=high pushes it ahead of non-critical requests.
+  -->
+  <link rel="preload" as="image" type="image/webp" href="/hero-banner-home.webp" fetchpriority="high">
+  <style>
+    @font-face {
+      font-family: 'Roboto Condensed';
+      font-style: normal;
+      font-weight: 100 900;
+      font-display: swap;
+      src: url('/fonts/roboto-condensed-latin.woff2') format('woff2');
+      unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+    }
+    @font-face {
+      font-family: 'Roboto Condensed';
+      font-style: normal;
+      font-weight: 100 900;
+      font-display: swap;
+      src: url('/fonts/roboto-condensed-latin-ext.woff2') format('woff2');
+      unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+    }
+  </style>
   <title>bettorplays247</title>
-  <script type="module" crossorigin src="/assets/index-BRlbwcms.js"></script>
+  <script type="module" crossorigin src="/assets/index-DojC8k81.js"></script>
   <link rel="modulepreload" crossorigin href="/assets/chunks/vendor-common-_eGvg4ul.js">
   <link rel="modulepreload" crossorigin href="/assets/chunks/vendor-react-Bd2HVIcR.js">
   <link rel="modulepreload" crossorigin href="/assets/chunks/app-api-CY7G0v-c.js">
-  <link rel="modulepreload" crossorigin href="/assets/chunks/utils-shared-BGtYAskB.js">
-  <link rel="modulepreload" crossorigin href="/assets/chunks/scoreboard-views--vZzgSW-.js">
-  <link rel="modulepreload" crossorigin href="/assets/chunks/contexts-shared-xn3a5aX1.js">
-  <link rel="modulepreload" crossorigin href="/assets/chunks/mybets-views-BlBz2bYl.js">
-  <link rel="modulepreload" crossorigin href="/assets/chunks/dashboard-views-TDpsyAz8.js">
+  <link rel="modulepreload" crossorigin href="/assets/chunks/utils-shared-HtlnHdlg.js">
+  <link rel="modulepreload" crossorigin href="/assets/chunks/contexts-shared-DUJix3dJ.js">
   <link rel="modulepreload" crossorigin href="/assets/chunks/vendor-routing-Ba36GI6Q.js">
-  <link rel="modulepreload" crossorigin href="/assets/chunks/admin-views-Dac3mgRX.js">
-  <link rel="stylesheet" crossorigin href="/assets/mybets-views-BVAPY6pS.css">
-  <link rel="stylesheet" crossorigin href="/assets/admin-views-DyOeAQoZ.css">
-  <link rel="stylesheet" crossorigin href="/assets/index-BYe_7we6.css">
+  <link rel="preload" as="style" crossorigin href="/assets/mybets-views-BVAPY6pS.css" onload="this.onload=null;this.rel='stylesheet'"><noscript><link rel="stylesheet" crossorigin href="/assets/mybets-views-BVAPY6pS.css"></noscript>
+  <link rel="preload" as="style" crossorigin href="/assets/dashboard-views-EUx1VtlX.css" onload="this.onload=null;this.rel='stylesheet'"><noscript><link rel="stylesheet" crossorigin href="/assets/dashboard-views-EUx1VtlX.css"></noscript>
+  <link rel="preload" as="style" crossorigin href="/assets/admin-views-DyOeAQoZ.css" onload="this.onload=null;this.rel='stylesheet'"><noscript><link rel="stylesheet" crossorigin href="/assets/admin-views-DyOeAQoZ.css"></noscript>
+  <link rel="stylesheet" crossorigin href="/assets/index-B1fTXT7B.css">
 </head>
 
 <body>

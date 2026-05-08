@@ -63,6 +63,12 @@ $requiredIndexes = [
         'idx_agents_createdby_role',
         'idx_agents_status',
     ],
+    'matches' => [
+        'idx_matches_j_status_start',
+        'idx_matches_j_external_id',
+        'idx_matches_j_last_updated',
+        'idx_matches_j_sport',
+    ],
 ];
 
 /**

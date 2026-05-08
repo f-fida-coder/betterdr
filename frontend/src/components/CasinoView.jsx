@@ -929,6 +929,9 @@ const CasinoView = () => {
                                 src="/games/jurassic-run/assets/images/logo.svg"
                                 alt="Jurassic Run"
                                 className="game-fullscreen-loading-logo"
+                                width="200"
+                                height="200"
+                                decoding="async"
                             />
                             {!gameLoadError && (
                                 <>
@@ -1088,7 +1091,7 @@ const CasinoView = () => {
                                     className="casino-card-image"
                                     style={{ background: `linear-gradient(135deg, ${game.themeColor || '#0f172a'}, #0f5db3)` }}
                                 >
-                                    <img src={game.poster} alt={game.name} className="casino-game-image" />
+                                    <img src={game.poster} alt={game.name} className="casino-game-image" width="200" height="280" loading="lazy" decoding="async" />
                                     <span className={`casino-status ${String(game.status || 'active').toLowerCase()}`}>
                                         {String(game.status || 'active')}
                                     </span>
@@ -1317,7 +1320,7 @@ const CasinoView = () => {
                         <article className="casino-card" key={game.id}>
                             <div className="casino-card-image" style={{ background: `linear-gradient(135deg, #0f172a, ${game.themeColor || '#0f5db3'})` }}>
                                 {game.imageUrl ? (
-                                    <img src={game.imageUrl} alt={game.name} className="casino-game-image" />
+                                    <img src={game.imageUrl} alt={game.name} className="casino-game-image" width="200" height="280" loading="lazy" decoding="async" />
                                 ) : (
                                     <span className="casino-fallback-icon">
                                         <i className={game.icon || 'fa-solid fa-dice'}></i>

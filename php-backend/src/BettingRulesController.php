@@ -54,7 +54,13 @@ final class BettingRulesController
                     $rules[$idx]['teaserPointOptionsBySport'] = BetModeRules::teaserPointOptionsBySport();
                 }
             }
-            Response::json(['rules' => $rules]);
+            // Bet mode rules are admin-managed and change infrequently. The
+            // backend re-reads the DB on every bet placement (BetsController
+            // line 1905) and validates against code-defined teaser constants
+            // (BetModeRules::teaserPointOptionsForSport), so frontend cache
+            // staleness can't affect bet correctness — only what the UI shows.
+            // Short TTL keeps admin tweaks visible within ~1 minute.
+            Response::json(['rules' => $rules], 200, 'private, max-age=60, stale-while-revalidate=120');
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error fetching bet mode rules'], 500);
         }
@@ -74,6 +80,8 @@ final class BettingRulesController
 
             $this->ensureSeeded();
             $rules = $this->db->findMany('betmoderules', [], ['sort' => ['mode' => 1]]);
+            // Admin view — no cache. Admins editing rules need to see their
+            // changes immediately; staleness here is confusing, not safe.
             Response::json(['rules' => $rules]);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error fetching bet mode rules'], 500);

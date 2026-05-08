@@ -103,7 +103,10 @@ final class ContentController
 
             $this->ensureTutorialSeeded();
             $tutorials = $this->db->findMany('manualsections', ['status' => 'active'], ['sort' => ['order' => 1, 'createdAt' => -1]]);
-            Response::json(['tutorials' => $tutorials]);
+            // Tutorials are admin-managed text content that changes rarely.
+            // private = per-user (auth-gated), browser-only — no shared CDN cache.
+            // ETag in Response::json gives 304 short-circuit when content unchanged.
+            Response::json(['tutorials' => $tutorials], 200, 'private, max-age=300, stale-while-revalidate=600');
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error fetching tutorials'], 500);
         }
@@ -119,7 +122,9 @@ final class ContentController
 
             $this->ensureFaqSeeded();
             $faqs = $this->db->findMany('faqs', ['status' => 'active'], ['sort' => ['order' => 1, 'createdAt' => -1]]);
-            Response::json(['faqs' => $faqs]);
+            // FAQs are admin-managed support content that changes rarely.
+            // Same caching strategy as tutorials.
+            Response::json(['faqs' => $faqs], 200, 'private, max-age=300, stale-while-revalidate=600');
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error fetching support FAQs'], 500);
         }

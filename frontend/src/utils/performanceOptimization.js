@@ -3,19 +3,18 @@
  * Implements prefetching, route preloading, and performance monitoring
  */
 
-const EXTERNAL_PRESENTATION_HINTS = [
-  { id: 'hint-google-fonts', rel: 'preconnect', href: 'https://fonts.googleapis.com' },
-  { id: 'hint-google-fonts-static', rel: 'preconnect', href: 'https://fonts.gstatic.com', crossOrigin: 'anonymous' },
-];
+// Roboto Condensed is now self-hosted via index.html @font-face (Phase 5),
+// so no external preconnect or stylesheet is needed for it. The Inter font
+// entry was a leftover from a previous design — Inter is not referenced
+// anywhere in CSS.
+const EXTERNAL_PRESENTATION_HINTS = [];
 
 const EXTERNAL_PRESENTATION_STYLES = [
   {
-    id: 'style-google-inter',
-    href: 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap',
-  },
-  {
+    // FontAwesome is self-hosted at /fonts/fontawesome/ and subset to only
+    // the icons used in src/ (Phase 6). Loaded async via media=print swap.
     id: 'style-font-awesome',
-    href: 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css',
+    href: '/fonts/fontawesome/all.min.css',
   },
 ];
 

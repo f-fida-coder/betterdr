@@ -1406,6 +1406,8 @@ const TeamAvatar = ({ team }) => {
             <img
                 src={logoUrl}
                 alt=""
+                width="32"
+                height="32"
                 loading="lazy"
                 decoding="async"
                 onError={() => setImgFailed(true)}

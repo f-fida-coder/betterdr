@@ -674,7 +674,10 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending' }) => {
                                                                 src={legLogo}
                                                                 alt=""
                                                                 className="my-bets-table-logo"
+                                                                width="20"
+                                                                height="20"
                                                                 loading="lazy"
+                                                                decoding="async"
                                                                 onError={(e) => { e.currentTarget.src = createFallbackTeamLogoDataUri(legTeam || ''); }}
                                                             />
                                                         )}
@@ -739,7 +742,10 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending' }) => {
                                                         src={legLogo}
                                                         alt=""
                                                         className="my-bets-table-logo"
+                                                        width="20"
+                                                        height="20"
                                                         loading="lazy"
+                                                        decoding="async"
                                                         onError={(e) => { e.currentTarget.src = createFallbackTeamLogoDataUri(legTeam || ''); }}
                                                     />
                                                 )}
@@ -797,7 +803,10 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending' }) => {
                                         src={logoSrc}
                                         alt=""
                                         className="my-bets-table-logo"
+                                        width="20"
+                                        height="20"
                                         loading="lazy"
+                                        decoding="async"
                                         onError={(e) => { e.currentTarget.src = createFallbackTeamLogoDataUri(legTeam || ''); }}
                                     />
                                 )}

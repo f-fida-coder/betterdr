@@ -974,6 +974,10 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
                                         <img
                                             src={lang.flag}
                                             alt={lang.name}
+                                            width="24"
+                                            height="16"
+                                            loading="lazy"
+                                            decoding="async"
                                             style={{ width: '24px', borderRadius: '3px', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }}
                                         />
                                     </div>

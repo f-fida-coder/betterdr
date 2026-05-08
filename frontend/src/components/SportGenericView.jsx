@@ -78,12 +78,12 @@ const SportGenericView = ({ sportId, filter, selectedItems = [] }) => {
                                 {match.time} - {match.broadcast}
                             </div>
                             <div className="team-line">
-                                <img src={match.homeLogo || "https://via.placeholder.com/20"} className="team-logo" alt="" />
+                                <img src={match.homeLogo || "https://via.placeholder.com/20"} className="team-logo" alt="" width="20" height="20" loading="lazy" decoding="async" />
                                 {match.home}
                                 <span className="team-record" style={{ fontSize: '11px', color: '#666', marginLeft: '4px' }}>{match.homeRecord}</span>
                             </div>
                             <div className="team-line">
-                                <img src={match.awayLogo || "https://via.placeholder.com/20"} className="team-logo" alt="" />
+                                <img src={match.awayLogo || "https://via.placeholder.com/20"} className="team-logo" alt="" width="20" height="20" loading="lazy" decoding="async" />
                                 {match.away}
                                 <span className="team-record" style={{ fontSize: '11px', color: '#666', marginLeft: '4px' }}>{match.awayRecord}</span>
                             </div>

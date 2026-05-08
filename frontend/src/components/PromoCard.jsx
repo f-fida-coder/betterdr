@@ -24,7 +24,7 @@ const PromoCard = () => {
                 <div className="promo-props-list">
                     <div className="promo-prop-item">
                         <div className="player-photo">
-                            <img src="https://via.placeholder.com/40" alt="Jaylen Warren" />
+                            <img src="https://via.placeholder.com/40" alt="Jaylen Warren" width="40" height="40" loading="lazy" decoding="async" />
                         </div>
                         <div className="prop-details">
                             <div className="player-name">Jaylen Warren <span className="team-tag">(HOU @ PIT)</span></div>
@@ -34,7 +34,7 @@ const PromoCard = () => {
 
                     <div className="promo-prop-item">
                         <div className="player-photo">
-                            <img src="https://via.placeholder.com/40" alt="Woody Marks" />
+                            <img src="https://via.placeholder.com/40" alt="Woody Marks" width="40" height="40" loading="lazy" decoding="async" />
                         </div>
                         <div className="prop-details">
                             <div className="player-name">Woody Marks <span className="team-tag">(HOU @ PIT)</span></div>
@@ -44,7 +44,7 @@ const PromoCard = () => {
 
                     <div className="promo-prop-item">
                         <div className="player-photo">
-                            <img src="https://via.placeholder.com/40" alt="Kenneth Gainwell" />
+                            <img src="https://via.placeholder.com/40" alt="Kenneth Gainwell" width="40" height="40" loading="lazy" decoding="async" />
                         </div>
                         <div className="prop-details">
                             <div className="player-name">Kenneth Gainwell <span className="team-tag">(HOU @ PIT)</span></div>
