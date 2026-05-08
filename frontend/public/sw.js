@@ -5,7 +5,11 @@
 
 // Bump CACHE_VERSION to purge clients that were serving stale admin/auth
 // responses under the old blanket /api/* stale-while-revalidate rule.
-const CACHE_VERSION = 'v1.3';
+// 2026-05-08 — bumped to v1.4: post-perf-overhaul deploy changed every chunk
+// hash; clients running v1.3 were serving an old cached index.html whose
+// <script src> pointed at JS files that no longer exist on origin, causing
+// React to never mount and only the LCP image preload to render.
+const CACHE_VERSION = 'v1.4';
 const RUNTIME_CACHE = `runtime-${CACHE_VERSION}`;
 const ASSETS_CACHE = `assets-${CACHE_VERSION}`;
 const API_CACHE = `api-${CACHE_VERSION}`;
