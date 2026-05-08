@@ -2,10 +2,17 @@ import React from 'react';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { formatOdds, formatLineValue } from '../utils/odds';
 
+// 2dp w/ thousands separator. Mirrors the bet-review modal's formatAmount
+// so the post-placement Risk/Win tiles match exactly. Integer rounding
+// previously made a Win-mode parlay placed for $1000 read as "$169 / $997"
+// here even when the modal showed "$169.49 / $1,000.00". Negatives clamp
+// to 0 since potentialPayout − risk can briefly be negative for malformed
+// records.
 const fmtMoney = (value) => {
     const n = Number(value);
-    if (!Number.isFinite(n)) return '0';
-    return Math.round(n).toLocaleString('en-US', { maximumFractionDigits: 0 });
+    if (!Number.isFinite(n)) return '0.00';
+    const safe = n > 0 ? n : 0;
+    return safe.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
 
 const fmtTimestamp = (value) => {

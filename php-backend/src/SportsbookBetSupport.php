@@ -346,16 +346,24 @@ final class SportsbookBetSupport
     {
         $sorted = self::sortSelectionRows($selectionRows);
         $bet['ticketId'] = (string) ($bet['ticketId'] ?? ($bet['id'] ?? ''));
-        $bet['riskAmount'] = (float) ceil(self::riskAmount($bet));
-        $bet['unitStake'] = (float) ceil(self::unitStake($bet));
-        $bet['amount'] = (float) ceil(self::num($bet['amount'] ?? 0));
-        $bet['potentialPayout'] = (float) ceil(self::num($bet['potentialPayout'] ?? 0));
+        // Ticket money fields preserve 2dp precision — these are
+        // exact stored values (DECIMAL(14,2)). ceil() previously
+        // rounded a Win-mode parlay's $169.49 risk up to $170 in the
+        // response, hiding the actual stake. Settlement reads the
+        // stored value directly, so display-side ceil was decorative
+        // and broke parity with the bet-review modal.
+        $bet['riskAmount'] = (float) round(self::riskAmount($bet), 2);
+        $bet['unitStake'] = (float) round(self::unitStake($bet), 2);
+        $bet['amount'] = (float) round(self::num($bet['amount'] ?? 0), 2);
+        $bet['potentialPayout'] = (float) round(self::num($bet['potentialPayout'] ?? 0), 2);
         if (isset($bet['payout']) && is_numeric($bet['payout'])) {
-            $bet['payout'] = (float) ceil(self::num($bet['payout']));
+            $bet['payout'] = (float) round(self::num($bet['payout']), 2);
         }
         if (isset($bet['profit']) && is_numeric($bet['profit'])) {
-            $bet['profit'] = (float) ceil(self::num($bet['profit']));
+            $bet['profit'] = (float) round(self::num($bet['profit']), 2);
         }
+        // Balance snapshots keep ceil — they follow the PPH whole-dollar
+        // policy (player should never see a balance lower than what's stored).
         if (isset($bet['balanceBefore']) && is_numeric($bet['balanceBefore'])) {
             $bet['balanceBefore'] = (float) ceil(self::num($bet['balanceBefore']));
         }

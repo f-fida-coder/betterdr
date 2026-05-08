@@ -86,7 +86,15 @@ final class BetsController
             $selections = is_array($body['selections'] ?? null) ? $body['selections'] : [];
             $teaserPoints = (float) ($body['teaserPoints'] ?? 0);
 
-            $betAmount = is_numeric($amount) ? (float) round((float) $amount) : 0.0;
+            // Keep 2dp precision. PHP's round() with no precision arg rounds
+            // to integer — that broke Win-mode pinning: a typed $1000 win on
+            // +590 needs Risk = $169.49, but integer rounding stored Risk =
+            // $169 → potentialPayout = round(169 × 6.9) = $1166, off by $3
+            // from the pinned $1169 → pin tolerance (±$2) rejected, so the
+            // bet paid $997 profit instead of the typed $1000.
+            // bets.riskAmount / potentialPayout columns are DECIMAL(14,2),
+            // so 2dp survives schema round-trip.
+            $betAmount = is_numeric($amount) ? (float) round((float) $amount, 2) : 0.0;
             if (!is_finite($betAmount) || $betAmount <= 0) {
                 throw new ApiException('Bet amount must be positive', 400);
             }
