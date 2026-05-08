@@ -3,18 +3,19 @@
  * Implements prefetching, route preloading, and performance monitoring
  */
 
-// Roboto Condensed is now self-hosted via index.html @font-face (Phase 5),
-// so no external preconnect or stylesheet is needed for it. The Inter font
-// entry was a leftover from a previous design — Inter is not referenced
-// anywhere in CSS.
-const EXTERNAL_PRESENTATION_HINTS = [];
+// PHASE 6 REVERTED 2026-05-08: self-hosted FontAwesome subset stripped icons
+// referenced via dynamic class names (e.g. `fa-${sport}` in DashboardSidebar)
+// — sport, betslip, account icons rendered as empty boxes. The grep-based
+// subset script only matches literal `fa-foo` source occurrences. Going back
+// to the full FA CSS from cdnjs until subset is dynamic-class-aware.
+const EXTERNAL_PRESENTATION_HINTS = [
+  { id: 'hint-fontawesome-cdn', rel: 'preconnect', href: 'https://cdnjs.cloudflare.com', crossOrigin: 'anonymous' },
+];
 
 const EXTERNAL_PRESENTATION_STYLES = [
   {
-    // FontAwesome is self-hosted at /fonts/fontawesome/ and subset to only
-    // the icons used in src/ (Phase 6). Loaded async via media=print swap.
     id: 'style-font-awesome',
-    href: '/fonts/fontawesome/all.min.css',
+    href: 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css',
   },
 ];
 
