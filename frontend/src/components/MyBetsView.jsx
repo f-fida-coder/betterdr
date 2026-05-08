@@ -14,6 +14,24 @@ const moneySigned = (value) => {
     if (n < 0) return `-$${Math.round(Math.abs(n))}`;
     return '$0';
 };
+// Ticket-row money formatter: 2dp with thousands separator. Mirrors the
+// bet-review modal's `formatAmount` so the pending row reads exactly what
+// the modal showed at placement (a typed $1000 Win on +590 stores
+// 169.49 risk / 1169.49 payout — integer rounding hid the 49¢ on Risk
+// and made profit read "$997" on a +590 parlay placed in Risk mode at
+// $169 even though the math is right). Negatives clamp to 0.
+const moneyExact = (value) => {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return '$0.00';
+    const safe = n > 0 ? n : 0;
+    return '$' + safe.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
+const moneyExactSigned = (value, sign) => {
+    const n = Number(value);
+    const safe = Number.isFinite(n) ? Math.abs(n) : 0;
+    const formatted = safe.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return `${sign}$${formatted}`;
+};
 const normalizeStatus = (value) => String(value || 'pending').trim().toLowerCase();
 
 
@@ -292,10 +310,10 @@ const ticketAmount = (bet) => {
     const risk = Number(bet?.riskAmount || bet?.amount || 0);
     const potential = Number(bet?.potentialPayout || 0);
     const profit = Math.max(0, potential - risk);
-    if (status === 'won') return { text: `+$${Math.round(profit)}`, theme: 'won' };
-    if (status === 'lost') return { text: `-$${Math.round(risk)}`, theme: 'lost' };
-    if (status === 'void') return { text: `Refund $${Math.round(risk)}`, theme: 'void' };
-    return { text: `$${Math.round(profit)}`, theme: 'pending' };
+    if (status === 'won') return { text: moneyExactSigned(profit, '+'), theme: 'won' };
+    if (status === 'lost') return { text: moneyExactSigned(risk, '-'), theme: 'lost' };
+    if (status === 'void') return { text: `Refund ${moneyExact(risk)}`, theme: 'void' };
+    return { text: moneyExact(profit), theme: 'pending' };
 };
 
 const payoutLabel = (status) => {
@@ -574,7 +592,7 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending' }) => {
                 const amount = ticketAmount(bet);
                 const isMulti = isMultiLegBet(bet);
                 const isExpanded = expandedBetId === betId;
-                const winCell = status === 'pending' ? money(ticketPayout) : amount.text;
+                const winCell = status === 'pending' ? moneyExact(ticketPayout) : amount.text;
                 const winTheme = status === 'pending' ? 'pending' : amount.theme;
 
                 if (isRoundRobinGroup(bet)) {
@@ -610,7 +628,7 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending' }) => {
                                 <span className="my-bets-table-col-desc">
                                     {multiLegLabel(bet)}
                                 </span>
-                                {!isGraded && <span className="my-bets-table-col-risk">{money(risk)}</span>}
+                                {!isGraded && <span className="my-bets-table-col-risk">{moneyExact(risk)}</span>}
                                 <span className={`my-bets-table-col-win ${winTheme}`}>{winCell}</span>
                             </div>
                             {isExpanded && childrenState === 'loading' && (
@@ -638,7 +656,7 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending' }) => {
                                 const childStatus = normalizeStatus(child?.status);
                                 const childPayout = payoutValue(child);
                                 const childAmount = ticketAmount(child);
-                                const childWinCell = childStatus === 'pending' ? money(childPayout) : childAmount.text;
+                                const childWinCell = childStatus === 'pending' ? moneyExact(childPayout) : childAmount.text;
                                 const childWinTheme = childStatus === 'pending' ? 'pending' : childAmount.theme;
                                 const childSelections = Array.isArray(child?.selections) ? child.selections : [];
                                 return (
@@ -649,7 +667,7 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending' }) => {
                                                     Parlay {ci + 1} · {childSelections.length}-leg
                                                 </span>
                                             </span>
-                                            {!isGraded && <span className="my-bets-table-col-risk">{money(childRisk)}</span>}
+                                            {!isGraded && <span className="my-bets-table-col-risk">{moneyExact(childRisk)}</span>}
                                             <span className={`my-bets-table-col-win ${childWinTheme}`}>{childWinCell}</span>
                                         </div>
                                         {childSelections.map((leg, idx) => {
@@ -703,7 +721,7 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending' }) => {
                                 <span className="my-bets-table-col-desc">
                                     {multiLegLabel(bet)}
                                 </span>
-                                {!isGraded && <span className="my-bets-table-col-risk">{money(risk)}</span>}
+                                {!isGraded && <span className="my-bets-table-col-risk">{moneyExact(risk)}</span>}
                                 <span className={`my-bets-table-col-win ${winTheme}`}>{winCell}</span>
                             </div>
                             {selections.map((leg, idx) => {
@@ -810,7 +828,7 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending' }) => {
                                     <span className={`my-bets-table-leg-status ${straightStatus}`}>{straightStatusLetter}</span>
                                 )}
                             </span>
-                            {!isGraded && <span className="my-bets-table-col-risk">{money(risk)}</span>}
+                            {!isGraded && <span className="my-bets-table-col-risk">{moneyExact(risk)}</span>}
                             <span className={`my-bets-table-col-win ${winTheme}`}>{winCell}</span>
                         </div>
                         {isExpanded && (
