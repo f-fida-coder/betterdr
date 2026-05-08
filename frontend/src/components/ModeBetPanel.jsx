@@ -8,6 +8,7 @@ import { formatSiteDateTime } from '../utils/timezone';
 import { adjustSpread, teaserSportGroup, teaserPointsForSport } from '../utils/teaserAdjustment';
 import BetConfirmationModal from './BetConfirmationModal';
 import WagerConfirmedScreen from './WagerConfirmedScreen';
+import TeaserTypePicker from './TeaserTypePicker';
 
 // Minimal structural fallbacks — NO hardcoded multipliers.
 // Real values always come from rulesByMode (loaded from DB via /api/betting/rules).
@@ -1633,61 +1634,22 @@ const ModeBetPanel = ({
                     exactly this reason — picking 6 vs 7 changes every
                     spread underneath, and showing the resulting lines
                     without first revealing the choice is confusing. */}
-                {/* Read-only teaser-type summary line. The picker itself
-                    lives on the games board (TeaserTypePicker) so the
-                    slip never owns the choice — single source of UX.
-                    User changes the type from the board's "Change"
-                    button; here we just confirm what's in effect so
-                    the player isn't surprised by the teased lines on
-                    their slip legs. */}
-                {normalizedMode === 'teaser' && selectedTeaserType && (
-                    <div style={{
-                        background: '#f8fafc',
-                        border: `1px solid ${palette.cardBorder}`,
-                        borderRadius: 10,
-                        padding: '8px 12px',
-                        marginBottom: 12,
-                        fontSize: 12,
-                        color: palette.textMuted,
-                    }}>
-                        <span style={{
-                            fontWeight: 700,
-                            color: palette.textPrimary,
-                            marginRight: 6,
-                        }}>Teaser type:</span>
-                        {selectedTeaserType.label || selectedTeaserType.id}
-                        {(() => {
-                            const fbPts = Number(selectedTeaserType?.pointsBySport?.football);
-                            const bkPts = Number(selectedTeaserType?.pointsBySport?.basketball);
-                            const segs = [];
-                            if (Number.isFinite(fbPts) && fbPts > 0) segs.push(`${fbPts} FB`);
-                            if (Number.isFinite(bkPts) && bkPts > 0) segs.push(`${bkPts} BK`);
-                            return segs.length > 0 ? ` (${segs.join(' / ')})` : '';
-                        })()}
-                    </div>
-                )}
-
-                {/* Warning banner — slip has legs but no type picked.
-                    The Place button is already gated by validationErrors
-                    ("Choose a teaser type to continue"); this is the
-                    visible nudge that points the user back to the board
-                    picker (which is where the choice lives). */}
-                {normalizedMode === 'teaser' && teaserTypes.length > 0 && !selectedTeaserType && legCount > 0 && (
-                    <div style={{
-                        background: '#fef3c7',
-                        border: '1px solid #fbbf24',
-                        borderRadius: 10,
-                        padding: '10px 12px',
-                        marginBottom: 12,
-                        fontSize: 12,
-                        color: '#92400e',
-                        display: 'flex',
-                        alignItems: 'flex-start',
-                        gap: 8,
-                    }}>
-                        <i className="fa-solid fa-circle-exclamation" style={{ marginTop: 2 }} />
-                        <span>Pick a teaser type from the games board to continue.</span>
-                    </div>
+                {/* In-slip teaser-type picker. Same component the games
+                    board renders above the games list — both instances
+                    read/write App's `selectedTeaserTypeId`, so picking
+                    here also collapses the board picker (and vice
+                    versa). Lets the user choose the type without
+                    leaving the slip drawer. `containerStyle` strips the
+                    board's outer 12px horizontal margin so the picker
+                    aligns with the slip's other blocks. */}
+                {normalizedMode === 'teaser' && teaserTypes.length > 0 && (
+                    <TeaserTypePicker
+                        normalizedBetMode={normalizedMode}
+                        teaserTypes={teaserTypes}
+                        selectedTeaserType={selectedTeaserType}
+                        onTeaserTypeChange={onTeaserTypeChange}
+                        containerStyle={{ margin: '0 0 12px' }}
+                    />
                 )}
 
                 {/* Legacy fallback — only renders when the rule was

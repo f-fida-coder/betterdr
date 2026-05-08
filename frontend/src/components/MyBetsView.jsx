@@ -1074,7 +1074,9 @@ const MyBetsView = () => {
                             className={`my-bets-filter-chip ${activeTab === option.id ? 'active' : ''}`}
                             onClick={() => setActiveTab(option.id)}
                         >
-                            {option.label}
+                            {option.label.split(' ').map((word) => (
+                                <span key={word} className="my-bets-filter-chip-line">{word}</span>
+                            ))}
                         </button>
                     ))}
                 </div>

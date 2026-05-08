@@ -32,12 +32,12 @@ const orderTeaserTypes = (types) => {
 };
 
 /**
- * Board-level teaser type picker. Renders ABOVE the games list when
- * the user enters teaser mode but hasn't picked a type yet; once a
- * type is picked, collapses to a summary chip with a Change button
- * that resets the picker. The slip drawer never renders the picker
- * — this component is the single point of UX for type selection so
- * board lines + slip math stay in lock-step.
+ * Teaser type picker. Renders in two places: above the games list and
+ * inside the betslip drawer. Both instances are wired to the same
+ * `selectedTeaserTypeId` / `onTeaserTypeChange` in App, so a change
+ * in either spot updates the other and the teased lines stay in
+ * lock-step. `containerStyle` lets the slip override the default
+ * board margin so the picker aligns with the slip's own padding.
  *
  * Pure presentational: all state is owned by the parent (App).
  */
@@ -46,6 +46,7 @@ const TeaserTypePicker = ({
     selectedTeaserType = null,
     onTeaserTypeChange,
     normalizedBetMode,
+    containerStyle,
 }) => {
     if (normalizedBetMode !== 'teaser') return null;
     const list = Array.isArray(teaserTypes) ? teaserTypes : [];
@@ -60,6 +61,7 @@ const TeaserTypePicker = ({
                 borderRadius: 10,
                 padding: 12,
                 margin: '8px 12px 12px',
+                ...containerStyle,
             }}>
                 <div style={{
                     fontSize: 11,
@@ -127,6 +129,7 @@ const TeaserTypePicker = ({
             alignItems: 'center',
             justifyContent: 'space-between',
             gap: 8,
+            ...containerStyle,
         }}>
             <div style={{ minWidth: 0 }}>
                 <div style={{
