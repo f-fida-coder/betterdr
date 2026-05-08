@@ -791,12 +791,15 @@ final class SportsbookBetSupport
     }
 
     /**
-     * Resolve the payoutProfile to use for a teaser bet. When the bet
-     * snapshotted a `teaserTypeId` at placement, prefer the matching
-     * type's payoutProfile so 7/5 placements grade with 7/5
-     * multipliers even after operators tune the rule-level fallback.
-     * Returns the rule-level payoutProfile (or empty array) when no
-     * type id is present or the type can't be resolved.
+     * Resolve the payoutProfile to use for a teaser bet. Priority:
+     *   1. `bet.teaserPayoutSnapshot` — multipliers frozen at placement
+     *      so a rule/type edit can never re-price an in-flight bet
+     *      (the bettor was promised these odds; we honor them).
+     *   2. The matching `teaserTypeId`'s payoutProfile from the live
+     *      rule — used for legacy bets placed before the snapshot
+     *      field shipped (no `teaserPayoutSnapshot` on the doc).
+     *   3. The rule-level payoutProfile fallback — covers bets placed
+     *      with no type id at all.
      *
      * @param array<string, mixed> $bet
      * @param array<string, mixed> $teaserRule
@@ -804,6 +807,13 @@ final class SportsbookBetSupport
      */
     private static function resolveTeaserPayoutProfile(array $bet, array $teaserRule): array
     {
+        $snapshot = $bet['teaserPayoutSnapshot'] ?? null;
+        if (is_array($snapshot)
+            && isset($snapshot['multipliers'])
+            && is_array($snapshot['multipliers'])
+            && $snapshot['multipliers'] !== []) {
+            return $snapshot;
+        }
         $typeId = trim((string) ($bet['teaserTypeId'] ?? ''));
         if ($typeId !== '' && isset($teaserRule['teaserTypes']) && is_array($teaserRule['teaserTypes'])) {
             foreach ($teaserRule['teaserTypes'] as $type) {

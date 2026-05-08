@@ -644,6 +644,17 @@ final class BetsController
                     'teaserTiesRule' => ($type === 'teaser' && $resolvedTeaserType !== null && isset($resolvedTeaserType['tiesRule']))
                         ? (string) $resolvedTeaserType['tiesRule']
                         : null,
+                    // Freeze the payoutProfile in effect at placement so a
+                    // later rule/type edit never re-prices this bet at
+                    // settlement. resolveTeaserPayoutProfile prefers this
+                    // snapshot over the live rule. $modeRule['payoutProfile']
+                    // was already swapped to the type-specific profile above
+                    // (line ~324) when a teaserTypeId was supplied, so this
+                    // captures the exact multipliers calculatePotentialPayout
+                    // used a few lines later.
+                    'teaserPayoutSnapshot' => ($type === 'teaser' && isset($modeRule['payoutProfile']) && is_array($modeRule['payoutProfile']))
+                        ? $modeRule['payoutProfile']
+                        : null,
                     'createdAt' => $now,
                     'updatedAt' => $now,
                 ];
