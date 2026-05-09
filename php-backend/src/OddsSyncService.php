@@ -1397,12 +1397,13 @@ final class OddsSyncService
     }
 
     /**
-     * Pick the first bookmaker that is actually offering lines for this
-     * event. The Odds API sometimes orders bookmakers by freshness rather
-     * than by market coverage, so `bookmakers[0]` can legitimately have an
-     * empty `markets` array — particularly on in-play games where a single
-     * book has pulled its lines. Falling back through the list avoids
-     * rendering a full row of "—" dashes when another book has data.
+     * Pick a bookmaker offering lines for this event, preferring the books
+     * named in ODDS_PREFERRED_BOOKMAKERS (in order). Without a preference
+     * the Odds API returns books ordered by freshness, which is effectively
+     * random per-event — that's why a 5-pt NBA teaser could come out half a
+     * point off the public market on one leg and match on another. Anchoring
+     * to DraftKings (then FanDuel/BetMGM/Caesars/Pinnacle) keeps our board
+     * consistent with the public US market most players are comparing to.
      *
      * @param mixed $bookmakers
      * @return array{bookmaker: ?string, markets: array<int, mixed>}
@@ -1413,6 +1414,10 @@ final class OddsSyncService
             return ['bookmaker' => null, 'markets' => []];
         }
 
+        $preferred = self::preferredBookmakerKeys();
+
+        $byKey = [];
+        $firstNonEmpty = null;
         $fallback = null;
         foreach ($bookmakers as $book) {
             if (!is_array($book)) {
@@ -1422,12 +1427,33 @@ final class OddsSyncService
                 $fallback = $book;
             }
             $markets = $book['markets'] ?? null;
-            if (is_array($markets) && $markets !== []) {
+            $hasMarkets = is_array($markets) && $markets !== [];
+            if ($hasMarkets) {
+                $key = strtolower((string) ($book['key'] ?? ''));
+                if ($key !== '' && !isset($byKey[$key])) {
+                    $byKey[$key] = $book;
+                }
+                if ($firstNonEmpty === null) {
+                    $firstNonEmpty = $book;
+                }
+            }
+        }
+
+        foreach ($preferred as $key) {
+            if (isset($byKey[$key])) {
+                $book = $byKey[$key];
                 return [
                     'bookmaker' => isset($book['title']) ? (string) $book['title'] : null,
-                    'markets' => $markets,
+                    'markets' => $book['markets'],
                 ];
             }
+        }
+
+        if ($firstNonEmpty !== null) {
+            return [
+                'bookmaker' => isset($firstNonEmpty['title']) ? (string) $firstNonEmpty['title'] : null,
+                'markets' => $firstNonEmpty['markets'],
+            ];
         }
 
         // Every bookmaker came back with empty markets. Preserve the
@@ -1438,6 +1464,22 @@ final class OddsSyncService
             'bookmaker' => is_array($fallback) && isset($fallback['title']) ? (string) $fallback['title'] : null,
             'markets' => [],
         ];
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private static function preferredBookmakerKeys(): array
+    {
+        $raw = (string) Env::get('ODDS_PREFERRED_BOOKMAKERS', 'draftkings,fanduel,betmgm,caesars,pinnacle');
+        $out = [];
+        foreach (explode(',', $raw) as $part) {
+            $key = strtolower(trim($part));
+            if ($key !== '') {
+                $out[] = $key;
+            }
+        }
+        return $out;
     }
 
     /**

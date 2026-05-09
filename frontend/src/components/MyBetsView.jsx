@@ -287,6 +287,23 @@ const isLegLive = (leg, parentBet) => {
     return isLiveSnapshot(leg?.matchSnapshot, parentBet?.status);
 };
 
+// "LIVE BET" when the wager was struck in-play (a permanent property of
+// the ticket); plain "LIVE" when it's a pre-game ticket whose game just
+// happens to be running right now. Players asked for the distinction so
+// they can spot which tickets came from in-play action.
+const legBadgeLabel = (leg, parentBet) =>
+    wasPlacedInPlay(parentBet, leg?.matchSnapshot) ? 'LIVE BET' : 'LIVE';
+
+const straightBadgeLabel = (bet) => {
+    const firstLeg = Array.isArray(bet?.selections) ? bet.selections[0] : null;
+    if (
+        wasPlacedInPlay(bet, bet?.match) ||
+        wasPlacedInPlay(bet, bet?.matchSnapshot) ||
+        wasPlacedInPlay(bet, firstLeg?.matchSnapshot)
+    ) return 'LIVE BET';
+    return 'LIVE';
+};
+
 // Live check for a straight (single-leg) ticket. Walks the same fallback
 // chain as expandedMatchup so it works whether the match data lives on
 // the bet or on its single leg's snapshot. Same in-play-or-currently-live
@@ -727,7 +744,7 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending' }) => {
                                                         )}
                                                         <span className="my-bets-table-leg-text">{legDescription(leg, oddsFormat)}</span>
                                                         {childLegLive && (
-                                                            <span className="my-bets-table-live-badge" aria-label="Live game">LIVE</span>
+                                                            <span className="my-bets-table-live-badge" aria-label="Live game">{legBadgeLabel(leg, child)}</span>
                                                         )}
                                                     </span>
                                                     {!isGraded && <span className="my-bets-table-col-risk" />}
@@ -821,7 +838,7 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending' }) => {
                                                 )}
                                                 <span className="my-bets-table-leg-text">{legDescription(leg, oddsFormat)}</span>
                                                 {legLive && (
-                                                    <span className="my-bets-table-live-badge" aria-label="Live game">LIVE</span>
+                                                    <span className="my-bets-table-live-badge" aria-label="Live game">{legBadgeLabel(leg, bet)}</span>
                                                 )}
                                                 {legStatusLetter && (
                                                     <span className={`my-bets-table-leg-status ${legStatus}`}>{legStatusLetter}</span>
@@ -882,7 +899,7 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending' }) => {
                                 )}
                                 <span className="my-bets-table-leg-text">{legDescription(leg, oddsFormat)}</span>
                                 {straightLive && (
-                                    <span className="my-bets-table-live-badge" aria-label="Live game">LIVE</span>
+                                    <span className="my-bets-table-live-badge" aria-label="Live game">{straightBadgeLabel(bet)}</span>
                                 )}
                                 {straightStatusLetter && (
                                     <span className={`my-bets-table-leg-status ${straightStatus}`}>{straightStatusLetter}</span>

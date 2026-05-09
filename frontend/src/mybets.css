@@ -1236,8 +1236,8 @@
 }
 
 .figures-week-select {
-  width: 100%;
-  max-width: 280px;
+  width: auto;
+  min-width: 150px;
   padding: 10px 14px;
   font-size: 14px;
   font-weight: 600;
