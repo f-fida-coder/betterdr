@@ -564,11 +564,17 @@ final class BetSettlementService
                 $summary['matchesChecked']++;
                 $annotated = SportsMatchStatus::annotate($match);
                 $status = (string) ($annotated['status'] ?? '');
-                // 'expired' = past startTime + grace with no upstream data —
-                // selectionResult voids these, so settleMatch refunds stakes.
-                // Skipping them here was the bug that left tickets pending
-                // forever once the upstream feed dropped a game.
-                if (!in_array($status, ['finished', 'canceled', 'expired'], true)) {
+                // Only settle matches that have a confirmed outcome:
+                //   'finished' → grade against the final score
+                //   'canceled' → void with refund (explicit cancel signal)
+                // 'expired' is intentionally excluded — that status is the
+                // "feed went quiet past the grace window" catch-all, which
+                // used to auto-void any open bet and silently refund. Now
+                // those matches stay pending so an operator can confirm
+                // the actual outcome and grade manually before money
+                // moves. SportsbookBetSupport::selectionResult was updated
+                // in lockstep so it no longer returns 'void' for expired.
+                if (!in_array($status, ['finished', 'canceled'], true)) {
                     continue;
                 }
 

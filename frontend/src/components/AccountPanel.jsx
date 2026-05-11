@@ -213,22 +213,39 @@ const BetDefaultsCard = ({ user, onSaved }) => {
     const initialAmount = Number.isFinite(Number(stored?.amount)) && Number(stored.amount) > 0
         ? String(stored.amount)
         : '';
-    // All 5 chips are auto-derived from the player's admin-set Min/Max so
-    // agents don't have to configure quick-stake values per player. Outer
-    // two = locked Min/Max; middle three = round numbers at the 25/50/75%
-    // positions of the [Min, Max] range.
+    // Outer two chips are pinned to the agent-set Min/Max bet — players
+    // can't override their own betting limits from here. The middle
+    // three are player-editable; if the user has saved custom values
+    // before, hydrate from those, otherwise fall back to round numbers
+    // at the 25/50/75% positions of the [Min, Max] range so a fresh
+    // account ships a sensible row without any setup.
     const [autoMid1, autoMid2, autoMid3] = computeMidQuickStakes(lockedMin, lockedMax);
-    const quickStakes = [
-        String(lockedMin),
-        String(autoMid1),
-        String(autoMid2),
-        String(autoMid3),
-        String(lockedMax),
-    ];
+    const pickInitialMids = (savedArr) => {
+        if (Array.isArray(savedArr) && savedArr.length === 5) {
+            const m1 = Number(savedArr[1]);
+            const m2 = Number(savedArr[2]);
+            const m3 = Number(savedArr[3]);
+            if ([m1, m2, m3].every((n) => Number.isFinite(n) && n > 0)) {
+                return [String(m1), String(m2), String(m3)];
+            }
+        }
+        return [String(autoMid1), String(autoMid2), String(autoMid3)];
+    };
 
     const [mode, setMode] = React.useState(initialMode);
     const [amount, setAmount] = React.useState(initialAmount);
+    const [midStakes, setMidStakes] = React.useState(() => pickInitialMids(stored?.quickStakes));
     const [saving, setSaving] = React.useState(false);
+    // Assembled 5-chip row read by render + save. Outer two are always
+    // a string view of the current locked Min/Max so the field never
+    // drifts when the agent updates the player's limits.
+    const quickStakes = [
+        String(lockedMin),
+        midStakes[0],
+        midStakes[1],
+        midStakes[2],
+        String(lockedMax),
+    ];
     // Reseed local form state when the user prop updates (e.g. after
     // /auth/me re-fetches and brings down a fresh `settings.betDefaults`).
     React.useEffect(() => {
@@ -237,6 +254,14 @@ const BetDefaultsCard = ({ user, onSaved }) => {
         if (next.mode === 'win' || next.mode === 'risk') setMode(next.mode);
         else if (next.mode === 'bet') setMode('risk'); // legacy → coerce
         if (Number.isFinite(Number(next.amount))) setAmount(String(next.amount || ''));
+        if (Array.isArray(next.quickStakes) && next.quickStakes.length === 5) {
+            const m1 = Number(next.quickStakes[1]);
+            const m2 = Number(next.quickStakes[2]);
+            const m3 = Number(next.quickStakes[3]);
+            if ([m1, m2, m3].every((n) => Number.isFinite(n) && n > 0)) {
+                setMidStakes([String(m1), String(m2), String(m3)]);
+            }
+        }
     }, [user?.settings?.betDefaults]);
 
     const handleSave = async () => {
@@ -253,6 +278,20 @@ const BetDefaultsCard = ({ user, onSaved }) => {
         const parsedQuickStakes = quickStakes.map((v) => Number(v));
         if (parsedQuickStakes.some((n) => !Number.isFinite(n) || n <= 0)) {
             showToast?.('Quick stake values must be positive numbers', 'warning');
+            return;
+        }
+        // The middle three sit between the locked Min/Max chips and must
+        // form a strictly increasing ramp. Without these checks a user
+        // could save a row like [25, 1500, 100, 1500, 2000] which would
+        // render confusingly in the betslip (chips out of order, two of
+        // them equal).
+        const [, midA, midB, midC] = parsedQuickStakes;
+        if (midA <= lockedMin || midC >= lockedMax) {
+            showToast?.(`Quick stakes must be between $${lockedMin} and $${lockedMax}`, 'warning');
+            return;
+        }
+        if (!(midA < midB && midB < midC)) {
+            showToast?.('Quick stakes must increase from left to right', 'warning');
             return;
         }
         setSaving(true);
@@ -396,7 +435,9 @@ const BetDefaultsCard = ({ user, onSaved }) => {
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: `repeat(${quickStakes.length}, 1fr)`, gap: 6, marginBottom: 18 }}>
                         {quickStakes.map((value, idx) => {
+                            const isLocked = idx === 0 || idx === quickStakes.length - 1;
                             const lockedLabel = idx === 0 ? 'Min Bet' : idx === quickStakes.length - 1 ? 'Max Bet' : '';
+                            const midIdx = idx - 1; // 0/1/2 for the three editable chips
                             return (
                                 <div
                                     key={idx}
@@ -404,7 +445,7 @@ const BetDefaultsCard = ({ user, onSaved }) => {
                                         position: 'relative',
                                         border: `1px solid ${palette.cardBorder}`,
                                         borderRadius: 8,
-                                        background: '#f1f5f9',
+                                        background: isLocked ? '#f1f5f9' : '#fbfbfd',
                                     }}
                                 >
                                     <span style={{
@@ -420,9 +461,19 @@ const BetDefaultsCard = ({ user, onSaved }) => {
                                     <input
                                         type="text"
                                         inputMode="numeric"
-                                        readOnly
+                                        readOnly={isLocked}
                                         value={value}
-                                        title={lockedLabel ? `${lockedLabel} (set by your agent)` : 'Auto-derived from Min/Max bet'}
+                                        onChange={isLocked ? undefined : (e) => {
+                                            const digits = String(e.target.value).replace(/\D/g, '');
+                                            setMidStakes((prev) => {
+                                                const arr = [...prev];
+                                                arr[midIdx] = digits;
+                                                return arr;
+                                            });
+                                        }}
+                                        title={isLocked
+                                            ? `${lockedLabel} (set by your agent)`
+                                            : 'Tap to edit — must be between Min and Max bet'}
                                         style={{
                                             width: '100%',
                                             padding: '8px 4px 8px 14px',
@@ -435,7 +486,7 @@ const BetDefaultsCard = ({ user, onSaved }) => {
                                             boxSizing: 'border-box',
                                             borderRadius: 8,
                                             textAlign: 'center',
-                                            cursor: 'not-allowed',
+                                            cursor: isLocked ? 'not-allowed' : 'text',
                                         }}
                                     />
                                     {lockedLabel && (
@@ -457,6 +508,14 @@ const BetDefaultsCard = ({ user, onSaved }) => {
                                 </div>
                             );
                         })}
+                    </div>
+                    <div style={{
+                        fontSize: 11,
+                        color: palette.textMuted,
+                        marginTop: -8,
+                        lineHeight: 1.4,
+                    }}>
+                        Min and Max are set by your agent. Tap the middle three to customize.
                     </div>
                 </div>
 
@@ -852,7 +911,12 @@ const AccountPanel = ({
                         }}>
                             Preferences
                         </div>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                        {/* 3-column row: Language / Odds Format / Timezone.
+                            Cells are ~1/3 of the section width on mobile, so
+                            the timezone option label is shortened to just
+                            the zone abbreviation ("CT", "ET", "PT") — the
+                            full IANA name no longer fits in the cell. */}
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
                             <SelectField
                                 label="Language"
                                 icon="fa-globe"
@@ -888,7 +952,7 @@ const AccountPanel = ({
                                 }}
                                 options={SITE_TZ_OPTIONS.map((opt) => ({
                                     value: opt.value,
-                                    label: `${opt.label} — ${opt.value.replace('_', ' ')}`,
+                                    label: opt.label,
                                 }))}
                             />
                         </div>

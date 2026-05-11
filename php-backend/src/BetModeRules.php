@@ -18,7 +18,10 @@ final class BetModeRules
      * Higher-points tier = worse odds (more book hold). Stored value is
      * DECIMAL ODDS — the backend computes total payout as risk × multiplier
      * (SportsbookBetSupport::potentialPayout), and the slip mirrors that
-     * shape. Conversions: -110 = 1.90909, -140 = 1.71429, +160 = 2.6, etc.
+     * shape. Conversions: -130 = 1.76923, +130 = 2.30, +500 = 6.0, etc.
+     *
+     * Reference: bettorjuice365.com payout tables (May 2026). Match those
+     * exactly so player-facing odds parity is preserved across products.
      */
     private const DEFAULT_TEASER_TYPES = [
         [
@@ -34,11 +37,11 @@ final class BetModeRules
             'payoutProfile' => [
                 'type' => 'table_multiplier',
                 'multipliers' => [
-                    '2' => 1.90909, // -110
-                    '3' => 1.71429, // -140
-                    '4' => 2.6,     // +160
-                    '5' => 3.5,     // +250
-                    '6' => 5.0,     // +400
+                    '2' => 1.76923, // -130
+                    '3' => 2.30,    // +130
+                    '4' => 3.30,    // +230
+                    '5' => 4.40,    // +340
+                    '6' => 6.00,    // +500
                 ],
             ],
             'minLegs' => 2,
@@ -59,11 +62,11 @@ final class BetModeRules
             'payoutProfile' => [
                 'type' => 'table_multiplier',
                 'multipliers' => [
-                    '2' => 1.83333, // -120
-                    '3' => 1.625,   // -160
-                    '4' => 2.3,     // +130
-                    '5' => 3.0,     // +200
-                    '6' => 4.0,     // +300
+                    '2' => 1.71429, // -140
+                    '3' => 2.20,    // +120
+                    '4' => 2.90,    // +190
+                    '5' => 4.00,    // +300
+                    '6' => 5.00,    // +400
                 ],
             ],
             'minLegs' => 2,
@@ -84,11 +87,11 @@ final class BetModeRules
             'payoutProfile' => [
                 'type' => 'table_multiplier',
                 'multipliers' => [
-                    '2' => 1.76923, // -130
-                    '3' => 1.55556, // -180
-                    '4' => 2.1,     // +110
-                    '5' => 2.6,     // +160
-                    '6' => 3.5,     // +250
+                    '2' => 1.66667, // -150
+                    '3' => 2.10,    // +110
+                    '4' => 2.70,    // +170
+                    '5' => 3.50,    // +250
+                    '6' => 4.50,    // +350
                 ],
             ],
             'minLegs' => 2,
@@ -98,36 +101,26 @@ final class BetModeRules
         ],
         [
             'id' => 'super_10_team',
-            'label' => '10 PT FB Super Teaser',
-            'description' => 'Football-only · Ties Lose',
+            'label' => '3 Team Super Teaser',
+            'description' => '10 pts FB / 8 pts BK · Ties Lose',
             'pointsBySport' => [
                 'football' => 10.0,
-                // Basketball intentionally omitted — Super Teasers are
-                // football-only by industry convention. If basketball
-                // support needed later, add 'basketball' => 8.0 here
-                // and seed appropriate multipliers.
+                'basketball' => 8.0,
             ],
             'tiesRule' => 'lose',
             'payoutMode' => 'multiplier',
             'payoutProfile' => [
                 'type' => 'table_multiplier',
                 'multipliers' => [
-                    // TODO(ops): Industry-standard Super Teaser starting
-                    // pricing — book-favored defaults. Tune via betmoderules
-                    // DB row per your margin model. Reference ranges:
-                    //   3-team:  -120 to -150 (current: -150)
-                    //   4-team:  +110 to +180 (current: +110)
-                    //   5-team:  +160 to +400 (current: +160)
-                    //   6-team:  +250 to +900 (current: +250)
-                    '3' => 1.66667, // -150
-                    '4' => 2.10,    // +110
-                    '5' => 2.60,    // +160
-                    '6' => 3.50,    // +250
-                    // 2-team intentionally omitted — see minLegs below
+                    '3' => 1.71429, // -140
                 ],
             ],
-            'minLegs' => 3, // Super Teasers restricted to 3+ teams
-            'maxLegs' => 6,
+            // 3-team only, matching reference. If 4/5/6-team Super
+            // tiers are ever added, seed their multipliers here and
+            // raise maxLegs accordingly — the picker leg-count guard
+            // (ModeBetPanel teaserValid block) reads these bounds.
+            'minLegs' => 3,
+            'maxLegs' => 3,
             'isActive' => true,
             'sortOrder' => 4,
         ],
@@ -164,11 +157,11 @@ final class BetModeRules
             'payoutProfile' => [
                 'type' => 'table_multiplier',
                 'multipliers' => [
-                    '2' => 1.90909, // -110
-                    '3' => 1.71429, // -140
-                    '4' => 2.6,     // +160
-                    '5' => 3.5,     // +250
-                    '6' => 5.0,     // +400
+                    '2' => 1.76923, // -130
+                    '3' => 2.30,    // +130
+                    '4' => 3.30,    // +230
+                    '5' => 4.40,    // +340
+                    '6' => 6.00,    // +500
                 ],
             ],
             // NEW: structured list of teaser variants. Frontend renders

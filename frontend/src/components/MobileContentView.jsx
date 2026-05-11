@@ -515,6 +515,23 @@ const MobileContentView = ({
                     .replace(/\b\w/g, (c) => c.toUpperCase());
             }
 
+            // Live scores per team. Surfaced only when the match is
+            // currently live — pregame rows have nothing to show and a
+            // finished match's "final score" lives in a separate
+            // settlement-time render. Coerced through Number(...) so a
+            // missing field (null/undefined/'') becomes NaN and the
+            // render path can early-return without printing "0" on a
+            // game that hasn't tipped off yet. Reads the canonical
+            // score_home / score_away pair the settlement service
+            // grades against, so the board number always matches the
+            // grader's view.
+            const rawHome = match?.score?.score_home;
+            const rawAway = match?.score?.score_away;
+            const homeScore = (rawHome !== null && rawHome !== '' && Number.isFinite(Number(rawHome)))
+                ? Number(rawHome) : null;
+            const awayScore = (rawAway !== null && rawAway !== '' && Number.isFinite(Number(rawAway)))
+                ? Number(rawAway) : null;
+
             return {
                 id: match.id || match.externalId,
                 sport: match.sport || '',
@@ -536,6 +553,10 @@ const MobileContentView = ({
                 odds: extractOdds(match, homeName, awayName, activePeriod.suffix),
                 isLive,
                 liveStatusLabel,
+                // team1 = away, team2 = home (matches the rest of the
+                // card's away-then-home convention).
+                team1Score: awayScore,
+                team2Score: homeScore,
                 // Preserve backend flag: MatchCard reads this to disable
                 // bet buttons when the book has stale or suspended lines.
                 isBettable: match.isBettable !== false,
@@ -581,10 +602,23 @@ const MobileContentView = ({
             if (sportPriority.has(key)) return sportPriority.get(key);
             return Number.POSITIVE_INFINITY;
         };
+        // For virtual buckets (LIVE NOW / UP NEXT) the sidebar didn't
+        // tell us a preferred sport order, so fall back to grouping
+        // by sportKey alphabetically. Without this fallback the sort
+        // collapses to "purely by start time", which interleaves
+        // leagues and causes the league header above to re-emit
+        // every few rows — exactly the unstructured mix the user
+        // flagged on the screenshot.
+        const isVirtualBucketSort = primarySport === 'commercial-live' || primarySport === 'up-next';
         formatted.sort((a, b) => {
             const pa = priorityFor(a);
             const pb = priorityFor(b);
             if (pa !== pb) return pa - pb;
+            if (isVirtualBucketSort) {
+                const ka = String(a.sportKey || '').toLowerCase();
+                const kb = String(b.sportKey || '').toLowerCase();
+                if (ka !== kb) return ka < kb ? -1 : 1;
+            }
             const aTs = a.startDate ? a.startDate.getTime() : Number.POSITIVE_INFINITY;
             const bTs = b.startDate ? b.startDate.getTime() : Number.POSITIVE_INFINITY;
             return aTs - bTs;
@@ -621,6 +655,18 @@ const MobileContentView = ({
         const types = Array.isArray(teaserRule?.teaserTypes) ? teaserRule.teaserTypes : [];
         return types.find((t) => t && t.id === teaserTypeId) || null;
     }, [normalizedBetMode, teaserTypeId, teaserRule]);
+    // Distinct sport groups already on the slip — passed to the
+    // board-level picker so types that can't price every group in
+    // play (e.g. Super Teaser with a basketball leg) render disabled
+    // instead of letting the user pick a dead-end product.
+    const boardSlipSportGroups = React.useMemo(() => {
+        const groups = new Set();
+        for (const sel of (slipSelections || [])) {
+            const g = teaserSportGroup(sel?.sportKey || sel?.sport);
+            if (g) groups.add(g);
+        }
+        return Array.from(groups);
+    }, [slipSelections]);
     const teaserPointsForMatch = React.useCallback((match) => {
         if (!resolvedTeaserType) return 0;
         const group = teaserSportGroup(match?.sportKey || match?.sport);
@@ -854,7 +900,16 @@ const MobileContentView = ({
     // — the user gets all of one sport in a single column, with day
     // context preserved within each sport. Day key resets every league
     // boundary so the first day inside the next sport always re-emits.
-    const showLeagueHeaders = realSelected.length >= 2;
+    // Group rows by league when the visible set spans more than one
+    // sport. Two triggers:
+    //   1. The user has 2+ real leagues checked in the sidebar.
+    //   2. The active bucket is a virtual one (LIVE NOW / UP NEXT)
+    //      that pulls matches across every sport — without this the
+    //      Live Now feed reads as an unstructured mix (WNBA next to
+    //      NBA next to soccer next to MLB), which is exactly what the
+    //      user flagged.
+    const isVirtualBucket = primarySport === 'commercial-live' || primarySport === 'up-next';
+    const showLeagueHeaders = realSelected.length >= 2 || isVirtualBucket;
     // Suffix the league name with the active period chip ("1H", "2H",
     // "1Q", etc.) only when one is selected — otherwise just show
     // "NBA" / "MLB" on its own. The literal "Game" suffix that used
@@ -926,6 +981,7 @@ const MobileContentView = ({
                 teaserTypes={Array.isArray(teaserRule?.teaserTypes) ? teaserRule.teaserTypes : []}
                 selectedTeaserType={resolvedTeaserType}
                 onTeaserTypeChange={onTeaserTypeChange}
+                slipSportGroups={boardSlipSportGroups}
             />
 
             {periods.length > 1 && (
@@ -1018,6 +1074,11 @@ const matchCardSignature = (match) => {
         match?.status,
         match?.isLive,
         match?.liveStatusLabel,
+        // Score signature — without these, a tick from 84→85 doesn't
+        // re-render the card because React.memo only ever sees the
+        // same `match` prop identity but different inner values.
+        match?.team1Score,
+        match?.team2Score,
         match?.lastOddsSyncAt,
         match?.isBettable,
         match?.bettingBlockedReason,
@@ -1261,14 +1322,21 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
             }}>
                 <div style={{ ...teamCellStyle, gridColumn: 1, gridRow: 1 }}>
                     <TeamAvatar team={match.team1} />
-                    <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
                         {rotationAway != null && (
                             <span style={{ fontSize: 10, fontWeight: 700, color: '#9aa' }}>{rotationAway}</span>
                         )}
-                        <span style={teamNameStyle}>
-                            {match.team1Short || match.team1}
-                            {match.team1Record && (
-                                <span style={teamRecordStyle}> ({match.team1Record})</span>
+                        <span style={{ ...teamNameStyle, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 6 }}>
+                            <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {match.team1Short || match.team1}
+                                {match.team1Record && (
+                                    <span style={teamRecordStyle}> ({match.team1Record})</span>
+                                )}
+                            </span>
+                            {match.isLive && match.team1Score !== null && match.team1Score !== undefined && (
+                                <span style={liveScoreStyle} aria-label={`${match.team1Short || match.team1} score`}>
+                                    {match.team1Score}
+                                </span>
                             )}
                         </span>
                     </div>
@@ -1395,14 +1463,21 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
 
                 <div style={{ ...teamCellStyle, gridColumn: 1, gridRow: 2 }}>
                     <TeamAvatar team={match.team2} />
-                    <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
                         {rotationHome != null && (
                             <span style={{ fontSize: 10, fontWeight: 700, color: '#9aa' }}>{rotationHome}</span>
                         )}
-                        <span style={teamNameStyle}>
-                            {match.team2Short || match.team2}
-                            {match.team2Record && (
-                                <span style={teamRecordStyle}> ({match.team2Record})</span>
+                        <span style={{ ...teamNameStyle, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 6 }}>
+                            <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {match.team2Short || match.team2}
+                                {match.team2Record && (
+                                    <span style={teamRecordStyle}> ({match.team2Record})</span>
+                                )}
+                            </span>
+                            {match.isLive && match.team2Score !== null && match.team2Score !== undefined && (
+                                <span style={liveScoreStyle} aria-label={`${match.team2Short || match.team2} score`}>
+                                    {match.team2Score}
+                                </span>
                             )}
                         </span>
                     </div>
@@ -1789,6 +1864,20 @@ const teamRecordStyle = {
     fontWeight: 500,
     fontSize: '10px',
     marginLeft: 2,
+};
+
+// Live score chip rendered to the right of each team name on the
+// match card. Uses tabular-nums so a two-digit → three-digit score
+// transition doesn't shift the team name horizontally (the column
+// keeps its layout while scores tick). Color matches the LIVE chip's
+// red so the eye reads the badge + score as one unit.
+const liveScoreStyle = {
+    fontSize: 14,
+    fontWeight: 800,
+    color: '#ef4444',
+    fontVariantNumeric: 'tabular-nums',
+    flexShrink: 0,
+    lineHeight: 1.1,
 };
 
 // Broadcast row styles for the mobile match card. Light background +

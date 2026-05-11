@@ -307,7 +307,7 @@ function AppInner() {
     return () => window.removeEventListener('betslip:add', handleAddToSlip);
   }, [betMode]);
 
-  const { data: userData, refetch: refetchUser } = useQuery({
+  const { data: userData, error: userQueryError, refetch: refetchUser } = useQuery({
     queryKey: ['user', token],
     queryFn: async () => {
       if (!token) return null;
@@ -317,15 +317,20 @@ function AppInner() {
     },
     enabled: !!token,
     staleTime: 5 * 60 * 1000, // 5 minutes
-    onSuccess: (data) => {
-      setUser(data);
-    },
-    onError: (error) => {
-      if (error?.status === 401 || error?.status === 403) {
-        handleLogout();
-      }
-    },
   });
+  // `onSuccess` / `onError` were removed in @tanstack/react-query v5,
+  // so the previous in-options callbacks were dead code — the local
+  // `user` state never got the refreshed values after refetchUser()
+  // fired (e.g. on `user:refresh` after a bet placement). The display
+  // path still worked because `currentUser = userData || user` reads
+  // userData directly, but consumers that read `user` (subscriptions
+  // / effects keyed on `setUser` outputs) saw stale data. Mirror
+  // onSuccess via a useEffect here; the onError equivalent (auth-
+  // failure logout) is wired after handleLogout is declared further
+  // down so we don't hit the TDZ for that callback.
+  useEffect(() => {
+    if (userData) setUser(userData);
+  }, [userData]);
 
   const currentUser = userData || user;
 
@@ -434,6 +439,17 @@ function AppInner() {
     logoutSession();
     handleHomeClick();
   }, [token]);
+
+  // Auth-failure logout effect — the v4 onError handler that lived on
+  // the useQuery options was removed in v5, so 401/403 responses from
+  // /auth/me no longer triggered a logout. Reattach here, after
+  // handleLogout exists, to keep "session invalidated → kick the user"
+  // working without a TDZ when the component first mounts.
+  useEffect(() => {
+    if (userQueryError && (userQueryError.status === 401 || userQueryError.status === 403)) {
+      handleLogout();
+    }
+  }, [userQueryError, handleLogout]);
 
   const handleViewChange = useCallback((view) => {
     setDashboardView(view);

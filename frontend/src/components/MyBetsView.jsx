@@ -277,6 +277,38 @@ const wasPlacedInPlay = (parentBet, snapshot) => {
     return Number.isFinite(placedMs) && Number.isFinite(startMs) && placedMs > startMs;
 };
 
+// Resolve the badge label + tooltip for a leg or straight bet. Pulled
+// into a helper so the parlay-leg and straight-ticket renderers use the
+// same vocabulary — they had drifted, with straight tickets always
+// showing "P" for any void (push_tie OR match_canceled) and the user
+// reading that as "Push" even on moneylines that can't push.
+//
+// Inputs are deliberately tolerant: callers pass either a leg object
+// (parlay) or the bet's first selection (straight). `gradeReason` is
+// set by SportsbookBetSupport::gradeReasonForVoidLeg at settlement —
+// 'push_tie' for an exact tie on the adjusted line, 'match_canceled'
+// for a canceled/expired match, null when neither applies.
+//
+// Returns null for pending/empty so callers can `if (badge)` guard
+// the render of the chip itself.
+export const resolveStatusBadge = (input) => {
+    const { status, gradeReason } = (input && typeof input === 'object') ? input : {};
+    const norm = String(status || '').toLowerCase();
+    if (norm === 'won') return { label: 'W', title: 'Won', theme: 'won' };
+    if (norm === 'lost') return { label: 'L', title: 'Lost', theme: 'lost' };
+    if (norm === 'void') {
+        const reason = String(gradeReason || '').toLowerCase();
+        if (reason === 'push_tie') {
+            return { label: 'PUSH', title: 'Push — exact tie on the line; stake refunded', theme: 'void' };
+        }
+        if (reason === 'match_canceled') {
+            return { label: 'VOID', title: 'Match canceled or no result; stake refunded', theme: 'void' };
+        }
+        return { label: 'VOID', title: 'No result; stake refunded', theme: 'void' };
+    }
+    return null;
+};
+
 // Live check for a single ticket leg. Two things qualify:
 //   1. The leg was placed in-play (permanent — survives settlement so a
 //      settled in-play bet still reads as LIVE next to its W/L letter).
@@ -356,15 +388,77 @@ const primaryTeamFor = (bet) => {
 //   pending → potential win, neutral (no sign)
 // Returns { text, theme } so the renderer can apply a single class
 // without re-deriving the status logic at the call site.
+// Cash-vs-freeplay split for the displayed Risk. The stored
+// `riskAmount` is the TOTAL stake (cash + freeplay), but the
+// player only put `cashRisk` of their own money on the line —
+// `fpUsed` came from the house pool. Surface both so a player
+// looking at a partial-FP ticket sees what's actually theirs
+// to lose / win back rather than the combined headline number.
+const cashRiskOfBet = (bet) => {
+    const totalRisk = Number(bet?.riskAmount ?? bet?.amount ?? 0);
+    const fpRaw = Number(bet?.freeplayAmountUsed ?? 0);
+    let fpUsed = Number.isFinite(fpRaw) && fpRaw > 0 ? Math.min(fpRaw, totalRisk) : 0;
+    // Legacy fallback: bets placed before the freeplayAmountUsed
+    // field shipped don't carry an explicit split, but `isFreeplay`
+    // was set when the player checked the "use freeplay" box. Treat
+    // those as pure-freeplay tickets so the display doesn't pretend
+    // they were $X out-of-pocket when they weren't. Mirrors the
+    // backend's same fallback (see WalletController fpUsed default).
+    if (fpUsed === 0 && bet?.isFreeplay === true && totalRisk > 0) {
+        fpUsed = totalRisk;
+    }
+    return {
+        cashRisk: Math.max(0, totalRisk - fpUsed),
+        fpUsed,
+        totalRisk,
+    };
+};
+
 const ticketAmount = (bet) => {
     const status = normalizeStatus(bet?.status);
     const risk = Number(bet?.riskAmount || bet?.amount || 0);
     const potential = Number(bet?.potentialPayout || 0);
     const profit = Math.max(0, potential - risk);
+    // For graded freeplay tickets, the player's wallet only moved
+    // by the cash portion — the FP slice came from the house pool
+    // and goes back to the FP pool on a void (it's not real money
+    // ever leaving the player's balance). Use cashRisk so the
+    // "-X" / "Refund X" headline matches what hit pendingBalance.
+    const { cashRisk } = cashRiskOfBet(bet);
     if (status === 'won') return { text: moneyExactSigned(profit, '+'), theme: 'won' };
-    if (status === 'lost') return { text: moneyExactSigned(risk, '-'), theme: 'lost' };
-    if (status === 'void') return { text: `Refund ${moneyExact(risk)}`, theme: 'void' };
+    if (status === 'lost') return { text: moneyExactSigned(cashRisk, '-'), theme: 'lost' };
+    if (status === 'void') return { text: `Refund ${moneyExact(cashRisk)}`, theme: 'void' };
     return { text: moneyExact(profit), theme: 'pending' };
+};
+
+// Inline cell content for the Risk column. When the bet is a
+// partial-freeplay ticket, the cash amount is the headline number
+// and a small "+ $X FP" annotation below it makes the FP slice
+// visible without cramming both into one comma-separated string.
+// Plain bets fall through to a single money string (no annotation
+// rendered) so 99% of rows look identical to before.
+const RiskAmount = ({ bet }) => {
+    const { cashRisk, fpUsed } = cashRiskOfBet(bet);
+    if (fpUsed <= 0) return moneyExact(cashRisk);
+    return (
+        <span style={{
+            display: 'inline-flex',
+            flexDirection: 'column',
+            alignItems: 'flex-end',
+            lineHeight: 1.1,
+            fontVariantNumeric: 'tabular-nums',
+        }}>
+            <span>{moneyExact(cashRisk)}</span>
+            <span style={{
+                fontSize: '0.7em',
+                color: '#16a34a',
+                fontWeight: 800,
+                letterSpacing: 0.2,
+            }} title={`Freeplay applied: $${moneyExact(fpUsed)}`}>
+                +${moneyExact(fpUsed)} FP
+            </span>
+        </span>
+    );
 };
 
 const payoutLabel = (status) => {
@@ -679,7 +773,7 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending' }) => {
                                 <span className="my-bets-table-col-desc">
                                     {multiLegLabel(bet)}
                                 </span>
-                                {!isGraded && <span className="my-bets-table-col-risk">{moneyExact(risk)}</span>}
+                                {!isGraded && <span className="my-bets-table-col-risk"><RiskAmount bet={bet} /></span>}
                                 <span className={`my-bets-table-col-win ${winTheme}`}>{winCell}</span>
                             </div>
                             {isExpanded && childrenState === 'loading' && (
@@ -718,7 +812,7 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending' }) => {
                                                     Parlay {ci + 1} · {childSelections.length}-leg
                                                 </span>
                                             </span>
-                                            {!isGraded && <span className="my-bets-table-col-risk">{moneyExact(childRisk)}</span>}
+                                            {!isGraded && <span className="my-bets-table-col-risk"><RiskAmount bet={child} /></span>}
                                             <span className={`my-bets-table-col-win ${childWinTheme}`}>{childWinCell}</span>
                                         </div>
                                         {childSelections.map((leg, idx) => {
@@ -789,7 +883,7 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending' }) => {
                                         );
                                     })()}
                                 </span>
-                                {!isGraded && <span className="my-bets-table-col-risk">{moneyExact(risk)}</span>}
+                                {!isGraded && <span className="my-bets-table-col-risk"><RiskAmount bet={bet} /></span>}
                                 <span className={`my-bets-table-col-win ${winTheme}`}>{winCell}</span>
                             </div>
                             {selections.map((leg, idx) => {
@@ -798,19 +892,14 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending' }) => {
                                     ? (teamLogos[legTeam] || createFallbackTeamLogoDataUri(legTeam))
                                     : null;
                                 const legStatus = normalizeStatus(leg?.status);
-                                const isPushTie = legStatus === 'void'
-                                    && String(leg?.gradeReason || '') === 'push_tie';
-                                // Distinguish teaser pushes ("PUSH") from
-                                // generic voids ("P"). Backend persists
-                                // gradeReason='push_tie' on legs that
-                                // tied exactly on the adjusted line so
-                                // we can surface the right word here
-                                // without re-deriving from match scores.
-                                const legStatusLetter = legStatus === 'won' ? 'W'
-                                    : legStatus === 'lost' ? 'L'
-                                    : isPushTie ? 'PUSH'
-                                    : legStatus === 'void' ? 'P'
-                                    : '';
+                                // Single source of truth for badge label
+                                // + tooltip across straight tickets and
+                                // parlay legs. See resolveStatusBadge —
+                                // void with gradeReason='match_canceled'
+                                // now renders "VOID" (was indistinguishable
+                                // "P" before, which read as Push).
+                                const legBadge = resolveStatusBadge({ status: legStatus, gradeReason: leg?.gradeReason });
+                                const legStatusLetter = legBadge?.label || '';
                                 const legLive = isLegLive(leg, bet);
                                 const legKey = `${betId}::${idx}`;
                                 const isLegExpanded = expandedLegKey === legKey;
@@ -841,7 +930,10 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending' }) => {
                                                     <span className="my-bets-table-live-badge" aria-label="Live game">{legBadgeLabel(leg, bet)}</span>
                                                 )}
                                                 {legStatusLetter && (
-                                                    <span className={`my-bets-table-leg-status ${legStatus}`}>{legStatusLetter}</span>
+                                                    <span
+                                                        className={`my-bets-table-leg-status ${legStatus}`}
+                                                        title={legBadge?.title || ''}
+                                                    >{legStatusLetter}</span>
                                                 )}
                                             </span>
                                             {!isGraded && <span className="my-bets-table-col-risk" />}
@@ -866,14 +958,16 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending' }) => {
                     ? (teamLogos[legTeam] || createFallbackTeamLogoDataUri(legTeam))
                     : null;
                 // Straight tickets only have one leg, so the parent bet's
-                // status IS the leg's status — drive the W/L/P letter off
-                // the bet itself so a settled straight gets the same green
-                // W / red L / muted P treatment a settled parlay leg gets.
+                // status IS the leg's status — but the leg row carries
+                // the machine-readable gradeReason ('push_tie' vs
+                // 'match_canceled') needed to render the right badge.
+                // Previously this hardcoded "P" for any void, so a
+                // moneyline auto-voided by a canceled WNBA game looked
+                // like a push (which moneylines can't be — they always
+                // resolve in OT).
                 const straightStatus = status; // already normalized above
-                const straightStatusLetter = straightStatus === 'won' ? 'W'
-                    : straightStatus === 'lost' ? 'L'
-                    : straightStatus === 'void' ? 'P'
-                    : '';
+                const straightBadge = resolveStatusBadge({ status: straightStatus, gradeReason: leg?.gradeReason });
+                const straightStatusLetter = straightBadge?.label || '';
                 const straightLive = isStraightBetLive(bet);
                 return (
                     <React.Fragment key={betId}>
@@ -902,10 +996,13 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending' }) => {
                                     <span className="my-bets-table-live-badge" aria-label="Live game">{straightBadgeLabel(bet)}</span>
                                 )}
                                 {straightStatusLetter && (
-                                    <span className={`my-bets-table-leg-status ${straightStatus}`}>{straightStatusLetter}</span>
+                                    <span
+                                        className={`my-bets-table-leg-status ${straightStatus}`}
+                                        title={straightBadge?.title || ''}
+                                    >{straightStatusLetter}</span>
                                 )}
                             </span>
-                            {!isGraded && <span className="my-bets-table-col-risk">{moneyExact(risk)}</span>}
+                            {!isGraded && <span className="my-bets-table-col-risk"><RiskAmount bet={bet} /></span>}
                             <span className={`my-bets-table-col-win ${winTheme}`}>{winCell}</span>
                         </div>
                         {isExpanded && (
@@ -1099,7 +1196,12 @@ const MyBetsView = () => {
                 </div>
 
                 {activeTab === 'figures' ? (
-                    <FiguresTab gradedBets={gradedBets} oddsFormat={oddsFormat} teamLogos={teamLogos} />
+                    <FiguresTab
+                        gradedBets={gradedBets}
+                        oddsFormat={oddsFormat}
+                        teamLogos={teamLogos}
+                        onNavigateToTransactions={() => setActiveTab('transactions')}
+                    />
                 ) : activeTab === 'transactions' ? (
                     <TransactionsTab />
                 ) : pendingBets.length === 0 ? (
@@ -1121,7 +1223,7 @@ const MyBetsView = () => {
     );
 };
 
-const FiguresTab = ({ gradedBets = [], oddsFormat, teamLogos = {} }) => {
+const FiguresTab = ({ gradedBets = [], oddsFormat, teamLogos = {}, onNavigateToTransactions }) => {
     const [weekOffset, setWeekOffset] = useState(0);
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -1280,7 +1382,24 @@ const FiguresTab = ({ gradedBets = [], oddsFormat, teamLogos = {} }) => {
                         <span className="figures-label">Week total</span>
                         {renderAmount(data.weekTotal)}
                     </div>
-                    <div className="figures-row">
+                    {/* Tap-able Transactions row — deep-links to the
+                        Transactions tab so the player can see what
+                        makes up the aggregated amount (deposits,
+                        freeplay grants, agent adjustments) without
+                        guessing. Drop the role/tabIndex when no
+                        navigation handler is wired so the row stays
+                        purely informational in any host that mounts
+                        FiguresTab on its own. */}
+                    <div
+                        className={`figures-row${onNavigateToTransactions ? ' expandable' : ''}`}
+                        role={onNavigateToTransactions ? 'button' : undefined}
+                        tabIndex={onNavigateToTransactions ? 0 : undefined}
+                        onClick={onNavigateToTransactions ? () => onNavigateToTransactions() : undefined}
+                        onKeyDown={onNavigateToTransactions ? (e) => {
+                            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onNavigateToTransactions(); }
+                        } : undefined}
+                        aria-label={onNavigateToTransactions ? 'View transactions breakdown' : undefined}
+                    >
                         <span className="figures-label">Transactions</span>
                         {renderAmount(data.transactions)}
                     </div>

@@ -105,9 +105,26 @@ final class ThesportsdbProxyController
                 break;
             }
         }
-        if ($chosen === null) {
-            $first = $teams[0];
-            $chosen = is_array($first) ? $first : null;
+        // No exact match — accept the first candidate whose normalized
+        // strTeam contains the normalized query. The previous "take
+        // teams[0] regardless" behaviour produced cross-league false
+        // positives (the canonical example: querying "Athletics"
+        // returned Arsenal because the upstream search is broad and
+        // returns alphabetic hits). Requiring substring containment
+        // still allows the legitimate partial match (e.g. query
+        // "Athletics" → "Oakland Athletics") without inventing logos
+        // for teams that share zero of the query's letters.
+        if ($chosen === null && $normalizedQuery !== '') {
+            foreach ($teams as $team) {
+                if (!is_array($team)) {
+                    continue;
+                }
+                $candidate = self::normalize((string) ($team['strTeam'] ?? ''));
+                if ($candidate !== '' && str_contains($candidate, $normalizedQuery)) {
+                    $chosen = $team;
+                    break;
+                }
+            }
         }
         if ($chosen === null) {
             return ['found' => false];
@@ -148,9 +165,22 @@ final class ThesportsdbProxyController
                 break;
             }
         }
-        if ($chosen === null) {
-            $first = $players[0];
-            $chosen = is_array($first) ? $first : null;
+        // Same defense as fetchTeam: require the query to be a
+        // normalized substring of the candidate before accepting a
+        // non-exact match. Player search is even noisier than team
+        // search (many athletes share short names) so blindly taking
+        // players[0] produced thumbnails of the wrong person.
+        if ($chosen === null && $normalizedQuery !== '') {
+            foreach ($players as $player) {
+                if (!is_array($player)) {
+                    continue;
+                }
+                $candidate = self::normalize((string) ($player['strPlayer'] ?? ''));
+                if ($candidate !== '' && str_contains($candidate, $normalizedQuery)) {
+                    $chosen = $player;
+                    break;
+                }
+            }
         }
         if ($chosen === null) {
             return ['found' => false];

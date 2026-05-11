@@ -39,13 +39,17 @@ const normalizeApiUrl = (url) => {
 };
 
 const getBaseUrl = () => {
-    const configuredUrl = normalizeApiUrl(import.meta.env.VITE_API_URL);
+    // `import.meta.env` is Vite-injected; guard with `?.` so this
+    // module is importable by raw Node (test scripts, scripts/*) too
+    // without crashing at module-load time.
+    const env = import.meta.env ?? {};
+    const configuredUrl = normalizeApiUrl(env.VITE_API_URL);
     if (configuredUrl) {
         return configuredUrl;
     }
 
     // In development, use Vite proxy so browser only talks to frontend port (5173).
-    if (import.meta.env.DEV) {
+    if (env.DEV) {
         return '/api';
     }
 
@@ -848,8 +852,24 @@ export const getRoundRobinChildren = async (groupId, token) => {
     return response.json();
 };
 
+// Detect the browser's actual IANA zone so figures + transactions
+// bucket bets by the player's real local day, not by whatever zone
+// is (or isn't) saved on their profile. Backend validates the value
+// against its allowlist and falls back to the saved setting if it's
+// not recognised, so injecting garbage can't break the report.
+const detectedClientTz = () => {
+    try {
+        return Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+    } catch {
+        return '';
+    }
+};
+
 export const getUserFigures = async (token, weekOffset = 0) => {
-    const response = await fetch(buildApiUrl('/user/figures', { week_offset: String(weekOffset) }), {
+    const params = { week_offset: String(weekOffset) };
+    const tz = detectedClientTz();
+    if (tz) params.tz = tz;
+    const response = await fetch(buildApiUrl('/user/figures', params), {
         headers: getHeaders(token),
     });
     if (!response.ok) throw new Error('Failed to fetch figures');
@@ -857,11 +877,14 @@ export const getUserFigures = async (token, weekOffset = 0) => {
 };
 
 export const getUserTransactions = async (token, { limit = 50, offset = 0, weekOffset = 0 } = {}) => {
-    const response = await fetch(buildApiUrl('/user/transactions', {
+    const params = {
         limit: String(limit),
         offset: String(offset),
         week_offset: String(weekOffset),
-    }), {
+    };
+    const tz = detectedClientTz();
+    if (tz) params.tz = tz;
+    const response = await fetch(buildApiUrl('/user/transactions', params), {
         headers: getHeaders(token),
     });
     if (!response.ok) throw new Error('Failed to fetch transactions');

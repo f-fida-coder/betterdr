@@ -117,6 +117,25 @@ final class BetsController
             // useFreeplay: client requests to wager from freeplay balance instead of real balance.
             $useFreeplay = (bool) ($body['useFreeplay'] ?? false);
 
+            // slipSize: how many tickets the client is about to place in
+            // this slip submission. Optional (legacy clients omit it).
+            // Used solely to block useFreeplay on a multi-bet straight
+            // slip — the freeplay pool can only fund one ticket, so a
+            // 3-bet slip with useFreeplay=true would silently apply FP
+            // to the first ticket and charge full credit on the rest,
+            // and the win/loss accounting at settlement can't tell which
+            // ticket "owns" the freeplay portion. UI also gates this,
+            // but a tampered client must not be able to bypass.
+            $slipSizeRaw = $body['slipSize'] ?? null;
+            $slipSize = is_numeric($slipSizeRaw) ? (int) $slipSizeRaw : 1;
+            if ($useFreeplay && $type === 'straight' && $slipSize > 1) {
+                throw new ApiException(
+                    'Freeplay can only be used on a single ticket. Combine your selections into a parlay or place them without freeplay.',
+                    400,
+                    ['code' => 'FREEPLAY_MULTI_STRAIGHT_NOT_ALLOWED']
+                );
+            }
+
             $modeRule = $this->getModeRule($type);
             if ($modeRule === null) {
                 throw new ApiException('Bet mode ' . $type . ' is not supported', 400);
@@ -423,6 +442,7 @@ final class BetsController
                         'requestId' => $requestId,
                         'balance' => $existingRequest['responseBalance'] ?? ($user['balance'] ?? 0),
                         'pendingBalance' => $existingRequest['responsePendingBalance'] ?? ($user['pendingBalance'] ?? 0),
+                        'freeplayBalance' => $existingRequest['responseFreeplayBalance'] ?? ($user['freeplayBalance'] ?? 0),
                     ]);
                     $existingResponse['idempotentReplay'] = true;
                     Response::json($existingResponse);
@@ -489,12 +509,15 @@ final class BetsController
 
             $combinedOdds = SportsbookBetSupport::combinedOdds($totalRisk, $potentialPayout);
 
-            // Min bet is risk-anchored: every ticket must stake at least
-            // $minBet. Max bet stays win-anchored — the operator's exposure
-            // is potentialPayout - totalRisk (the profit paid out if the
-            // bet hits), and a heavy favorite like -500 can still take a
-            // $5,000 risk to win $1,000 against a $3,000 max because the
-            // bookie's exposure is only $1,000.
+            // Both min and max are risk-anchored — they cap the player's
+            // stake, not the operator's payout. This matches what every
+            // mainstream sportsbook (and the books our players compare
+            // us to) means by "max bet": the most you can put down on
+            // one ticket. Win amount stays uncapped on straight tickets
+            // so a +334 underdog at the max stake can still pay out
+            // however much the odds resolve to. Parlays keep a separate
+            // payout-cap ceiling further down (operator exposure on
+            // multi-leg long shots).
             $winAmount = max(0.0, (float) $potentialPayout - (float) $totalRisk);
             $minBetLimit = isset($user['minBet']) && is_numeric($user['minBet']) ? (float) $user['minBet'] : 0.0;
             $maxBetLimit = isset($user['maxBet']) && is_numeric($user['maxBet']) ? (float) $user['maxBet'] : 0.0;
@@ -506,14 +529,14 @@ final class BetsController
                     ['code' => 'BELOW_MIN_BET']
                 );
             }
-            // Combined modes (parlay/teaser/if_bet/reverse) follow a
-            // different rule: instead of rejecting bets that win more
-            // than maxBet, cap the *payout* at the parlay limit (default
-            // 3 × maxBet). The user can still place the bet — they just
-            // won't be paid more than the cap if it hits. Straight
-            // tickets still hard-block above maxBet, since they're sized
-            // one-leg-at-a-time and the operator wants the max-win
-            // ceiling enforced per leg.
+            // Combined modes (parlay/teaser/if_bet/reverse) get a payout
+            // ceiling separate from max bet: capped at 3 × maxBet so a
+            // big multi-leg long shot can still be placed but the
+            // payout-side exposure stays bounded. The risk-side maxBet
+            // check still applies (further down) so a $5k risk on a
+            // parlay still gets blocked if maxBet is $2k. This 3×
+            // ceiling is operator policy, not a per-player setting —
+            // change here if you want to expose it as a column.
             $isCombinedMode = in_array($type, ['parlay', 'teaser', 'if_bet', 'reverse'], true);
             if ($isCombinedMode && $maxBetLimit > 0) {
                 $parlayPayoutCap = $maxBetLimit * 3.0;
@@ -522,10 +545,11 @@ final class BetsController
                     $winAmount = $parlayPayoutCap;
                     $combinedOdds = SportsbookBetSupport::combinedOdds($totalRisk, $potentialPayout);
                 }
-            } elseif ($maxBetLimit > 0 && $winAmount > $maxBetLimit) {
+            }
+            if ($maxBetLimit > 0 && (float) $totalRisk > $maxBetLimit) {
                 throw new ApiException(
-                    'Max bet to win is $' . rtrim(rtrim(number_format($maxBetLimit, 2, '.', ''), '0'), '.')
-                    . ' — this ticket wins $' . rtrim(rtrim(number_format($winAmount, 2, '.', ''), '0'), '.') . ' (over limit)',
+                    'Max bet is $' . rtrim(rtrim(number_format($maxBetLimit, 2, '.', ''), '0'), '.')
+                    . ' — this ticket risks $' . rtrim(rtrim(number_format((float) $totalRisk, 2, '.', ''), '0'), '.') . ' (over limit)',
                     400,
                     ['code' => 'ABOVE_MAX_BET']
                 );
@@ -738,6 +762,7 @@ final class BetsController
                 'requestId' => $requestId,
                 'balance' => $newBalance,
                 'pendingBalance' => $newPending,
+                'freeplayBalance' => $newFreeplay,
             ]);
 
             $this->db->updateOne('betrequests', ['id' => SqlRepository::id($requestDocId)], [
@@ -746,6 +771,7 @@ final class BetsController
                 'ticketId' => $ticketId,
                 'responseBalance' => $newBalance,
                 'responsePendingBalance' => $newPending,
+                'responseFreeplayBalance' => $newFreeplay,
                 'updatedAt' => SqlRepository::nowUtc(),
             ]);
             $requestDocOwned = false;
@@ -1920,12 +1946,20 @@ final class BetsController
      */
     private function buildBetPlacementResponse(array $betIds, array $meta): array
     {
+        // freeplayBalance is included so the client can apply an
+        // optimistic update without waiting for the /auth/me refetch
+        // round-trip. The mobile header's freeplay pill was reading
+        // stale data after partial-freeplay bets because nothing in
+        // the placement response surfaced the deducted pool — the
+        // refetch eventually caught up, but the window of "freeplay
+        // still shows pre-bet value" was confusing the user.
         return [
             'message' => 'Bet placed successfully',
             'bets' => $this->loadEnrichedBetsByIds($betIds),
             'requestId' => $meta['requestId'] ?? null,
             'balance' => (float) round($this->num($meta['balance'] ?? 0)),
             'pendingBalance' => (float) round($this->num($meta['pendingBalance'] ?? 0)),
+            'freeplayBalance' => (float) round($this->num($meta['freeplayBalance'] ?? 0)),
         ];
     }
 

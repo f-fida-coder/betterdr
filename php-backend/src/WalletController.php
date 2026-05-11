@@ -14,6 +14,52 @@ final class WalletController
         $this->jwtSecret = $jwtSecret;
     }
 
+    /**
+     * Resolve the player's display timezone for day-bucketing in the
+     * figures + transactions reports. Resolution order:
+     *   1. Client-supplied `tz` query param — the browser's
+     *      Intl-detected zone, which reflects where the user actually
+     *      is right now even if their saved profile is stale.
+     *   2. The saved `settings.timezone` on the user record.
+     *   3. The hardcoded fallback (America/New_York), matching the
+     *      frontend's DEFAULT_SITE_TZ so an unset profile lands in
+     *      the same zone on both sides.
+     *
+     * Each candidate is validated against the same allowlist the
+     * AuthController accepts when saving the profile preference, so a
+     * tampered or typo'd query param can't drift the report into a
+     * nonsense zone and the user can't be hit with an exception from
+     * `new DateTimeZone(...)`.
+     */
+    private static function resolveReportTimezone(array $actor): DateTimeZone
+    {
+        $allowed = [
+            'America/New_York', 'America/Chicago', 'America/Denver',
+            'America/Phoenix', 'America/Los_Angeles', 'America/Anchorage',
+            'Pacific/Honolulu', 'UTC',
+        ];
+        $candidates = [];
+        $queryTz = isset($_GET['tz']) ? trim((string) $_GET['tz']) : '';
+        if ($queryTz !== '') $candidates[] = $queryTz;
+        $settingsTz = is_array($actor['settings'] ?? null)
+            && is_string($actor['settings']['timezone'] ?? null)
+            ? trim((string) $actor['settings']['timezone'])
+            : '';
+        if ($settingsTz !== '') $candidates[] = $settingsTz;
+        $candidates[] = 'America/New_York';
+
+        foreach ($candidates as $name) {
+            if (!in_array($name, $allowed, true)) continue;
+            try {
+                return new DateTimeZone($name);
+            } catch (Throwable) {
+                continue;
+            }
+        }
+        // Allowlist guarantees this is reachable; defensive only.
+        return new DateTimeZone('America/New_York');
+    }
+
     public function handle(string $method, string $path): bool
     {
         if (($path === '/api/wallet/balance' || $path === '/api/wallet') && $method === 'GET') {
@@ -160,15 +206,20 @@ final class WalletController
 
             // Tuesday-anchored accounting week (matches /api/user/figures)
             // so the Transactions tab and Figures tab show the same window
-            // when the player picks a given week.
+            // when the player picks a given week. Anchored in the
+            // player's display timezone — running the math in UTC made
+            // a Sat-evening CT bet show up in Sunday's row because the
+            // boundary crossed at 00:00 UTC, not 00:00 local.
             $weekOffset = isset($_GET['week_offset']) ? max(0, min(11, (int) $_GET['week_offset'])) : 0;
-            $today = new DateTimeImmutable('today', new DateTimeZone('UTC'));
+            $tz = self::resolveReportTimezone($actor);
+            $today = new DateTimeImmutable('today', $tz);
             $todayDow = (int) $today->format('N');
             $daysFromTue = ($todayDow - 2 + 7) % 7;
             $weekStart = $today->modify('-' . ($daysFromTue + ($weekOffset * 7)) . ' days');
-            $weekEnd = $weekStart->modify('+7 days'); // exclusive
-            $weekStartIso = $weekStart->format('Y-m-d\TH:i:s\Z');
-            $weekEndIso = $weekEnd->format('Y-m-d\TH:i:s\Z');
+            $weekEnd = $weekStart->modify('+7 days'); // exclusive, local time
+            $utc = new DateTimeZone('UTC');
+            $weekStartIso = $weekStart->setTimezone($utc)->format('Y-m-d\TH:i:s\Z');
+            $weekEndIso = $weekEnd->setTimezone($utc)->format('Y-m-d\TH:i:s\Z');
 
             // Pull one extra row past `limit` so the client can detect that
             // a "Load More" page exists without a separate count query.
@@ -254,16 +305,52 @@ final class WalletController
 
             $weekOffset = isset($_GET['week_offset']) ? max(0, min(11, (int) $_GET['week_offset'])) : 0;
 
+            // Resolve the player's display timezone for day-bucketing.
+            // Prefers the client-supplied `tz` query param (browser's
+            // detected zone) over the saved profile setting so a player
+            // who never set their preference still sees their local day
+            // even though their settings.timezone defaults to ET. See
+            // resolveReportTimezone for the full resolution order.
+            $tz = self::resolveReportTimezone($actor);
+
             // Tuesday-anchored week. PHP's 'N' returns 1=Mon..7=Sun; we want
             // Tuesday as day 1. So daysFromTue = (N - 2 + 7) % 7.
-            $today = new DateTimeImmutable('today', new DateTimeZone('UTC'));
+            $today = new DateTimeImmutable('today', $tz);
             $todayDow = (int) $today->format('N');
             $daysFromTue = ($todayDow - 2 + 7) % 7;
             $weekStart = $today->modify('-' . ($daysFromTue + ($weekOffset * 7)) . ' days');
-            $weekEnd = $weekStart->modify('+7 days'); // exclusive
+            $weekEnd = $weekStart->modify('+7 days'); // exclusive, local time
 
-            $weekStartIso = $weekStart->format('Y-m-d\TH:i:s\Z');
-            $weekEndIso = $weekEnd->format('Y-m-d\TH:i:s\Z');
+            // DB stores `settledAt` as UTC ISO strings, so convert the
+            // local-tz boundaries to UTC for the query and the per-day
+            // comparisons below. Per-day boundaries are kept as a
+            // pre-built array so DST transitions in the middle of a
+            // week don't skew bets at the boundary by an hour.
+            $utc = new DateTimeZone('UTC');
+            $weekStartUtc = $weekStart->setTimezone($utc);
+            $weekEndUtc = $weekEnd->setTimezone($utc);
+            $weekStartIso = $weekStartUtc->format('Y-m-d\TH:i:s\Z');
+            $weekEndIso = $weekEndUtc->format('Y-m-d\TH:i:s\Z');
+
+            // Per-day UTC timestamp ranges, one entry per index 0..6
+            // (Tue..Mon). Each entry is [startTs, endTs) — DST-safe
+            // because we let the DateTime arithmetic in the local tz
+            // do the +1-day work before flattening to UTC.
+            $dayBoundsTs = [];
+            for ($i = 0; $i < 7; $i++) {
+                $startLocal = $weekStart->modify('+' . $i . ' days');
+                $endLocal = $weekStart->modify('+' . ($i + 1) . ' days');
+                $dayBoundsTs[] = [
+                    $startLocal->setTimezone($utc)->getTimestamp(),
+                    $endLocal->setTimezone($utc)->getTimestamp(),
+                ];
+            }
+            $assignDayIndex = static function (int $ts) use ($dayBoundsTs): int {
+                foreach ($dayBoundsTs as $i => [$startTs, $endTs]) {
+                    if ($ts >= $startTs && $ts < $endTs) return $i;
+                }
+                return -1;
+            };
 
             $userId = SqlRepository::id((string) $actor['id']);
 
@@ -283,7 +370,7 @@ final class WalletController
                 } catch (Throwable) {
                     continue;
                 }
-                $diffDays = (int) floor(($dt->getTimestamp() - $weekStart->getTimestamp()) / 86400);
+                $diffDays = $assignDayIndex($dt->getTimestamp());
                 if ($diffDays < 0 || $diffDays > 6) continue;
 
                 $status = strtolower((string) ($bet['status'] ?? ''));

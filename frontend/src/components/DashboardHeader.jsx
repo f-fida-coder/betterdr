@@ -503,6 +503,21 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
                                 {formatBalanceCell(headerAvailable)}
                             </span>
                         </div>
+                        {/* Freeplay row — only renders when the player has
+                            a freeplay balance, so users without any freeplay
+                            keep the original 3-row layout. Without this the
+                            deduction during a partial-freeplay bet looked
+                            invisible: the bet went through, freeplayBalance
+                            dropped on the backend, but no UI element in the
+                            mobile header surfaced that pool. */}
+                        {Number(freeplayBalance) > 0 && (
+                            <div style={mhBalanceRowStyle}>
+                                <span style={mhBalanceHeroLabelStyle}>Freeplay</span>
+                                <span style={{ ...mhBalanceHeroValueStyle, color: '#22c55e' }}>
+                                    {formatBalanceCell(freeplayBalance)}
+                                </span>
+                            </div>
+                        )}
                     </button>
 
                     <button
@@ -804,6 +819,16 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
                             <span>AVAILABLE CREDIT</span>
                             <strong>{formatMoney(headerAvailable)}</strong>
                         </div>
+                        {/* Freeplay cell — only renders when the player has
+                            a freeplay balance; otherwise the desktop header
+                            stays at three cells. Mirrors the mobile header
+                            row added in the same change. */}
+                        {Number(freeplayBalance) > 0 && (
+                            <div className="dash-balance">
+                                <span>FREEPLAY</span>
+                                <strong style={{ color: '#22c55e' }}>{formatMoney(freeplayBalance)}</strong>
+                            </div>
+                        )}
                     </button>
 
                     <div

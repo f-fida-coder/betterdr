@@ -422,6 +422,17 @@ const ModeBetPanel = ({
 
     const parsedFreeplayBalance = Number.isFinite(Number(freeplayBalance)) ? Number(freeplayBalance) : 0;
     const hasFreeplay = parsedFreeplayBalance > 0;
+    // Freeplay can only be applied to ONE ticket at a time:
+    //   - a single straight bet (1 selection)
+    //   - a parlay / teaser / if-bet / reverse (multiple legs but ONE ticket)
+    //   - a round robin (atomic placement, treated as one slip action)
+    // Straight mode with multiple selections submits N independent tickets
+    // and the system can't decide which ticket "owns" the freeplay pool —
+    // the first ticket's win/loss math diverges from the rest's. Block the
+    // combination entirely so the user funds those slips with credit and
+    // saves freeplay for a single-ticket bet. Mirrored on the backend
+    // (BetsController rejects type=straight + useFreeplay + slipSize>1).
+    const freeplayMultiBetBlocked = normalizeBetMode(mode) === 'straight' && (selections?.length || 0) > 1;
 
     // Mirrors DashboardHeader's `headerAvailable`: for credit-account players
     // (creditLimit > 0) the betslip's headline number is `creditAvailable`
@@ -447,6 +458,16 @@ const ModeBetPanel = ({
     const normalizedMode = normalizeBetMode(mode);
     const rule = rulesByMode[normalizedMode] || DEFAULT_RULES[normalizedMode] || DEFAULT_RULES.straight;
     const legCount = selections.length;
+
+    // If the user had Freeplay toggled on and then added a second leg
+    // (flipping the slip into multi-bet straight mode), the gate above
+    // would otherwise leave the checkbox stuck visually-checked. Force
+    // it off so the betslip state matches the disabled control.
+    useEffect(() => {
+        if (freeplayMultiBetBlocked && useFreeplay) {
+            setUseFreeplay(false);
+        }
+    }, [freeplayMultiBetBlocked, useFreeplay]);
 
     // Round Robin: stake input is per-parlay risk, and a "Win $X" target
     // is undefined when each child parlay has different combined odds.
@@ -520,6 +541,24 @@ const ModeBetPanel = ({
         if (!selectedTeaserTypeId) return null;
         return teaserTypes.find((t) => t.id === selectedTeaserTypeId) || null;
     }, [teaserTypes, selectedTeaserTypeId]);
+
+    // Sports present on the slip that the selected type DOESN'T price.
+    // Empty when the type covers every slip sport (or no type / no
+    // recognized sports). Drives two things: a clear error message
+    // and the suppression of the misleading "Select teaser points"
+    // hint that fires when auto-sync can't run for an unsupported
+    // sport. Example: Super Teaser (football-only) with a basketball
+    // leg → ['basketball'].
+    const teaserSportsUncovered = useMemo(() => {
+        if (!selectedTeaserType) return [];
+        if (slipTeaserGroups.length === 0) return [];
+        const map = selectedTeaserType.pointsBySport;
+        if (!map || typeof map !== 'object') return slipTeaserGroups.slice();
+        return slipTeaserGroups.filter((g) => {
+            const v = Number(map[g]);
+            return !Number.isFinite(v) || v <= 0;
+        });
+    }, [selectedTeaserType, slipTeaserGroups]);
 
     // Slip-card line preview. Mirrors the board's `teaserPreview` so the
     // user sees the SAME teased line on their slip leg as on the
@@ -785,24 +824,24 @@ const ModeBetPanel = ({
     // client-side too gives instant feedback instead of a round-trip
     // error after the user clicks Place Bet.
     //
-    // Win-anchored semantics (credit-bookie convention): both min and
-    // max apply to the *win* amount, regardless of which side the
-    // player typed. The agent's exposure on every ticket is the win —
-    // what the book pays out if the bet hits — so limits cap that, not
-    // the user's own credit obligation. A user with $10k available
-    // credit on a -500 favorite can risk $10k to win $2k (above max)
-    // and be fine, because the bookie's exposure is still $2k.
+    // Risk-anchored semantics (matches what mainstream sportsbooks
+    // mean by "max bet"): both min and max gate the player's stake,
+    // not the operator's payout. A $2k max bet means "you can put
+    // down at most $2k on one ticket" — the win can be whatever the
+    // odds resolve to, including $20k on a +900 underdog. This used
+    // to be win-anchored, but that blocked otherwise-legal underdog
+    // tickets the player expected to be allowed.
     //
     // Available credit is enforced separately at submit time (see the
     // totalRisk vs effectiveAvailableBalance check below) — that's
-    // what bounds the risk side, not maxBet.
+    // a wallet-level guard, not a per-ticket limit.
     //
     // Returns:
-    //   - messages: { min, max } win-anchored context strings that
-    //     name the offending leg + actual numbers, e.g. "Max bet to
-    //     win $3000 — 'Yankees vs Rangers' wins $4000 (over limit)".
-    //   - violatingIds: Set of selection IDs whose Win trips a limit,
-    //     used to flag the offending card with a red border.
+    //   - messages: { min, max } risk-anchored context strings that
+    //     name the offending leg + actual numbers, e.g.
+    //     "Max bet $2000 — 'Pirates vs Giants' risks $2500".
+    //   - violatingIds: Set of selection IDs whose Risk trips a
+    //     limit, used to flag the offending card with a red border.
     const limitFlags = useMemo(() => {
         const violatingIds = new Set();
         const messages = { min: null, max: null, capInfo: null };
@@ -818,35 +857,40 @@ const ModeBetPanel = ({
             return t ? `"${t}"` : 'one leg';
         };
 
-        // Min bet is risk-anchored: every ticket (or every straight leg) must
-        // stake at least $minBet. Max bet stays win-anchored — that caps the
-        // operator's exposure (potential payout), not the player's stake.
+        // Both min and max are risk-anchored on straight tickets: the
+        // stake side has to land inside [minBet, maxBet]. The win side
+        // is bounded only by the underlying odds × stake; an underdog
+        // payout is allowed to exceed maxBet.
         if (normalizedMode === 'straight') {
             for (const sel of selections) {
                 const { risk, win } = effectiveStakeForSelection(sel);
                 if (!(risk > 0) && !(win > 0)) continue;
                 const minBreach = hasMin && risk > 0 && risk < minBet;
-                const maxBreach = hasMax && win > maxBet;
+                const maxBreach = hasMax && risk > maxBet;
                 if (minBreach && !messages.min) {
                     messages.min = `Min bet $${minBet} — ${labelFor(sel)} risks only $${fmt(risk)}`;
                 }
                 if (maxBreach && !messages.max) {
-                    messages.max = `Max bet $${maxBet} — ${labelFor(sel)} wins $${fmt(win)}`;
+                    messages.max = `Max bet $${maxBet} — ${labelFor(sel)} risks $${fmt(risk)}`;
                 }
                 if (minBreach || maxBreach) violatingIds.add(sel.id);
             }
         } else if (effectiveCombinedRisk > 0) {
             const winValue = effectiveCombinedRisk * Math.max(0, Number(ticketDecimalOdds) - 1);
-            // Combined modes (parlay/teaser/if_bet/reverse) use a separate
-            // cap from straight tickets — by policy, the operator's max
-            // exposure on a parlay is 3× maxBet. Tickets that would win
-            // *more* than that aren't rejected; they just get their
-            // payout capped at the parlay limit. So we suppress the
-            // hard-block max message (the bet is placeable) and surface
-            // an informational "win capped" note instead.
+            // Combined modes (parlay/teaser/if_bet/reverse) get the
+            // same risk-side max-bet check as straight tickets — the
+            // operator's "max bet" rule should apply to ticket stake
+            // regardless of mode. ON TOP of that there's a payout
+            // ceiling at 3× maxBet (operator policy on multi-leg
+            // long shots): payouts above the ceiling aren't rejected,
+            // they're just capped, and we surface an informational
+            // "winnings capped" note instead of a hard block.
             const parlayPayoutCap = hasMax ? maxBet * 3 : 0;
             if (hasMin && effectiveCombinedRisk < minBet) {
                 messages.min = `Min bet $${minBet} — ticket risks only $${fmt(effectiveCombinedRisk)}`;
+            }
+            if (hasMax && effectiveCombinedRisk > maxBet) {
+                messages.max = `Max bet $${maxBet} — ticket risks $${fmt(effectiveCombinedRisk)}`;
             }
             if (parlayPayoutCap > 0 && winValue > parlayPayoutCap) {
                 messages.capInfo = `Max parlay payout $${fmt(parlayPayoutCap)} — winnings capped (uncapped: $${fmt(winValue)})`;
@@ -967,7 +1011,16 @@ const ModeBetPanel = ({
                 errors.push('Enter a valid wager amount');
             }
         }
-        if (!teaserValid) {
+        if (selectedTeaserType && teaserSportsUncovered.length > 0) {
+            // Selected type can't price every sport on the slip.
+            // Suppress the legacy "Select teaser points" hint because
+            // the user can't satisfy it — the missing sport isn't in
+            // the type's points table at all. The fix is to pick a
+            // different type or remove the incompatible legs.
+            const missing = teaserSportsUncovered.join(' / ');
+            const label = selectedTeaserType.label || 'Selected teaser type';
+            errors.push(`${label} doesn't cover ${missing}. Pick a different teaser type or remove ${missing} legs.`);
+        } else if (!teaserValid) {
             errors.push(`Select teaser points: ${activeTeaserPointOptions.join(', ')}`);
         }
         // New picker flow: when the rule ships teaserTypes, the user
@@ -1431,6 +1484,12 @@ const ModeBetPanel = ({
                         ...(requestedWin > 0 ? { requestedWin } : {}),
                         teaserPoints: 0,
                         useFreeplay: useFp,
+                        // Tell the backend how many tickets this slip is
+                        // about to place so it can refuse useFreeplay=true
+                        // on a multi-bet straight slip. Frontend already
+                        // gates the checkbox, but a tampered client can't
+                        // bypass this without the backend cooperating.
+                        slipSize: legsToSubmit.length,
                         selections: [{
                             matchId: sel.matchId,
                             selection: sel.selection,
@@ -1715,6 +1774,7 @@ const ModeBetPanel = ({
                         teaserTypes={teaserTypes}
                         selectedTeaserType={selectedTeaserType}
                         onTeaserTypeChange={onTeaserTypeChange}
+                        slipSportGroups={slipTeaserGroups}
                         containerStyle={{ margin: '0 0 12px' }}
                     />
                 )}
@@ -2024,24 +2084,52 @@ const ModeBetPanel = ({
                                 gap: 8,
                                 marginTop: 10,
                                 padding: '6px 10px',
-                                background: useFreeplay ? palette.successSoft : '#f8fafc',
+                                background: freeplayMultiBetBlocked ? '#f1f5f9'
+                                    : useFreeplay ? palette.successSoft
+                                    : '#f8fafc',
                                 borderRadius: 8,
                                 fontSize: 11,
-                                cursor: 'pointer',
+                                cursor: freeplayMultiBetBlocked ? 'not-allowed' : 'pointer',
+                                opacity: freeplayMultiBetBlocked ? 0.6 : 1,
                                 userSelect: 'none',
                                 border: `1px solid ${useFreeplay ? palette.success : palette.cardBorder}`,
-                            }}>
+                            }}
+                            title={freeplayMultiBetBlocked
+                                ? 'Freeplay can only be used on a single ticket — switch to Parlay/Teaser or remove the extra selections.'
+                                : ''}>
                                 <input
                                     type="checkbox"
                                     checked={useFreeplay}
+                                    disabled={freeplayMultiBetBlocked}
                                     onChange={(e) => setUseFreeplay(e.target.checked)}
-                                    style={{ width: 13, height: 13, cursor: 'pointer', accentColor: palette.success }}
+                                    style={{
+                                        width: 13,
+                                        height: 13,
+                                        cursor: freeplayMultiBetBlocked ? 'not-allowed' : 'pointer',
+                                        accentColor: palette.success,
+                                    }}
                                 />
-                                <span style={{ color: useFreeplay ? palette.success : palette.textPrimary, fontWeight: 700 }}>
+                                <span style={{
+                                    color: freeplayMultiBetBlocked ? palette.textMuted
+                                        : useFreeplay ? palette.success
+                                        : palette.textPrimary,
+                                    fontWeight: 700,
+                                }}>
                                     Use Freeplay (${formatAmount(parsedFreeplayBalance)})
                                     {useFreeplay && totalRisk > parsedFreeplayBalance && totalRisk > 0 && (
                                         <span style={{ marginLeft: 6, fontWeight: 600, color: palette.textPrimary }}>
                                             + ${formatAmount(totalRisk - parsedFreeplayBalance)} from balance
+                                        </span>
+                                    )}
+                                    {freeplayMultiBetBlocked && (
+                                        <span style={{
+                                            display: 'block',
+                                            marginTop: 2,
+                                            fontSize: 10,
+                                            fontWeight: 600,
+                                            color: palette.textMuted,
+                                        }}>
+                                            Single ticket only — combine into a parlay or remove legs.
                                         </span>
                                     )}
                                 </span>
@@ -2247,17 +2335,18 @@ const ModeBetPanel = ({
                     const supportsBuyPoints = (market === 'spreads' || market === 'totals') && normalizedMode !== 'teaser';
                     const buyPointsOptions = supportsBuyPoints ? buildBuyPointsOptions(sel) : [];
                     const buyPointsOpen = openBuyPointsId === sel.id;
-                    // Flags this leg if its *win* trips the user's per-account
-                    // min/max bet limit. Drives the red border + inline chip
-                    // so the user immediately sees *which* leg blocked the slip
-                    // instead of guessing from a global toast. Win-anchored
-                    // (not risk-anchored) per the credit-bookie convention —
-                    // see the limitFlags useMemo above for the full rationale.
+                    // Flags this leg if its *risk* (stake) trips the
+                    // user's per-account min/max bet limit. Drives the
+                    // red border + inline chip so the user sees *which*
+                    // leg blocked the slip instead of guessing from a
+                    // global toast. Min uses risk too — see the
+                    // limitFlags useMemo above for the full rationale
+                    // on the risk-anchored switch.
                     const legViolatesLimit = limitFlags.violatingIds.has(sel.id);
                     const legLimitMaxBet = Number(user?.maxBet);
                     const legLimitMinBet = Number(user?.minBet);
-                    const legOverMax = Number.isFinite(legLimitMaxBet) && legLimitMaxBet > 0 && win > legLimitMaxBet;
-                    const legUnderMin = Number.isFinite(legLimitMinBet) && legLimitMinBet > 0 && win > 0 && win < legLimitMinBet;
+                    const legOverMax = Number.isFinite(legLimitMaxBet) && legLimitMaxBet > 0 && risk > legLimitMaxBet;
+                    const legUnderMin = Number.isFinite(legLimitMinBet) && legLimitMinBet > 0 && risk > 0 && risk < legLimitMinBet;
                     return (
                         <div
                             key={sel.id}
@@ -2619,8 +2708,8 @@ const ModeBetPanel = ({
                                         <i className="fa-solid fa-triangle-exclamation" style={{ fontSize: 11 }} />
                                         <span>
                                             {legOverMax
-                                                ? `Wins $${formatMoney(win)} — over your $${formatMoney(legLimitMaxBet)} Max Bet`
-                                                : `Wins only $${formatMoney(win)} — under your $${formatMoney(legLimitMinBet)} Min Bet`}
+                                                ? `Risks $${formatMoney(risk)} — over your $${formatMoney(legLimitMaxBet)} Max Bet`
+                                                : `Risks only $${formatMoney(risk)} — under your $${formatMoney(legLimitMinBet)} Min Bet`}
                                         </span>
                                     </div>
                                 )}

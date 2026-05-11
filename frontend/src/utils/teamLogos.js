@@ -1,4 +1,4 @@
-import { API_URL } from '../api';
+import { API_URL } from '../api.js';
 
 const ESPN_LOGO = (league, abbr) => `https://a.espncdn.com/i/teamlogos/${league}/500/${abbr}.png`;
 
@@ -69,6 +69,15 @@ export const TEAM_LOGO_MAP = {
     'new york mets': ESPN_LOGO('mlb', 'nym'),
     'new york yankees': ESPN_LOGO('mlb', 'nyy'),
     'oakland athletics': ESPN_LOGO('mlb', 'oak'),
+    // Post-2024 MLB rebrand — feeds now ship just "Athletics" (or the
+    // interim "Sacramento Athletics" / "Las Vegas Athletics" labels
+    // during the relocation). Without these aliases the team falls
+    // through to TheSportsDB search, where "Athletics" used to come
+    // back as Arsenal because the search is broad and the proxy used
+    // to accept the first hit.
+    'athletics': ESPN_LOGO('mlb', 'oak'),
+    'sacramento athletics': ESPN_LOGO('mlb', 'oak'),
+    'las vegas athletics': ESPN_LOGO('mlb', 'oak'),
     'philadelphia phillies': ESPN_LOGO('mlb', 'phi'),
     'pittsburgh pirates': ESPN_LOGO('mlb', 'pit'),
     'san diego padres': ESPN_LOGO('mlb', 'sd'),
@@ -364,7 +373,12 @@ export const logoUrlForTeam = (teamName = '') => {
 // boxers, tennis players) that never had team badges. Bumping the
 // cache key forces any previously-missed entity to be re-resolved
 // through the new code path.
-const LOGO_CACHE_KEY = 'betterdr:teamLogos:v3';
+// v4 bump: proxy now rejects unrelated first-match results (e.g.
+// "Athletics" used to come back as Arsenal). Bumping the cache key
+// invalidates the previously-cached wrong URLs so existing users
+// re-resolve on next visit instead of staring at the bad logo for
+// up to 24h while the negative cache TTL waits to expire.
+const LOGO_CACHE_KEY = 'betterdr:teamLogos:v4';
 const LOGO_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 // Routed through the PHP proxy: direct browser calls to thesportsdb hit
 // CORS and a shared 429 rate limit. Backend fetches server-side, caches

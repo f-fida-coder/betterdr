@@ -45,6 +45,35 @@ const orderTeaserTypes = (types) => {
     });
 };
 
+// A type is usable on a slip only if its pointsBySport carries a
+// positive value for every sport group present. Empty slip groups →
+// compatible (caller hasn't constrained yet, e.g. board picker
+// shown before any selection is added).
+const isTypeCompatibleWithSlip = (type, slipSportGroups) => {
+    if (!Array.isArray(slipSportGroups) || slipSportGroups.length === 0) return true;
+    const map = (type && typeof type === 'object') ? type.pointsBySport : null;
+    if (!map || typeof map !== 'object') return false;
+    for (const group of slipSportGroups) {
+        const v = Number(map[group]);
+        if (!Number.isFinite(v) || v <= 0) return false;
+    }
+    return true;
+};
+
+// Hint shown on a disabled card so the user understands *why* the
+// type is unavailable (e.g. Super Teaser → "Football only"). Looks
+// at which sports the type's pointsBySport actually covers, NOT at
+// the slip — keeps the message stable as the user edits selections.
+const compatibilityHint = (type) => {
+    const map = type?.pointsBySport;
+    if (!map || typeof map !== 'object') return 'Not available for your selections';
+    const covers = [];
+    if (Number(map.football) > 0) covers.push('Football');
+    if (Number(map.basketball) > 0) covers.push('Basketball');
+    if (covers.length === 1) return `${covers[0]} only`;
+    return 'Not available for your selections';
+};
+
 /**
  * Teaser type picker. Renders in two places: above the games list and
  * inside the betslip drawer. Both instances are wired to the same
@@ -61,6 +90,11 @@ const TeaserTypePicker = ({
     onTeaserTypeChange,
     normalizedBetMode,
     containerStyle,
+    // Sport groups present on the current slip (e.g. ['basketball']
+    // for an NBA-only slip). Types whose pointsBySport doesn't cover
+    // every group are rendered disabled so the user can't pick the
+    // wrong product. Empty/undefined = no filtering.
+    slipSportGroups = [],
 }) => {
     if (normalizedBetMode !== 'teaser') return null;
     const list = Array.isArray(teaserTypes) ? teaserTypes : [];
@@ -95,34 +129,50 @@ const TeaserTypePicker = ({
                     to every leg you add.
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {sorted.map((type) => (
-                        <button
-                            key={type.id}
-                            type="button"
-                            onClick={() => onTeaserTypeChange && onTeaserTypeChange(type.id)}
-                            style={{
-                                textAlign: 'left',
-                                padding: '10px 12px',
-                                border: '1px solid #e5e7eb',
-                                background: '#fff',
-                                borderRadius: 8,
-                                cursor: 'pointer',
-                                transition: 'all 120ms ease',
-                            }}
-                        >
-                            <div style={{
-                                fontSize: 13,
-                                fontWeight: 800,
-                                color: '#0f172a',
-                                marginBottom: 2,
-                            }}>{type.label || type.id}</div>
-                            <div style={{
-                                fontSize: 11,
-                                color: '#475569',
-                                lineHeight: 1.4,
-                            }}>{formatTypeSegments(type)}</div>
-                        </button>
-                    ))}
+                    {sorted.map((type) => {
+                        const compat = isTypeCompatibleWithSlip(type, slipSportGroups);
+                        const hint = compat ? null : compatibilityHint(type);
+                        return (
+                            <button
+                                key={type.id}
+                                type="button"
+                                disabled={!compat}
+                                onClick={() => compat && onTeaserTypeChange && onTeaserTypeChange(type.id)}
+                                style={{
+                                    textAlign: 'left',
+                                    padding: '10px 12px',
+                                    border: '1px solid #e5e7eb',
+                                    background: '#fff',
+                                    borderRadius: 8,
+                                    cursor: compat ? 'pointer' : 'not-allowed',
+                                    opacity: compat ? 1 : 0.55,
+                                    transition: 'all 120ms ease',
+                                }}
+                            >
+                                <div style={{
+                                    fontSize: 13,
+                                    fontWeight: 800,
+                                    color: '#0f172a',
+                                    marginBottom: 2,
+                                }}>{type.label || type.id}</div>
+                                <div style={{
+                                    fontSize: 11,
+                                    color: '#475569',
+                                    lineHeight: 1.4,
+                                }}>{formatTypeSegments(type)}</div>
+                                {hint && (
+                                    <div style={{
+                                        fontSize: 10,
+                                        fontWeight: 800,
+                                        color: '#b91c1c',
+                                        marginTop: 4,
+                                        textTransform: 'uppercase',
+                                        letterSpacing: 0.4,
+                                    }}>{hint}</div>
+                                )}
+                            </button>
+                        );
+                    })}
                 </div>
             </div>
         );

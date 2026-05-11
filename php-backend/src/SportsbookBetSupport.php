@@ -389,7 +389,16 @@ final class SportsbookBetSupport
             return $selectionName === $manualWinner ? 'won' : 'lost';
         }
 
-        if (in_array($effectiveStatus, ['canceled', 'expired'], true)) {
+        // Only an explicit cancel signal (operator action OR upstream
+        // feed flagging the match as canceled/postponed/abandoned)
+        // auto-voids open bets. 'expired' — the catch-all for matches
+        // whose feed went quiet past the grace window — used to void
+        // here too, but that silently refunded bets we couldn't grade
+        // even though the game may have actually been played. Now an
+        // expired match stays pending so a human reviews it before
+        // money moves. See SportsMatchStatus::effectiveStatus for how
+        // 'expired' is produced.
+        if ($effectiveStatus === 'canceled') {
             return 'void';
         }
 
@@ -844,8 +853,14 @@ final class SportsbookBetSupport
      */
     public static function gradeReasonForVoidLeg(array $match, array $leg): ?string
     {
+        // Mirrors the cancel-only void policy in selectionResult: only
+        // an explicit cancel becomes a void with a 'match_canceled'
+        // reason. An expired match shouldn't have graded as void in
+        // the first place, but if a legacy void slipped through with
+        // effectiveStatus='expired', we still surface a reason rather
+        // than leaving the chip without a tooltip.
         $effective = SportsMatchStatus::effectiveStatus($match);
-        if (in_array($effective, ['canceled', 'expired'], true)) {
+        if ($effective === 'canceled' || $effective === 'expired') {
             return 'match_canceled';
         }
         if ($effective !== 'finished') {
