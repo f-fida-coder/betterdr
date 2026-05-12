@@ -66,8 +66,12 @@ if ($dbName === '') {
     $dbName = 'sports_betting';
 }
 
-$minutes = max(1, (int) Env::get('ODDS_CRON_MINUTES', '10'));
-$intervalSeconds = $minutes * 60;
+// Worker updates DB every 90 seconds (1.5 minutes) by default.
+// This ensures live odds are never >90s stale and reduces gaps between
+// updates. Set ODDS_CRON_MINUTES in .env to override (e.g. '5' = 5 min).
+// For sub-20s Live Now syncs, this combines with RUNDOWN_LIVE_TICK_SECONDS.
+$minutes = max(0.5, (float) Env::get('ODDS_CRON_MINUTES', '1.5'));
+$intervalSeconds = max(30, (int) round($minutes * 60));
 
 $logWorker('info', "PHP odds worker started. interval={$minutes}m db={$dbName} once=" . ($runOnce ? 'true' : 'false'));
 

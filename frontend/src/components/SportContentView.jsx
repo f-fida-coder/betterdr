@@ -116,24 +116,27 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
         // /api/sync/live. The endpoint returns fresh rows (or cached ones
         // if throttled) in a single round-trip. Once it resolves, fire
         // matches:force-refetch so useMatches re-reads from the now-fresh
-        // DB. 60s cooldown mirrors USER_LIVE_SYNC_MIN_INTERVAL_SECONDS on
-        // the backend.
+        // DB. Target: <20s sync for live odds update.
+        // After error (timeout/rate-limit), use cached odds and don't block UI.
         if (status === 'live') {
             const sinceLast = Date.now() - liveSyncLastClickRef.current;
             if (liveSyncSpinning || sinceLast < 60000) return;
             liveSyncLastClickRef.current = Date.now();
             setLiveSyncSpinning(true);
-            // Hard 3s timeout — if the backend hangs, surface cached rows
-            // and stop the spinner; the user is never stuck.
+            // 20s timeout (up from 3s) to allow live sync to complete.
+            // If the backend takes longer, surface cached rows anyway;
+            // the user is never stuck waiting.
             const ctrl = new AbortController();
-            const timer = window.setTimeout(() => ctrl.abort(), 3000);
-            syncLiveMatches({ signal: ctrl.signal })
+            const timer = window.setTimeout(() => ctrl.abort(), 20000);
+            syncLiveMatches({ signal: ctrl.signal, timeout: 20000 })
                 .then(({ throttled }) => {
                     window.dispatchEvent(new CustomEvent('matches:force-refetch', {
                         detail: { reason: 'user-live-sync' },
                     }));
                     if (throttled) {
                         showToast?.('Refreshing too fast — showing latest cached odds', { type: 'info' });
+                    } else {
+                        showToast?.('Live odds updated', { type: 'success' });
                     }
                 })
                 .catch((err) => {
@@ -273,7 +276,41 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
         };
     }, [intendedSportKeys, status, showToast]);
 
-    // Cold-load freshness guarantee. The first time this view paints with
+    // Prefetch odds for this sport ahead of user clicks, so sport selection
+    // is instant (render from cache + background refresh in parallel).
+    // Fires when the view first mounts and on visibility changes.
+    React.useEffect(() => {
+        if (intendedSportKeys.length === 0) return undefined;
+        if (typeof document === 'undefined') return undefined;
+        
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'hidden') return;
+            // Tab became visible — prefetch odds so sport click is instant
+            // Fire and forget: prefetch is best-effort, errors don't block rendering
+            Promise.all(intendedSportKeys.map(async (sportKey) => {
+                try {
+                    // Trigger a background fetch for this sport's matches
+                    window.dispatchEvent(new CustomEvent('matches:prefetch', {
+                        detail: { sportKeys: [sportKey] },
+                    }));
+                } catch (err) {
+                    // Silently ignore: prefetch failures don't affect UX
+                }
+            })).catch(() => {});
+        };
+
+        // Fire once on mount
+        handleVisibilityChange();
+
+        // Re-fire when tab becomes visible
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+        return () => {
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+        };
+    }, [intendedSportKeys]);
+
+    // Listen for prefetch events and cache the results so sport clicks
+    // render from cache instantly.
     // matches, peek at the oldest visible lastOddsSyncAt. If anything is
     // older than ~90s, silently fire the refresh button so the user sees
     // current odds within a couple seconds of landing — no manual action

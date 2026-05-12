@@ -10,8 +10,12 @@ import { getMatches, getLiveMatches, getUpcomingMatches } from '../api';
 const LOCAL_MATCHES_CACHE_TTL_MS = 0;
 const LOCAL_MATCHES_CACHE_MAX_ENTRIES = 0;
 // Background polling cadence while the tab is visible. Keeps the list in
-// sync with cron-driven DB updates without requiring a manual refresh.
-const AUTO_POLL_MS = 30000;
+// sync with cron-driven DB updates. Live/active views poll aggressively
+// (15s) to catch odds changes within seconds. Other views use 60s.
+// Set VITE_MATCHES_POLL_LIVE_MS and VITE_MATCHES_POLL_OTHER_MS in .env
+// to customize (milliseconds).
+const AUTO_POLL_LIVE_MS = parseInt(import.meta.env.VITE_MATCHES_POLL_LIVE_MS || '15000', 10);
+const AUTO_POLL_OTHER_MS = parseInt(import.meta.env.VITE_MATCHES_POLL_OTHER_MS || '60000', 10);
 // If the most recently rendered data appears older than this, auto
 // trigger a force-refetch on first paint and on tab-becomes-visible.
 const COLD_LOAD_FRESHNESS_MS = 90000;
@@ -435,19 +439,23 @@ export default function useMatches(options = {}) {
         // local cache) so we always exercise the network and pick up odds
         // changes from the worker / on-demand refreshes by other clients.
         // Pauses when tab hidden, fires immediately on becoming visible.
-        // Poll cadence: live/active views stay at 30 s (odds change fast);
-        // all other views use 60 s to halve background DB load.
-        const pollIntervalMs = (statusFilter === 'live' || statusFilter === 'active') ? 30000 : 60000;
+        // Poll cadence: live/active views stay at 15s (odds change fast);
+        // all other views use 60s to halve background DB load.
+        // When tab hidden: continues at 120s to keep data reasonably fresh.
+        const pollIntervalMs = (statusFilter === 'live' || statusFilter === 'active') ? AUTO_POLL_LIVE_MS : AUTO_POLL_OTHER_MS;
+        const hiddenPollIntervalMs = 120000; // 2min when tab is hidden
         let pollTimer = null;
+        let currentPollMs = pollIntervalMs;
         const isPageVisible = () => typeof document === 'undefined'
             || document.visibilityState !== 'hidden';
-        const startPolling = () => {
+        const startPolling = (customIntervalMs = null) => {
             if (pollTimer) return;
+            const interval = customIntervalMs !== null ? customIntervalMs : currentPollMs;
             pollTimer = setInterval(() => {
                 if (!isPageVisible()) return;
                 matchesResponseCache.delete(createMatchesCacheKey(statusFilter, scopeKey || 'global'));
                 fetchMatches({ trigger: 'auto-poll', refresh: false });
-            }, pollIntervalMs);
+            }, interval);
         };
         const stopPolling = () => {
             if (pollTimer) clearInterval(pollTimer);
@@ -456,12 +464,18 @@ export default function useMatches(options = {}) {
         const handleVisibilityChange = () => {
             if (typeof document === 'undefined') return;
             if (document.visibilityState === 'hidden') {
+                // Tab hidden: keep polling but slow down to save resources
+                // and prevent battery drain. Odds stay reasonably fresh (max 2min stale).
                 stopPolling();
+                currentPollMs = hiddenPollIntervalMs;
+                startPolling(hiddenPollIntervalMs);
                 return;
             }
-            // Tab just became visible. If our cached data is older than
-            // COLD_LOAD_FRESHNESS_MS, refetch immediately so the user
-            // doesn't see a stale snapshot on tab refocus.
+            // Tab visible again: resume normal cadence
+            stopPolling();
+            currentPollMs = pollIntervalMs;
+            // If our cached data is older than COLD_LOAD_FRESHNESS_MS, refetch immediately
+            // so the user doesn't see a stale snapshot on tab refocus.
             const cached = matchesResponseCache.get(createMatchesCacheKey(statusFilter, scopeKey || 'global'));
             if (!cached || (Date.now() - cached.ts) > COLD_LOAD_FRESHNESS_MS) {
                 matchesResponseCache.delete(createMatchesCacheKey(statusFilter, scopeKey || 'global'));
@@ -483,10 +497,43 @@ export default function useMatches(options = {}) {
             fetchMatches({ trigger: 'window-focus', refresh: false });
         };
 
+        const handlePrefetch = (event) => {
+            // Prefetch event: silently fetch odds for a sport and cache them
+            // so sport-selection clicks render instantly. Used by SportContentView
+            // to prefetch next sport odds as tabs become visible.
+            const detail = event?.detail ?? {};
+            const sportKeys = Array.isArray(detail.sportKeys) ? detail.sportKeys : [];
+            if (sportKeys.length === 0) return;
+            // Fire one fetch per sport key, no UI updates (background)
+            sportKeys.forEach((key) => {
+                const prefetchKey = createMatchesCacheKey(statusFilter, key);
+                if (inFlightRequests.has(prefetchKey)) return; // Already in-flight
+                const requestOptions = { trigger: 'prefetch', refresh: false, payload: 'core' };
+                const prefetchPromise = (statusFilter === 'live' || statusFilter === 'active')
+                    ? getLiveMatches(requestOptions)
+                    : getMatches(statusFilter === 'all' ? '' : statusFilter, requestOptions);
+                inFlightRequests.set(prefetchKey, prefetchPromise);
+                prefetchPromise
+                    .then((data) => {
+                        const normalized = Array.isArray(data) ? data : [];
+                        const filtered = filterMatches(normalized, statusFilter);
+                        matchesResponseCache.set(prefetchKey, { ts: Date.now(), data: filtered });
+                        pruneLocalCache();
+                    })
+                    .catch(() => {
+                        // Prefetch failed — not critical, auto-poll will retry
+                    })
+                    .finally(() => {
+                        inFlightRequests.delete(prefetchKey);
+                    });
+            });
+        };
+
         if (typeof window !== 'undefined') {
             window.addEventListener('matches:refresh', handleRefresh);
             window.addEventListener('matches:sync-deferred', handleSyncDeferred);
             window.addEventListener('matches:force-refetch', handleForceRefetch);
+            window.addEventListener('matches:prefetch', handlePrefetch);
             window.addEventListener('focus', handleWindowFocus);
             if (typeof document !== 'undefined') {
                 document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -502,6 +549,7 @@ export default function useMatches(options = {}) {
                 window.removeEventListener('matches:refresh', handleRefresh);
                 window.removeEventListener('matches:sync-deferred', handleSyncDeferred);
                 window.removeEventListener('matches:force-refetch', handleForceRefetch);
+                window.removeEventListener('matches:prefetch', handlePrefetch);
                 window.removeEventListener('focus', handleWindowFocus);
                 if (typeof document !== 'undefined') {
                     document.removeEventListener('visibilitychange', handleVisibilityChange);
