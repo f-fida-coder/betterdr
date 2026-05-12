@@ -28,14 +28,23 @@ final class AuthController
 
     /**
      * Single source of truth for the top header's PENDING tile and the
-     * AT RISK card on My Bets: SUM(j_risk_amount) over the user's pending
-     * bets. Previously the header read the stored `users.pendingBalance`
-     * column, which could drift from the bet rows for tickets placed
-     * before the snap-on-write fix (the column was bumped using
-     * unsnapped decimal arithmetic, while the bet's stored riskAmount
-     * was a clean integer). Computing live from the bets table makes
-     * drift impossible — whatever the ticket cards sum to, the header
-     * shows the same number.
+     * AT RISK card on My Bets: SUM of the CASH portion of every pending
+     * bet — freeplay-funded dollars never reserved credit, so they must
+     * not contribute to the PENDING number. Previous version summed
+     * `j_risk_amount` directly, which included the freeplay slice and
+     * inflated PENDING for partial-freeplay tickets ($1,000 stake with
+     * $700 FP added $1,000 to PENDING when only $300 of credit was
+     * actually reserved). The placement code (BetsController) and the
+     * settlement-time reconciliation routine both use this same
+     * cashPortion math — the read query had drifted from them.
+     *
+     * Two layers of fallback for the freeplay portion:
+     *   1. `freeplayAmountUsed` if present and numeric (modern bets).
+     *   2. The whole risk if `isFreeplay=true` but the field is
+     *      missing (legacy bets predating the field — assume the
+     *      ticket was pure freeplay, matching the conservative
+     *      backend fallback).
+     *   3. Zero otherwise (plain cash bet).
      */
     private function pendingRiskForUser(string $userId): float
     {
@@ -44,20 +53,33 @@ final class AuthController
         }
 
         try {
-            $table = $this->db->tableNameForCollection('bets');
-            $pdo = $this->db->getRawPdoForOps();
-            // "Pending" here matches MyBetsView's AT RISK card, which
-            // counts every bet whose status is NOT a final outcome. New
-            // bets are stored with status='pending', but if anything
-            // pre-settlement (e.g. a review/hold state) is ever added
-            // we'll still keep the header in lockstep with AT RISK.
-            $stmt = $pdo->prepare(
-                "SELECT COALESCE(SUM(`j_risk_amount`), 0) FROM `{$table}` "
-                . "WHERE `j_user_id` = :uid "
-                . "AND (`j_status` IS NULL OR `j_status` NOT IN ('won', 'lost', 'void'))"
-            );
-            $stmt->execute([':uid' => $userId]);
-            $sum = (float) $stmt->fetchColumn();
+            // findMany over JSON-backed bets so we can read
+            // freeplayAmountUsed + isFreeplay alongside riskAmount.
+            // Bounded per-user (pending bets are rarely > 50) so the
+            // PHP-side summation has negligible overhead vs the
+            // previous one-shot SQL SUM. "Pending" matches MyBetsView's
+            // AT RISK card: any non-final status counts.
+            $bets = $this->db->findMany('bets', [
+                'userId' => SqlRepository::id($userId),
+                'status' => ['$nin' => ['won', 'lost', 'void']],
+            ], ['projection' => [
+                'riskAmount' => 1, 'amount' => 1,
+                'freeplayAmountUsed' => 1, 'isFreeplay' => 1,
+            ]]);
+            $sum = 0.0;
+            foreach ($bets as $b) {
+                $risk = (float) ($b['riskAmount'] ?? $b['amount'] ?? 0);
+                if ($risk <= 0) continue;
+                $fpRaw = $b['freeplayAmountUsed'] ?? null;
+                $fp = (is_numeric($fpRaw) && (float) $fpRaw > 0)
+                    ? (float) $fpRaw
+                    : (!empty($b['isFreeplay']) ? $risk : 0.0);
+                // Clamp so a misstored fp value can't ever produce a
+                // negative cash portion (which would silently REDUCE
+                // PENDING below the user's actual exposure).
+                $fp = max(0.0, min($fp, $risk));
+                $sum += ($risk - $fp);
+            }
         } catch (Throwable $e) {
             // If the bets table or generated columns aren't available
             // (e.g. early in a fresh install before the first bet is
@@ -650,15 +672,13 @@ final class AuthController
             if (array_key_exists('betDefaults', $incomingSettings)) {
                 $bd = is_array($incomingSettings['betDefaults']) ? $incomingSettings['betDefaults'] : [];
                 $mode = strtolower(trim((string) ($bd['mode'] ?? 'risk')));
-                // `bet` is a legacy value — coerce to `risk` since the UI no
-                // longer offers it as a separate mode. Anything else that
-                // isn't `win` or `risk` is rejected so we don't quietly
-                // accept typos / future-mode attempts from a stale client.
-                if ($mode === 'bet') {
-                    $mode = 'risk';
-                }
-                if ($mode !== 'risk' && $mode !== 'win') {
-                    Response::json(['message' => 'betDefaults.mode must be risk or win'], 400);
+                // `bet` is the "smart" stake mode (minus juice → input is
+                // Win, plus juice → input is Risk) — re-added to match
+                // every other US book. Accept all three valid modes;
+                // reject anything else so typos / future-mode attempts
+                // from a stale client don't quietly persist.
+                if ($mode !== 'risk' && $mode !== 'win' && $mode !== 'bet') {
+                    Response::json(['message' => 'betDefaults.mode must be bet, risk, or win'], 400);
                     return;
                 }
                 $amountRaw = $bd['amount'] ?? 0;

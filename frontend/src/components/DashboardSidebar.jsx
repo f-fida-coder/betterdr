@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { getSportKeywords, buildMergedSportsTree } from '../data/sportsData';
-import { getAvailableSports, getUpcomingMatches } from '../api';
+import { getAvailableSports, getMatches } from '../api';
 
 // Return only children whose sport keys currently have data per
 // /api/matches/sports. When `liveSet` is null (probe pending or
@@ -269,28 +269,48 @@ const DashboardSidebar = ({
         return result;
     }, [mergedSports, selectedSports]);
 
-    // Lazy-load upcoming matches the first time the user types ≥2 chars.
+    // Lazy-load matches the first time the user types ≥2 chars.
     // We don't prefetch on mount — most sessions never use the search box,
     // and a 200-row payload would be wasted bandwidth.
+    //
+    // Fetches `live-upcoming` so the index covers BOTH in-play games and
+    // pregame matches. Without the live half, a user searching for a
+    // currently-playing team (e.g. "Guardians" while Cleveland is live)
+    // saw "No teams found" even though the game was right there in the
+    // LIVE NOW feed — the search felt broken to anyone betting in-play.
+    //
+    // State-machine note: the previous version put `matchesSearchLoading`
+    // in the deps array AND skipped the `finally` reset when the cleanup
+    // had marked the run as cancelled. setMatchesSearchLoading(true) then
+    // re-triggered the effect itself; the cleanup flipped cancelled=true
+    // on the in-flight run; the fetch resolved into the `if (cancelled)`
+    // early-return; and the finally never cleared the spinner. End state:
+    // matchesSearchLoading=true forever, "Searching teams…" never went
+    // away, no team result ever rendered. Now we use a ref to guard
+    // re-entry and ALWAYS clear the spinner in finally so a cancelled
+    // run can't strand it.
+    const searchFetchInFlightRef = useRef(false);
     useEffect(() => {
         const q = searchQuery.trim();
         if (q.length < 2) return;
-        if (matchesForSearch !== null || matchesSearchLoading) return;
+        if (matchesForSearch !== null) return;
+        if (searchFetchInFlightRef.current) return;
+        searchFetchInFlightRef.current = true;
         let cancelled = false;
         setMatchesSearchLoading(true);
         (async () => {
             try {
-                const data = await getUpcomingMatches({ limit: 200, payload: 'core' });
-                if (cancelled) return;
-                setMatchesForSearch(Array.isArray(data) ? data : []);
+                const data = await getMatches('live-upcoming', { limit: 200, payload: 'core' });
+                if (!cancelled) setMatchesForSearch(Array.isArray(data) ? data : []);
             } catch {
                 if (!cancelled) setMatchesForSearch([]);
             } finally {
-                if (!cancelled) setMatchesSearchLoading(false);
+                searchFetchInFlightRef.current = false;
+                setMatchesSearchLoading(false);
             }
         })();
         return () => { cancelled = true; };
-    }, [searchQuery, matchesForSearch, matchesSearchLoading]);
+    }, [searchQuery, matchesForSearch]);
 
     // Walk the merged sport tree (static catalog + backend-discovered
     // leagues) and find the first leaf whose sportKeys array contains the

@@ -1,7 +1,33 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 
 const SettingsModal = ({ onClose, balance, pendingBalance, availableBalance }) => {
-    const isMobile = window.innerWidth <= 768;
+    const [isMobile, setIsMobile] = useState(() => (
+        typeof window !== 'undefined' ? window.innerWidth <= 768 : false
+    ));
+
+    useEffect(() => {
+        const handleResize = () => setIsMobile(window.innerWidth <= 768);
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
+
+    useEffect(() => {
+        const handleKeyDown = (event) => {
+            if (event.key === 'Escape') {
+                onClose();
+            }
+        };
+
+        const previousOverflow = document.body.style.overflow;
+        document.body.style.overflow = 'hidden';
+        window.addEventListener('keydown', handleKeyDown);
+
+        return () => {
+            window.removeEventListener('keydown', handleKeyDown);
+            document.body.style.overflow = previousOverflow;
+        };
+    }, [onClose]);
+
     const formatMoney = (value) => {
         if (value === null || value === undefined || value === '') return '—';
         const num = Number(value);
@@ -10,7 +36,13 @@ const SettingsModal = ({ onClose, balance, pendingBalance, availableBalance }) =
     };
     
     return (
-        <div style={{
+        <div
+            onMouseDown={(event) => {
+                if (event.target === event.currentTarget) {
+                    onClose();
+                }
+            }}
+            style={{
             position: 'fixed',
             top: 0,
             left: 0,
@@ -51,10 +83,12 @@ const SettingsModal = ({ onClose, balance, pendingBalance, availableBalance }) =
                     borderBottom: '1px solid #eee'
                 }}>
                     <h3 style={{ margin: 0, color: '#333', fontSize: isMobile ? '18px' : '18px', fontWeight: 'bold' }}>My Account</h3>
-                    <span
+                    <button
+                        type="button"
                         onClick={onClose}
-                        style={{ cursor: 'pointer', fontSize: '24px', color: '#999', lineHeight: '1' }}
-                    >×</span>
+                        aria-label="Close account settings"
+                        style={{ cursor: 'pointer', fontSize: '24px', color: '#999', lineHeight: '1', border: 'none', background: 'transparent', padding: 0 }}
+                    >×</button>
                 </div>
 
                 <div style={{ overflowY: 'auto', padding: isMobile ? '12px' : '15px' }}>

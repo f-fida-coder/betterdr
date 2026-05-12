@@ -92,15 +92,41 @@ const legLabelFor = (mode, index, total) => {
 // wanting a different amount uses the typed Bet Amount input instead.
 const QUICK_STAKES = [25, 500, 1000, 3000];
 
-// Risk / Win mode toggle. `risk` = entered amount is the stake; `win`
-// flips the meaning so the entered amount is the desired payout and the
-// stake gets back-calculated from the odds. `bet` was a duplicate of
-// `risk` and was removed — legacy saved defaults of `bet` are normalised
-// up to `risk` at read time so the UI never shows a third pill.
+// Stake-mode toggle.
+//   risk → entered amount is the stake; Win back-computes from odds.
+//   win  → entered amount is the desired payout; Risk back-computes.
+//   bet  → "smart" mode used by every other US book — for each leg the
+//          system picks the more intuitive interpretation based on the
+//          price: MINUS juice (laying) → input is Win; PLUS juice
+//          (taking) → input is Risk. So $2,000 in Bet on a -110 spread
+//          means "win $2,000", and the same $2,000 on a +345 dog means
+//          "risk $2,000 to win $6,900." Per-leg in straight mode (each
+//          leg's own odds decide); per-ticket in combined modes (one
+//          combined American number drives it).
+//
+// Bet mode was previously stripped because an earlier pass treated it
+// as a duplicate of Risk. It isn't — minus-juice users almost always
+// think in dollars-to-win, plus-juice users think in dollars-to-risk,
+// and Bet captures that without forcing the player to flip the toggle
+// between every leg.
 const STAKE_MODES = [
+    { id: 'bet', label: 'Bet' },
     { id: 'risk', label: 'Risk' },
     { id: 'win', label: 'Win' },
 ];
+
+// Given decimal odds, decide which underlying mode 'bet' resolves to.
+// Minus juice → 'win'; plus juice (and even +100) → 'risk'. Called by
+// resolveStake AND by the placement payload builders so the wire-level
+// `requestedWin` flag matches what the UI computed.
+const resolveBetSmartMode = (decimalOdds) => {
+    const d = Number(decimalOdds);
+    if (!Number.isFinite(d) || d <= 1) return 'risk';
+    const american = d >= 2
+        ? Math.round((d - 1) * 100)
+        : Math.round(-100 / (d - 1));
+    return american < 0 ? 'win' : 'risk';
+};
 
 // Risk ↔ Win conversion using DECIMAL odds (the storage format the app
 // uses everywhere internally — odds in selections are always >1, with
@@ -137,7 +163,13 @@ const resolveStake = (mode, amount, decimalOdds) => {
         return { risk: safeAmt, win: 0 };
     }
 
-    if (mode === 'win') {
+    // Bet mode resolves per-call to either 'win' (minus juice) or 'risk'
+    // (plus juice) so the math below stays in two branches. We don't
+    // mutate the parameter — we read the resolved mode locally — so the
+    // caller's `stakeMode` state remains 'bet' for the toggle pill.
+    const effectiveMode = mode === 'bet' ? (american < 0 ? 'win' : 'risk') : mode;
+
+    if (effectiveMode === 'win') {
         // Desired profit = safeAmt. Risk = profit × |american| / 100 (neg)
         // or Risk = profit × 100 / american (pos). Round to 2dp.
         const rawRisk = american < 0
@@ -145,7 +177,7 @@ const resolveStake = (mode, amount, decimalOdds) => {
             : safeAmt * 100 / american;
         return { risk: Math.round(rawRisk * 100) / 100, win: safeAmt };
     }
-    // 'bet' and 'risk' — amount IS the stake. Win = stake × 100/|american|
+    // 'risk' — amount IS the stake. Win = stake × 100/|american|
     // (neg) or stake × american/100 (pos). Round to 2dp.
     const rawWin = american < 0
         ? safeAmt * 100 / (-american)
@@ -360,11 +392,16 @@ const ModeBetPanel = ({
     const userBetDefaults = (user?.settings?.betDefaults && typeof user.settings.betDefaults === 'object')
         ? user.settings.betDefaults
         : null;
-    // Legacy users may still have `mode: 'bet'` saved on their profile —
-    // collapse it to `risk` since the UI no longer offers `bet` as a
-    // separate option (it was an exact behavioural duplicate of `risk`).
+    // Saved mode is one of 'bet' | 'risk' | 'win'. Bet is the "smart"
+    // mode (minus-juice → win, plus-juice → risk) and is the most
+    // common preference among recreational players; anything else
+    // falls through to 'risk' to preserve the historical default.
     const rawDefaultMode = String(userBetDefaults?.mode || '').toLowerCase();
-    const defaultStakeMode = rawDefaultMode === 'win' ? 'win' : 'risk';
+    const defaultStakeMode = rawDefaultMode === 'win'
+        ? 'win'
+        : rawDefaultMode === 'bet'
+            ? 'bet'
+            : 'risk';
     const defaultStakeAmount = Number.isFinite(Number(userBetDefaults?.amount)) && Number(userBetDefaults.amount) > 0
         ? Number(userBetDefaults.amount)
         : 0;
@@ -766,7 +803,15 @@ const ModeBetPanel = ({
             return { risk: Math.round(rawRisk * 100) / 100, win: safe, source: 'win' };
         }
         const computed = resolveStake(stakeMode, wager, sel?.odds);
-        return { ...computed, source: null };
+        // Surface which interpretation drove the math so winForSelection
+        // can decide whether to send requestedWin to the backend. In Bet
+        // mode each leg resolves independently — a -110 spread leg gets
+        // source='win' (pin the typed dollars-to-win), a +345 dog leg
+        // gets source='risk' (let the backend back-compute payout).
+        const computedSource = stakeMode === 'bet'
+            ? resolveBetSmartMode(sel?.odds)
+            : stakeMode;
+        return { ...computed, source: computedSource };
     }, [stakeMode, wager]);
 
     // Per-leg Risk amount that's actually staked on a straight leg.
@@ -1174,15 +1219,23 @@ const ModeBetPanel = ({
         // Risk-mode keeps the recompute path because there's no
         // single user-typed Win to anchor against; we want the
         // payout based on actual stake × combined odds.
+        // Bet mode anchors the same way Win mode does when the combined
+        // ticket prices as minus juice — typed dollars-to-win must render
+        // as the exact typed value (no $999.79 drift on a typed $1000).
+        // Plus-juice Bet mode pins risk, so the back-computed payout is
+        // already exact.
+        const summarySmartMode = stakeMode === 'bet'
+            ? resolveBetSmartMode(ticketDecimalOdds)
+            : stakeMode;
         let rawWin;
-        if (stakeMode === 'win' && wagerAmount > 0 && legCount > 0 && normalizedMode !== 'straight') {
+        if (summarySmartMode === 'win' && wagerAmount > 0 && legCount > 0 && normalizedMode !== 'straight') {
             rawWin = wagerAmount;
         } else {
             rawWin = Math.max(0, potentialPayout - totalRisk);
         }
         if (parlayPayoutCap > 0 && rawWin > parlayPayoutCap) return parlayPayoutCap;
         return rawWin;
-    }, [stakeMode, wagerAmount, legCount, normalizedMode, potentialPayout, totalRisk, parlayPayoutCap]);
+    }, [stakeMode, wagerAmount, legCount, normalizedMode, potentialPayout, totalRisk, parlayPayoutCap, ticketDecimalOdds]);
     // Use the same pool the top bar's AVAILABLE tile shows: creditAvailable
     // for credit accounts, availableBalance for cash accounts. Otherwise the
     // bet-placement guard rejects with "Insufficient balance: $0.00" while
@@ -1274,18 +1327,50 @@ const ModeBetPanel = ({
     // removing the selection closes it.
     const [openBuyPointsId, setOpenBuyPointsId] = useState(null);
 
-    // Apply a Buy Points alternate to a selection. Mutates only that leg's
-    // line + odds; downstream Risk/Win, parlay/teaser combined odds, and
-    // the bottom Total Risk / Potential Payout summary all derive from
-    // selections via useMemo so they recalc automatically.
+    // Apply a Buy Points alternate to a selection. Mutates this leg's
+    // line + odds AND records the audit fields the placement payload
+    // sends to the backend: `boughtPoints` (magnitude), `originalLine`,
+    // `originalOdds`. The backend re-derives the expected American
+    // price from BuyPointsPricing and rejects mismatched submissions —
+    // so these fields aren't trusted, they're just what the client
+    // believes (and what the API needs to know to even ATTEMPT the buy).
+    //
+    // We snapshot `originalLine` / `originalOdds` from the FIRST apply,
+    // not from every apply: once the user has bought 0.5 points and
+    // the line shows -3, a second apply that lands on -2.5 needs to
+    // know the true pregame line was -3.5 so the boughtPoints sum
+    // (=1.0) matches what the backend will compute.
     const applyBuyPoints = (selId, option) => {
         onSelectionsChange(
             selections.map((s) => {
                 if (s.id !== selId) return s;
+                const originalLine = Number.isFinite(Number(s.originalLine)) ? Number(s.originalLine) : Number(s.line);
+                const originalOdds = Number.isFinite(Number(s.originalOdds)) ? Number(s.originalOdds) : Number(s.odds);
+                const market = String(s.marketType || '').toLowerCase();
+                // boughtPoints = magnitude. Direction is implicit from
+                // market + side (mirrors the backend convention in
+                // BuyPointsPricing::signedPointDelta).
+                let bought = 0;
+                if (Number.isFinite(originalLine) && Number.isFinite(Number(option.line))) {
+                    if (market === 'spreads') {
+                        bought = Number(option.line) - originalLine;
+                    } else if (market === 'totals') {
+                        const isUnder = String(s?.selection || '').toUpperCase().startsWith('U');
+                        bought = isUnder
+                            ? Number(option.line) - originalLine
+                            : originalLine - Number(option.line);
+                    }
+                }
+                // Snap to a half-point grid and clamp negatives. A user
+                // selecting the original row produces bought ≈ 0.
+                const snapped = Math.max(0, Math.round(bought * 2) / 2);
                 return {
                     ...s,
                     line: option.line,
                     odds: option.decimalOdds,
+                    originalLine,
+                    originalOdds,
+                    boughtPoints: snapped,
                 };
             })
         );
@@ -1496,6 +1581,10 @@ const ModeBetPanel = ({
                             odds: Number(sel.odds),
                             type: sel.marketType || 'h2h',
                             marketType: sel.marketType || 'h2h',
+                            // Buy Points (spread/total only). Omitted when 0
+                            // so legacy backends don't see an unexpected
+                            // field; backend default is 0.0 either way.
+                            ...(Number(sel.boughtPoints) > 0 ? { boughtPoints: Number(sel.boughtPoints) } : {}),
                         }],
                         // Legacy top-level mirror for older backend path.
                         matchId: sel.matchId,
@@ -1570,7 +1659,15 @@ const ModeBetPanel = ({
             // overrides this — the wager input represents per-parlay
             // stake (the spec is explicit), and total risk = N parlays
             // × that stake; backend computes the same.
-            const combinedRequestedWin = stakeMode === 'win' && Number.isFinite(Number(wager)) && Number(wager) > 0
+            // Combined modes have a single combined-American number, so
+            // Bet resolves once for the whole ticket. Sending requestedWin
+            // only when the resolved interpretation IS win avoids over-
+            // pinning a plus-money parlay's payout (which the backend
+            // already computes cleanly from risk × decimal).
+            const combinedSmartMode = stakeMode === 'bet'
+                ? resolveBetSmartMode(ticketDecimalOdds)
+                : stakeMode;
+            const combinedRequestedWin = combinedSmartMode === 'win' && Number.isFinite(Number(wager)) && Number(wager) > 0
                 ? Math.round(Number(wager))
                 : 0;
             const payload = {
@@ -1594,6 +1691,7 @@ const ModeBetPanel = ({
                     selection: sel.selection,
                     odds: Number(sel.odds),
                     type: sel.marketType || 'straight',
+                    ...(Number(sel.boughtPoints) > 0 ? { boughtPoints: Number(sel.boughtPoints) } : {}),
                 })),
             };
 
@@ -1897,7 +1995,10 @@ const ModeBetPanel = ({
                             }}>
                                 {STAKE_MODES.map((m, i) => {
                                     const active = stakeMode === m.id;
-                                    const lockedOut = normalizedMode === 'round_robin' && m.id === 'win';
+                                    // Round Robin needs a single risk-per-parlay number; both Win and Bet
+                                    // depend on combined odds and each child parlay has different odds,
+                                    // so the smart-mode interpretation has no single answer. Lock both.
+                                    const lockedOut = normalizedMode === 'round_robin' && (m.id === 'win' || m.id === 'bet');
                                     return (
                                         <button
                                             key={m.id}

@@ -415,14 +415,49 @@ final class AgentController
             }
 
             $bets = $this->db->findMany('bets', ['userId' => ['$in' => $userIds]]);
+            // Cash-only accounting: freeplay-funded stake + freeplay-
+            // funded profit on a win are house-pool flow and don't
+            // affect the agent's real-money hold. Old math summed
+            // `amount` (which includes the FP slice) into
+            // totalWagered, then subtracted `potentialPayout` (gross
+            // payout — also includes the FP slice on a win) from it.
+            // That works out for a pure-FP win on paper but breaks on
+            // partial-FP bets and on FP-funded losses, where the
+            // agent's actual cash exposure is just the cash slice of
+            // each ticket.
             $totalWagered = 0.0;
             $totalPayouts = 0.0;
             $winCount = 0;
 
             foreach ($bets as $bet) {
-                $totalWagered += $this->num($bet['amount'] ?? 0);
+                $risk = $this->num($bet['riskAmount'] ?? $bet['amount'] ?? 0);
+                if ($risk <= 0) continue;
+                $fpRaw = $bet['freeplayAmountUsed'] ?? null;
+                if (is_numeric($fpRaw) && (float) $fpRaw > 0) {
+                    $fpUsed = (float) $fpRaw;
+                } elseif (!empty($bet['isFreeplay'])) {
+                    $fpUsed = $risk;
+                } else {
+                    $fpUsed = 0.0;
+                }
+                $fpUsed = max(0.0, min($fpUsed, $risk));
+                $cashRisk = $risk - $fpUsed;
+                $totalWagered += $cashRisk;
+
                 if (($bet['status'] ?? '') === 'won') {
-                    $totalPayouts += $this->num($bet['potentialPayout'] ?? 0);
+                    // Cash paid out to the player on a win = gross
+                    // payout − FP slice. The FP slice returns to the
+                    // freeplay pool (internal house reallocation,
+                    // not a cash payment), so it shouldn't count
+                    // against agent hold. Verification:
+                    //   pure cash $100 → $200: cash out = $200 − 0
+                    //     = $200. Hold = 100 − 200 = −100. ✓
+                    //   pure FP $100 → $200: cash out = $200 − 100
+                    //     = $100 (profit). Hold = 0 − 100 = −100. ✓
+                    //   partial $60FP/$40 → $200: cash out = $200 −
+                    //     60 = $140. Hold = 40 − 140 = −100. ✓
+                    $payout = $this->num($bet['potentialPayout'] ?? 0);
+                    $totalPayouts += max(0.0, $payout - $fpUsed);
                     $winCount++;
                 }
             }
@@ -433,7 +468,13 @@ final class AgentController
             Response::json([
                 'totalUsers' => $totalUsers,
                 'totalBets' => $betCount,
+                // totalWagered now reflects cash-only stake — agents
+                // looking at it as a hold-rate denominator get the
+                // right number. Pure-FP bets contribute zero here.
                 'totalWagered' => $totalWagered,
+                // netProfit = cash collected on losses − cash paid
+                // out on wins. Pure-FP loss = $0 in / $0 out. Cash
+                // loss = full cash slice in. Win = profit out.
                 'netProfit' => $totalWagered - $totalPayouts,
                 'winRate' => number_format($winRate, 2, '.', ''),
             ]);

@@ -253,12 +253,25 @@ const isRoundRobinGroup = (bet) => String(bet?.type || '').toLowerCase() === 'ro
 // also treats a pending leg whose start time is already in the past as
 // live — older snapshots don't always carry an explicit status flag, so
 // this fallback keeps the badge useful for in-flight tickets.
+// Terminal match states the backend uses for games that are no longer
+// playable: see SportsMatchStatus::collapseStatus. A pending bet stuck
+// on a match in any of these states is NOT live — it's a stuck-pending
+// ticket waiting on the settlement pipeline. Without this guard, the
+// kickoff-passed fallback below would flag every such bet as LIVE
+// indefinitely (real bug: end-to-end test against local DB caught it
+// on bets where the match expired but the bet never settled).
+const TERMINAL_MATCH_STATUSES = new Set(['finished', 'canceled', 'cancelled', 'expired', 'void', 'abandoned', 'closed', 'settled']);
+
 const isLiveSnapshot = (snapshot, parentStatus) => {
     if (!snapshot) return false;
     const status = String(snapshot.status || '').toLowerCase();
     if (status === 'live') return true;
     const eventStatus = String(snapshot?.score?.event_status || '').toUpperCase();
     if (eventStatus.includes('IN_PROGRESS') || eventStatus.includes('LIVE')) return true;
+    // Terminal states short-circuit BEFORE the startTime fallback. A
+    // game with status='expired' has its startTime in the past by
+    // definition; without this guard the fallback would always fire.
+    if (TERMINAL_MATCH_STATUSES.has(status)) return false;
     const startMs = snapshot.startTime ? new Date(snapshot.startTime).getTime() : NaN;
     if (Number.isFinite(startMs) && startMs <= Date.now() && normalizeStatus(parentStatus) === 'pending') {
         return true;
@@ -346,6 +359,15 @@ const isStraightBetLive = (bet) => {
     if (wasPlacedInPlay(bet, bet?.matchSnapshot)) return true;
     if (wasPlacedInPlay(bet, firstLeg?.matchSnapshot)) return true;
     if (normalizeStatus(bet?.status) !== 'pending') return false;
+    // CURRENT match state is authoritative. When the freshly-fetched
+    // bet.match says the game is in a terminal state (finished, expired,
+    // canceled, etc.), the bet is stuck-pending awaiting settlement —
+    // it is NOT live, even if the frozen matchSnapshot still reads
+    // 'scheduled' with a startTime in the past. Without this guard the
+    // matchSnapshot fallback fires for every stuck-pending bet on an
+    // expired game (real bug caught by the local E2E test).
+    const currentMatchStatus = String(bet?.match?.status || '').toLowerCase();
+    if (currentMatchStatus && TERMINAL_MATCH_STATUSES.has(currentMatchStatus)) return false;
     if (isLiveSnapshot(bet?.match, bet?.status)) return true;
     if (isLiveSnapshot(bet?.matchSnapshot, bet?.status)) return true;
     return isLiveSnapshot(firstLeg?.matchSnapshot, bet?.status);
@@ -454,8 +476,8 @@ const RiskAmount = ({ bet }) => {
                 color: '#16a34a',
                 fontWeight: 800,
                 letterSpacing: 0.2,
-            }} title={`Freeplay applied: $${moneyExact(fpUsed)}`}>
-                +${moneyExact(fpUsed)} FP
+            }} title={`Freeplay applied: ${moneyExact(fpUsed)}`}>
+                {moneyExact(fpUsed)} FP
             </span>
         </span>
     );
@@ -649,7 +671,9 @@ const WEEK_OPTIONS = [
 
 // Table-style ticket list shared between:
 //   - the Pending tab (mode='pending', shows Risk/To Win + a totals
-//     footer so the player can see committed-vs-potential at a glance)
+//     footer so the player can see committed-vs-potential at a glance —
+//     opt in via the showTotals prop; only the top-level Pending list
+//     wants it, the round-robin / parlay leg sublists don't)
 //   - the Figures tab's per-day expansion panel (mode='graded', shows
 //     Description/Profit only — totals already live in the figures
 //     row above as the day's P/L, so a footer would just duplicate it)
@@ -659,7 +683,7 @@ const WEEK_OPTIONS = [
 // graded ticket renders +$X / -$X regardless of where it appears),
 // so the same row code works for both modes — only header columns
 // and the Risk column visibility change.
-const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending' }) => {
+const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending', showTotals = false }) => {
     const [expandedBetId, setExpandedBetId] = useState(null);
     // Per-leg drill-down state. Single key (`${betId}::${legIdx}`) — only
     // one leg can be open at a time across the whole list, so opening a
@@ -1011,6 +1035,58 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending' }) => {
                     </React.Fragment>
                 );
             })}
+            {showTotals && !isGraded && (() => {
+                // Totals mirror what the player sees in each row:
+                //   - Risk column sums cashRisk (player's out-of-pocket
+                //     stake), with an FP annotation underneath when any
+                //     pending ticket has freeplay applied. This matches
+                //     RiskAmount's per-row treatment so a $0 cash + $1k
+                //     FP ticket contributes $0 to the cash total and
+                //     $1k to the FP annotation rather than inflating
+                //     the cash headline.
+                //   - To Win sums each ticket's profit-only payout
+                //     (potentialPayout − riskAmount), keying off the
+                //     same math payoutValue/ticketAmount use for the
+                //     row's win cell. Stake isn't returned in our
+                //     credit-based system, so total here is profit.
+                let totalCashRisk = 0;
+                let totalFpUsed = 0;
+                let totalWin = 0;
+                bets.forEach((b) => {
+                    const { cashRisk, fpUsed, totalRisk } = cashRiskOfBet(b);
+                    totalCashRisk += cashRisk;
+                    totalFpUsed += fpUsed;
+                    const potential = Number(b?.potentialPayout || 0);
+                    totalWin += Math.max(0, potential - totalRisk);
+                });
+                return (
+                    <div className="my-bets-table-totals">
+                        <span className="my-bets-table-col-desc">Total</span>
+                        <span className="my-bets-table-col-risk">
+                            {totalFpUsed > 0 ? (
+                                <span style={{
+                                    display: 'inline-flex',
+                                    flexDirection: 'column',
+                                    alignItems: 'flex-end',
+                                    lineHeight: 1.1,
+                                    fontVariantNumeric: 'tabular-nums',
+                                }}>
+                                    <span>{moneyExact(totalCashRisk)}</span>
+                                    <span style={{
+                                        fontSize: '0.7em',
+                                        color: '#16a34a',
+                                        fontWeight: 800,
+                                        letterSpacing: 0.2,
+                                    }} title={`Freeplay applied: ${moneyExact(totalFpUsed)}`}>
+                                        {moneyExact(totalFpUsed)} FP
+                                    </span>
+                                </span>
+                            ) : moneyExact(totalCashRisk)}
+                        </span>
+                        <span className="my-bets-table-col-win">{moneyExact(totalWin)}</span>
+                    </div>
+                );
+            })()}
         </div>
     );
 };
@@ -1216,6 +1292,7 @@ const MyBetsView = () => {
                         oddsFormat={oddsFormat}
                         teamLogos={teamLogos}
                         mode="pending"
+                        showTotals
                     />
                 )}
             </div>

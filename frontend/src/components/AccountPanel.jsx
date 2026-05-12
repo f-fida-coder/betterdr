@@ -7,11 +7,13 @@ import { computeMidQuickStakes } from '../utils/money';
 import { setMyBetsInitialFilter } from './myBetsState';
 
 const DEFAULT_QUICK_STAKES = [10, 25, 50, 100];
-// `bet` was removed — it behaved identically to `risk` and confused users
-// into thinking it was a separate mode. Saved profiles still on `bet` are
-// silently coerced to `risk` at read time so the pill row never shows a
-// third option.
+// Three stake modes available to players:
+//   bet  — "smart" input. Minus juice → input is Win, plus juice → input
+//          is Risk. Most common preference; matches every other US book.
+//   risk — typed amount IS the stake; Win back-computes from odds.
+//   win  — typed amount IS the desired payout; Risk back-computes.
 const STAKE_MODE_OPTIONS = [
+    { id: 'bet', label: 'Bet' },
     { id: 'risk', label: 'Risk' },
     { id: 'win', label: 'Win' },
 ];
@@ -209,7 +211,11 @@ const BetDefaultsCard = ({ user, onSaved }) => {
     const lockedMin = Number.isFinite(playerMinBet) && playerMinBet > 0 ? Math.round(playerMinBet) : DEFAULT_QUICK_STAKES[0];
     const lockedMax = Number.isFinite(playerMaxBet) && playerMaxBet > 0 ? Math.round(playerMaxBet) : DEFAULT_QUICK_STAKES[3];
 
-    const initialMode = stored?.mode === 'win' ? 'win' : 'risk';
+    const initialMode = stored?.mode === 'win'
+        ? 'win'
+        : stored?.mode === 'bet'
+            ? 'bet'
+            : 'risk';
     const initialAmount = Number.isFinite(Number(stored?.amount)) && Number(stored.amount) > 0
         ? String(stored.amount)
         : '';
@@ -251,8 +257,7 @@ const BetDefaultsCard = ({ user, onSaved }) => {
     React.useEffect(() => {
         const next = user?.settings?.betDefaults;
         if (!next) return;
-        if (next.mode === 'win' || next.mode === 'risk') setMode(next.mode);
-        else if (next.mode === 'bet') setMode('risk'); // legacy → coerce
+        if (next.mode === 'win' || next.mode === 'risk' || next.mode === 'bet') setMode(next.mode);
         if (Number.isFinite(Number(next.amount))) setAmount(String(next.amount || ''));
         if (Array.isArray(next.quickStakes) && next.quickStakes.length === 5) {
             const m1 = Number(next.quickStakes[1]);

@@ -4,6 +4,7 @@ import useSportOddsRefresh from '../hooks/useSportOddsRefresh';
 import { syncLiveMatches, syncPrematchSport, getStoredAuthToken } from '../api';
 import { useToast } from '../contexts/ToastContext';
 import { createFallbackTeamLogoDataUri, fetchTeamBadgeUrl } from '../utils/teamLogos';
+import { teaserSportGroup } from '../utils/teaserAdjustment';
 import { resolveBroadcast } from '../utils/broadcast';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { getSiteTimezone, getSiteTimezoneLabel } from '../utils/timezone';
@@ -439,6 +440,12 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                 const matchesData = (rawMatches || []);
                 const keywords = getSportKeywords(resolvedSportId);
 
+            // Teaser is football/basketball only — drop every other
+            // sport when on the Teaser tab so the board only shows
+            // games the product supports. Matches the same gate in
+            // MobileContentView and avoids the dead-end click where
+            // the user adds an MLB leg and the slip rejects it.
+            const isTeaserMode = String(activeBetMode || '').toLowerCase() === 'teaser';
             let filteredMatches = matchesData.filter(m => {
                 // Only hide matches that have no odds markets at all. Stale
                 // or temporarily suspended lines still render with the
@@ -446,6 +453,18 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                 // sport page stays populated when a few sync cycles fail.
                 const markets = m?.odds?.markets;
                 if (!Array.isArray(markets) || markets.length === 0) return false;
+                if (isTeaserMode) {
+                    const group = teaserSportGroup(m?.sportKey || m?.sport);
+                    if (!group) return false;
+                    // Drop live cards in teaser mode — teaser pricing
+                    // requires pregame spreads, real books reject live
+                    // legs, and the betslip already refuses them so
+                    // surfacing the card was a dead-end tap.
+                    const liveStatus = String(m?.status || '').toLowerCase() === 'live';
+                    const eventStatus = String(m?.score?.event_status || '').toUpperCase();
+                    const liveByEvent = eventStatus.includes('IN_PROGRESS') || eventStatus.includes('LIVE');
+                    if (liveStatus || liveByEvent) return false;
+                }
                 if (!resolvedSportId) return true;
                 const sportValue = String(m?.sport || '').toLowerCase();
                 const sportKeyValue = String(m?.sportKey || '').toLowerCase();

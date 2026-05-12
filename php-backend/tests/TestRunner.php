@@ -100,6 +100,26 @@ final class TestRunner
         self::fail(($label ?: 'assertContains') . " → {$needle} not in [" . implode(', ', array_map([self::class, 'repr'], $haystack)) . ']');
     }
 
+    /**
+     * Assert that calling $fn throws an exception of class $exceptionClass
+     * (or a subclass thereof). $label appears in the test output and is
+     * also shown when the wrong exception type or no exception is thrown.
+     */
+    public static function assertThrows(Closure $fn, string $exceptionClass, string $label = ''): void
+    {
+        try {
+            $fn();
+        } catch (Throwable $e) {
+            if ($e instanceof $exceptionClass) {
+                self::pass($label ?: "assertThrows({$exceptionClass})");
+                return;
+            }
+            self::fail(($label ?: 'assertThrows') . " → expected {$exceptionClass}, got " . get_class($e) . ': ' . $e->getMessage());
+            return;
+        }
+        self::fail(($label ?: 'assertThrows') . " → expected {$exceptionClass}, no exception thrown");
+    }
+
     public static function skip(string $reason): void
     {
         self::$skipped++;

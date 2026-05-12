@@ -354,12 +354,21 @@ final class WalletController
 
             $userId = SqlRepository::id((string) $actor['id']);
 
-            // Daily P/L from settled bets
+            // Daily P/L from settled bets. Loss math now uses the
+            // cash portion of the stake — a $100 ticket funded $60 FP
+            // + $40 cash should only ding the daily P/L by $40 (the
+            // freeplay slice never came out of the player's pocket).
+            // Previously this subtracted the full risk and inflated
+            // every freeplay-funded loss in the weekly figures.
             $bets = $this->db->findMany('bets', [
                 'userId' => $userId,
                 'status' => ['$in' => ['won', 'lost', 'void', 'push']],
                 'settledAt' => ['$gte' => $weekStartIso, '$lt' => $weekEndIso],
-            ], ['projection' => ['status' => 1, 'amount' => 1, 'riskAmount' => 1, 'potentialPayout' => 1, 'settledAt' => 1]]);
+            ], ['projection' => [
+                'status' => 1, 'amount' => 1, 'riskAmount' => 1,
+                'potentialPayout' => 1, 'settledAt' => 1,
+                'freeplayAmountUsed' => 1, 'isFreeplay' => 1,
+            ]]);
 
             $dailyPL = array_fill(0, 7, 0.0); // index 0=Tue, 6=Mon
             foreach ($bets as $bet) {
@@ -376,11 +385,28 @@ final class WalletController
                 $status = strtolower((string) ($bet['status'] ?? ''));
                 $risk = $this->num($bet['riskAmount'] ?? $bet['amount'] ?? 0);
                 $payout = $this->num($bet['potentialPayout'] ?? 0);
+                // FP slice with the same legacy-fallback the rest of
+                // the codebase uses (see AuthController::pendingRiskForUser).
+                $fpRaw = $bet['freeplayAmountUsed'] ?? null;
+                if (is_numeric($fpRaw) && (float) $fpRaw > 0) {
+                    $fpUsed = (float) $fpRaw;
+                } elseif (!empty($bet['isFreeplay'])) {
+                    $fpUsed = $risk;
+                } else {
+                    $fpUsed = 0.0;
+                }
+                $fpUsed = max(0.0, min($fpUsed, $risk));
+                $cashRisk = $risk - $fpUsed;
 
                 if ($status === 'won') {
+                    // Profit on a win is the same whether the stake
+                    // was cash or FP — the player gains $X regardless
+                    // of how the stake was funded.
                     $dailyPL[$diffDays] += max(0.0, $payout - $risk);
                 } elseif ($status === 'lost') {
-                    $dailyPL[$diffDays] -= $risk;
+                    // Only the cash portion actually came out of the
+                    // player's pocket. FP-funded loss = $0 for them.
+                    $dailyPL[$diffDays] -= $cashRisk;
                 }
                 // void/push: net zero
             }

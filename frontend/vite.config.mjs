@@ -24,6 +24,7 @@ const deferLazyRouteCss = {
 const brotliPrecompress = compression({
   algorithm: 'brotliCompress',
   ext: '.br',
+  verbose: false,
   threshold: 1024,
   deleteOriginFile: false,
   filter: /\.(js|mjs|css|html|json|svg|wasm)$/i,
@@ -32,6 +33,7 @@ const brotliPrecompress = compression({
 const gzipPrecompress = compression({
   algorithm: 'gzip',
   ext: '.gz',
+  verbose: false,
   threshold: 1024,
   deleteOriginFile: false,
   filter: /\.(js|mjs|css|html|json|svg|wasm)$/i,

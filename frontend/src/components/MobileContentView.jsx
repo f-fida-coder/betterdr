@@ -467,6 +467,13 @@ const MobileContentView = ({
         //      with no live markets, etc. Pro books (DK/FanDuel/MGM) hide
         //      these rather than showing empty rows with a red banner.
         //   2. Matches outside the selected sport.
+        // Teaser is football/basketball only — every other sport drops
+        // out of the board entirely when the user is on the Teaser tab.
+        // Without this, a player who had MLB checked in the sidebar
+        // saw MLB cards under the Teaser tab, tapped one, and got an
+        // unhelpful error from the slip; now the board only shows
+        // games the product actually supports.
+        const isTeaserMode = normalizedBetMode === 'teaser';
         const filteredRaw = (rawMatches || []).filter((match) => {
             // Only hide matches with no odds markets at all. Stale odds
             // (book between sync cycles) still render — the MatchCard
@@ -476,6 +483,21 @@ const MobileContentView = ({
             // the match with a "Lines updating" indicator.
             const markets = match?.odds?.markets;
             if (!Array.isArray(markets) || markets.length === 0) return false;
+            if (isTeaserMode) {
+                // teaserSportGroup returns 'football' / 'basketball' /
+                // null. Null = not eligible for a teaser, drop the row.
+                const group = teaserSportGroup(match?.sportKey || match?.sport);
+                if (!group) return false;
+                // Teasers price off pregame spreads — real US books
+                // (DK/FD/MGM/Caesars) refuse live legs because the spread
+                // moves during the game and the teased line can't be
+                // honored. Drop in-play cards from the board so the user
+                // never sees a live game while the Teaser tab is active.
+                const liveStatus = String(match?.status || '').toLowerCase() === 'live';
+                const eventStatus = String(match?.score?.event_status || '').toUpperCase();
+                const liveByEvent = eventStatus.includes('IN_PROGRESS') || eventStatus.includes('LIVE');
+                if (liveStatus || liveByEvent) return false;
+            }
             if (sportKeywords) {
                 const sport = String(match?.sport || '').toLowerCase();
                 const sportKey = String(match?.sportKey || '').toLowerCase();

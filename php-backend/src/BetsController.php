@@ -162,6 +162,9 @@ final class BetsController
                         'odds' => $first['odds'] ?? null,
                         // Support both betslip forms: explicit marketType or legacy type field.
                         'type' => $first['type'] ?? ($first['marketType'] ?? ($marketType !== '' ? $marketType : $type)),
+                        // Buy Points (spread/total only). Optional — legacy
+                        // clients omit it and behave exactly as before.
+                        'boughtPoints' => $first['boughtPoints'] ?? null,
                     ]];
                 } elseif ($matchId !== '' && $selection !== '') {
                     $selectionInputs = [[
@@ -169,6 +172,7 @@ final class BetsController
                         'selection' => $selection,
                         'odds' => $odds,
                         'type' => $marketType !== '' ? $marketType : $type,
+                        'boughtPoints' => $body['boughtPoints'] ?? null,
                     ]];
                 } else {
                     throw new ApiException('Straight bet requires one selection', 400);
@@ -200,12 +204,24 @@ final class BetsController
             $validatedSelections = [];
             $priceChanges = [];
             foreach ($selectionInputs as $idx => $sel) {
+                $boughtPointsRaw = $sel['boughtPoints'] ?? null;
+                $boughtPoints = is_numeric($boughtPointsRaw) ? (float) $boughtPointsRaw : 0.0;
+                // Defence-in-depth: Buy Points is not a teaser-mode product
+                // (the slip already hides the picker). Reject before we
+                // touch the pricing helper so a tampered client can't
+                // stack a paid-juice buy on top of a tease.
+                if ($boughtPoints > 0 && $type === 'teaser') {
+                    throw new ApiException('Buy Points is not available in teaser mode.', 400, [
+                        'code' => 'BUY_POINTS_NOT_ALLOWED_IN_TEASER',
+                    ]);
+                }
                 try {
                     $validatedSelections[] = $this->validateSelection(
                         trim((string) ($sel['matchId'] ?? '')),
                         trim((string) ($sel['selection'] ?? '')),
                         $sel['odds'] ?? null,
-                        BetModeRules::normalize((string) ($sel['type'] ?? ($sel['marketType'] ?? 'straight')))
+                        BetModeRules::normalize((string) ($sel['type'] ?? ($sel['marketType'] ?? 'straight'))),
+                        $boughtPoints
                     );
                 } catch (ApiException $e) {
                     $details = $e->payload();
@@ -1110,6 +1126,12 @@ final class BetsController
             'ticketId' => $ticketId,
             'responseBalance' => $newBalance,
             'responsePendingBalance' => $newPending,
+            // Round Robin replays were missing this — straight + parlay
+            // both store it, so a retried RR placement would fall back
+            // to the *current* freeplayBalance on the user record at
+            // replay time, which can have drifted (admin grants, other
+            // placements) since the original response was returned.
+            'responseFreeplayBalance' => $newFreeplay,
             'updatedAt' => SqlRepository::nowUtc(),
         ]);
 
@@ -1705,7 +1727,7 @@ final class BetsController
         return $formatted;
     }
 
-    private function validateSelection(string $matchId, string $selection, mixed $odds, string $type): array
+    private function validateSelection(string $matchId, string $selection, mixed $odds, string $type, float $boughtPoints = 0.0): array
     {
         if (preg_match('/^[a-f0-9]{24}$/i', $matchId) !== 1) {
             throw new ApiException('Match not found: ' . $matchId, 404);
@@ -1896,16 +1918,70 @@ final class BetsController
             ]);
         }
 
+        // ── Buy Points repricing ────────────────────────────────────────
+        // When boughtPoints > 0, we re-derive the expected American odds
+        // server-side via BuyPointsPricing (server is sole pricing
+        // authority — the client's juice ladder is for display only).
+        // The downstream ODDS_CHANGED comparison then runs against the
+        // *adjusted* price, so a tampered client sending -100 on a -3 →
+        // -10 bought line will be rejected.
+        $marketKey = (string) ($market['key'] ?? '');
+        $effectiveAmerican = $officialAmericanInt;
+        $effectiveDecimal = $officialOdds;
+        $adjustedPoint = isset($outcome['point']) ? (float) $outcome['point'] : null;
+        $originalPoint = $adjustedPoint;
+        $appliedBoughtPoints = 0.0;
+        $signedPointDelta = 0.0;
+        if ($boughtPoints > 0) {
+            if (!BuyPointsPricing::isAllowedMarket($marketKey)) {
+                throw new ApiException('Buy Points is only available on spread and total markets.', 400, [
+                    'code' => 'BUY_POINTS_MARKET_INVALID',
+                    'marketType' => $marketKey,
+                ]);
+            }
+            if ($originalPoint === null) {
+                // Defensive: spreads/totals must carry a `point`. If the
+                // upstream row is missing one (sync hiccup), refuse the
+                // buy rather than guess.
+                throw new ApiException('This selection has no line — Buy Points cannot be applied.', 409, [
+                    'code' => 'BUY_POINTS_NO_BASE_LINE',
+                ]);
+            }
+            $halfSteps = BuyPointsPricing::halfStepsFromBoughtPoints($boughtPoints);
+            $expectedAmerican = BuyPointsPricing::expectedAmericanOdds(
+                (string) ($match['sportKey'] ?? ''),
+                $marketKey,
+                $officialAmericanInt,
+                $halfSteps
+            );
+            $signedPointDelta = BuyPointsPricing::signedPointDelta(
+                $marketKey,
+                (string) ($outcome['name'] ?? $selection),
+                $boughtPoints
+            );
+            $adjustedPoint = round($originalPoint + $signedPointDelta, 2);
+            $effectiveAmerican = $expectedAmerican;
+            $effectiveDecimal = SportsbookBetSupport::americanToDecimalExact($expectedAmerican);
+            if (!is_finite($effectiveDecimal) || $effectiveDecimal <= 1.0) {
+                throw new ApiException('Invalid adjusted odds for Buy Points.', 409, [
+                    'code' => 'INVALID_ODDS',
+                ]);
+            }
+            $appliedBoughtPoints = $boughtPoints;
+        }
+
         // Compare client odds vs official using American integers to avoid
         // decimal floating-point mismatches on the 0.0001 threshold.
+        // For Buy Points legs, "official" here means the server's repriced
+        // ladder value (not the base market price).
         if (is_numeric($odds)) {
             $clientSnapped = SportsbookBetSupport::snapDecimalOdds((float) $odds);
             $clientAmericanInt = SportsbookBetSupport::decimalToAmericanInt($clientSnapped);
-            if ($clientAmericanInt !== 0 && $clientAmericanInt !== $officialAmericanInt) {
+            if ($clientAmericanInt !== 0 && $clientAmericanInt !== $effectiveAmerican) {
                 throw new ApiException('Odds changed. Please review the updated price before placing the bet.', 409, [
                     'code' => 'ODDS_CHANGED',
-                    'officialOdds' => $officialOdds,
-                    'officialAmericanOdds' => $officialAmericanInt,
+                    'officialOdds' => $effectiveDecimal,
+                    'officialAmericanOdds' => $effectiveAmerican,
                     'selection' => (string) ($outcome['name'] ?? $selection),
                     'matchId' => $matchId,
                 ]);
@@ -1915,10 +1991,16 @@ final class BetsController
         return [
             'matchId' => $matchId,
             'selection' => (string) ($outcome['name'] ?? $selection),
-            'odds' => $officialOdds,
-            'oddsAmerican' => $officialAmericanInt,
-            'marketType' => (string) ($market['key'] ?? ''),
-            'point' => isset($outcome['point']) ? (float) $outcome['point'] : null,
+            'odds' => $effectiveDecimal,
+            'oddsAmerican' => $effectiveAmerican,
+            'marketType' => $marketKey,
+            'point' => $adjustedPoint,
+            // Audit fields — present whenever Buy Points applied. Settlement
+            // reads `point` (already adjusted), so these are for the bet
+            // doc / receipts / customer-service rebuild rather than grading.
+            'originalPoint' => $originalPoint,
+            'boughtPoints' => $appliedBoughtPoints,
+            'pointAdjustment' => round($signedPointDelta, 2),
             'matchSnapshot' => $match,
         ];
     }
@@ -1932,8 +2014,20 @@ final class BetsController
             'oddsAmerican' => isset($selection['oddsAmerican']) ? (int) $selection['oddsAmerican'] : null,
             'marketType' => $selection['marketType'] ?? '',
             'point' => $selection['point'] ?? null,
-            'basePoint' => $selection['basePoint'] ?? ($selection['point'] ?? null),
+            // basePoint preserves the pregame line BEFORE teaser shift OR
+            // buy-points shift. originalPoint mirrors basePoint for buy
+            // points but stays distinct so settlement / receipts can tell
+            // which feature moved the line (or both, if the rule ever
+            // allowed stacking — currently it doesn't).
+            'basePoint' => $selection['basePoint'] ?? ($selection['originalPoint'] ?? ($selection['point'] ?? null)),
+            'originalPoint' => $selection['originalPoint'] ?? ($selection['basePoint'] ?? ($selection['point'] ?? null)),
             'teaserAdjustment' => $selection['teaserAdjustment'] ?? 0.0,
+            // Buy Points audit. Zero on every leg that didn't buy a point
+            // so downstream consumers can filter cleanly. `pointAdjustment`
+            // is signed; `boughtPoints` is the magnitude (matches the
+            // value the client submitted).
+            'boughtPoints' => isset($selection['boughtPoints']) ? (float) $selection['boughtPoints'] : 0.0,
+            'pointAdjustment' => isset($selection['pointAdjustment']) ? (float) $selection['pointAdjustment'] : 0.0,
             'status' => 'pending',
             'matchSnapshot' => $selection['matchSnapshot'] ?? new stdClass(),
         ];
@@ -2058,6 +2152,15 @@ final class BetsController
                     'sport' => 1,
                     'league' => 1,
                     'status' => 1,
+                    // Include score so the LIVE pill on pending bets can
+                    // pick up event_status=IN_PROGRESS during the brief
+                    // window when the scoreboard worker flips event_status
+                    // but the matches.status field hasn't been bumped to
+                    // 'live' yet (worker race). Without `score` the only
+                    // signals on bet.match were status + startTime, and a
+                    // pre-game placement's bet.match would only flip to
+                    // live after the slower status-sync ran.
+                    'score' => 1,
                 ],
             ]);
             if ($match !== null) {

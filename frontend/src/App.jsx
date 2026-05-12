@@ -281,6 +281,17 @@ function AppInner() {
     const handleAddToSlip = (e) => {
       const item = e.detail || {};
       if (!item.matchId || !item.selection) return;
+      // Teaser bets price off pregame spreads — real US books reject
+      // live legs, and the backend would refuse this ticket at placement
+      // anyway. Bounce live selections at the add boundary so the user
+      // gets immediate feedback instead of a delayed placement error.
+      // The board already hides live cards in teaser mode, so reaching
+      // this guard means the user toggled to teaser AFTER queuing a
+      // live leg in another mode.
+      if (item.isLive && String(betMode || '').toLowerCase() === 'teaser') {
+        showToast('Live games can’t be added to a teaser — teaser pricing requires pregame spreads.', 'warning');
+        return;
+      }
       const dedupeKey = `${item.matchId}-${item.marketType}-${item.selection}`;
 
       // Silent add/remove: the user wanted the odds cell itself to act
@@ -305,7 +316,7 @@ function AppInner() {
 
     window.addEventListener('betslip:add', handleAddToSlip);
     return () => window.removeEventListener('betslip:add', handleAddToSlip);
-  }, [betMode]);
+  }, [betMode, showToast]);
 
   const { data: userData, error: userQueryError, refetch: refetchUser } = useQuery({
     queryKey: ['user', token],
@@ -482,6 +493,12 @@ function AppInner() {
     if (normalized !== 'teaser') {
       setSelectedTeaserTypeId(null);
       setTeaserPoints('');
+    } else {
+      // Switching INTO teaser: prune any live legs the user queued in
+      // straight/parlay mode. Backend rejects them and the board hides
+      // them — leaving stale live legs visible in the slip would let
+      // the user hit "Place" and get a confusing failure.
+      setSlipSelections(prev => prev.filter(sel => !sel.isLive));
     }
   }, []);
 

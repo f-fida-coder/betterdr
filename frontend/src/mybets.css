@@ -152,7 +152,12 @@
      the header. The mobile @media block below mirrors the smaller
      page padding so the edge-to-edge alignment holds at every width. */
   margin: -16px -16px 0;
-  border-bottom: 1px solid #ccc;
+  /* Match the STRAIGHT/PARLAY/TEASER tabs-bar treatment: a thick dark
+     grey rule on the bottom (and top, for symmetry with the row above)
+     so this segmented tab row reads as part of the same tab system
+     instead of a thin separator that floats away from the chips. */
+  border-top: 2px solid #595959;
+  border-bottom: 2px solid #595959;
   /* Stick to the top of the my-bets scroll container so the secondary
      tabs row stays put while the ticket list scrolls beneath — same
      behaviour the top STRAIGHT/PARLAY/... tabs have via the fixed
