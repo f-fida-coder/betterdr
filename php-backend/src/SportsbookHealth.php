@@ -148,6 +148,129 @@ final class SportsbookHealth
     }
 
     /**
+     * Record one cycle's extended-sync (alt/period markets + player props)
+     * outcome on the existing sync health doc. Tracked separately from the
+     * main `lastOddsSuccessAt` because main and extended use different API
+     * endpoints — main can succeed while extended quietly returns empty for
+     * cycles in a row, which is exactly what made period tabs feel "random"
+     * before Phase 3. `freshMatches` advances `lastExtendedSuccessAt`;
+     * cycles with zero fresh matches advance `consecutiveExtendedEmptyCycles`
+     * so a watchdog can alert.
+     *
+     * @param array{
+     *     freshMatches?: int,
+     *     preservedMatches?: int,
+     *     errors?: int,
+     *     freshBySport?: array<string, int>,
+     *     preservedBySport?: array<string, int>
+     * } $result
+     */
+    public static function recordExtendedSyncResult(SqlRepository $db, array $result): void
+    {
+        $now = SqlRepository::nowUtc();
+        $existing = self::healthDoc($db, self::SYNC_DOC_ID);
+        $fresh = (int) ($result['freshMatches'] ?? 0);
+        $preserved = (int) ($result['preservedMatches'] ?? 0);
+        $errors = (int) ($result['errors'] ?? 0);
+
+        $update = [
+            'id' => self::SYNC_DOC_ID,
+            'component' => 'odds_sync',
+            'lastExtendedAttemptAt' => $now,
+            'lastExtendedFreshMatches' => $fresh,
+            'lastExtendedPreservedMatches' => $preserved,
+            'lastExtendedErrors' => $errors,
+            'lastExtendedFreshBySport' => is_array($result['freshBySport'] ?? null) ? $result['freshBySport'] : [],
+            'lastExtendedPreservedBySport' => is_array($result['preservedBySport'] ?? null) ? $result['preservedBySport'] : [],
+            'updatedAt' => $now,
+        ];
+
+        if ($fresh > 0) {
+            $update['lastExtendedSuccessAt'] = $now;
+            $update['consecutiveExtendedEmptyCycles'] = 0;
+        } else {
+            $prev = (int) ($existing['consecutiveExtendedEmptyCycles'] ?? 0);
+            $update['consecutiveExtendedEmptyCycles'] = $prev + 1;
+        }
+
+        $db->updateOneUpsert(self::HEALTH_COLLECTION, ['id' => self::SYNC_DOC_ID], $update, [
+            'id' => self::SYNC_DOC_ID,
+            'component' => 'odds_sync',
+            'createdAt' => $now,
+            'runCount' => 0,
+            'consecutiveFailures' => 0,
+            'consecutiveOddsFailures' => 0,
+            'consecutiveExtendedEmptyCycles' => 0,
+        ]);
+        self::invalidateSnapshotCache();
+    }
+
+    /**
+     * Extended-sync watchdog. Fires once when `consecutiveExtendedEmptyCycles`
+     * crosses the threshold (default 6 cycles ≈ 9 min at 90 s cadence) and
+     * stays quiet until the next crossing. Distinct from `checkWorkerHealth`,
+     * which alerts on the main odds feed — extended sync can be silently
+     * dead while the main feed looks fine, since the two use separate
+     * upstream endpoints.
+     *
+     * Returns true if an alert fired this call.
+     */
+    public static function checkExtendedSyncHealth(SqlRepository $db, ?int $thresholdCycles = null): bool
+    {
+        $threshold = $thresholdCycles !== null
+            ? max(1, (int) $thresholdCycles)
+            : max(1, (int) Env::get('EXTENDED_SYNC_ALERT_CYCLES', '6'));
+        $existing = self::healthDoc($db, self::SYNC_DOC_ID);
+        if (!is_array($existing) || $existing === []) {
+            return false;
+        }
+        $empty = (int) ($existing['consecutiveExtendedEmptyCycles'] ?? 0);
+        if ($empty < $threshold) {
+            // Reset the alert anchor when recovery happens so the next bad
+            // streak fires its own alert. Without this, the debounce below
+            // would suppress alerts forever after the first one.
+            if ($empty === 0 && !empty($existing['lastExtendedAlertAt'])) {
+                $db->updateOneUpsert(self::HEALTH_COLLECTION, ['id' => self::SYNC_DOC_ID], [
+                    'id' => self::SYNC_DOC_ID,
+                    'lastExtendedAlertAt' => null,
+                    'updatedAt' => SqlRepository::nowUtc(),
+                ], [
+                    'id' => self::SYNC_DOC_ID,
+                    'component' => 'odds_sync',
+                    'createdAt' => SqlRepository::nowUtc(),
+                ]);
+            }
+            return false;
+        }
+        $lastAlertAt = $existing['lastExtendedAlertAt'] ?? null;
+        if ($lastAlertAt !== null && $lastAlertAt !== '') {
+            // Debounce: one alert per "streak" — i.e. don't re-fire while
+            // the cycle counter only grows. checkExtendedSyncHealth fires
+            // again once the streak breaks (lastExtendedAlertAt cleared
+            // above on a successful cycle).
+            return false;
+        }
+        $payload = [
+            'consecutiveExtendedEmptyCycles' => $empty,
+            'thresholdCycles' => $threshold,
+            'lastExtendedSuccessAt' => $existing['lastExtendedSuccessAt'] ?? null,
+            'lastExtendedPreservedBySport' => $existing['lastExtendedPreservedBySport'] ?? [],
+        ];
+        $db->updateOneUpsert(self::HEALTH_COLLECTION, ['id' => self::SYNC_DOC_ID], [
+            'id' => self::SYNC_DOC_ID,
+            'lastExtendedAlertAt' => SqlRepository::nowUtc(),
+            'updatedAt' => SqlRepository::nowUtc(),
+        ], [
+            'id' => self::SYNC_DOC_ID,
+            'component' => 'odds_sync',
+            'createdAt' => SqlRepository::nowUtc(),
+        ]);
+        self::appendAudit($db, 'odds_extended_sync_unhealthy', $payload, 'warning');
+        self::writeFileLog('odds_extended_sync_unhealthy', 'warn', $payload);
+        return true;
+    }
+
+    /**
      * Worker health alert. Called from the odds-worker tick after each
      * iteration. If the gap between now and `lastOddsSuccessAt` exceeds the
      * threshold (default 10 min), emit a critical audit + file-log row so

@@ -364,7 +364,7 @@ const BetDefaultsCard = ({ user, onSaved }) => {
                                     onClick={() => setMode(m.id)}
                                     style={{
                                         background: active
-                                            ? (m.id === 'risk' ? '#ea580c' : m.id === 'win' ? '#16a34a' : '#0f172a')
+                                            ? (m.id === 'risk' ? '#ea580c' : '#16a34a')
                                             : '#475569',
                                         color: '#fff',
                                         border: 'none',
@@ -517,8 +517,10 @@ const BetDefaultsCard = ({ user, onSaved }) => {
                     <div style={{
                         fontSize: 11,
                         color: palette.textMuted,
-                        marginTop: -8,
+                        marginTop: 18,
                         lineHeight: 1.4,
+                        textAlign: 'center',
+                        paddingInline: 8,
                     }}>
                         Min and Max are set by your agent. Tap the middle three to customize.
                     </div>

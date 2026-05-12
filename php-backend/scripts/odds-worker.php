@@ -92,6 +92,24 @@ while (true) {
             (int) ($result['failedCalls'] ?? 0),
             (($result['blocked'] ?? false) ? 'true' : 'false')
         ));
+        // Phase 3a: extended-sync visibility. Before this, the only signal
+        // an operator had that "1Q tabs are missing" was the user noticing.
+        // Now every cycle logs fresh vs preserved per-match counts so a
+        // multi-cycle empty streak (the silent-failure mode that caused
+        // period tabs to feel flaky) is obvious in the worker log.
+        $extended = is_array($result['extended'] ?? null) ? $result['extended'] : null;
+        if ($extended !== null) {
+            $preservedBySport = is_array($extended['preservedBySport'] ?? null) ? $extended['preservedBySport'] : [];
+            $logWorker('info', sprintf(
+                "[%s] extended sync fresh=%d preserved=%d errors=%d calls=%d preservedBySport=%s",
+                $ts,
+                (int) ($extended['freshMatches'] ?? 0),
+                (int) ($extended['preservedMatches'] ?? 0),
+                (int) ($extended['errors'] ?? 0),
+                (int) ($extended['apiCalls'] ?? 0),
+                $preservedBySport === [] ? '{}' : json_encode($preservedBySport, JSON_UNESCAPED_SLASHES)
+            ));
+        }
     } catch (Throwable $e) {
         $logWorker('error', sprintf("[%s] update failed: %s", $ts, $e->getMessage()));
     }
@@ -129,6 +147,17 @@ while (true) {
                 "[%s] worker health alert: no successful odds sync in > %ds — upstream sync stalled",
                 $ts,
                 max(60, (int) Env::get('WORKER_HEALTH_ALERT_SECONDS', '600'))
+            ));
+        }
+        // Phase 3a: extended-sync watchdog. Fires once per "empty streak"
+        // when alt/period markets stop coming back over several cycles.
+        // Distinct from the main worker-health alert above — the main odds
+        // feed can be healthy while extended sync silently dies.
+        if (SportsbookHealth::checkExtendedSyncHealth($repoHealth)) {
+            $logWorker('warn', sprintf(
+                "[%s] extended sync health alert: no fresh alt/period markets in > %d cycles — players will see Phase-1 'no lines' banners on 1Q/1H/etc.",
+                $ts,
+                max(1, (int) Env::get('EXTENDED_SYNC_ALERT_CYCLES', '6'))
             ));
         }
         unset($repoHealth);

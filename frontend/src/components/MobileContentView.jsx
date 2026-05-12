@@ -308,6 +308,37 @@ const getPeriodsForSport = (sportId) => {
     return [FULL_PERIOD];
 };
 
+// Thresholds for when a period tab is "genuinely over" for a live match.
+// Closes when the match's current period number exceeds the threshold.
+// Quarters: 1q closed at period > 1, ..., 4q closed at period > 4 (game).
+// Halves (basketball / football, NOT soccer — see SOCCER_HALF_THRESHOLDS):
+// 1h closed at halftime (period > 2 in a 4-quarter sport), 2h at game-end.
+// Hockey periods (p1-p3). Baseball innings buckets (f1/f3/f5/f7) close
+// when the current inning exceeds the bucket's last inning.
+const PERIOD_CLOSE_THRESHOLDS = {
+    '1q': 1, '2q': 2, '3q': 3, '4q': 4,
+    '1h': 2, '2h': 4,
+    p1: 1, p2: 2, p3: 3,
+    f1: 1, f3: 3, f5: 5, f7: 7,
+};
+const SOCCER_HALF_THRESHOLDS = { '1h': 1, '2h': 2 };
+
+const isPeriodClosedForMatch = (periodId, match) => {
+    if (!periodId || periodId === 'full') return false;
+    const eventStatus = String(match?.score?.event_status || '').toUpperCase();
+    const isLive = match?.status === 'live'
+        || eventStatus.includes('IN_PROGRESS')
+        || eventStatus.includes('LIVE');
+    if (!isLive) return false;
+    const periodNum = Number(match?.score?.period || 0);
+    if (!Number.isFinite(periodNum) || periodNum <= 0) return false;
+    const sportKey = String(match?.sportKey || '').toLowerCase();
+    const table = sportKey.startsWith('soccer') ? SOCCER_HALF_THRESHOLDS : PERIOD_CLOSE_THRESHOLDS;
+    const threshold = table[periodId];
+    if (threshold === undefined) return false;
+    return periodNum > threshold;
+};
+
 const normalizeMode = (mode) => String(mode || 'straight').toLowerCase().replace(/-/g, '_');
 
 const getVisibleMarketsForMode = (mode) => {
@@ -445,9 +476,9 @@ const MobileContentView = ({
 
     // Derive the set of period market-suffixes actually present in the fetched
     // matches (e.g. '_h1' if any match carries `h2h_h1`/`spreads_h1`/`totals_h1`).
-    // Full-game ('') is always present. We use this to hide period tabs for
-    // periods the Odds API isn't returning right now. Skip unbettable matches
-    // so a period tab never appears with zero playable games behind it.
+    // Full-game ('') is always present. Used to detect "this period has zero
+    // playable lines right now" so we can show a stable empty-state banner
+    // instead of the tab silently disappearing on every extended-sync hiccup.
     const availableSuffixes = React.useMemo(() => {
         const set = new Set(['']);
         const scan = (markets) => {
@@ -458,19 +489,21 @@ const MobileContentView = ({
             });
         };
         (rawMatches || []).forEach(match => {
-            // Scan every match regardless of isBettable: stale matches
-            // still render (with disabled buttons), and we want their
-            // period tabs (F1/F5, Q1-Q4, P1-P3, H1/H2) to appear so a
-            // bettor can see which periods exist before the sync refreshes.
             scan(match?.odds?.markets);
             scan(match?.odds?.extendedMarkets);
         });
         return set;
     }, [rawMatches]);
 
+    // Static per sport: tabs are the full preset for the selected sport,
+    // regardless of which periods the current sync cycle returned. Previously
+    // we filtered to only currently-populated suffixes — that caused period
+    // tabs to randomly vanish whenever the extended-sync call missed a
+    // cycle. Empty periods now render an inline "no lines" banner below
+    // so the tab strip stays stable across refreshes.
     const periods = React.useMemo(() => {
-        return getPeriodsForSport(primarySport).filter(p => availableSuffixes.has(p.suffix));
-    }, [primarySport, availableSuffixes]);
+        return getPeriodsForSport(primarySport);
+    }, [primarySport]);
 
     const [selectedPeriodId, setSelectedPeriodId] = React.useState('full');
 
@@ -536,6 +569,50 @@ const MobileContentView = ({
     }, [periods, selectedPeriodId]);
 
     const activePeriod = periods.find(p => p.id === selectedPeriodId) || FULL_PERIOD;
+
+    // True when the current sync cycle returned at least one match with
+    // markets for the active period suffix. Used to render an inline
+    // banner when the user lands on (or selects) a period that's
+    // momentarily empty — the tab strip stays put either way.
+    const activePeriodHasLines = activePeriod.id === 'full'
+        || availableSuffixes.has(activePeriod.suffix);
+
+    // Set of period ids whose clock has passed for every visible match.
+    // Used to render those tabs in a dimmed "closed" style and to swap
+    // the empty-period banner from a "still syncing" hint to an
+    // honest "this period is over" message. The tabs are NOT removed
+    // (Phase 1 promise: stable tab strip) — only their visual treatment
+    // changes when the period is genuinely closed everywhere.
+    const closedPeriodIds = React.useMemo(() => {
+        const closed = new Set();
+        const matches = Array.isArray(rawMatches) ? rawMatches : [];
+        if (matches.length === 0) return closed;
+        periods.forEach((p) => {
+            if (p.id === 'full') return;
+            // A period is "closed for all" only if at least one match is
+            // live AND every live match has passed it AND no pre-game
+            // match remains (pre-game keeps the period actionable).
+            let anyLiveMatched = false;
+            let anyOpen = false;
+            for (const m of matches) {
+                const eventStatus = String(m?.score?.event_status || '').toUpperCase();
+                const isLive = m?.status === 'live'
+                    || eventStatus.includes('IN_PROGRESS')
+                    || eventStatus.includes('LIVE');
+                if (!isLive) {
+                    anyOpen = true;
+                    break;
+                }
+                anyLiveMatched = true;
+                if (!isPeriodClosedForMatch(p.id, m)) {
+                    anyOpen = true;
+                    break;
+                }
+            }
+            if (anyLiveMatched && !anyOpen) closed.add(p.id);
+        });
+        return closed;
+    }, [periods, rawMatches]);
 
     const extractOdds = React.useCallback((match, homeName, awayName, suffix) => {
         const h2h = getMatchMarket(match, `h2h${suffix}`);
@@ -1201,16 +1278,29 @@ const MobileContentView = ({
 
             {periods.length > 1 && (
                 <div style={periodTabBarStyle}>
-                    {periods.map(p => (
-                        <button
-                            key={p.id}
-                            type="button"
-                            onClick={() => setSelectedPeriodId(p.id)}
-                            style={p.id === selectedPeriodId ? periodTabActiveStyle : periodTabStyle}
-                        >
-                            {p.label}
-                        </button>
-                    ))}
+                    {periods.map(p => {
+                        const isClosed = closedPeriodIds.has(p.id);
+                        const isActive = p.id === selectedPeriodId;
+                        const baseStyle = isActive ? periodTabActiveStyle : periodTabStyle;
+                        // Closed periods remain selectable so the user can
+                        // still drill in / inspect — they're just visually
+                        // de-emphasized to signal "this period is over for
+                        // every game on screen right now".
+                        const style = isClosed
+                            ? { ...baseStyle, opacity: 0.45, textDecoration: 'line-through' }
+                            : baseStyle;
+                        return (
+                            <button
+                                key={p.id}
+                                type="button"
+                                onClick={() => setSelectedPeriodId(p.id)}
+                                style={style}
+                                title={isClosed ? `${p.label} has ended for every live game` : undefined}
+                            >
+                                {p.label}
+                            </button>
+                        );
+                    })}
                 </div>
             )}
 
@@ -1302,6 +1392,36 @@ const MobileContentView = ({
                     </div>
                 )}
 
+                {/* Empty-period banner. Two flavors:
+                      • Closed for all visible matches → honest "period is
+                        over" message (no point waiting for a sync).
+                      • Just no lines this cycle → reassuring "refresh
+                        every 90 s" hint. */}
+                {groupedEntries.length > 0 && !activePeriodHasLines && (
+                    <div style={{
+                        padding: '14px 16px',
+                        margin: '0 0 8px 0',
+                        borderRadius: 8,
+                        background: '#fff7ed',
+                        border: '1px solid #fed7aa',
+                        color: '#9a3412',
+                        fontSize: 12,
+                        lineHeight: 1.4,
+                        textAlign: 'center',
+                    }}>
+                        <div style={{ fontWeight: 800, marginBottom: 2 }}>
+                            {closedPeriodIds.has(activePeriod.id)
+                                ? `${activePeriod.label} has ended`
+                                : `No ${activePeriod.label} lines available right now`}
+                        </div>
+                        <div style={{ fontSize: 11, color: '#c2410c' }}>
+                            {closedPeriodIds.has(activePeriod.id)
+                                ? 'Pick another period or switch back to Game.'
+                                : 'Try Game or pick another period — lines refresh every 90 s.'}
+                        </div>
+                    </div>
+                )}
+
                 {groupedEntries.map(entry => {
                     if (entry.type === 'day') {
                         // Day header only — per-match column labels now
@@ -1323,6 +1443,7 @@ const MobileContentView = ({
                             marketCount={marketCount}
                             onToggleFavorite={toggleFavorite}
                             teaserPoints={teaserPointsForMatch(entry.match)}
+                            isTeaserMode={normalizedBetMode === 'teaser'}
                         />
                     );
                 })}
@@ -1396,6 +1517,7 @@ const areMatchCardPropsEqual = (prevProps, nextProps) => {
     // changes type, the resolved points number changes per match and
     // every spread/total label needs to recompute.
     if ((prevProps.teaserPoints || 0) !== (nextProps.teaserPoints || 0)) return false;
+    if (Boolean(prevProps.isTeaserMode) !== Boolean(nextProps.isTeaserMode)) return false;
     if (
         prevProps.visibleMarkets?.showSpread !== nextProps.visibleMarkets?.showSpread ||
         prevProps.visibleMarkets?.showMoneyline !== nextProps.visibleMarkets?.showMoneyline ||
@@ -1410,7 +1532,7 @@ const areMatchCardPropsEqual = (prevProps, nextProps) => {
     return matchCardSignature(prevProps.match) === matchCardSignature(nextProps.match);
 };
 
-const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, visibleMarkets, marketCount, onToggleFavorite, teaserPoints = 0 }) => {
+const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, visibleMarkets, marketCount, onToggleFavorite, teaserPoints = 0, isTeaserMode = false }) => {
     // Per-match teaser preview helper. Returns the line number to
     // display — adjusted when teaserPoints > 0 and the market is
     // teaser-eligible, otherwise the original. Memoized through the
@@ -1506,10 +1628,11 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
             {/* Combined header row: live dot + date on the left,
                 SPREAD / ML / TOTAL labels aligned with the odds
                 columns below. Trailing empty slot matches the
-                compact action column on the right. */}
+                compact action column on the right (dropped in
+                teaser mode since +/P+ are hidden there). */}
             <div style={{
                 display: 'grid',
-                gridTemplateColumns: `minmax(0, 1fr) ${Array.from({ length: marketCount }, () => '54px').join(' ')} 30px`,
+                gridTemplateColumns: `minmax(0, 1fr) ${Array.from({ length: marketCount }, () => '54px').join(' ')}${isTeaserMode ? '' : ' 30px'}`,
                 columnGap: 4,
                 padding: '0 0 4px',
                 alignItems: 'center',
@@ -1566,7 +1689,7 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                 {visibleMarkets.showSpread && <span style={columnLabelStyle}>Spread</span>}
                 {visibleMarkets.showMoneyline && <span style={columnLabelStyle}>ML</span>}
                 {visibleMarkets.showTotals && <span style={columnLabelStyle}>Total</span>}
-                <span />
+                {!isTeaserMode && <span />}
             </div>
             {propsOpen && (
                 <PropBuilderModal match={modalMatch} onClose={() => setPropsOpen(false)} />
@@ -1580,10 +1703,10 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
 
             {/* Body: team info | odds | [+ / P+] compact action
                 column. Action column is narrow (30px) so the three odds
-                columns never get squeezed. */}
+                columns never get squeezed. Dropped in teaser mode. */}
             <div style={{
                 display: 'grid',
-                gridTemplateColumns: `minmax(0, 1fr) ${Array.from({ length: marketCount }, () => '54px').join(' ')} 30px`,
+                gridTemplateColumns: `minmax(0, 1fr) ${Array.from({ length: marketCount }, () => '54px').join(' ')}${isTeaserMode ? '' : ' 30px'}`,
                 gridTemplateRows: 'auto auto',
                 columnGap: 4,
                 rowGap: 4,
@@ -1651,7 +1774,10 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                     odds grid: `+` (all markets), `P+` (player props).
                     Grid auto-placement fills the cell left over after
                     team1's odds, so we anchor with grid-row 1 / span 2
-                    to reserve the full column. */}
+                    to reserve the full column. Hidden in teaser mode:
+                    teasers can only combine spread/total legs, so the
+                    all-markets and player-props pickers are dead ends. */}
+                {!isTeaserMode && (
                 <div style={{
                     // Column 1 = team info, cols 2..(2+marketCount-1) = odds,
                     // col (marketCount + 2) = action stack. Using an
@@ -1709,6 +1835,7 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                         }}
                     >P+</button>
                 </div>
+                )}
 
                 <div style={{ ...teamCellStyle, gridColumn: 1, gridRow: 2 }}>
                     <TeamAvatar team={match.team2} />

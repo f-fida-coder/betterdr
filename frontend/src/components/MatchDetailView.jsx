@@ -130,9 +130,56 @@ const MatchDetailView = ({ match, onClose }) => {
         return idx;
     }, [payload, match]);
 
+    // Map a section key (e.g. `spreads_q1`, `h2h_h2`, `totals_1st_5_innings`)
+    // to a period token we can compare against the match's current period.
+    // Returns null for game-level markets and player props (always shown).
+    const sectionPeriodToken = (key) => {
+        const k = String(key || '').toLowerCase();
+        if (/^(spreads|h2h|totals)_(q[1-4])$/.test(k)) return RegExp.$2;
+        if (/^(spreads|h2h|totals)_(h[12])$/.test(k)) return RegExp.$2;
+        if (/^(spreads|h2h|totals)_(p[1-3])$/.test(k)) return RegExp.$2;
+        if (/^(spreads|h2h|totals)_1st_(\d+)_innings$/.test(k)) return `inning_${RegExp.$2}`;
+        return null;
+    };
+
+    // For LIVE matches only: a period section is "closed" once the match's
+    // current period number has passed it. Pre-game / finished matches show
+    // every section the API returns. Soccer halves use different thresholds
+    // (only 2 halves total) than basketball/football quarters+halves.
+    const isSectionClosedForMatch = React.useMemo(() => {
+        const eventStatus = String(match?.score?.event_status || '').toUpperCase();
+        const isLive = match?.status === 'live'
+            || eventStatus.includes('IN_PROGRESS')
+            || eventStatus.includes('LIVE');
+        const periodNum = Number(match?.score?.period || 0);
+        const sportKey = String(match?.sportKey || '').toLowerCase();
+        if (!isLive || !Number.isFinite(periodNum) || periodNum <= 0) {
+            return () => false;
+        }
+        const isSoccer = sportKey.startsWith('soccer');
+        const quarterMap = { q1: 1, q2: 2, q3: 3, q4: 4 };
+        const halfMap = isSoccer ? { h1: 1, h2: 2 } : { h1: 2, h2: 4 };
+        const periodMap = { p1: 1, p2: 2, p3: 3 };
+        return (sectionKey) => {
+            const token = sectionPeriodToken(sectionKey);
+            if (!token) return false;
+            if (token.startsWith('inning_')) {
+                const inn = Number(token.slice(7));
+                return Number.isFinite(inn) && periodNum > inn;
+            }
+            const threshold = quarterMap[token] ?? halfMap[token] ?? periodMap[token];
+            if (threshold === undefined) return false;
+            return periodNum > threshold;
+        };
+    }, [match]);
+
     const availableSections = React.useMemo(() => {
-        return SECTION_DEFS.filter((s) => !!marketsByKey[s.key.toLowerCase()]);
-    }, [marketsByKey]);
+        return SECTION_DEFS.filter((s) => {
+            if (!marketsByKey[s.key.toLowerCase()]) return false;
+            if (isSectionClosedForMatch(s.key)) return false;
+            return true;
+        });
+    }, [marketsByKey, isSectionClosedForMatch]);
 
     const openAll = () => {
         const next = {};

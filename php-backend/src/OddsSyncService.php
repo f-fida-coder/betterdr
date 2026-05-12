@@ -678,6 +678,14 @@ final class OddsSyncService
                 }
                 $extendedResult = self::syncEventExtendedForMatches($db, $activeMatches);
                 $result['extended'] = $extendedResult;
+                // Phase 3a: record per-cycle outcome so a watchdog can alert
+                // when extended sync stops returning data over many cycles
+                // (the silent-failure mode that made period tabs feel flaky).
+                try {
+                    SportsbookHealth::recordExtendedSyncResult($db, $extendedResult);
+                } catch (Throwable $_e) {
+                    // health bookkeeping must never break the sync write
+                }
             }
 
             if (class_exists('RealtimeEventBus')) {
@@ -1291,14 +1299,40 @@ final class OddsSyncService
      * Sync extended markets + player props for a batch of match documents.
      * Updates each match doc's odds.extendedMarkets and playerProps fields.
      *
+     * Returns per-cycle visibility counters so callers (worker, health
+     * snapshot) can detect persistent extended-sync degradation. Before
+     * Phase 3 these failures were silent: tabs like 1Q / 1H quietly went
+     * missing when the upstream call returned empty and the preserve-on-
+     * empty branch kicked in. Now every empty response, write error, and
+     * per-sport count is logged and surfaced via SportsbookHealth.
+     *
      * @param list<array<string, mixed>> $matches
-     * @return array{updated: int, apiCalls: int, quotaRemaining: ?int}
+     * @return array{
+     *     updated: int,
+     *     apiCalls: int,
+     *     quotaRemaining: ?int,
+     *     freshMatches: int,
+     *     preservedMatches: int,
+     *     errors: int,
+     *     freshBySport: array<string, int>,
+     *     preservedBySport: array<string, int>
+     * }
      */
     public static function syncEventExtendedForMatches(SqlRepository $db, array $matches): array
     {
         $updated = 0;
         $apiCalls = 0;
         $quotaRemaining = null;
+        // Per-cycle visibility counters. Phase 3a: previously the only signal
+        // was "updated" — but that counter advanced even on preserve-on-empty,
+        // hiding degradation. Now we split fresh vs preserved so the worker
+        // can log honest numbers and SportsbookHealth can alert when extended
+        // sync stops returning data for a hot sport over many cycles.
+        $freshMatches = 0;
+        $preservedMatches = 0;
+        $errors = 0;
+        $freshBySport = [];
+        $preservedBySport = [];
 
         foreach ($matches as $match) {
             if (!is_array($match)) {
@@ -1338,6 +1372,14 @@ final class OddsSyncService
             $existingOdds['extendedMarkets'] = $hadAnyData ? $extendedMarkets : $existingExtended;
             $nextPlayerProps = $hadAnyData ? $playerProps : $existingPlayerProps;
 
+            if ($hadAnyData) {
+                $freshMatches++;
+                $freshBySport[$sportKey] = ($freshBySport[$sportKey] ?? 0) + 1;
+            } else {
+                $preservedMatches++;
+                $preservedBySport[$sportKey] = ($preservedBySport[$sportKey] ?? 0) + 1;
+            }
+
             try {
                 $db->updateOne('matches', ['id' => SqlRepository::id($matchId)], [
                     'odds' => $existingOdds,
@@ -1346,12 +1388,31 @@ final class OddsSyncService
                     'updatedAt' => $now,
                 ]);
                 $updated++;
-            } catch (Throwable $_e) {
-                // swallow — individual failures shouldn't halt the batch
+            } catch (Throwable $e) {
+                $errors++;
+                // Was silently swallowed before Phase 3. Now we at least log
+                // the message so an operator can see persistent write failures
+                // — without halting the batch on a single bad row.
+                if (class_exists('Logger')) {
+                    Logger::warning('odds_extended_write_failed', [
+                        'matchId' => $matchId,
+                        'sportKey' => $sportKey,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
             }
         }
 
-        return ['updated' => $updated, 'apiCalls' => $apiCalls, 'quotaRemaining' => $quotaRemaining];
+        return [
+            'updated' => $updated,
+            'apiCalls' => $apiCalls,
+            'quotaRemaining' => $quotaRemaining,
+            'freshMatches' => $freshMatches,
+            'preservedMatches' => $preservedMatches,
+            'errors' => $errors,
+            'freshBySport' => $freshBySport,
+            'preservedBySport' => $preservedBySport,
+        ];
     }
 
     /**
