@@ -254,20 +254,58 @@ final class MatchesController
                 return ($now - $lastTs) <= $prematchMaxAge;
             }));
         } elseif ($desiredStatus === 'live') {
-            // Live Now is OddsAPI-backed. Accept fresh live rows written by
-            // OddsSyncService::syncLiveOdds(), regardless of sport coverage,
-            // so every live event OddsAPI returns can appear in the UI.
+            // Live Now is OddsAPI-backed. Two acceptance paths:
+            //
+            //   (1) Status flipped to 'live' by OddsSyncService::syncLiveOdds.
+            //       This is the canonical signal — used whenever the live
+            //       sync has actually run and OddsAPI returned an in-play
+            //       score event for the match.
+            //
+            //   (2) AUTO-PROMOTED "effectively live": status still='scheduled'
+            //       BUT the game's startTime has passed and odds are fresh.
+            //       This catches the window between kickoff and the live
+            //       sync flipping the row — a window that could span several
+            //       minutes for sports without minute-by-minute score
+            //       updates (or whenever OddsAPI's /scores endpoint hasn't
+            //       populated the `scores` array yet). Without this branch,
+            //       Live Now shows EMPTY during peak game time even though
+            //       the matches are right there in the DB with fresh prices.
+            //       Player-reported bug: "Live shows no games but games are
+            //       on right now."
+            //
+            // The SQL-layer dbFilter already loads scheduled rows for this
+            // branch (see line ~181), so this filter just decides which of
+            // the two camps each row joins.
             $now = time();
-            $annotated = array_values(array_filter($annotated, static function (array $match) use ($now): bool {
-                if (strtolower((string) ($match['status'] ?? '')) !== 'live') return false;
+            $prematchMaxAge = max(60, (int) Env::get('PREMATCH_FRESHNESS_SECONDS_DEFAULT', '300'));
+            $annotated = array_values(array_filter($annotated, static function (array $match) use ($now, $prematchMaxAge): bool {
+                $status = strtolower((string) ($match['status'] ?? ''));
                 $sportKey = strtolower((string) ($match['sportKey'] ?? ''));
                 if ($sportKey === '') return false;
-                if (strtolower((string) ($match['oddsSource'] ?? '')) !== 'oddsapi') return false;
                 $last = (string) ($match['lastOddsSyncAt'] ?? '');
                 $lastTs = $last !== '' ? strtotime($last) : false;
                 if ($lastTs === false) return false;
-                $maxAge = self::liveFreshnessSecondsForSport($sportKey);
-                return ($now - $lastTs) <= $maxAge;
+
+                if ($status === 'live') {
+                    // Canonical path: must be OddsAPI-sourced + fresh per
+                    // the sport's live cadence.
+                    if (strtolower((string) ($match['oddsSource'] ?? '')) !== 'oddsapi') return false;
+                    $maxAge = self::liveFreshnessSecondsForSport($sportKey);
+                    return ($now - $lastTs) <= $maxAge;
+                }
+
+                if ($status === 'scheduled') {
+                    // Auto-promote path: kickoff must have actually passed,
+                    // and odds must be fresh on the PRE-match cadence (these
+                    // rows are synced by the prematch worker, not the live
+                    // worker, so the 90s live window would be too tight).
+                    $startTime = (string) ($match['startTime'] ?? '');
+                    $startTs = $startTime !== '' ? strtotime($startTime) : false;
+                    if ($startTs === false || $startTs > $now) return false;
+                    return ($now - $lastTs) <= $prematchMaxAge;
+                }
+
+                return false;
             }));
         } elseif ($desiredStatus === 'live-upcoming') {
             // Default landing view. Drop rows whose odds are stale outright

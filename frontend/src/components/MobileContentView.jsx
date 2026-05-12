@@ -41,6 +41,39 @@ const notifyMobSyncFailure = (sportKey, showToast) => {
 const WEEKDAYS_LONG = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
 const MONTHS_SHORT = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
 
+// Categorize a sportKey to a sport-group + Font Awesome icon for the
+// Live Now sport-tab strip. The strip uses icons only (per spec); the
+// label is kept for accessibility (title/aria-label) since "fa-basketball"
+// alone reads badly to a screen reader.
+//
+// Keys are matched against the OddsAPI sportKey prefix so all NFL/NCAAF
+// rows collapse under one "football" tab, all NBA/WNBA/NCAAB under
+// "basketball", etc. — matches what players intuit from the icons.
+const LIVE_SPORT_CATEGORIES = [
+    { id: 'football',       prefixes: ['americanfootball'],                      icon: 'fa-solid fa-football',                 label: 'Football' },
+    { id: 'basketball',     prefixes: ['basketball'],                            icon: 'fa-solid fa-basketball',               label: 'Basketball' },
+    { id: 'baseball',       prefixes: ['baseball'],                              icon: 'fa-solid fa-baseball-bat-ball',        label: 'Baseball' },
+    { id: 'hockey',         prefixes: ['icehockey'],                             icon: 'fa-solid fa-hockey-puck',              label: 'Hockey' },
+    { id: 'soccer',         prefixes: ['soccer'],                                icon: 'fa-solid fa-futbol',                   label: 'Soccer' },
+    { id: 'tennis',         prefixes: ['tennis'],                                icon: 'fa-solid fa-table-tennis-paddle-ball', label: 'Tennis' },
+    { id: 'mma',            prefixes: ['mma', 'boxing'],                         icon: 'fa-solid fa-hand-fist',                label: 'MMA' },
+    { id: 'golf',           prefixes: ['golf'],                                  icon: 'fa-solid fa-golf-ball-tee',            label: 'Golf' },
+    { id: 'cricket',        prefixes: ['cricket'],                               icon: 'fa-solid fa-baseball',                 label: 'Cricket' },
+    { id: 'rugby',          prefixes: ['rugbyleague', 'rugbyunion', 'rugby'],    icon: 'fa-solid fa-football',                 label: 'Rugby' },
+    { id: 'aussierules',    prefixes: ['aussierules'],                           icon: 'fa-solid fa-football',                 label: 'AFL' },
+    { id: 'motorsport',     prefixes: ['motorsport', 'formula'],                 icon: 'fa-solid fa-flag-checkered',           label: 'Motorsport' },
+    { id: 'esports',        prefixes: ['esports', 'csgo', 'lol', 'dota'],        icon: 'fa-solid fa-gamepad',                  label: 'eSports' },
+];
+
+const categorizeLiveSport = (sportKey) => {
+    const key = String(sportKey || '').toLowerCase();
+    if (key === '') return null;
+    for (const cat of LIVE_SPORT_CATEGORIES) {
+        if (cat.prefixes.some((p) => key.startsWith(p))) return cat;
+    }
+    return null;
+};
+
 const NBA_TEAM_COLORS = {
     'atlanta hawks': '#e03a3e',
     'boston celtics': '#007a33',
@@ -417,9 +450,21 @@ const MobileContentView = ({
 
     const [selectedPeriodId, setSelectedPeriodId] = React.useState('full');
 
+    // Live Now sport-tab strip: 'all' shows every live sport; otherwise
+    // a category id (football/basketball/baseball/etc.) filters the list.
+    // Reset to 'all' whenever the user leaves the Live Now bucket so
+    // re-entering doesn't surprise them with a stale filter.
+    const [liveSportTab, setLiveSportTab] = React.useState('all');
+
     // Reset to Full Game whenever the sport changes.
     React.useEffect(() => {
         setSelectedPeriodId('full');
+    }, [primarySport]);
+
+    React.useEffect(() => {
+        if (primarySport !== 'commercial-live') {
+            setLiveSportTab('all');
+        }
     }, [primarySport]);
 
     // If the currently-selected period is no longer available (e.g. data just
@@ -939,11 +984,52 @@ const MobileContentView = ({
     // show that they're games, and at-a-glance scanning is faster
     // when the header is just the league acronym.
     const periodSuffixLabel = activePeriod && activePeriod.label ? activePeriod.label : '';
+
+    // Live Now sport-tab strip data: distinct sport categories present in
+    // the current live feed, with per-category match counts. Built once
+    // per orderedMatches change; only used in the Live Now bucket (other
+    // buckets keep their existing sport-keyword filter from the sidebar).
+    const liveSportTabs = React.useMemo(() => {
+        if (primarySport !== 'commercial-live') return [];
+        const counts = new Map();
+        for (const m of orderedMatches) {
+            const cat = categorizeLiveSport(m.sportKey || m.sport);
+            if (!cat) continue;
+            counts.set(cat.id, (counts.get(cat.id) || 0) + 1);
+        }
+        const tabs = LIVE_SPORT_CATEGORIES
+            .filter((c) => counts.has(c.id))
+            .map((c) => ({ ...c, count: counts.get(c.id) || 0 }));
+        return tabs;
+    }, [primarySport, orderedMatches]);
+
+    // If the active tab no longer has any matches (sync cycle dropped
+    // that sport from the live feed), snap back to All so the user
+    // doesn't stare at an empty list.
+    React.useEffect(() => {
+        if (liveSportTab === 'all') return;
+        if (!liveSportTabs.some((t) => t.id === liveSportTab)) {
+            setLiveSportTab('all');
+        }
+    }, [liveSportTab, liveSportTabs]);
+
+    // Apply the live sport-tab filter BEFORE grouping so league headers
+    // / day dividers re-compute against the filtered slice (e.g. picking
+    // the basketball tab won't leave an empty "MLB" header behind).
+    const matchesForGrouping = React.useMemo(() => {
+        if (primarySport !== 'commercial-live') return orderedMatches;
+        if (liveSportTab === 'all') return orderedMatches;
+        return orderedMatches.filter((m) => {
+            const cat = categorizeLiveSport(m.sportKey || m.sport);
+            return cat && cat.id === liveSportTab;
+        });
+    }, [primarySport, liveSportTab, orderedMatches]);
+
     const groupedEntries = React.useMemo(() => {
         const entries = [];
         let currentLeagueKey = null;
         let currentDayKey = null;
-        orderedMatches.forEach(match => {
+        matchesForGrouping.forEach(match => {
             const leagueKey = String(match.sportKey || match.sport || '').toLowerCase();
             if (showLeagueHeaders && leagueKey && leagueKey !== currentLeagueKey) {
                 currentLeagueKey = leagueKey;
@@ -968,7 +1054,7 @@ const MobileContentView = ({
             entries.push({ type: 'match', id: `match-${match.id}`, match });
         });
         return entries;
-    }, [orderedMatches, showLeagueHeaders, periodSuffixLabel]);
+    }, [matchesForGrouping, showLeagueHeaders, periodSuffixLabel]);
 
     return (
         <div style={containerStyle}>
@@ -1018,6 +1104,70 @@ const MobileContentView = ({
                             {p.label}
                         </button>
                     ))}
+                </div>
+            )}
+
+            {/* Live Now sport-tab strip. Styled to match the Straight /
+                Parlay / Teaser bet-mode toggle: a horizontal row of
+                segmented pills. First pill is "ALL" (all live sports);
+                subsequent pills are icon-only one-per-sport with a small
+                count badge so the player can tap straight to NBA / NFL /
+                MLB / etc. Only renders inside the Live Now bucket and
+                only when 2+ sports are live (one sport = nothing to
+                filter). Mirrors the bettorjuice365 / DraftKings live
+                filter UX. */}
+            {primarySport === 'commercial-live' && liveSportTabs.length >= 2 && (
+                <div style={{
+                    display: 'flex',
+                    gap: 0,
+                    overflowX: 'auto',
+                    background: '#1f2937',
+                    padding: '2px',
+                    borderTop: '1px solid #374151',
+                    borderBottom: '1px solid #374151',
+                    WebkitOverflowScrolling: 'touch',
+                }}>
+                    {[{ id: 'all', icon: 'fa-solid fa-bolt', label: 'All Live', count: orderedMatches.length }, ...liveSportTabs].map((tab, idx) => {
+                        const active = liveSportTab === tab.id;
+                        return (
+                            <button
+                                key={tab.id}
+                                type="button"
+                                onClick={() => setLiveSportTab(tab.id)}
+                                title={`${tab.label} (${tab.count})`}
+                                aria-label={`${tab.label} — ${tab.count} live`}
+                                style={{
+                                    flex: '1 0 auto',
+                                    minWidth: 64,
+                                    padding: '10px 12px',
+                                    background: active ? '#ff5051' : 'transparent',
+                                    color: active ? '#fff' : '#cbd5e1',
+                                    border: 'none',
+                                    borderLeft: idx === 0 ? 'none' : '1px solid rgba(255,255,255,0.08)',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: 6,
+                                    fontSize: 13,
+                                    fontWeight: 800,
+                                    letterSpacing: 0.4,
+                                    textTransform: 'uppercase',
+                                    transition: 'background 100ms ease, color 100ms ease',
+                                }}
+                            >
+                                <i className={tab.icon} style={{ fontSize: 16 }} />
+                                <span style={{
+                                    fontSize: 10,
+                                    fontWeight: 800,
+                                    opacity: active ? 1 : 0.75,
+                                    fontVariantNumeric: 'tabular-nums',
+                                }}>
+                                    {tab.count}
+                                </span>
+                            </button>
+                        );
+                    })}
                 </div>
             )}
 
