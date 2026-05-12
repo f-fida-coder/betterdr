@@ -635,6 +635,24 @@ const BetDetailsPanel = ({ bet, oddsFormat }) => {
     const gameTime = !isMulti ? expandedGameTime(bet) : null;
     const gameTimeLabel = gameTime ? formatTimestamp(gameTime) : null;
 
+    // Freeplay-vs-credit slice for the expanded panel. The "Wagered" row
+    // is only added when this ticket actually drew from the freeplay pool
+    // — for pure-cash tickets the headline Risk column already shows the
+    // full number so a duplicate row in the panel would just be noise.
+    // The "Lost" row mirrors the same split on a losing graded ticket so
+    // the player sees exactly which pool the loss came out of (the
+    // freeplay slice never touches their real balance, only the credit
+    // slice does, and that distinction matters when reviewing a week's
+    // figures). Wins skip the per-pool result line by design — total
+    // profit is already on the row, and splitting profit across pools
+    // adds visual clutter the user explicitly said wasn't needed.
+    const { cashRisk, fpUsed } = cashRiskOfBet(bet);
+    const status = normalizeStatus(bet?.status);
+    const hasFp = fpUsed > 0;
+    const splitLine = cashRisk > 0
+        ? `${moneyExact(fpUsed)} freeplay + ${moneyExact(cashRisk)} credit`
+        : `${moneyExact(fpUsed)} freeplay`;
+
     const rows = [];
     if (!isMulti && matchup) rows.push(['Matchup', matchup]);
     // Game start time sits next to Matchup so players can answer
@@ -648,6 +666,11 @@ const BetDetailsPanel = ({ bet, oddsFormat }) => {
     rows.push(['Placed', placedAt]);
     if (settledAt) rows.push(['Settled', settledAt]);
     if (ticketIdShort) rows.push(['Ticket', `#${ticketIdShort}`]);
+    if (hasFp) {
+        rows.push(['Wagered', splitLine]);
+        if (status === 'lost') rows.push(['Lost', splitLine]);
+        if (status === 'void') rows.push(['Refunded', splitLine]);
+    }
 
     return (
         <div className="my-bets-table-details" role="region" aria-label="Bet details">
@@ -1036,53 +1059,24 @@ const BetTable = ({ bets, oddsFormat, teamLogos = {}, mode = 'pending', showTota
                 );
             })}
             {showTotals && !isGraded && (() => {
-                // Totals mirror what the player sees in each row:
-                //   - Risk column sums cashRisk (player's out-of-pocket
-                //     stake), with an FP annotation underneath when any
-                //     pending ticket has freeplay applied. This matches
-                //     RiskAmount's per-row treatment so a $0 cash + $1k
-                //     FP ticket contributes $0 to the cash total and
-                //     $1k to the FP annotation rather than inflating
-                //     the cash headline.
-                //   - To Win sums each ticket's profit-only payout
-                //     (potentialPayout − riskAmount), keying off the
-                //     same math payoutValue/ticketAmount use for the
-                //     row's win cell. Stake isn't returned in our
-                //     credit-based system, so total here is profit.
+                // Footer totals: cash-only Risk + total To Win. The per-row
+                // cells already carry the "+$X FP" annotation when a ticket
+                // used freeplay; repeating it on the footer made the column
+                // look like the player owed both numbers, so the footer
+                // intentionally drops the FP slice and shows only what
+                // their wallet is actually exposed to.
                 let totalCashRisk = 0;
-                let totalFpUsed = 0;
                 let totalWin = 0;
                 bets.forEach((b) => {
-                    const { cashRisk, fpUsed, totalRisk } = cashRiskOfBet(b);
+                    const { cashRisk, totalRisk } = cashRiskOfBet(b);
                     totalCashRisk += cashRisk;
-                    totalFpUsed += fpUsed;
                     const potential = Number(b?.potentialPayout || 0);
                     totalWin += Math.max(0, potential - totalRisk);
                 });
                 return (
                     <div className="my-bets-table-totals">
                         <span className="my-bets-table-col-desc">Total</span>
-                        <span className="my-bets-table-col-risk">
-                            {totalFpUsed > 0 ? (
-                                <span style={{
-                                    display: 'inline-flex',
-                                    flexDirection: 'column',
-                                    alignItems: 'flex-end',
-                                    lineHeight: 1.1,
-                                    fontVariantNumeric: 'tabular-nums',
-                                }}>
-                                    <span>{moneyExact(totalCashRisk)}</span>
-                                    <span style={{
-                                        fontSize: '0.7em',
-                                        color: '#16a34a',
-                                        fontWeight: 800,
-                                        letterSpacing: 0.2,
-                                    }} title={`Freeplay applied: ${moneyExact(totalFpUsed)}`}>
-                                        {moneyExact(totalFpUsed)} FP
-                                    </span>
-                                </span>
-                            ) : moneyExact(totalCashRisk)}
-                        </span>
+                        <span className="my-bets-table-col-risk">{moneyExact(totalCashRisk)}</span>
                         <span className="my-bets-table-col-win">{moneyExact(totalWin)}</span>
                     </div>
                 );

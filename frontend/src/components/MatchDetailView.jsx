@@ -11,59 +11,42 @@ import { useOddsFormat } from '../contexts/OddsFormatContext';
  *   - team-totals: splits outcomes by description (team name) into sub-rows
  *   - alt-lines: N buttons, each a separate line; grouped by team where possible
  */
+// The `+` (More Bets) modal exists to surface bet types the player CANNOT
+// reach from the row or the period-tab strip on the list view. That means:
+//   - Game Spread / Game ML / Game Total are excluded — they're on the row.
+//   - 1H / 2H / 1Q–4Q / P1–P3 / F1–F7 Spread/ML/Total are excluded — the
+//     period tab strip already filters the list by exactly these.
+//   - What's left is the genuinely "extra" stuff: alt spreads, alt totals,
+//     team totals (game + per-period), and soccer-specific alts (BTTS,
+//     Draw No Bet, Double Chance, 3-way ML). Player props have their own
+//     P+ button on the row, so they aren't surfaced here either.
 const SECTION_DEFS = [
-    { key: 'spreads', label: 'Game Spread', kind: 'two-team' },
-    { key: 'h2h', label: 'Game Moneyline', kind: 'two-team' },
-    { key: 'totals', label: 'Game Total', kind: 'over-under' },
-    { key: 'team_totals', label: 'Team Totals', kind: 'team-totals' },
-    { key: 'alternate_team_totals', label: 'Alt Team Totals', kind: 'team-totals' },
     { key: 'alternate_spreads', label: 'Alt Game Spread', kind: 'alt-lines' },
     { key: 'alternate_totals', label: 'Alt Game Total', kind: 'alt-lines' },
+    { key: 'team_totals', label: 'Team Totals', kind: 'team-totals' },
+    { key: 'alternate_team_totals', label: 'Alt Team Totals', kind: 'team-totals' },
 
-    { key: 'spreads_h1', label: '1st Half Spread', kind: 'two-team' },
-    { key: 'h2h_h1', label: '1st Half Moneyline', kind: 'two-team' },
-    { key: 'totals_h1', label: '1st Half Total', kind: 'over-under' },
-    { key: 'spreads_h2', label: '2nd Half Spread', kind: 'two-team' },
-    { key: 'h2h_h2', label: '2nd Half Moneyline', kind: 'two-team' },
-    { key: 'totals_h2', label: '2nd Half Total', kind: 'over-under' },
+    { key: 'alternate_spreads_h1', label: 'Alt 1st Half Spread', kind: 'alt-lines' },
+    { key: 'alternate_totals_h1', label: 'Alt 1st Half Total', kind: 'alt-lines' },
+    { key: 'team_totals_h1', label: '1st Half Team Totals', kind: 'team-totals' },
+    { key: 'alternate_spreads_h2', label: 'Alt 2nd Half Spread', kind: 'alt-lines' },
+    { key: 'alternate_totals_h2', label: 'Alt 2nd Half Total', kind: 'alt-lines' },
+    { key: 'team_totals_h2', label: '2nd Half Team Totals', kind: 'team-totals' },
 
-    { key: 'spreads_q1', label: '1st Quarter Spread', kind: 'two-team' },
-    { key: 'h2h_q1', label: '1st Quarter Moneyline', kind: 'two-team' },
-    { key: 'totals_q1', label: '1st Quarter Total', kind: 'over-under' },
-    { key: 'spreads_q2', label: '2nd Quarter Spread', kind: 'two-team' },
-    { key: 'h2h_q2', label: '2nd Quarter Moneyline', kind: 'two-team' },
-    { key: 'totals_q2', label: '2nd Quarter Total', kind: 'over-under' },
-    { key: 'spreads_q3', label: '3rd Quarter Spread', kind: 'two-team' },
-    { key: 'h2h_q3', label: '3rd Quarter Moneyline', kind: 'two-team' },
-    { key: 'totals_q3', label: '3rd Quarter Total', kind: 'over-under' },
-    { key: 'spreads_q4', label: '4th Quarter Spread', kind: 'two-team' },
-    { key: 'h2h_q4', label: '4th Quarter Moneyline', kind: 'two-team' },
-    { key: 'totals_q4', label: '4th Quarter Total', kind: 'over-under' },
+    { key: 'alternate_spreads_q1', label: 'Alt 1st Quarter Spread', kind: 'alt-lines' },
+    { key: 'alternate_totals_q1', label: 'Alt 1st Quarter Total', kind: 'alt-lines' },
+    { key: 'team_totals_q1', label: '1st Quarter Team Totals', kind: 'team-totals' },
+    { key: 'alternate_spreads_q2', label: 'Alt 2nd Quarter Spread', kind: 'alt-lines' },
+    { key: 'alternate_totals_q2', label: 'Alt 2nd Quarter Total', kind: 'alt-lines' },
+    { key: 'team_totals_q2', label: '2nd Quarter Team Totals', kind: 'team-totals' },
+    { key: 'alternate_spreads_q3', label: 'Alt 3rd Quarter Spread', kind: 'alt-lines' },
+    { key: 'alternate_totals_q3', label: 'Alt 3rd Quarter Total', kind: 'alt-lines' },
+    { key: 'team_totals_q3', label: '3rd Quarter Team Totals', kind: 'team-totals' },
+    { key: 'alternate_spreads_q4', label: 'Alt 4th Quarter Spread', kind: 'alt-lines' },
+    { key: 'alternate_totals_q4', label: 'Alt 4th Quarter Total', kind: 'alt-lines' },
+    { key: 'team_totals_q4', label: '4th Quarter Team Totals', kind: 'team-totals' },
 
-    { key: 'spreads_p1', label: '1st Period Spread', kind: 'two-team' },
-    { key: 'h2h_p1', label: '1st Period Moneyline', kind: 'two-team' },
-    { key: 'totals_p1', label: '1st Period Total', kind: 'over-under' },
-    { key: 'spreads_p2', label: '2nd Period Spread', kind: 'two-team' },
-    { key: 'h2h_p2', label: '2nd Period Moneyline', kind: 'two-team' },
-    { key: 'totals_p2', label: '2nd Period Total', kind: 'over-under' },
-    { key: 'spreads_p3', label: '3rd Period Spread', kind: 'two-team' },
-    { key: 'h2h_p3', label: '3rd Period Moneyline', kind: 'two-team' },
-    { key: 'totals_p3', label: '3rd Period Total', kind: 'over-under' },
     { key: 'h2h_3_way', label: 'Moneyline 3-Way', kind: 'alt-lines' },
-
-    { key: 'h2h_1st_1_innings', label: '1st Inning ML', kind: 'two-team' },
-    { key: 'totals_1st_1_innings', label: '1st Inning Total', kind: 'over-under' },
-    { key: 'spreads_1st_1_innings', label: '1st Inning Spread', kind: 'two-team' },
-    { key: 'h2h_1st_3_innings', label: 'First 3 Innings ML', kind: 'two-team' },
-    { key: 'totals_1st_3_innings', label: 'First 3 Innings Total', kind: 'over-under' },
-    { key: 'spreads_1st_3_innings', label: 'First 3 Innings Spread', kind: 'two-team' },
-    { key: 'h2h_1st_5_innings', label: 'First 5 Innings ML', kind: 'two-team' },
-    { key: 'totals_1st_5_innings', label: 'First 5 Innings Total', kind: 'over-under' },
-    { key: 'spreads_1st_5_innings', label: 'First 5 Innings Spread', kind: 'two-team' },
-    { key: 'h2h_1st_7_innings', label: 'First 7 Innings ML', kind: 'two-team' },
-    { key: 'totals_1st_7_innings', label: 'First 7 Innings Total', kind: 'over-under' },
-    { key: 'spreads_1st_7_innings', label: 'First 7 Innings Spread', kind: 'two-team' },
-
     { key: 'btts', label: 'Both Teams to Score', kind: 'alt-lines' },
     { key: 'btts_h1', label: 'BTTS 1st Half', kind: 'alt-lines' },
     { key: 'draw_no_bet', label: 'Draw No Bet', kind: 'two-team' },
@@ -75,7 +58,17 @@ const MatchDetailView = ({ match, onClose }) => {
     const [loading, setLoading] = React.useState(true);
     const [error, setError] = React.useState('');
     const [payload, setPayload] = React.useState({ extendedMarkets: [], playerProps: [], cached: false });
-    const [expanded, setExpanded] = React.useState({ spreads: true, h2h: true, totals: true });
+    // Default-expand the alt sections — they're the reason this modal exists.
+    // Game spreads/ML/totals are already visible on the row that opened the
+    // modal, so collapsing them here cuts noise. Sections that don't have a
+    // market for this game stay invisible regardless (filtered by
+    // `availableSections` below).
+    const [expanded, setExpanded] = React.useState({
+        alternate_spreads: true,
+        alternate_totals: true,
+        team_totals: true,
+        alternate_team_totals: true,
+    });
     const [selectedKeys, setSelectedKeys] = React.useState(() => new Set());
 
     const matchId = match?.id || match?.externalId || '';
@@ -130,15 +123,14 @@ const MatchDetailView = ({ match, onClose }) => {
         return idx;
     }, [payload, match]);
 
-    // Map a section key (e.g. `spreads_q1`, `h2h_h2`, `totals_1st_5_innings`)
-    // to a period token we can compare against the match's current period.
-    // Returns null for game-level markets and player props (always shown).
+    // Map a section key (e.g. `alternate_spreads_q1`, `team_totals_h2`) to
+    // a period token we can compare against the match's current period.
+    // Returns null for game-level markets and soccer alts (always shown).
     const sectionPeriodToken = (key) => {
         const k = String(key || '').toLowerCase();
-        if (/^(spreads|h2h|totals)_(q[1-4])$/.test(k)) return RegExp.$2;
-        if (/^(spreads|h2h|totals)_(h[12])$/.test(k)) return RegExp.$2;
-        if (/^(spreads|h2h|totals)_(p[1-3])$/.test(k)) return RegExp.$2;
-        if (/^(spreads|h2h|totals)_1st_(\d+)_innings$/.test(k)) return `inning_${RegExp.$2}`;
+        if (/_(q[1-4])$/.test(k)) return RegExp.$1;
+        if (/_(h[12])$/.test(k)) return RegExp.$1;
+        if (/_(p[1-3])$/.test(k)) return RegExp.$1;
         return null;
     };
 
@@ -163,10 +155,6 @@ const MatchDetailView = ({ match, onClose }) => {
         return (sectionKey) => {
             const token = sectionPeriodToken(sectionKey);
             if (!token) return false;
-            if (token.startsWith('inning_')) {
-                const inn = Number(token.slice(7));
-                return Number.isFinite(inn) && periodNum > inn;
-            }
             const threshold = quarterMap[token] ?? halfMap[token] ?? periodMap[token];
             if (threshold === undefined) return false;
             return periodNum > threshold;
@@ -484,7 +472,7 @@ const MatchDetailView = ({ match, onClose }) => {
                 <div style={headerStyle}>
                     <div style={{ ...titleStyle, flex: 1, textAlign: 'left' }}>
                         <strong style={{ fontSize: 14 }}>{matchName}</strong>
-                        <span style={{ fontSize: 11, color: '#9aa' }}>Main Bets</span>
+                        <span style={{ fontSize: 11, color: '#9aa' }}>Alt Lines & Totals</span>
                     </div>
                     <button style={toggleAllBtnStyle} onClick={allOpen ? closeAll : openAll}>
                         {allOpen ? 'Close All' : 'Open All'}

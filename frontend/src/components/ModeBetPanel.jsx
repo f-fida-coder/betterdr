@@ -2408,10 +2408,18 @@ const ModeBetPanel = ({
                     // show the user's *raw* string for whichever side they
                     // last edited (so "10." doesn't snap to "10" mid-type)
                     // and the formatted derived value for the other side.
-                    const riskInputValue = stakeSource === 'risk'
+                    // A `wagerOverride` only exists when the user has edited
+                    // the per-card field directly (or hit Apply to All). Without
+                    // one, both inputs render their formatted derived value so
+                    // an Apply-to-All Win=$1000 still shows "$1000" on the leg.
+                    // The earlier version keyed only on stakeSource, which left
+                    // the input on the "source" side blank ("$0") whenever the
+                    // top Bet Amount was driving the math.
+                    const hasOverride = !!sel?.wagerOverride;
+                    const riskInputValue = hasOverride && stakeSource === 'risk'
                         ? (sel?.wagerOverride?.riskRaw ?? '')
                         : (risk > 0 ? formatMoney(risk) : '');
-                    const winInputValue = stakeSource === 'win'
+                    const winInputValue = hasOverride && stakeSource === 'win'
                         ? (sel?.wagerOverride?.winRaw ?? '')
                         : (win > 0 ? formatMoney(win) : '');
                     const matchupTitle = String(sel.matchName || sel.selection || '').toUpperCase();
@@ -2464,7 +2472,7 @@ const ModeBetPanel = ({
                             <div style={{
                                 background: palette.headerBg,
                                 color: '#fff',
-                                padding: '8px 12px',
+                                padding: '5px 12px',
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'space-between',
@@ -2504,7 +2512,7 @@ const ModeBetPanel = ({
                             </div>
 
                             {/* Card body */}
-                            <div style={{ padding: '10px 12px' }}>
+                            <div style={{ padding: '7px 12px 8px' }}>
                                 {legLabel && (
                                     <div style={{
                                         fontSize: 9,
@@ -2512,17 +2520,17 @@ const ModeBetPanel = ({
                                         color: palette.accent,
                                         letterSpacing: 0.6,
                                         textTransform: 'uppercase',
-                                        marginBottom: 4,
+                                        marginBottom: 2,
                                     }}>
                                         {legLabel}
                                     </div>
                                 )}
                                 <div style={{
-                                    fontSize: 16,
+                                    fontSize: 14,
                                     fontWeight: 800,
                                     color: palette.textPrimary,
-                                    lineHeight: 1.3,
-                                    marginBottom: matchTimeLabel ? 4 : 8,
+                                    lineHeight: 1.2,
+                                    marginBottom: matchTimeLabel ? 2 : 5,
                                     display: 'flex',
                                     alignItems: 'center',
                                     flexWrap: 'wrap',
@@ -2567,12 +2575,13 @@ const ModeBetPanel = ({
                                 </div>
                                 {matchTimeLabel && (
                                     <div style={{
-                                        fontSize: 11,
+                                        fontSize: 10,
                                         color: palette.textMuted || '#6b7280',
-                                        marginBottom: 8,
+                                        marginBottom: 5,
                                         display: 'flex',
                                         alignItems: 'center',
                                         gap: 4,
+                                        lineHeight: 1.1,
                                     }}>
                                         <i className="fa-regular fa-clock" />
                                         {matchTimeLabel}
@@ -2604,7 +2613,7 @@ const ModeBetPanel = ({
                                     odds in the parent state, which cascades
                                     through Risk/Win and the bottom totals. */}
                                 {supportsBuyPoints && buyPointsOptions.length > 1 && (
-                                    <div style={{ position: 'relative', marginTop: 8 }}>
+                                    <div style={{ position: 'relative', marginTop: 6 }}>
                                         <button
                                             type="button"
                                             onClick={() => setOpenBuyPointsId(buyPointsOpen ? null : sel.id)}
@@ -2614,7 +2623,7 @@ const ModeBetPanel = ({
                                                 alignItems: 'center',
                                                 justifyContent: 'space-between',
                                                 gap: 8,
-                                                padding: '8px 10px',
+                                                padding: '5px 10px',
                                                 background: '#fff',
                                                 border: `1px solid ${buyPointsOpen ? palette.accent : palette.cardBorder}`,
                                                 borderRadius: 8,
@@ -2623,6 +2632,7 @@ const ModeBetPanel = ({
                                                 color: palette.textPrimary,
                                                 cursor: 'pointer',
                                                 transition: 'border-color 120ms ease',
+                                                lineHeight: 1.2,
                                             }}
                                         >
                                             <span style={{ color: palette.textMuted, letterSpacing: 0.3 }}>Buy Points</span>
@@ -2719,8 +2729,8 @@ const ModeBetPanel = ({
                                     <div style={{
                                         display: 'grid',
                                         gridTemplateColumns: '1fr 1fr',
-                                        gap: 8,
-                                        marginTop: 8,
+                                        gap: 6,
+                                        marginTop: 6,
                                     }}>
                                         {[
                                             { id: 'risk', label: 'Risk:', value: riskInputValue, color: palette.textPrimary, isPositive: risk > 0 },
@@ -2732,12 +2742,13 @@ const ModeBetPanel = ({
                                                     background: '#f8fafc',
                                                     border: `1px solid ${palette.cardBorder}`,
                                                     borderRadius: 6,
-                                                    padding: '4px 10px',
+                                                    padding: '2px 10px',
                                                     display: 'flex',
                                                     alignItems: 'center',
                                                     justifyContent: 'space-between',
                                                     gap: 6,
                                                     cursor: 'text',
+                                                    lineHeight: 1.15,
                                                 }}
                                             >
                                                 <span style={{ fontSize: 10, fontWeight: 700, color: palette.textMuted, textTransform: 'uppercase', letterSpacing: 0.4 }}>{field.label}</span>
@@ -2769,6 +2780,9 @@ const ModeBetPanel = ({
                                                             color: field.isPositive ? field.color : palette.textFaint,
                                                             textAlign: 'right',
                                                             fontVariantNumeric: 'tabular-nums',
+                                                            padding: 0,
+                                                            margin: 0,
+                                                            lineHeight: 1.15,
                                                         }}
                                                     />
                                                 </span>

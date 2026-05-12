@@ -144,10 +144,6 @@ const WagerConfirmedScreen = ({
                     {bets.map((bet, idx) => {
                         const ticketId = bet?.ticketId || bet?.id || '';
                         const risk = Number(bet?.riskAmount ?? bet?.amount ?? 0);
-                        // Credit-based "Win" = profit only (the amount credited
-                        // on settlement). potentialPayout is gross (risk + profit),
-                        // which would mislead a credit-line player into thinking
-                        // their available balance grows by the full payout on win.
                         const win = Math.max(0, Number(bet?.potentialPayout ?? 0) - risk);
                         const odds = bet?.combinedOdds ?? bet?.odds;
                         const selections = Array.isArray(bet?.selections) ? bet.selections : [];
@@ -155,6 +151,22 @@ const WagerConfirmedScreen = ({
                         const placedAt = fmtTimestamp(bet?.createdAt);
                         const betType = String(bet?.type || 'straight').replace(/_/g, ' ').toUpperCase();
                         const usedFreeplay = bet?.isFreeplay === true || isFreeplay;
+
+                        // Calculate breakdown
+                        const fpRaw = Number(bet?.freeplayAmountUsed ?? 0);
+                        let fpUsed = Number.isFinite(fpRaw) && fpRaw > 0 ? Math.min(fpRaw, risk) : 0;
+                        if (fpUsed === 0 && bet?.isFreeplay === true && risk > 0) {
+                            fpUsed = risk;
+                        }
+                        const cashRisk = Math.max(0, risk - fpUsed);
+                        let breakdownText = '';
+                        if (fpUsed > 0 && cashRisk > 0) {
+                            breakdownText = `$${fpUsed.toFixed(2)} freeplay, $${cashRisk.toFixed(2)} credit used`;
+                        } else if (fpUsed > 0) {
+                            breakdownText = `$${fpUsed.toFixed(2)} freeplay used`;
+                        } else {
+                            breakdownText = `$${cashRisk.toFixed(2)} credit used`;
+                        }
 
                         return (
                             <div
@@ -184,6 +196,11 @@ const WagerConfirmedScreen = ({
                                         )}
                                     </div>
                                     <div style={{ fontSize: 11, color: '#6b7280' }}>{placedAt}</div>
+                                </div>
+
+                                {/* Freeplay/Credit breakdown row */}
+                                <div style={{ fontSize: 12, color: '#0f172a', marginBottom: 8, marginTop: -4 }}>
+                                    <strong>Stake Breakdown:</strong> {breakdownText}
                                 </div>
 
                                 {/* Per-leg lines. Falls back to the joined
