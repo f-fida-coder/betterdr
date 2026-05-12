@@ -319,9 +319,13 @@ export default function useMatches(options = {}) {
             } catch (err) {
                 inFlightRequests.delete(cacheKey);
                 errorMessage = err?.message || 'Failed to fetch matches';
-                if (mounted && fetchId === fetchIdRef.current) {
-                    applyMatchesIfChanged([]);
-                }
+                // Do NOT clear the rendered rows on fetch failure. A transient
+                // network blip / 504 / timeout during a background poll would
+                // otherwise wipe the live odds list to an empty array for the
+                // user, then repaint on the next successful poll — that was
+                // the "odds disappear while my screen is on" symptom. Keep
+                // the last successful snapshot on-screen and let the next
+                // poll (or window-focus / visibility refresh) recover.
             } finally {
                 if (typeof window !== 'undefined') {
                     window.dispatchEvent(new CustomEvent('matches:refresh-completed', {
