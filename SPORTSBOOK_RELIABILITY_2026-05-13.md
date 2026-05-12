@@ -187,32 +187,168 @@ Two changes:
 
 ---
 
-## 10. "+" button modal — prioritize Alt Lines
+## 10. "+" button modal — alt-only More Bets
 
-**Problem:** clicking `+` on a match row opened MatchDetailView with **Game Spread / ML / Total** expanded at the top. Those lines are already visible on the row. Alt spreads / alt totals / team totals (the actual reason to tap `+`) were buried below, collapsed.
+**Original problem:** clicking `+` on a match row opened MatchDetailView with **Game Spread / ML / Total** expanded at the top. Those lines are already visible on the row. Alt spreads / alt totals / team totals (the actual reason to tap `+`) were buried below, collapsed.
 
-**Fix:** `MatchDetailView.jsx`
+**Initial fix (later superseded):** reorder + default-expand the alt sections — alt lines came first but the redundant Game Spread/ML/Total and per-period Spread/ML/Total sections still rendered below.
 
-1. **Reordered `SECTION_DEFS`** (line 14-31): alt sections first, then game-level, then periods/props.
-2. **Default-expanded state** (line 78-87): flipped from `{spreads, h2h, totals}` → `{alternate_spreads, alternate_totals, team_totals, alternate_team_totals}`.
+**Why that wasn't enough:** the period-tab strip on the list view (Game / 1H / 2H / 1Q–4Q / etc.) already filters the match list by period. So every `spreads_q1`, `h2h_h1`, `totals_p2`, MLB inning-split section etc. in the `+` modal was a duplicate of something the player could already pick from a tab. The "+" button should surface ONLY the bet types that aren't reachable from the row or the period strip.
+
+**Final fix (current):** `MatchDetailView.jsx`
+
+1. **`SECTION_DEFS` rewritten** to contain only:
+   - `alternate_spreads`, `alternate_totals`, `team_totals`, `alternate_team_totals` (game-level alts)
+   - `alternate_spreads_{h1,h2,q1..q4}`, `alternate_totals_{h1,h2,q1..q4}`, `team_totals_{h1,h2,q1..q4}` (per-period alts — these have no period-tab equivalent)
+   - `h2h_3_way`, `btts`, `btts_h1`, `draw_no_bet`, `double_chance` (soccer-specific alts)
+   - **Removed:** plain `spreads`, `h2h`, `totals` (row); every `spreads_{q*,h*,p*}` / `h2h_…` / `totals_…` (period strip); MLB inning splits (period strip covers F1/F3/F5/F7).
+2. **Default-expanded state** flipped from `{spreads, h2h, totals}` → `{alternate_spreads, alternate_totals, team_totals, alternate_team_totals}`.
 3. **Subtitle**: `"Main Bets"` → `"Alt Lines & Totals"`.
+4. **Closed-period filter** updated — `sectionPeriodToken` now matches suffix `_q1` / `_h2` / `_p3` instead of full `spreads_q1` patterns, so per-period alt sections (`team_totals_q1`, `alternate_spreads_h1`) still disappear once that period ends on a live match.
 
 ### Mockup test
-**File:** `frontend/scripts/test-alt-bets-priority.mjs`
+**File:** `frontend/scripts/test-alt-bets-priority.mjs` — rewritten for the new contract.
 
-Pure-JS mirror of the section-filter pipeline. **19 assertions, all pass.**
+**29 assertions, all pass.** Now includes negative pins (raw `spreads` / `spreads_q1` / `h2h_h1` / MLB inning markets must NOT be in SECTION_DEFS), per-period alt sections must be present, and closed-period suffix matching is exercised mid-live-game.
 
-| # | Scenario | Result |
-|---|---|---|
-| 1 | Pre-game + book offers everything | alt sections render first ✓ |
-| 2 | Book offers only main lines | main sections still render ✓ |
-| 3 | Partial alts (no team totals) | present alts still come first ✓ |
-| 4 | Live mid-Q3 with closed-period markets | alts preserved, closed 1Q/1H dropped ✓ |
-| 5 | Empty match | empty list, no crash ✓ |
-
-Plus 11 source-level pins that catch any future edit re-shuffling the order. Run anytime:
 ```
 node frontend/scripts/test-alt-bets-priority.mjs
+```
+
+---
+
+## 11. MyBets — freeplay / credit breakdown on ticket detail
+
+**Problem:** the expanded ticket panel in the My Bets / Weekly Figures views showed `Type: Straight (Freeplay)` but no dollar split of how much was freeplay vs how much was real credit. For mixed-funding tickets (e.g. $700 freeplay + $300 credit on a $1000 risk), the player had no way to see what slice was theirs to lose vs the house pool's.
+
+**Why the data was already there:**
+- Placement (`BetsController.php:632-700`) computes `freeplayApplied = min(freeplayBalance, totalRisk)`, `realPortion = totalRisk - freeplayApplied`, and stores both `freeplayAmountUsed` (DECIMAL) and `isFreeplay` (bool) on the bet doc.
+- Settlement (`BetSettlementService.php:249-340`) reads `freeplayUsed` and splits payout — freeplay slice returns profit only, credit slice returns stake + profit, void refunds both pools.
+- The API enrichment passes both fields through untouched to `/api/bets/my-bets`.
+- `MyBetsView.cashRiskOfBet()` already split totalRisk into `{cashRisk, fpUsed}` for the per-row RISK column annotation — it just wasn't surfaced in the expanded panel.
+
+**Fix (display-only, no money math added):** `MyBetsView.jsx::BetDetailsPanel`
+
+Added rows only when `fpUsed > 0`:
+- **`Wagered`** — `$700.00 freeplay + $300.00 credit` (or `$700.00 freeplay` for pure-FP)
+- **`Lost`** — same split, only on `status==='lost'`
+- **`Refunded`** — same split, only on `status==='void'`
+- **Wins** intentionally skip the per-pool result line — total profit is already on the row, and user feedback was "even though it won it doesn't matter [whose pool the profit came from]".
+
+Uses `moneyExact()` (the file's standard formatter), not raw `toFixed(2)`. No backend change.
+
+---
+
+## 12. MyBets — drop FP annotation from pending-totals footer
+
+**Problem:** the pending list footer `Total` row repeated the `$X.XX FP` annotation underneath the cash total, making it look like the player owed both the cash AND the freeplay numbers.
+
+**Fix:** `MyBetsView.jsx` `BetTable` totals branch — render only `moneyExact(totalCashRisk)`. The per-row RISK cell still carries the `+$X.XX FP` annotation (so the FP info isn't lost), the footer just doesn't duplicate it.
+
+Scope is contained: `showTotals=true` is set in exactly one place — the top-level pending list at the bottom of MyBetsView. Round-robin / parlay leg sublists pass `showTotals={false}` and skip this branch.
+
+---
+
+## 13. Betslip per-leg — fix WIN/RISK input rendering when top Bet Amount drives the math
+
+**Problem:** in straight mode, typing in the top Apply-to-All `WIN` field with $1000 against a -164 leg correctly showed `RISK: $1640` on the leg card, but the leg's `WIN` cell rendered `$0`. Symmetric on the other side: BET mode at $1000 against a +153 leg correctly computed `RISK=$1000 / WIN=$1530`, but the leg's `RISK` cell rendered `$0`.
+
+**Root cause:** `ModeBetPanel.jsx:2411-2416` (pre-fix) keyed the per-card input display on `stakeSource` alone:
+```jsx
+const winInputValue = stakeSource === 'win'
+    ? (sel?.wagerOverride?.winRaw ?? '')
+    : (win > 0 ? formatMoney(win) : '');
+```
+A `wagerOverride` is created ONLY when the user types directly into a per-card field. Without one, the top Bet Amount drives `effectiveStakeForSelection`, which still returns a `source` ('win' / 'risk' / smart-resolved for BET mode). That `source` matched the input on the "source side" → fell through to `wagerOverride.winRaw ?? ''` (undefined) → rendered blank → `$0`.
+
+**Fix:** gate the raw-override branch on `hasOverride`, so without an override both inputs always fall to the formatted derived value:
+```jsx
+const hasOverride = !!sel?.wagerOverride;
+const riskInputValue = hasOverride && stakeSource === 'risk'
+    ? (sel?.wagerOverride?.riskRaw ?? '')
+    : (risk > 0 ? formatMoney(risk) : '');
+const winInputValue = hasOverride && stakeSource === 'win'
+    ? (sel?.wagerOverride?.winRaw ?? '')
+    : (win > 0 ? formatMoney(win) : '');
+```
+
+**Verification (6-scenario trace):**
+
+| Mode | Odds | Override | Risk shows | Win shows |
+|------|------|----------|------------|-----------|
+| BET | +153 | none | 1000 | 1530 ✓ |
+| BET | -164 | none | 1640 | 1000 ✓ |
+| RISK | any | none | typed | derived ✓ |
+| WIN | any | none | derived | typed ✓ |
+| any | any | per-card RISK typed | raw user text | derived ✓ |
+| any | any | per-card WIN typed | derived | raw user text ✓ |
+
+Apply-to-All / top Bet Amount **does not** create overrides (confirmed via grep + comment at `ModeBetPanel.jsx:1390-1393`), so `hasOverride` is a clean discriminator. Real-time updates work because `effectiveStakeForSelection` is `useCallback`-memoized on `[stakeMode, wager]` — every keystroke re-derives values on the same render cycle.
+
+---
+
+## 14. Betslip per-leg — slim card layout
+
+**User ask:** "make these lines skinnier" — leg cards in the betslip looked chunky on mobile.
+
+**Fix:** `ModeBetPanel.jsx` — style-only changes, no logic:
+
+| Element | Before | After |
+|---|---|---|
+| Header bar padding | `8px 12px` | `5px 12px` |
+| Card body top padding | `10px 12px` | `7px 12px 8px` |
+| Selection name font | `16px` / lineHeight `1.3` | `14px` / lineHeight `1.2` |
+| Selection marginBottom | `4` / `8` | `2` / `5` |
+| Match-time fontSize | `11` | `10` (lineHeight `1.1`, marginBottom `5`) |
+| Buy Points button padding | `8px 10px` | `5px 10px` (lineHeight `1.2`) |
+| Buy Points marginTop | `8` | `6` |
+| Risk/Win row marginTop + gap | `8` / `8` | `6` / `6` |
+| Risk/Win cell padding | `4px 10px` | `2px 10px` (lineHeight `1.15`, input padding/margin `0`) |
+
+**Net:** ~30-35px shorter per leg-card. Tap targets remain viable: Buy Points ≈ 25px, Risk/Win inputs ≈ 28-30px. No money-math touched — every change is a style prop.
+
+---
+
+## 15. PENDING $0 bug — missing `$nin` operator in SqlRepository
+
+**Problem:** the header `PENDING` tile read `$0` even when a player had an active mixed-funding bet (`$1640 risk, $1000 freeplay applied, $640 cash`). On a credit account that meant `Available = creditLimit + balance - 0` instead of `creditLimit + balance - 640`, silently over-stating available credit by the full cash exposure of every pending bet.
+
+**Root cause:** `AuthController::pendingRiskForUser` issued
+
+```php
+'status' => ['$nin' => ['won', 'lost', 'void']]
+```
+
+but `SqlRepository::matchesCondition` (lines 1739-1784 pre-fix) only handled `$in`, `$ne`, `$gt/$gte/$lt/$lte`, `$regex`, `$exists`, `$options`. An unrecognized operator fell through to `return false` at the end of the loop — so the filter rejected EVERY document, the query returned an empty array, and `pendingRiskForUser` summed nothing → `$0`.
+
+`AdminCoreController` line 5764 already carried a comment confirming this limitation was known (`// SqlRepository does not support $nin, so use explicit $ne clauses instead`), but `AuthController` never got the workaround — the bug had been live the entire time freeplay tickets existed.
+
+**Fix:** `SqlRepository.php` — added `$nin` handling that mirrors MongoDB semantics:
+
+```php
+if ($op === '$nin') {
+    if (!is_array($expected) || $this->anyIn($fieldValues, $expected)) {
+        return false;
+    }
+    continue;
+}
+```
+
+- Field value matches any expected → fail (exclude doc).
+- No match → pass.
+- Field absent → `$fieldValues` is empty → `anyIn` returns false → condition passes (matches MongoDB).
+
+**Money-safety:** read-path only. No bet placement / settlement / wallet writes touched. The fix corrects an UNDERCOUNT — users who saw `$0 PENDING` will now see the correct cash exposure, and `Available` drops by that amount. This is a CORRECTION, not a debit — no money moves; the display catches up to reality. Settlement remains unaffected (it queries `status = 'pending'` direct equality, not `$nin`).
+
+**Regression test:** `php-backend/scripts/test-sql-repository-nin.php` — **13 assertions, all pass**:
+
+- 4 basic semantics (pending passes, won/lost/void fail)
+- 3 edge cases (missing field passes, empty `$nin` array passes, non-array condition fails defensively)
+- 3 original-bug replays (mixed-FP pending included, won/lost excluded)
+- 3 sibling-operator regressions (`$in`, `$ne` still work as before)
+
+```
+php php-backend/scripts/test-sql-repository-nin.php
 ```
 
 ---
@@ -238,9 +374,23 @@ node frontend/scripts/test-alt-bets-priority.mjs
 
 1. NBA list view → period tabs (Game / 1H / 2H / 1Q / 2Q / 3Q / 4Q) always visible, stable across refreshes.
 2. Watch odds for 30 s during a live game — they should NEVER blank out and reappear.
-3. Tap `+` on a match row → modal opens with Alt Spread / Alt Total / Team Totals expanded at top.
+3. Tap `+` on a match row → modal opens with **only** Alt Spread / Alt Total / Team Totals + per-period Team Totals. No game Spread/ML/Total and no period Spread/ML/Total (those live on the row + the period strip).
 4. In teaser mode → `+` and `P+` buttons are hidden on all rows.
 5. Settings → Bet Defaults → BET pill is green, helper text centered.
+6. **Betslip — straight mode:**
+   - Type `1000` in top Apply-to-All `WIN`, pick a -164 leg → leg shows `RISK $1640 / WIN $1000` immediately, both fields populated.
+   - Switch to `BET` mode, pick a +153 leg → leg shows `RISK $1000 / WIN $1530`.
+   - Type into per-card RISK → that side keeps your raw keystrokes, WIN re-derives.
+   - Leg cards visibly shorter than before (~30px less per card).
+7. **My Bets / Weekly Figures expanded ticket:**
+   - On a mixed-funding bet, expanded panel shows `Wagered: $X freeplay + $Y credit`.
+   - Lost mixed ticket → also `Lost: $X freeplay + $Y credit`. Void → `Refunded: …`.
+   - Pending list footer `Total` shows cash-only sum (no `$X FP` annotation below the headline).
+8. **Header PENDING tile (credit account, mixed-FP ticket):**
+   - Place a `$1640` ticket with `$1000 FP + $640 cash`.
+   - Header should immediately show `PENDING: $640` (was previously `$0`).
+   - `AVAILABLE` should drop by exactly `$640` (not stay flat as before).
+   - After the bet settles, `PENDING` returns to `$0` and `AVAILABLE` recovers the `$640`.
 
 ---
 
@@ -249,7 +399,9 @@ node frontend/scripts/test-alt-bets-priority.mjs
 ### Frontend
 - `frontend/src/hooks/useMatches.js` — preserve last snapshot on fetch error
 - `frontend/src/components/MobileContentView.jsx` — static period tabs, closed-period dimming, smart banner, hide +/P+ in teaser
-- `frontend/src/components/MatchDetailView.jsx` — alt-section priority, default expanded, closed-period filter
+- `frontend/src/components/MatchDetailView.jsx` — alt-only More Bets modal: trimmed SECTION_DEFS to alt + per-period team-totals + soccer alts; suffix-based closed-period filter
+- `frontend/src/components/MyBetsView.jsx` — Wagered / Lost / Refunded freeplay-credit split rows in BetDetailsPanel; pending-totals footer cash-only (drops FP annotation)
+- `frontend/src/components/ModeBetPanel.jsx` — `hasOverride` gate on per-leg RISK/WIN input display; slimmed leg-card padding / fonts / line-heights
 - `frontend/src/components/AccountPanel.jsx` — green BET pill, recentered helper text
 - `frontend/.env.production` — (unchanged this session, referenced for poll intervals)
 
@@ -257,12 +409,14 @@ node frontend/scripts/test-alt-bets-priority.mjs
 - `php-backend/src/OddsSyncService.php` — extended-sync counters, error log, call `recordExtendedSyncResult`
 - `php-backend/src/SportsbookHealth.php` — `recordExtendedSyncResult` + `checkExtendedSyncHealth`
 - `php-backend/scripts/odds-worker.php` — per-cycle extended-sync log line, wire health check
+- `php-backend/src/SqlRepository.php` — added `$nin` operator support (fixed silent zero-PENDING bug in `AuthController::pendingRiskForUser`)
 
 ### Config
 - `.env` — `ODDS_CRON_MINUTES=1.5`, all 3 tiers `=1.5`, `SPORTSBOOK_MATCHES_CACHE_TTL_SECONDS=5`
 
-### New
-- `frontend/scripts/test-alt-bets-priority.mjs` — mockup test (19 assertions)
+### New / rewritten tests
+- `frontend/scripts/test-alt-bets-priority.mjs` — rewritten for the alt-only More Bets contract (29 assertions: pin alt sections present, pin raw spread/ML/total absent, pin closed-period suffix filter)
+- `php-backend/scripts/test-sql-repository-nin.php` — new (13 assertions): pin `$nin` operator semantics + the pendingRiskForUser scenario + `$in`/`$ne` non-regression
 
 ### Hostinger
 - Cron command updated to use correct 9-digit username + explicit PHP_BIN

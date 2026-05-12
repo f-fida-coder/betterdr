@@ -1758,6 +1758,21 @@ KEY `idx_updated_at` (`updated_at`)
                     continue;
                 }
 
+                if ($op === '$nin') {
+                    // MongoDB semantics: $nin matches when NONE of the
+                    // field's values equal any of the expected values,
+                    // AND also matches when the field is absent entirely
+                    // (empty $fieldValues → anyIn returns false). Pre-fix
+                    // this operator fell through to `return false`, so
+                    // every doc was excluded — silently broke any caller
+                    // (notably AuthController::pendingRiskForUser, which
+                    // always returned $0 PENDING because no bet matched).
+                    if (!is_array($expected) || $this->anyIn($fieldValues, $expected)) {
+                        return false;
+                    }
+                    continue;
+                }
+
                 if ($op === '$ne') {
                     if ($this->anyEquals($fieldValues, $expected)) {
                         return false;
