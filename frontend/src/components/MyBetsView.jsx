@@ -1200,12 +1200,19 @@ const MyBetsView = () => {
         [bets],
     );
 
-    // Graded = settled tickets (won + lost + void) merged into one
+    // Graded = settled tickets (won + lost + void + push) merged into one
     // chronological list, sorted by settledAt desc. Players don't see
     // the won-vs-lost split — that distinction is intentionally omitted
     // to discourage emotional/chasing behavior.
+    //
+    // 'push' is included so a tied bet still appears in the figures-day
+    // detail list. The backend WalletController weekly-figures includes
+    // push in its `$in` (so push contributes to the per-day total row),
+    // but without push here the per-day detail expansion was empty for
+    // pushes — the row total wouldn't reconcile against the visible
+    // entries, leaving the player wondering where their bet went.
     const gradedBets = useMemo(() => {
-        const settled = bets.filter((bet) => ['won', 'lost', 'void'].includes(normalizeStatus(bet?.status)));
+        const settled = bets.filter((bet) => ['won', 'lost', 'void', 'push'].includes(normalizeStatus(bet?.status)));
         return settled.slice().sort((a, b) => {
             const ta = new Date(settledTimestamp(a)).getTime() || 0;
             const tb = new Date(settledTimestamp(b)).getTime() || 0;
@@ -1349,20 +1356,37 @@ const FiguresTab = ({ gradedBets = [], oddsFormat, teamLogos = {}, onNavigateToT
         || (Array.isArray(data.days) && data.days.some((d) => Number(d.pl || 0) !== 0))
     );
 
-    // Match the backend's UTC-day indexing exactly: the `days` array is
-    // weekStart..weekStart+6 in UTC, with each P/L computed from bets
-    // whose settledAt falls in that 24h UTC window. Mirror the same
-    // boundary here so the drill-down lists exactly the tickets that
-    // contributed to the row's P/L number — anything else risks showing
-    // a ticket on a day whose total doesn't include it (or vice versa)
-    // when the user's local timezone differs from UTC.
+    // Use the per-day UTC bounds the backend embedded in `data.days` —
+    // they are the exact same half-open ranges used to bucket each day's
+    // P/L total.  The old fallback computed UTC-midnight boundaries
+    // (`weekStartT00:00:00Z + dayIndex days`) which broke for players
+    // whose local timezone is behind UTC: a bet settled at 10 PM CT on
+    // Sunday = 3 AM UTC Monday would appear under Monday's drill-down
+    // even though the backend (correctly, in local TZ) counted it in
+    // Sunday's P/L.  Always prefer the server-supplied bounds.
     const betsForDayIndex = (dayIndex) => {
-        if (!data?.weekStart) return [];
-        const start = new Date(`${data.weekStart}T00:00:00Z`);
-        if (Number.isNaN(start.getTime())) return [];
-        start.setUTCDate(start.getUTCDate() + dayIndex);
-        const end = new Date(start);
-        end.setUTCDate(end.getUTCDate() + 1);
+        const dayData = data?.days?.[dayIndex];
+        if (!dayData) return [];
+
+        // Prefer server-supplied timezone-aware bounds (added alongside
+        // the local-TZ bucketing fix). Fall back to UTC-midnight only
+        // for very old cached responses that predate the field.
+        let start, end;
+        if (dayData.startUtc && dayData.endUtc) {
+            start = new Date(dayData.startUtc);
+            end = new Date(dayData.endUtc);
+        } else {
+            // Legacy fallback — will be wrong for non-UTC timezones but
+            // prevents a hard failure on stale API responses.
+            if (!data?.weekStart) return [];
+            start = new Date(`${data.weekStart}T00:00:00Z`);
+            if (Number.isNaN(start.getTime())) return [];
+            start.setUTCDate(start.getUTCDate() + dayIndex);
+            end = new Date(start);
+            end.setUTCDate(end.getUTCDate() + 1);
+        }
+
+        if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return [];
         return gradedBets.filter((bet) => {
             const ts = bet?.settledAt || bet?.updatedAt || bet?.createdAt;
             if (!ts) return false;

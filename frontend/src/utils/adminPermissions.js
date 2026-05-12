@@ -6,6 +6,8 @@ export const VIEW_PERMISSION_MAP = {
   'game-admin': 'gameAdmin',
   'casino-bets': 'gameAdmin',
   'customer-admin': 'customerAdmin',
+  'user-details': 'customerAdmin',
+  'agent-admin': 'masterAgentAdmin',
   'agent-manager': 'agentManager',
   cashier: 'cashier',
   'add-customer': 'addCustomer',

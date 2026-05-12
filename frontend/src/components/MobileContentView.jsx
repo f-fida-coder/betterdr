@@ -1,7 +1,7 @@
 import React from 'react';
 import useMatches from '../hooks/useMatches';
 import useSportOddsRefresh from '../hooks/useSportOddsRefresh';
-import { syncLiveMatches, syncPrematchSport, getStoredAuthToken } from '../api';
+import { syncLiveMatches, syncPrematchSport, getStoredAuthToken, getMyBets } from '../api';
 import { useToast } from '../contexts/ToastContext';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { getSportKeywords, findSportItemById, sportLabelForKey } from '../data/sportsData';
@@ -72,6 +72,30 @@ const categorizeLiveSport = (sportKey) => {
         if (cat.prefixes.some((p) => key.startsWith(p))) return cat;
     }
     return null;
+};
+
+/** Same live predicate as useMatches / teaser filter — board-level. */
+const matchIsInPlayRow = (match) => {
+    if (!match) return false;
+    const st = String(match?.status || '').toLowerCase();
+    if (st === 'live') return true;
+    const ev = String(match?.score?.event_status || '').toUpperCase();
+    return ev.includes('IN_PROGRESS') || ev.includes('LIVE') || ev.includes('STATUS_IN_PROGRESS');
+};
+
+const collectPendingRiskMatchIds = (bets) => {
+    const out = new Set();
+    if (!Array.isArray(bets)) return out;
+    for (const bet of bets) {
+        if (String(bet?.status || '').toLowerCase() !== 'pending') continue;
+        const legs = Array.isArray(bet?.selections) ? bet.selections : [];
+        for (const leg of legs) {
+            const mid = leg?.matchId || leg?.matchSnapshot?.id || leg?.matchSnapshot?._id;
+            if (mid) out.add(String(mid));
+        }
+        if (bet?.matchId) out.add(String(bet.matchId));
+    }
+    return out;
 };
 
 const NBA_TEAM_COLORS = {
@@ -455,6 +479,42 @@ const MobileContentView = ({
     // Reset to 'all' whenever the user leaves the Live Now bucket so
     // re-entering doesn't surprise them with a stale filter.
     const [liveSportTab, setLiveSportTab] = React.useState('all');
+    const [pendingRiskMatchIds, setPendingRiskMatchIds] = React.useState(() => new Set());
+
+    // Pending tickets → match ids so Live Now can offer a "My action"
+    // strip (DK/FD-style) listing games the player still has risk on.
+    React.useEffect(() => {
+        if (primarySport !== 'commercial-live') {
+            setPendingRiskMatchIds(new Set());
+            return undefined;
+        }
+        const token = getStoredAuthToken();
+        if (!token) {
+            setPendingRiskMatchIds(new Set());
+            return undefined;
+        }
+        let cancelled = false;
+        const load = async () => {
+            try {
+                const data = await getMyBets(token);
+                const bets = Array.isArray(data) ? data : [];
+                if (!cancelled) setPendingRiskMatchIds(collectPendingRiskMatchIds(bets));
+            } catch {
+                if (!cancelled) setPendingRiskMatchIds(new Set());
+            }
+        };
+        void load();
+        const id = window.setInterval(() => { void load(); }, 60000);
+        const onVis = () => {
+            if (typeof document !== 'undefined' && document.visibilityState === 'visible') void load();
+        };
+        document.addEventListener('visibilitychange', onVis);
+        return () => {
+            cancelled = true;
+            window.clearInterval(id);
+            document.removeEventListener('visibilitychange', onVis);
+        };
+    }, [primarySport]);
 
     // Reset to Full Game whenever the sport changes.
     React.useEffect(() => {
@@ -527,21 +587,33 @@ const MobileContentView = ({
             // upstream API calls failed, which is worse UX than showing
             // the match with a "Lines updating" indicator.
             const markets = match?.odds?.markets;
-            if (!Array.isArray(markets) || markets.length === 0) return false;
+            const ext = match?.odds?.extendedMarkets;
+            const hasMarkets = (Array.isArray(markets) && markets.length > 0)
+                || (Array.isArray(ext) && ext.length > 0);
+            if (!hasMarkets) {
+                // Strict live feed: still show in-play shells so the board
+                // matches the sidebar / scoreboard while a sync back-fills
+                // h2h/spreads/totals (or when only alt markets exist).
+                if (!(statusFilter === 'live' && matchIsInPlayRow(match))) return false;
+            }
             if (isTeaserMode) {
                 // teaserSportGroup returns 'football' / 'basketball' /
                 // null. Null = not eligible for a teaser, drop the row.
                 const group = teaserSportGroup(match?.sportKey || match?.sport);
                 if (!group) return false;
-                // Teasers price off pregame spreads — real US books
-                // (DK/FD/MGM/Caesars) refuse live legs because the spread
-                // moves during the game and the teased line can't be
-                // honored. Drop in-play cards from the board so the user
-                // never sees a live game while the Teaser tab is active.
-                const liveStatus = String(match?.status || '').toLowerCase() === 'live';
-                const eventStatus = String(match?.score?.event_status || '').toUpperCase();
-                const liveByEvent = eventStatus.includes('IN_PROGRESS') || eventStatus.includes('LIVE');
-                if (liveStatus || liveByEvent) return false;
+                // Teasers price off pregame spreads — real books reject
+                // live legs. Drop in-play cards on normal boards so users
+                // don't tap a dead-end. LIVE NOW (`commercial-live`) is the
+                // exception: hiding every live row while Teaser is selected
+                // made "Live" look broken (sidebar counts / other surfaces
+                // still showed action). Cards still show; App.jsx refuses
+                // live adds to teasers with a clear toast.
+                if (primarySport !== 'commercial-live') {
+                    const liveStatus = String(match?.status || '').toLowerCase() === 'live';
+                    const eventStatus = String(match?.score?.event_status || '').toUpperCase();
+                    const liveByEvent = eventStatus.includes('IN_PROGRESS') || eventStatus.includes('LIVE');
+                    if (liveStatus || liveByEvent) return false;
+                }
             }
             if (sportKeywords) {
                 const sport = String(match?.sport || '').toLowerCase();
@@ -638,9 +710,6 @@ const MobileContentView = ({
                 timeDisplay: formatMatchDateTime(startDate),
                 dayKey: dayKeyOf(startDate),
                 dayLabel: dayLabelOf(startDate),
-                // SGP is offered when the match has any player-prop markets
-                // cached — /api/matches/{id}/props triggers the actual fetch.
-                hasSgp: Array.isArray(match.playerProps) && match.playerProps.length > 0,
                 // Carried through so the MatchCard can render "Updated N min ago"
                 // without having to reach into rawMatch.
                 lastOddsSyncAt: match.lastOddsSyncAt || match.lastUpdated || null,
@@ -691,7 +760,7 @@ const MobileContentView = ({
             return aTs - bTs;
         });
         return formatted;
-    }, [rawMatches, primarySport, realSelected, extractOdds, activePeriod.suffix]);
+    }, [rawMatches, primarySport, realSelected, extractOdds, activePeriod.suffix, statusFilter, normalizedBetMode]);
 
     const degradedSummary = React.useMemo(() => {
         const all = Array.isArray(rawMatches) ? rawMatches : [];
@@ -763,6 +832,11 @@ const MobileContentView = ({
             isFavorite: favoriteIds.has(m.id),
         }));
     }, [matches, favoriteIds]);
+
+    const myLiveOnBoardCount = React.useMemo(() => {
+        if (!pendingRiskMatchIds || pendingRiskMatchIds.size === 0) return 0;
+        return orderedMatches.filter((m) => pendingRiskMatchIds.has(String(m.id))).length;
+    }, [orderedMatches, pendingRiskMatchIds]);
 
     // Pre-warm team/athlete badge cache so the first paint of any card
     // shows the real logo instead of an initials placeholder that
@@ -951,7 +1025,7 @@ const MobileContentView = ({
 
     // When the user has 2+ real sports selected via the sidebar checkboxes,
     // group matches by league inside the match list and emit a section
-    // header (e.g. "MLB Game", "NBA 1H") so the cards visually self-describe.
+    // header (e.g. "MLB", "NBA 1H") so the cards visually self-describe.
     // Single-sport view stays as-is — the sport title at the top of the
     // panel already provides that context, so an extra header would be
     // redundant noise.
@@ -959,10 +1033,10 @@ const MobileContentView = ({
     // Hierarchy (with sport-primary sort): league header anchors a
     // contiguous block of matches for ONE sport, then day dividers split
     // that block by date. So a multi-day MLB schedule reads
-    //     [MLB Game]
+    //     [MLB]
     //       [Today]   ...mlb today rows
     //       [Tomorrow] ...mlb tomorrow rows
-    //     [NBA Game]
+    //     [NBA]
     //       [Today]   ...nba today rows
     // — the user gets all of one sport in a single column, with day
     // context preserved within each sport. Day key resets every league
@@ -979,11 +1053,12 @@ const MobileContentView = ({
     const showLeagueHeaders = realSelected.length >= 2 || isVirtualBucket;
     // Suffix the league name with the active period chip ("1H", "2H",
     // "1Q", etc.) only when one is selected — otherwise just show
-    // "NBA" / "MLB" on its own. The literal "Game" suffix that used
-    // to render was redundant noise: the matchup rows below already
-    // show that they're games, and at-a-glance scanning is faster
-    // when the header is just the league acronym.
-    const periodSuffixLabel = activePeriod && activePeriod.label ? activePeriod.label : '';
+    // "NBA" / "MLB" on its own. Full-game period uses label "Game" for
+    // the period tab UI only; it must not be concatenated onto league
+    // headers (that produced "NBA GAME" in all-caps).
+    const periodSuffixLabel = (activePeriod && activePeriod.id !== 'full' && activePeriod.label)
+        ? activePeriod.label
+        : '';
 
     // Live Now sport-tab strip data: distinct sport categories present in
     // the current live feed, with per-category match counts. Built once
@@ -1003,27 +1078,59 @@ const MobileContentView = ({
         return tabs;
     }, [primarySport, orderedMatches]);
 
+    const showLiveSportStrip = primarySport === 'commercial-live'
+        && (liveSportTabs.length >= 1 || myLiveOnBoardCount > 0);
+
+    const liveStripTabs = React.useMemo(() => {
+        const tabs = [];
+        if (myLiveOnBoardCount > 0) {
+            tabs.push({
+                id: 'my-live',
+                icon: 'fa-solid fa-ticket',
+                label: 'My live action',
+                count: myLiveOnBoardCount,
+            });
+        }
+        tabs.push({
+            id: 'all',
+            icon: 'fa-solid fa-bolt',
+            label: 'All live',
+            count: orderedMatches.length,
+        });
+        for (const t of liveSportTabs) {
+            tabs.push({ id: t.id, icon: t.icon, label: t.label, count: t.count });
+        }
+        return tabs;
+    }, [liveSportTabs, orderedMatches.length, myLiveOnBoardCount]);
+
     // If the active tab no longer has any matches (sync cycle dropped
     // that sport from the live feed), snap back to All so the user
     // doesn't stare at an empty list.
     React.useEffect(() => {
         if (liveSportTab === 'all') return;
+        if (liveSportTab === 'my-live') {
+            if (myLiveOnBoardCount === 0) setLiveSportTab('all');
+            return;
+        }
         if (!liveSportTabs.some((t) => t.id === liveSportTab)) {
             setLiveSportTab('all');
         }
-    }, [liveSportTab, liveSportTabs]);
+    }, [liveSportTab, liveSportTabs, myLiveOnBoardCount]);
 
     // Apply the live sport-tab filter BEFORE grouping so league headers
     // / day dividers re-compute against the filtered slice (e.g. picking
     // the basketball tab won't leave an empty "MLB" header behind).
     const matchesForGrouping = React.useMemo(() => {
         if (primarySport !== 'commercial-live') return orderedMatches;
+        if (liveSportTab === 'my-live') {
+            return orderedMatches.filter((m) => pendingRiskMatchIds.has(String(m.id)));
+        }
         if (liveSportTab === 'all') return orderedMatches;
         return orderedMatches.filter((m) => {
             const cat = categorizeLiveSport(m.sportKey || m.sport);
             return cat && cat.id === liveSportTab;
         });
-    }, [primarySport, liveSportTab, orderedMatches]);
+    }, [primarySport, liveSportTab, orderedMatches, pendingRiskMatchIds]);
 
     const groupedEntries = React.useMemo(() => {
         const entries = [];
@@ -1107,16 +1214,12 @@ const MobileContentView = ({
                 </div>
             )}
 
-            {/* Live Now sport-tab strip. Styled to match the Straight /
-                Parlay / Teaser bet-mode toggle: a horizontal row of
-                segmented pills. First pill is "ALL" (all live sports);
-                subsequent pills are icon-only one-per-sport with a small
-                count badge so the player can tap straight to NBA / NFL /
-                MLB / etc. Only renders inside the Live Now bucket and
-                only when 2+ sports are live (one sport = nothing to
-                filter). Mirrors the bettorjuice365 / DraftKings live
-                filter UX. */}
-            {primarySport === 'commercial-live' && liveSportTabs.length >= 2 && (
+            {/* Live Now sport-tab strip. Segmented like Straight / Parlay /
+                Teaser: icon + count per pill (labels in title/aria only).
+                First pill (when the player has pending risk on in-play
+                games listed below) jumps to those games — same mental model
+                as DK/FD "live bets" shortcuts. */}
+            {showLiveSportStrip && (
                 <div style={{
                     display: 'flex',
                     gap: 0,
@@ -1127,7 +1230,7 @@ const MobileContentView = ({
                     borderBottom: '1px solid #374151',
                     WebkitOverflowScrolling: 'touch',
                 }}>
-                    {[{ id: 'all', icon: 'fa-solid fa-bolt', label: 'All Live', count: orderedMatches.length }, ...liveSportTabs].map((tab, idx) => {
+                    {liveStripTabs.map((tab, idx) => {
                         const active = liveSportTab === tab.id;
                         return (
                             <button
@@ -1138,8 +1241,8 @@ const MobileContentView = ({
                                 aria-label={`${tab.label} — ${tab.count} live`}
                                 style={{
                                     flex: '1 0 auto',
-                                    minWidth: 64,
-                                    padding: '10px 12px',
+                                    minWidth: 56,
+                                    padding: '10px 10px',
                                     background: active ? '#ff5051' : 'transparent',
                                     color: active ? '#fff' : '#cbd5e1',
                                     border: 'none',
@@ -1152,11 +1255,10 @@ const MobileContentView = ({
                                     fontSize: 13,
                                     fontWeight: 800,
                                     letterSpacing: 0.4,
-                                    textTransform: 'uppercase',
                                     transition: 'background 100ms ease, color 100ms ease',
                                 }}
                             >
-                                <i className={tab.icon} style={{ fontSize: 16 }} />
+                                <i className={tab.icon} style={{ fontSize: 16 }} aria-hidden />
                                 <span style={{
                                     fontSize: 10,
                                     fontWeight: 800,
@@ -1355,9 +1457,6 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
     };
     const [propsOpen, setPropsOpen] = React.useState(false);
     const [detailOpen, setDetailOpen] = React.useState(false);
-    // Track whether detail view was opened via SGP tap so the modal can
-    // surface a hint about switching to parlay mode.
-    const [detailSgpMode, setDetailSgpMode] = React.useState(false);
     const modalMatch = React.useMemo(() => ({
         id: match.id,
         externalId: match.externalId,
@@ -1475,12 +1574,11 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
             {detailOpen && (
                 <MatchDetailView
                     match={modalMatch}
-                    sgpMode={detailSgpMode}
                     onClose={() => setDetailOpen(false)}
                 />
             )}
 
-            {/* Body: team info | odds | [+ / P+ / SGP] compact action
+            {/* Body: team info | odds | [+ / P+] compact action
                 column. Action column is narrow (30px) so the three odds
                 columns never get squeezed. */}
             <div style={{
@@ -1549,11 +1647,11 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                 )}
 
                 {/* Right-column action stack — spans both team rows so
-                    all three buttons sit vertically centered against the
-                    odds grid: `+` (all markets), `P+` (player props),
-                    `SGP` (single-game parlay). Grid auto-placement fills
-                    the cell left over after team1's odds, so we anchor
-                    with grid-row 1 / span 2 to reserve the full column. */}
+                    both buttons sit vertically centered against the
+                    odds grid: `+` (all markets), `P+` (player props).
+                    Grid auto-placement fills the cell left over after
+                    team1's odds, so we anchor with grid-row 1 / span 2
+                    to reserve the full column. */}
                 <div style={{
                     // Column 1 = team info, cols 2..(2+marketCount-1) = odds,
                     // col (marketCount + 2) = action stack. Using an
@@ -1569,7 +1667,7 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                 }}>
                     <button
                         type="button"
-                        onClick={() => { setDetailSgpMode(false); setDetailOpen(true); }}
+                        onClick={() => setDetailOpen(true)}
                         disabled={blocked}
                         aria-label="Open all markets"
                         title="All game markets"
@@ -1610,27 +1708,6 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                             padding: 0,
                         }}
                     >P+</button>
-                    <button
-                        type="button"
-                        onClick={() => { setDetailSgpMode(true); setDetailOpen(true); }}
-                        disabled={blocked}
-                        aria-label="Build Single Game Parlay"
-                        title="Single-Game Parlay — pick 2+ legs from this game, then switch to PARLAY in your slip"
-                        style={{
-                            background: blocked ? '#e5e7eb' : '#e6f7ec',
-                            color: blocked ? '#9ca3af' : '#15803d',
-                            border: `1px solid ${blocked ? '#d1d5db' : '#22c55e'}`,
-                            borderRadius: 4,
-                            width: 28,
-                            height: 18,
-                            fontSize: 8,
-                            fontWeight: 800,
-                            letterSpacing: 0.3,
-                            lineHeight: 1,
-                            cursor: blocked ? 'not-allowed' : 'pointer',
-                            padding: 0,
-                        }}
-                    >SGP</button>
                 </div>
 
                 <div style={{ ...teamCellStyle, gridColumn: 1, gridRow: 2 }}>
@@ -1688,8 +1765,6 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                         onClick={() => addIfAllowed(match.id, 'Under', 'totals', match.odds.totalUnderPrice, matchName, 'Total', match.odds.totalPoint)}
                     />
                 )}
-                {/* SGP cell for row 2 is covered by the spanning action
-                    stack anchored above. */}
             </div>
 
             {blocked && (

@@ -9,8 +9,6 @@ import ChatWidget from './ChatWidget';
 import ModeBetPanel from './ModeBetPanel';
 import LoadingSpinner from './LoadingSpinner';
 
-const PrimeLiveView = React.lazy(() => import('./PrimeLiveView'));
-const UltraLiveView = React.lazy(() => import('./UltraLiveView'));
 const CasinoView = React.lazy(() => import('./CasinoView'));
 const LiveCasinoView = React.lazy(() => import('./LiveCasinoView'));
 const PropsView = React.lazy(() => import('./PropsView'));
@@ -151,9 +149,6 @@ function UserDashboardShell({
         )}
 
         <Suspense fallback={<LoadingSpinner variant="inline" label="Loading..." />}>
-          {dashboardView === 'prime-live' && <PrimeLiveView />}
-          {dashboardView === 'ultra-live' && <UltraLiveView />}
-
           {dashboardView === 'casino' && (
             <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
               <CasinoView />

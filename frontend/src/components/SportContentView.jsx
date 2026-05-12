@@ -446,24 +446,35 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
             // MobileContentView and avoids the dead-end click where
             // the user adds an MLB leg and the slip rejects it.
             const isTeaserMode = String(activeBetMode || '').toLowerCase() === 'teaser';
+            const isStrictLiveBoard = String(status || '').toLowerCase() === 'live';
             let filteredMatches = matchesData.filter(m => {
                 // Only hide matches that have no odds markets at all. Stale
                 // or temporarily suspended lines still render with the
                 // `match-card-closed` class and disabled bet buttons so the
                 // sport page stays populated when a few sync cycles fail.
                 const markets = m?.odds?.markets;
-                if (!Array.isArray(markets) || markets.length === 0) return false;
+                const ext = m?.odds?.extendedMarkets;
+                const hasMarkets = (Array.isArray(markets) && markets.length > 0)
+                    || (Array.isArray(ext) && ext.length > 0);
+                if (!hasMarkets) {
+                    const st = String(m?.status || '').toLowerCase();
+                    const ev = String(m?.score?.event_status || '').toUpperCase();
+                    const inPlay = st === 'live' || ev.includes('IN_PROGRESS') || ev.includes('LIVE');
+                    if (!(isStrictLiveBoard && inPlay)) return false;
+                }
                 if (isTeaserMode) {
                     const group = teaserSportGroup(m?.sportKey || m?.sport);
                     if (!group) return false;
-                    // Drop live cards in teaser mode — teaser pricing
-                    // requires pregame spreads, real books reject live
-                    // legs, and the betslip already refuses them so
-                    // surfacing the card was a dead-end tap.
-                    const liveStatus = String(m?.status || '').toLowerCase() === 'live';
-                    const eventStatus = String(m?.score?.event_status || '').toUpperCase();
-                    const liveByEvent = eventStatus.includes('IN_PROGRESS') || eventStatus.includes('LIVE');
-                    if (liveStatus || liveByEvent) return false;
+                    // Drop live legs on pregame boards only. Strict `live`
+                    // status (Live Now / in-play hub) must still list games
+                    // even when Teaser is selected — otherwise the hub reads
+                    // empty while teaser add is already blocked in App.jsx.
+                    if (!isStrictLiveBoard) {
+                        const liveStatus = String(m?.status || '').toLowerCase() === 'live';
+                        const eventStatus = String(m?.score?.event_status || '').toUpperCase();
+                        const liveByEvent = eventStatus.includes('IN_PROGRESS') || eventStatus.includes('LIVE');
+                        if (liveStatus || liveByEvent) return false;
+                    }
                 }
                 if (!resolvedSportId) return true;
                 const sportValue = String(m?.sport || '').toLowerCase();

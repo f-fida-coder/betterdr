@@ -452,7 +452,12 @@ final class WalletController
             $weekTotal = array_sum($dailyPL);
             $endBalance = $carryForward + $weekTotal + $transactionsTotal;
 
-            // Day labels Tue, Wed, ..., Mon with their date strings
+            // Day labels Tue, Wed, ..., Mon with their date strings.
+            // startUtc / endUtc are the exact half-open UTC bounds used
+            // above to bucket the bets — the frontend must use these same
+            // values when filtering the drill-down list so it matches the
+            // P/L total shown in the row (a UTC-midnight boundary is wrong
+            // for players whose local timezone is behind UTC).
             $dayNames = ['Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun', 'Mon'];
             $days = [];
             for ($i = 0; $i < 7; $i++) {
@@ -461,6 +466,8 @@ final class WalletController
                     'label' => $dayNames[$i],
                     'date' => $d->format('n/j'),
                     'pl' => (float) round($dailyPL[$i]),
+                    'startUtc' => (new DateTimeImmutable('@' . $dayBoundsTs[$i][0]))->format('Y-m-d\TH:i:s\Z'),
+                    'endUtc' => (new DateTimeImmutable('@' . $dayBoundsTs[$i][1]))->format('Y-m-d\TH:i:s\Z'),
                 ];
             }
 

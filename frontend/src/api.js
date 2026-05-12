@@ -1439,7 +1439,7 @@ export const getIpTracker = async (params, token) => {
 };
 
 export const blockIp = async (id, token) => {
-    const response = await fetch(`${API_URL}/admin/ip-tracker/${id}/block`, {
+    const response = await fetch(buildApiUrl(`/admin/ip-tracker/${id}/block`), {
         method: 'POST',
         headers: getHeaders(token)
     });
@@ -1451,7 +1451,7 @@ export const blockIp = async (id, token) => {
 };
 
 export const unblockIp = async (id, token) => {
-    const response = await fetch(`${API_URL}/admin/ip-tracker/${id}/unblock`, {
+    const response = await fetch(buildApiUrl(`/admin/ip-tracker/${id}/unblock`), {
         method: 'POST',
         headers: getHeaders(token)
     });
@@ -1472,7 +1472,7 @@ export const getTransactionsHistory = async (params, token) => {
 };
 
 export const deleteAdminTransactions = async (ids, token) => {
-    const response = await fetch(`${API_URL}/admin/transaction-history`, {
+    const response = await fetch(buildApiUrl('/admin/transaction-history'), {
         method: 'DELETE',
         headers: getHeaders(token),
         body: JSON.stringify({ ids })

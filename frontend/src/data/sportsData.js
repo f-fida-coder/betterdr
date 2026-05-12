@@ -225,7 +225,7 @@ export const getSportKeywords = (id) => {
 /**
  * Map of canonical OddsAPI sportKey → human-readable league label, derived
  * from the leaf nodes in `sportsData`. Used by the multi-sport list view to
- * print "MLB Game" / "NBA Game" section headers above each league's matches.
+ * print short league labels (e.g. "MLB", "NBA") in section headers above each league's matches.
  *
  * Lazily memoised so the first lookup builds the map once; subsequent calls
  * are O(1). Falls back to the sportKey itself (uppercased segments) when the

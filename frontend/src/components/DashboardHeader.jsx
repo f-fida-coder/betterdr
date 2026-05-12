@@ -53,7 +53,6 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
         settings: userSettings,
     };
     const { oddsFormat, setOddsFormat, isUpdatingOddsFormat } = useOddsFormat();
-    const [showLiveMenu, setShowLiveMenu] = useState(false);
     const [showMoreMenu, setShowMoreMenu] = useState(false);
     const [showUserMenu, setShowUserMenu] = useState(false);
     const [isRefreshing, setIsRefreshing] = useState(false);
@@ -198,20 +197,15 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
     };
 
     // 5-cell mobile header (Sport / Account / Balance / Menu / Betslip).
-    // Icon cells are dark navy, balance cell is muted gray and flex-grows
-    // to fill the middle. Each cell ≥44px tap target on the icon side; the
-    // balance cell is informational and not interactive.
-    // Fixed width on all four icon cells (Sports / Menu / Betslip / Account)
-    // so they read as a uniform set. Without an explicit width the Betslip
-    // cell sized to its inner white circle and looked narrower than the
-    // others — locking width: 64 makes them all visually identical
-    // regardless of inner content. The right divider uses a darker tone
-    // (rgba black 0.45) so the vertical seams between cells stay visible
-    // against the slate gray background — the previous white-12% border
-    // was essentially invisible.
+    // 6-equal-column grid: Sports | Menu | Balance (span 2) | Betslip |
+    // Account. Matches the bet-mode strip (6 equal cells) and the MyBets
+    // tabs row (3 cells, each spanning 2 columns) below so the vertical
+    // dividers line up cleanly across all three rows. The right divider
+    // uses a darker tone (rgba black 0.45) so the vertical seams between
+    // cells stay visible against the slate gray background.
     const mhCellBtnStyle = {
-        flex: '0 0 auto',
-        width: 64,
+        width: '100%',
+        minWidth: 0,
         minHeight: 64,
         padding: '6px 6px',
         background: '#595959',
@@ -235,16 +229,17 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
         lineHeight: 1,
     };
     const mhBalanceCellStyle = {
-        flex: '1 1 auto',
+        gridColumn: 'span 2',
         minWidth: 0,
         background: '#595959',
         borderLeft: '1px solid rgba(0,0,0,0.45)',
         borderRight: '1px solid rgba(0,0,0,0.45)',
         boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 0 rgba(0,0,0,0.18)',
-        padding: '4px 10px',
+        padding: '2px 10px',
         display: 'flex',
         flexDirection: 'column',
         justifyContent: 'center',
+        gap: 1,
         // Make the whole 3-row balance summary act as a single tap target
         // so the user goes straight to My Bets → Pending. Keeping it a
         // <button> with `appearance: none` so the gradient shows through.
@@ -261,8 +256,8 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
         justifyContent: 'space-between',
         gap: 8,
         minWidth: 0,
-        lineHeight: 1.15,
-        padding: '2px 0',
+        lineHeight: 1.1,
+        padding: '0',
     };
     const mhBalanceLabelStyle = {
         fontSize: 9,
@@ -302,10 +297,10 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
         margin: '0 -2px',
     };
     const balanceSignColor = (value) => {
-        if (unlimitedBalance) return '#34d399';
+        if (unlimitedBalance) return '#16a34a';
         const n = Number(value);
         if (!Number.isFinite(n) || n === 0) return '#ffffff';
-        return n > 0 ? '#34d399' : '#fca5a5';
+        return n > 0 ? '#16a34a' : '#fca5a5';
     };
     const mhBetslipCircleStyle = {
         width: 28,
@@ -418,7 +413,8 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
                 <div
                     className="top-header"
                     style={{
-                        display: 'flex',
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(6, 1fr)',
                         alignItems: 'stretch',
                         padding: 0,
                         minHeight: 64,
@@ -513,7 +509,7 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
                         {Number(freeplayBalance) > 0 && (
                             <div style={mhBalanceRowStyle}>
                                 <span style={mhBalanceHeroLabelStyle}>Freeplay</span>
-                                <span style={{ ...mhBalanceHeroValueStyle, color: '#22c55e' }}>
+                                <span style={{ ...mhBalanceHeroValueStyle, color: '#16a34a' }}>
                                     {formatBalanceCell(freeplayBalance)}
                                 </span>
                             </div>
@@ -688,48 +684,6 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
 
                     <div
                         className="dash-nav-item"
-                        onMouseEnter={() => setShowLiveMenu(true)}
-                        onMouseLeave={() => setShowLiveMenu(false)}
-                        style={{ position: 'relative', overflow: 'visible' }}
-                    >
-                        <span>LIVE</span>
-                        <div className="dash-nav-icon">
-                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" /></svg>
-                        </div>
-
-                        {showLiveMenu && (
-                            <div style={{
-                                position: 'absolute',
-                                top: '100%',
-                                left: '0',
-                                width: '120px',
-                                background: '#333',
-                                zIndex: 100,
-                                border: '1px solid #555',
-                                boxShadow: '0 4px 10px rgba(0,0,0,0.5)'
-                            }}>
-                                <div
-                                    style={{ padding: '10px', color: 'white', borderBottom: '1px solid #444', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '5px' }}
-                                    onClick={() => onViewChange && onViewChange('prime-live')}
-                                    className="live-menu-item"
-                                >
-                                    <span style={{ fontSize: '10px', fontWeight: 'bold' }}>PRIME LIVE</span>
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
-                                </div>
-                                <div
-                                    style={{ padding: '10px', color: '#999', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '5px' }}
-                                    className="live-menu-item"
-                                    onClick={() => onViewChange && onViewChange('ultra-live')}
-                                >
-                                    <span style={{ fontSize: '10px', fontWeight: 'bold' }}>ULTRA LIVE</span>
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" /></svg>
-                                </div>
-                            </div>
-                        )}
-                    </div>
-
-                    <div
-                        className="dash-nav-item"
                         onClick={() => onViewChange && onViewChange('casino')}
                     >
                         <span>CASINO</span>
@@ -826,7 +780,7 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
                         {Number(freeplayBalance) > 0 && (
                             <div className="dash-balance">
                                 <span>FREEPLAY</span>
-                                <strong style={{ color: '#22c55e' }}>{formatMoney(freeplayBalance)}</strong>
+                                <strong style={{ color: '#16a34a' }}>{formatMoney(freeplayBalance)}</strong>
                             </div>
                         )}
                     </button>

@@ -2,8 +2,7 @@ import React from 'react';
 
 const MobileGridMenu = ({ onClose, onViewChange }) => {
     const menuItems = [
-        { id: 'sports', label: 'Sports', icon: 'fa-solid fa-shield-halved' },         { id: 'prime-live', label: 'Prime Live', icon: 'fa-solid fa-tv' },
-        { id: 'ultra-live', label: 'Ultra Live', icon: 'fa-solid fa-display' },
+        { id: 'sports', label: 'Sports', icon: 'fa-solid fa-shield-halved' },
         { id: 'casino', label: 'Casino', icon: 'fa-solid fa-dice' },
         { id: 'live-casino', label: 'Live Casino', icon: 'fa-solid fa-circle-dot' },
         { id: 'prop-builder', label: 'Prop Builder', icon: 'fa-solid fa-arrow-down-1-9' },
