@@ -198,7 +198,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
     const rawMatchesRef = React.useRef(rawMatches);
     React.useEffect(() => { rawMatchesRef.current = rawMatches; }, [rawMatches]);
 
-    // LIVE NOW open: fire one synchronous OddsAPI live sync so the first
+    // LIVE NOW open: fire a synchronous OddsAPI live sync so the first
     // paint shows the freshest possible odds instead of waiting up to 30s
     // for AUTO_POLL or for the worker's next live tick. Backend has a 15s
     // per-IP throttle on /api/sync/live, so re-mounting cheaply skips the
@@ -206,26 +206,40 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
     // through a different auth path (X-Tick-Secret only) — here we require
     // a stored auth token before firing so logged-out visitors still get
     // the cached rows from GET /api/matches without a 401 toast.
+    //
+    // The sync ALSO recurs every 60s while Live Now stays open. Backend's
+    // 90s live-freshness gate hides rows whose `lastOddsSyncAt` is older
+    // than 90s — if the worker stalls between ticks, /api/matches?status=live
+    // returns [] and the board flashes empty. Re-poking /api/sync/live
+    // every 60s keeps `lastOddsSyncAt` inside the window so rows never
+    // age out from under the player. Pauses while tab is hidden.
     React.useEffect(() => {
         if (status !== 'live') return undefined;
         if (!getStoredAuthToken()) return undefined;
-        const ctrl = new AbortController();
         let cancelled = false;
-        const timer = window.setTimeout(() => {
+        let activeController = null;
+        const runSync = (reason) => {
             if (cancelled) return;
+            if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+            if (activeController) activeController.abort();
+            const ctrl = new AbortController();
+            activeController = ctrl;
             syncLiveMatches({ signal: ctrl.signal })
                 .then(() => {
                     if (cancelled) return;
                     window.dispatchEvent(new CustomEvent('matches:force-refetch', {
-                        detail: { reason: 'live-mount-sync' },
+                        detail: { reason },
                     }));
                 })
                 .catch(() => { /* throttled / aborted — auto-poll will catch up */ });
-        }, 200);
+        };
+        const initialTimer = window.setTimeout(() => runSync('live-mount-sync'), 200);
+        const intervalId = window.setInterval(() => runSync('live-periodic-sync'), 60000);
         return () => {
             cancelled = true;
-            window.clearTimeout(timer);
-            ctrl.abort();
+            window.clearTimeout(initialTimer);
+            window.clearInterval(intervalId);
+            if (activeController) activeController.abort();
         };
     }, [status]);
 

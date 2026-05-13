@@ -1076,31 +1076,45 @@ const MobileContentView = ({
     const { showToast } = useToast();
     const { trigger: triggerSportRefresh, isRefreshing: isSportRefreshing, cooldownRemainingSec } = useSportOddsRefresh(visibleSportKeys, { showToast });
 
-    // LIVE NOW open (mobile): mirror SportContentView and fire a single
+    // LIVE NOW open (mobile): mirror SportContentView and fire a
     // synchronous OddsAPI live sync so the first paint shows the freshest
     // odds possible. Backend's 15s per-IP throttle on /api/sync/live silently
     // collapses redundant calls, so re-mounting LIVE NOW or rapid back/forth
     // navigation never hammers the upstream.
+    //
+    // The sync ALSO runs on a 60s interval while Live Now is open. The
+    // backend's 90s live-freshness gate hides rows whose lastOddsSyncAt
+    // is older than 90s — if the worker stalls between ticks, /api/matches?status=live
+    // starts returning [] and the board would flash empty. Re-poking
+    // /api/sync/live every 60s keeps the lastOddsSyncAt fresh so rows
+    // never age out from under the player. Pauses while tab is hidden.
     React.useEffect(() => {
         if (statusFilter !== 'live') return undefined;
         if (!getStoredAuthToken()) return undefined;
-        const ctrl = new AbortController();
         let cancelled = false;
-        const timer = window.setTimeout(() => {
+        let activeController = null;
+        const runSync = (reason) => {
             if (cancelled) return;
+            if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+            if (activeController) activeController.abort();
+            const ctrl = new AbortController();
+            activeController = ctrl;
             syncLiveMatches({ signal: ctrl.signal })
                 .then(() => {
                     if (cancelled) return;
                     window.dispatchEvent(new CustomEvent('matches:force-refetch', {
-                        detail: { reason: 'live-mount-sync' },
+                        detail: { reason },
                     }));
                 })
                 .catch(() => { /* throttled / aborted — auto-poll will catch up */ });
-        }, 200);
+        };
+        const initialTimer = window.setTimeout(() => runSync('live-mount-sync'), 200);
+        const intervalId = window.setInterval(() => runSync('live-periodic-sync'), 60000);
         return () => {
             cancelled = true;
-            window.clearTimeout(timer);
-            ctrl.abort();
+            window.clearTimeout(initialTimer);
+            window.clearInterval(intervalId);
+            if (activeController) activeController.abort();
         };
     }, [statusFilter]);
 
