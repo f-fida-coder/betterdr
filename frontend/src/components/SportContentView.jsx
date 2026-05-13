@@ -499,20 +499,17 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
             const isTeaserMode = String(activeBetMode || '').toLowerCase() === 'teaser';
             const isStrictLiveBoard = String(status || '').toLowerCase() === 'live';
             let filteredMatches = matchesData.filter(m => {
-                // Only hide matches that have no odds markets at all. Stale
-                // or temporarily suspended lines still render with the
-                // `match-card-closed` class and disabled bet buttons so the
-                // sport page stays populated when a few sync cycles fail.
+                // Match must have at least one usable market to render. A row
+                // with no markets has nothing to bet on, so drop it everywhere
+                // — keeping shells around just to look populated produces
+                // cards full of dashes. The 60s grace window in useMatches
+                // keeps rawMatches stable through worker hiccups, so true
+                // "no markets" now means upstream really pulled the lines.
                 const markets = m?.odds?.markets;
                 const ext = m?.odds?.extendedMarkets;
                 const hasMarkets = (Array.isArray(markets) && markets.length > 0)
                     || (Array.isArray(ext) && ext.length > 0);
-                if (!hasMarkets) {
-                    const st = String(m?.status || '').toLowerCase();
-                    const ev = String(m?.score?.event_status || '').toUpperCase();
-                    const inPlay = st === 'live' || ev.includes('IN_PROGRESS') || ev.includes('LIVE');
-                    if (!(isStrictLiveBoard && inPlay)) return false;
-                }
+                if (!hasMarkets) return false;
                 if (isTeaserMode) {
                     const group = teaserSportGroup(m?.sportKey || m?.sport);
                     if (!group) return false;

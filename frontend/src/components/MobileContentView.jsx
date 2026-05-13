@@ -128,15 +128,6 @@ const classifyGameStage = (match) => {
     return 'late';
 };
 
-/** Same live predicate as useMatches / teaser filter — board-level. */
-const matchIsInPlayRow = (match) => {
-    if (!match) return false;
-    const st = String(match?.status || '').toLowerCase();
-    if (st === 'live') return true;
-    const ev = String(match?.score?.event_status || '').toUpperCase();
-    return ev.includes('IN_PROGRESS') || ev.includes('LIVE') || ev.includes('STATUS_IN_PROGRESS');
-};
-
 const collectPendingRiskMatchIds = (bets) => {
     const out = new Set();
     if (!Array.isArray(bets)) return out;
@@ -549,15 +540,16 @@ const MobileContentView = ({
         return set;
     }, [rawMatches]);
 
-    // Static per sport: tabs are the full preset for the selected sport,
-    // regardless of which periods the current sync cycle returned. Previously
-    // we filtered to only currently-populated suffixes — that caused period
-    // tabs to randomly vanish whenever the extended-sync call missed a
-    // cycle. Empty periods now render an inline "no lines" banner below
-    // so the tab strip stays stable across refreshes.
+    // Per sport, show only periods whose markets actually exist in the
+    // current sync cycle (FULL_PERIOD always renders so the user always
+    // has a Full Game tab). The 60s grace window in useMatches keeps
+    // rawMatches stable across sync hiccups, so tabs don't flicker when
+    // an extended-sync call misses a cycle — they only disappear when
+    // upstream truly stopped returning that period's market.
     const periods = React.useMemo(() => {
-        return getPeriodsForSport(primarySport);
-    }, [primarySport]);
+        const preset = getPeriodsForSport(primarySport);
+        return preset.filter(p => p.id === 'full' || availableSuffixes.has(p.suffix));
+    }, [primarySport, availableSuffixes]);
 
     const [selectedPeriodId, setSelectedPeriodId] = React.useState('full');
 
@@ -729,22 +721,19 @@ const MobileContentView = ({
         // games the product actually supports.
         const isTeaserMode = normalizedBetMode === 'teaser';
         const filteredRaw = (rawMatches || []).filter((match) => {
-            // Only hide matches with no odds markets at all. Stale odds
-            // (book between sync cycles) still render — the MatchCard
-            // disables bet buttons and shows the blocked reason. Hiding
-            // on `isBettable===false` caused whole sports to vanish when
-            // upstream API calls failed, which is worse UX than showing
-            // the match with a "Lines updating" indicator.
+            // Match must have at least one usable market to render. A row
+            // with no markets has nothing for the player to bet on, so we
+            // drop it from cards AND from the sport/league/period tab
+            // counters — otherwise the strip advertises a sport that
+            // would resolve to a card full of dashes. The 60s grace
+            // window in useMatches keeps rawMatches stable across worker
+            // hiccups, so true "no markets" now means upstream really
+            // pulled the lines, not a transient sync gap.
             const markets = match?.odds?.markets;
             const ext = match?.odds?.extendedMarkets;
             const hasMarkets = (Array.isArray(markets) && markets.length > 0)
                 || (Array.isArray(ext) && ext.length > 0);
-            if (!hasMarkets) {
-                // Strict live feed: still show in-play shells so the board
-                // matches the sidebar / scoreboard while a sync back-fills
-                // h2h/spreads/totals (or when only alt markets exist).
-                if (!(statusFilter === 'live' && matchIsInPlayRow(match))) return false;
-            }
+            if (!hasMarkets) return false;
             if (isTeaserMode) {
                 // teaserSportGroup returns 'football' / 'basketball' /
                 // null. Null = not eligible for a teaser, drop the row.
