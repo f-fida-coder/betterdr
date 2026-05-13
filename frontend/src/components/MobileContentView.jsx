@@ -1236,10 +1236,16 @@ const MobileContentView = ({
         ? activePeriod.label
         : '';
 
-    // Live Now sport-tab strip data: distinct sport categories present in
-    // the current live feed, with per-category match counts. Built once
-    // per orderedMatches change; only used in the Live Now bucket (other
-    // buckets keep their existing sport-keyword filter from the sidebar).
+    // Live Now sport-tab strip data: the strip is the persistent sport
+    // rail every pro book has — football, basketball, baseball, hockey,
+    // soccer, tennis pills show ALWAYS, even when nothing is live in
+    // that sport (count 0, rendered dimmed). Picking an empty pill
+    // simply shows "no live games" instead of hiding the pill, so the
+    // rail's location and contents are stable from session to session
+    // — a player who learns "soccer is the 5th icon" never has to relearn.
+    // Niche sports (MMA, cricket, rugby, etc.) only appear when there's
+    // at least one live game so the rail doesn't overflow with empty pills.
+    const LIVE_RAIL_CORE_SPORTS = ['football', 'basketball', 'baseball', 'hockey', 'soccer', 'tennis'];
     const liveSportTabs = React.useMemo(() => {
         if (primarySport !== 'commercial-live') return [];
         const counts = new Map();
@@ -1248,10 +1254,9 @@ const MobileContentView = ({
             if (!cat) continue;
             counts.set(cat.id, (counts.get(cat.id) || 0) + 1);
         }
-        const tabs = LIVE_SPORT_CATEGORIES
-            .filter((c) => counts.has(c.id))
+        return LIVE_SPORT_CATEGORIES
+            .filter((c) => LIVE_RAIL_CORE_SPORTS.includes(c.id) || counts.has(c.id))
             .map((c) => ({ ...c, count: counts.get(c.id) || 0 }));
-        return tabs;
     }, [primarySport, orderedMatches]);
 
     // Matches surviving the sport-category filter only — feeds the
@@ -1507,6 +1512,7 @@ const MobileContentView = ({
                 <div style={liveFilterStripStyle}>
                     {liveStripTabs.map((tab, idx) => {
                         const active = liveSportTab === tab.id;
+                        const isEmpty = tab.count === 0 && tab.id !== 'all' && tab.id !== 'my-live';
                         return (
                             <button
                                 key={tab.id}
@@ -1517,7 +1523,8 @@ const MobileContentView = ({
                                 style={{
                                     ...liveFilterPillStyle,
                                     background: active ? '#ff5051' : 'transparent',
-                                    color: active ? '#fff' : '#e5e7eb',
+                                    color: active ? '#fff' : (isEmpty ? '#6b7280' : '#e5e7eb'),
+                                    opacity: !active && isEmpty ? 0.55 : 1,
                                     borderLeft: idx === 0 ? 'none' : '1px solid rgba(255,255,255,0.08)',
                                     boxShadow: active ? 'inset 0 -2px 0 rgba(255,255,255,0.4)' : 'none',
                                 }}
@@ -1612,22 +1619,39 @@ const MobileContentView = ({
                     <SkeletonList />
                 )}
 
-                {groupedEntries.length === 0 && hasLoadedOnce && (
-                    <div style={emptyStateStyle}>
-                        <i
-                            className={`fa-solid ${statusFilter === 'live' ? 'fa-tv' : 'fa-calendar-xmark'}`}
-                            style={{ fontSize: '32px', marginBottom: '12px', opacity: 0.5, display: 'block' }}
-                        ></i>
-                        <p style={{ fontSize: '13px', margin: '0 0 4px 0', color: '#999', fontWeight: '600' }}>
-                            {statusFilter === 'live' ? 'No matches with live odds right now' : 'No matches with fresh odds right now'}
-                        </p>
-                        <p style={{ fontSize: '11px', margin: 0, color: '#bbb' }}>
-                            {statusFilter === 'live'
-                                ? 'In-play games appear here once their odds refresh.'
-                                : 'Refreshing — check back in a moment.'}
-                        </p>
-                    </div>
-                )}
+                {groupedEntries.length === 0 && hasLoadedOnce && (() => {
+                    // When the Live Now rail filter has narrowed to a sport
+                    // that's currently empty (e.g. user tapped Basketball
+                    // when nothing is in-play), say so directly. Otherwise
+                    // fall back to the generic "no matches" copy used for
+                    // the all-sports board.
+                    const activeSportLabel = (statusFilter === 'live'
+                        && primarySport === 'commercial-live'
+                        && liveSportTab !== 'all'
+                        && liveSportTab !== 'my-live')
+                        ? (liveStripTabs.find(t => t.id === liveSportTab)?.label || '')
+                        : '';
+                    return (
+                        <div style={emptyStateStyle}>
+                            <i
+                                className={`fa-solid ${statusFilter === 'live' ? 'fa-tv' : 'fa-calendar-xmark'}`}
+                                style={{ fontSize: '32px', marginBottom: '12px', opacity: 0.5, display: 'block' }}
+                            ></i>
+                            <p style={{ fontSize: '13px', margin: '0 0 4px 0', color: '#999', fontWeight: '600' }}>
+                                {activeSportLabel
+                                    ? `No live ${activeSportLabel.toLowerCase()} games right now`
+                                    : (statusFilter === 'live' ? 'No matches with live odds right now' : 'No matches with fresh odds right now')}
+                            </p>
+                            <p style={{ fontSize: '11px', margin: 0, color: '#bbb' }}>
+                                {activeSportLabel
+                                    ? 'Tap another sport or come back when a game is in-play.'
+                                    : (statusFilter === 'live'
+                                        ? 'In-play games appear here once their odds refresh.'
+                                        : 'Refreshing — check back in a moment.')}
+                            </p>
+                        </div>
+                    );
+                })()}
 
                 {/* Empty-period banner. Two flavors:
                       • Closed for all visible matches → honest "period is
