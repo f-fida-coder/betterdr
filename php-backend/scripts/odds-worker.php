@@ -24,6 +24,7 @@ require_once __DIR__ . '/../src/OddsMarketCatalog.php';
 require_once __DIR__ . '/../src/ApiQuotaGuard.php';
 require_once __DIR__ . '/../src/TeamNormalizer.php';
 require_once __DIR__ . '/../src/OddsSyncService.php';
+require_once __DIR__ . '/../src/RundownLiveService.php';
 require_once __DIR__ . '/../src/RealtimeEventBus.php';
 require_once __DIR__ . '/../src/EspnScoreboardSync.php';
 
@@ -178,12 +179,23 @@ while (true) {
     $elapsed = (int) max(0, round(microtime(true) - $started));
     $remaining = max(1, $intervalSeconds - $elapsed);
     $liveTickSeconds = max(5, (int) Env::get('RUNDOWN_LIVE_TICK_SECONDS', '10'));
-    // Live-odds toggle. Defaults on; flip in .env if you want a quiet
-    // worker that only handles other queues:
-    //   LIVE_ODDS_ODDSAPI=true|false
+    // Live-odds source toggle. Hybrid mode:
+    //   RUNDOWN_LIVE_ENABLED=true  → Rundown handles the sports it
+    //     covers (NBA, NFL, MLB, NHL, top soccer leagues, IPL, etc.),
+    //     OddsAPI live writer fills the gaps (tennis, boxing,
+    //     euroleague, cricket ODI, plus anything else not in Rundown's
+    //     /sports list). Each writer filters by sport so they never
+    //     update the same matches row.
+    //   RUNDOWN_LIVE_ENABLED=false → OddsAPI writes ALL live odds
+    //     (legacy behaviour, unchanged).
+    $rundownLiveOn = strtolower((string) Env::get('RUNDOWN_LIVE_ENABLED', 'false')) === 'true'
+        && (string) Env::get('RUNDOWN_API_KEY', '') !== '';
     $oddsApiLiveOn = strtolower((string) Env::get('LIVE_ODDS_ODDSAPI', 'true')) === 'true'
         && strtolower((string) Env::get('SPORTS_API_ENABLED', 'true')) === 'true'
         && (string) Env::get('ODDS_API_KEY', '') !== '';
+    // In hybrid mode the OddsAPI live writer skips the sports Rundown
+    // is handling so the two never fight for the same match.
+    $rundownSupportedSports = $rundownLiveOn ? RundownLiveService::supportedSportKeys() : [];
     // ESPN scoreboard meta (records + broadcast strings) is fetched on a
     // separate, slower cadence — see $espnMetaInterval below. The boolean
     // toggle just lets ops disable the side-channel entirely if ESPN ever
@@ -194,18 +206,42 @@ while (true) {
     $deadline = microtime(true) + $remaining;
     while (microtime(true) < $deadline) {
         $chunkStart = microtime(true);
+        if ($rundownLiveOn) {
+            try {
+                $repoLive = new SqlRepository($dbUri, $dbName);
+                $r = RundownLiveService::syncLiveOdds($repoLive);
+                if (($r['updated'] ?? 0) > 0 || ($r['errors'] ?? 0) > 0 || ($r['liveEvents'] ?? 0) > 0) {
+                    $logWorker('info', sprintf(
+                        "rundown live tick sports=%d live=%d calls=%d updated=%d skipped=%d errors=%d",
+                        (int) ($r['sportsChecked'] ?? 0),
+                        (int) ($r['liveEvents'] ?? 0),
+                        (int) ($r['oddsCalls'] ?? 0),
+                        (int) ($r['updated'] ?? 0),
+                        (int) ($r['skipped'] ?? 0),
+                        (int) ($r['errors'] ?? 0)
+                    ));
+                }
+                unset($repoLive);
+            } catch (Throwable $e) {
+                $logWorker('error', 'rundown live tick failed: ' . $e->getMessage());
+            }
+        }
         if ($oddsApiLiveOn) {
             try {
                 $repoLive = new SqlRepository($dbUri, $dbName);
-                $r = OddsSyncService::syncLiveOdds($repoLive);
+                // Hybrid mode: pass Rundown's covered sports so OddsAPI
+                // skips them. Plain mode ($rundownSupportedSports = []):
+                // OddsAPI handles everything as before.
+                $r = OddsSyncService::syncLiveOdds($repoLive, $rundownSupportedSports);
                 if (($r['updated'] ?? 0) > 0 || ($r['created'] ?? 0) > 0 || ($r['errors'] ?? 0) > 0 || ($r['liveScoreEvents'] ?? 0) > 0) {
                     $logWorker('info', sprintf(
-                        "oddsapi live tick sports=%d live=%d withOdds=%d changed=%d errors=%d",
+                        "oddsapi live tick sports=%d live=%d withOdds=%d changed=%d errors=%d mode=%s",
                         (int) ($r['sportsChecked'] ?? 0),
                         (int) ($r['liveScoreEvents'] ?? 0),
                         count((array) ($r['matches'] ?? [])),
                         (int) ($r['updated'] ?? 0) + (int) ($r['created'] ?? 0),
-                        (int) ($r['errors'] ?? 0)
+                        (int) ($r['errors'] ?? 0),
+                        $rundownLiveOn ? 'hybrid-gap-fill' : 'standalone'
                     ));
                 }
                 unset($repoLive);

@@ -873,10 +873,20 @@ final class OddsSyncService
      *
      * @return array{ok:bool,sportsChecked:int,liveScoreEvents:int,liveSports:int,oddsCalls:int,created:int,updated:int,finished:int,errors:int,matches:list<array<string,mixed>>,perSport:array<string,array<string,int>>}
      */
-    public static function syncLiveOdds(SqlRepository $db): array
+    /**
+     * @param list<string> $excludeSportKeys When the hybrid live-odds mode
+     *        is on (RUNDOWN_LIVE_ENABLED=true), the worker passes the set
+     *        of sport keys Rundown is handling. We skip those here so the
+     *        two writers never fight over the same matches row.
+     */
+    public static function syncLiveOdds(SqlRepository $db, array $excludeSportKeys = []): array
     {
         $apiKey = (string) Env::get('ODDS_API_KEY', '');
         $sportsApiEnabled = strtolower((string) Env::get('SPORTS_API_ENABLED', 'true')) === 'true';
+        $excludeSet = [];
+        foreach ($excludeSportKeys as $k) {
+            $excludeSet[strtolower(trim((string) $k))] = true;
+        }
         $result = [
             'ok' => false,
             'sportsChecked' => 0,
@@ -898,6 +908,11 @@ final class OddsSyncService
 
         $apiBase = 'https://api.the-odds-api.com/v4';
         $sports = self::resolveSportsListForLive($apiKey, $apiBase);
+        if ($excludeSet !== []) {
+            $sports = array_values(array_filter($sports, static function (string $s) use ($excludeSet): bool {
+                return !isset($excludeSet[strtolower($s)]);
+            }));
+        }
         $result['sportsChecked'] = count($sports);
         if ($sports === []) {
             $result['ok'] = true;

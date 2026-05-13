@@ -287,10 +287,21 @@ final class MatchesController
                 if ($lastTs === false) return false;
 
                 if ($status === 'live') {
-                    // Canonical path: must be OddsAPI-sourced + fresh per
-                    // the sport's live cadence.
-                    if (strtolower((string) ($match['oddsSource'] ?? '')) !== 'oddsapi') return false;
+                    // Canonical path: live odds may come from OddsAPI OR
+                    // Rundown depending on RUNDOWN_LIVE_ENABLED. Both
+                    // sources write to the same matches row with the
+                    // `oddsSource` tag — accept either.
+                    $src = strtolower((string) ($match['oddsSource'] ?? ''));
+                    if ($src !== 'oddsapi' && $src !== 'rundown') return false;
                     $maxAge = self::liveFreshnessSecondsForSport($sportKey);
+                    // Rundown Starter plan has a 60s data delay on top of
+                    // our 70s tick — allow more headroom before filtering
+                    // the row as stale, otherwise rows briefly disappear
+                    // between ticks. Hard cap remains 180s (handled below
+                    // via oddsStale flag).
+                    if ($src === 'rundown') {
+                        $maxAge = max($maxAge, 150);
+                    }
                     return ($now - $lastTs) <= $maxAge;
                 }
 
@@ -307,6 +318,17 @@ final class MatchesController
 
                 return false;
             }));
+            // Decorate each surviving live row with freshness metadata so
+            // the UI can show a "delayed" badge for rows whose last sync
+            // is older than RundownLiveService::STALE_SOFT_SECONDS. Rows
+            // older than STALE_HARD_SECONDS were already filtered out by
+            // the loop above — they never reach the player.
+            $annotated = array_map(static function (array $match): array {
+                $f = RundownLiveService::freshnessFor($match);
+                $match['oddsAgeSeconds'] = $f['ageSeconds'];
+                $match['oddsDelayed'] = $f['delayed'];
+                return $match;
+            }, $annotated);
         } elseif ($desiredStatus === 'live-upcoming') {
             // Default landing view. Drop rows whose odds are stale outright
             // — pre-match window is PREMATCH_FRESHNESS_SECONDS_DEFAULT (300s
