@@ -49,20 +49,24 @@ const MONTHS_SHORT = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'S
 // Keys are matched against the OddsAPI sportKey prefix so all NFL/NCAAF
 // rows collapse under one "football" tab, all NBA/WNBA/NCAAB under
 // "basketball", etc. — matches what players intuit from the icons.
+// Emoji icons render as full-color glyphs natively on every modern OS —
+// matches the colorful "real sport ball" treatment players expect on a
+// pro book rail without bundling a paid icon set. `icon` (FontAwesome)
+// stays around as a fallback in case a host font has no emoji support.
 const LIVE_SPORT_CATEGORIES = [
-    { id: 'football',       prefixes: ['americanfootball'],                      icon: 'fa-solid fa-football',                 label: 'Football' },
-    { id: 'basketball',     prefixes: ['basketball'],                            icon: 'fa-solid fa-basketball',               label: 'Basketball' },
-    { id: 'baseball',       prefixes: ['baseball'],                              icon: 'fa-solid fa-baseball-bat-ball',        label: 'Baseball' },
-    { id: 'hockey',         prefixes: ['icehockey'],                             icon: 'fa-solid fa-hockey-puck',              label: 'Hockey' },
-    { id: 'soccer',         prefixes: ['soccer'],                                icon: 'fa-solid fa-futbol',                   label: 'Soccer' },
-    { id: 'tennis',         prefixes: ['tennis'],                                icon: 'fa-solid fa-table-tennis-paddle-ball', label: 'Tennis' },
-    { id: 'mma',            prefixes: ['mma', 'boxing'],                         icon: 'fa-solid fa-hand-fist',                label: 'MMA' },
-    { id: 'golf',           prefixes: ['golf'],                                  icon: 'fa-solid fa-golf-ball-tee',            label: 'Golf' },
-    { id: 'cricket',        prefixes: ['cricket'],                               icon: 'fa-solid fa-baseball',                 label: 'Cricket' },
-    { id: 'rugby',          prefixes: ['rugbyleague', 'rugbyunion', 'rugby'],    icon: 'fa-solid fa-football',                 label: 'Rugby' },
-    { id: 'aussierules',    prefixes: ['aussierules'],                           icon: 'fa-solid fa-football',                 label: 'AFL' },
-    { id: 'motorsport',     prefixes: ['motorsport', 'formula'],                 icon: 'fa-solid fa-flag-checkered',           label: 'Motorsport' },
-    { id: 'esports',        prefixes: ['esports', 'csgo', 'lol', 'dota'],        icon: 'fa-solid fa-gamepad',                  label: 'eSports' },
+    { id: 'football',       prefixes: ['americanfootball'],                      emoji: '🏈', icon: 'fa-solid fa-football',                 label: 'Football' },
+    { id: 'basketball',     prefixes: ['basketball'],                            emoji: '🏀', icon: 'fa-solid fa-basketball',               label: 'Basketball' },
+    { id: 'baseball',       prefixes: ['baseball'],                              emoji: '⚾', icon: 'fa-solid fa-baseball-bat-ball',        label: 'Baseball' },
+    { id: 'hockey',         prefixes: ['icehockey'],                             emoji: '🏒', icon: 'fa-solid fa-hockey-puck',              label: 'Hockey' },
+    { id: 'soccer',         prefixes: ['soccer'],                                emoji: '⚽', icon: 'fa-solid fa-futbol',                   label: 'Soccer' },
+    { id: 'tennis',         prefixes: ['tennis'],                                emoji: '🎾', icon: 'fa-solid fa-table-tennis-paddle-ball', label: 'Tennis' },
+    { id: 'mma',            prefixes: ['mma', 'boxing'],                         emoji: '🥊', icon: 'fa-solid fa-hand-fist',                label: 'MMA' },
+    { id: 'golf',           prefixes: ['golf'],                                  emoji: '⛳', icon: 'fa-solid fa-golf-ball-tee',            label: 'Golf' },
+    { id: 'cricket',        prefixes: ['cricket'],                               emoji: '🏏', icon: 'fa-solid fa-baseball',                 label: 'Cricket' },
+    { id: 'rugby',          prefixes: ['rugbyleague', 'rugbyunion', 'rugby'],    emoji: '🏉', icon: 'fa-solid fa-football',                 label: 'Rugby' },
+    { id: 'aussierules',    prefixes: ['aussierules'],                           emoji: '🏉', icon: 'fa-solid fa-football',                 label: 'AFL' },
+    { id: 'motorsport',     prefixes: ['motorsport', 'formula'],                 emoji: '🏎️', icon: 'fa-solid fa-flag-checkered',           label: 'Motorsport' },
+    { id: 'esports',        prefixes: ['esports', 'csgo', 'lol', 'dota'],        emoji: '🎮', icon: 'fa-solid fa-gamepad',                  label: 'eSports' },
 ];
 
 // English ordinal suffix for a positive integer ("ST"/"ND"/"RD"/"TH").
@@ -1345,6 +1349,7 @@ const MobileContentView = ({
         if (myLiveOnBoardCount > 0) {
             tabs.push({
                 id: 'my-live',
+                emoji: '🎟️',
                 icon: 'fa-solid fa-ticket',
                 label: 'My live action',
                 count: myLiveOnBoardCount,
@@ -1352,12 +1357,13 @@ const MobileContentView = ({
         }
         tabs.push({
             id: 'all',
+            emoji: '⚡',
             icon: 'fa-solid fa-bolt',
             label: 'All live',
             count: orderedMatches.length,
         });
         for (const t of liveSportTabs) {
-            tabs.push({ id: t.id, icon: t.icon, label: t.label, count: t.count });
+            tabs.push({ id: t.id, emoji: t.emoji, icon: t.icon, label: t.label, count: t.count });
         }
         return tabs;
     }, [liveSportTabs, orderedMatches.length, myLiveOnBoardCount]);
@@ -1510,11 +1516,13 @@ const MobileContentView = ({
                 player has pending risk on. */}
             {showLiveSportStrip && (
                 <div style={liveFilterStripStyle}>
-                    {liveStripTabs.map((tab, idx) => {
+                    {liveStripTabs.map((tab) => {
                         const active = liveSportTab === tab.id;
                         const isEmpty = tab.count === 0 && tab.id !== 'all' && tab.id !== 'my-live';
-                        const labelText = tab.count > 0 ? `${tab.label} ${tab.count}` : tab.label;
-                        const isLast = idx === liveStripTabs.length - 1;
+                        // Render emoji at large size when available (modern OSes
+                        // ship full-color glyphs); fall back to FontAwesome for
+                        // hosts without emoji fonts.
+                        const showEmoji = !!tab.emoji;
                         return (
                             <button
                                 key={tab.id}
@@ -1524,19 +1532,29 @@ const MobileContentView = ({
                                 aria-label={`${tab.label} — ${tab.count} live`}
                                 style={{
                                     ...liveFilterPillStyle,
-                                    background: active ? '#ff5051' : '#e8e8e8',
-                                    color: active ? '#fff' : (isEmpty ? '#9ca3af' : '#000'),
-                                    opacity: !active && isEmpty ? 0.6 : 1,
-                                    borderRight: isLast ? 'none' : '2px solid #595959',
+                                    opacity: !active && isEmpty ? 0.45 : 1,
                                 }}
                             >
-                                <i
-                                    className={tab.icon}
-                                    style={{ fontSize: 24, lineHeight: 1, marginBottom: 2 }}
-                                    aria-hidden
-                                />
+                                {showEmoji ? (
+                                    <span
+                                        style={{
+                                            fontSize: 30,
+                                            lineHeight: 1,
+                                            filter: !active && isEmpty ? 'grayscale(70%)' : 'none',
+                                        }}
+                                        aria-hidden
+                                    >
+                                        {tab.emoji}
+                                    </span>
+                                ) : (
+                                    <i
+                                        className={tab.icon}
+                                        style={{ fontSize: 28, lineHeight: 1, color: active ? '#fbbf24' : '#fff' }}
+                                        aria-hidden
+                                    />
+                                )}
                                 <span style={liveFilterPillCountStyle(active)}>
-                                    {labelText}
+                                    {tab.count > 0 ? tab.count : ''}
                                 </span>
                             </button>
                         );
@@ -2355,42 +2373,43 @@ const periodTabBarStyle = {
     boxShadow: '0 1px 2px rgba(15,23,42,0.04)',
 };
 
-// Live Now sport rail — same visual language as the bet-mode strip
-// (STRAIGHT / PARLAY / TEASER …) so the player gets a familiar grid
-// of icon-over-label pills. Light-gray inactive, red active. Equal
-// widths via flex:1, 2px dividers, 60px tall on mobile.
+// Live Now sport rail — dark book-style strip with large color emoji
+// over a count number. No text labels (the icon IS the label). Active
+// tab marked by a yellow count + accent underline; empty tabs grayscale
+// the emoji and dim opacity so the player sees "we have basketball but
+// nothing's live right now" at a glance.
 const liveFilterStripStyle = {
     display: 'flex',
     width: '100%',
-    height: 60,
+    height: 76,
     overflowX: 'auto',
-    borderTop: '2px solid #595959',
-    borderBottom: '2px solid #595959',
+    background: '#1f1f1f',
+    borderTop: '1px solid #2d2d2d',
+    borderBottom: '1px solid #2d2d2d',
     boxSizing: 'border-box',
     WebkitOverflowScrolling: 'touch',
 };
 const liveFilterPillStyle = {
     flex: 1,
     minWidth: 64,
-    padding: 0,
+    padding: '6px 4px',
     border: 'none',
-    borderRight: '2px solid #595959',
     cursor: 'pointer',
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
-    background: '#e8e8e8',
-    color: '#000',
-    transition: 'background 100ms ease, color 100ms ease',
+    background: 'transparent',
+    color: '#fff',
+    transition: 'opacity 100ms ease',
+    gap: 2,
 };
 const liveFilterPillCountStyle = (active) => ({
-    fontSize: 10,
-    fontWeight: 700,
-    textTransform: 'uppercase',
-    marginTop: 2,
-    color: active ? '#fff' : '#000',
+    fontSize: 13,
+    fontWeight: 800,
+    color: active ? '#fbbf24' : '#fff',
     fontVariantNumeric: 'tabular-nums',
+    minHeight: 16, // reserve space so empty pills don't jump in height
 });
 const liveLeagueStripStyle = {
     display: 'flex',
