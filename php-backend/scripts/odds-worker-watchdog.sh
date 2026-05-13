@@ -21,6 +21,26 @@ set -eu
 # where the script is invoked from.
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 WORKER_PATH="${SCRIPT_DIR}/odds-worker.php"
+
+# PHP binary resolution. Earlier this relied on `PHP_BIN=...` set in the
+# cron line ahead of the command, but Hostinger's cron wrapper does NOT
+# honor that env-var prefix — it tries to execute "PHP_BIN=..." as the
+# command name and the watchdog never runs. Now we resolve PHP ourselves:
+# (1) explicit PHP_BIN env from caller, (2) Hostinger's php82 path,
+# (3) generic `php` from PATH. First one that exists wins.
+if [ -z "${PHP_BIN:-}" ]; then
+    for candidate in \
+        /opt/alt/php82/usr/bin/php \
+        /opt/alt/php81/usr/bin/php \
+        /usr/local/bin/php \
+        /usr/bin/php \
+        php; do
+        if command -v "$candidate" >/dev/null 2>&1; then
+            PHP_BIN="$candidate"
+            break
+        fi
+    done
+fi
 PHP_BIN="${PHP_BIN:-php}"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 LOG_DIR="${PROJECT_ROOT}/logs"
