@@ -12379,18 +12379,31 @@ final class AdminCoreController
             return $amount;
         }
 
-        $type = strtolower(trim((string) ($transaction['type'] ?? '')));
-        if ($type === 'adjustment') {
-            $beforeRaw = $transaction['balanceBefore'] ?? null;
-            $afterRaw = $transaction['balanceAfter'] ?? null;
-            if ($beforeRaw !== null && $afterRaw !== null && is_numeric($beforeRaw) && is_numeric($afterRaw)) {
-                return ((float) $afterRaw) - ((float) $beforeRaw);
-            }
+        // Prefer the actual ledger delta when both snapshots are present.
+        // This is the ground truth — the value `balance` actually moved by
+        // when this row was written. It correctly captures mixed FP/cash
+        // splits (where `amount` is the full risk but only the cash slice
+        // moves balance) and any future transaction type the sign-by-type
+        // map below hasn't been updated for yet. Falling back to sign-by-
+        // type only when the snapshots are missing (legacy rows from
+        // before BalanceUpdateService started populating both fields).
+        $beforeRaw = $transaction['balanceBefore'] ?? null;
+        $afterRaw = $transaction['balanceAfter'] ?? null;
+        if ($beforeRaw !== null && $afterRaw !== null && is_numeric($beforeRaw) && is_numeric($afterRaw)) {
+            return ((float) $afterRaw) - ((float) $beforeRaw);
         }
 
+        $type = strtolower(trim((string) ($transaction['type'] ?? '')));
         return match ($type) {
-            'deposit', 'bet_won', 'bet_refund', 'casino_bet_credit', 'fp_deposit', 'credit', 'credit_adj', 'promotional_credit' => $amount,
-            'withdrawal', 'bet_placed', 'bet_placed_admin', 'casino_bet_debit', 'bet_lost', 'debit', 'debit_adj', 'promotional_debit' => -$amount,
+            // Credits — balance goes up.
+            'deposit', 'bet_won', 'bet_refund',
+            'bet_void', 'bet_void_admin',
+            'casino_bet_credit', 'fp_deposit',
+            'credit', 'credit_adj', 'promotional_credit' => $amount,
+            // Debits — balance goes down.
+            'withdrawal', 'bet_placed', 'bet_placed_admin',
+            'casino_bet_debit', 'bet_lost',
+            'debit', 'debit_adj', 'promotional_debit' => -$amount,
             default => 0.0,
         };
     }
