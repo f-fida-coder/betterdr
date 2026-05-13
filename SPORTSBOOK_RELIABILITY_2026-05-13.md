@@ -420,3 +420,229 @@ php php-backend/scripts/test-sql-repository-nin.php
 
 ### Hostinger
 - Cron command updated to use correct 9-digit username + explicit PHP_BIN
+
+---
+
+# Afternoon session — live-odds resilience, bet grading SLA, figures correctness, sport rail
+
+Continued the same day. Six more themed passes — live odds no longer blank when the backend hiccups; finished bets grade within minutes (not "whenever a user opens My Bets"); weekly figures math reconciles end-balance → next-week carry-forward across user, admin, and agent reporting; sport rail redesigned to match a pro book.
+
+---
+
+## 16. Live Now odds stability — 60s grace + periodic mount-sync
+
+**Symptom:** ~2 minutes into Live Now, all odds vanish. Polls keep firing every 15s but return `[]` until the user navigates away and back.
+
+**Root cause traced two layers deep:**
+1. Backend `/api/matches?status=live` filters rows whose `lastOddsSyncAt` is older than `LIVE_FRESHNESS_SECONDS_DEFAULT` (90s) — see [MatchesController.php:289-306](php-backend/src/MatchesController.php#L289-L306). When the OddsAPI worker misses a tick (or its watchdog hasn't restarted it yet), surviving live rows age past 90s and the endpoint returns `[]`.
+2. Frontend `useMatches.applyMatchesIfChanged([])` wipes the rendered list to empty. Subsequent polls also return `[]` because the worker is still down → players sit on an empty board.
+
+**Fix (two-layered, commit `2f35b79d`):**
+
+- `useMatches.js` — added `LIVE_EMPTY_GRACE_MS = 60_000` ([useMatches.js:21-29](frontend/src/hooks/useMatches.js#L21-L29)). When a live poll returns `[]` but `prev` had rows, the hook keeps prev on screen for up to 60s. Any non-empty response resets the grace timer. After 60s of consistent empties, accept the empty state (game truly ended).
+- `MobileContentView.jsx` + `SportContentView.jsx` — converted the one-shot `syncLiveMatches()` on Live Now mount into a **recurring 60s `setInterval`**. Each call refreshes `lastOddsSyncAt` on the backend, so live rows never age out from under the player. Aborts in-flight controller on each new tick; pauses while tab hidden; respects the existing 15s backend throttle.
+
+**Net SLA:** even if the backend worker is dead, the frontend's periodic sync keeps row freshness under 90s for any player actively on Live Now.
+
+---
+
+## 17. Hide empty period / sport / league tabs when no markets
+
+**Trigger:** player complaint — "P1/P2/P3 tabs show on a soccer game" and "sport tabs show with the same card list as ⚡ All Live."
+
+**Root cause:** Phase 1 (§5 above) intentionally kept period tabs visible across sync flickers — but the rationale was "rawMatches flickers between polls." With §16 in place (`rawMatches` is now stable thanks to the 60s grace), the original problem is gone. Empty tabs are just confusing — clicking yields a "no lines" banner instead of useful content.
+
+**Fix (commit `2f35b79d`):**
+
+- `MobileContentView.jsx:551-561` — `periods` now filters by `availableSuffixes` (which is already computed from the live markets). `FULL_PERIOD` always survives; suffixes with no `h2h/spreads/totals` lines disappear. As soon as a market like `h2h_p1` returns from upstream, the P1 tab snaps back.
+- `MobileContentView.jsx:731-744` + `SportContentView.jsx:501-510` — removed the "keep live shells with no markets" exception. A match must now have at least one usable market (`h2h`, `spreads`, `totals`, or any `extendedMarkets` entry) to render. Cascade effect: `liveSportTabs`, `liveLeagueTabs`, and `liveStripTabs` only count matches with odds, so a sport / league with no bettable games auto-disappears.
+- Removed unused `matchIsInPlayRow` helper.
+
+---
+
+## 18. Live Now sport rail — three iterations
+
+Same rail, three player-driven UX passes within the session.
+
+**Pass A (commit `b7c31105`)** — "show every sport even when nothing is live."
+
+Previously the rail collapsed to ⚡ + whichever sports happened to have a live game. On a quiet board the player saw ⚡ + ⚽ both resolving to the same 1-game list — looks like a duplicate. Fix at `MobileContentView.jsx:1240-1255`: introduced `LIVE_RAIL_CORE_SPORTS = ['football', 'basketball', 'baseball', 'hockey', 'soccer', 'tennis']` — these six always render with `count: 0` when nothing's in-play; niche sports (cricket, rugby, MMA, golf, motorsport, eSports) still only appear when they have an actual live game so the rail doesn't overflow on mobile. Empty pills dim (`opacity: 0.55`, gray text); tapping them surfaces a clear "No live [sport] games right now" empty state.
+
+**Pass B (commit `04994328`)** — "make it look like the STRAIGHT / PARLAY / TEASER strip."
+
+Re-skinned the rail's CSS in place to match the existing `.tabs-bar` / `.tab-item` pattern in `dashboard.css:2230-2275`:
+- 60px tall, `flex: 1` per pill, 2px dividers
+- Light gray `#e8e8e8` inactive, red `#ff5051` active
+- Icon over uppercase label, count appended inline (`"SOCCER 3"`)
+
+**Pass C (commit `033c58dd`, current)** — "drop the text, big colorful icons, count under."
+
+Player provided a reference screenshot — dark band, real-sport-ball illustrations (baseball with red stitching, basketball, hockey puck, soccer ball, tennis ball), no text labels, just a count and a yellow accent on the active pill. Implementation:
+- Added an `emoji` field to every entry in `LIVE_SPORT_CATEGORIES` (`⚡🏈🏀⚾🏒⚽🎾🥊⛳🏏🏉🏎️🎮`). Modern OSes ship full-color glyphs for these — gets the "real ball" look for free without bundling a paid icon set.
+- Rail restyled at `MobileContentView.jsx:2356-2392`: 76px tall, dark `#1f1f1f` bg, no borders between pills, no text label — emoji at 30px with the count below in 13px bold.
+- Active count colored yellow `#fbbf24` (matches the reference). Empty pills: `grayscale(70%)` filter on the emoji + `opacity: 0.45` so "we have basketball, nothing live now" reads at a glance.
+- FontAwesome icon path stays as a fallback for hosts without emoji fonts.
+
+---
+
+## 19. Bet grading SLA — never wait 9 hours again
+
+**Trigger:** real-money Dodgers `-345` bet stayed pending **9.5 hours** after the game ended. DB row was correctly `status=finished` with the final score; the bet just never graded.
+
+**Architecture audit found three structural problems:**
+
+1. `php-backend/scripts/odds-worker.php` (long-running daemon) embeds a `BetSettlementService::settlePendingMatches` call every 90s — but on Hostinger the daemon hadn't run for hours (watchdog had been failing silently — see §22). With the daemon dead, settlement never fired automatically.
+2. The Hostinger cron at `/api/internal/oddsapi-prematch-tick` runs every 5 min and calls `OddsSyncService::syncSingleSport` — which the in-file comment ([OddsSyncService.php:725](php-backend/src/OddsSyncService.php#L725)) explicitly says **skips settlement**. So even when the cron WAS running, no grading happened.
+3. The only working settlement path was the **on-read sweep** in `BetsController::getMyBets` ([BetsController.php:1473-1492](php-backend/src/BetsController.php#L1473-L1492)) — fires when the user opens My Bets, throttled to 30s per user via SharedFileCache. If the user doesn't open My Bets, the bet never grades.
+4. The "manual rescue" endpoint `/api/bets/regrade-stuck` had a bug at [BetsController.php:1280-1283](php-backend/src/BetsController.php#L1280-L1283) — when the match was already `status=finished` but the bet was still pending, it reported "alreadyFinal" and **skipped settlement entirely**, exactly the case where it was needed.
+
+**Fixes (commit `36fa8b9a`, then `f334d36d`):**
+
+- **Cron tick now settles.** Added `BetSettlementService::settlePendingMatches($this->db, 250, 'cron')` to `DebugController::oddsApiPrematchTick` after the odds-sync rotation completes. System-wide grading every 5 min, regardless of whether the daemon is running. Cheap when nothing to settle (no DB writes); logs `settlementSweep` counters in the JSON response and via `Logger`.
+- **Live-sync settles for the caller.** `DebugController::userLiveSync` now extracts the calling user's id from the JWT (`extractJwtUserId` helper) and runs `settlePendingMatchesForUser` after the sync. Combined with the 60s periodic mount-sync from §16, an active Live Now player's tickets grade within ~60 seconds of game-end. Tick-secret callers (cron / admin) skip this path — they're covered by the system-wide sweep above. Shares the 30s SharedFileCache throttle with the on-read sweep so the same player on both screens doesn't double-sweep.
+- **`/api/bets/regrade-stuck` actually grades now.** [BetsController.php:1280-1318](php-backend/src/BetsController.php#L1280-L1318) — already-finished matches now call `settleMatch` instead of falling through to "alreadyFinal." `settleMatch` is idempotent (`WHERE status='pending'` in the inner UPDATE), so calling it on an already-graded bet is a no-op. New `regraded` counter in the response so the UI can show "graded X stuck tickets" if we ever wire a button to it.
+- **Created `php-backend/scripts/settlement-sweep.php`.** The deployment guide already documented this as the "Job 3" safety net (every 5 min) but the file never existed on disk. Standalone PHP script — no daemon, no shell tricks — calls `BetSettlementService::settlePendingMatches($db, 250, 'cron-sweep')` and exits. Logs to `php-backend/logs/settlement-sweep.log`. Now players have **three** redundant grading paths: cron tick (5m), live-sync-per-user (~60s while on Live Now), on-read sweep (instant on My Bets open). Plus the long-running daemon when it's alive.
+
+**Money safety review:** every path calls existing `BetSettlementService::settleMatch` (transactional, row-locked, ledger-correct, `WHERE status='pending'` guard). No new money paths, no schema changes. Concurrent fire from multiple paths is safe because `settleMatch` only matches `pending` rows — second call is a no-op.
+
+---
+
+## 20. Watchdog auto-detects PHP — Hostinger cron quirk
+
+**Symptom:** the `odds-worker-watchdog.sh` cron output said:
+
+```
+timeout: failed to run command 'PHP_BIN=/opt/alt/php82/usr/bin/php': No such file or directory
+```
+
+Worker never started. Same cron line that §9 documented as working was broken — turned out Hostinger's cron wrapper doesn't honor the `PHP_BIN=... /bin/sh /path/to/script` env-var prefix syntax. It tries to execute the literal string `PHP_BIN=...` as the command name, fails immediately.
+
+**Fix (commit `7ccc0bb1`):** `odds-worker-watchdog.sh` now resolves PHP itself. Order:
+1. Honor explicit `PHP_BIN` if the caller set one.
+2. Try `/opt/alt/php82/usr/bin/php`, then `81`, then `/usr/local/bin/php`, then `/usr/bin/php`, then bare `php` from `PATH`. First one that `command -v` finds wins.
+
+Cron line simplifies to just:
+```
+/bin/sh /home/u487877829/.../odds-worker-watchdog.sh >> /home/.../watchdog.log 2>&1
+```
+
+After replacing the cron, the watchdog log showed:
+```
+2026-05-13T16:06:03Z [watchdog] worker not running, starting…
+2026-05-13T16:06:04Z [watchdog] started worker pid=1112519
+```
+
+Daemon back up after months silently dead. Settlement-sweep cron (§19) is the durable belt-and-suspenders so this can never silently break the SLA again.
+
+---
+
+## 21. Weekly Figures — end-balance ↔ carry-forward consistency across all reports
+
+**Symptom (player report):** "Two weeks ago end balance was -$3861. Last week's carry-forward is -$3674. There's a $187 gap. Math doesn't add up across weeks."
+
+**Audit found the same class of bug in five places.** Every figures view computed `weekTotal` by summing won/lost bet P/L from `bets` table, but read `carryForward` (and current-balance-derived numbers) from the `transactions` ledger. The two diverge whenever the displayed P/L formula doesn't capture every ledger movement — which it didn't for:
+- **Voids of pre-week bets** — refund credits balance but settle as `void` → old math recorded $0 for the day (`// void/push: net zero`). Pre-week placement debit was already baked into carry-forward, so the refund showed up as ledger up + $X but display arithmetic stayed flat.
+- **Casino activity** — the deposits row only included `'adjustment', 'deposit', 'withdrawal'`. Casino debits/credits silently fell off the report.
+- **Mixed FP+cash credit-account bets** — `bet_lost` transaction `amount` is the full wager ($100) but `balance` only moved by the cash slice ($40). Sign-by-type math overstated the loss.
+- **Future/legacy/unknown types** — `default => 0.0` in every helper meant new transaction types silently dropped from totals.
+
+**Single root-cause fix applied across the codebase: prefer ledger delta when both `balanceBefore` / `balanceAfter` snapshots are present.** That's the ground truth — the literal value `balance` moved by. Fall back to sign-by-type ONLY for legacy rows missing snapshots. Added every missing type (`bet_void`, `bet_void_admin`) to the fallback map while we were there.
+
+**Five-commit chain:**
+
+| Commit | File | Layer |
+|---|---|---|
+| `440c33e2` | `WalletController.php` | User-facing weekly figures — rewrote `getFigures` to be fully transaction-driven, bucket every non-FP completed tx into daily P/L (bet/casino types) or transactions (deposit/withdrawal/adjustment), endBalance reads from the latest in-week `balanceAfter` |
+| `33ef2ef7` | `AdminCoreController.php` | Admin weekly figures — `getComprehensiveSignedTransactionAmount` now reads balance delta first; added `bet_void` / `bet_void_admin` to the credit list |
+| `db7ad12d` | `AgentCutsController.php`, `AgentSettlementSnapshotService.php`, plus the inline closure at `AdminCoreController.php:6100-6124` | All other signed-amount helpers — same pattern. Also unified `isPromotionalOrFreePlayTransaction` in admin + agent-cuts to use the same robust signal stack as `WalletController::isFreeplayLedgerRow`: any `fp_*` type prefix, `isFreeplay=true` flag, or `referenceType='FreePlayBonus'`, with keyword fallback for legacy rows |
+| `197de926` | `WalletController.php` (refinement) | Added legacy-row safety net (sign-by-type fallback when snapshots missing) + a running-balance anchor so `endBalance` always equals `carryForward + weekTotal + transactionsTotal` even on weeks with mixed legacy + modern rows |
+
+**Invariants now enforced:**
+1. `carryForward + weekTotal + transactionsTotal === endBalance` on every screen (display arithmetic always adds up).
+2. `endBalance === next_week.carryForward` for all-modern weeks (both pull the same `balanceAfter` from the same ledger row).
+3. Voids of pre-week pending bets correctly counted.
+4. Casino activity correctly counted in daily P/L.
+5. Mixed FP/cash credit-account splits use real balance movement, not the misleading `amount` field.
+6. Future `fp_*` transaction types automatically detected via prefix match (no code change required when new FP types ship).
+7. User, admin, and agent reporting all read the same answer.
+
+**Side effect to flag:** a player who places a $1,000 pending bet now sees that day's `balance` drop reflected immediately in daily P/L instead of waiting for settlement. More accurate — their available cash did drop by $1,000 — and matches what `AgentSettlementSnapshotService` already showed.
+
+**Money-safety review:** every change is display-read-only. No new balance writes. No schema changes. `BalanceUpdateService` remains the sole write path. The fix corrects an UNDERCOUNT in display (and an OVERCOUNT for mixed-pool credit losses) — no money moves; the displayed numbers catch up to reality.
+
+**End-to-end simulation:** five scenarios all reconcile —
+- Pre-week pending bet voided this week: `-3861 + 187 + 0 = -3674` ✓ (your reported $187 gap)
+- Mixed FP+cash credit-account loss (`amount=$100`, delta=`-$40`): `0 + -40 + 0 = -40` ✓
+- Casino round (bet $50, win $80): `100 + 30 + 0 = 130` ✓
+- Legacy row missing snapshots + modern row: `0 + 50 + 100 = 150` ✓
+- Realistic full week (placements, wins, casino, deposit): `500 + 165 + 100 = 765` ✓
+
+---
+
+## How to deploy / activate (afternoon session additions)
+
+The afternoon session shipped 7 commits. After pushing:
+
+1. **Push** the branch to production.
+2. **No code-side restart needed** — all afternoon changes are read-path / cron / frontend.
+3. **Install the new Job 3 cron on Hostinger** if not yet present (the standalone `settlement-sweep.php` from §19):
+   ```
+   */5 * * * * /opt/alt/php82/usr/bin/php /home/u487877829/domains/bettorplays247.com/public_html/php-backend/scripts/settlement-sweep.php >> /home/u487877829/domains/bettorplays247.com/public_html/php-backend/logs/settlement-sweep.log 2>&1
+   ```
+4. **Confirm the watchdog cron is on the new code-resolved-PHP path** (no more `PHP_BIN=` prefix needed — see §20):
+   ```
+   * * * * * /bin/sh /home/u487877829/domains/bettorplays247.com/public_html/php-backend/scripts/odds-worker-watchdog.sh >> /home/u487877829/domains/bettorplays247.com/public_html/php-backend/logs/watchdog.log 2>&1
+   ```
+5. **Verify within 5 minutes:**
+   - `php-backend/logs/settlement-sweep.log` should show:
+     ```
+     [2026-05-13T...] settlement-sweep ok checked=N settled=M bets=K errors=0 elapsedMs=…
+     ```
+   - `php-backend/logs/watchdog.log` should be silent (daemon healthy) OR show one `started worker pid=…` line if it had to restart.
+   - Any stuck finished-but-pending bet should be graded on the first sweep that picks it up.
+
+## How to verify in the UI (afternoon session additions)
+
+1. **Live Now stability** — open Live Now on mobile, leave the screen on for 3+ minutes. Odds should never blank out and reappear. The "Just updated" badge keeps ticking on the existing matches.
+2. **Empty period / sport / league tabs hidden** — on a Live Now board with only soccer games, P1/P2/P3 should NOT appear. Only `FULL` + `1H` for soccer.
+3. **Sport rail (Live Now)** — dark band with big colorful sport-ball emojis (`⚡ 🏈 🏀 ⚾ 🏒 ⚽ 🎾`). Core six always visible. Active pill's count is yellow. Empty sports (e.g. football when nothing's live) are grayscale + dim. Tap an empty pill → "No live [sport] games right now" message.
+4. **Bet grading** — when a live game finishes, expect the matching pending ticket to graduate to Won / Lost within at most ~5 minutes (cron) and as fast as ~60s if you're actively on Live Now. Opening My Bets remains instant.
+5. **Weekly Figures** — pick "2 Weeks Ago" → note the End Balance. Pick "Last Week" → the Carry Forward must equal the previous week's End Balance exactly. Add the week's daily P/L + Deposits/Withdrawals → must equal End Balance.
+
+---
+
+## Files touched (afternoon session)
+
+### Frontend
+- `frontend/src/hooks/useMatches.js` — 60s grace for empty live polls + LIVE_EMPTY_GRACE_MS constant
+- `frontend/src/components/MobileContentView.jsx` — period/sport/league empty-tab filter, persistent sport rail, dark-bg + emoji + yellow-active rail visual, ⚡ All Live + 🎟️ My Live emojis, empty-state copy that names the sport the user filtered to
+- `frontend/src/components/SportContentView.jsx` — periodic 60s `syncLiveMatches` interval on Live Now mount; removed live-shell exception in `filteredMatches`
+
+### Backend
+- `php-backend/src/DebugController.php` — settlement sweep in `oddsApiPrematchTick`; per-user settlement in `userLiveSync` (with `extractJwtUserId` helper); shared 30s SharedFileCache throttle with the on-read sweep
+- `php-backend/src/BetsController.php` — `/api/bets/regrade-stuck` now calls `settleMatch` on already-finished matches (was reporting "alreadyFinal" and skipping)
+- `php-backend/src/WalletController.php` — `getFigures` rewritten transaction-driven (commit `440c33e2`) + legacy-row safety net & running-balance anchor (commit `197de926`)
+- `php-backend/src/AdminCoreController.php` — `getComprehensiveSignedTransactionAmount` + inline closure + `isPromotionalOrFreePlayTransaction` all prefer ledger delta + robust FP gate
+- `php-backend/src/AgentCutsController.php` — same balance-delta-first + robust FP gate
+- `php-backend/src/AgentSettlementSnapshotService.php` — same balance-delta-first
+- `php-backend/scripts/odds-worker-watchdog.sh` — auto-detects PHP path (Hostinger cron-quirk fix)
+- `php-backend/scripts/settlement-sweep.php` — **new** standalone cron grading script
+
+### Hostinger
+- Watchdog cron line simplified (no `PHP_BIN=` prefix needed after §20).
+- New Job 3 cron for `settlement-sweep.php` every 5 min (durable grading SLA).
+
+### Commits (afternoon session, in order)
+```
+2f35b79d  sportsbook: hide period/sport/league tabs when no odds available
+36fa8b9a  sportsbook: settle finished bets within minutes, not when user looks
+f334d36d  sportsbook: add settlement-sweep.php cron script for hostinger fallback
+7ccc0bb1  sportsbook: watchdog finds php itself, no env-var prefix needed
+b7c31105  sportsbook: persistent sport rail on live now, dim empty pills
+04994328  sportsbook: live sport rail matches bet-mode strip style
+440c33e2  wallet: transaction-driven weekly figures so carry-forward chain is consistent
+33ef2ef7  admin: figures math reads ledger delta first, fixes void & mixed-pool drift
+db7ad12d  balance-delta-first across all signed-amount helpers + robust FP gate
+197de926  wallet: legacy-row safety net + running balance for figures
+033c58dd  sportsbook: live sport rail — big color emojis + count, no text labels
+```
