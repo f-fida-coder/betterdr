@@ -1513,6 +1513,8 @@ const MobileContentView = ({
                     {liveStripTabs.map((tab, idx) => {
                         const active = liveSportTab === tab.id;
                         const isEmpty = tab.count === 0 && tab.id !== 'all' && tab.id !== 'my-live';
+                        const labelText = tab.count > 0 ? `${tab.label} ${tab.count}` : tab.label;
+                        const isLast = idx === liveStripTabs.length - 1;
                         return (
                             <button
                                 key={tab.id}
@@ -1522,16 +1524,19 @@ const MobileContentView = ({
                                 aria-label={`${tab.label} — ${tab.count} live`}
                                 style={{
                                     ...liveFilterPillStyle,
-                                    background: active ? '#ff5051' : 'transparent',
-                                    color: active ? '#fff' : (isEmpty ? '#6b7280' : '#e5e7eb'),
-                                    opacity: !active && isEmpty ? 0.55 : 1,
-                                    borderLeft: idx === 0 ? 'none' : '1px solid rgba(255,255,255,0.08)',
-                                    boxShadow: active ? 'inset 0 -2px 0 rgba(255,255,255,0.4)' : 'none',
+                                    background: active ? '#ff5051' : '#e8e8e8',
+                                    color: active ? '#fff' : (isEmpty ? '#9ca3af' : '#000'),
+                                    opacity: !active && isEmpty ? 0.6 : 1,
+                                    borderRight: isLast ? 'none' : '2px solid #595959',
                                 }}
                             >
-                                <i className={tab.icon} style={{ fontSize: 16 }} aria-hidden />
+                                <i
+                                    className={tab.icon}
+                                    style={{ fontSize: 24, lineHeight: 1, marginBottom: 2 }}
+                                    aria-hidden
+                                />
                                 <span style={liveFilterPillCountStyle(active)}>
-                                    {tab.count}
+                                    {labelText}
                                 </span>
                             </button>
                         );
@@ -2350,38 +2355,41 @@ const periodTabBarStyle = {
     boxShadow: '0 1px 2px rgba(15,23,42,0.04)',
 };
 
-// Live Now filter strips — sport (icon pills, dark bg), league + stage
-// (label pills, light bg). Two-tone treatment helps players tell which
-// level of filtering they're at without reading labels.
+// Live Now sport rail — same visual language as the bet-mode strip
+// (STRAIGHT / PARLAY / TEASER …) so the player gets a familiar grid
+// of icon-over-label pills. Light-gray inactive, red active. Equal
+// widths via flex:1, 2px dividers, 60px tall on mobile.
 const liveFilterStripStyle = {
     display: 'flex',
-    gap: 0,
+    width: '100%',
+    height: 60,
     overflowX: 'auto',
-    background: '#1f2937',
-    padding: '2px',
-    borderTop: '1px solid #374151',
-    borderBottom: '1px solid #374151',
+    borderTop: '2px solid #595959',
+    borderBottom: '2px solid #595959',
+    boxSizing: 'border-box',
     WebkitOverflowScrolling: 'touch',
 };
 const liveFilterPillStyle = {
-    flex: '1 0 auto',
-    minWidth: 56,
-    padding: '10px 10px',
+    flex: 1,
+    minWidth: 64,
+    padding: 0,
     border: 'none',
+    borderRight: '2px solid #595959',
     cursor: 'pointer',
     display: 'flex',
+    flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
-    fontSize: 13,
-    fontWeight: 800,
-    letterSpacing: 0.4,
+    background: '#e8e8e8',
+    color: '#000',
     transition: 'background 100ms ease, color 100ms ease',
 };
 const liveFilterPillCountStyle = (active) => ({
     fontSize: 10,
-    fontWeight: 800,
-    opacity: active ? 1 : 0.75,
+    fontWeight: 700,
+    textTransform: 'uppercase',
+    marginTop: 2,
+    color: active ? '#fff' : '#000',
     fontVariantNumeric: 'tabular-nums',
 });
 const liveLeagueStripStyle = {
