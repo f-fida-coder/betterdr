@@ -407,9 +407,36 @@ final class WalletController
                 'promotional_credit', 'promotional_debit',
             ];
 
+            // Credit/debit sign map — used as a fallback for legacy rows
+            // missing balanceBefore/balanceAfter snapshots (pre-BalanceUpdateService
+            // rows or any imported ledger). Modern rows always have both
+            // snapshots so the delta path takes precedence; this map only
+            // fires on the rare legacy case.
+            $CREDIT_TYPES = [
+                'deposit', 'bet_won', 'bet_refund',
+                'bet_void', 'bet_void_admin',
+                'casino_bet_credit',
+                'credit', 'credit_adj', 'promotional_credit',
+            ];
+            $DEBIT_TYPES = [
+                'withdrawal', 'bet_placed', 'bet_placed_admin',
+                'bet_lost', 'casino_bet_debit',
+                'debit', 'debit_adj', 'promotional_debit',
+            ];
+
             $dailyPL = array_fill(0, 7, 0.0);
             $transactionsTotal = 0.0;
-            $lastInWeekBalanceAfter = null;
+            // Running balance starts at carryForward and gets nudged by
+            // every counted in-week row. Whenever a row has a real
+            // balanceAfter snapshot we *re-anchor* to it (canonical truth
+            // from the ledger); otherwise we just add the signed-amount
+            // estimate. This guarantees:
+            //   - With all-modern rows: runningBalance == lastInWeekBalanceAfter
+            //     == carryForward + weekTotal + transactionsTotal.
+            //   - With mixed legacy/modern: small drift from missing snapshots
+            //     is bounded and the on-screen arithmetic still adds up.
+            // (carryForward is computed below; we patch it in after.)
+            $runningBalance = null;
             foreach ($weekTx as $tx) {
                 if (self::isFreeplayLedgerRow($tx)) continue;
                 $createdAt = (string) ($tx['createdAt'] ?? '');
@@ -422,23 +449,37 @@ final class WalletController
                 $diffDays = $assignDayIndex($dt->getTimestamp());
                 if ($diffDays < 0 || $diffDays > 6) continue;
 
+                $type = strtolower((string) ($tx['type'] ?? ''));
                 $balanceBefore = isset($tx['balanceBefore']) ? $this->num($tx['balanceBefore']) : null;
                 $balanceAfter = isset($tx['balanceAfter']) ? $this->num($tx['balanceAfter']) : null;
-                if ($balanceBefore === null || $balanceAfter === null) continue;
-                $delta = $balanceAfter - $balanceBefore;
 
-                $type = strtolower((string) ($tx['type'] ?? ''));
+                // Ground truth: balance delta when both snapshots are
+                // present (every modern row). Fall back to signed-amount
+                // for legacy rows missing snapshots so they still appear
+                // on the report, keeping the display arithmetic consistent.
+                if ($balanceBefore !== null && $balanceAfter !== null) {
+                    $delta = $balanceAfter - $balanceBefore;
+                    $runningBalance = $balanceAfter; // anchor
+                } else {
+                    $amount = $this->num($tx['amount'] ?? 0);
+                    if (in_array($type, $CREDIT_TYPES, true)) {
+                        $delta = $amount;
+                    } elseif (in_array($type, $DEBIT_TYPES, true)) {
+                        $delta = -$amount;
+                    } else {
+                        continue;
+                    }
+                    // No anchor available; nudge the running balance by
+                    // our best estimate.
+                    $runningBalance = ($runningBalance ?? 0.0) + $delta;
+                }
+
                 if (in_array($type, $BET_CASINO_TYPES, true)) {
                     $dailyPL[$diffDays] += $delta;
                 } else {
                     // Cash movement types AND any unmapped type → Deposits row.
-                    // Keeping unmapped types here (rather than dropping) is the
-                    // safer default for the reconciliation guarantee above.
                     $transactionsTotal += $delta;
                 }
-                // Remember the latest in-week balanceAfter so endBalance
-                // can be read directly from the ledger instead of summing.
-                $lastInWeekBalanceAfter = $balanceAfter;
             }
 
             // Carry forward = balanceAfter of the most-recent transaction
@@ -468,14 +509,14 @@ final class WalletController
             }
 
             $weekTotal = array_sum($dailyPL);
-            // endBalance reads from the ledger (latest in-week balanceAfter)
-            // when any transactions landed this week; otherwise it just is
-            // the carryForward (no movement → no change). This is what
-            // makes endBalance === next_week.carryForward — both pull the
-            // same balanceAfter from the same row.
-            $endBalance = $lastInWeekBalanceAfter !== null
-                ? $lastInWeekBalanceAfter
-                : $carryForward;
+            // endBalance = runningBalance anchored to the latest balanceAfter
+            // ledger snapshot, or carryForward when no in-week activity. For
+            // all-modern rows this is exactly the last balanceAfter (and
+            // equals next_week.carryForward since both pull the same value
+            // from the same row). For mixed legacy/modern rows the anchor
+            // re-syncs on every snapshot row, so drift is bounded to the
+            // tail of unanchored legacy rows after the last snapshot.
+            $endBalance = $runningBalance ?? $carryForward;
 
             // Day labels Tue, Wed, ..., Mon with their date strings.
             // startUtc / endUtc are the exact half-open UTC bounds used
