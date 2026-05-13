@@ -354,97 +354,91 @@ final class WalletController
 
             $userId = SqlRepository::id((string) $actor['id']);
 
-            // Daily P/L from settled bets. Loss math now uses the
-            // cash portion of the stake — a $100 ticket funded $60 FP
-            // + $40 cash should only ding the daily P/L by $40 (the
-            // freeplay slice never came out of the player's pocket).
-            // Previously this subtracted the full risk and inflated
-            // every freeplay-funded loss in the weekly figures.
-            $bets = $this->db->findMany('bets', [
+            // Transaction-driven weekly figures. Every real-cash movement
+            // is read directly from the ledger and bucketed by the day its
+            // transaction was created (player's local tz, DST-safe via the
+            // pre-built $dayBoundsTs map). This guarantees a property the
+            // old bet-status-driven math broke:
+            //
+            //   carryForward + weekTotal + transactionsTotal === endBalance
+            //   endBalance === next_week.carryForward
+            //
+            // The earlier algorithm only counted profit on won bets and
+            // cash-risk on lost bets, treating voids and casino activity
+            // as zero. A void of a pre-week pending bet refunds the
+            // stake — `balance` goes up — but the old math recorded $0
+            // for that day, leaving a discrepancy between the displayed
+            // end balance and the actual ledger snapshot. Casino bets
+            // were missed entirely. Both are now captured.
+            //
+            // FP rows (fp_*, isFreeplay=true, referenceType=FreePlayBonus)
+            // snapshot the freeplay pool, not real cash, so they're
+            // skipped — same gate as before.
+            $weekTx = $this->db->findMany('transactions', [
                 'userId' => $userId,
-                'status' => ['$in' => ['won', 'lost', 'void', 'push']],
-                'settledAt' => ['$gte' => $weekStartIso, '$lt' => $weekEndIso],
-            ], ['projection' => [
-                'status' => 1, 'amount' => 1, 'riskAmount' => 1,
-                'potentialPayout' => 1, 'settledAt' => 1,
-                'freeplayAmountUsed' => 1, 'isFreeplay' => 1,
-            ]]);
+                'status' => 'completed',
+                'createdAt' => ['$gte' => $weekStartIso, '$lt' => $weekEndIso],
+            ], [
+                'sort' => ['createdAt' => 1],
+                'projection' => [
+                    'amount' => 1, 'type' => 1,
+                    'balanceBefore' => 1, 'balanceAfter' => 1,
+                    'createdAt' => 1,
+                    'isFreeplay' => 1, 'referenceType' => 1,
+                ],
+            ]);
 
-            $dailyPL = array_fill(0, 7, 0.0); // index 0=Tue, 6=Mon
-            foreach ($bets as $bet) {
-                $settledAt = (string) ($bet['settledAt'] ?? '');
-                if ($settledAt === '') continue;
+            // Type sets — Daily P/L absorbs bet + casino movements (the
+            // player's gambling P/L). Deposits / Withdrawals absorbs
+            // external cash flow only. Anything else (legacy / unknown
+            // types) falls into the Deposits bucket so the math still
+            // reconciles even if a future migration adds a new type
+            // before this code is updated.
+            $BET_CASINO_TYPES = [
+                'bet_placed', 'bet_placed_admin',
+                'bet_won', 'bet_refund',
+                'bet_lost',
+                'bet_void', 'bet_void_admin',
+                'casino_bet_debit', 'casino_bet_credit',
+            ];
+            $CASH_MOVEMENT_TYPES = [
+                'deposit', 'withdrawal', 'adjustment',
+                'credit_adj', 'debit_adj', 'credit', 'debit',
+                'promotional_credit', 'promotional_debit',
+            ];
+
+            $dailyPL = array_fill(0, 7, 0.0);
+            $transactionsTotal = 0.0;
+            $lastInWeekBalanceAfter = null;
+            foreach ($weekTx as $tx) {
+                if (self::isFreeplayLedgerRow($tx)) continue;
+                $createdAt = (string) ($tx['createdAt'] ?? '');
+                if ($createdAt === '') continue;
                 try {
-                    $dt = new DateTimeImmutable($settledAt);
+                    $dt = new DateTimeImmutable($createdAt);
                 } catch (Throwable) {
                     continue;
                 }
                 $diffDays = $assignDayIndex($dt->getTimestamp());
                 if ($diffDays < 0 || $diffDays > 6) continue;
 
-                $status = strtolower((string) ($bet['status'] ?? ''));
-                $risk = $this->num($bet['riskAmount'] ?? $bet['amount'] ?? 0);
-                $payout = $this->num($bet['potentialPayout'] ?? 0);
-                // FP slice with the same legacy-fallback the rest of
-                // the codebase uses (see AuthController::pendingRiskForUser).
-                $fpRaw = $bet['freeplayAmountUsed'] ?? null;
-                if (is_numeric($fpRaw) && (float) $fpRaw > 0) {
-                    $fpUsed = (float) $fpRaw;
-                } elseif (!empty($bet['isFreeplay'])) {
-                    $fpUsed = $risk;
-                } else {
-                    $fpUsed = 0.0;
-                }
-                $fpUsed = max(0.0, min($fpUsed, $risk));
-                $cashRisk = $risk - $fpUsed;
-
-                if ($status === 'won') {
-                    // Profit on a win is the same whether the stake
-                    // was cash or FP — the player gains $X regardless
-                    // of how the stake was funded.
-                    $dailyPL[$diffDays] += max(0.0, $payout - $risk);
-                } elseif ($status === 'lost') {
-                    // Only the cash portion actually came out of the
-                    // player's pocket. FP-funded loss = $0 for them.
-                    $dailyPL[$diffDays] -= $cashRisk;
-                }
-                // void/push: net zero
-            }
-
-            // Real-cash balance changes inside the week (admin deposits /
-            // withdrawals / non-FP credit adjustments). Show as the
-            // "Deposits / Withdrawals" row.
-            //
-            // IMPORTANT: skip freeplay-only rows even though they live in
-            // the same `transactions` collection — their balanceBefore /
-            // balanceAfter snapshot the FREEPLAY pool, not real cash, so
-            // summing them double-counts an FP grant as a deposit. Three
-            // forms a freeplay row can take:
-            //   1. `type === 'fp_deposit'` — always FP, never cash.
-            //   2. `isFreeplay === true` on an 'adjustment' — admin
-            //      tweaking the FP pool (AdminCoreController:2810).
-            //   3. `referenceType === 'FreePlayBonus'` — deposit-triggered
-            //      FP bonus (AdminCoreController:4391, 10478). May not
-            //      carry an isFreeplay flag depending on call site.
-            // Anything else is a real cash movement.
-            $nonBetTx = $this->db->findMany('transactions', [
-                'userId' => $userId,
-                'type' => ['$in' => ['adjustment', 'deposit', 'withdrawal']],
-                'status' => 'completed',
-                'createdAt' => ['$gte' => $weekStartIso, '$lt' => $weekEndIso],
-            ], ['projection' => [
-                'amount' => 1, 'type' => 1, 'balanceBefore' => 1, 'balanceAfter' => 1,
-                'isFreeplay' => 1, 'referenceType' => 1,
-            ]]);
-
-            $transactionsTotal = 0.0;
-            foreach ($nonBetTx as $tx) {
-                if (self::isFreeplayLedgerRow($tx)) continue;
                 $balanceBefore = isset($tx['balanceBefore']) ? $this->num($tx['balanceBefore']) : null;
                 $balanceAfter = isset($tx['balanceAfter']) ? $this->num($tx['balanceAfter']) : null;
-                if ($balanceBefore !== null && $balanceAfter !== null) {
-                    $transactionsTotal += ($balanceAfter - $balanceBefore);
+                if ($balanceBefore === null || $balanceAfter === null) continue;
+                $delta = $balanceAfter - $balanceBefore;
+
+                $type = strtolower((string) ($tx['type'] ?? ''));
+                if (in_array($type, $BET_CASINO_TYPES, true)) {
+                    $dailyPL[$diffDays] += $delta;
+                } else {
+                    // Cash movement types AND any unmapped type → Deposits row.
+                    // Keeping unmapped types here (rather than dropping) is the
+                    // safer default for the reconciliation guarantee above.
+                    $transactionsTotal += $delta;
                 }
+                // Remember the latest in-week balanceAfter so endBalance
+                // can be read directly from the ledger instead of summing.
+                $lastInWeekBalanceAfter = $balanceAfter;
             }
 
             // Carry forward = balanceAfter of the most-recent transaction
@@ -474,7 +468,14 @@ final class WalletController
             }
 
             $weekTotal = array_sum($dailyPL);
-            $endBalance = $carryForward + $weekTotal + $transactionsTotal;
+            // endBalance reads from the ledger (latest in-week balanceAfter)
+            // when any transactions landed this week; otherwise it just is
+            // the carryForward (no movement → no change). This is what
+            // makes endBalance === next_week.carryForward — both pull the
+            // same balanceAfter from the same row.
+            $endBalance = $lastInWeekBalanceAfter !== null
+                ? $lastInWeekBalanceAfter
+                : $carryForward;
 
             // Day labels Tue, Wed, ..., Mon with their date strings.
             // startUtc / endUtc are the exact half-open UTC bounds used
