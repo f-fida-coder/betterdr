@@ -6107,18 +6107,21 @@ final class AdminCoreController
                     return $amount;
                 }
 
-                $type = strtolower(trim((string) ($tx['type'] ?? '')));
-                if ($type === 'adjustment') {
-                    $beforeRaw = $tx['balanceBefore'] ?? null;
-                    $afterRaw = $tx['balanceAfter'] ?? null;
-                    if ($beforeRaw !== null && $afterRaw !== null && is_numeric($beforeRaw) && is_numeric($afterRaw)) {
-                        return ((float) $afterRaw) - ((float) $beforeRaw);
-                    }
+                // Balance delta is the ground truth — captures mixed FP/cash
+                // splits correctly. Mirrors getComprehensiveSignedTransactionAmount.
+                $beforeRaw = $tx['balanceBefore'] ?? null;
+                $afterRaw = $tx['balanceAfter'] ?? null;
+                if ($beforeRaw !== null && $afterRaw !== null && is_numeric($beforeRaw) && is_numeric($afterRaw)) {
+                    return ((float) $afterRaw) - ((float) $beforeRaw);
                 }
 
+                $type = strtolower(trim((string) ($tx['type'] ?? '')));
                 return match ($type) {
-                    'deposit', 'bet_won', 'bet_refund', 'casino_bet_credit', 'fp_deposit' => $amount,
-                    'withdrawal', 'bet_placed', 'casino_bet_debit', 'bet_lost' => -$amount,
+                    'deposit', 'bet_won', 'bet_refund',
+                    'bet_void', 'bet_void_admin',
+                    'casino_bet_credit', 'fp_deposit' => $amount,
+                    'withdrawal', 'bet_placed', 'bet_placed_admin',
+                    'casino_bet_debit', 'bet_lost' => -$amount,
                     default => 0.0,
                 };
             };
@@ -12276,15 +12279,30 @@ final class AdminCoreController
     private function isPromotionalOrFreePlayTransaction(array $transaction): bool
     {
         $type = strtolower(trim((string) ($transaction['type'] ?? '')));
-        if ($type === 'fp_deposit') {
+
+        // Authoritative signals (defense in depth, in order of confidence):
+        // 1. Any `fp_*` type — fp_deposit, fp_bet_placed/won/lost/void/void_admin.
+        //    Prefix match covers future fp_* types without code changes.
+        // 2. `isFreeplay === true` flag — set by writers that mutate the FP pool.
+        // 3. `referenceType === 'FreePlayBonus'` — deposit-linked FP bonuses
+        //    (may not always carry isFreeplay depending on call site).
+        // Mirrors WalletController::isFreeplayLedgerRow + AgentCutsController
+        // so user, admin, and agent reporting agree on which rows are FP.
+        if ($type !== '' && str_starts_with($type, 'fp_')) {
+            return true;
+        }
+        if (!empty($transaction['isFreeplay'])) {
+            return true;
+        }
+        if (trim((string) ($transaction['referenceType'] ?? '')) === 'FreePlayBonus') {
             return true;
         }
 
+        // Legacy fallback for older rows that didn't set the flags above.
         $reason = strtoupper(trim((string) ($transaction['reason'] ?? '')));
         if ($reason !== '' && (str_contains($reason, 'PROMOTIONAL') || str_contains($reason, 'FREEPLAY'))) {
             return true;
         }
-
         $description = strtolower(trim((string) ($transaction['description'] ?? '')));
         if ($description !== '' && (str_contains($description, 'promotional') || str_contains($description, 'freeplay') || str_contains($description, 'free play'))) {
             return true;

@@ -781,15 +781,32 @@ final class AgentCutsController
     private function isPromotionalOrFreePlayTransaction(array $transaction): bool
     {
         $type = strtolower(trim((string) ($transaction['type'] ?? '')));
-        if ($type === 'fp_deposit') {
+
+        // Authoritative signals (defense in depth, in order of confidence):
+        // 1. Any `fp_*` type — fp_deposit, fp_bet_placed/won/lost/void/void_admin.
+        //    Prefix match covers future fp_* types without code changes.
+        // 2. `isFreeplay === true` flag — set by writers that mutate the FP pool.
+        // 3. `referenceType === 'FreePlayBonus'` — deposit-linked FP bonuses
+        //    (may not always carry isFreeplay depending on call site).
+        // Together these mirror WalletController::isFreeplayLedgerRow so the
+        // user-side figures and agent settlement agree on which rows are FP.
+        if ($type !== '' && str_starts_with($type, 'fp_')) {
+            return true;
+        }
+        if (!empty($transaction['isFreeplay'])) {
+            return true;
+        }
+        if (trim((string) ($transaction['referenceType'] ?? '')) === 'FreePlayBonus') {
             return true;
         }
 
+        // Legacy fallback: older rows wrote a descriptive reason/description
+        // without setting isFreeplay. Kept as a safety net for historical data
+        // — new code paths should always set one of the three flags above.
         $reason = strtoupper(trim((string) ($transaction['reason'] ?? '')));
         if ($reason !== '' && (str_contains($reason, 'PROMOTIONAL') || str_contains($reason, 'FREEPLAY'))) {
             return true;
         }
-
         $description = strtolower(trim((string) ($transaction['description'] ?? '')));
         if ($description !== '' && (str_contains($description, 'promotional') || str_contains($description, 'freeplay') || str_contains($description, 'free play'))) {
             return true;
@@ -862,18 +879,27 @@ final class AgentCutsController
             return $amount;
         }
 
-        $type = strtolower(trim((string) ($transaction['type'] ?? '')));
-        if ($type === 'adjustment') {
-            $beforeRaw = $transaction['balanceBefore'] ?? null;
-            $afterRaw = $transaction['balanceAfter'] ?? null;
-            if ($beforeRaw !== null && $afterRaw !== null && is_numeric($beforeRaw) && is_numeric($afterRaw)) {
-                return ((float) $afterRaw) - ((float) $beforeRaw);
-            }
+        // Prefer the actual ledger delta when both snapshots are present.
+        // Mirrors AdminCoreController + AgentSettlementSnapshotService +
+        // WalletController — single source of truth for "what did balance
+        // actually move by" so user, admin, agent reporting all agree.
+        $beforeRaw = $transaction['balanceBefore'] ?? null;
+        $afterRaw = $transaction['balanceAfter'] ?? null;
+        if ($beforeRaw !== null && $afterRaw !== null && is_numeric($beforeRaw) && is_numeric($afterRaw)) {
+            return ((float) $afterRaw) - ((float) $beforeRaw);
         }
 
+        $type = strtolower(trim((string) ($transaction['type'] ?? '')));
         return match ($type) {
-            'deposit', 'bet_won', 'bet_refund', 'casino_bet_credit', 'fp_deposit', 'credit', 'credit_adj', 'promotional_credit' => $amount,
-            'withdrawal', 'bet_placed', 'bet_placed_admin', 'casino_bet_debit', 'bet_lost', 'debit', 'debit_adj', 'promotional_debit' => -$amount,
+            // Credits — balance goes up.
+            'deposit', 'bet_won', 'bet_refund',
+            'bet_void', 'bet_void_admin',
+            'casino_bet_credit', 'fp_deposit',
+            'credit', 'credit_adj', 'promotional_credit' => $amount,
+            // Debits — balance goes down.
+            'withdrawal', 'bet_placed', 'bet_placed_admin',
+            'casino_bet_debit', 'bet_lost',
+            'debit', 'debit_adj', 'promotional_debit' => -$amount,
             default => 0.0,
         };
     }

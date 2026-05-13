@@ -566,18 +566,29 @@ final class AgentSettlementSnapshotService
             return $amount;
         }
 
-        $type = strtolower(trim((string) ($transaction['type'] ?? '')));
-        if ($type === 'adjustment') {
-            $beforeRaw = $transaction['balanceBefore'] ?? null;
-            $afterRaw = $transaction['balanceAfter'] ?? null;
-            if ($beforeRaw !== null && $afterRaw !== null && is_numeric($beforeRaw) && is_numeric($afterRaw)) {
-                return ((float) $afterRaw) - ((float) $beforeRaw);
-            }
+        // Prefer the actual ledger delta when both snapshots are present.
+        // For mixed FP+cash bets on credit accounts the row's `amount`
+        // field carries the full wager but `balance` only moved by the
+        // cash slice — reading the delta is the only way to get the
+        // right number. Same approach as AdminCoreController +
+        // WalletController so user/admin/agent reports agree.
+        $beforeRaw = $transaction['balanceBefore'] ?? null;
+        $afterRaw = $transaction['balanceAfter'] ?? null;
+        if ($beforeRaw !== null && $afterRaw !== null && is_numeric($beforeRaw) && is_numeric($afterRaw)) {
+            return ((float) $afterRaw) - ((float) $beforeRaw);
         }
 
+        $type = strtolower(trim((string) ($transaction['type'] ?? '')));
         return match ($type) {
-            'deposit', 'bet_won', 'bet_refund', 'casino_bet_credit', 'fp_deposit', 'credit', 'credit_adj', 'promotional_credit' => $amount,
-            'withdrawal', 'bet_placed', 'bet_placed_admin', 'casino_bet_debit', 'bet_lost', 'debit', 'debit_adj', 'promotional_debit' => -$amount,
+            // Credits — balance goes up.
+            'deposit', 'bet_won', 'bet_refund',
+            'bet_void', 'bet_void_admin',
+            'casino_bet_credit', 'fp_deposit',
+            'credit', 'credit_adj', 'promotional_credit' => $amount,
+            // Debits — balance goes down.
+            'withdrawal', 'bet_placed', 'bet_placed_admin',
+            'casino_bet_debit', 'bet_lost',
+            'debit', 'debit_adj', 'promotional_debit' => -$amount,
             default => 0.0,
         };
     }
