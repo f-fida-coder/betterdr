@@ -145,6 +145,33 @@ final class DebugController
             // Bump cursor so the next tick picks up where we left off.
             self::advanceRotationCursor($sports, count($batch));
 
+            // Settlement sweep — grade any matches that flipped to
+            // `finished`/`canceled` since the last cron run. On Hostinger
+            // the long-running odds-worker doesn't run, and syncSingleSport
+            // above intentionally skips settlement, so this is the system
+            // -wide grading cadence. Cheap when no pending bets are on
+            // finished matches (no DB writes). Failures are non-fatal —
+            // the tick's primary job is odds sync, and getMyBets still
+            // has the on-read fallback for any user who happens to look.
+            $sweep = [
+                'matchesChecked' => 0,
+                'matchesSettled' => 0,
+                'betsSettled' => 0,
+                'errors' => 0,
+            ];
+            try {
+                $sweepResult = BetSettlementService::settlePendingMatches($this->db, 250, 'cron');
+                $sweep['matchesChecked'] = (int) ($sweepResult['matchesChecked'] ?? 0);
+                $sweep['matchesSettled'] = (int) ($sweepResult['matchesSettled'] ?? 0);
+                $sweep['betsSettled']    = (int) ($sweepResult['betsSettled'] ?? 0);
+                $sweep['errors']         = (int) ($sweepResult['errors'] ?? 0);
+            } catch (Throwable $sweepErr) {
+                Logger::warn('prematch-tick settlement sweep failed', [
+                    'error' => $sweepErr->getMessage(),
+                ], 'sportsbook');
+                $sweep['errors']++;
+            }
+
             $result = [
                 'sportsTried' => count($batch),
                 'totalUpdated' => $totalUpdated,
@@ -152,6 +179,7 @@ final class DebugController
                 'errors' => $errors,
                 'rotation' => ['totalConfigured' => count($sports), 'cursor' => self::peekRotationCursor()],
                 'perSport' => $perSport,
+                'settlementSweep' => $sweep,
                 'elapsedMs' => (int) round((microtime(true) - $start) * 1000),
             ];
             $this->markTickRan('prematch');
@@ -180,6 +208,11 @@ final class DebugController
             Response::json(['message' => 'Not authorized'], 401);
             return;
         }
+        // Pull the calling user's id from the JWT (if present) so we can
+        // also drain their pending tickets after the live sync. Tick-secret
+        // callers won't have a user id — they just get the odds refresh,
+        // and the cron-level settlement sweep covers system-wide grading.
+        $callerUserId = self::extractJwtUserId($this->jwtSecret);
         $userMin = max(0, (int) Env::get('USER_LIVE_SYNC_MIN_INTERVAL_SECONDS', '15'));
         $throttleKey = self::clientThrottleKey('live');
         $throttled = false;
@@ -219,12 +252,60 @@ final class DebugController
             }
         }
 
+        // Per-user settlement: grade any of the caller's pending tickets
+        // whose match has flipped to finished/canceled since their last
+        // sweep. Runs even when the live sync above was throttled — the
+        // sync's throttle is about upstream API cost, not DB writes, and
+        // settlement is the time-sensitive bit for the player. Shares
+        // the same 30s per-user throttle as the on-read sweep in
+        // getMyBets() so the two paths don't double-sweep when both
+        // fire in the same window. Fail-open: settlement issues here
+        // mustn't break the live-sync response.
+        if ($callerUserId !== '') {
+            try {
+                $sweepNs = SportsbookCache::userBetSweepNamespace();
+                $sweepKey = 'sweep:' . $callerUserId;
+                $recent = SharedFileCache::get($sweepNs, $sweepKey, 30);
+                if ($recent === null) {
+                    BetSettlementService::settlePendingMatchesForUser($this->db, $callerUserId, 'live-sync');
+                    SharedFileCache::put($sweepNs, $sweepKey, ['at' => time()]);
+                }
+            } catch (Throwable $settleErr) {
+                Logger::warn('user-live-sync settlement sweep failed', [
+                    'userId' => $callerUserId,
+                    'error' => $settleErr->getMessage(),
+                ], 'bets');
+            }
+        }
+
         if ($throttled) {
             header('X-Sync-Throttled: 1');
         }
         // Always 200 with current live rows — UX guarantee: the user never
         // sees an error from clicking Refresh.
         Response::json(self::currentLiveRows($this->db));
+    }
+
+    /**
+     * Decode the Bearer JWT (if any) and return the user id, or '' when
+     * the request lacks a valid JWT (e.g. tick-secret caller). Returns
+     * only after sanity-checking the id shape — settlement helpers reject
+     * non-24-hex inputs anyway, so a bad token never produces DB writes.
+     */
+    private static function extractJwtUserId(string $jwtSecret): string
+    {
+        $auth = (string) Http::header('authorization');
+        if (!str_starts_with($auth, 'Bearer ')) return '';
+        try {
+            $claims = Jwt::decode(trim(substr($auth, 7)), $jwtSecret);
+        } catch (Throwable $_) {
+            return '';
+        }
+        $sub = '';
+        if (is_array($claims)) {
+            $sub = (string) ($claims['id'] ?? $claims['userId'] ?? $claims['sub'] ?? '');
+        }
+        return preg_match('/^[a-f0-9]{24}$/i', $sub) === 1 ? $sub : '';
     }
 
     /**

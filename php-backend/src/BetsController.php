@@ -1271,13 +1271,49 @@ final class BetsController
             $now = time();
             $forced = [];
             $alreadyDone = [];
+            $regraded = [];
             $notDone = [];
 
             foreach (array_keys($matchIds) as $mid) {
                 $match = $this->db->findOne('matches', ['id' => SqlRepository::id($mid)]);
                 if ($match === null) continue;
                 $effective = SportsMatchStatus::effectiveStatus($match, $now);
-                if (in_array($effective, ['finished', 'canceled', 'expired'], true)) {
+                if (in_array($effective, ['finished', 'canceled'], true)) {
+                    // Match outcome is known but the user's bet is still
+                    // pending — the on-read sweep must have missed it
+                    // (silent failure, throttle race, or pre-fix backlog).
+                    // Force-call settleMatch so a manual /regrade-stuck
+                    // request can actually rescue these tickets instead of
+                    // reporting "alreadyFinal" while the bet stays stuck.
+                    // settleMatch is idempotent (UPDATE ... WHERE status='pending')
+                    // so calling it on an already-graded match is a no-op.
+                    try {
+                        $result = BetSettlementService::settleMatch($this->db, $mid, null, 'manual-regrade');
+                        $betsSettled = (int) (count($result['settledBetIds'] ?? []));
+                        if ($betsSettled > 0) {
+                            $regraded[] = ['matchId' => $mid, 'betsSettled' => $betsSettled];
+                            Logger::info('manual-regrade settled stuck bets', [
+                                'userId' => $userId,
+                                'matchId' => $mid,
+                                'betsSettled' => $betsSettled,
+                            ], 'bets');
+                        } else {
+                            $alreadyDone[] = $mid;
+                        }
+                    } catch (Throwable $e) {
+                        Logger::warn('manual-regrade settle attempt failed', [
+                            'userId' => $userId,
+                            'matchId' => $mid,
+                            'error' => $e->getMessage(),
+                        ], 'bets');
+                        $alreadyDone[] = $mid;
+                    }
+                    continue;
+                }
+                if ($effective === 'expired') {
+                    // Expired matches stay pending by design — see
+                    // BetSettlementService::settlePendingMatches comments
+                    // (operator must confirm outcome before money moves).
                     $alreadyDone[] = $mid;
                     continue;
                 }
@@ -1321,6 +1357,7 @@ final class BetsController
                 'pendingBetsScanned' => count($pendingBets),
                 'matchesScanned' => count($matchIds),
                 'forcedFinished' => $forced,
+                'regraded' => $regraded,
                 'alreadyFinal' => $alreadyDone,
                 'stillPending' => $notDone,
             ]);
