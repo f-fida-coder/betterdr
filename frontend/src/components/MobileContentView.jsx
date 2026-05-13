@@ -1519,10 +1519,10 @@ const MobileContentView = ({
                     {liveStripTabs.map((tab) => {
                         const active = liveSportTab === tab.id;
                         const isEmpty = tab.count === 0 && tab.id !== 'all' && tab.id !== 'my-live';
-                        // Render emoji at large size when available (modern OSes
-                        // ship full-color glyphs); fall back to FontAwesome for
-                        // hosts without emoji fonts.
                         const showEmoji = !!tab.emoji;
+                        const shortLabel = tab.id === 'my-live' ? 'My Plays'
+                            : tab.id === 'all' ? 'All'
+                            : tab.label;
                         return (
                             <button
                                 key={tab.id}
@@ -1533,28 +1533,36 @@ const MobileContentView = ({
                                 style={{
                                     ...liveFilterPillStyle,
                                     opacity: !active && isEmpty ? 0.45 : 1,
+                                    borderBottom: active ? '3px solid #fbbf24' : '3px solid transparent',
                                 }}
                             >
-                                {showEmoji ? (
-                                    <span
-                                        style={{
-                                            fontSize: 30,
-                                            lineHeight: 1,
-                                            filter: !active && isEmpty ? 'grayscale(70%)' : 'none',
-                                        }}
-                                        aria-hidden
-                                    >
-                                        {tab.emoji}
-                                    </span>
-                                ) : (
-                                    <i
-                                        className={tab.icon}
-                                        style={{ fontSize: 28, lineHeight: 1, color: active ? '#fbbf24' : '#fff' }}
-                                        aria-hidden
-                                    />
-                                )}
-                                <span style={liveFilterPillCountStyle(active)}>
-                                    {tab.count > 0 ? tab.count : ''}
+                                <span style={liveFilterIconWrapStyle}>
+                                    {showEmoji ? (
+                                        <span
+                                            style={{
+                                                fontSize: 26,
+                                                lineHeight: 1,
+                                                filter: !active && isEmpty ? 'grayscale(70%)' : 'none',
+                                            }}
+                                            aria-hidden
+                                        >
+                                            {tab.emoji}
+                                        </span>
+                                    ) : (
+                                        <i
+                                            className={tab.icon}
+                                            style={{ fontSize: 22, lineHeight: 1, color: active ? '#fbbf24' : '#fff' }}
+                                            aria-hidden
+                                        />
+                                    )}
+                                    {tab.count > 0 && (
+                                        <span style={liveFilterCountBadgeStyle(active)}>
+                                            {tab.count}
+                                        </span>
+                                    )}
+                                </span>
+                                <span style={liveFilterPillLabelStyle(active)}>
+                                    {shortLabel}
                                 </span>
                             </button>
                         );
@@ -2373,27 +2381,30 @@ const periodTabBarStyle = {
     boxShadow: '0 1px 2px rgba(15,23,42,0.04)',
 };
 
-// Live Now sport rail — dark book-style strip with large color emoji
-// over a count number. No text labels (the icon IS the label). Active
-// tab marked by a yellow count + accent underline; empty tabs grayscale
-// the emoji and dim opacity so the player sees "we have basketball but
-// nothing's live right now" at a glance.
+// Live Now sport rail — dark sportsbook-style strip with vivid color
+// emoji over a short text label, plus a tiny corner count badge on the
+// icon so the player can scan "what's live + how much of it" at once.
+// Active tab marked by an amber underline + amber label; empty tabs
+// grayscale the icon and dim opacity to read as "we have basketball
+// but nothing's live right now" at a glance.
 const liveFilterStripStyle = {
     display: 'flex',
     width: '100%',
-    height: 76,
+    height: 72,
+    flexShrink: 0,
     overflowX: 'auto',
-    background: '#1f1f1f',
+    background: 'linear-gradient(180deg, #262626 0%, #1a1a1a 100%)',
     borderTop: '1px solid #2d2d2d',
     borderBottom: '1px solid #2d2d2d',
     boxSizing: 'border-box',
     WebkitOverflowScrolling: 'touch',
 };
 const liveFilterPillStyle = {
-    flex: 1,
-    minWidth: 64,
-    padding: '6px 4px',
+    flex: '0 0 auto',
+    minWidth: 72,
+    padding: '6px 10px 4px',
     border: 'none',
+    borderBottom: '3px solid transparent',
     cursor: 'pointer',
     display: 'flex',
     flexDirection: 'column',
@@ -2401,19 +2412,46 @@ const liveFilterPillStyle = {
     justifyContent: 'center',
     background: 'transparent',
     color: '#fff',
-    transition: 'opacity 100ms ease',
-    gap: 2,
+    transition: 'opacity 100ms ease, border-color 120ms ease',
+    gap: 4,
 };
-const liveFilterPillCountStyle = (active) => ({
-    fontSize: 13,
+const liveFilterIconWrapStyle = {
+    position: 'relative',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+};
+const liveFilterCountBadgeStyle = (active) => ({
+    position: 'absolute',
+    top: -4,
+    right: -10,
+    minWidth: 16,
+    height: 16,
+    padding: '0 4px',
+    borderRadius: 8,
+    background: active ? '#fbbf24' : 'rgba(255,255,255,0.18)',
+    color: active ? '#1a1a1a' : '#fff',
+    fontSize: 9,
     fontWeight: 800,
-    color: active ? '#fbbf24' : '#fff',
+    lineHeight: '16px',
+    textAlign: 'center',
     fontVariantNumeric: 'tabular-nums',
-    minHeight: 16, // reserve space so empty pills don't jump in height
+    boxSizing: 'border-box',
+    letterSpacing: 0.2,
+});
+const liveFilterPillLabelStyle = (active) => ({
+    fontSize: 10.5,
+    fontWeight: 700,
+    color: active ? '#fbbf24' : 'rgba(255,255,255,0.9)',
+    letterSpacing: 0.3,
+    textTransform: 'uppercase',
+    whiteSpace: 'nowrap',
+    lineHeight: 1,
 });
 const liveLeagueStripStyle = {
     display: 'flex',
     gap: 6,
+    flexShrink: 0,
     overflowX: 'auto',
     background: '#fff',
     padding: '8px 10px',
