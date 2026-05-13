@@ -9,9 +9,16 @@ declare(strict_types=1);
  *
  * Scope is intentionally tight:
  *
- *   - Only writes `homeTeamShort`, `awayTeamShort`, `homeTeamRecord`,
- *     `awayTeamRecord`, `broadcast`, `eventName`. Never touches odds, scores,
- *     or status — OddsAPI owns those columns and runs on its own cadence.
+ *   - Writes `homeTeamShort`, `awayTeamShort`, `homeTeamRecord`,
+ *     `awayTeamRecord`, `broadcast`, `eventName`.
+ *   - For LIVE games only: also writes `score.period` and `score.clock`
+ *     so the board can render "Q3 12:34" / "Inn 5 Top" next to the LIVE
+ *     pill. OddsAPI tracks period sporadically and never provides a clock;
+ *     ESPN's free scoreboard updates both fields on a sub-minute cadence
+ *     during in-progress games.
+ *   - NEVER writes `score.score_home`, `score.score_away`, or `status` —
+ *     those columns are owned by OddsAPI/BetSettlementService and a
+ *     stray ESPN write could mis-grade a ticket.
  *   - Matches ESPN events to existing rows by sportKey + fuzzy team-name
  *     equality + start-time window. Rows that don't match are dropped
  *     silently.
@@ -181,6 +188,10 @@ final class EspnScoreboardSync
         $awayRecord = self::extractOverallRecord($away);
         $homeShort = TeamNormalizer::shortName($homeName, $sportKey, (string) ($home['team']['shortDisplayName'] ?? $home['team']['name'] ?? ''));
         $awayShort = TeamNormalizer::shortName($awayName, $sportKey, (string) ($away['team']['shortDisplayName'] ?? $away['team']['name'] ?? ''));
+        // Live clock + period for in-progress games only. Returns null
+        // for pre-game / final / postponed — those keep their existing
+        // (OddsAPI-supplied) score.period value if any.
+        $liveState = self::extractLiveState($competition, $sportKey);
 
         // Skip the DB hit when ESPN gave us nothing actually useful — saves
         // a query for every offseason / inactive league entry.
@@ -191,6 +202,7 @@ final class EspnScoreboardSync
             && $awayRecord === null
             && $homeShort === ''
             && $awayShort === ''
+            && $liveState === null
         ) {
             return ['matched' => false, 'updated' => false];
         }
@@ -199,6 +211,18 @@ final class EspnScoreboardSync
 
         $row = self::findMatchingRow($db, $sportKey, $homeName, $awayName, $eventTs);
         if ($row === null) return ['matched' => false, 'updated' => false];
+
+        // Compute target score.period / score.clock from the current row.
+        // We only patch these when there's a real change so we don't bump
+        // updatedAt every tick for an idle game.
+        $existingScore = is_array($row['score'] ?? null) ? $row['score'] : [];
+        $existingPeriod = $existingScore['period'] ?? null;
+        $existingClock = $existingScore['clock'] ?? null;
+        $newPeriod = $liveState !== null ? $liveState['period'] : $existingPeriod;
+        $newClock = $liveState !== null ? $liveState['clock'] : $existingClock;
+        $scoreChanged = $liveState !== null
+            && ((string) $newPeriod !== (string) $existingPeriod
+                || (string) $newClock !== (string) $existingClock);
 
         // No-op fast path — if every field already matches, don't bump
         // updatedAt and bust caches downstream for nothing.
@@ -209,6 +233,7 @@ final class EspnScoreboardSync
             && (string) ($row['awayTeamShort'] ?? '') === $awayShort
             && (string) ($row['homeTeamRecord'] ?? '') === ($homeRecord ?? '')
             && (string) ($row['awayTeamRecord'] ?? '') === ($awayRecord ?? '')
+            && !$scoreChanged
         ) {
             return ['matched' => true, 'updated' => false];
         }
@@ -225,8 +250,78 @@ final class EspnScoreboardSync
         if ($homeRecord !== null) $update['homeTeamRecord'] = $homeRecord;
         if ($awayRecord !== null) $update['awayTeamRecord'] = $awayRecord;
 
+        // Patch score.period / score.clock when ESPN reports a live tick.
+        // Critical: only update these two keys, preserving every other
+        // field in `score` (especially score_home / score_away — those
+        // are owned by OddsAPI + BetSettlementService and a partial
+        // overwrite would zero them out and mis-grade tickets).
+        if ($scoreChanged) {
+            $mergedScore = $existingScore;
+            $mergedScore['period'] = $newPeriod;
+            $mergedScore['clock'] = $newClock;
+            $update['score'] = $mergedScore;
+        }
+
         $db->updateOne('matches', ['id' => SqlRepository::id((string) $row['id'])], $update);
         return ['matched' => true, 'updated' => true];
+    }
+
+    /**
+     * Pull live game state from `competition.status` for in-progress
+     * games. Returns null for pre-game / final / postponed / cancelled
+     * so the caller knows to leave the existing score.period alone.
+     *
+     * Output shape: `['period' => int, 'clock' => string]`.
+     *
+     * Per-sport `clock` value:
+     *   - Baseball: the half-inning indicator from ESPN's
+     *     `status.type.shortDetail` ("Top" / "Mid" / "Bot" / "End"). The
+     *     game has no game clock, so showing 0:00 next to "Inn 5" is
+     *     noise. Falls through to empty when ESPN omits the half.
+     *   - Football / Basketball / Hockey / Soccer: ESPN's `displayClock`
+     *     as-is ("12:34"). Frontend prefixes with Q/P/H per sport.
+     *
+     * @param array<string,mixed> $competition
+     */
+    private static function extractLiveState(array $competition, string $sportKey): ?array
+    {
+        $status = is_array($competition['status'] ?? null) ? $competition['status'] : null;
+        if ($status === null) return null;
+
+        $type = is_array($status['type'] ?? null) ? $status['type'] : [];
+        $state = strtolower((string) ($type['state'] ?? ''));
+        // ESPN's state values: 'pre' | 'in' | 'post'. Only 'in' = live.
+        if ($state !== 'in') return null;
+
+        $period = $status['period'] ?? null;
+        if (!is_numeric($period) || (int) $period <= 0) return null;
+        $period = (int) $period;
+
+        $displayClock = trim((string) ($status['displayClock'] ?? ''));
+        $shortDetail = trim((string) ($type['shortDetail'] ?? $type['detail'] ?? ''));
+
+        $sportKeyLower = strtolower($sportKey);
+        if (str_starts_with($sportKeyLower, 'baseball')) {
+            // ESPN MLB shortDetail looks like "Top 5th 0:00" / "Bot 3rd 0:00"
+            // / "Mid 7th" / "End 6th". First token is the half indicator
+            // baseball fans look for; everything after is redundant.
+            $half = '';
+            if ($shortDetail !== '') {
+                $first = strtok($shortDetail, ' ');
+                $candidate = ucfirst(strtolower((string) $first));
+                if (in_array($candidate, ['Top', 'Bot', 'Mid', 'End', 'Bottom'], true)) {
+                    $half = $candidate === 'Bottom' ? 'Bot' : $candidate;
+                }
+            }
+            return ['period' => $period, 'clock' => $half];
+        }
+
+        // Time-based sports — pass ESPN's display clock through.
+        // ESPN sometimes ships "0:00" mid-period transitions (between
+        // quarters / between halves). Treat as no-clock so the frontend
+        // renders "Q3" alone instead of an out-of-date "Q3 0:00".
+        $clock = ($displayClock === '0:00' || $displayClock === '0.0') ? '' : $displayClock;
+        return ['period' => $period, 'clock' => $clock];
     }
 
     /** @param array<string,mixed> $event */
@@ -346,7 +441,7 @@ final class EspnScoreboardSync
             'sportKey' => $sportKey,
             'status' => ['$in' => ['live', 'scheduled']],
         ], [
-            'projection' => ['id' => 1, 'homeTeam' => 1, 'awayTeam' => 1, 'startTime' => 1, 'broadcast' => 1, 'eventName' => 1, 'homeTeamShort' => 1, 'awayTeamShort' => 1, 'homeTeamRecord' => 1, 'awayTeamRecord' => 1],
+            'projection' => ['id' => 1, 'homeTeam' => 1, 'awayTeam' => 1, 'startTime' => 1, 'broadcast' => 1, 'eventName' => 1, 'homeTeamShort' => 1, 'awayTeamShort' => 1, 'homeTeamRecord' => 1, 'awayTeamRecord' => 1, 'score' => 1],
             'limit' => 200,
         ]);
         if (!is_array($candidates) || $candidates === []) return null;

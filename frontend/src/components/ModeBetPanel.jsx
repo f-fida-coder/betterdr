@@ -2010,7 +2010,7 @@ const ModeBetPanel = ({
                                                 background: lockedOut
                                                     ? '#cbd5e1'
                                                     : active
-                                                        ? (m.id === 'risk' ? '#ff5051' : m.id === 'win' ? '#16a34a' : '#0f172a')
+                                                        ? (m.id === 'win' ? '#16a34a' : '#ff5051')
                                                         : '#e8e8e8',
                                                 color: lockedOut ? '#94a3b8' : (active ? '#fff' : '#333'),
                                                 border: 'none',

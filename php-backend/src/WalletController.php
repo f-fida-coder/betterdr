@@ -411,17 +411,35 @@ final class WalletController
                 // void/push: net zero
             }
 
-            // Non-bet balance changes inside the week (admin adjustments,
-            // freeplay grants). Show as the "Transactions" row.
+            // Real-cash balance changes inside the week (admin deposits /
+            // withdrawals / non-FP credit adjustments). Show as the
+            // "Deposits / Withdrawals" row.
+            //
+            // IMPORTANT: skip freeplay-only rows even though they live in
+            // the same `transactions` collection — their balanceBefore /
+            // balanceAfter snapshot the FREEPLAY pool, not real cash, so
+            // summing them double-counts an FP grant as a deposit. Three
+            // forms a freeplay row can take:
+            //   1. `type === 'fp_deposit'` — always FP, never cash.
+            //   2. `isFreeplay === true` on an 'adjustment' — admin
+            //      tweaking the FP pool (AdminCoreController:2810).
+            //   3. `referenceType === 'FreePlayBonus'` — deposit-triggered
+            //      FP bonus (AdminCoreController:4391, 10478). May not
+            //      carry an isFreeplay flag depending on call site.
+            // Anything else is a real cash movement.
             $nonBetTx = $this->db->findMany('transactions', [
                 'userId' => $userId,
-                'type' => ['$in' => ['adjustment', 'fp_deposit', 'deposit', 'withdrawal']],
+                'type' => ['$in' => ['adjustment', 'deposit', 'withdrawal']],
                 'status' => 'completed',
                 'createdAt' => ['$gte' => $weekStartIso, '$lt' => $weekEndIso],
-            ], ['projection' => ['amount' => 1, 'type' => 1, 'balanceBefore' => 1, 'balanceAfter' => 1]]);
+            ], ['projection' => [
+                'amount' => 1, 'type' => 1, 'balanceBefore' => 1, 'balanceAfter' => 1,
+                'isFreeplay' => 1, 'referenceType' => 1,
+            ]]);
 
             $transactionsTotal = 0.0;
             foreach ($nonBetTx as $tx) {
+                if (self::isFreeplayLedgerRow($tx)) continue;
                 $balanceBefore = isset($tx['balanceBefore']) ? $this->num($tx['balanceBefore']) : null;
                 $balanceAfter = isset($tx['balanceAfter']) ? $this->num($tx['balanceAfter']) : null;
                 if ($balanceBefore !== null && $balanceAfter !== null) {
@@ -430,19 +448,25 @@ final class WalletController
             }
 
             // Carry forward = balanceAfter of the most-recent transaction
-            // strictly before week start that recorded a balance snapshot.
-            // Default to 0 if no history. Walk a small window so we skip
-            // legacy rows where balanceAfter wasn't populated yet.
+            // strictly before week start whose balance snapshot reflects
+            // REAL CASH (not the FP pool). Default to 0 if no history.
+            // Walk a small window so we skip legacy rows where balanceAfter
+            // wasn't populated yet AND so we skip FP-only snapshots that
+            // would otherwise impersonate a cash balance.
             $priorTx = $this->db->findMany('transactions', [
                 'userId' => $userId,
                 'createdAt' => ['$lt' => $weekStartIso],
             ], [
                 'sort' => ['createdAt' => -1],
                 'limit' => 50,
-                'projection' => ['balanceAfter' => 1, 'createdAt' => 1],
+                'projection' => [
+                    'balanceAfter' => 1, 'createdAt' => 1, 'type' => 1,
+                    'isFreeplay' => 1, 'referenceType' => 1,
+                ],
             ]);
             $carryForward = 0.0;
             foreach ($priorTx as $row) {
+                if (self::isFreeplayLedgerRow($row)) continue;
                 if (isset($row['balanceAfter']) && $row['balanceAfter'] !== null) {
                     $carryForward = $this->num($row['balanceAfter']);
                     break;
@@ -484,6 +508,21 @@ final class WalletController
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error', 'error' => $e->getMessage()], 500);
         }
+    }
+
+    /**
+     * True if this transaction's balanceBefore/balanceAfter snapshot the
+     * FREEPLAY pool rather than real cash. Used by the figures math to
+     * avoid counting FP grants as deposits — they share the
+     * `transactions` collection but never move the player's real balance.
+     */
+    private static function isFreeplayLedgerRow(array $tx): bool
+    {
+        $type = strtolower((string) ($tx['type'] ?? ''));
+        if ($type === 'fp_deposit') return true;
+        if (!empty($tx['isFreeplay'])) return true;
+        if (($tx['referenceType'] ?? '') === 'FreePlayBonus') return true;
+        return false;
     }
 
     private static function transactionLabel(string $type): string

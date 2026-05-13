@@ -65,6 +65,22 @@ const LIVE_SPORT_CATEGORIES = [
     { id: 'esports',        prefixes: ['esports', 'csgo', 'lol', 'dota'],        icon: 'fa-solid fa-gamepad',                  label: 'eSports' },
 ];
 
+// English ordinal suffix for a positive integer ("ST"/"ND"/"RD"/"TH").
+// Powers the live-period label (e.g. "9TH INN", "3RD QTR"). Capitalized
+// because the surrounding label is uppercase in pro sportsbook style.
+// 11/12/13 are special-cased ("TH" not "ST"/"ND"/"RD") per English rules.
+const ordinalSuffix = (n) => {
+    const v = Math.abs(Math.trunc(n));
+    const lastTwo = v % 100;
+    if (lastTwo >= 11 && lastTwo <= 13) return 'TH';
+    switch (v % 10) {
+        case 1: return 'ST';
+        case 2: return 'ND';
+        case 3: return 'RD';
+        default: return 'TH';
+    }
+};
+
 const categorizeLiveSport = (sportKey) => {
     const key = String(sportKey || '').toLowerCase();
     if (key === '') return null;
@@ -72,6 +88,44 @@ const categorizeLiveSport = (sportKey) => {
         if (cat.prefixes.some((p) => key.startsWith(p))) return cat;
     }
     return null;
+};
+
+// Total regulation periods per sport family. Used by the Live Now
+// stage-filter to bucketize "where in the game are we" without having
+// to know specific rule sets per league.
+const TOTAL_REGULATION_PERIODS = {
+    baseball: 9,
+    icehockey: 3,
+    soccer: 2,
+    americanfootball: 4,
+    basketball: 4,
+    rugbyleague: 2,
+    rugbyunion: 2,
+    aussierules: 4,
+};
+
+const totalPeriodsFor = (sportKey) => {
+    const key = String(sportKey || '').toLowerCase();
+    if (!key) return 4;
+    for (const prefix of Object.keys(TOTAL_REGULATION_PERIODS)) {
+        if (key.startsWith(prefix)) return TOTAL_REGULATION_PERIODS[prefix];
+    }
+    return 4;
+};
+
+// Classify a live match into early / mid / late thirds based on which
+// regulation period it's in. Pre-game (no period yet) → 'early'.
+// Anything past regulation → 'late'. Used only when the player
+// effectively has one sport+league live, to give them a useful
+// pace-of-game filter instead of an empty pill row.
+const classifyGameStage = (match) => {
+    const period = Number(match?.score?.period || 0);
+    if (!period) return 'early';
+    const total = totalPeriodsFor(match?.sportKey || match?.sport);
+    const ratio = period / total;
+    if (ratio <= 0.34) return 'early';
+    if (ratio <= 0.67) return 'mid';
+    return 'late';
 };
 
 /** Same live predicate as useMatches / teaser filter — board-level. */
@@ -512,6 +566,15 @@ const MobileContentView = ({
     // Reset to 'all' whenever the user leaves the Live Now bucket so
     // re-entering doesn't surprise them with a stale filter.
     const [liveSportTab, setLiveSportTab] = React.useState('all');
+    // League sub-filter: 'all' or a specific sportKey (e.g. 'baseball_mlb',
+    // 'basketball_nba'). Layered under the sport pill — picking
+    // Basketball + WNBA narrows the feed twice. Independent state keeps
+    // it stable when the player just toggles the sport filter.
+    const [liveLeagueTab, setLiveLeagueTab] = React.useState('all');
+    // Game-stage sub-filter for one-league situations: 'all' | 'early' |
+    // 'mid' | 'late'. Adds real filtering value when sport+league strips
+    // are both reduced to one option (e.g. the user has only MLB live).
+    const [liveStageTab, setLiveStageTab] = React.useState('all');
     const [pendingRiskMatchIds, setPendingRiskMatchIds] = React.useState(() => new Set());
 
     // Pending tickets → match ids so Live Now can offer a "My action"
@@ -557,8 +620,17 @@ const MobileContentView = ({
     React.useEffect(() => {
         if (primarySport !== 'commercial-live') {
             setLiveSportTab('all');
+            setLiveLeagueTab('all');
+            setLiveStageTab('all');
         }
     }, [primarySport]);
+
+    // Reset league sub-filter whenever the parent sport filter changes —
+    // different sports expose different leagues so an old selection no
+    // longer makes sense.
+    React.useEffect(() => {
+        setLiveLeagueTab('all');
+    }, [liveSportTab]);
 
     // If the currently-selected period is no longer available (e.g. data just
     // reloaded without period markets), fall back to Full Game.
@@ -707,28 +779,52 @@ const MobileContentView = ({
             const eventStatus = (match.score?.event_status || '').toString().toUpperCase();
             const isLive = match.status === 'live' || eventStatus.includes('IN_PROGRESS') || eventStatus.includes('LIVE');
             const startDate = match.startTime ? new Date(match.startTime) : null;
-            // Build a compact `Q2 5:43` / `H1 23:11` / `IN_PROGRESS`
-            // style label from the OddsAPI-supplied score fields.
-            // Period maps to a sport-appropriate prefix (Q for football
-            // /basketball, P for hockey, H for soccer); falls back to a
-            // cleaned event_status when period isn't set.
+            // Build a sportsbook-style label ("9TH INN", "3RD QTR 12:34",
+            // "2ND PRD 8:42", "1ST H") from the score fields populated by
+            // EspnScoreboardSync (clock + period for in-progress games).
+            // Format mirrors the reference book bettorjuice365 — ordinal
+            // period + sport suffix, with the time clock appended for
+            // sports that have one. Baseball deliberately omits the
+            // clock since MLB's game clock is always 0:00; the half-
+            // inning indicator (Top/Bot/Mid/End) goes after the suffix
+            // for the few seconds it's relevant.
             const periodNum = Number(match.score?.period || 0);
             const clockText = String(match.score?.clock || '').trim();
             const sportKeyLower = String(match.sportKey || '').toLowerCase();
-            const periodPrefix = sportKeyLower.startsWith('icehockey') ? 'P'
+            const periodSuffix = sportKeyLower.startsWith('icehockey') ? 'PRD'
                 : sportKeyLower.startsWith('soccer') ? 'H'
-                    : sportKeyLower.startsWith('baseball') ? 'Inn '
-                        : 'Q';
+                    : sportKeyLower.startsWith('baseball') ? 'INN'
+                        : 'QTR';
+            const isBaseball = sportKeyLower.startsWith('baseball');
             let liveStatusLabel = '';
             if (isLive) {
-                if (periodNum > 0 && clockText) liveStatusLabel = `${periodPrefix}${periodNum} ${clockText}`;
-                else if (periodNum > 0) liveStatusLabel = `${periodPrefix}${periodNum}`;
-                else if (clockText) liveStatusLabel = clockText;
-                else liveStatusLabel = eventStatus
-                    .replace(/^STATUS_/, '')
-                    .replace(/_/g, ' ')
-                    .toLowerCase()
-                    .replace(/\b\w/g, (c) => c.toUpperCase());
+                if (periodNum > 0) {
+                    const ord = ordinalSuffix(periodNum);
+                    const periodPart = `${periodNum}${ord} ${periodSuffix}`;
+                    if (isBaseball) {
+                        // Baseball: append half-inning ("Top"/"Bot"/etc)
+                        // only when ESPN actually shipped it — otherwise
+                        // bare "9TH INN" is the cleaner readout.
+                        liveStatusLabel = clockText
+                            ? `${periodPart} ${clockText.toUpperCase()}`
+                            : periodPart;
+                    } else {
+                        // Time-based sports: append the clock when present
+                        // ("3RD QTR 12:34"). Between-period transitions
+                        // drop the clock server-side so we never lie.
+                        liveStatusLabel = clockText
+                            ? `${periodPart} ${clockText}`
+                            : periodPart;
+                    }
+                } else if (clockText) {
+                    liveStatusLabel = clockText;
+                } else {
+                    liveStatusLabel = eventStatus
+                        .replace(/^STATUS_/, '')
+                        .replace(/_/g, ' ')
+                        .toLowerCase()
+                        .replace(/\b\w/g, (c) => c.toUpperCase());
+                }
             }
 
             // Live scores per team. Surfaced only when the match is
@@ -1155,8 +1251,86 @@ const MobileContentView = ({
         return tabs;
     }, [primarySport, orderedMatches]);
 
+    // Matches surviving the sport-category filter only — feeds the
+    // league sub-strip so its pills reflect what's actually browsable
+    // within the active sport (e.g. picking Basketball collapses the
+    // league pills to NBA / WNBA / NCAAB instead of every league live).
+    const matchesAfterSportFilter = React.useMemo(() => {
+        if (primarySport !== 'commercial-live') return orderedMatches;
+        if (liveSportTab === 'my-live') {
+            return orderedMatches.filter((m) => pendingRiskMatchIds.has(String(m.id)));
+        }
+        if (liveSportTab === 'all') return orderedMatches;
+        return orderedMatches.filter((m) => {
+            const cat = categorizeLiveSport(m.sportKey || m.sport);
+            return cat && cat.id === liveSportTab;
+        });
+    }, [primarySport, liveSportTab, orderedMatches, pendingRiskMatchIds]);
+
+    // League sub-strip data: distinct sportKeys present in the
+    // post-sport-filter slice, with counts. Rendered ONLY when there
+    // are 2+ leagues to choose from — a single-league strip is
+    // visual noise.
+    const liveLeagueTabs = React.useMemo(() => {
+        if (primarySport !== 'commercial-live') return [];
+        const counts = new Map();
+        for (const m of matchesAfterSportFilter) {
+            const key = String(m.sportKey || '').toLowerCase();
+            if (!key) continue;
+            counts.set(key, (counts.get(key) || 0) + 1);
+        }
+        if (counts.size <= 1) return [];
+        return [...counts.entries()]
+            .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))
+            .map(([key, count]) => ({
+                id: key,
+                label: sportLabelForKey(key) || key.toUpperCase(),
+                count,
+            }));
+    }, [primarySport, matchesAfterSportFilter]);
+
+    const matchesAfterLeagueFilter = React.useMemo(() => {
+        if (primarySport !== 'commercial-live') return matchesAfterSportFilter;
+        if (liveLeagueTab === 'all') return matchesAfterSportFilter;
+        return matchesAfterSportFilter.filter((m) =>
+            String(m.sportKey || '').toLowerCase() === liveLeagueTab);
+    }, [primarySport, liveLeagueTab, matchesAfterSportFilter]);
+
+    // Game-stage filter — only meaningful when the player has nothing
+    // narrower to pick from (≤1 sport AND ≤1 league live). Surfaces
+    // early / mid / late buckets so the user can quickly find e.g.
+    // bottom-of-the-9th MLB games.
+    const liveStageTabs = React.useMemo(() => {
+        if (primarySport !== 'commercial-live') return [];
+        if (liveSportTabs.length > 1) return [];
+        if (liveLeagueTabs.length > 1) return [];
+        const counts = { early: 0, mid: 0, late: 0 };
+        for (const m of matchesAfterLeagueFilter) {
+            const isLive = m?.status === 'live'
+                || String(m?.score?.event_status || '').toUpperCase().includes('IN_PROGRESS')
+                || String(m?.score?.event_status || '').toUpperCase().includes('LIVE');
+            if (!isLive) continue;
+            const stage = classifyGameStage(m);
+            counts[stage] = (counts[stage] || 0) + 1;
+        }
+        const total = counts.early + counts.mid + counts.late;
+        if (total < 2) return [];
+        const present = Object.entries(counts).filter(([, c]) => c > 0);
+        if (present.length <= 1) return [];
+        const STAGE_DEFS = {
+            early: { id: 'early', icon: 'fa-solid fa-hourglass-start', label: 'Early' },
+            mid: { id: 'mid', icon: 'fa-solid fa-hourglass-half', label: 'Mid-game' },
+            late: { id: 'late', icon: 'fa-solid fa-hourglass-end', label: 'Late' },
+        };
+        return present.map(([id, count]) => ({ ...STAGE_DEFS[id], count }));
+    }, [primarySport, liveSportTabs.length, liveLeagueTabs.length, matchesAfterLeagueFilter]);
+
     const showLiveSportStrip = primarySport === 'commercial-live'
         && (liveSportTabs.length >= 1 || myLiveOnBoardCount > 0);
+    const showLiveLeagueStrip = primarySport === 'commercial-live'
+        && liveLeagueTabs.length >= 2;
+    const showLiveStageStrip = primarySport === 'commercial-live'
+        && liveStageTabs.length >= 2;
 
     const liveStripTabs = React.useMemo(() => {
         const tabs = [];
@@ -1194,20 +1368,31 @@ const MobileContentView = ({
         }
     }, [liveSportTab, liveSportTabs, myLiveOnBoardCount]);
 
-    // Apply the live sport-tab filter BEFORE grouping so league headers
-    // / day dividers re-compute against the filtered slice (e.g. picking
-    // the basketball tab won't leave an empty "MLB" header behind).
+    // Same snap-back guard for league and stage sub-filters: if the
+    // active pill disappears from the live feed mid-session, fall back
+    // to 'all' so the list isn't silently empty.
+    React.useEffect(() => {
+        if (liveLeagueTab === 'all') return;
+        if (!liveLeagueTabs.some((t) => t.id === liveLeagueTab)) {
+            setLiveLeagueTab('all');
+        }
+    }, [liveLeagueTab, liveLeagueTabs]);
+
+    React.useEffect(() => {
+        if (liveStageTab === 'all') return;
+        if (!liveStageTabs.some((t) => t.id === liveStageTab)) {
+            setLiveStageTab('all');
+        }
+    }, [liveStageTab, liveStageTabs]);
+
+    // Apply all three live filters (sport → league → stage) BEFORE
+    // grouping so league headers / day dividers re-compute against
+    // the filtered slice.
     const matchesForGrouping = React.useMemo(() => {
         if (primarySport !== 'commercial-live') return orderedMatches;
-        if (liveSportTab === 'my-live') {
-            return orderedMatches.filter((m) => pendingRiskMatchIds.has(String(m.id)));
-        }
-        if (liveSportTab === 'all') return orderedMatches;
-        return orderedMatches.filter((m) => {
-            const cat = categorizeLiveSport(m.sportKey || m.sport);
-            return cat && cat.id === liveSportTab;
-        });
-    }, [primarySport, liveSportTab, orderedMatches, pendingRiskMatchIds]);
+        if (liveStageTab === 'all') return matchesAfterLeagueFilter;
+        return matchesAfterLeagueFilter.filter((m) => classifyGameStage(m) === liveStageTab);
+    }, [primarySport, liveStageTab, matchesAfterLeagueFilter, orderedMatches]);
 
     const groupedEntries = React.useMemo(() => {
         const entries = [];
@@ -1304,22 +1489,19 @@ const MobileContentView = ({
                 </div>
             )}
 
-            {/* Live Now sport-tab strip. Segmented like Straight / Parlay /
-                Teaser: icon + count per pill (labels in title/aria only).
-                First pill (when the player has pending risk on in-play
-                games listed below) jumps to those games — same mental model
-                as DK/FD "live bets" shortcuts. */}
+            {/* Live Now filter stack — up to three rows, each adds value
+                only when there's something to filter on:
+                  (1) sport pills (icon + count) — "what sport am I in?"
+                  (2) league pills (label + count) — narrows within sport
+                  (3) game-stage pills — shown ONLY when sport+league
+                      strips have ≤1 option each, so a player with just
+                      MLB live still gets a useful filter (Early / Mid /
+                      Late inning).
+                Segmented styling matches the Straight/Parlay/Teaser
+                tabs; first pill (when present) jumps to games the
+                player has pending risk on. */}
             {showLiveSportStrip && (
-                <div style={{
-                    display: 'flex',
-                    gap: 0,
-                    overflowX: 'auto',
-                    background: '#1f2937',
-                    padding: '2px',
-                    borderTop: '1px solid #374151',
-                    borderBottom: '1px solid #374151',
-                    WebkitOverflowScrolling: 'touch',
-                }}>
+                <div style={liveFilterStripStyle}>
                     {liveStripTabs.map((tab, idx) => {
                         const active = liveSportTab === tab.id;
                         return (
@@ -1330,31 +1512,83 @@ const MobileContentView = ({
                                 title={`${tab.label} (${tab.count})`}
                                 aria-label={`${tab.label} — ${tab.count} live`}
                                 style={{
-                                    flex: '1 0 auto',
-                                    minWidth: 56,
-                                    padding: '10px 10px',
+                                    ...liveFilterPillStyle,
                                     background: active ? '#ff5051' : 'transparent',
-                                    color: active ? '#fff' : '#cbd5e1',
-                                    border: 'none',
+                                    color: active ? '#fff' : '#e5e7eb',
                                     borderLeft: idx === 0 ? 'none' : '1px solid rgba(255,255,255,0.08)',
-                                    cursor: 'pointer',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    gap: 6,
-                                    fontSize: 13,
-                                    fontWeight: 800,
-                                    letterSpacing: 0.4,
-                                    transition: 'background 100ms ease, color 100ms ease',
+                                    boxShadow: active ? 'inset 0 -2px 0 rgba(255,255,255,0.4)' : 'none',
                                 }}
                             >
                                 <i className={tab.icon} style={{ fontSize: 16 }} aria-hidden />
-                                <span style={{
-                                    fontSize: 10,
-                                    fontWeight: 800,
-                                    opacity: active ? 1 : 0.75,
-                                    fontVariantNumeric: 'tabular-nums',
-                                }}>
+                                <span style={liveFilterPillCountStyle(active)}>
+                                    {tab.count}
+                                </span>
+                            </button>
+                        );
+                    })}
+                </div>
+            )}
+
+            {showLiveLeagueStrip && (
+                <div style={liveLeagueStripStyle}>
+                    <button
+                        type="button"
+                        onClick={() => setLiveLeagueTab('all')}
+                        style={liveLeaguePillStyle(liveLeagueTab === 'all')}
+                        aria-label="All leagues"
+                    >
+                        All
+                        <span style={liveLeaguePillCountStyle}>
+                            {matchesAfterSportFilter.length}
+                        </span>
+                    </button>
+                    {liveLeagueTabs.map((tab) => {
+                        const active = liveLeagueTab === tab.id;
+                        return (
+                            <button
+                                key={tab.id}
+                                type="button"
+                                onClick={() => setLiveLeagueTab(tab.id)}
+                                style={liveLeaguePillStyle(active)}
+                                aria-label={`${tab.label} — ${tab.count} live`}
+                            >
+                                {tab.label}
+                                <span style={liveLeaguePillCountStyle}>
+                                    {tab.count}
+                                </span>
+                            </button>
+                        );
+                    })}
+                </div>
+            )}
+
+            {showLiveStageStrip && (
+                <div style={liveLeagueStripStyle}>
+                    <button
+                        type="button"
+                        onClick={() => setLiveStageTab('all')}
+                        style={liveLeaguePillStyle(liveStageTab === 'all')}
+                        aria-label="All game stages"
+                    >
+                        <i className="fa-solid fa-bolt" style={{ marginRight: 6, fontSize: 11 }} aria-hidden />
+                        All
+                        <span style={liveLeaguePillCountStyle}>
+                            {matchesAfterLeagueFilter.length}
+                        </span>
+                    </button>
+                    {liveStageTabs.map((tab) => {
+                        const active = liveStageTab === tab.id;
+                        return (
+                            <button
+                                key={tab.id}
+                                type="button"
+                                onClick={() => setLiveStageTab(tab.id)}
+                                style={liveLeaguePillStyle(active)}
+                                aria-label={`${tab.label} — ${tab.count} live`}
+                            >
+                                <i className={tab.icon} style={{ marginRight: 6, fontSize: 11 }} aria-hidden />
+                                {tab.label}
+                                <span style={liveLeaguePillCountStyle}>
                                     {tab.count}
                                 </span>
                             </button>
@@ -2087,6 +2321,80 @@ const periodTabBarStyle = {
     zIndex: 5,
     flexShrink: 0,
     boxShadow: '0 1px 2px rgba(15,23,42,0.04)',
+};
+
+// Live Now filter strips — sport (icon pills, dark bg), league + stage
+// (label pills, light bg). Two-tone treatment helps players tell which
+// level of filtering they're at without reading labels.
+const liveFilterStripStyle = {
+    display: 'flex',
+    gap: 0,
+    overflowX: 'auto',
+    background: '#1f2937',
+    padding: '2px',
+    borderTop: '1px solid #374151',
+    borderBottom: '1px solid #374151',
+    WebkitOverflowScrolling: 'touch',
+};
+const liveFilterPillStyle = {
+    flex: '1 0 auto',
+    minWidth: 56,
+    padding: '10px 10px',
+    border: 'none',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    fontSize: 13,
+    fontWeight: 800,
+    letterSpacing: 0.4,
+    transition: 'background 100ms ease, color 100ms ease',
+};
+const liveFilterPillCountStyle = (active) => ({
+    fontSize: 10,
+    fontWeight: 800,
+    opacity: active ? 1 : 0.75,
+    fontVariantNumeric: 'tabular-nums',
+});
+const liveLeagueStripStyle = {
+    display: 'flex',
+    gap: 6,
+    overflowX: 'auto',
+    background: '#fff',
+    padding: '8px 10px',
+    borderBottom: '1px solid #e5e7eb',
+    WebkitOverflowScrolling: 'touch',
+};
+const liveLeaguePillStyle = (active) => ({
+    flex: '0 0 auto',
+    padding: '6px 12px',
+    border: active ? '1px solid #ff5051' : '1px solid #d1d5db',
+    background: active ? '#ff5051' : '#f9fafb',
+    color: active ? '#fff' : '#374151',
+    fontSize: 12,
+    fontWeight: 700,
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+    borderRadius: 999,
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6,
+    letterSpacing: 0.2,
+    transition: 'background 100ms ease, color 100ms ease, border-color 100ms ease',
+});
+const liveLeaguePillCountStyle = {
+    display: 'inline-block',
+    minWidth: 18,
+    padding: '0 5px',
+    background: 'rgba(0,0,0,0.18)',
+    color: 'inherit',
+    borderRadius: 999,
+    fontSize: 10,
+    fontWeight: 800,
+    lineHeight: '16px',
+    textAlign: 'center',
+    fontVariantNumeric: 'tabular-nums',
 };
 const periodTabStyle = {
     padding: '8px 18px',

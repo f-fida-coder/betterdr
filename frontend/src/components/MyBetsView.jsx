@@ -1477,11 +1477,14 @@ const FiguresTab = ({ gradedBets = [], oddsFormat, teamLogos = {}, onNavigateToT
                         <span className="figures-label">Week total</span>
                         {renderAmount(data.weekTotal)}
                     </div>
-                    {/* Tap-able Transactions row — deep-links to the
-                        Transactions tab so the player can see what
-                        makes up the aggregated amount (deposits,
-                        freeplay grants, agent adjustments) without
-                        guessing. Drop the role/tabIndex when no
+                    {/* Tap-able Deposits/Withdrawals row — deep-links to
+                        the Transactions tab so the player can see the
+                        individual cash deposits / withdrawals that make
+                        up the aggregated amount. Freeplay grants and
+                        FP-only adjustments are intentionally excluded
+                        from this total (they never move real cash);
+                        their balance impact lives in the player's FP
+                        pool, not here. Drop the role/tabIndex when no
                         navigation handler is wired so the row stays
                         purely informational in any host that mounts
                         FiguresTab on its own. */}
@@ -1493,9 +1496,9 @@ const FiguresTab = ({ gradedBets = [], oddsFormat, teamLogos = {}, onNavigateToT
                         onKeyDown={onNavigateToTransactions ? (e) => {
                             if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onNavigateToTransactions(); }
                         } : undefined}
-                        aria-label={onNavigateToTransactions ? 'View transactions breakdown' : undefined}
+                        aria-label={onNavigateToTransactions ? 'View deposits and withdrawals' : undefined}
                     >
-                        <span className="figures-label">Transactions</span>
+                        <span className="figures-label">Deposits / Withdrawals</span>
                         {renderAmount(data.transactions)}
                     </div>
                     <div className="figures-row figures-row-total">

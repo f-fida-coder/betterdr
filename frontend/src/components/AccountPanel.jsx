@@ -364,11 +364,11 @@ const BetDefaultsCard = ({ user, onSaved }) => {
                                     onClick={() => setMode(m.id)}
                                     style={{
                                         background: active
-                                            ? (m.id === 'risk' ? '#ea580c' : '#16a34a')
-                                            : '#475569',
-                                        color: '#fff',
+                                            ? (m.id === 'win' ? '#16a34a' : '#ff5051')
+                                            : '#e8e8e8',
+                                        color: active ? '#fff' : '#333',
                                         border: 'none',
-                                        borderLeft: i === 0 ? 'none' : '1px solid rgba(255,255,255,0.15)',
+                                        borderLeft: i === 0 ? 'none' : '1px solid rgba(0,0,0,0.15)',
                                         padding: '8px 18px',
                                         fontWeight: 800,
                                         fontSize: 12,
