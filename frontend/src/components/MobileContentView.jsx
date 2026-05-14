@@ -370,6 +370,39 @@ const PERIOD_CANONICAL_ORDER = [
     'f1', 'f3', 'f5', 'f7',
 ];
 
+// Period preset keyed by a match's `sportKey` (e.g. `basketball_nba`,
+// `baseball_mlb`). The single-sport path above keys off sidebar item
+// ids (`nba`, `mlb`, `api-baseball-kbo`); the per-section multi-sport
+// chip strips work off the raw match.sportKey instead, so they need
+// their own resolver. Same conventions as the api-* path: exact
+// match on common headline leagues, prefix match (`basketball_*`,
+// `baseball_*`, etc.) for everything else, [FULL_PERIOD] otherwise.
+const getPeriodsForSportKey = (sportKey) => {
+    const k = String(sportKey || '').toLowerCase();
+    if (!k) return [FULL_PERIOD];
+    if (k === 'basketball_nba' || k === 'basketball_ncaab') return BASKETBALL_PERIODS;
+    if (k === 'americanfootball_nfl' || k === 'americanfootball_ncaaf') return FOOTBALL_PERIODS;
+    if (k === 'baseball_mlb') return BASEBALL_PERIODS;
+    if (k === 'icehockey_nhl') return HOCKEY_PERIODS;
+    const prefix = k.split('_')[0];
+    if (PERIOD_CONFIG_BY_SLUG_PREFIX[prefix]) return PERIOD_CONFIG_BY_SLUG_PREFIX[prefix];
+    return [FULL_PERIOD];
+};
+
+// Scan an odds.markets / odds.extendedMarkets array, adding every
+// period suffix encountered (e.g. `_q1`, `_h1`, `_1st_5_innings`) to
+// `out`. Module-level so the global and per-sport availableSuffixes
+// useMemos share the same parsing rules — drift between them would
+// quietly desync chip visibility from market availability.
+const PERIOD_MARKET_RE = /^(?:h2h|spreads|totals)(_[a-z0-9_]+)$/;
+const scanMarketsForSuffixes = (markets, out) => {
+    if (!Array.isArray(markets)) return;
+    for (const m of markets) {
+        const matched = String(m?.key || '').match(PERIOD_MARKET_RE);
+        if (matched) out.add(matched[1]);
+    }
+};
+
 // Union the per-sport period presets across every selected league.
 // Before: the period chip strip read only `selectedSports[0]`, so
 // picking NBA + NHL with NHL first would silently drop Q1–Q4 (NHL
@@ -576,19 +609,49 @@ const MobileContentView = ({
     // instead of the tab silently disappearing on every extended-sync hiccup.
     const availableSuffixes = React.useMemo(() => {
         const set = new Set(['']);
-        const scan = (markets) => {
-            if (!Array.isArray(markets)) return;
-            markets.forEach(m => {
-                const matched = String(m?.key || '').match(/^(?:h2h|spreads|totals)(_[a-z0-9_]+)$/);
-                if (matched) set.add(matched[1]);
-            });
-        };
         (rawMatches || []).forEach(match => {
-            scan(match?.odds?.markets);
-            scan(match?.odds?.extendedMarkets);
+            scanMarketsForSuffixes(match?.odds?.markets, set);
+            scanMarketsForSuffixes(match?.odds?.extendedMarkets, set);
         });
         return set;
     }, [rawMatches]);
+
+    // Per-sport metadata for the multi-sport view's inline chip strips.
+    // The map is keyed by raw match.sportKey so each league section can
+    // render only its own period chips, filtered by the markets that
+    // actually appear in THAT league's matches (not the unioned set
+    // across the whole view). Computed once per rawMatches change.
+    const perSportMeta = React.useMemo(() => {
+        const map = new Map();
+        (rawMatches || []).forEach((match) => {
+            const sportKey = String(match?.sportKey || '').toLowerCase();
+            if (!sportKey) return;
+            if (!map.has(sportKey)) {
+                map.set(sportKey, {
+                    matches: [],
+                    availableSuffixes: new Set(['']),
+                });
+            }
+            const bucket = map.get(sportKey);
+            bucket.matches.push(match);
+            scanMarketsForSuffixes(match?.odds?.markets, bucket.availableSuffixes);
+            scanMarketsForSuffixes(match?.odds?.extendedMarkets, bucket.availableSuffixes);
+        });
+        // Resolve each bucket's filtered period preset once so the
+        // renderer doesn't recompute on every chip click.
+        map.forEach((bucket, sportKey) => {
+            const preset = getPeriodsForSportKey(sportKey);
+            bucket.periods = preset.filter(
+                (p) => p.id === 'full' || bucket.availableSuffixes.has(p.suffix)
+            );
+        });
+        return map;
+    }, [rawMatches]);
+
+    // Multi-sport when 2+ distinct sportKeys have matches on screen.
+    // Single-sport (or empty) takes the legacy top-of-view chip-strip
+    // path so single-league behavior stays byte-identical to before.
+    const isMultiSportView = perSportMeta.size > 1;
 
     // Per sport, show only periods whose markets actually exist in the
     // current sync cycle (FULL_PERIOD always renders so the user always
@@ -612,6 +675,27 @@ const MobileContentView = ({
     }, [realSelected, primarySport, availableSuffixes]);
 
     const [selectedPeriodId, setSelectedPeriodId] = React.useState('full');
+
+    // Per-sport selected period (multi-sport mode only). Keyed by raw
+    // match.sportKey so NBA staying on 'full' while MLB sits on 'f5'
+    // is just two entries in this map. Missing key → 'full'. Stale
+    // entries (sport no longer selected) are harmless — they just sit
+    // unread.
+    const [periodBySport, setPeriodBySport] = React.useState({});
+    const resolveActivePeriodForSportKey = React.useCallback((sportKey) => {
+        const meta = perSportMeta.get(String(sportKey || '').toLowerCase());
+        if (!meta) return FULL_PERIOD;
+        const requested = periodBySport[String(sportKey || '').toLowerCase()] || 'full';
+        const p = meta.periods.find((pp) => pp.id === requested);
+        return p || FULL_PERIOD;
+    }, [perSportMeta, periodBySport]);
+    const suffixForMatch = React.useCallback((match) => {
+        // Single-sport mode keeps using the global selectedPeriodId path
+        // below; this helper is only consulted in multi-sport view so
+        // single-league behavior is unchanged.
+        if (!isMultiSportView) return null;
+        return resolveActivePeriodForSportKey(match?.sportKey).suffix;
+    }, [isMultiSportView, resolveActivePeriodForSportKey]);
 
     // Live Now sport-tab strip: 'all' shows every live sport; otherwise
     // a category id (football/basketball/baseball/etc.) filters the list.
@@ -941,7 +1025,18 @@ const MobileContentView = ({
                 broadcast: resolveBroadcast(match.broadcast),
                 eventName: typeof match.eventName === 'string' ? match.eventName.trim() : '',
                 broadcastTime: formatBroadcastTimeET(match.startTime),
-                odds: extractOdds(match, homeName, awayName, activePeriod.suffix),
+                // Multi-sport: each league's matches see its OWN selected
+                // period's suffix (so NBA-Q1 + MLB-Full can coexist on
+                // screen). Single-sport: keep the global activePeriod
+                // suffix exactly as before.
+                odds: extractOdds(
+                    match,
+                    homeName,
+                    awayName,
+                    isMultiSportView
+                        ? (resolveActivePeriodForSportKey(match.sportKey).suffix)
+                        : activePeriod.suffix,
+                ),
                 isLive,
                 liveStatusLabel,
                 // Baseball-only: structured live situation (half/inning/
@@ -1018,7 +1113,7 @@ const MobileContentView = ({
             return aTs - bTs;
         });
         return formatted;
-    }, [rawMatches, primarySport, realSelected, extractOdds, activePeriod.suffix, statusFilter, normalizedBetMode]);
+    }, [rawMatches, primarySport, realSelected, extractOdds, activePeriod.suffix, statusFilter, normalizedBetMode, isMultiSportView, resolveActivePeriodForSportKey]);
 
     const degradedSummary = React.useMemo(() => {
         const all = Array.isArray(rawMatches) ? rawMatches : [];
@@ -1523,6 +1618,24 @@ const MobileContentView = ({
                         ? `${leagueLabel} ${periodSuffixLabel}`.trim()
                         : leagueLabel,
                 });
+                // Per-league period chip strip — multi-sport only. Renders
+                // immediately under the league header so each section's
+                // own periods (Q1–Q4 for NBA, F1/F3/F5/F7 for MLB, etc.)
+                // sit above that section's match list, not just the
+                // first-selected sport's chips at the top of the view.
+                // Skipped in single-sport mode so the legacy top-strip
+                // stays the only strip on screen.
+                if (isMultiSportView) {
+                    const meta = perSportMeta.get(leagueKey);
+                    if (meta && meta.periods.length > 1) {
+                        entries.push({
+                            type: 'periodStrip',
+                            id: `period-strip-${leagueKey}`,
+                            sportKey: leagueKey,
+                            periods: meta.periods,
+                        });
+                    }
+                }
             }
             if (!suppressDayDividers && match.dayKey && match.dayKey !== currentDayKey) {
                 currentDayKey = match.dayKey;
@@ -1535,7 +1648,7 @@ const MobileContentView = ({
             entries.push({ type: 'match', id: `match-${match.id}`, match });
         });
         return entries;
-    }, [matchesForGrouping, showLeagueHeaders, periodSuffixLabel, suppressDayDividers]);
+    }, [matchesForGrouping, showLeagueHeaders, periodSuffixLabel, suppressDayDividers, isMultiSportView, perSportMeta]);
 
     return (
         <div style={containerStyle}>
@@ -1573,7 +1686,7 @@ const MobileContentView = ({
                 slipSportGroups={boardSlipSportGroups}
             />
 
-            {periods.length > 1 && (
+            {!isMultiSportView && periods.length > 1 && (
                 <div style={periodTabBarStyle}>
                     {periods.map(p => {
                         const isClosed = closedPeriodIds.has(p.id);
@@ -1787,7 +1900,7 @@ const MobileContentView = ({
                         over" message (no point waiting for a sync).
                       • Just no lines this cycle → reassuring "refresh
                         every 90 s" hint. */}
-                {groupedEntries.length > 0 && !activePeriodHasLines && (
+                {!isMultiSportView && groupedEntries.length > 0 && !activePeriodHasLines && (
                     <div style={{
                         padding: '14px 16px',
                         margin: '0 0 8px 0',
@@ -1821,6 +1934,33 @@ const MobileContentView = ({
                     }
                     if (entry.type === 'league') {
                         return <div key={entry.id} style={leagueHeaderStyle}>{entry.label}</div>;
+                    }
+                    if (entry.type === 'periodStrip') {
+                        // Per-league chip strip; only injected in
+                        // multi-sport view. Reads its selected period
+                        // from `periodBySport` keyed by sportKey so
+                        // NBA-Q1 + MLB-Full coexist without clobbering.
+                        const activeIdForSport = periodBySport[entry.sportKey] || 'full';
+                        return (
+                            <div key={entry.id} style={periodTabBarStyle}>
+                                {entry.periods.map((p) => {
+                                    const isActive = p.id === activeIdForSport;
+                                    return (
+                                        <button
+                                            key={p.id}
+                                            type="button"
+                                            onClick={() => setPeriodBySport((prev) => ({
+                                                ...prev,
+                                                [entry.sportKey]: p.id,
+                                            }))}
+                                            style={isActive ? periodTabActiveStyle : periodTabStyle}
+                                        >
+                                            {p.label}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        );
                     }
                     return (
                         <MatchCard

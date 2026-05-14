@@ -88,6 +88,18 @@ function getPeriodsForSport(sportId) {
     return [FULL_PERIOD];
 }
 
+function getPeriodsForSportKey(sportKey) {
+    const k = String(sportKey || '').toLowerCase();
+    if (!k) return [FULL_PERIOD];
+    if (k === 'basketball_nba' || k === 'basketball_ncaab') return BASKETBALL_PERIODS;
+    if (k === 'americanfootball_nfl' || k === 'americanfootball_ncaaf') return FOOTBALL_PERIODS;
+    if (k === 'baseball_mlb') return BASEBALL_PERIODS;
+    if (k === 'icehockey_nhl') return HOCKEY_PERIODS;
+    const prefix = k.split('_')[0];
+    if (PERIOD_CONFIG_BY_SLUG_PREFIX[prefix]) return PERIOD_CONFIG_BY_SLUG_PREFIX[prefix];
+    return [FULL_PERIOD];
+}
+
 function getPeriodsForSports(realSelected, fallbackSportId) {
     if (!Array.isArray(realSelected) || realSelected.length === 0) {
         return getPeriodsForSport(fallbackSportId);
@@ -231,6 +243,43 @@ test('period objects carry their suffix unchanged (needed for availableSuffixes 
     assert.equal(byId['1q'].suffix, '_q1');
     assert.equal(byId['p2'].suffix, '_p2');
     assert.equal(byId['full'].suffix, '');
+});
+
+// ── getPeriodsForSportKey (per-section chip strips) ───────────────────────────
+// Drives the inline chip strip under each league header in multi-sport
+// mode. Keyed by raw match.sportKey (`basketball_nba` etc.), not by
+// sidebar id, because that's what the match objects carry.
+
+test('sportKey lookup: headline US leagues map to their preset', () => {
+    assert.equal(getPeriodsForSportKey('basketball_nba'), BASKETBALL_PERIODS);
+    assert.equal(getPeriodsForSportKey('basketball_ncaab'), BASKETBALL_PERIODS);
+    assert.equal(getPeriodsForSportKey('americanfootball_nfl'), FOOTBALL_PERIODS);
+    assert.equal(getPeriodsForSportKey('americanfootball_ncaaf'), FOOTBALL_PERIODS);
+    assert.equal(getPeriodsForSportKey('baseball_mlb'), BASEBALL_PERIODS);
+    assert.equal(getPeriodsForSportKey('icehockey_nhl'), HOCKEY_PERIODS);
+});
+
+test('sportKey lookup: prefix match covers international / minor leagues', () => {
+    assert.equal(getPeriodsForSportKey('basketball_euroleague'), BASKETBALL_PERIODS);
+    assert.equal(getPeriodsForSportKey('baseball_kbo'), BASEBALL_PERIODS);
+    assert.equal(getPeriodsForSportKey('icehockey_khl'), HOCKEY_PERIODS);
+    assert.equal(getPeriodsForSportKey('soccer_epl'), SOCCER_PERIODS);
+});
+
+test('sportKey lookup: unknown sport falls back to [FULL_PERIOD]', () => {
+    assert.deepEqual(getPeriodsForSportKey('tennis_atp'), [FULL_PERIOD]);
+    assert.deepEqual(getPeriodsForSportKey('mma_ufc'), [FULL_PERIOD]);
+});
+
+test('sportKey lookup: defensive on empty / null / undefined', () => {
+    assert.deepEqual(getPeriodsForSportKey(''), [FULL_PERIOD]);
+    assert.deepEqual(getPeriodsForSportKey(null), [FULL_PERIOD]);
+    assert.deepEqual(getPeriodsForSportKey(undefined), [FULL_PERIOD]);
+});
+
+test('sportKey lookup: case-insensitive', () => {
+    assert.equal(getPeriodsForSportKey('BASKETBALL_NBA'), BASKETBALL_PERIODS);
+    assert.equal(getPeriodsForSportKey('Baseball_MLB'), BASEBALL_PERIODS);
 });
 
 // ── Summary ───────────────────────────────────────────────────────────────────
