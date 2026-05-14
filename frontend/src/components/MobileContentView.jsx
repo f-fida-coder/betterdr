@@ -357,6 +357,52 @@ const getPeriodsForSport = (sportId) => {
     return [FULL_PERIOD];
 };
 
+// Canonical chip order across ALL sports. Used by getPeriodsForSports
+// (multi-sport mode) so the chip strip looks the same no matter what
+// order the user happened to tick the leagues — "NBA + NHL" gives the
+// same chip layout as "NHL + NBA". Keep this list in sync whenever a
+// new period entry is added to one of the *_PERIODS arrays above.
+const PERIOD_CANONICAL_ORDER = [
+    'full',
+    '1h', '2h',
+    '1q', '2q', '3q', '4q',
+    'p1', 'p2', 'p3',
+    'f1', 'f3', 'f5', 'f7',
+];
+
+// Union the per-sport period presets across every selected league.
+// Before: the period chip strip read only `selectedSports[0]`, so
+// picking NBA + NHL with NHL first would silently drop Q1–Q4 (NHL
+// has no quarters); picking NBA + Tennis would hide the whole strip
+// (tennis preset is `[FULL_PERIOD]`, so `periods.length === 1`).
+// Now we union across all selections so any chip relevant to ANY
+// selected sport is present — the downstream availableSuffixes
+// filter still hides chips whose markets aren't actually in the
+// data, so spurious "Q1" chips never appear when no game has Q1
+// lines. Falls back to the single-sport preset path when nothing
+// real is selected (Live Now / Up Next virtual buckets).
+const getPeriodsForSports = (realSelected, fallbackSportId) => {
+    if (!Array.isArray(realSelected) || realSelected.length === 0) {
+        return getPeriodsForSport(fallbackSportId);
+    }
+    const seen = new Map(); // id → period entry, dedup'd
+    seen.set('full', FULL_PERIOD);
+    realSelected.forEach((sportId) => {
+        getPeriodsForSport(sportId).forEach((p) => {
+            if (!seen.has(p.id)) seen.set(p.id, p);
+        });
+    });
+    return [...seen.values()].sort((a, b) => {
+        // Unknown ids (a future period type someone forgot to add to
+        // PERIOD_CANONICAL_ORDER) sort to the end rather than the front
+        // so the strip degrades gracefully.
+        const ia = PERIOD_CANONICAL_ORDER.indexOf(a.id);
+        const ib = PERIOD_CANONICAL_ORDER.indexOf(b.id);
+        return (ia === -1 ? Number.POSITIVE_INFINITY : ia)
+             - (ib === -1 ? Number.POSITIVE_INFINITY : ib);
+    });
+};
+
 // Thresholds for when a period tab is "genuinely over" for a live match.
 // Closes when the match's current period number exceeds the threshold.
 // Quarters: 1q closed at period > 1, ..., 4q closed at period > 4 (game).
@@ -550,10 +596,20 @@ const MobileContentView = ({
     // rawMatches stable across sync hiccups, so tabs don't flicker when
     // an extended-sync call misses a cycle — they only disappear when
     // upstream truly stopped returning that period's market.
+    //
+    // Multi-sport: use the UNION of period presets across every checked
+    // league so picking NBA + NHL shows quarters (NBA) AND periods (NHL),
+    // not just whichever was clicked first. Without the union the chip
+    // strip would silently drop Q1–Q4 if the first selected sport was
+    // hockey/baseball/soccer, or vanish entirely if the first selected
+    // sport had no preset at all (e.g. tennis). availableSuffixes still
+    // hides chips whose markets aren't actually in the returned data, so
+    // a NBA + Tennis selection won't render a spurious "P1" chip — only
+    // periods whose suffix really shows up in `rawMatches` survive.
     const periods = React.useMemo(() => {
-        const preset = getPeriodsForSport(primarySport);
+        const preset = getPeriodsForSports(realSelected, primarySport);
         return preset.filter(p => p.id === 'full' || availableSuffixes.has(p.suffix));
-    }, [primarySport, availableSuffixes]);
+    }, [realSelected, primarySport, availableSuffixes]);
 
     const [selectedPeriodId, setSelectedPeriodId] = React.useState('full');
 
