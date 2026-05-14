@@ -1429,11 +1429,12 @@ const MobileContentView = ({
 
     // Live Now sport-tab strip data: the strip is the persistent sport
     // rail every pro book has — football, basketball, baseball, hockey,
-    // soccer, tennis pills show ALWAYS, even when nothing is live in
-    // that sport (count 0, rendered dimmed). Picking an empty pill
-    // simply shows "no live games" instead of hiding the pill, so the
-    // rail's location and contents are stable from session to session
-    // — a player who learns "soccer is the 5th icon" never has to relearn.
+    // soccer, tennis pills always appear (count 0 stays in the rail but
+    // dimmed). Active sports float to the front of the rail so the
+    // player sees what's playing right now without scrolling — e.g. if
+    // only soccer is live, soccer is the first icon after the All pill.
+    // Within each group (active / empty) the canonical category order
+    // is preserved so positions are still predictable across sessions.
     // Niche sports (MMA, cricket, rugby, etc.) only appear when there's
     // at least one live game so the rail doesn't overflow with empty pills.
     const LIVE_RAIL_CORE_SPORTS = ['football', 'basketball', 'baseball', 'hockey', 'soccer', 'tennis'];
@@ -1445,9 +1446,12 @@ const MobileContentView = ({
             if (!cat) continue;
             counts.set(cat.id, (counts.get(cat.id) || 0) + 1);
         }
-        return LIVE_SPORT_CATEGORIES
+        const visible = LIVE_SPORT_CATEGORIES
             .filter((c) => LIVE_RAIL_CORE_SPORTS.includes(c.id) || counts.has(c.id))
             .map((c) => ({ ...c, count: counts.get(c.id) || 0 }));
+        const active = visible.filter((c) => c.count > 0);
+        const empty = visible.filter((c) => c.count === 0);
+        return [...active, ...empty];
     }, [primarySport, orderedMatches]);
 
     // Matches surviving the sport-category filter only — feeds the
@@ -1731,7 +1735,7 @@ const MobileContentView = ({
                         const active = liveSportTab === tab.id;
                         const isEmpty = tab.count === 0 && tab.id !== 'all' && tab.id !== 'my-live';
                         const showEmoji = !!tab.emoji;
-                        const shortLabel = tab.id === 'my-live' ? 'My Plays'
+                        const shortLabel = tab.id === 'my-live' ? 'My Bets'
                             : tab.id === 'all' ? 'All'
                             : tab.label;
                         return (

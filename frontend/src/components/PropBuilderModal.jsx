@@ -136,6 +136,26 @@ const PropBuilderModal = ({ match, onClose }) => {
         };
     }, [onClose]);
 
+    // Measure the page DashboardHeader so the sheet can cap its max height to
+    // (viewport - header). Without this the sheet's top — which carries the
+    // title and player/market filter selects — sits behind the sticky page
+    // header and is unreachable on mobile (the user reported they couldn't
+    // scroll up to access the filters). Falls back to 0 if the header isn't
+    // found, which restores the legacy full-height behavior.
+    const [headerOffsetPx, setHeaderOffsetPx] = React.useState(0);
+    React.useLayoutEffect(() => {
+        const measure = () => {
+            const el = document.querySelector('.mobile-header-container, .top-header');
+            if (el) {
+                const rect = el.getBoundingClientRect();
+                setHeaderOffsetPx(Math.max(0, Math.round(rect.bottom)));
+            }
+        };
+        measure();
+        window.addEventListener('resize', measure);
+        return () => window.removeEventListener('resize', measure);
+    }, []);
+
     React.useEffect(() => {
         let cancelled = false;
         setLoading(true);
@@ -228,7 +248,7 @@ const PropBuilderModal = ({ match, onClose }) => {
         color: '#f1f1f1',
         width: '100%',
         maxWidth: 720,
-        maxHeight: '92vh',
+        maxHeight: headerOffsetPx > 0 ? `calc(100vh - ${headerOffsetPx}px)` : '92vh',
         borderRadius: '14px 14px 0 0',
         display: 'flex',
         flexDirection: 'column',
