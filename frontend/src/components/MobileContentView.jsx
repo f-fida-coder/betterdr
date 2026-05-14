@@ -820,6 +820,36 @@ const MobileContentView = ({
                 }
             }
 
+            // Baseball live situation: half-inning arrow + outs + base
+            // runners. Only populated for live MLB rows that have shipped
+            // a situation block from ESPN (mid-half-inning state). The
+            // render branch hides itself between innings ("Mid"/"End")
+            // because outs/bases reset and the indicator becomes noise.
+            // Bases is the 3-char "FST" string from the backend; we keep
+            // the raw form here and let the renderer paint the diamond.
+            let baseballSituation = null;
+            if (isLive && isBaseball && periodNum > 0) {
+                const rawOuts = match.score?.outs;
+                const rawBases = match.score?.bases;
+                const halfLower = clockText.toLowerCase();
+                const isPlayingHalf = halfLower === 'top' || halfLower === 'bot';
+                const outs = (rawOuts !== null && rawOuts !== undefined && rawOuts !== ''
+                    && Number.isFinite(Number(rawOuts)))
+                    ? Math.max(0, Math.min(3, Number(rawOuts)))
+                    : null;
+                const bases = (typeof rawBases === 'string' && /^[01]{3}$/.test(rawBases))
+                    ? rawBases : null;
+                if (isPlayingHalf && (outs !== null || bases !== null)) {
+                    baseballSituation = {
+                        half: halfLower === 'top' ? 'top' : 'bot',
+                        inning: periodNum,
+                        inningLabel: `${periodNum}${ordinalSuffix(periodNum)}`,
+                        outs,
+                        bases,
+                    };
+                }
+            }
+
             // Live scores per team. Surfaced only when the match is
             // currently live — pregame rows have nothing to show and a
             // finished match's "final score" lives in a separate
@@ -858,6 +888,12 @@ const MobileContentView = ({
                 odds: extractOdds(match, homeName, awayName, activePeriod.suffix),
                 isLive,
                 liveStatusLabel,
+                // Baseball-only: structured live situation (half/inning/
+                // outs/bases). Null for every other sport, and null for
+                // baseball games where ESPN hasn't shipped a situation
+                // block (pre-game, between innings, final). MatchCard
+                // renders this in place of `liveStatusLabel` when present.
+                baseballSituation,
                 // team1 = away, team2 = home (matches the rest of the
                 // card's away-then-home convention).
                 team1Score: awayScore,
@@ -1408,6 +1444,12 @@ const MobileContentView = ({
         return matchesAfterLeagueFilter.filter((m) => classifyGameStage(m) === liveStageTab);
     }, [primarySport, liveStageTab, matchesAfterLeagueFilter, orderedMatches]);
 
+    // Day dividers ("WEDNESDAY, MAY 13") add zero info on a live-only
+    // view — every live game is, by definition, happening right now, so
+    // they all share today's date. Suppressing them tightens the live
+    // board (more games on screen, no redundant date strip between the
+    // league header and the first game row).
+    const suppressDayDividers = statusFilter === 'live';
     const groupedEntries = React.useMemo(() => {
         const entries = [];
         let currentLeagueKey = null;
@@ -1426,7 +1468,7 @@ const MobileContentView = ({
                         : leagueLabel,
                 });
             }
-            if (match.dayKey && match.dayKey !== currentDayKey) {
+            if (!suppressDayDividers && match.dayKey && match.dayKey !== currentDayKey) {
                 currentDayKey = match.dayKey;
                 entries.push({
                     type: 'day',
@@ -1437,7 +1479,7 @@ const MobileContentView = ({
             entries.push({ type: 'match', id: `match-${match.id}`, match });
         });
         return entries;
-    }, [matchesForGrouping, showLeagueHeaders, periodSuffixLabel]);
+    }, [matchesForGrouping, showLeagueHeaders, periodSuffixLabel, suppressDayDividers]);
 
     return (
         <div style={containerStyle}>
@@ -1744,6 +1786,82 @@ const MobileContentView = ({
     );
 };
 
+/**
+ * Compact live-MLB situation indicator: half-inning arrow + ordinal +
+ * outs + base runners diamond. Renders to the right of the LIVE pill in
+ * place of the generic `liveStatusLabel` text when ESPN ships a
+ * situation block.
+ *
+ * Layout matches the de-facto sportsbook convention:
+ *   ▲ 6TH  2 OUT  ◆◆◇
+ * where the arrow points up when the away team is batting (top of
+ * inning) and down for the home team. The diamond is a 3-cell square
+ * (2B top, 1B right, 3B left, batter implicit at home plate). Filled
+ * cells (◆) = runner on base, empty (◇) = empty.
+ */
+const BaseballSituationBadge = React.memo(({ situation }) => {
+    if (!situation) return null;
+    const { half, inningLabel, outs, bases } = situation;
+    const arrow = half === 'top' ? '▲' : '▼'; // ▲ / ▼
+    const arrowTitle = half === 'top' ? 'Top of inning (away batting)' : 'Bottom of inning (home batting)';
+    const basesStr = typeof bases === 'string' && /^[01]{3}$/.test(bases) ? bases : null;
+    const onFirst = basesStr ? basesStr[0] === '1' : false;
+    const onSecond = basesStr ? basesStr[1] === '1' : false;
+    const onThird = basesStr ? basesStr[2] === '1' : false;
+    const outsText = outs !== null && outs !== undefined
+        ? `${outs} ${outs === 1 ? 'OUT' : 'OUTS'}`
+        : '';
+
+    const cell = (filled) => ({
+        width: 6,
+        height: 6,
+        background: filled ? '#f59e0b' : 'transparent',
+        border: '1px solid #f59e0b',
+        transform: 'rotate(45deg)',
+        display: 'inline-block',
+    });
+
+    return (
+        <span
+            style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                fontSize: 11,
+                fontWeight: 700,
+                color: '#ef4444',
+                letterSpacing: 0.2,
+                fontVariantNumeric: 'tabular-nums',
+                lineHeight: 1,
+            }}
+            aria-label={`${arrowTitle}, ${inningLabel} inning, ${outsText || 'no outs'}`}
+        >
+            <span title={arrowTitle} style={{ fontSize: 10, lineHeight: 1 }}>{arrow}</span>
+            <span>{inningLabel} INN</span>
+            {outsText && <span>{outsText}</span>}
+            {basesStr && (
+                <span
+                    title="Base runners"
+                    style={{
+                        position: 'relative',
+                        width: 18,
+                        height: 14,
+                        display: 'inline-block',
+                    }}
+                >
+                    {/* 2B — top */}
+                    <span style={{ ...cell(onSecond), position: 'absolute', top: 0, left: 6 }} />
+                    {/* 1B — right */}
+                    <span style={{ ...cell(onFirst), position: 'absolute', top: 5, left: 11 }} />
+                    {/* 3B — left */}
+                    <span style={{ ...cell(onThird), position: 'absolute', top: 5, left: 1 }} />
+                </span>
+            )}
+        </span>
+    );
+});
+BaseballSituationBadge.displayName = 'BaseballSituationBadge';
+
 const matchCardSignature = (match) => {
     const odds = match?.odds || {};
     const broadcast = match?.broadcast || {};
@@ -1761,6 +1879,14 @@ const matchCardSignature = (match) => {
         match?.status,
         match?.isLive,
         match?.liveStatusLabel,
+        // Baseball live situation: the diamond / outs / arrow must
+        // repaint when the half flips, an out is recorded, or a runner
+        // advances. Without these, a pitch-by-pitch ESPN tick wouldn't
+        // bust the memo and the card would freeze on a stale situation.
+        match?.baseballSituation?.half,
+        match?.baseballSituation?.inning,
+        match?.baseballSituation?.outs,
+        match?.baseballSituation?.bases,
         // Score signature — without these, a tick from 84→85 doesn't
         // re-render the card because React.memo only ever sees the
         // same `match` prop identity but different inner values.
@@ -1961,16 +2087,20 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                                 />
                                 Live
                             </span>
-                            {match.liveStatusLabel && (
-                                <span style={{
-                                    fontSize: 11,
-                                    fontWeight: 700,
-                                    color: '#ef4444',
-                                    letterSpacing: 0.2,
-                                    fontVariantNumeric: 'tabular-nums',
-                                }}>
-                                    {match.liveStatusLabel}
-                                </span>
+                            {match.baseballSituation ? (
+                                <BaseballSituationBadge situation={match.baseballSituation} />
+                            ) : (
+                                match.liveStatusLabel && (
+                                    <span style={{
+                                        fontSize: 11,
+                                        fontWeight: 700,
+                                        color: '#ef4444',
+                                        letterSpacing: 0.2,
+                                        fontVariantNumeric: 'tabular-nums',
+                                    }}>
+                                        {match.liveStatusLabel}
+                                    </span>
+                                )
                             )}
                         </>
                     ) : (

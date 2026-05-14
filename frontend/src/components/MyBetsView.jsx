@@ -262,6 +262,20 @@ const isRoundRobinGroup = (bet) => String(bet?.type || '').toLowerCase() === 'ro
 // on bets where the match expired but the bet never settled).
 const TERMINAL_MATCH_STATUSES = new Set(['finished', 'canceled', 'cancelled', 'expired', 'void', 'abandoned', 'closed', 'settled']);
 
+// Upper bound on how long the kickoff-passed fallback can claim a bet
+// is live. Covers the longest plausible game window across our sports:
+//   - Baseball (extra innings + rain delay):       ~5h
+//   - Football (4 quarters + halftime + 4× OT):    ~4.5h
+//   - Soccer (2 halves + stoppage + ET + pens):    ~3h
+//   - Basketball (4 quarters + 5× OT):             ~3.5h
+// 5 hours covers all of them with margin. Past this window, a pending
+// bet whose kickoff was long ago is stuck on the settlement pipeline,
+// not actually in play — without this bound, those tickets glue a LIVE
+// chip to themselves indefinitely (player-reported bug: 6 MLB tickets
+// from a previous day still badged LIVE on a morning before any games
+// had started).
+const LIVE_FALLBACK_MAX_AGE_MS = 5 * 60 * 60 * 1000;
+
 const isLiveSnapshot = (snapshot, parentStatus) => {
     if (!snapshot) return false;
     const status = String(snapshot.status || '').toLowerCase();
@@ -273,7 +287,11 @@ const isLiveSnapshot = (snapshot, parentStatus) => {
     // definition; without this guard the fallback would always fire.
     if (TERMINAL_MATCH_STATUSES.has(status)) return false;
     const startMs = snapshot.startTime ? new Date(snapshot.startTime).getTime() : NaN;
-    if (Number.isFinite(startMs) && startMs <= Date.now() && normalizeStatus(parentStatus) === 'pending') {
+    if (!Number.isFinite(startMs)) return false;
+    const sinceKickoffMs = Date.now() - startMs;
+    if (sinceKickoffMs >= 0
+        && sinceKickoffMs <= LIVE_FALLBACK_MAX_AGE_MS
+        && normalizeStatus(parentStatus) === 'pending') {
         return true;
     }
     return false;

@@ -16,6 +16,12 @@ declare(strict_types=1);
  *     pill. OddsAPI tracks period sporadically and never provides a clock;
  *     ESPN's free scoreboard updates both fields on a sub-minute cadence
  *     during in-progress games.
+ *   - For LIVE BASEBALL games only: also writes `score.outs` (0..3) and
+ *     `score.bases` (3-char string, "FST" — first/second/third, '1' if a
+ *     runner is on that base, '0' otherwise) so the board can render the
+ *     standard "▲ 6th  2 Outs  ◆◆◇" baseball situation indicator next to
+ *     the LIVE pill. Pulled from ESPN's `competition.situation` block,
+ *     which is updated pitch-by-pitch on the free scoreboard endpoint.
  *   - NEVER writes `score.score_home`, `score.score_away`, or `status` —
  *     those columns are owned by OddsAPI/BetSettlementService and a
  *     stray ESPN write could mis-grade a ticket.
@@ -218,11 +224,23 @@ final class EspnScoreboardSync
         $existingScore = is_array($row['score'] ?? null) ? $row['score'] : [];
         $existingPeriod = $existingScore['period'] ?? null;
         $existingClock = $existingScore['clock'] ?? null;
+        $existingOuts = array_key_exists('outs', $existingScore) ? $existingScore['outs'] : null;
+        $existingBases = array_key_exists('bases', $existingScore) ? $existingScore['bases'] : null;
         $newPeriod = $liveState !== null ? $liveState['period'] : $existingPeriod;
         $newClock = $liveState !== null ? $liveState['clock'] : $existingClock;
+        // Baseball-only fields: when liveState carries them, write through;
+        // otherwise leave the existing value alone so a missed tick (e.g.
+        // ESPN briefly omits `situation` between batters) doesn't blank
+        // the diamond on the board.
+        $newOuts = ($liveState !== null && array_key_exists('outs', $liveState))
+            ? $liveState['outs'] : $existingOuts;
+        $newBases = ($liveState !== null && array_key_exists('bases', $liveState))
+            ? $liveState['bases'] : $existingBases;
         $scoreChanged = $liveState !== null
             && ((string) $newPeriod !== (string) $existingPeriod
-                || (string) $newClock !== (string) $existingClock);
+                || (string) $newClock !== (string) $existingClock
+                || (string) $newOuts !== (string) $existingOuts
+                || (string) $newBases !== (string) $existingBases);
 
         // No-op fast path — if every field already matches, don't bump
         // updatedAt and bust caches downstream for nothing.
@@ -250,15 +268,26 @@ final class EspnScoreboardSync
         if ($homeRecord !== null) $update['homeTeamRecord'] = $homeRecord;
         if ($awayRecord !== null) $update['awayTeamRecord'] = $awayRecord;
 
-        // Patch score.period / score.clock when ESPN reports a live tick.
-        // Critical: only update these two keys, preserving every other
-        // field in `score` (especially score_home / score_away — those
-        // are owned by OddsAPI + BetSettlementService and a partial
+        // Patch score.period / score.clock (+ score.outs / score.bases
+        // for baseball) when ESPN reports a live tick.
+        // Critical: only update these display-only keys, preserving every
+        // other field in `score` (especially score_home / score_away —
+        // those are owned by OddsAPI + BetSettlementService and a partial
         // overwrite would zero them out and mis-grade tickets).
         if ($scoreChanged) {
             $mergedScore = $existingScore;
             $mergedScore['period'] = $newPeriod;
             $mergedScore['clock'] = $newClock;
+            // Only write outs/bases when liveState actually carried them
+            // (baseball games). Avoids polluting non-baseball score blobs
+            // with null fields the frontend would have to filter on every
+            // render.
+            if ($liveState !== null && array_key_exists('outs', $liveState) && $liveState['outs'] !== null) {
+                $mergedScore['outs'] = $liveState['outs'];
+            }
+            if ($liveState !== null && array_key_exists('bases', $liveState) && $liveState['bases'] !== null) {
+                $mergedScore['bases'] = $liveState['bases'];
+            }
             $update['score'] = $mergedScore;
         }
 
@@ -271,7 +300,15 @@ final class EspnScoreboardSync
      * games. Returns null for pre-game / final / postponed / cancelled
      * so the caller knows to leave the existing score.period alone.
      *
-     * Output shape: `['period' => int, 'clock' => string]`.
+     * Output shape:
+     *   `['period' => int, 'clock' => string, 'outs' => ?int, 'bases' => ?string]`.
+     *
+     * `outs` + `bases` are baseball-only and only populated when ESPN
+     * ships a `situation` block (mid-half-inning, between pitches).
+     * `bases` is a 3-char "FST" string — first / second / third — '1'
+     * for a runner on that base, '0' otherwise (e.g. "010" = runner on
+     * second only; "111" = bases loaded). For non-baseball sports they
+     * are always null so the merge path skips them.
      *
      * Per-sport `clock` value:
      *   - Baseball: the half-inning indicator from ESPN's
@@ -313,7 +350,13 @@ final class EspnScoreboardSync
                     $half = $candidate === 'Bottom' ? 'Bot' : $candidate;
                 }
             }
-            return ['period' => $period, 'clock' => $half];
+            [$outs, $bases] = self::extractBaseballSituation($competition);
+            return [
+                'period' => $period,
+                'clock' => $half,
+                'outs' => $outs,
+                'bases' => $bases,
+            ];
         }
 
         // Time-based sports — pass ESPN's display clock through.
@@ -321,7 +364,55 @@ final class EspnScoreboardSync
         // quarters / between halves). Treat as no-clock so the frontend
         // renders "Q3" alone instead of an out-of-date "Q3 0:00".
         $clock = ($displayClock === '0:00' || $displayClock === '0.0') ? '' : $displayClock;
-        return ['period' => $period, 'clock' => $clock];
+        return [
+            'period' => $period,
+            'clock' => $clock,
+            'outs' => null,
+            'bases' => null,
+        ];
+    }
+
+    /**
+     * Pull outs + base runners from ESPN's `competition.situation` block
+     * for live MLB games. Returns `[$outs, $bases]` where `$outs` is an
+     * int 0..3 (or null when ESPN omits it — e.g. between innings) and
+     * `$bases` is a 3-char "FST" string or null on the same condition.
+     *
+     * Designed to be defensive: ESPN occasionally ships `outs` as a
+     * string, omits `situation` entirely during inning transitions, or
+     * sends `onFirst`/etc. as 0/1 ints instead of bools. All shapes
+     * collapse to the canonical (int, "010") form here.
+     *
+     * @param array<string,mixed> $competition
+     * @return array{0:?int,1:?string}
+     */
+    private static function extractBaseballSituation(array $competition): array
+    {
+        $situation = $competition['situation'] ?? null;
+        if (!is_array($situation)) return [null, null];
+
+        $outsRaw = $situation['outs'] ?? null;
+        $outs = is_numeric($outsRaw) ? (int) $outsRaw : null;
+        // ESPN occasionally sends outs=3 on the final pitch of a half-
+        // inning before flipping to "Mid"/"End"; clamp the upper bound
+        // so the UI never renders nonsense like "4 Outs".
+        if ($outs !== null && ($outs < 0 || $outs > 3)) $outs = null;
+
+        $hasAny = array_key_exists('onFirst', $situation)
+            || array_key_exists('onSecond', $situation)
+            || array_key_exists('onThird', $situation);
+        if (!$hasAny) return [$outs, null];
+
+        $on = static function ($v): string {
+            // Treat 1, "1", true as runner-present; everything else
+            // (false, 0, null, missing key) as empty.
+            return ($v === true || $v === 1 || $v === '1' || $v === 'true') ? '1' : '0';
+        };
+        $bases = $on($situation['onFirst'] ?? null)
+            . $on($situation['onSecond'] ?? null)
+            . $on($situation['onThird'] ?? null);
+
+        return [$outs, $bases];
     }
 
     /** @param array<string,mixed> $event */

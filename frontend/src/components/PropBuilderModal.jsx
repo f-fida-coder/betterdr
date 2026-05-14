@@ -110,7 +110,12 @@ const PropBuilderModal = ({ match, onClose }) => {
     const [error, setError] = React.useState('');
     const [payload, setPayload] = React.useState({ extendedMarkets: [], playerProps: [], cached: false });
     const [selectedKeys, setSelectedKeys] = React.useState(() => new Set());
-    const [playerFilter, setPlayerFilter] = React.useState('');
+    // playerFilter is the exact player name selected from the dropdown
+    // ('all' = no filter). Was a free-text "contains" search; the
+    // dropdown is faster on the common case (pick the star, see only
+    // their props) and avoids typo / partial-name mismatches against
+    // ESPN's canonical descriptions.
+    const [playerFilter, setPlayerFilter] = React.useState('all');
     const [marketFilter, setMarketFilter] = React.useState('all');
 
     const matchId = match?.id || match?.externalId || '';
@@ -156,12 +161,29 @@ const PropBuilderModal = ({ match, onClose }) => {
         (payload.playerProps || []).forEach((m) => keys.add(String(m?.key || '')));
         return Array.from(keys).filter(Boolean).sort();
     }, [payload.playerProps]);
+    // Sorted player roster for the dropdown. Pulled off the already-
+    // built `byPlayer` map so we don't walk `payload.playerProps`
+    // twice per render.
+    const playerNames = React.useMemo(
+        () => Array.from(byPlayer.keys()).sort((a, b) => a.localeCompare(b)),
+        [byPlayer]
+    );
+
+    // When the modal swaps to a different match (or the API serves a
+    // refreshed payload that no longer includes the previously-selected
+    // player), reset the dropdown to "All players" so we never render a
+    // stale name that filters everything out and leaves the user
+    // staring at an empty sheet.
+    React.useEffect(() => {
+        if (playerFilter !== 'all' && !byPlayer.has(playerFilter)) {
+            setPlayerFilter('all');
+        }
+    }, [byPlayer, playerFilter]);
 
     const filteredPlayers = React.useMemo(() => {
-        const normalizedSearch = playerFilter.trim().toLowerCase();
         const players = Array.from(byPlayer.entries());
         return players
-            .filter(([name]) => !normalizedSearch || name.toLowerCase().includes(normalizedSearch))
+            .filter(([name]) => playerFilter === 'all' || name === playerFilter)
             .filter(([, byMarket]) => marketFilter === 'all' || byMarket.has(marketFilter))
             .sort(([a], [b]) => a.localeCompare(b));
     }, [byPlayer, playerFilter, marketFilter]);
@@ -249,7 +271,10 @@ const PropBuilderModal = ({ match, onClose }) => {
         flex: '1 1 200px',
         minWidth: 140,
     };
-    const selectStyle = { ...inputStyle, flex: '0 0 auto', minWidth: 160 };
+    // Two selects share the toolbar row. `flex: 1 1 140px` lets them
+    // grow to fill on a wide modal yet shrink to 140px each on narrow
+    // mobile widths before the parent `flexWrap: wrap` stacks them.
+    const selectStyle = { ...inputStyle, flex: '1 1 140px', minWidth: 140 };
     const bodyStyle = {
         padding: '10px 16px 24px',
         overflowY: 'auto',
@@ -299,24 +324,40 @@ const PropBuilderModal = ({ match, onClose }) => {
                     </div>
                 </div>
 
-                <div style={toolbarStyle}>
-                    <input
-                        style={inputStyle}
-                        placeholder="Search player"
-                        value={playerFilter}
-                        onChange={(e) => setPlayerFilter(e.target.value)}
-                    />
-                    <select
-                        style={selectStyle}
-                        value={marketFilter}
-                        onChange={(e) => setMarketFilter(e.target.value)}
-                    >
-                        <option value="all">All markets</option>
-                        {marketKeys.map((k) => (
-                            <option key={k} value={k}>{prettyMarketLabel(k)}</option>
-                        ))}
-                    </select>
-                </div>
+                {/* Filter toolbar — only renders when there's data to
+                    filter. Hiding it on empty payloads (no markets, no
+                    players) avoids a native-select popover quirk where
+                    clicking a useless 1-option dropdown produced a
+                    stray "All markets" pill floating mid-page above the
+                    modal. The "No player props available" body copy is
+                    the right empty-state anchor on its own. */}
+                {(marketKeys.length > 0 || playerNames.length > 0) && (
+                    <div style={toolbarStyle}>
+                        <select
+                            style={selectStyle}
+                            value={marketFilter}
+                            onChange={(e) => setMarketFilter(e.target.value)}
+                            aria-label="Filter by market"
+                        >
+                            <option value="all">All markets</option>
+                            {marketKeys.map((k) => (
+                                <option key={k} value={k}>{prettyMarketLabel(k)}</option>
+                            ))}
+                        </select>
+                        <select
+                            style={selectStyle}
+                            value={playerFilter}
+                            onChange={(e) => setPlayerFilter(e.target.value)}
+                            aria-label="Filter by player"
+                            disabled={playerNames.length === 0}
+                        >
+                            <option value="all">All players</option>
+                            {playerNames.map((name) => (
+                                <option key={name} value={name}>{name}</option>
+                            ))}
+                        </select>
+                    </div>
+                )}
 
                 <div style={bodyStyle}>
                     {loading && (
@@ -330,7 +371,13 @@ const PropBuilderModal = ({ match, onClose }) => {
                     )}
                     {!loading && !error && filteredPlayers.length === 0 && (
                         <div style={{ padding: 30, textAlign: 'center', color: '#999' }}>
-                            No player props available for this match right now.
+                            {byPlayer.size === 0
+                                ? 'No player props available for this match right now.'
+                                : playerFilter !== 'all' && marketFilter !== 'all'
+                                    ? `No ${prettyMarketLabel(marketFilter)} props for ${playerFilter}. Try All markets or another player.`
+                                    : marketFilter !== 'all'
+                                        ? `No ${prettyMarketLabel(marketFilter)} props in this match.`
+                                        : `No props for ${playerFilter}.`}
                         </div>
                     )}
                     {!loading && !error && filteredPlayers.map(([playerName, byMarket]) => {
