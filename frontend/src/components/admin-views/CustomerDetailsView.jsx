@@ -2749,7 +2749,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
             <div className="tx-stat"><label>{isAgent ? 'Funding Wallet' : 'Available'}</label><b>{formatCurrency(txSummary.available)}</b></div>
             <div className="tx-stat">
               <label>{isAgent ? 'House Money' : 'Carry'}</label>
-              <b className={isAgent ? getAgentSettlementToneClass(txSummary.carry) : (txSummary.carry < 0 ? 'neg' : '')}>{formatCurrency(txSummary.carry)}</b>
+              <b className={isAgent ? getAgentSettlementToneClass(txSummary.carry) : getMoneyToneClass(txSummary.carry)}>{formatCurrency(txSummary.carry)}</b>
             </div>
             <div className="tx-stat"><label>Non-Posted Casino</label><b>{formatCurrency(txSummary.nonPostedCasino)}</b></div>
           </div>
@@ -4054,6 +4054,7 @@ function CustomerDetailsView({ userId, onBack, onNavigateToUser, role = 'admin',
           color: #111827;
         }
         .tx-stat .neg { color: #dc2626; }
+        .tx-stat .pos { color: #15803d; }
         .tx-table-wrap {
           border: 1px solid #cbd5e1;
           min-height: 250px;

@@ -1480,7 +1480,9 @@ const FiguresTab = ({ gradedBets = [], oddsFormat, teamLogos = {}, onNavigateToT
                 <div className="figures-table">
                     <div className="figures-row">
                         <span className="figures-label">Carry forward</span>
-                        <span className="figures-amount">{money(data.carryForward)}</span>
+                        <span className={`figures-amount${Number(data.carryForward || 0) > 0 ? ' positive' : Number(data.carryForward || 0) < 0 ? ' negative' : ''}`}>
+                            {money(data.carryForward)}
+                        </span>
                     </div>
                     {data.days.map((d, i) => {
                         const canExpand = Number(d.pl || 0) !== 0;
@@ -1556,7 +1558,9 @@ const FiguresTab = ({ gradedBets = [], oddsFormat, teamLogos = {}, onNavigateToT
                     </div>
                     <div className="figures-row figures-row-total">
                         <span className="figures-label">End balance</span>
-                        <span className="figures-amount">{money(data.endBalance)}</span>
+                        <span className={`figures-amount${Number(data.endBalance || 0) > 0 ? ' positive' : Number(data.endBalance || 0) < 0 ? ' negative' : ''}`}>
+                            {money(data.endBalance)}
+                        </span>
                     </div>
                 </div>
             )}
