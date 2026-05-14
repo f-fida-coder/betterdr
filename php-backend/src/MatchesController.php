@@ -376,7 +376,13 @@ final class MatchesController
         // listings forever). Live rows always survive — they're past
         // commence_time by definition. `status=finished` / `status=all` opt
         // out entirely so admin and audit tooling can pull historical rows.
-        if (!in_array($desiredStatus, ['finished', 'all'], true)) {
+        // `status=live` also opts out: the live branch above already accepted
+        // auto-promoted scheduled-but-effectively-live rows (kickoff passed +
+        // fresh odds). Those rows still carry status='scheduled' and would
+        // otherwise be killed here by the past-startTime check, leaving Live
+        // Now empty during peak game time — the exact bug the auto-promote
+        // path exists to fix.
+        if (!in_array($desiredStatus, ['finished', 'all', 'live'], true)) {
             $now = time();
             $annotated = array_values(array_filter($annotated, static function (array $match) use ($now): bool {
                 if (strtolower((string) ($match['status'] ?? '')) === 'live') {

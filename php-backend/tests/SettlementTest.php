@@ -100,8 +100,15 @@ TestRunner::run('selectionResult — H2H status guards', function (): void {
     $canceled = match_('A', 'B', 0, 0, 'canceled');
     TestRunner::assertEquals('void', SportsbookBetSupport::selectionResult($canceled, selection_('h2h', 'A')), 'canceled → void');
 
+    // 'expired' is the "feed went quiet past grace window" catch-all.
+    // Policy: do NOT auto-void — keep pending so an operator can confirm
+    // the actual outcome before money moves. Locked in lockstep with
+    // SportsbookBetSupport::selectionResult and BetSettlementService's
+    // settle loop (which both explicitly exclude 'expired'). If you
+    // want to change this back to void, change BOTH source sites first;
+    // a silent refund of un-graded bets caused real money-safety bugs.
     $expired = match_('A', 'B', 0, 0, 'expired');
-    TestRunner::assertEquals('void', SportsbookBetSupport::selectionResult($expired, selection_('h2h', 'A')), 'expired → void');
+    TestRunner::assertEquals('pending', SportsbookBetSupport::selectionResult($expired, selection_('h2h', 'A')), 'expired → pending (operator-review policy)');
 
     $live = match_('A', 'B', 1, 0, 'live');
     TestRunner::assertEquals('pending', SportsbookBetSupport::selectionResult($live, selection_('h2h', 'A')), 'non-finished → pending');
