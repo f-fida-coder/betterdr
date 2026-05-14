@@ -162,7 +162,13 @@ final class DebugController
             // to enable.
             $extended = null;
             try {
-                $extendedEnabled = strtolower((string) Env::get('ODDS_EXTENDED_SYNC_ENABLED', 'false')) === 'true';
+                // Default 'true': extended sync runs unless explicitly
+                // disabled via env. Operator can set
+                // ODDS_EXTENDED_SYNC_ENABLED=false to opt out (e.g. on
+                // quota-constrained API plans). Default flipped from
+                // 'false' to 'true' after a prod incident where the env
+                // wasn't loading the value at all and chips stayed hidden.
+                $extendedEnabled = strtolower((string) Env::get('ODDS_EXTENDED_SYNC_ENABLED', 'true')) !== 'false';
                 if ($extendedEnabled && count($batch) > 0) {
                     $activeMatches = $this->db->findMany(
                         'matches',
