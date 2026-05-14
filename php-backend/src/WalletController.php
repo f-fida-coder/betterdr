@@ -385,8 +385,115 @@ final class WalletController
                     'balanceBefore' => 1, 'balanceAfter' => 1,
                     'createdAt' => 1,
                     'isFreeplay' => 1, 'referenceType' => 1,
+                    // referenceId is the bet doc id for settlement rows;
+                    // needed to look up the game's startTime so we can
+                    // bucket by game date (player-facing convention) and
+                    // not by the moment the grading job happened to run.
+                    'referenceId' => 1,
                 ],
             ]);
+
+            // ── Per-bet game-time map ─────────────────────────────────
+            // For settlement transactions (bet_won / bet_lost / bet_void /
+            // bet_void_admin / bet_refund) we want to bucket the P/L on
+            // the day the GAME WAS PLAYED, not the day the grading job
+            // happened to run. A Dodgers ticket that played Tue 9:11 PM CT
+            // and was settled Wed 10:03 AM CT should appear under Tue's
+            // row — the player's mental model is "I lost on Tuesday's
+            // game," not "the grading worker took 13 hours to flip the
+            // ticket." (Reported by an operator looking at Weekly Figures.)
+            //
+            // Constraint: cross-week shifts would break the invariant
+            //   carryForward + weekTotal + transactionsTotal === endBalance
+            // because the running balance still moves on the SETTLEMENT
+            // date — that's when the ledger entry physically happened.
+            // So we only shift WITHIN the current display week. A late
+            // operator-grade weeks after the game stays in the settlement
+            // week (and the player can drill in if they need to know why).
+            $SETTLEMENT_BET_TYPES = ['bet_won', 'bet_lost', 'bet_void', 'bet_void_admin', 'bet_refund'];
+            $settlementBetIdSet = [];
+            foreach ($weekTx as $tx) {
+                $t = strtolower((string) ($tx['type'] ?? ''));
+                if (!in_array($t, $SETTLEMENT_BET_TYPES, true)) continue;
+                if (((string) ($tx['referenceType'] ?? '')) !== 'Bet') continue;
+                $rid = (string) ($tx['referenceId'] ?? '');
+                if ($rid !== '') $settlementBetIdSet[$rid] = true;
+            }
+
+            $betGameStartTs = []; // betId → unix ts of effective game start (UTC)
+            if (!empty($settlementBetIdSet)) {
+                $betIds = array_values(array_map(
+                    static fn(string $id): string => SqlRepository::id($id),
+                    array_keys($settlementBetIdSet)
+                ));
+                $betRows = $this->db->findMany('bets', [
+                    'id' => ['$in' => $betIds],
+                ], [
+                    'projection' => ['id' => 1, 'matchId' => 1, 'selections' => 1],
+                ]);
+
+                // Collect every match referenced by any of those bets —
+                // straight bets carry a top-level matchId, multi-leg
+                // tickets carry one per selection. De-dup with a set so
+                // a single fetch covers all of them.
+                $matchIdSet = [];
+                foreach ($betRows as $b) {
+                    $mid = (string) ($b['matchId'] ?? '');
+                    if ($mid !== '') $matchIdSet[$mid] = true;
+                    if (is_array($b['selections'] ?? null)) {
+                        foreach ($b['selections'] as $sel) {
+                            if (!is_array($sel)) continue;
+                            $smid = (string) ($sel['matchId'] ?? '');
+                            if ($smid !== '') $matchIdSet[$smid] = true;
+                        }
+                    }
+                }
+
+                $matchStartByMid = [];
+                if (!empty($matchIdSet)) {
+                    $matchIds = array_values(array_map(
+                        static fn(string $id): string => SqlRepository::id($id),
+                        array_keys($matchIdSet)
+                    ));
+                    $matchRows = $this->db->findMany('matches', [
+                        'id' => ['$in' => $matchIds],
+                    ], [
+                        'projection' => ['id' => 1, 'startTime' => 1],
+                    ]);
+                    foreach ($matchRows as $m) {
+                        $mid = (string) ($m['id'] ?? '');
+                        $st = strtotime((string) ($m['startTime'] ?? '')) ?: 0;
+                        if ($mid !== '' && $st > 0) $matchStartByMid[$mid] = $st;
+                    }
+                }
+
+                // Per-bet effective game time. For multi-leg tickets the
+                // grading is gated on the LATEST game finishing, so the
+                // latest leg's start is the most defensible bucket — that
+                // game is the one whose outcome actually settled the
+                // ticket. For straights it's the only game either way.
+                foreach ($betRows as $b) {
+                    $bid = (string) ($b['id'] ?? '');
+                    if ($bid === '') continue;
+                    $latest = 0;
+                    $mid = (string) ($b['matchId'] ?? '');
+                    if ($mid !== '' && isset($matchStartByMid[$mid])) {
+                        $latest = max($latest, $matchStartByMid[$mid]);
+                    }
+                    if (is_array($b['selections'] ?? null)) {
+                        foreach ($b['selections'] as $sel) {
+                            if (!is_array($sel)) continue;
+                            $smid = (string) ($sel['matchId'] ?? '');
+                            if ($smid !== '' && isset($matchStartByMid[$smid])) {
+                                $latest = max($latest, $matchStartByMid[$smid]);
+                            }
+                        }
+                    }
+                    if ($latest > 0) $betGameStartTs[$bid] = $latest;
+                }
+            }
+            $weekStartTs = $weekStartUtc->getTimestamp();
+            $weekEndTs = $weekEndUtc->getTimestamp();
 
             // Type sets — Daily P/L absorbs bet + casino movements (the
             // player's gambling P/L). Deposits / Withdrawals absorbs
@@ -446,10 +553,27 @@ final class WalletController
                 } catch (Throwable) {
                     continue;
                 }
-                $diffDays = $assignDayIndex($dt->getTimestamp());
-                if ($diffDays < 0 || $diffDays > 6) continue;
-
                 $type = strtolower((string) ($tx['type'] ?? ''));
+
+                // Settlement transactions get bucketed by GAME-TIME when
+                // a same-week game date is known. Falls back to the
+                // transaction's createdAt for: non-settlement rows, bets
+                // whose match lookup didn't yield a startTime, or games
+                // whose startTime crosses a week boundary (see comment on
+                // $SETTLEMENT_BET_TYPES — cross-week shifts would break
+                // the carryForward/weekTotal/endBalance invariant).
+                $bucketTs = $dt->getTimestamp();
+                if (in_array($type, $SETTLEMENT_BET_TYPES, true)) {
+                    $rid = (string) ($tx['referenceId'] ?? '');
+                    if ($rid !== '' && isset($betGameStartTs[$rid])) {
+                        $gameTs = $betGameStartTs[$rid];
+                        if ($gameTs >= $weekStartTs && $gameTs < $weekEndTs) {
+                            $bucketTs = $gameTs;
+                        }
+                    }
+                }
+                $diffDays = $assignDayIndex($bucketTs);
+                if ($diffDays < 0 || $diffDays > 6) continue;
                 $balanceBefore = isset($tx['balanceBefore']) ? $this->num($tx['balanceBefore']) : null;
                 $balanceAfter = isset($tx['balanceAfter']) ? $this->num($tx['balanceAfter']) : null;
 

@@ -1376,6 +1376,41 @@ const FiguresTab = ({ gradedBets = [], oddsFormat, teamLogos = {}, onNavigateToT
     // Sunday = 3 AM UTC Monday would appear under Monday's drill-down
     // even though the backend (correctly, in local TZ) counted it in
     // Sunday's P/L.  Always prefer the server-supplied bounds.
+    // Effective bucket time for a graded bet, matching the backend's
+    // WalletController::getFigures rule: settlement P/L bucket-by GAME-
+    // TIME (the day the game was played) when that game falls inside
+    // the displayed week; otherwise fall back to the settlement
+    // timestamp. For multi-leg tickets the latest leg's game time is
+    // used — that's the game whose grading actually settled the
+    // ticket. Keeps the drill-down list in lockstep with the per-day
+    // P/L totals the server returned. Without this, the server could
+    // show -$3,450 under Tue (because the game was Tue) while the
+    // expanded panel only listed bets settled Wed — visibly broken.
+    const weekStartMs = data?.days?.[0]?.startUtc ? new Date(data.days[0].startUtc).getTime() : NaN;
+    const weekEndMs = data?.days?.[6]?.endUtc ? new Date(data.days[6].endUtc).getTime() : NaN;
+    const bucketTimeForBet = (bet) => {
+        const settledAt = bet?.settledAt || bet?.updatedAt || bet?.createdAt;
+        const settledMs = settledAt ? new Date(settledAt).getTime() : NaN;
+        // Pick the LATEST game time across the legs — for a straight
+        // ticket there is only one match. Skip selections without a
+        // startTime rather than letting them poison the max.
+        const candidates = [];
+        if (bet?.match?.startTime) candidates.push(new Date(bet.match.startTime).getTime());
+        if (bet?.matchSnapshot?.startTime) candidates.push(new Date(bet.matchSnapshot.startTime).getTime());
+        if (Array.isArray(bet?.selections)) {
+            for (const leg of bet.selections) {
+                if (leg?.match?.startTime) candidates.push(new Date(leg.match.startTime).getTime());
+                if (leg?.matchSnapshot?.startTime) candidates.push(new Date(leg.matchSnapshot.startTime).getTime());
+            }
+        }
+        const valid = candidates.filter((n) => Number.isFinite(n));
+        if (valid.length > 0 && Number.isFinite(weekStartMs) && Number.isFinite(weekEndMs)) {
+            const gameMs = Math.max(...valid);
+            if (gameMs >= weekStartMs && gameMs < weekEndMs) return gameMs;
+        }
+        return Number.isFinite(settledMs) ? settledMs : NaN;
+    };
+
     const betsForDayIndex = (dayIndex) => {
         const dayData = data?.days?.[dayIndex];
         if (!dayData) return [];
@@ -1399,12 +1434,12 @@ const FiguresTab = ({ gradedBets = [], oddsFormat, teamLogos = {}, onNavigateToT
         }
 
         if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return [];
+        const startMs = start.getTime();
+        const endMs = end.getTime();
         return gradedBets.filter((bet) => {
-            const ts = bet?.settledAt || bet?.updatedAt || bet?.createdAt;
-            if (!ts) return false;
-            const settled = new Date(ts);
-            if (Number.isNaN(settled.getTime())) return false;
-            return settled >= start && settled < end;
+            const bucketMs = bucketTimeForBet(bet);
+            if (!Number.isFinite(bucketMs)) return false;
+            return bucketMs >= startMs && bucketMs < endMs;
         });
     };
 
