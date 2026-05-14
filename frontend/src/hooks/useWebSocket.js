@@ -20,8 +20,17 @@ function resolveWsUrl(explicitUrl) {
     return '';
   }
 
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  // Only fall back to host:5001 on localhost dev. In production (e.g. Hostinger
+  // shared hosting) port 5001 is not reachable, so without an explicit
+  // VITE_WS_URL we skip the connection entirely and let the REST polling
+  // fallback keep the UI fresh.
   const host = window.location.hostname || 'localhost';
+  const isLocalhost = host === 'localhost' || host === '127.0.0.1' || host === '::1';
+  if (!isLocalhost) {
+    return '';
+  }
+
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const port = import.meta.env.VITE_WS_PORT || '5001';
   return `${protocol}//${host}:${port}`;
 }
