@@ -182,10 +182,18 @@ const DashboardSidebar = ({
     const [liveSet, setLiveSet] = useState(null);
     const [searchQuery, setSearchQuery] = useState('');
     // Team-name search index: lazily populated when the user starts typing.
-    // Holds upcoming matches so we can match against home/away team names
-    // — the static sport tree only knows category/league labels.
+    // Holds live + upcoming matches so we can match against home/away team
+    // names — the static sport tree only knows category/league labels.
+    //
+    // `searchIndexState` distinguishes four lifecycle values so the empty
+    // state can render the right message:
+    //   - null     → never fetched (initial)
+    //   - 'error'  → fetch failed (network / 5xx) — show "try again"
+    //   - []       → fetched, server returned no rows
+    //   - array    → fetched, have rows to substring-match
     const [matchesForSearch, setMatchesForSearch] = useState(null);
     const [matchesSearchLoading, setMatchesSearchLoading] = useState(false);
+    const [searchIndexFetchedAt, setSearchIndexFetchedAt] = useState(0);
 
     // Health-probe the sports feed. Hard 5s budget: if the backend or
     // upstream API is slow/unavailable, we abort and leave liveSet=null,
@@ -271,13 +279,21 @@ const DashboardSidebar = ({
 
     // Lazy-load matches the first time the user types ≥2 chars.
     // We don't prefetch on mount — most sessions never use the search box,
-    // and a 200-row payload would be wasted bandwidth.
+    // and a multi-row payload would be wasted bandwidth.
     //
-    // Fetches `live-upcoming` so the index covers BOTH in-play games and
-    // pregame matches. Without the live half, a user searching for a
-    // currently-playing team (e.g. "Guardians" while Cleveland is live)
-    // saw "No teams found" even though the game was right there in the
-    // LIVE NOW feed — the search felt broken to anyone betting in-play.
+    // Fetches `live-upcoming` with limit:1500 so the index covers BOTH
+    // in-play games and the full pregame window. The previous limit (200)
+    // sorted by startTime ASC filled with already-live matches and
+    // dropped later-in-the-day fixtures — so "city" never matched Man
+    // City / Kansas City Royals etc. because those rows never made it
+    // into the index. payload=core keeps the per-row weight low.
+    //
+    // Refetch rules:
+    //   - never fetched (matchesForSearch === null) → fetch
+    //   - fetch errored ('error') and last attempt was >5s ago → retry
+    //   - fetched but stale (>60s) → refetch silently so newly-scheduled
+    //     games surface mid-session
+    // Otherwise we reuse the cached index.
     //
     // State-machine note: the previous version put `matchesSearchLoading`
     // in the deps array AND skipped the `finally` reset when the cleanup
@@ -289,28 +305,42 @@ const DashboardSidebar = ({
     // away, no team result ever rendered. Now we use a ref to guard
     // re-entry and ALWAYS clear the spinner in finally so a cancelled
     // run can't strand it.
+    const SEARCH_INDEX_TTL_MS = 60_000;
+    const SEARCH_INDEX_ERROR_RETRY_MS = 5_000;
     const searchFetchInFlightRef = useRef(false);
     useEffect(() => {
         const q = searchQuery.trim();
         if (q.length < 2) return;
-        if (matchesForSearch !== null) return;
         if (searchFetchInFlightRef.current) return;
+
+        const ageMs = Date.now() - searchIndexFetchedAt;
+        const isError = matchesForSearch === 'error';
+        const isFreshArray = Array.isArray(matchesForSearch) && ageMs < SEARCH_INDEX_TTL_MS;
+        if (isFreshArray) return;
+        if (isError && ageMs < SEARCH_INDEX_ERROR_RETRY_MS) return;
+
         searchFetchInFlightRef.current = true;
         let cancelled = false;
         setMatchesSearchLoading(true);
         (async () => {
             try {
-                const data = await getMatches('live-upcoming', { limit: 200, payload: 'core' });
-                if (!cancelled) setMatchesForSearch(Array.isArray(data) ? data : []);
+                const data = await getMatches('live-upcoming', { limit: 1500, payload: 'core' });
+                if (!cancelled) {
+                    setMatchesForSearch(Array.isArray(data) ? data : []);
+                    setSearchIndexFetchedAt(Date.now());
+                }
             } catch {
-                if (!cancelled) setMatchesForSearch([]);
+                if (!cancelled) {
+                    setMatchesForSearch('error');
+                    setSearchIndexFetchedAt(Date.now());
+                }
             } finally {
                 searchFetchInFlightRef.current = false;
                 setMatchesSearchLoading(false);
             }
         })();
         return () => { cancelled = true; };
-    }, [searchQuery, matchesForSearch]);
+    }, [searchQuery, matchesForSearch, searchIndexFetchedAt]);
 
     // Walk the merged sport tree (static catalog + backend-discovered
     // leagues) and find the first leaf whose sportKeys array contains the
@@ -333,7 +363,10 @@ const DashboardSidebar = ({
         return search(mergedSports);
     };
 
-    // Filter cached matches by team name. Capped to avoid flooding the
+    // Filter cached matches by team name, short name, league/sport label,
+    // or sport key. Wider surface than just home/away full names so
+    // queries like "mlb", "premier", "soccer" surface results that the
+    // narrower team-name match would miss. Capped to avoid flooding the
     // sidebar when a generic word matches dozens of games.
     const teamSearchResults = useMemo(() => {
         const q = searchQuery.trim().toLowerCase();
@@ -342,7 +375,18 @@ const DashboardSidebar = ({
         for (const m of matchesForSearch) {
             const home = String(m?.homeTeam || m?.home_team || '').toLowerCase();
             const away = String(m?.awayTeam || m?.away_team || '').toLowerCase();
-            if (home.includes(q) || away.includes(q)) {
+            const homeShort = String(m?.homeTeamShort || '').toLowerCase();
+            const awayShort = String(m?.awayTeamShort || '').toLowerCase();
+            const sport = String(m?.sport || '').toLowerCase();
+            const sportKey = String(m?.sportKey || '').toLowerCase();
+            if (
+                home.includes(q) ||
+                away.includes(q) ||
+                (homeShort && homeShort.includes(q)) ||
+                (awayShort && awayShort.includes(q)) ||
+                (sport && sport.includes(q)) ||
+                (sportKey && sportKey.includes(q))
+            ) {
                 results.push(m);
                 if (results.length >= 12) break;
             }
@@ -408,13 +452,32 @@ const DashboardSidebar = ({
             </div>
 
             {/* Team search results: shown when query has ≥2 chars. Sits
-                above the static sport list so users see team matches first. */}
+                above the static sport list so users see team matches first.
+                Empty-state message branches on the four index lifecycle
+                values so the user can tell "search broke" from "nothing
+                matches your query". The loading spinner ALSO covers the
+                "not yet fetched" case (matchesForSearch === null) so the
+                render window between typing the second char and the effect
+                kicking off doesn't show a blank panel. */}
             {searchQuery.trim().length >= 2 && (
                 <div className="sidebar-search-results">
-                    {matchesSearchLoading && teamSearchResults.length === 0 && (
+                    {teamSearchResults.length === 0 && (matchesSearchLoading || matchesForSearch === null) && (
                         <div className="sidebar-search-loading">Searching teams…</div>
                     )}
-                    {!matchesSearchLoading && teamSearchResults.length === 0 && matchesForSearch !== null && (
+                    {!matchesSearchLoading && teamSearchResults.length === 0 && matchesForSearch === 'error' && (
+                        <div
+                            className="sidebar-search-empty sidebar-search-error"
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => { setMatchesForSearch(null); setSearchIndexFetchedAt(0); }}
+                        >
+                            Search temporarily unavailable — tap to retry
+                        </div>
+                    )}
+                    {!matchesSearchLoading && teamSearchResults.length === 0 && Array.isArray(matchesForSearch) && matchesForSearch.length === 0 && (
+                        <div className="sidebar-search-empty">No matches scheduled right now</div>
+                    )}
+                    {!matchesSearchLoading && teamSearchResults.length === 0 && Array.isArray(matchesForSearch) && matchesForSearch.length > 0 && (
                         <div className="sidebar-search-empty">No teams found for "{searchQuery.trim()}"</div>
                     )}
                     {teamSearchResults.map((m) => {

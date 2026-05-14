@@ -81,11 +81,16 @@ final class MatchesController
         $payloadMode = $this->normalizePayloadMode((string) ($_GET['payload'] ?? 'full'));
         $sportFilter = isset($_GET['sport']) ? trim((string) $_GET['sport']) : '';
         $sportKeyFilter = isset($_GET['sportKey']) ? trim((string) $_GET['sportKey']) : '';
-        // ?limit=N — clamp to [1,200]. Applied AFTER cache read so a single
-        // cached row-set serves every limit value cheaply. Used by the
-        // default landing view to ask for just the top 6 freshest rows.
+        // ?limit=N — clamp to [1,1500]. Applied AFTER cache read so a single
+        // cached row-set serves every limit value cheaply. The default
+        // landing view asks for the top 6 freshest rows; the sidebar
+        // search index asks for ~1500 (it needs the full live-upcoming
+        // window so a query like "city" can hit Man City / Kansas City
+        // Royals games that start later in the day — capping at 200 sorted
+        // by startTime ASC filled the slot with already-live games and
+        // dropped most pre-match rows out of the search index).
         $rawLimit = isset($_GET['limit']) ? (int) $_GET['limit'] : 0;
-        $limit = $rawLimit > 0 ? min(200, $rawLimit) : 0;
+        $limit = $rawLimit > 0 ? min(1500, $rawLimit) : 0;
         $sharedCacheTtl = $this->envInt('SPORTSBOOK_MATCHES_CACHE_TTL_SECONDS', self::DEFAULT_SHARED_MATCHES_CACHE_TTL_SECONDS);
         $cacheNamespace = SportsbookCache::publicMatchesNamespace();
         $sportCacheSegment = ($sportFilter !== '' || $sportKeyFilter !== '')

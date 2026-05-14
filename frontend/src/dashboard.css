@@ -402,6 +402,17 @@ body.dashboard-mode {
     font-size: 13px;
 }
 
+.sidebar-search-empty.sidebar-search-error {
+    color: #c2410c;
+    background: #fff7ed;
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.sidebar-search-empty.sidebar-search-error:hover {
+    background: #ffedd5;
+}
+
 .sidebar-search-result-row {
     display: flex;
     flex-direction: column;
