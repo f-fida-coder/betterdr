@@ -26,11 +26,22 @@ const LIVE_EMPTY_RETRY_DELAYS_MS = [4000, 9000];
 // When the live poll returns [] but we previously had live rows on
 // screen, keep showing the last-known rows for this long instead of
 // wiping the board to empty. Covers the case where the backend's 90s
-// live-freshness gate transiently filters all live rows out because
-// the worker missed a tick — the periodic mount-sync will normally
-// refresh `lastOddsSyncAt` and bring rows back well within this window.
-// If the grace period elapses with no rows, we accept the empty state.
-const LIVE_EMPTY_GRACE_MS = 60000;
+// live-freshness gate (or the prematch 300s gate) transiently filters
+// all rows out because the worker missed a tick — the periodic mount-
+// sync will normally refresh `lastOddsSyncAt` and bring rows back well
+// within this window. If the grace period elapses with no rows, we
+// accept the empty state.
+//
+// Bumped from 60s → 180s after operator report that odds were
+// disappearing from screen after ~2-3 min. The freshness gates plus a
+// missed sync cycle can leave the response empty for that long before
+// the next successful tick lands; a 180s grace covers it cleanly.
+//
+// Originally applied to status=live/active only. Extended to ALL
+// status filters because the same transient-empty flash hits the
+// default 'live-upcoming' board too — most users never tap the LIVE
+// NOW pill so they only see the bug in the default view.
+const EMPTY_GRACE_MS = 180000;
 // No-op cache: same Map surface (.get/.set/.delete/.size) so the rest of
 // the file is unchanged, but every read returns undefined so we always
 // refetch from the backend.
@@ -192,9 +203,9 @@ export default function useMatches(options = {}) {
     // Counter for the empty-live retry path (see LIVE_EMPTY_RETRY_DELAYS_MS).
     // Resets when a non-empty live response lands or the hook unmounts.
     const emptyRetryRef = useRef(0);
-    // Timestamp (ms) when the live feed first returned [] while we had
-    // rows on screen. Drives LIVE_EMPTY_GRACE_MS — reset to 0 whenever a
-    // non-empty live response lands.
+    // Timestamp (ms) when the feed first returned [] while we had rows
+    // on screen. Drives EMPTY_GRACE_MS — reset to 0 whenever a non-empty
+    // response lands. Applies to ALL status filters, not just live.
     const liveEmptyGraceStartRef = useRef(0);
 
     useEffect(() => {
@@ -216,20 +227,24 @@ export default function useMatches(options = {}) {
             const normalizedNext = Array.isArray(nextMatches) ? nextMatches : [];
             const nextFingerprint = buildMatchesFingerprint(normalizedNext);
             setMatches((prev) => {
-                // Live grace: backend's 90s freshness gate can briefly
-                // filter every live row out when the sync worker misses
-                // a tick. Without this guard, the UI flashes empty (odds
-                // disappear) and re-fills once the worker catches up.
-                // Keep the previous rows on screen for LIVE_EMPTY_GRACE_MS
-                // so the board stays stable across transient empties.
-                if (isLiveStatusFilter
-                    && normalizedNext.length === 0
-                    && Array.isArray(prev) && prev.length > 0) {
+                // Empty-response grace: backend freshness gates (90s for
+                // live, 300s for prematch) can briefly filter every row
+                // out when the sync worker misses a tick. Without this
+                // guard the UI flashes empty (odds disappear) and re-
+                // fills once the worker catches up — the operator-
+                // reported "odds vanish after 2-3 mins" bug.
+                //
+                // Applied to ALL status filters now, not just
+                // live/active: the default 'live-upcoming' board hits
+                // the same transient-empty flash and is what most users
+                // actually see. Keep previous rows on screen for
+                // EMPTY_GRACE_MS (180s) across any empty response.
+                if (normalizedNext.length === 0 && Array.isArray(prev) && prev.length > 0) {
                     const now = Date.now();
                     if (liveEmptyGraceStartRef.current === 0) {
                         liveEmptyGraceStartRef.current = now;
                     }
-                    if (now - liveEmptyGraceStartRef.current < LIVE_EMPTY_GRACE_MS) {
+                    if (now - liveEmptyGraceStartRef.current < EMPTY_GRACE_MS) {
                         return prev;
                     }
                     liveEmptyGraceStartRef.current = 0;
