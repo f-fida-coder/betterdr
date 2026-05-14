@@ -122,6 +122,7 @@ function UserDashboardShell({
               <DashboardSidebar
                 selectedSports={selectedSports}
                 onToggleSport={onSportToggle}
+                onContinue={onContinue}
                 betMode={betMode}
                 isOpen={true}
                 onCloseSidebar={onCloseSidebar}

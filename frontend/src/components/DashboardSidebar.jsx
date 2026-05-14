@@ -169,6 +169,7 @@ const SidebarItem = ({
 const DashboardSidebar = ({
     selectedSports = [],
     onToggleSport,
+    onContinue,
     betMode = 'straight',
     isOpen = false,
     onCloseSidebar,
@@ -295,24 +296,46 @@ const DashboardSidebar = ({
     //     games surface mid-session
     // Otherwise we reuse the cached index.
     //
-    // State-machine note: the previous version put `matchesSearchLoading`
-    // in the deps array AND skipped the `finally` reset when the cleanup
-    // had marked the run as cancelled. setMatchesSearchLoading(true) then
-    // re-triggered the effect itself; the cleanup flipped cancelled=true
-    // on the in-flight run; the fetch resolved into the `if (cancelled)`
-    // early-return; and the finally never cleared the spinner. End state:
-    // matchesSearchLoading=true forever, "Searching teams…" never went
-    // away, no team result ever rendered. Now we use a ref to guard
-    // re-entry and ALWAYS clear the spinner in finally so a cancelled
-    // run can't strand it.
+    // History notes for future-you:
+    //   v1 — used `matchesSearchLoading` in the deps array AND skipped
+    //   the `finally` spinner reset when cancelled. setMatchesSearchLoading
+    //   re-triggered the effect, the cleanup flipped cancelled=true on the
+    //   in-flight run, the fetch fell into the `if (cancelled)` early-
+    //   return, and the finally never cleared the spinner. Stranded
+    //   "Searching teams…" forever.
+    //
+    //   v2 — added a useRef in-flight guard. Fixed v1's loop but introduced
+    //   a StrictMode dev hazard: in React 18 StrictMode the effect runs
+    //   twice in dev. Run 1 sets ref=true and starts the fetch. Cleanup
+    //   1 sets cancelled=true (but the ref stays true — refs survive
+    //   cleanups). Run 2 sees ref===true and early-returns. The original
+    //   fetch resolves and skips its setMatchesForSearch because
+    //   cancelled is true. End state: matchesForSearch=null forever, ref
+    //   is eventually cleared by finally, but no subsequent effect run
+    //   would refetch because matchesForSearch is still in its initial
+    //   null state and the user has stopped typing. Localhost dev users
+    //   saw the spinner stuck forever — production was fine because
+    //   StrictMode is dev-only.
+    //
+    //   v3 (current) — drop the cancelled flag entirely. The fetch is a
+    //   one-shot data load with no per-render parameters that would
+    //   differ between renders, so a result resolved late is still valid
+    //   to write. If the component unmounts mid-flight, the setState on
+    //   an unmounted component is a no-op + a React warning, which is
+    //   acceptable for a one-shot search index. The ref guard still
+    //   prevents duplicate concurrent fetches, and the cleanup clears
+    //   the ref defensively so a fresh mount can always refetch.
     const SEARCH_INDEX_TTL_MS = 60_000;
     const SEARCH_INDEX_ERROR_RETRY_MS = 5_000;
     const searchFetchInFlightRef = useRef(false);
-    useEffect(() => {
-        const q = searchQuery.trim();
-        if (q.length < 2) return;
-        if (searchFetchInFlightRef.current) return;
 
+    // Single source of truth for "should we kick a fetch right now?".
+    // Checked by both the typing effect (q ≥ 2 chars) and the focus
+    // pre-warm (q irrelevant). Returns false fast when the cached
+    // index is still good — avoids needless network and avoids
+    // spurious spinner blinks on every focus.
+    const maybeFetchSearchIndex = () => {
+        if (searchFetchInFlightRef.current) return;
         const ageMs = Date.now() - searchIndexFetchedAt;
         const isError = matchesForSearch === 'error';
         const isFreshArray = Array.isArray(matchesForSearch) && ageMs < SEARCH_INDEX_TTL_MS;
@@ -320,26 +343,44 @@ const DashboardSidebar = ({
         if (isError && ageMs < SEARCH_INDEX_ERROR_RETRY_MS) return;
 
         searchFetchInFlightRef.current = true;
-        let cancelled = false;
         setMatchesSearchLoading(true);
         (async () => {
             try {
+                // Primary source: freshness-filtered live+upcoming snapshot.
+                // If it is empty (common on local envs before a fresh sync),
+                // fall back to the broader default feed so team search still
+                // has names to match against.
                 const data = await getMatches('live-upcoming', { limit: 1500, payload: 'core' });
-                if (!cancelled) {
-                    setMatchesForSearch(Array.isArray(data) ? data : []);
-                    setSearchIndexFetchedAt(Date.now());
+                const normalized = Array.isArray(data) ? data : [];
+                if (normalized.length > 0) {
+                    setMatchesForSearch(normalized);
+                } else {
+                    const fallback = await getMatches('', { limit: 1500, payload: 'core' });
+                    setMatchesForSearch(Array.isArray(fallback) ? fallback : []);
                 }
+                setSearchIndexFetchedAt(Date.now());
             } catch {
-                if (!cancelled) {
-                    setMatchesForSearch('error');
-                    setSearchIndexFetchedAt(Date.now());
-                }
+                setMatchesForSearch('error');
+                setSearchIndexFetchedAt(Date.now());
             } finally {
                 searchFetchInFlightRef.current = false;
                 setMatchesSearchLoading(false);
             }
         })();
-        return () => { cancelled = true; };
+    };
+
+    useEffect(() => {
+        const q = searchQuery.trim();
+        if (q.length < 2) return;
+        maybeFetchSearchIndex();
+        return () => {
+            // Clear the in-flight guard on cleanup so StrictMode's
+            // dev-only mount→unmount→mount cycle doesn't strand a second
+            // mount behind a ref set during the first mount. Production
+            // doesn't double-mount, so this is effectively a no-op there.
+            searchFetchInFlightRef.current = false;
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [searchQuery, matchesForSearch, searchIndexFetchedAt]);
 
     // Walk the merged sport tree (static catalog + backend-discovered
@@ -397,8 +438,32 @@ const DashboardSidebar = ({
     const handleSearchResultClick = (match) => {
         const leaf = findLeafBySportKey(match?.sportKey);
         if (!leaf) return;
+        // Select the sport AND jump straight to its match list. Before
+        // this, the click only ticked the sport in the sidebar tree and
+        // the player still had to tap Continue manually — an awkward
+        // extra tap, because the whole point of clicking a search result
+        // is "show me this game". onContinue flips the dashboard into
+        // results view on mobile; desktop sidebars don't get the prop
+        // (no results-view concept there) and remain selection-only.
         onToggleSport(leaf.id, { replace: true });
         setSearchQuery('');
+        if (typeof onContinue === 'function') {
+            onContinue();
+        }
+    };
+
+    // Pre-warm the search index when the user taps the search input.
+    // Bridges the gap between "user lands on the page" and "user types
+    // 2nd char": by the time they finish typing the query, the live-
+    // upcoming snapshot is already in flight or in hand, so the spinner
+    // either flashes briefly or never shows. Reason this matters: on
+    // the first session-mount the search would otherwise time-share
+    // bandwidth with the dashboard's own match fetch and the auth
+    // bootstrap, and players reported getting a stuck empty search
+    // until they navigated to a sport view and back (which remounts
+    // the sidebar). Pre-warming sidesteps that race entirely.
+    const handleSearchFocus = () => {
+        maybeFetchSearchIndex();
     };
 
     const filteredSports = useMemo(() => {
@@ -434,6 +499,7 @@ const DashboardSidebar = ({
                     placeholder="Search ..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
+                    onFocus={handleSearchFocus}
                 />
             </div>
 
