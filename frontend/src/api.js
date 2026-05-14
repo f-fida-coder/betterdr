@@ -601,7 +601,9 @@ const buildMatchesParams = (status = '', options = {}) => {
     // top-N freshest matches instead of the full live-upcoming list (which
     // can be 700+ rows of mixed staleness).
     if (options?.limit) {
-        const n = Math.max(1, Math.min(200, Number(options.limit) || 0));
+        // Keep client-side clamp in sync with MatchesController (1500 max).
+        // Sidebar team search depends on a wider window than 200 rows.
+        const n = Math.max(1, Math.min(1500, Number(options.limit) || 0));
         if (n > 0) params.limit = String(n);
     }
     return params;

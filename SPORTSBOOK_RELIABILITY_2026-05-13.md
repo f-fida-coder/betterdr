@@ -646,3 +646,292 @@ db7ad12d  balance-delta-first across all signed-amount helpers + robust FP gate
 197de926  wallet: legacy-row safety net + running balance for figures
 033c58dd  sportsbook: live sport rail — big color emojis + count, no text labels
 ```
+
+---
+
+# Day-2 session — 2026-05-14
+
+Continuation work covering live-rail visual polish, the **3rd attempt** at sidebar team-name search (the user's quote: "we are doing this filter 3 tims"), and click-to-navigate UX. Three commits total, all in `main`.
+
+## 22. Live sport rail — clipped pills + UI polish
+
+**Symptom:** the live-filter pill strips (sport icons + league pills) were getting clipped behind the red "Live Now" banner and the red MLB league header. Only the bottom ~10 px of the pills showed through, looking like a thin band of leaked text.
+
+**Root cause:** the `MobileContentView` container is `display:flex; flexDirection:column` with `overflowY:auto`. Adjacent flex children like `sportHeaderStyle` had `flexShrink: 0`, but `liveFilterStripStyle` and `liveLeagueStripStyle` didn't. Flex collapsed the strips to a thin band while the pills inside (still rendered at full size via `overflowX:auto`) overflowed vertically and got covered by the neighboring solid-background red headers above and below.
+
+**Fix:** added `flexShrink: 0` to both strip styles in [MobileContentView.jsx:2381-2422](frontend/src/components/MobileContentView.jsx#L2381-L2422). Strips now hold their full height; pills are fully visible.
+
+**Visual polish on the live sport rail** (same file, commit `977944bf`):
+- Height `76 → 50 → finalized at 72`. Strip uses a `linear-gradient(180deg, #262626 → #1a1a1a)` for slight depth.
+- Each pill renders **icon (26 px emoji)** + **uppercase short label** (`BASEBALL`, `BASKETBALL`, `HOCKEY`, etc.), with the count as a small corner badge on the icon.
+- Short labels: `"all"` → `All`, `"my-live"` → `My Plays`, all others use the sport label as-is.
+- Active state: 3 px amber underline + amber label + amber-background dark-text count badge.
+- Empty sports stay grayscale + dim (existing behavior, kept).
+- Pills are `flex: 0 0 auto` with `minWidth: 72`, so they keep a consistent size and scroll horizontally instead of squeezing.
+
+**Files touched:** [frontend/src/components/MobileContentView.jsx](frontend/src/components/MobileContentView.jsx) only.
+
+## 23. Sidebar team-name search — 3rd attempt overhaul
+
+**Why this matters:** the player typed `"city"` expecting to find Man City / Kansas City Royals games. Search returned "No teams found for 'city'". The user explicitly flagged this as the **third** attempt to fix this filter (`v1` switched from `upcoming` → `live-upcoming`, `v2` fixed a stranded loading spinner). The root cause this time was different: the **dataset coverage was wrong**, not the state machine.
+
+### Root cause stack (six compounding layers)
+
+| # | Layer | What it did |
+|---|-------|-------------|
+| 1 | Frontend asked for `limit:200` | Self-cap at 200 rows |
+| 2 | Backend re-clamped `min(200, $rawLimit)` in `MatchesController.php:88` | No way to request more than 200 |
+| 3 | DB sort `startTime ASC` (`MatchesController.php:194`) | Live games (past startTime) sort first, fill the 200-row slot. Pre-match games starting later in the day get dropped. Man City / Kansas City Royals games never made it into the index. |
+| 4 | One-shot fetch — `if (matchesForSearch !== null) return;` | Once populated, never refetched. If the first fetch returned `[]` (network blip, the `catch` set `[]`), the entire session searched against an empty index. |
+| 5 | Substring match only on `homeTeam`/`awayTeam` | `"premier"` → 0 results. `"mlb"` → 0 results. `"ast"` (Aston Villa) → 0 results. |
+| 6 | "No teams found" empty state couldn't distinguish "fetch failed/returned `[]`" from "real empty" | User saw a confident "no match" when truth was "we never had data". |
+
+### Fixes shipped (commit `1f8cbf3c`)
+
+#### Backend
+- [php-backend/src/MatchesController.php:84-93](php-backend/src/MatchesController.php#L84-L93) — raised `?limit` upper-cap from **200 → 1500**. Comment notes the search-index use case explicitly so future readers don't drop it back to 200 for bandwidth reasons. The full live-upcoming window is typically 500–900 rows; 1500 leaves headroom.
+
+#### Frontend search engine
+[`frontend/src/components/DashboardSidebar.jsx`](frontend/src/components/DashboardSidebar.jsx):
+- Bumped search-index fetch to `limit: 1500` (matches the new backend cap).
+- **Four-state index lifecycle**: `null` (never tried) / `'error'` (fetch failed) / `[]` (server returned empty) / `array` (data). Drives the empty-state messaging.
+- **Broader match surface**: `homeTeam`, `awayTeam`, `homeTeamShort`, `awayTeamShort`, `sport`, `sportKey`. Queries like `"mlb"`, `"premier"`, `"soccer"`, `"ast"` now hit instead of returning empty.
+- **Resilient refetch**:
+  - 60 s TTL so newly-scheduled games surface mid-session.
+  - 5 s retry-after-error so a transient blip doesn't strand the index.
+- **Three distinct empty messages**:
+  - `'error'` → "Search temporarily unavailable — tap to retry" (clickable, resets state)
+  - `[]` → "No matches scheduled right now"
+  - rows present but no hits → "No teams found for 'q'"
+- [frontend/src/dashboard.css:405-414](frontend/src/dashboard.css#L405-L414) — added an orange-tinted `.sidebar-search-error` style so the retry affordance reads as actionable, not just another "no results" line.
+
+### StrictMode dev trap (caught on localhost test) — fixed in same commit-block
+
+After the v3 search shipped, localhost showed **"Searching teams…" stuck forever**. Production was actually fine; the bug was dev-only.
+
+**Root cause:** React 18 StrictMode in [main.jsx:174](frontend/src/main.jsx#L174) double-runs effects. Sequence:
+1. Effect 1 fires → `searchFetchInFlightRef.current = true` → fetch 1 starts.
+2. Cleanup 1 → `cancelled = true` (but ref stays `true` — refs survive cleanups).
+3. Effect 2 fires → sees `ref === true` → early-returns.
+4. Fetch 1 resolves → `if (cancelled) skip setMatchesForSearch` → state never written.
+5. End state: `matchesForSearch === null` forever, ref eventually cleared by `finally`, no subsequent effect fires.
+
+**Fix:** dropped the `cancelled` flag entirely. The fetch is a one-shot data load with no per-render parameters that would differ between renders, so a result resolved late is still valid to write. If the component unmounts mid-flight, the setState is a no-op + a harmless React warning. Cleanup now resets the in-flight ref defensively so StrictMode's mount→unmount→mount cycle doesn't strand a second mount behind a stale ref.
+
+A versioned comment block (`v1 → v2 → v3`) is now embedded in the effect so the next person who touches this code can see the full trap history and avoid reintroducing either bug.
+
+## 24. Search UX — pre-warm on focus + click-to-navigate
+
+**Two more issues the user flagged after `b10ac995` landed:**
+
+1. *"if i login and serach so not seen then if i click any sport then go back and search then it iis searchable"* — search empty on first post-login mount; only worked after navigating away and back.
+2. *"when it's searchable so when I click it would be directly go to that sport not sport team selected"* — clicking a search result just ticked the sport checkbox; the user had to manually tap Continue. Awkward two-tap.
+
+### Fix #1 — pre-warm on focus (commit `b10ac995`)
+
+The "first-mount fails, second-mount works" pattern was the sidebar remount resetting state. Real root cause: the first fetch raced against the dashboard's own match fetch + auth bootstrap on initial mount, and players hit "search" before that race finished.
+
+**Fix:** refactored the fetch into a shared [`maybeFetchSearchIndex()`](frontend/src/components/DashboardSidebar.jsx#L333-L355) helper used by both the typing effect AND a new `onFocus={handleSearchFocus}` handler on the search input. Tapping the search box now fires the fetch immediately — by the time the player types char #2, the snapshot is in-flight or in hand. TTL + error-retry still apply, so focus-then-focus-again doesn't spam the backend.
+
+This also indirectly answers the user's `"on production the odds are saving i think for some time like 2-3 mins so why this search issue occur"` question: the board view and the sidebar search were fetching the **same** `/api/matches?status=live-upcoming` endpoint but on independent timelines. The backend caches via `SharedFileCache::remember` in [MatchesController.php:120](php-backend/src/MatchesController.php#L120), so the second consumer reads a warm cache — but if the sidebar wasn't fetching yet, the cache hit didn't help the player. Pre-warm-on-focus puts both consumers on the same cache line at roughly the same time.
+
+### Fix #2 — search result click navigates
+
+[`handleSearchResultClick`](frontend/src/components/DashboardSidebar.jsx#L416-L429) now calls `onContinue()` after `onToggleSport()` on mobile. One tap = select the sport AND switch to its match list. Desktop sidebars don't pass `onContinue` (no results-view concept on desktop) and remain selection-only.
+
+Thread plumbing: [UserDashboardShell.jsx:124](frontend/src/components/UserDashboardShell.jsx#L124) now forwards `onContinue` to the mobile-sports-selection branch only.
+
+## 25. How to verify (Day-2)
+
+1. **Live-rail clipping** — open Live Now on mobile. The icon strip and league pill strip should be fully visible, not clipped to a thin band behind the red headers.
+2. **Live-rail polish** — dark gradient strip with sport emoji + uppercase short label + amber active underline. Pills scroll horizontally if there are many sports.
+3. **Search by team name** — tap search → type `city` → should hit Man City / Kansas City Royals / Leicester City. Type `mlb` → all MLB games. Type `premier` → EPL games. Type `ast` → Aston Villa / Atlanta teams.
+4. **Search empty/error states** — block network in DevTools → type `xxx` → "Search temporarily unavailable — tap to retry" (orange). Restore network → tap retry → results come back.
+5. **First-mount search** — fresh login (no remount trick). Tap the search box. Should see the spinner flash briefly or not at all. Type a team. Results appear immediately. (Previously needed to navigate-and-back.)
+6. **Click-to-navigate** — tap a search result row → should jump directly to that sport's match list, not just tick the checkbox.
+
+## 26. Files touched (Day-2)
+
+### Frontend
+- `frontend/src/components/MobileContentView.jsx` — `flexShrink: 0` on live-filter strips; live sport rail redesigned (icon + uppercase label + corner count badge + gradient bg + amber active underline).
+- `frontend/src/components/DashboardSidebar.jsx` — search overhaul: 4-state lifecycle, broader match surface, 1500-row fetch, TTL + error retry, three empty-state messages, `maybeFetchSearchIndex()` helper, `onFocus` pre-warm, `onContinue` plumbing for click-to-navigate. StrictMode-resistant effect (v3 history comment block embedded).
+- `frontend/src/components/UserDashboardShell.jsx` — forwards `onContinue` to the mobile sidebar.
+- `frontend/src/dashboard.css` — `.sidebar-search-error` orange-tinted retry pill.
+
+### Backend
+- `php-backend/src/MatchesController.php` — `?limit` upper-cap 200 → 1500 (covers the full live-upcoming window so the search index has the data to hit).
+
+## 27. Commits (Day-2, in order)
+```
+977944bf  sportsbook: polish live sport rail — flex-shrink fix + icon+label UI
+1f8cbf3c  sportsbook: search overhaul — 1500-row index, broader match, lifecycle states
+b10ac995  sportsbook: search — pre-warm on focus, click-result navigates to sport
+```
+
+---
+
+# Day-3 Session — 2026-05-14
+
+Three player-facing wins on top of one money-safety bug fix surfaced from the user's pending-bets screen. All changes shipped in a single commit; no production deploy yet — needs the usual Hostinger push + dist sync.
+
+## 28. Live MLB inning indicator — `▲ 6TH INN  2 OUTS  ◆◇◆`
+
+**Ask:** screenshot from a competitor app showing "6th 2 Outs ⬥" badges on live MLB cards. "Can we get this added to the live games?"
+
+**Discovery:** the data was already free. [`EspnScoreboardSync.php`](php-backend/src/EspnScoreboardSync.php) was already calling `https://site.api.espn.com/.../mlb/scoreboard` every cycle to grab broadcast + records + half-inning text — but `competition.situation` (which carries `outs` + `onFirst`/`onSecond`/`onThird` on every pitch) was being discarded.
+
+### Backend — [EspnScoreboardSync.php](php-backend/src/EspnScoreboardSync.php)
+
+- New private static `extractBaseballSituation($competition)` that defensively reads `outs` (clamped to 0..3) + `onFirst`/`onSecond`/`onThird` (any of bool, 0/1, "0"/"1", or missing). Returns `[?int, ?string]` where the string is a 3-char `FST` packing (e.g. `"110"` = runners on 1B + 2B; `"111"` = bases loaded).
+- `extractLiveState()` now returns the extended shape `['period','clock','outs','bases']` for baseball; outs+bases forced null for every other sport so a stray situation block in an NBA payload can't pollute the score JSON.
+- `mergeMetadataOnly()` patches the new keys into `score` only when liveState actually carried them — never blanks them on a missed tick (between innings ESPN clears the situation block; we keep the prior diamond instead of flashing empty).
+- **Settlement-grade fields (`score_home` / `score_away`) stay untouched.** The original doc-block contract about never overwriting OddsAPI-owned columns is preserved verbatim.
+
+### Frontend — [MobileContentView.jsx](frontend/src/components/MobileContentView.jsx)
+
+- New `baseballSituation` normalizer block right next to the existing `liveStatusLabel` builder. Pulls `match.score.outs` + `match.score.bases`, gates on `isLive && isBaseball && periodNum > 0` AND the half is currently "Top"/"Bot" (hides between innings when outs reset).
+- New memo'd `BaseballSituationBadge` component renders the arrow (▲ top / ▼ bottom) + inning ordinal + outs + a 3-cell diamond (2B top, 1B right, 3B left) with filled cells in amber.
+- `matchCardSignature` memo deps now include `baseballSituation.{half,inning,outs,bases}` so a pitch-by-pitch ESPN tick busts the React.memo and the diamond repaints.
+
+### Tests — 12 PHP + 14 JS, all green
+
+- [php-backend/tests/EspnBaseballSituationTest.php](php-backend/tests/EspnBaseballSituationTest.php) — 12 suites via reflection: int/string/bool coercion, bases packing, situation-block-absent (between innings), out-of-range outs clamping, pregame/final returning null, NBA payload with stray situation block ignored.
+- [frontend/tests/baseballSituation.test.js](frontend/tests/baseballSituation.test.js) — 14 tests: happy paths, ordinal suffixes (1st/2nd/3rd/11th/21st), all hide-branches (Mid/End between innings, non-baseball, pregame, no situation data), defensive coercion, case-insensitive clock.
+
+### Wire-format caveat
+
+ESPN strips the `situation` block from finished games AND from the `summary` endpoint for past events, so I could not sample the exact key shape against a finished game. Coded against the documented public shape used by ESPN's own gamecast. The parser is defensive: any missing / renamed field → returns null → badge hides → falls back to existing "6TH INN TOP" text. **No data corruption, no broken UI in the worst case.** Re-verify by running `curl https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard` during live MLB hours.
+
+## 29. Live Now drops the day divider — "live is always today"
+
+**Ask:** "We can take away the dates for live since live is always current day" — screenshot showed `WEDNESDAY, MAY 13` strips sitting between the red league header and the first live row, eating ~36px each and adding no info.
+
+**Fix:** [MobileContentView.jsx:1447-1481](frontend/src/components/MobileContentView.jsx#L1447-L1481) — `suppressDayDividers = statusFilter === 'live'` gates the day entry in `groupedEntries`. League header still renders; first live row sits directly under it. Pre-game / upcoming boards keep their date dividers for context.
+
+One-line conditional, zero risk.
+
+## 30. Prop Builder — player dropdown + stray popover fix
+
+**Ask:** screenshot of Prop Builder with the "All markets" select open showing only one option. "Under props can we add a filter by player too, to the right of all markets."
+
+### Investigation finding
+
+[PropBuilderModal.jsx](frontend/src/components/PropBuilderModal.jsx) already had a free-text "Search player" input + the "All markets" dropdown. The text input wasn't visible in the screenshot because the toolbar's `flexWrap: 'wrap'` had pushed it above the visible scroll, AND the user wanted a dropdown anyway (one-tap > typing). A search box that's invisible on mobile is no search box.
+
+### Refactor — text input → dropdown
+
+- `playerFilter` state default `''` → `'all'` ([line 113](frontend/src/components/PropBuilderModal.jsx#L113)). Filter logic switched from substring `includes()` to exact equality.
+- New `playerNames` useMemo derives the sorted roster off the existing `byPlayer` map — zero extra walk of the data.
+- Toolbar now renders `[All markets ▾] [All players ▾]` side by side, each `flex: 1 1 140px` so they share the row evenly on narrow widths and wrap cleanly when too narrow.
+- Auto-reset effect: if the selected player drops out of the payload (modal swapped to a new match, refresh removed them), drops back to "All players" instead of leaving the user staring at an empty filtered sheet.
+- Empty-state copy reflects active filters: `"No Blocks (Alt Lines) props for Cade Cunningham. Try All markets or another player."`
+- ARIA labels on both selects; player dropdown `disabled` when roster is empty.
+
+### The stray "✓ All markets" pill — fixed in the same edit-block
+
+User's follow-up screenshot showed an "All markets" pill with a checkmark floating between match rows on a Prop Builder for a match with **zero player props**.
+
+**Root cause:** the native browser `<select>` popover. When the modal's two filters each had only one option ("All markets" / "All players"), clicking either still produced the popover. Chrome positioned it above the modal because the trigger was too close to the viewport bottom — it ended up centered mid-page.
+
+**Fix:** [PropBuilderModal.jsx:~302](frontend/src/components/PropBuilderModal.jsx#L302) — the entire filter toolbar now renders only when `marketKeys.length > 0 || playerNames.length > 0`. Empty matches show just the "No player props available" message, no useless filters, no stray popover possible.
+
+### Tests — [propsFilter.test.js](frontend/tests/propsFilter.test.js), 15 tests, all green
+
+`groupPropsByPlayer` (grouping, empty input, fallback chain `description → participant → name`, unnamed outcomes), `playerNamesOf` (sorted roster), `filterPlayers` (single filters, composite, no-overlap empty state, stale-selection empty state, exact-match semantics — anti-regression guard for the old text-search behavior).
+
+## 31. Pending Bets LIVE chip — bound the kickoff fallback to 5h (BUG)
+
+**Symptom reported:** `"On live it says there's no live games, But every game I've placed a bet on is live"` — Live Now → Baseball empty, but Pending Bets shows 6 MLB tickets all chipped LIVE.
+
+### Investigation
+
+Hit local `/api/matches?sportKey=baseball_mlb` to inspect the actual row state:
+
+```
+System UTC now: 2026-05-14T12:20:32Z
+All 11 MLB rows:
+  status='scheduled', oddsSource='oddsapi', event_status=''
+  startTime: 16:36-17:11 UTC  →  4+ hours in the FUTURE
+  lastOddsSyncAt: ~13 minutes ago
+```
+
+**Reality check:** today's MLB games haven't started — first pitch is in ~4 hours. Live Now → Baseball was correctly empty. **The bug was on the Pending Bets side: the LIVE badge was a false positive.**
+
+### Root cause
+
+[MyBetsView.jsx:265-280](frontend/src/components/MyBetsView.jsx#L265-L280) `isLiveSnapshot()` had a kickoff-passed fallback designed for the short window between game start and our worker promoting `status='live'`. But it had **no upper bound**:
+
+```js
+if (Number.isFinite(startMs) && startMs <= Date.now() && normalizeStatus(parentStatus) === 'pending') {
+    return true;  // ← fires forever on stuck-pending bets
+}
+```
+
+So a bet placed on a Phillies game yesterday → game finished 4 hours later → settlement worker stalls → bet stays `pending` → fallback says "startTime passed + pending → LIVE!" forever. Two days later, still badged LIVE.
+
+### Fix
+
+[MyBetsView.jsx:isLiveSnapshot](frontend/src/components/MyBetsView.jsx#L265) — added `LIVE_FALLBACK_MAX_AGE_MS = 5 * 60 * 60 * 1000`. Past 5h since startTime, a pending bet is stuck, not live. 5h covers the longest plausible game window for any sport on the site (extra-inning baseball ~5h, NFL 4× OT ~4.5h, soccer with ET + pens ~3h, NBA 5× OT ~3.5h).
+
+```js
+const sinceKickoffMs = Date.now() - startMs;
+if (sinceKickoffMs >= 0
+    && sinceKickoffMs <= LIVE_FALLBACK_MAX_AGE_MS  // ← new bound
+    && normalizeStatus(parentStatus) === 'pending') {
+    return true;
+}
+```
+
+### Tests — [myBetsLive.test.js](frontend/tests/myBetsLive.test.js), 18 tests, all green
+
+Boundary inclusive at exactly 5h, exclusive at 5h+1ms. Regression guards for the user-reported scenarios (6h, 24h, 7 days post-kickoff). Positive cases (canonical `status='live'`, raw `STATUS_IN_PROGRESS`, short-window fallback). Negative cases (null/garbage snapshots, terminal statuses, future kickoff, settled parent).
+
+### Risk
+
+Zero. The change only makes the LIVE chip MORE accurate — strictly fewer false positives. Real in-play bets still light up; stuck-pending bets stop lying.
+
+## 32. Outstanding action item — settle the 6 stuck MLB tickets
+
+The fix above kills the **false LIVE badge**, but the underlying bets are still stuck-pending on actually-finished games. The grading sweep runs inside the prematch cron tick — locally that cron isn't running.
+
+To grade them manually:
+
+```bash
+curl -X POST \
+  -H "X-Tick-Secret: $(grep ^INTERNAL_TICK_SECRET= /Users/mac/Desktop/betterdr/.env | cut -d= -f2)" \
+  http://localhost:5000/api/internal/oddsapi-prematch-tick
+```
+
+That hits [`DebugController::oddsApiPrematchTick`](php-backend/src/DebugController.php#L115), which after the odds refresh calls `BetSettlementService::settlePendingMatches($db, 250, 'cron')`. Real money moves — winners get credited, losers marked lost.
+
+Response shape includes a `settlementSweep` block — if `betsSettled > 0`, those 6 tickets have been graded.
+
+## 33. How to verify (Day-3)
+
+1. **MLB inning indicator** — open Live Now → Baseball during real MLB hours (1-11pm ET). A live game card should show `▲ 6TH INN  2 OUTS  ◆◇◆` next to the LIVE pill. Diamond cells should be filled/empty matching ESPN's gamecast for that game. Between innings (Mid/End): the inning indicator stays but outs+diamond hide.
+2. **No date divider on Live Now** — open Live Now tab on mobile. League headers should sit directly above their first live row. No `WEDNESDAY, MAY 13` strip between them. Switch to Upcoming → date dividers come back.
+3. **Prop Builder player dropdown** — open Prop Builder on an NBA game with player props. Two side-by-side dropdowns: `All markets`, `All players`. Pick a player → only their card renders. Combine with a market filter → only that player + that market shows. Switch to a match with NO player props → both dropdowns disappear; only "No player props available" remains. No stray popover anywhere.
+4. **No false LIVE badge** — open Pending Bets. Tickets on games whose kickoff was >5 hours ago should NOT show a LIVE chip. Tickets on games currently in play (or kickoff in the last 5h) should still show LIVE.
+5. **Settlement sweep** — after running the curl from §32, refresh Pending Bets. Stuck tickets should disappear from Pending (moved to settled history) and balance should reflect the credits/debits.
+
+## 34. Files touched (Day-3)
+
+### Frontend
+- [`frontend/src/components/MobileContentView.jsx`](frontend/src/components/MobileContentView.jsx) — baseball situation normalizer + `BaseballSituationBadge` component, day-divider suppression on `statusFilter === 'live'`, memo deps for live pitch updates.
+- [`frontend/src/components/MyBetsView.jsx`](frontend/src/components/MyBetsView.jsx) — `LIVE_FALLBACK_MAX_AGE_MS = 5h` bound on `isLiveSnapshot`'s kickoff-passed fallback.
+- [`frontend/src/components/PropBuilderModal.jsx`](frontend/src/components/PropBuilderModal.jsx) — free-text "Search player" → "All players" dropdown, toolbar hides on empty payloads, filter-aware empty-state copy, responsive `flex: 1 1 140px` layout, ARIA labels.
+
+### Backend
+- [`php-backend/src/EspnScoreboardSync.php`](php-backend/src/EspnScoreboardSync.php) — new `extractBaseballSituation()` static, extended `extractLiveState()` return shape, merge path writes `score.outs` + `score.bases` only when liveState carried them.
+
+### Tests (new)
+- [`php-backend/tests/EspnBaseballSituationTest.php`](php-backend/tests/EspnBaseballSituationTest.php) — 12 suites via reflection.
+- [`frontend/tests/baseballSituation.test.js`](frontend/tests/baseballSituation.test.js) — 14 tests covering the normalizer.
+- [`frontend/tests/propsFilter.test.js`](frontend/tests/propsFilter.test.js) — 15 tests covering grouping + filter composition.
+- [`frontend/tests/myBetsLive.test.js`](frontend/tests/myBetsLive.test.js) — 18 tests covering the 5h boundary + regression guards.
+
+## 35. Commits (Day-3)
+
+```
+d4c7d30f  sportsbook: live MLB diamond + prop player filter + bound LIVE badge
+```
