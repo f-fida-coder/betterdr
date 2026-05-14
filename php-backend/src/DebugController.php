@@ -145,6 +145,60 @@ final class DebugController
             // Bump cursor so the next tick picks up where we left off.
             self::advanceRotationCursor($sports, count($batch));
 
+            // Extended-market sync (period markets like h2h_q1, totals_1st_5_innings,
+            // player props). syncSingleSport above only writes base h2h /
+            // spreads / totals; the per-event extended endpoint must be
+            // pulled separately. On Hostinger shared hosting there's no
+            // long-lived odds-worker daemon to call syncAll (which is where
+            // the extended sync normally lives), so we run it here on every
+            // cron tick — scoped to just the sports we synced in this
+            // rotation batch so the API-call budget stays linear with sport
+            // count, not match count across the whole DB.
+            //
+            // Gated on ODDS_EXTENDED_SYNC_ENABLED (default false) so
+            // operators on quota-constrained plans can opt out. When OFF,
+            // period chip strips silently hide because availableSuffixes is
+            // empty — confusing but intentional. Set =true in env.runtime
+            // to enable.
+            $extended = null;
+            try {
+                $extendedEnabled = strtolower((string) Env::get('ODDS_EXTENDED_SYNC_ENABLED', 'false')) === 'true';
+                if ($extendedEnabled && count($batch) > 0) {
+                    $activeMatches = $this->db->findMany(
+                        'matches',
+                        [
+                            'status' => ['$in' => ['scheduled', 'live']],
+                            'sportKey' => ['$in' => $batch],
+                        ],
+                        ['projection' => [
+                            'id' => 1, 'externalId' => 1, 'sportKey' => 1,
+                            'odds' => 1, 'playerProps' => 1, 'lastPropsSyncAt' => 1,
+                        ]]
+                    );
+                    // Tier-3 cutout: same gate syncAll uses, so an operator
+                    // who flips tier3ExtendedSync=false still suppresses the
+                    // calls on cold sports.
+                    $cfg = OddsSyncService::tierConfig();
+                    if (($cfg['tieringActive'] ?? false) && !($cfg['tier3ExtendedSync'] ?? true)) {
+                        $sportTier = $cfg['sportTier'] ?? [];
+                        $activeMatches = array_values(array_filter(
+                            $activeMatches,
+                            static function ($m) use ($sportTier) {
+                                $sk = (string) ($m['sportKey'] ?? '');
+                                $tier = $sportTier[$sk] ?? 'tier3';
+                                return $tier !== 'tier3';
+                            }
+                        ));
+                    }
+                    $extended = OddsSyncService::syncEventExtendedForMatches($this->db, $activeMatches);
+                }
+            } catch (Throwable $extErr) {
+                Logger::warn('prematch-tick extended sync failed', [
+                    'error' => $extErr->getMessage(),
+                ], 'sportsbook');
+                $extended = ['error' => $extErr->getMessage()];
+            }
+
             // Settlement sweep — grade any matches that flipped to
             // `finished`/`canceled` since the last cron run. On Hostinger
             // the long-running odds-worker doesn't run, and syncSingleSport
@@ -179,6 +233,7 @@ final class DebugController
                 'errors' => $errors,
                 'rotation' => ['totalConfigured' => count($sports), 'cursor' => self::peekRotationCursor()],
                 'perSport' => $perSport,
+                'extended' => $extended,
                 'settlementSweep' => $sweep,
                 'elapsedMs' => (int) round((microtime(true) - $start) * 1000),
             ];
