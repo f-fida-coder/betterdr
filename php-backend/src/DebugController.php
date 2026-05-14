@@ -199,7 +199,7 @@ final class DebugController
                     $extended = OddsSyncService::syncEventExtendedForMatches($this->db, $activeMatches);
                 }
             } catch (Throwable $extErr) {
-                Logger::warn('prematch-tick extended sync failed', [
+                Logger::warning('prematch-tick extended sync failed', [
                     'error' => $extErr->getMessage(),
                 ], 'sportsbook');
                 $extended = ['error' => $extErr->getMessage()];
@@ -226,7 +226,7 @@ final class DebugController
                 $sweep['betsSettled']    = (int) ($sweepResult['betsSettled'] ?? 0);
                 $sweep['errors']         = (int) ($sweepResult['errors'] ?? 0);
             } catch (Throwable $sweepErr) {
-                Logger::warn('prematch-tick settlement sweep failed', [
+                Logger::warning('prematch-tick settlement sweep failed', [
                     'error' => $sweepErr->getMessage(),
                 ], 'sportsbook');
                 $sweep['errors']++;
@@ -332,7 +332,7 @@ final class DebugController
                     SharedFileCache::put($sweepNs, $sweepKey, ['at' => time()]);
                 }
             } catch (Throwable $settleErr) {
-                Logger::warn('user-live-sync settlement sweep failed', [
+                Logger::warning('user-live-sync settlement sweep failed', [
                     'userId' => $callerUserId,
                     'error' => $settleErr->getMessage(),
                 ], 'bets');
