@@ -225,7 +225,6 @@ export default function useMatches(options = {}) {
         const isLiveStatusFilter = statusFilter === 'live' || statusFilter === 'active';
         const applyMatchesIfChanged = (nextMatches) => {
             const normalizedNext = Array.isArray(nextMatches) ? nextMatches : [];
-            const nextFingerprint = buildMatchesFingerprint(normalizedNext);
             setMatches((prev) => {
                 // Empty-response grace: backend freshness gates (90s for
                 // live, 300s for prematch) can briefly filter every row
@@ -251,11 +250,47 @@ export default function useMatches(options = {}) {
                     return normalizedNext;
                 }
                 if (normalizedNext.length > 0) liveEmptyGraceStartRef.current = 0;
+
+                // STICKY MERGE: keep prev rows that the new response
+                // dropped. The backend freshness gates (90s live / 300s
+                // prematch) drop a row when its lastOddsSyncAt exceeds
+                // the threshold; that's intentional server-side but
+                // operator-reported as a "glitch" on screen — odds
+                // shown one second, gone the next, back again on the
+                // next tick. Once a row has been displayed in this
+                // session, keep it visible.
+                //
+                // Rows whose ids reappear in the new response are
+                // REPLACED by the fresh version, so live odds still
+                // tick. Stickied rows keep their last-known values
+                // until either a fresh response brings them back or
+                // the user navigates scope (which reseeds from
+                // lastKnownByScope and drops stickies).
+                //
+                // Bet placement validates freshness server-side at
+                // place-time, so showing a sticky stale row can't
+                // open a money-safety hole.
+                const nextById = new Map();
+                normalizedNext.forEach((m) => {
+                    const id = m && (m.id ?? m._id ?? m.externalId);
+                    if (id != null) nextById.set(String(id), m);
+                });
+                const sticky = (Array.isArray(prev) ? prev : []).filter((m) => {
+                    const id = m && (m.id ?? m._id ?? m.externalId);
+                    return id != null && !nextById.has(String(id));
+                });
+                const merged = sticky.length === 0 ? normalizedNext : [...normalizedNext, ...sticky];
                 const prevFingerprint = buildMatchesFingerprint(prev);
-                return prevFingerprint === nextFingerprint ? prev : normalizedNext;
+                const mergedFingerprint = buildMatchesFingerprint(merged);
+                return prevFingerprint === mergedFingerprint ? prev : merged;
             });
         };
-        applyMatchesIfChanged(lastKnown || []);
+        // Scope-change SEED bypasses sticky merge: when the user
+        // switches from NBA to MLB, we must NOT carry NBA rows over
+        // into MLB just because they were on screen. setMatches direct
+        // replaces; subsequent fetch responses run through the sticky
+        // path normally.
+        setMatches(lastKnown || []);
 
         const emitRefreshProgress = (phase, detail) => {
             if (typeof window === 'undefined') return;
