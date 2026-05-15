@@ -4,6 +4,7 @@ import DashboardSidebar from './DashboardSidebar';
 import DashboardMain from './DashboardMain';
 import MobileGridMenu from './MobileGridMenu';
 import MobileContentView from './MobileContentView';
+import SearchMatchPopup from './SearchMatchPopup';
 import OutrightsView from './OutrightsView';
 import ErrorBoundary from './ErrorBoundary';
 import PromoCard from './PromoCard';
@@ -66,6 +67,20 @@ function UserDashboardShell({
     return () => window.removeEventListener('betslip:state', handleState);
   }, []);
   const tabsBarHidden = dashboardView !== 'dashboard' && !betslipOpen;
+
+  // Search-result → single-match popup. Sidebar's handleSearchResultClick
+  // fires `search:open-match` instead of navigating to the league; we
+  // render MatchDetailView directly over the current view so the player
+  // sees only the game they searched for.
+  const [searchOpenMatch, setSearchOpenMatch] = useState(null);
+  useEffect(() => {
+    const handleOpen = (e) => {
+      const m = e?.detail?.match;
+      if (m) setSearchOpenMatch(m);
+    };
+    window.addEventListener('search:open-match', handleOpen);
+    return () => window.removeEventListener('search:open-match', handleOpen);
+  }, []);
 
   // Mobile parity with DashboardMain: when the primary selected sidebar item
   // is a futures/outrights entry, render OutrightsView instead of the regular
@@ -237,6 +252,12 @@ function UserDashboardShell({
           onTeaserTypeChange={onTeaserTypeChange}
           rulesByMode={betModeRules}
           onBetPlaced={onBetPlaced}
+        />
+      )}
+      {searchOpenMatch && (
+        <SearchMatchPopup
+          match={searchOpenMatch}
+          onClose={() => setSearchOpenMatch(null)}
         />
       )}
     </div>

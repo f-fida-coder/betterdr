@@ -436,19 +436,17 @@ const DashboardSidebar = ({
     }, [searchQuery, matchesForSearch]);
 
     const handleSearchResultClick = (match) => {
-        const leaf = findLeafBySportKey(match?.sportKey);
-        if (!leaf) return;
-        // Select the sport AND jump straight to its match list. Before
-        // this, the click only ticked the sport in the sidebar tree and
-        // the player still had to tap Continue manually — an awkward
-        // extra tap, because the whole point of clicking a search result
-        // is "show me this game". onContinue flips the dashboard into
-        // results view on mobile; desktop sidebars don't get the prop
-        // (no results-view concept there) and remain selection-only.
-        onToggleSport(leaf.id, { replace: true });
+        // The point of clicking a search result is "show me THIS game",
+        // not "take me to the league's full list". Dispatch a global
+        // event the dashboard shell listens for — it pops MatchDetailView
+        // directly over whatever the user is currently looking at. We do
+        // NOT switch the sidebar selection / navigate to the league
+        // anymore, because doing so leaks the click into a navigation the
+        // player didn't ask for (e.g. searching "Yankees" on the Live Now
+        // page used to dump you into MLB).
         setSearchQuery('');
-        if (typeof onContinue === 'function') {
-            onContinue();
+        if (match && (match.id || match.externalId)) {
+            window.dispatchEvent(new CustomEvent('search:open-match', { detail: { match } }));
         }
     };
 

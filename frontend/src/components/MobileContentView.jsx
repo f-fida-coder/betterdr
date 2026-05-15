@@ -1191,6 +1191,31 @@ const MobileContentView = ({
         return orderedMatches.filter((m) => pendingRiskMatchIds.has(String(m.id))).length;
     }, [orderedMatches, pendingRiskMatchIds]);
 
+    // Auto-jump to MY BETS when the player first lands on LIVE NOW with
+    // live action of their own on the board — that's almost always what
+    // they came to see. Snapshot at entry-time only: we don't react to
+    // later myLiveOnBoardCount changes here, so a bet that goes live
+    // mid-browse won't yank the player out of whatever they were
+    // viewing. They can still tap ALL afterwards and the choice sticks.
+    const liveAutoJumpRef = React.useRef(false);
+    React.useEffect(() => {
+        if (primarySport !== 'commercial-live') {
+            liveAutoJumpRef.current = false;
+            return;
+        }
+        if (liveAutoJumpRef.current) return;
+        // Wait until myLiveOnBoardCount is computed off a populated
+        // orderedMatches + pendingRiskMatchIds snapshot. If it's >0,
+        // jump; if it's 0 AND we have any matches in hand, we know the
+        // player has no live bets and we can lock in ALL.
+        if (myLiveOnBoardCount > 0) {
+            setLiveSportTab('my-live');
+            liveAutoJumpRef.current = true;
+        } else if (orderedMatches.length > 0) {
+            liveAutoJumpRef.current = true;
+        }
+    }, [primarySport, myLiveOnBoardCount, orderedMatches.length]);
+
     // Pre-warm team/athlete badge cache so the first paint of any card
     // shows the real logo instead of an initials placeholder that
     // swaps in ~300ms later. Concurrency-limited inside prewarmTeamBadges.
