@@ -40,7 +40,192 @@ final class DebugController
             $this->userPrematchSync((string) $m[1]);
             return true;
         }
+        if ($method === 'GET' && preg_match('#^/api/debug/events/([a-z][a-z0-9_]{1,79})$#', $path, $m) === 1) {
+            $this->oddsApiEvents((string) $m[1]);
+            return true;
+        }
+        if ($method === 'GET' && preg_match('#^/api/debug/event-markets/([a-z][a-z0-9_]{1,79})/([A-Za-z0-9._-]{1,128})$#', $path, $m) === 1) {
+            $this->oddsApiEventMarkets((string) $m[1], (string) $m[2]);
+            return true;
+        }
+        if ($method === 'POST' && preg_match('#^/api/admin/odds/participants/([a-z][a-z0-9_]{1,79})$#', $path, $m) === 1) {
+            $this->syncParticipants((string) $m[1]);
+            return true;
+        }
+        if ($method === 'POST' && preg_match('#^/api/admin/odds/outrights/([a-z][a-z0-9_]{1,79})$#', $path, $m) === 1) {
+            $this->syncOutrights((string) $m[1]);
+            return true;
+        }
+        if ($method === 'GET' && $path === '/api/admin/odds/outright-sports') {
+            $this->listOutrightSports();
+            return true;
+        }
+        if ($method === 'GET' && preg_match('#^/api/admin/odds/historical/odds/([a-z][a-z0-9_]{1,79})$#', $path, $m) === 1) {
+            $this->historicalOdds((string) $m[1]);
+            return true;
+        }
+        if ($method === 'GET' && preg_match('#^/api/admin/odds/historical/events/([a-z][a-z0-9_]{1,79})$#', $path, $m) === 1) {
+            $this->historicalEvents((string) $m[1]);
+            return true;
+        }
+        if ($method === 'GET' && preg_match('#^/api/admin/odds/historical/event-odds/([a-z][a-z0-9_]{1,79})/([A-Za-z0-9._-]{1,128})$#', $path, $m) === 1) {
+            $this->historicalEventOdds((string) $m[1], (string) $m[2]);
+            return true;
+        }
+        if ($method === 'GET' && preg_match('#^/api/admin/odds/historical/event-markets/([a-z][a-z0-9_]{1,79})/([A-Za-z0-9._-]{1,128})$#', $path, $m) === 1) {
+            $this->historicalEventMarkets((string) $m[1], (string) $m[2]);
+            return true;
+        }
+        if ($method === 'POST' && preg_match('#^/api/admin/outrights/([a-f0-9]{24})/settle$#', $path, $m) === 1) {
+            $this->settleOutright((string) $m[1]);
+            return true;
+        }
+        if ($method === 'POST' && preg_match('#^/api/admin/outrights/([a-f0-9]{24})/void$#', $path, $m) === 1) {
+            $this->voidOutright((string) $m[1]);
+            return true;
+        }
         return false;
+    }
+
+    private function settleOutright(string $outrightId): void
+    {
+        try {
+            $actor = $this->protectAdminOnly();
+            if ($actor === null) return;
+            $body = Http::jsonBody();
+            $winner = is_array($body) ? trim((string) ($body['winner'] ?? $body['winningOutcome'] ?? '')) : '';
+            if ($winner === '') {
+                Response::json(['ok' => false, 'error' => 'missing_winner'], 400);
+                return;
+            }
+            $settledBy = (string) ($actor['id'] ?? 'admin');
+            Response::json(OutrightSettlementService::settleOutright($this->db, $outrightId, $winner, $settledBy));
+        } catch (RuntimeException $e) {
+            Response::json(['ok' => false, 'error' => $e->getMessage()], 400);
+        } catch (Throwable $e) {
+            Logger::exception($e, 'settleOutright failed');
+            Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    private function voidOutright(string $outrightId): void
+    {
+        try {
+            $actor = $this->protectAdminOnly();
+            if ($actor === null) return;
+            $body = Http::jsonBody();
+            $reason = is_array($body) ? trim((string) ($body['reason'] ?? '')) : '';
+            $settledBy = (string) ($actor['id'] ?? 'admin');
+            Response::json(OutrightSettlementService::voidOutright($this->db, $outrightId, $reason, $settledBy));
+        } catch (RuntimeException $e) {
+            Response::json(['ok' => false, 'error' => $e->getMessage()], 400);
+        } catch (Throwable $e) {
+            Logger::exception($e, 'voidOutright failed');
+            Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    private function historicalOdds(string $sportKey): void
+    {
+        try {
+            if ($this->protectAdminOnly() === null) return;
+            $date = (string) ($_GET['date'] ?? '');
+            if ($date === '') { Response::json(['ok' => false, 'error' => 'missing_date'], 400); return; }
+            $markets = isset($_GET['markets']) ? (string) $_GET['markets'] : null;
+            $regions = isset($_GET['regions']) ? (string) $_GET['regions'] : null;
+            Response::json(OddsSyncService::fetchHistoricalOdds($sportKey, $date, $markets, $regions));
+        } catch (Throwable $e) {
+            Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    private function historicalEvents(string $sportKey): void
+    {
+        try {
+            if ($this->protectAdminOnly() === null) return;
+            $date = (string) ($_GET['date'] ?? '');
+            if ($date === '') { Response::json(['ok' => false, 'error' => 'missing_date'], 400); return; }
+            Response::json(OddsSyncService::fetchHistoricalEvents($sportKey, $date));
+        } catch (Throwable $e) {
+            Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    private function historicalEventOdds(string $sportKey, string $eventId): void
+    {
+        try {
+            if ($this->protectAdminOnly() === null) return;
+            $date = (string) ($_GET['date'] ?? '');
+            if ($date === '') { Response::json(['ok' => false, 'error' => 'missing_date'], 400); return; }
+            $markets = isset($_GET['markets']) ? (string) $_GET['markets'] : null;
+            $regions = isset($_GET['regions']) ? (string) $_GET['regions'] : null;
+            Response::json(OddsSyncService::fetchHistoricalEventOdds($sportKey, $eventId, $date, $markets, $regions));
+        } catch (Throwable $e) {
+            Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    private function historicalEventMarkets(string $sportKey, string $eventId): void
+    {
+        try {
+            if ($this->protectAdminOnly() === null) return;
+            $date = (string) ($_GET['date'] ?? '');
+            if ($date === '') { Response::json(['ok' => false, 'error' => 'missing_date'], 400); return; }
+            $regions = isset($_GET['regions']) ? (string) $_GET['regions'] : null;
+            Response::json(OddsSyncService::fetchHistoricalEventMarkets($sportKey, $eventId, $date, $regions));
+        } catch (Throwable $e) {
+            Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    private function syncParticipants(string $sportKey): void
+    {
+        try {
+            if ($this->protectAdminOnly() === null) return;
+            Response::json(OddsSyncService::syncParticipants($this->db, $sportKey));
+        } catch (Throwable $e) {
+            Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    private function syncOutrights(string $sportKey): void
+    {
+        try {
+            if ($this->protectAdminOnly() === null) return;
+            Response::json(OddsSyncService::syncOutrights($this->db, $sportKey));
+        } catch (Throwable $e) {
+            Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    private function listOutrightSports(): void
+    {
+        try {
+            if ($this->protectAdminOnly() === null) return;
+            Response::json(['ok' => true, 'sports' => OddsSyncService::resolveOutrightSports()]);
+        } catch (Throwable $e) {
+            Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    private function oddsApiEvents(string $sportKey): void
+    {
+        try {
+            if ($this->protectAdminOnly() === null) return;
+            Response::json(OddsSyncService::fetchEventsForSport($sportKey));
+        } catch (Throwable $e) {
+            Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    private function oddsApiEventMarkets(string $sportKey, string $eventId): void
+    {
+        try {
+            if ($this->protectAdminOnly() === null) return;
+            Response::json(OddsSyncService::fetchAvailableMarkets($sportKey, $eventId));
+        } catch (Throwable $e) {
+            Response::json(['ok' => false, 'error' => $e->getMessage()], 500);
+        }
     }
 
     private function emitMatch(): void

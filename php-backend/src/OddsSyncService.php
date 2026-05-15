@@ -340,6 +340,7 @@ final class OddsSyncService
         }
 
         $oddsUrlsBySport = [];
+        $timeWindow = self::timeWindowQuery();
         foreach ($sports as $sportKey) {
             $query = [
                 'apiKey' => $apiKey,
@@ -350,6 +351,7 @@ final class OddsSyncService
             if ($bookmakers !== '') {
                 $query['bookmakers'] = $bookmakers;
             }
+            $query += $timeWindow;
             $oddsUrlsBySport[$sportKey] = $apiBase . '/sports/' . rawurlencode($sportKey) . '/odds?' . http_build_query($query);
         }
 
@@ -532,6 +534,7 @@ final class OddsSyncService
             }
 
             $oddsUrlsBySport = [];
+            $timeWindow = self::timeWindowQuery();
             foreach ($dueSports as $sportKey) {
                 $query = [
                     'apiKey' => $apiKey,
@@ -542,6 +545,7 @@ final class OddsSyncService
                 if ($bookmakers !== '') {
                     $query['bookmakers'] = $bookmakers;
                 }
+                $query += $timeWindow;
 
                 $oddsUrlsBySport[$sportKey] = $apiBase . '/sports/' . rawurlencode($sportKey) . '/odds?' . http_build_query($query);
             }
@@ -751,6 +755,7 @@ final class OddsSyncService
             'oddsFormat' => $oddsFormat,
         ];
         if ($bookmakers !== '') $oddsQuery['bookmakers'] = $bookmakers;
+        $oddsQuery += self::timeWindowQuery();
         $urls['odds'] = $apiBase . '/sports/' . rawurlencode($sportKey) . '/odds?' . http_build_query($oddsQuery);
 
         if ($scoresEnabled) {
@@ -1208,6 +1213,101 @@ final class OddsSyncService
     private static function circuitStateFile(): string
     {
         return dirname(__DIR__) . '/cache/odds-circuit-breaker.json';
+    }
+
+    /**
+     * GET /v4/sports/{sport}/events
+     *
+     * Returns the list of upcoming events for a sport without odds. Useful for
+     * pre-flight checks (e.g. "do any games exist?") and for surfacing events
+     * that have been scheduled but don't yet have lines posted. Costs 1 quota
+     * unit per call regardless of how many events come back.
+     *
+     * @return array{ok:bool, status:int, events:array<int,array<string,mixed>>, quota:array{remaining?:int,used?:int}, error?:string}
+     */
+    public static function fetchEventsForSport(string $sportKey): array
+    {
+        $apiKey = (string) Env::get('ODDS_API_KEY', '');
+        if ($apiKey === '' || $sportKey === '') {
+            return ['ok' => false, 'status' => 0, 'events' => [], 'quota' => [], 'error' => 'odds_api_disabled'];
+        }
+        $apiBase = 'https://api.the-odds-api.com/v4';
+        $url = $apiBase . '/sports/' . rawurlencode($sportKey) . '/events?'
+            . http_build_query(['apiKey' => $apiKey, 'dateFormat' => 'iso']);
+        $resp = self::httpGetDetailed($url);
+        $status = (int) ($resp['status'] ?? 0);
+        $body = $resp['body'] ?? null;
+        $headers = is_array($resp['headers'] ?? null) ? $resp['headers'] : [];
+        $quota = [];
+        if (isset($headers['x-requests-remaining'])) $quota['remaining'] = (int) $headers['x-requests-remaining'];
+        if (isset($headers['x-requests-used'])) $quota['used'] = (int) $headers['x-requests-used'];
+        if (!is_string($body) || $body === '' || $status !== 200) {
+            return ['ok' => false, 'status' => $status, 'events' => [], 'quota' => $quota, 'error' => 'upstream_fetch_failed'];
+        }
+        $decoded = json_decode($body, true);
+        if (!is_array($decoded)) {
+            return ['ok' => false, 'status' => $status, 'events' => [], 'quota' => $quota, 'error' => 'invalid_json'];
+        }
+        return ['ok' => true, 'status' => $status, 'events' => $decoded, 'quota' => $quota];
+    }
+
+    /**
+     * GET /v4/sports/{sport}/events/{eventId}/markets
+     *
+     * Returns the list of available market keys for a single event.
+     * Costs 1 quota unit per call. Result is cached in-process for 1 hour
+     * since available markets are stable across an event's lifecycle.
+     * Optional pre-flight to filter the catalog before per-event /odds calls.
+     *
+     * @return array{ok:bool, status:int, markets:array<int,string>, quota:array{remaining?:int,used?:int}, cached?:bool, error?:string}
+     */
+    public static function fetchAvailableMarkets(string $sportKey, string $eventId): array
+    {
+        $apiKey = (string) Env::get('ODDS_API_KEY', '');
+        if ($apiKey === '' || $sportKey === '' || $eventId === '') {
+            return ['ok' => false, 'status' => 0, 'markets' => [], 'quota' => [], 'error' => 'odds_api_disabled'];
+        }
+        $cacheKey = 'event_markets:' . $sportKey . ':' . $eventId;
+        $now = time();
+        if (isset(self::$apiCache[$cacheKey])
+            && ($now - (int) (self::$apiCache[$cacheKey]['timestamp'] ?? 0)) < 3600
+            && is_array(self::$apiCache[$cacheKey]['data'] ?? null)
+        ) {
+            return ['ok' => true, 'status' => 200, 'markets' => self::$apiCache[$cacheKey]['data'], 'quota' => [], 'cached' => true];
+        }
+        $apiBase = 'https://api.the-odds-api.com/v4';
+        $url = $apiBase . '/sports/' . rawurlencode($sportKey) . '/events/' . rawurlencode($eventId) . '/markets?'
+            . http_build_query(['apiKey' => $apiKey, 'regions' => (string) Env::get('ODDS_API_REGIONS', 'us')]);
+        $resp = self::httpGetDetailed($url);
+        $status = (int) ($resp['status'] ?? 0);
+        $body = $resp['body'] ?? null;
+        $headers = is_array($resp['headers'] ?? null) ? $resp['headers'] : [];
+        $quota = [];
+        if (isset($headers['x-requests-remaining'])) $quota['remaining'] = (int) $headers['x-requests-remaining'];
+        if (isset($headers['x-requests-used'])) $quota['used'] = (int) $headers['x-requests-used'];
+        if (!is_string($body) || $body === '' || $status !== 200) {
+            return ['ok' => false, 'status' => $status, 'markets' => [], 'quota' => $quota, 'error' => 'upstream_fetch_failed'];
+        }
+        $decoded = json_decode($body, true);
+        if (!is_array($decoded)) {
+            return ['ok' => false, 'status' => $status, 'markets' => [], 'quota' => $quota, 'error' => 'invalid_json'];
+        }
+        // Response shape: { sport_key, sport_title, bookmakers: [ { key, markets: [ { key } ] } ] }
+        $marketKeys = [];
+        $books = $decoded['bookmakers'] ?? null;
+        if (is_array($books)) {
+            foreach ($books as $book) {
+                if (!is_array($book) || !is_array($book['markets'] ?? null)) continue;
+                foreach ($book['markets'] as $m) {
+                    if (is_array($m) && isset($m['key']) && is_string($m['key'])) {
+                        $marketKeys[$m['key']] = true;
+                    }
+                }
+            }
+        }
+        $list = array_keys($marketKeys);
+        self::$apiCache[$cacheKey] = ['data' => $list, 'timestamp' => $now];
+        return ['ok' => true, 'status' => $status, 'markets' => $list, 'quota' => $quota];
     }
 
     /**
@@ -1705,6 +1805,33 @@ final class OddsSyncService
         return is_numeric($raw) ? max(1, (int) $raw) : 1;
     }
 
+    /**
+     * Build commenceTimeFrom / commenceTimeTo for bulk /odds queries.
+     *
+     * Why: long-tail futures (golf majors 6mo out, tennis tournaments)
+     * inflate response payloads with events users won't see. Narrowing
+     * to a rolling N-hour window cuts payload + parsing without
+     * changing per-call quota cost. Empty/zero env = no filter (legacy).
+     *
+     * @return array<string,string>
+     */
+    private static function timeWindowQuery(): array
+    {
+        $raw = trim((string) Env::get('ODDS_TIME_WINDOW_HOURS', ''));
+        if ($raw === '') {
+            return [];
+        }
+        $hours = (int) $raw;
+        if ($hours <= 0) {
+            return [];
+        }
+        $now = time();
+        return [
+            'commenceTimeFrom' => gmdate('Y-m-d\TH:i:s\Z', $now),
+            'commenceTimeTo'   => gmdate('Y-m-d\TH:i:s\Z', $now + ($hours * 3600)),
+        ];
+    }
+
     private static function isOddsApiLiveScoreEvent(mixed $scoreEvent): bool
     {
         if (!is_array($scoreEvent)) {
@@ -2067,5 +2194,464 @@ final class OddsSyncService
         }
 
         return $result;
+    }
+
+    /**
+     * GET /v4/sports/{sport}/participants
+     *
+     * Pulls the canonical roster (teams or players) for a sport and upserts
+     * into the `participants` table. Designed for daily cadence — rosters
+     * change rarely and a full refresh is one quota unit per sport.
+     *
+     * @return array{ok:bool, sport_key:string, created?:int, updated?:int, count?:int, status?:int, error?:string}
+     */
+    public static function syncParticipants(SqlRepository $db, string $sportKey): array
+    {
+        $apiKey = (string) Env::get('ODDS_API_KEY', '');
+        if ($apiKey === '' || $sportKey === '') {
+            return ['ok' => false, 'sport_key' => $sportKey, 'error' => 'odds_api_disabled'];
+        }
+        $apiBase = 'https://api.the-odds-api.com/v4';
+        $url = $apiBase . '/sports/' . rawurlencode($sportKey) . '/participants?'
+            . http_build_query(['apiKey' => $apiKey]);
+        $resp = self::httpGetDetailed($url);
+        $status = (int) ($resp['status'] ?? 0);
+        if ($status !== 200 || !is_string($resp['body'] ?? null)) {
+            return ['ok' => false, 'sport_key' => $sportKey, 'status' => $status, 'error' => 'upstream_fetch_failed'];
+        }
+        $rows = json_decode($resp['body'], true);
+        if (!is_array($rows)) {
+            return ['ok' => false, 'sport_key' => $sportKey, 'status' => $status, 'error' => 'invalid_json'];
+        }
+
+        $created = 0; $updated = 0;
+        $now = SqlRepository::nowUtc();
+        // Heuristic: team-based sports (NFL, NBA, etc.) have rosters of teams;
+        // individual sports (tennis, golf, MMA) have players. The Odds API
+        // doesn't tell us which, so infer from sport-key prefix.
+        $isPlayerSport = preg_match('/^(tennis|golf|mma|boxing|aussierules|cycling)/', $sportKey) === 1;
+        $type = $isPlayerSport ? 'player' : 'team';
+
+        foreach ($rows as $row) {
+            if (!is_array($row)) continue;
+            $pid = (string) ($row['id'] ?? '');
+            $fullName = (string) ($row['full_name'] ?? '');
+            if ($pid === '' || $fullName === '') continue;
+
+            $doc = [
+                'sportKey' => $sportKey,
+                'participantId' => $pid,
+                'fullName' => $fullName,
+                'type' => $type,
+                'raw' => $row,
+                'lastSyncedAt' => $now,
+                'updatedAt' => $now,
+            ];
+
+            $existing = $db->findOne('participants', ['sportKey' => $sportKey, 'participantId' => $pid], ['projection' => ['id' => 1]]);
+            if ($existing === null) {
+                // Let SqlRepository auto-generate a 24-hex id (consistent
+                // with every other table; URL/route validators expect it).
+                $doc['createdAt'] = $now;
+                $db->insertOne('participants', $doc);
+                $created++;
+            } else {
+                $db->updateOne('participants', ['id' => SqlRepository::id((string) $existing['id'])], $doc);
+                $updated++;
+            }
+        }
+
+        return ['ok' => true, 'sport_key' => $sportKey, 'created' => $created, 'updated' => $updated, 'count' => count($rows)];
+    }
+
+    /**
+     * Sync outright (futures / championship-winner) markets for a sport.
+     * Calls /v4/sports/{sport}/odds with markets=outrights and persists each
+     * tournament/event into the `outrights` table.
+     *
+     * Outright sports have keys ending in `_winner` (e.g. golf_masters_winner)
+     * or are league-level championship markets. Tier-cron should run this
+     * every few hours since futures lines move slowly.
+     *
+     * @return array{ok:bool, sport_key:string, created?:int, updated?:int, event_count?:int, status?:int, error?:string}
+     */
+    public static function syncOutrights(SqlRepository $db, string $sportKey): array
+    {
+        $apiKey = (string) Env::get('ODDS_API_KEY', '');
+        if ($apiKey === '' || $sportKey === '') {
+            return ['ok' => false, 'sport_key' => $sportKey, 'error' => 'odds_api_disabled'];
+        }
+        $apiBase = 'https://api.the-odds-api.com/v4';
+        $regions = (string) Env::get('ODDS_API_REGIONS', 'us');
+        $oddsFormat = (string) Env::get('ODDS_API_ODDS_FORMAT', 'american');
+        $bookmakers = (string) Env::get('ODDS_API_BOOKMAKERS', '');
+
+        $query = [
+            'apiKey' => $apiKey,
+            'regions' => $regions,
+            'markets' => 'outrights',
+            'oddsFormat' => $oddsFormat,
+            'dateFormat' => 'iso',
+        ];
+        if ($bookmakers !== '') $query['bookmakers'] = $bookmakers;
+        // Note: no commenceTime window — futures often have commence_time
+        // months out (golf majors, season-long awards) and we want to keep
+        // them visible in the futures view until they conclude.
+
+        $url = $apiBase . '/sports/' . rawurlencode($sportKey) . '/odds?' . http_build_query($query);
+        $resp = self::httpGetDetailed($url);
+        $status = (int) ($resp['status'] ?? 0);
+        if ($status !== 200 || !is_string($resp['body'] ?? null)) {
+            return ['ok' => false, 'sport_key' => $sportKey, 'status' => $status, 'error' => 'upstream_fetch_failed'];
+        }
+        $events = json_decode($resp['body'], true);
+        if (!is_array($events)) {
+            return ['ok' => false, 'sport_key' => $sportKey, 'status' => $status, 'error' => 'invalid_json'];
+        }
+
+        $created = 0; $updated = 0;
+        $now = SqlRepository::nowUtc();
+        foreach ($events as $event) {
+            if (!is_array($event)) continue;
+            $eventId = (string) ($event['id'] ?? '');
+            if ($eventId === '') continue;
+            // Outright events use `home_team` to carry the event/tournament
+            // name (e.g. "The Masters Tournament"). Fall back to sport_title
+            // then sport key.
+            $eventName = (string) ($event['home_team']
+                ?? ($event['sport_title']
+                ?? $sportKey));
+            $commenceTime = (string) ($event['commence_time'] ?? '');
+            $books = is_array($event['bookmakers'] ?? null) ? $event['bookmakers'] : [];
+
+            $doc = [
+                'sportKey' => $sportKey,
+                'eventId' => $eventId,
+                'eventName' => $eventName,
+                'commenceTime' => $commenceTime !== '' ? $commenceTime : null,
+                'status' => 'open',
+                'bookmakers' => $books,
+                'lastUpdated' => $now,
+                'updatedAt' => $now,
+            ];
+
+            $existing = $db->findOne('outrights', ['sportKey' => $sportKey, 'eventId' => $eventId], ['projection' => ['id' => 1, 'status' => 1]]);
+            if ($existing === null) {
+                // Don't pre-set id — let SqlRepository generate a 24-hex
+                // ObjectId so URL routes (which require 24-hex) and the
+                // settlement service id-validation can address this row.
+                $doc['createdAt'] = $now;
+                $db->insertOne('outrights', $doc);
+                $created++;
+            } else {
+                // Preserve a settled status — once we mark a tournament
+                // 'settled', subsequent syncs shouldn't reopen it.
+                if (($existing['status'] ?? 'open') === 'settled') {
+                    continue;
+                }
+                $db->updateOne('outrights', ['id' => SqlRepository::id((string) $existing['id'])], $doc);
+                $updated++;
+            }
+        }
+
+        return ['ok' => true, 'sport_key' => $sportKey, 'created' => $created, 'updated' => $updated, 'event_count' => count($events)];
+    }
+
+    /**
+     * Discover sports that ONLY offer outright markets (e.g. golf_masters_winner,
+     * politics_us_election_winner). These are filtered out of the regular sport
+     * discovery in resolveSportsList() but valid for syncOutrights().
+     *
+     * @return list<string>
+     */
+    public static function resolveOutrightSports(): array
+    {
+        $apiKey = (string) Env::get('ODDS_API_KEY', '');
+        if ($apiKey === '') return [];
+
+        $apiBase = 'https://api.the-odds-api.com/v4';
+        $cacheKey = 'outright_sports_discovery';
+        $now = time();
+        if (isset(self::$apiCache[$cacheKey])
+            && ($now - (int) (self::$apiCache[$cacheKey]['timestamp'] ?? 0)) < self::SPORT_DISCOVERY_TTL_SECONDS
+            && is_array(self::$apiCache[$cacheKey]['data'] ?? null)
+        ) {
+            return self::$apiCache[$cacheKey]['data'];
+        }
+
+        $url = $apiBase . '/sports?' . http_build_query(['apiKey' => $apiKey, 'all' => 'false']);
+        $resp = self::httpGetDetailed($url);
+        $body = $resp['body'] ?? null;
+        if (!is_string($body) || $body === '') return [];
+        $decoded = json_decode($body, true);
+        if (!is_array($decoded)) return [];
+
+        $keys = [];
+        foreach ($decoded as $row) {
+            if (!is_array($row)) continue;
+            $k = (string) ($row['key'] ?? '');
+            if ($k === '') continue;
+            // Include if sport is outright-only OR has both odds + outrights.
+            // Pure team-sport keys with no outright market are skipped here —
+            // they get covered by regular sync if the user wants futures for
+            // them later (e.g. NBA Championship winner uses sport_key
+            // basketball_nba_championship_winner).
+            $hasOutrights = !empty($row['has_outrights']);
+            $endsWithWinner = preg_match('/_winner$/', $k) === 1;
+            if ($hasOutrights || $endsWithWinner) {
+                $keys[] = $k;
+            }
+        }
+
+        $excludeRaw = (string) Env::get('ODDS_OUTRIGHTS_EXCLUDE', 'politics');
+        if ($excludeRaw !== '') {
+            $excludes = array_flip(array_map('trim', explode(',', strtolower($excludeRaw))));
+            $keys = array_values(array_filter($keys, static function ($k) use ($excludes) {
+                foreach ($excludes as $token => $_) {
+                    if ($token !== '' && str_contains(strtolower($k), $token)) return false;
+                }
+                return true;
+            }));
+        }
+
+        self::$apiCache[$cacheKey] = ['data' => $keys, 'timestamp' => $now];
+        return $keys;
+    }
+
+    /**
+     * Tier-aware outrights sync. Walks resolveOutrightSports(), syncs any
+     * sport whose last successful sync is older than ODDS_OUTRIGHTS_CRON_HOURS
+     * (default 6). Per-sport last-sync state persisted to a JSON file so the
+     * cadence survives worker restarts.
+     *
+     * Designed to be called every worker cycle — it self-throttles, so calling
+     * more often than the cadence is a no-op for already-fresh sports.
+     *
+     * @return array{ok:bool, attempted:list<string>, skipped:int, perSport:array<string,array<string,mixed>>}
+     */
+    public static function updateOutrights(SqlRepository $db): array
+    {
+        $intervalHours = max(1, (int) Env::get('ODDS_OUTRIGHTS_CRON_HOURS', '6'));
+        $intervalSeconds = $intervalHours * 3600;
+
+        $sports = self::resolveOutrightSports();
+        if ($sports === []) {
+            return ['ok' => true, 'attempted' => [], 'skipped' => 0, 'perSport' => []];
+        }
+
+        $stateFile = dirname(__DIR__) . '/cache/outrights-sync-state.json';
+        $state = self::readJsonStateFile($stateFile);
+
+        $now = time();
+        $attempted = [];
+        $skipped = 0;
+        $perSport = [];
+        foreach ($sports as $sportKey) {
+            $lastTs = self::stateTimestamp($state, $sportKey);
+            if ($now - $lastTs < $intervalSeconds - self::TIER_DUE_TOLERANCE_SECONDS) {
+                $skipped++;
+                continue;
+            }
+            $r = self::syncOutrights($db, $sportKey);
+            $perSport[$sportKey] = $r;
+            $attempted[] = $sportKey;
+            // Only mark "synced now" on success — a 429 / 5xx should retry
+            // on the next cycle rather than wait six more hours.
+            if (($r['ok'] ?? false) === true) {
+                $state[$sportKey] = gmdate(DATE_ATOM, $now);
+            }
+        }
+
+        if ($attempted !== []) {
+            @file_put_contents($stateFile, (string) json_encode($state, JSON_UNESCAPED_SLASHES), LOCK_EX);
+        }
+
+        return ['ok' => true, 'attempted' => $attempted, 'skipped' => $skipped, 'perSport' => $perSport];
+    }
+
+    /**
+     * Daily-cadence participant roster sync across all configured sports.
+     * Cadence per ODDS_PARTICIPANTS_CRON_HOURS (default 24). Self-throttling.
+     *
+     * @return array{ok:bool, attempted:list<string>, skipped:int, perSport:array<string,array<string,mixed>>}
+     */
+    public static function updateParticipants(SqlRepository $db): array
+    {
+        $intervalHours = max(1, (int) Env::get('ODDS_PARTICIPANTS_CRON_HOURS', '24'));
+        $intervalSeconds = $intervalHours * 3600;
+
+        $apiKey = (string) Env::get('ODDS_API_KEY', '');
+        $apiBase = 'https://api.the-odds-api.com/v4';
+        $sports = self::resolveSportsList($apiKey, $apiBase);
+        if ($sports === []) {
+            return ['ok' => true, 'attempted' => [], 'skipped' => 0, 'perSport' => []];
+        }
+
+        $stateFile = dirname(__DIR__) . '/cache/participants-sync-state.json';
+        $state = self::readJsonStateFile($stateFile);
+
+        $now = time();
+        $attempted = [];
+        $skipped = 0;
+        $perSport = [];
+        foreach ($sports as $sportKey) {
+            $lastTs = self::stateTimestamp($state, $sportKey);
+            if ($now - $lastTs < $intervalSeconds - self::TIER_DUE_TOLERANCE_SECONDS) {
+                $skipped++;
+                continue;
+            }
+            $r = self::syncParticipants($db, $sportKey);
+            $perSport[$sportKey] = $r;
+            $attempted[] = $sportKey;
+            if (($r['ok'] ?? false) === true) {
+                $state[$sportKey] = gmdate(DATE_ATOM, $now);
+            }
+        }
+
+        if ($attempted !== []) {
+            @file_put_contents($stateFile, (string) json_encode($state, JSON_UNESCAPED_SLASHES), LOCK_EX);
+        }
+
+        return ['ok' => true, 'attempted' => $attempted, 'skipped' => $skipped, 'perSport' => $perSport];
+    }
+
+    /** @return array<string,string> */
+    private static function readJsonStateFile(string $file): array
+    {
+        if (!is_file($file)) return [];
+        $raw = @file_get_contents($file);
+        if (!is_string($raw)) return [];
+        $decoded = json_decode($raw, true);
+        return is_array($decoded) ? $decoded : [];
+    }
+
+    /** @param array<string,string> $state */
+    private static function stateTimestamp(array $state, string $key): int
+    {
+        $iso = (string) ($state[$key] ?? '');
+        if ($iso === '') return 0;
+        $ts = strtotime($iso);
+        return $ts === false ? 0 : (int) $ts;
+    }
+
+    /**
+     * GET /v4/historical/sports/{sport}/odds?date=ISO8601
+     *
+     * Returns a snapshot of bulk odds at a historical timestamp. Costs ~10x
+     * a regular /odds call per market×region — admin-only tooling for line
+     * history charts and bet-settlement audits, not for player-facing UIs.
+     *
+     * @return array{ok:bool, status:int, snapshot:array<string,mixed>, quota:array{remaining?:int,used?:int}, error?:string}
+     */
+    public static function fetchHistoricalOdds(string $sportKey, string $isoDate, ?string $markets = null, ?string $regions = null): array
+    {
+        $apiKey = (string) Env::get('ODDS_API_KEY', '');
+        if ($apiKey === '' || $sportKey === '' || $isoDate === '') {
+            return ['ok' => false, 'status' => 0, 'snapshot' => [], 'quota' => [], 'error' => 'odds_api_disabled'];
+        }
+        $apiBase = 'https://api.the-odds-api.com/v4';
+        $query = [
+            'apiKey' => $apiKey,
+            'date' => $isoDate,
+            'regions' => $regions ?: (string) Env::get('ODDS_API_REGIONS', 'us'),
+            'markets' => $markets ?: (string) Env::get('ODDS_API_MARKETS', 'h2h,spreads,totals'),
+            'oddsFormat' => (string) Env::get('ODDS_API_ODDS_FORMAT', 'american'),
+            'dateFormat' => 'iso',
+        ];
+        $url = $apiBase . '/historical/sports/' . rawurlencode($sportKey) . '/odds?' . http_build_query($query);
+        return self::historicalResponse($url);
+    }
+
+    /**
+     * GET /v4/historical/sports/{sport}/events?date=ISO8601
+     *
+     * Historical event list (no odds). Useful for reconstructing the schedule
+     * as it appeared at a past moment.
+     *
+     * @return array{ok:bool, status:int, snapshot:array<string,mixed>, quota:array{remaining?:int,used?:int}, error?:string}
+     */
+    public static function fetchHistoricalEvents(string $sportKey, string $isoDate): array
+    {
+        $apiKey = (string) Env::get('ODDS_API_KEY', '');
+        if ($apiKey === '' || $sportKey === '' || $isoDate === '') {
+            return ['ok' => false, 'status' => 0, 'snapshot' => [], 'quota' => [], 'error' => 'odds_api_disabled'];
+        }
+        $apiBase = 'https://api.the-odds-api.com/v4';
+        $query = ['apiKey' => $apiKey, 'date' => $isoDate, 'dateFormat' => 'iso'];
+        $url = $apiBase . '/historical/sports/' . rawurlencode($sportKey) . '/events?' . http_build_query($query);
+        return self::historicalResponse($url);
+    }
+
+    /**
+     * GET /v4/historical/sports/{sport}/events/{eventId}/odds?date=ISO8601
+     *
+     * Per-event historical snapshot. Used for line-movement charts at the
+     * event level and for closing-line value (CLV) audits.
+     *
+     * @return array{ok:bool, status:int, snapshot:array<string,mixed>, quota:array{remaining?:int,used?:int}, error?:string}
+     */
+    public static function fetchHistoricalEventOdds(string $sportKey, string $eventId, string $isoDate, ?string $markets = null, ?string $regions = null): array
+    {
+        $apiKey = (string) Env::get('ODDS_API_KEY', '');
+        if ($apiKey === '' || $sportKey === '' || $eventId === '' || $isoDate === '') {
+            return ['ok' => false, 'status' => 0, 'snapshot' => [], 'quota' => [], 'error' => 'odds_api_disabled'];
+        }
+        $apiBase = 'https://api.the-odds-api.com/v4';
+        $query = [
+            'apiKey' => $apiKey,
+            'date' => $isoDate,
+            'regions' => $regions ?: (string) Env::get('ODDS_API_REGIONS', 'us'),
+            'markets' => $markets ?: (string) Env::get('ODDS_API_MARKETS', 'h2h,spreads,totals'),
+            'oddsFormat' => (string) Env::get('ODDS_API_ODDS_FORMAT', 'american'),
+            'dateFormat' => 'iso',
+        ];
+        $url = $apiBase . '/historical/sports/' . rawurlencode($sportKey) . '/events/' . rawurlencode($eventId) . '/odds?' . http_build_query($query);
+        return self::historicalResponse($url);
+    }
+
+    /**
+     * GET /v4/historical/sports/{sport}/events/{eventId}/markets?date=ISO8601
+     *
+     * Historical markets-availability snapshot for a single event. Tells you
+     * which market keys were posted at a past timestamp — useful for
+     * reconstructing prop coverage at game-time during a settlement audit.
+     *
+     * @return array{ok:bool, status:int, snapshot:array<string,mixed>, quota:array{remaining?:int,used?:int}, error?:string}
+     */
+    public static function fetchHistoricalEventMarkets(string $sportKey, string $eventId, string $isoDate, ?string $regions = null): array
+    {
+        $apiKey = (string) Env::get('ODDS_API_KEY', '');
+        if ($apiKey === '' || $sportKey === '' || $eventId === '' || $isoDate === '') {
+            return ['ok' => false, 'status' => 0, 'snapshot' => [], 'quota' => [], 'error' => 'odds_api_disabled'];
+        }
+        $apiBase = 'https://api.the-odds-api.com/v4';
+        $query = [
+            'apiKey' => $apiKey,
+            'date' => $isoDate,
+            'regions' => $regions ?: (string) Env::get('ODDS_API_REGIONS', 'us'),
+            'dateFormat' => 'iso',
+        ];
+        $url = $apiBase . '/historical/sports/' . rawurlencode($sportKey) . '/events/' . rawurlencode($eventId) . '/markets?' . http_build_query($query);
+        return self::historicalResponse($url);
+    }
+
+    /** @return array{ok:bool, status:int, snapshot:array<string,mixed>, quota:array{remaining?:int,used?:int}, error?:string} */
+    private static function historicalResponse(string $url): array
+    {
+        $resp = self::httpGetDetailed($url);
+        $status = (int) ($resp['status'] ?? 0);
+        $body = $resp['body'] ?? null;
+        $headers = is_array($resp['headers'] ?? null) ? $resp['headers'] : [];
+        $quota = [];
+        if (isset($headers['x-requests-remaining'])) $quota['remaining'] = (int) $headers['x-requests-remaining'];
+        if (isset($headers['x-requests-used'])) $quota['used'] = (int) $headers['x-requests-used'];
+        if (!is_string($body) || $body === '' || $status !== 200) {
+            return ['ok' => false, 'status' => $status, 'snapshot' => [], 'quota' => $quota, 'error' => 'upstream_fetch_failed'];
+        }
+        $decoded = json_decode($body, true);
+        if (!is_array($decoded)) {
+            return ['ok' => false, 'status' => $status, 'snapshot' => [], 'quota' => $quota, 'error' => 'invalid_json'];
+        }
+        return ['ok' => true, 'status' => $status, 'snapshot' => $decoded, 'quota' => $quota];
     }
 }

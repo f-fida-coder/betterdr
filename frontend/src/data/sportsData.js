@@ -47,6 +47,16 @@ export const sportsData = [
         icon: 'fa-solid fa-tv',
         selectable: true,
     },
+    {
+        // Top-level entry that opens the futures/outrights leaderboard
+        // across all sports. type:'futures' is recognized in DashboardMain
+        // and routes to <OutrightsView> instead of <SportContentView>.
+        id: 'all-futures',
+        label: 'FUTURES',
+        icon: 'fa-solid fa-trophy',
+        selectable: true,
+        type: 'futures',
+    },
     // ── BASKETBALL ────────────────────────────────────────────
     {
         id: 'basketball',

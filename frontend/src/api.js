@@ -634,6 +634,25 @@ export const getLiveMatches = async (options = {}) => getMatches('live', options
 export const getUpcomingMatches = async (options = {}) => getMatches('upcoming', options);
 
 /**
+ * Outright (futures) listings. Public endpoint — no auth required.
+ * Optionally scoped to a single sport key (e.g. golf_pga_championship_winner).
+ */
+export const getOutrights = async (sportKey = '') => {
+    const params = sportKey ? { sportKey } : null;
+    const response = await fetch(buildApiUrl('/outrights', params), { cache: 'no-store' });
+    if (!response.ok) throw new Error(`Failed to load futures (HTTP ${response.status})`);
+    const data = await response.json();
+    return Array.isArray(data) ? data : [];
+};
+
+export const getOutrightSports = async () => {
+    const response = await fetch(buildApiUrl('/outrights/sports'), { cache: 'no-store' });
+    if (!response.ok) throw new Error(`Failed to load futures sports (HTTP ${response.status})`);
+    const data = await response.json();
+    return Array.isArray(data) ? data : [];
+};
+
+/**
  * On-demand Live Now sync. POSTs to /api/sync/live which synchronously
  * pokes OddsAPI's live endpoint, then returns the same shape as
  * GET /api/matches?status=live. The endpoint NEVER errors: even when

@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import SportContentView from './SportContentView';
+import OutrightsView from './OutrightsView';
+import ErrorBoundary from './ErrorBoundary';
 import { findSportItemById } from '../data/sportsData';
 
 const DashboardMain = ({ selectedSports = [], activeBetMode = 'straight' }) => {
@@ -26,35 +28,6 @@ const DashboardMain = ({ selectedSports = [], activeBetMode = 'straight' }) => {
     const primaryId = selectedSports.length > 0 ? selectedSports[0] : null;
     const selectedItem = primaryId ? findSportItemById(primaryId) : null;
 
-    if (selectedItem && selectedItem.type === 'props-plus') {
-        return (
-            <main className="dash-main" style={{ padding: '20px' }}>
-                <div style={{
-                    background: '#fff',
-                    padding: '20px',
-                    borderRadius: '8px',
-                    border: '1px solid #e0e0e0',
-                    textAlign: 'center'
-                }}>
-                    <h2 style={{ color: '#007bff' }}>{selectedItem.label}</h2>
-                    <p style={{ color: '#666', marginTop: '10px' }}>
-                        Props Plus content for <strong>{selectedItem.label}</strong> goes here.
-                    </p>
-                    <div style={{
-                        marginTop: '20px',
-                        display: 'inline-block',
-                        padding: '10px 20px',
-                        background: '#f5f5f5',
-                        borderRadius: '4px',
-                        fontSize: '14px'
-                    }}>
-                        Custom View Component for Type: {selectedItem.type}
-                    </div>
-                </div>
-            </main>
-        );
-    }
-
     /**
      * Map a parent sport ID to its first child league for content display.
      * If the selected item has sportKeys, use its own id directly.
@@ -67,6 +40,11 @@ const DashboardMain = ({ selectedSports = [], activeBetMode = 'straight' }) => {
         soccer: 'epl',
     };
 
+    // IMPORTANT: every hook must be called on every render in the same order
+    // (Rules of Hooks). The futures / props-plus early returns USED to live
+    // above this useMemo, which meant switching from a normal sport to FUTURES
+    // skipped the hook and React threw "Rendered fewer hooks than expected".
+    // Those branches are now handled AFTER all hooks have run (see below).
     const sportSections = useMemo(() => {
         if (isDefault) {
             // No sport selected → show only the top 6 freshest matches
@@ -111,6 +89,48 @@ const DashboardMain = ({ selectedSports = [], activeBetMode = 'straight' }) => {
 
     // Stable key that changes when selection changes, forcing remount
     const sectionKey = selectedSports.join(',') || 'default';
+
+    // Special-view dispatch happens AFTER all hooks above have run so we
+    // never violate Rules of Hooks when switching to/from these branches.
+    if (selectedItem && selectedItem.type === 'futures') {
+        const futuresSportKey = Array.isArray(selectedItem.sportKeys) && selectedItem.sportKeys.length > 0
+            ? selectedItem.sportKeys[0]
+            : '';
+        return (
+            <ErrorBoundary>
+                <OutrightsView sportKey={futuresSportKey} title={selectedItem.label || 'Futures'} />
+            </ErrorBoundary>
+        );
+    }
+
+    if (selectedItem && selectedItem.type === 'props-plus') {
+        return (
+            <main className="dash-main" style={{ padding: '20px' }}>
+                <div style={{
+                    background: '#fff',
+                    padding: '20px',
+                    borderRadius: '8px',
+                    border: '1px solid #e0e0e0',
+                    textAlign: 'center'
+                }}>
+                    <h2 style={{ color: '#007bff' }}>{selectedItem.label}</h2>
+                    <p style={{ color: '#666', marginTop: '10px' }}>
+                        Props Plus content for <strong>{selectedItem.label}</strong> goes here.
+                    </p>
+                    <div style={{
+                        marginTop: '20px',
+                        display: 'inline-block',
+                        padding: '10px 20px',
+                        background: '#f5f5f5',
+                        borderRadius: '4px',
+                        fontSize: '14px'
+                    }}>
+                        Custom View Component for Type: {selectedItem.type}
+                    </div>
+                </div>
+            </main>
+        );
+    }
 
     return (
         <main className="dash-main">

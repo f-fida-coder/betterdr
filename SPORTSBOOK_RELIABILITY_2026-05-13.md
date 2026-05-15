@@ -935,3 +935,281 @@ Response shape includes a `settlementSweep` block — if `betsSettled > 0`, thos
 ```
 d4c7d30f  sportsbook: live MLB diamond + prop player filter + bound LIVE badge
 ```
+
+---
+
+# Day-5 — 100% Odds-API Coverage Push (2026-05-15)
+
+Goal stated by the operator: "I want fully 100% what odds-api offers our site should be covered." Closed every documented odds-api v4 endpoint and every meaningful query parameter, added outright bets as a complete product (sync → display → placement → settlement → realtime push), and shipped a defensive boundary so a future regression in any single tab can't take down the dashboard.
+
+## 36. Endpoint coverage — gap audit and what landed
+
+Pre-flight audit found these gaps in our odds-api surface:
+
+| Capability | Pre-Day-5 | Post-Day-5 |
+|---|---|---|
+| `GET /v4/sports/{sport}/events` | not called | `OddsSyncService::fetchEventsForSport()` |
+| `GET /v4/sports/{sport}/events/{id}/markets` | not called | `OddsSyncService::fetchAvailableMarkets()` (1h in-process cache) |
+| `GET /v4/sports/{sport}/participants` | not called | `OddsSyncService::syncParticipants()` + worker tier (24h) |
+| `GET /v4/sports/{sport}/odds?markets=outrights` | filtered out at discovery | `OddsSyncService::syncOutrights()` + worker tier (6h) |
+| `GET /v4/historical/sports/{sport}/odds` | not called | `OddsSyncService::fetchHistoricalOdds()` |
+| `GET /v4/historical/sports/{sport}/events` | not called | `OddsSyncService::fetchHistoricalEvents()` |
+| `GET /v4/historical/sports/{sport}/events/{id}/odds` | not called | `OddsSyncService::fetchHistoricalEventOdds()` |
+| `GET /v4/historical/sports/{sport}/events/{id}/markets` | not called | `OddsSyncService::fetchHistoricalEventMarkets()` |
+| `bookmakers=` query filter | env var existed but empty in prod | wired to all bulk + per-event /odds calls |
+| `commenceTimeFrom`/`commenceTimeTo` | never used | new `timeWindowQuery()` helper, applied to 3 prematch /odds builders (skipped on live + per-event paths) |
+
+**Intentionally skipped** (not relevant for an internal sportsbook): `includeLinks`, `includeSids`, `includeBetLimits`, `eventIds` filter. These are odds-comparison-site features.
+
+## 37. Phase 0 — Quick wins (env + 2 helpers)
+
+**Bookmaker filter wired** — code in `OddsSyncService` already supported `&bookmakers=` on every /odds URL but env was empty in prod. Set in [`/.env`](.env) and [`php-backend/.env`](php-backend/.env):
+
+```
+ODDS_API_BOOKMAKERS=draftkings,fanduel,betmgm,caesars,pinnacle
+```
+
+Cuts upstream payload ~70-80% with no per-call quota change.
+
+**Time-window filter** — new helper [`OddsSyncService::timeWindowQuery()`](php-backend/src/OddsSyncService.php) returns `commenceTimeFrom`/`commenceTimeTo` query params from a single env var:
+
+```
+ODDS_TIME_WINDOW_HOURS=96
+```
+
+Applied to all 3 bulk prematch /odds query builders (snapshot, updateMatches, syncSingleSport). Skipped on live odds and per-event endpoints. Trims long-tail futures (golf majors months out) from prematch payloads.
+
+**Soccer extras (btts, draw_no_bet, double_chance)** — verified already wired via `soccer_default` catalog + the `soccer_*` prefix fallback in [`OddsMarketCatalog.php`](php-backend/src/OddsMarketCatalog.php). No code change required; extended-sync env was already enabled.
+
+## 38. Phase 1 — Prop catalogs for missing sports
+
+Added entries to [`OddsMarketCatalog.php`](php-backend/src/OddsMarketCatalog.php) so per-event sync requests props for sports that previously had none:
+
+- `basketball_wnba` — 15 player props (NBA-style: points, rebounds, assists, threes, blocks, steals, alternates)
+- `basketball_euroleague` — 10 player props
+- `basketball_default` — conservative fallback (any new basketball league discovered auto-gets props)
+- `tennis_default` — per-set markets (`h2h_set1-3`, `spreads_set1-2`, `totals_set1-2`, `totals_games`, `totals_sets`) + 5 props (aces, double_faults, games_won, sets_won, break_points_won)
+- `cricket_default` — first-overs totals + 8 cricket props (`batsman_runs`, `bowler_total_wickets`, etc.)
+- `mma_mixed_martial_arts` — `h2h_3_way` + `method_of_victory`, `round_betting`, `fight_to_go_distance`, etc.
+- `boxing_boxing` — same as MMA
+
+**Resolver upgrade** — refactored `extendedMarkets()` / `propMarkets()` into a single `resolveEntry()` helper with prefix fallbacks for `soccer_*`, `basketball_*`, `tennis_*`, `cricket_*`. New tournaments (e.g. `tennis_atp_french_open`) automatically get props with zero config.
+
+**`isPropMarket()` updated** to recognize new prefixes (`batsman_`, `bowler_`, `fight_`) and combat-sport keys (`method_of_victory`, `round_betting`, `winning_round`).
+
+**MLS** — already covered by existing `soccer_*` fallback, no change needed. **F1/NASCAR** — outrights-only sports; deferred to Phase 2.
+
+## 39. Phase 4 — Events + Markets-availability
+
+Two new public statics on [`OddsSyncService`](php-backend/src/OddsSyncService.php):
+
+- `fetchEventsForSport($sportKey)` → 1 quota unit, returns event list without odds
+- `fetchAvailableMarkets($sportKey, $eventId)` → 1 quota unit, returns available market keys, cached in-process for 1h
+
+Admin debug endpoints in [`DebugController.php`](php-backend/src/DebugController.php):
+- `GET /api/debug/events/{sport}`
+- `GET /api/debug/event-markets/{sport}/{eventId}`
+
+## 40. Phase 3 — Participants
+
+New `participants` table auto-creates on first insert via [`SqlRepository::ensureSpecializedSchema()`](php-backend/src/SqlRepository.php). Generated columns: `j_sport_key`, `j_participant_id`, `j_full_name`, `j_type`. Indexed on `(j_sport_key, j_participant_id)` and `j_full_name` (for player search).
+
+`OddsSyncService::syncParticipants($db, $sportKey)` — pulls roster from `/v4/sports/{sport}/participants`, infers `team` vs `player` from sport-key prefix (tennis/golf/mma/boxing/aussierules/cycling → player; everything else → team).
+
+`OddsSyncService::updateParticipants($db)` — daily-cadence wrapper, self-throttles via `php-backend/src/cache/participants-sync-state.json`. Cadence: `ODDS_PARTICIPANTS_CRON_HOURS=24` (default). Wired into [`odds-worker.php`](php-backend/scripts/odds-worker.php) main loop.
+
+Admin trigger: `POST /api/admin/odds/participants/{sport}`.
+
+## 41. Phase 2 — Outrights / Futures (the big one)
+
+End-to-end product: data → display → placement → settlement → realtime push.
+
+### 41.1 Schema
+
+New `outrights` table auto-creates with columns `j_sport_key`, `j_event_id`, `j_event_name`, `j_status`, `j_commence_time_dt` and indexes `idx_outrights_sport_key`, `idx_outrights_event_id`, `idx_outrights_status`, `idx_outrights_sport_commence`.
+
+`betselections` schema gained `j_outright_id` generated column + `idx_betselections_outright_status` index — enables the settlement query `WHERE outrightId=X AND status='pending'`.
+
+### 41.2 Sync
+
+`OddsSyncService::syncOutrights($db, $sportKey)` — calls `/v4/sports/{sport}/odds?markets=outrights`, persists each tournament/event with the full `bookmakers[]` snapshot. Preserves `settled` status across syncs.
+
+`OddsSyncService::resolveOutrightSports()` — discovers sports with `has_outrights=true` or `_winner` suffix. Excludes politics by default via `ODDS_OUTRIGHTS_EXCLUDE=politics`. Returned 9 active outright sports on first run: NFL Super Bowl, NCAAF Championship, MLB World Series, NBA Championship, 3 golf majors, NHL Championship, FIFA World Cup.
+
+`OddsSyncService::updateOutrights($db)` — tier-aware wrapper, 6h cadence (`ODDS_OUTRIGHTS_CRON_HOURS=6`), state in `php-backend/src/cache/outrights-sync-state.json`. Wired into worker.
+
+### 41.3 Public API
+
+In [`MatchesController.php`](php-backend/src/MatchesController.php):
+- `GET /api/outrights[?sportKey=X]` — light list (strips heavy bookmaker tree, picks primary book server-side), 30s public cache
+- `GET /api/outrights/sports` — distinct sport→count list for sidebar
+
+### 41.4 Frontend
+
+New [`OutrightsView.jsx`](frontend/src/components/OutrightsView.jsx) — leaderboard view, mobile-first 375px-friendly, uses existing `formatOdds()` + odds-format context, sorts outcomes by price (favorite first), groups by sport when no `sportKey` filter. Each outcome row is a `<button>` that dispatches `betslip:add` reusing the existing slip pipeline.
+
+In [`sportsData.js`](frontend/src/data/sportsData.js): added top-level **FUTURES** entry (`type:'futures'`); existing WNBA FUTURES placeholder now actually works.
+
+In [`DashboardMain.jsx`](frontend/src/components/DashboardMain.jsx): recognizes `type === 'futures'` and routes to `<OutrightsView>`.
+
+### 41.5 Bet placement
+
+In [`BetsController.php`](php-backend/src/BetsController.php):
+- New `validateOutrightSelection($outrightId, $selection, $odds)` — looks up `outrights` table, finds price in primary bookmaker's `outrights` market, snaps to American int, runs the same `ODDS_CHANGED` 409 path as match bets.
+- Routing in `placeBet()` detects `marketType === 'outrights'` and routes to the outright validator.
+- `selectionForInsert()` writes `outrightId` for outright legs.
+- `validateOutrightSelection` snapshots set `homeTeam = eventName`, `awayTeam = outcomeName` so `descriptionForSelections()` renders cleanly: `"NFL Super Bowl Winner vs Los Angeles Rams | OUTRIGHTS | Los Angeles Rams @ 8.00"`.
+
+### 41.6 Settlement
+
+New [`OutrightSettlementService.php`](php-backend/src/OutrightSettlementService.php). Two public methods:
+
+- `settleOutright($db, $outrightId, $winningOutcome, $settledBy)` — marks outright `status='settled'` with `winningOutcome`/`settledAt`/`settledBy`; walks pending `betselections` with `outrightId=X`, groups by `betId`, settles each in a row-locked transaction. Idempotent via `WHERE status='pending'` guard.
+- `voidOutright($db, $outrightId, $reason, $settledBy)` — marks `status='voided'`, refunds wager to source pool (freeplay → freeplayBalance, real → balance for cash, pending-only release for credit).
+
+Admin endpoints in [`DebugController.php`](php-backend/src/DebugController.php):
+- `POST /api/admin/outrights/{id}/settle` body `{"winner":"..."}`
+- `POST /api/admin/outrights/{id}/void` body `{"reason":"..."}`
+
+Money safety mirrors `BetSettlementService::settleMatch`: `findOneForUpdate` row locks, transactions, `WHERE status='pending'` guard prevents double-settlement, `pendingBalance` decremented exactly once per bet, audit row in `transactions` for every balance change. Handles freeplay + credit-account semantics. Currently supports straight bets only — parlays mixing outrights with match selections are skipped (`results.errors++` and bet stays pending).
+
+### 41.7 Realtime push
+
+`OutrightSettlementService` fires `RealtimeEventBus::publish('bet:settled', {userId, betId, status, source:'outright', outrightId, time})` AFTER the per-bet commit. Guarded by `class_exists` + try/catch so a broadcast failure can never roll back the money write.
+
+## 42. Phase 5 — Historical odds (admin-only)
+
+All four historical endpoints wired as public statics on `OddsSyncService` and exposed through admin debug routes:
+
+| Endpoint | Method | Admin route |
+|---|---|---|
+| `/v4/historical/sports/{sport}/odds` | `fetchHistoricalOdds()` | `GET /api/admin/odds/historical/odds/{sport}?date=ISO` |
+| `/v4/historical/sports/{sport}/events` | `fetchHistoricalEvents()` | `GET /api/admin/odds/historical/events/{sport}?date=ISO` |
+| `/v4/historical/sports/{sport}/events/{id}/odds` | `fetchHistoricalEventOdds()` | `GET /api/admin/odds/historical/event-odds/{sport}/{id}?date=ISO` |
+| `/v4/historical/sports/{sport}/events/{id}/markets` | `fetchHistoricalEventMarkets()` | `GET /api/admin/odds/historical/event-markets/{sport}/{id}?date=ISO` |
+
+Cost ~10× quota per call vs regular endpoints — admin-only by design, NOT in the worker loop.
+
+## 43. Bugs found and fixed during HTTP smoke testing
+
+The user clicked FUTURES and got an `ErrorBoundary` trip. Three real bugs surfaced and were closed:
+
+### 43.1 `selectionRowFromTicket` silently dropping `outrightId`
+
+[`SportsbookBetSupport.php`](php-backend/src/SportsbookBetSupport.php) — the helper that constructs the row inserted into `betselections` listed a fixed allowlist of fields and `outrightId` wasn't in it. Caught by the HTTP smoke test:
+
+- `POST /api/bets/place` returned 201 (bet placed cleanly, money debited)
+- The betselection row had `j_outright_id = NULL` (despite my upstream code passing it through)
+- `OutrightSettlementService` then settled the outright but found 0 pending bets
+
+This would have been a **silent production bug** — bets place fine, money debits, but settlement never finds them. They'd sit pending forever until someone noticed manually.
+
+Fix: added `'outrightId' => $outrightId !== '' ? SqlRepository::id($outrightId) : null` to the row builder. NULL on non-outright legs keeps the index sparse.
+
+### 43.2 `/api/outrights` was hitting a 404 fallthrough — never reached MatchesController
+
+[`public/index.php:645-664`](php-backend/public/index.php) has a hard-coded prefix gate that decides which paths reach the controller chain. Only paths matching `/api/auth, /api/wallet, /api/user, /api/bets, /api/betting, /api/admin, /api/matches, /api/odds, /api/content, /api/messages, /api/casino, /api/agent, /api/payments, /api/debug, /api/internal, /api/sync, /api/proxy` got into dispatch. **`/api/outrights` matched none of them** — the request fell straight through to `Response::json(['message' => 'API route not found'], 404)`.
+
+Took serious tracing to find — the controller had the route, the file had no syntax errors, the curl response said "API route not found". A debug `file_put_contents` in `MatchesController::handle` confirmed the controller was never reached for `/api/outrights` while concurrent `/api/matches` requests reached it fine.
+
+Fix: added `|| str_starts_with($uriPath, '/api/outrights')` to the prefix gate.
+
+### 43.3 React hooks rule violation in DashboardMain — caused the ErrorBoundary trip
+
+After the URL + routing bugs were fixed, the FUTURES tab still tripped the global ErrorBoundary. Browser console (visible after the user opened DevTools) said:
+
+> Error: Rendered fewer hooks than expected. This may be caused by an accidental early return statement.
+> The above error occurred in the `<DashboardMain>` component.
+
+[`DashboardMain.jsx`](frontend/src/components/DashboardMain.jsx) calls 5 hooks per render: `useState`, two `useRef`, `useEffect`, `useMemo`. My `if (selectedItem.type === 'futures') return ...` branch was placed BEFORE the `useMemo`, so switching from a normal sport (5 hooks) to FUTURES (early return after 4 hooks) tripped the rules-of-hooks check. The pre-existing `props-plus` branch had the same latent bug — undetected because nobody ever clicked it.
+
+Fix: moved both special-view dispatches (`futures` + `props-plus`) to AFTER all hooks have run. Added a comment explaining the constraint so a future edit doesn't reintroduce the bug.
+
+### 43.4 Defensive: local `ErrorBoundary` around OutrightsView
+
+Wrapped `<OutrightsView>` in [`DashboardMain.jsx`](frontend/src/components/DashboardMain.jsx) with the existing [`ErrorBoundary`](frontend/src/components/ErrorBoundary.jsx) component so a render failure inside the FUTURES tab can't take down the whole dashboard — at worst the FUTURES tab shows an inline error and other tabs keep working.
+
+Also made `OutrightsView` defensively read `oddsFormat` instead of destructuring (`const oddsCtx = useOddsFormat(); const oddsFormat = (oddsCtx && oddsCtx.oddsFormat) || 'american';`) so a missing context shape can't crash render.
+
+### 43.5 Frontend URL construction with path-style production API
+
+Initial OutrightsView built `${API_BASE}/api/outrights` which became `/api/api/outrights` (double prefix) in dev with `VITE_API_URL=/api`, and was malformed under prod's path-style URL (`?path=`). Replaced with proper `getOutrights()` / `getOutrightSports()` helpers in [`api.js`](frontend/src/api.js) that use the existing `buildApiUrl()` — handles both dev proxy and prod path-style.
+
+## 44. End-to-end verification
+
+### Direct service-layer test (no HTTP)
+```
+Outright reset → status='open'
+Test user → balance=1000, pending=0
+WIN  picked=Los Angeles Rams winner=Los Angeles Rams   → bet=won  bal=1700 pending=0
+LOSS picked=Seattle Seahawks winner=Los Angeles Rams   → bet=lost bal=900  pending=0
+VOID tournament_canceled                               → bet=void bal=1000 pending=0
+Idempotent re-run (settle Rams winner again)           → total=0   bal still 1700
+Money invariant for test user (balance >= pending)     → OK
+```
+
+### Full HTTP loop (after bug 43.1 fix)
+```
+STEP 1  POST /api/bets/place                     → HTTP 201 "Bet placed successfully"
+STEP 2  betselection in DB                       → j_outright_id populated
+STEP 3  POST /api/admin/outrights/{id}/settle    → HTTP 200, total=1 won=1
+STEP 4  user balance                             → 1500 → 1450 (placement) → 1850 (payout)
+        totalWinnings                            → 350 (profit, not full payout)
+        ledger                                   → bet_placed + bet_won rows written
+```
+
+## 45. New env vars (root `.env`)
+
+```
+ODDS_API_BOOKMAKERS=draftkings,fanduel,betmgm,caesars,pinnacle  # ~70-80% smaller payloads
+ODDS_TIME_WINDOW_HOURS=96                                        # 4-day window for prematch /odds
+ODDS_OUTRIGHTS_CRON_HOURS=6                                      # outrights tier cadence
+ODDS_PARTICIPANTS_CRON_HOURS=24                                  # participants tier cadence
+ODDS_OUTRIGHTS_EXCLUDE=politics                                  # comma-list of substrings to skip
+```
+
+## 46. Files touched (Day-5)
+
+### Backend
+- [`php-backend/src/OddsSyncService.php`](php-backend/src/OddsSyncService.php) — 9 new public methods (`fetchEventsForSport`, `fetchAvailableMarkets`, `fetchHistoricalOdds`, `fetchHistoricalEvents`, `fetchHistoricalEventOdds`, `fetchHistoricalEventMarkets`, `syncOutrights`, `syncParticipants`, `resolveOutrightSports`, `updateOutrights`, `updateParticipants`); `timeWindowQuery()` helper; `bookmakers=` filter wired in 4 places; `commenceTimeFrom/To` in 3 places; outright sport discovery (no longer filtering `_winner` suffix from outright path).
+- [`php-backend/src/OddsMarketCatalog.php`](php-backend/src/OddsMarketCatalog.php) — 5 new sport catalogs (WNBA, Euroleague, tennis_default, cricket_default, MMA, boxing) + `basketball_default` fallback + `resolveEntry()` helper with prefix fallbacks for soccer/basketball/tennis/cricket; expanded `isPropMarket()` to recognize `batsman_`/`bowler_`/`fight_` prefixes and combat-sport keys.
+- [`php-backend/src/OutrightSettlementService.php`](php-backend/src/OutrightSettlementService.php) — NEW. `settleOutright()`, `voidOutright()`, `gradePendingBetsForOutright()` (private). Mirrors money-safety patterns from `BetSettlementService::settleMatch`. Realtime publish wired.
+- [`php-backend/src/SqlRepository.php`](php-backend/src/SqlRepository.php) — `participants` and `outrights` table schemas in `ensureSpecializedSchema()`; `j_outright_id` column + `idx_betselections_outright_status` index added to `betselections` block.
+- [`php-backend/src/BetsController.php`](php-backend/src/BetsController.php) — `validateOutrightSelection()` method; routing in `placeBet()` for `marketType === 'outrights'`; `selectionForInsert()` carries `outrightId` for outright legs.
+- [`php-backend/src/SportsbookBetSupport.php`](php-backend/src/SportsbookBetSupport.php) — `selectionRowFromTicket()` now writes `outrightId` (was the silent-drop bug from §43.1).
+- [`php-backend/src/MatchesController.php`](php-backend/src/MatchesController.php) — `GET /api/outrights[?sportKey=X]` and `GET /api/outrights/sports` public endpoints.
+- [`php-backend/src/DebugController.php`](php-backend/src/DebugController.php) — 9 new admin/debug endpoints for events, event-markets, participants sync, outrights sync/settle/void, and 4 historical endpoints.
+- [`php-backend/scripts/odds-worker.php`](php-backend/scripts/odds-worker.php) — `updateOutrights()` and `updateParticipants()` ticks added to main loop; both self-throttle via state files.
+- [`php-backend/config/preload.php`](php-backend/config/preload.php) — registered `OutrightSettlementService.php`.
+- [`php-backend/public/index.php`](php-backend/public/index.php) — `/api/outrights` added to the controller-dispatch prefix gate (was the 404-fallthrough bug from §43.2).
+
+### Frontend
+- [`frontend/src/components/OutrightsView.jsx`](frontend/src/components/OutrightsView.jsx) — NEW. Leaderboard view; mobile-first; uses `formatOdds()` + odds-format context; defensive context read; sorted by price; groups by sport when unscoped; clickable outcomes dispatch `betslip:add`.
+- [`frontend/src/components/DashboardMain.jsx`](frontend/src/components/DashboardMain.jsx) — futures branch added (after all hooks, per §43.3); `props-plus` branch moved to same position; OutrightsView wrapped in local `ErrorBoundary`.
+- [`frontend/src/data/sportsData.js`](frontend/src/data/sportsData.js) — top-level FUTURES sidebar entry (`id: 'all-futures'`, `type: 'futures'`).
+- [`frontend/src/api.js`](frontend/src/api.js) — `getOutrights()` and `getOutrightSports()` helpers using `buildApiUrl()` for correct dev/prod URL handling.
+
+### Env
+- [`.env`](.env), [`php-backend/.env`](php-backend/.env) — new `ODDS_API_BOOKMAKERS` + `ODDS_TIME_WINDOW_HOURS` defaults.
+
+## 47. Operator follow-ups (not blocking, deferred intentionally)
+
+1. **Outright bet display in My Bets** — current `MyBetsView` formats around match team names + logos; outright bets render with the workaround `homeTeam=eventName`, `awayTeam=outcomeName` from the validator's snapshot. Functional but not pretty. Polish when convenient.
+2. **49 pre-existing balance/pendingBalance drift records** in dev DB — unrelated to this work but worth cleaning before any production migration.
+3. **F1 / NASCAR / Golf race-grid view** — these sports work today via the FUTURES leaderboard (race winner outrights). A custom race-grid layout would feel more native but isn't required.
+4. **Outright bet listing endpoint with full bookmaker tree** — only the light list is exposed (`/api/outrights`). Could add `/api/outrights/{id}` if a line-shopping UI is needed.
+
+## 48. How to verify (Day-5)
+
+1. **Sidebar FUTURES tab** — log in, click "FUTURES" in the sidebar. Should render 8 outright leaderboards (Super Bowl, World Series, NBA Championship, 3 golf majors, NHL Championship, FIFA World Cup, NCAAF Championship). Each row shows competitor name + decimal/American odds (per user's odds-format setting), favorites first.
+2. **Click an outcome** — adds it to the slip via the existing `betslip:add` event. Slip should show the outright leg with the description format.
+3. **Place a real outright bet** — submit via the slip. Backend response 201, balance debited, pending incremented. Verify `betselections` row has both `j_match_id` and `j_outright_id` populated.
+4. **Admin settle** — `POST /api/admin/outrights/{id}/settle` with `{"winner":"<outcome name>"}`. Bet status flips to won/lost atomically; balance + pending reflect the payout/loss; ledger row written; realtime `bet:settled` published.
+5. **Idempotency** — re-fire the settle endpoint. Should return `total: 0` (no new bets to grade) and balance unchanged.
+6. **Money invariant** — `SELECT COUNT(*) FROM users WHERE CAST(JSON_EXTRACT(doc, '$.balance') AS DECIMAL(14,2)) < CAST(JSON_EXTRACT(doc, '$.pendingBalance') AS DECIMAL(14,2))` — should not increase from any outright settlement.
+7. **Worker logs** — after a worker tick, `outrights tick attempted=N skipped=M` and `participants tick attempted=N skipped=M` should appear in `logs/odds-worker.log`. Files `php-backend/src/cache/outrights-sync-state.json` and `participants-sync-state.json` should populate.
+8. **Coverage** — every odds-api v4 endpoint is now reachable via either a worker call or an admin endpoint. The 9 outright sports auto-sync on the 6h tier; no operator action needed beyond the initial worker restart.
+
+## 49. Commits (Day-5)
+
+(To be filled when committed — code is staged but not yet committed per the no-auto-commit rule.)

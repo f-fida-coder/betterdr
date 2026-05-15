@@ -71,7 +71,94 @@ final class MatchesController
             return true;
         }
 
+        if ($method === 'GET' && $path === '/api/outrights') {
+            $this->listOutrights();
+            return true;
+        }
+        if ($method === 'GET' && $path === '/api/outrights/sports') {
+            $this->listOutrightSports();
+            return true;
+        }
+
         return false;
+    }
+
+    /**
+     * GET /api/outrights[?sportKey=X]
+     *
+     * Returns all open outright/futures events. With ?sportKey filter, scopes
+     * to one sport (e.g. golf_masters_winner). Each row carries the full
+     * bookmaker → outcomes tree so the client can render a leaderboard.
+     */
+    private function listOutrights(): void
+    {
+        try {
+            $sportKey = (string) ($_GET['sportKey'] ?? '');
+            if ($sportKey !== '' && preg_match('/^[a-z][a-z0-9_]{1,79}$/', $sportKey) !== 1) {
+                Response::json(['error' => 'invalid_sport_key'], 400);
+                return;
+            }
+            $filter = ['status' => 'open'];
+            if ($sportKey !== '') {
+                $filter['sportKey'] = $sportKey;
+            }
+            $rows = $this->db->findMany('outrights', $filter, ['limit' => 500]);
+            // Strip the heavy `bookmakers` field out of the list view; clients
+            // can fetch a single outright with full bookmaker data via
+            // /api/outrights/{id} (added later if needed).
+            $light = array_map(static function (array $row): array {
+                $books = is_array($row['bookmakers'] ?? null) ? $row['bookmakers'] : [];
+                $primary = null;
+                foreach ($books as $b) {
+                    if (is_array($b) && is_array($b['markets'] ?? null)) {
+                        $primary = $b;
+                        break;
+                    }
+                }
+                return [
+                    'id' => $row['id'] ?? null,
+                    'sportKey' => $row['sportKey'] ?? null,
+                    'eventId' => $row['eventId'] ?? null,
+                    'eventName' => $row['eventName'] ?? null,
+                    'commenceTime' => $row['commenceTime'] ?? null,
+                    'status' => $row['status'] ?? 'open',
+                    'lastUpdated' => $row['lastUpdated'] ?? null,
+                    'primaryBookmaker' => $primary,
+                    'bookmakerCount' => count($books),
+                ];
+            }, $rows);
+            Response::json($light, 200, 'public, max-age=30, stale-while-revalidate=60');
+        } catch (Throwable $e) {
+            Logger::exception($e, 'listOutrights failed');
+            Response::json([], 200, self::NO_STORE_HEADER);
+        }
+    }
+
+    /**
+     * GET /api/outrights/sports
+     *
+     * Distinct list of sport keys that have at least one open outright,
+     * for the futures sidebar.
+     */
+    private function listOutrightSports(): void
+    {
+        try {
+            $rows = $this->db->findMany('outrights', ['status' => 'open'], ['projection' => ['sportKey' => 1, 'eventName' => 1], 'limit' => 1000]);
+            $bySport = [];
+            foreach ($rows as $r) {
+                $sk = (string) ($r['sportKey'] ?? '');
+                if ($sk === '') continue;
+                $bySport[$sk] = ($bySport[$sk] ?? 0) + 1;
+            }
+            $out = [];
+            foreach ($bySport as $sportKey => $count) {
+                $out[] = ['sportKey' => $sportKey, 'count' => $count];
+            }
+            Response::json($out, 200, 'public, max-age=60, stale-while-revalidate=120');
+        } catch (Throwable $e) {
+            Logger::exception($e, 'listOutrightSports failed');
+            Response::json([], 200, self::NO_STORE_HEADER);
+        }
     }
 
     private function getMatches(): void

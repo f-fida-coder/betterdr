@@ -915,6 +915,11 @@ final class SportsbookBetSupport
         $americanOdds = isset($selection['oddsAmerican']) && is_numeric($selection['oddsAmerican'])
             ? (int) $selection['oddsAmerican']
             : null;
+        // Outright bets carry an outrightId pointing at the outrights row.
+        // OutrightSettlementService finds pending legs via the
+        // idx_betselections_outright_status index on j_outright_id; if we
+        // drop the field here, settlement would never find them.
+        $outrightId = (string) ($selection['outrightId'] ?? '');
         return [
             'id' => $rowId,
             'betId' => $betId,
@@ -923,6 +928,7 @@ final class SportsbookBetSupport
             'betType' => $betType,
             'selectionOrder' => $index,
             'matchId' => SqlRepository::id((string) ($selection['matchId'] ?? '')),
+            'outrightId' => $outrightId !== '' ? SqlRepository::id($outrightId) : null,
             'selection' => (string) ($selection['selection'] ?? ''),
             'odds' => self::num($selection['odds'] ?? 0),
             'oddsAmerican' => $americanOdds,

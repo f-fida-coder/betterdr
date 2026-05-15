@@ -114,6 +114,43 @@ while (true) {
         $logWorker('error', sprintf("[%s] update failed: %s", $ts, $e->getMessage()));
     }
 
+    // Outrights + participants run on long cadences (6h / 24h by default)
+    // and self-throttle via state files — calling them every cycle is cheap.
+    // They live OUTSIDE the main updateMatches path so a stalled prematch
+    // sync doesn't also stall futures, and so quota for futures is metered
+    // separately from the live odds path.
+    try {
+        $repoOutrights = new SqlRepository($dbUri, $dbName);
+        $outright = OddsSyncService::updateOutrights($repoOutrights);
+        if (($outright['attempted'] ?? []) !== []) {
+            $logWorker('info', sprintf(
+                "[%s] outrights tick attempted=%d skipped=%d",
+                $ts,
+                count($outright['attempted'] ?? []),
+                (int) ($outright['skipped'] ?? 0)
+            ));
+        }
+        unset($repoOutrights);
+    } catch (Throwable $e) {
+        $logWorker('error', sprintf("[%s] outrights tick failed: %s", $ts, $e->getMessage()));
+    }
+
+    try {
+        $repoParticipants = new SqlRepository($dbUri, $dbName);
+        $participants = OddsSyncService::updateParticipants($repoParticipants);
+        if (($participants['attempted'] ?? []) !== []) {
+            $logWorker('info', sprintf(
+                "[%s] participants tick attempted=%d skipped=%d",
+                $ts,
+                count($participants['attempted'] ?? []),
+                (int) ($participants['skipped'] ?? 0)
+            ));
+        }
+        unset($repoParticipants);
+    } catch (Throwable $e) {
+        $logWorker('error', sprintf("[%s] participants tick failed: %s", $ts, $e->getMessage()));
+    }
+
     // Run the settlement sweep on its own, independent of the odds-sync
     // outcome above. The sweep inside OddsSyncService::updateMatches only
     // fires when upstream calls succeed — if the API is down, rate-limited,

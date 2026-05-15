@@ -150,7 +150,140 @@ final class OddsMarketCatalog
                 'player_shots', 'player_assists',
             ],
         ],
+        'basketball_wnba' => [
+            'extended' => [
+                'alternate_spreads', 'alternate_totals', 'team_totals',
+                'h2h_q1', 'h2h_q2', 'h2h_q3', 'h2h_q4',
+                'h2h_h1', 'h2h_h2',
+                'spreads_q1', 'spreads_q2', 'spreads_q3', 'spreads_q4',
+                'spreads_h1', 'spreads_h2',
+                'totals_q1', 'totals_q2', 'totals_q3', 'totals_q4',
+                'totals_h1', 'totals_h2',
+            ],
+            'props' => [
+                'player_points', 'player_rebounds', 'player_assists', 'player_threes',
+                'player_blocks', 'player_steals', 'player_turnovers',
+                'player_points_rebounds_assists', 'player_points_rebounds',
+                'player_points_assists', 'player_rebounds_assists',
+                'player_points_alternate', 'player_rebounds_alternate',
+                'player_assists_alternate', 'player_threes_alternate',
+            ],
+        ],
+        'basketball_euroleague' => [
+            'extended' => [
+                'alternate_spreads', 'alternate_totals', 'team_totals',
+                'h2h_q1', 'h2h_q2', 'h2h_q3', 'h2h_q4',
+                'h2h_h1', 'h2h_h2',
+                'spreads_q1', 'spreads_q2', 'spreads_q3', 'spreads_q4',
+                'spreads_h1', 'spreads_h2',
+                'totals_q1', 'totals_q2', 'totals_q3', 'totals_q4',
+                'totals_h1', 'totals_h2',
+            ],
+            'props' => [
+                'player_points', 'player_rebounds', 'player_assists', 'player_threes',
+                'player_blocks', 'player_steals',
+                'player_points_rebounds_assists', 'player_points_rebounds',
+                'player_points_assists', 'player_rebounds_assists',
+            ],
+        ],
+        // Generic basketball fallback for any league not explicitly listed.
+        // Conservative — only the markets that are widely supported across
+        // bookmakers for any pro/college basketball league.
+        'basketball_default' => [
+            'extended' => [
+                'alternate_spreads', 'alternate_totals', 'team_totals',
+                'h2h_h1', 'h2h_h2', 'spreads_h1', 'spreads_h2',
+                'totals_h1', 'totals_h2',
+            ],
+            'props' => [
+                'player_points', 'player_rebounds', 'player_assists', 'player_threes',
+                'player_points_rebounds_assists',
+            ],
+        ],
+        // Tennis fallback for ATP/WTA tournaments. Tennis events use
+        // sets/games scoring; per-set markets are common with US books.
+        // Player props are sparse; only request widely-supported ones.
+        'tennis_default' => [
+            'extended' => [
+                'alternate_spreads', 'alternate_totals',
+                'h2h_set1', 'h2h_set2', 'h2h_set3',
+                'spreads_set1', 'spreads_set2',
+                'totals_set1', 'totals_set2',
+                'totals_games', 'totals_sets', 'spreads_games',
+            ],
+            'props' => [
+                'player_aces', 'player_double_faults',
+                'player_games_won', 'player_sets_won',
+                'player_break_points_won',
+            ],
+        ],
+        // Cricket fallback for IPL / ODI / Test / PSL etc. The Odds API
+        // exposes h2h plus a small set of player markets per innings; keys
+        // not supported by upstream are ignored at request time.
+        'cricket_default' => [
+            'extended' => [
+                'alternate_spreads', 'alternate_totals',
+                'totals_1st_1_overs', 'totals_1st_5_overs', 'totals_1st_10_overs',
+            ],
+            'props' => [
+                'batsman_runs', 'batsman_fours', 'batsman_sixes',
+                'bowler_total_wickets', 'bowler_runs_conceded',
+                'player_top_batsman', 'player_top_bowler',
+                'player_man_of_the_match',
+            ],
+        ],
+        // Combat sports — h2h is the primary market; method/round props
+        // vary by book. List the common keys; the API drops unsupported
+        // ones silently per bookmaker.
+        'mma_mixed_martial_arts' => [
+            'extended' => [
+                'h2h_3_way',
+            ],
+            'props' => [
+                'method_of_victory', 'round_betting',
+                'fight_to_go_distance', 'fight_result_method',
+                'winning_round',
+            ],
+        ],
+        'boxing_boxing' => [
+            'extended' => [
+                'h2h_3_way',
+            ],
+            'props' => [
+                'method_of_victory', 'round_betting',
+                'fight_to_go_distance', 'fight_result_method',
+                'winning_round',
+            ],
+        ],
     ];
+
+    /**
+     * Resolve a CATALOG entry for a sport key, applying prefix-based
+     * fallbacks for league families (soccer, basketball, tennis, cricket).
+     * Returns null if no specific or default entry exists — sports like
+     * F1/NASCAR have outright-only markets and don't appear here.
+     *
+     * @return array{extended:string[], props:string[]}|null
+     */
+    private static function resolveEntry(string $sportKey): ?array
+    {
+        if (isset(self::CATALOG[$sportKey])) {
+            return self::CATALOG[$sportKey];
+        }
+        if (str_starts_with($sportKey, 'soccer_')) {
+            return self::CATALOG['soccer_default'] ?? null;
+        }
+        if (str_starts_with($sportKey, 'basketball_')) {
+            return self::CATALOG['basketball_default'] ?? null;
+        }
+        if (str_starts_with($sportKey, 'tennis_')) {
+            return self::CATALOG['tennis_default'] ?? null;
+        }
+        if (str_starts_with($sportKey, 'cricket_')) {
+            return self::CATALOG['cricket_default'] ?? null;
+        }
+        return null;
+    }
 
     /**
      * Returns the extended (period + alternate) markets supported for a sport key.
@@ -159,10 +292,7 @@ final class OddsMarketCatalog
      */
     public static function extendedMarkets(string $sportKey): array
     {
-        $entry = self::CATALOG[$sportKey] ?? null;
-        if ($entry === null && str_starts_with($sportKey, 'soccer_')) {
-            $entry = self::CATALOG['soccer_default'];
-        }
+        $entry = self::resolveEntry($sportKey);
         return is_array($entry['extended'] ?? null) ? $entry['extended'] : [];
     }
 
@@ -173,10 +303,7 @@ final class OddsMarketCatalog
      */
     public static function propMarkets(string $sportKey): array
     {
-        $entry = self::CATALOG[$sportKey] ?? null;
-        if ($entry === null && str_starts_with($sportKey, 'soccer_')) {
-            $entry = self::CATALOG['soccer_default'];
-        }
+        $entry = self::resolveEntry($sportKey);
         return is_array($entry['props'] ?? null) ? $entry['props'] : [];
     }
 
@@ -197,11 +324,27 @@ final class OddsMarketCatalog
 
     /**
      * Returns true if the market key is a player-prop market.
+     *
+     * Prefixes:
+     *   player_   — most sports (NBA, NFL, NHL, soccer, tennis)
+     *   batter_   — MLB hitter props
+     *   pitcher_  — MLB pitcher props
+     *   batsman_  — cricket batter props
+     *   bowler_   — cricket bowler props
+     * Combat-sports markets (method_of_victory, round_betting, fight_*,
+     * winning_round) are also classified as props since they describe
+     * how a fight ends rather than the result line.
      */
     public static function isPropMarket(string $marketKey): bool
     {
         return str_starts_with($marketKey, 'player_')
             || str_starts_with($marketKey, 'batter_')
-            || str_starts_with($marketKey, 'pitcher_');
+            || str_starts_with($marketKey, 'pitcher_')
+            || str_starts_with($marketKey, 'batsman_')
+            || str_starts_with($marketKey, 'bowler_')
+            || str_starts_with($marketKey, 'fight_')
+            || $marketKey === 'method_of_victory'
+            || $marketKey === 'round_betting'
+            || $marketKey === 'winning_round';
     }
 }

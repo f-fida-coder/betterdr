@@ -4,10 +4,13 @@ import DashboardSidebar from './DashboardSidebar';
 import DashboardMain from './DashboardMain';
 import MobileGridMenu from './MobileGridMenu';
 import MobileContentView from './MobileContentView';
+import OutrightsView from './OutrightsView';
+import ErrorBoundary from './ErrorBoundary';
 import PromoCard from './PromoCard';
 import ChatWidget from './ChatWidget';
 import ModeBetPanel from './ModeBetPanel';
 import LoadingSpinner from './LoadingSpinner';
+import { findSportItemById } from '../data/sportsData';
 
 const CasinoView = React.lazy(() => import('./CasinoView'));
 const LiveCasinoView = React.lazy(() => import('./LiveCasinoView'));
@@ -64,6 +67,17 @@ function UserDashboardShell({
   }, []);
   const tabsBarHidden = dashboardView !== 'dashboard' && !betslipOpen;
 
+  // Mobile parity with DashboardMain: when the primary selected sidebar item
+  // is a futures/outrights entry, render OutrightsView instead of the regular
+  // match-list (MobileContentView), which only knows about live/upcoming
+  // h2h/spread/total markets and shows an empty state for futures.
+  const primarySelectedId = Array.isArray(selectedSports) && selectedSports.length > 0 ? selectedSports[0] : null;
+  const primarySelectedItem = primarySelectedId ? findSportItemById(primarySelectedId) : null;
+  const isFuturesSelection = primarySelectedItem?.type === 'futures';
+  const futuresSportKey = isFuturesSelection && Array.isArray(primarySelectedItem.sportKeys) && primarySelectedItem.sportKeys.length > 0
+    ? primarySelectedItem.sportKeys[0]
+    : '';
+
   return (
     <div className={`dashboard-layout ${tabsBarHidden ? 'no-bet-tabs' : ''}`}>
       <DashboardHeader
@@ -109,7 +123,13 @@ function UserDashboardShell({
 
         {dashboardView === 'dashboard' && (
           <>
-            {isMobileViewport && mobileViewState === 'results' ? (
+            {isMobileViewport && mobileViewState === 'results' && isFuturesSelection ? (
+              <div style={{ flex: 1, overflowY: 'auto' }}>
+                <ErrorBoundary>
+                  <OutrightsView sportKey={futuresSportKey} title={primarySelectedItem.label || 'Futures'} />
+                </ErrorBoundary>
+              </div>
+            ) : isMobileViewport && mobileViewState === 'results' ? (
               <MobileContentView
                 selectedSports={selectedSports}
                 activeBetMode={betMode}

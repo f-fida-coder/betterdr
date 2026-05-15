@@ -79,6 +79,7 @@ $hotClasses = [
     'AgentSettlementRules.php',
     'AgentSettlementSnapshotService.php',
     'BetSettlementService.php',
+    'OutrightSettlementService.php',
     'RoundRobinService.php',
     'BetVoidRefund.php',
     'BalanceUpdateService.php',

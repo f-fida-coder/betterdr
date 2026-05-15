@@ -216,13 +216,25 @@ final class BetsController
                     ]);
                 }
                 try {
-                    $validatedSelections[] = $this->validateSelection(
-                        trim((string) ($sel['matchId'] ?? '')),
-                        trim((string) ($sel['selection'] ?? '')),
-                        $sel['odds'] ?? null,
-                        BetModeRules::normalize((string) ($sel['type'] ?? ($sel['marketType'] ?? 'straight'))),
-                        $boughtPoints
-                    );
+                    $selType = BetModeRules::normalize((string) ($sel['type'] ?? ($sel['marketType'] ?? 'straight')));
+                    if ($selType === 'outrights') {
+                        // Outright legs bypass the match-doc lookup entirely;
+                        // they're priced off the `outrights` table and have
+                        // no live status / freshness gate to worry about.
+                        $validatedSelections[] = $this->validateOutrightSelection(
+                            trim((string) ($sel['matchId'] ?? ($sel['outrightId'] ?? ''))),
+                            trim((string) ($sel['selection'] ?? '')),
+                            $sel['odds'] ?? null
+                        );
+                    } else {
+                        $validatedSelections[] = $this->validateSelection(
+                            trim((string) ($sel['matchId'] ?? '')),
+                            trim((string) ($sel['selection'] ?? '')),
+                            $sel['odds'] ?? null,
+                            $selType,
+                            $boughtPoints
+                        );
+                    }
                 } catch (ApiException $e) {
                     $details = $e->payload();
                     if (($details['code'] ?? null) === 'ODDS_CHANGED') {
@@ -1764,6 +1776,135 @@ final class BetsController
         return $formatted;
     }
 
+    /**
+     * Outright bet validator. Distinct from validateSelection() because:
+     *   - Looks up `outrights` table, not `matches`.
+     *   - No betting-availability / freshness refresh path (no live status).
+     *   - Outcomes live under primaryBookmaker.markets[0].outcomes (the
+     *     'outrights' market) rather than match.odds.markets.
+     *
+     * Returns the same shape as validateSelection() so the placement loop
+     * can treat outright legs identically downstream.
+     *
+     * @return array<string, mixed>
+     */
+    private function validateOutrightSelection(string $outrightId, string $selection, mixed $odds): array
+    {
+        if (preg_match('/^[a-f0-9]{24}$/i', $outrightId) !== 1) {
+            throw new ApiException('Outright not found: ' . $outrightId, 404);
+        }
+        $outright = $this->db->findOne('outrights', ['id' => SqlRepository::id($outrightId)]);
+        if ($outright === null) {
+            throw new ApiException('Outright not found: ' . $outrightId, 404);
+        }
+        $status = strtolower((string) ($outright['status'] ?? 'open'));
+        if ($status !== 'open') {
+            throw new ApiException('Outright market is not open for betting', 409, [
+                'code' => 'OUTRIGHT_NOT_BETTABLE',
+                'outrightStatus' => $status,
+            ]);
+        }
+
+        // Pull outcomes from the first bookmaker that posted an 'outrights'
+        // market — same picker the public listOutrights endpoint uses.
+        $books = is_array($outright['bookmakers'] ?? null) ? $outright['bookmakers'] : [];
+        $outcomes = [];
+        foreach ($books as $book) {
+            $markets = is_array($book['markets'] ?? null) ? $book['markets'] : [];
+            foreach ($markets as $m) {
+                if (is_array($m) && ($m['key'] ?? '') === 'outrights' && is_array($m['outcomes'] ?? null)) {
+                    $outcomes = $m['outcomes'];
+                    break 2;
+                }
+            }
+        }
+        if ($outcomes === []) {
+            throw new ApiException('No outright prices posted for this event', 409, [
+                'code' => 'OUTRIGHT_MARKET_UNAVAILABLE',
+            ]);
+        }
+
+        $outcome = null;
+        foreach ($outcomes as $candidate) {
+            if (!is_array($candidate)) continue;
+            $name = (string) ($candidate['name'] ?? '');
+            if ($name !== '' && strcasecmp($name, $selection) === 0) {
+                $outcome = $candidate;
+                break;
+            }
+        }
+        if (!is_array($outcome) || !isset($outcome['price'])) {
+            throw new ApiException('Selection ' . $selection . ' not available for ' . ($outright['eventName'] ?? 'this market'), 409, [
+                'code' => 'SELECTION_UNAVAILABLE',
+            ]);
+        }
+
+        // Same odds-snapping pipeline as match bets — keep American integer
+        // canonical, derive exact decimal from it for clean Risk/Win math.
+        $snappedOdds = SportsbookBetSupport::snapDecimalOdds($outcome['price']);
+        $officialAmericanInt = SportsbookBetSupport::decimalToAmericanInt($snappedOdds);
+        if ($officialAmericanInt === 0) {
+            throw new ApiException('Invalid odds for selection ' . $selection, 409, ['code' => 'INVALID_ODDS']);
+        }
+        $officialOdds = SportsbookBetSupport::americanToDecimalExact($officialAmericanInt);
+        if (!is_finite($officialOdds) || $officialOdds <= 1.0) {
+            throw new ApiException('Invalid odds for selection ' . $selection, 409, ['code' => 'INVALID_ODDS']);
+        }
+        if (abs($officialAmericanInt) > 1000000) {
+            throw new ApiException('Odds exceed maximum allowed value for selection ' . $selection, 409, ['code' => 'ODDS_EXCEEDS_MAX']);
+        }
+
+        if (is_numeric($odds)) {
+            $clientSnapped = SportsbookBetSupport::snapDecimalOdds((float) $odds);
+            $clientAmericanInt = SportsbookBetSupport::decimalToAmericanInt($clientSnapped);
+            if ($clientAmericanInt !== 0 && $clientAmericanInt !== $officialAmericanInt) {
+                throw new ApiException('Odds changed. Please review the updated price before placing the bet.', 409, [
+                    'code' => 'ODDS_CHANGED',
+                    'officialOdds' => $officialOdds,
+                    'officialAmericanOdds' => $officialAmericanInt,
+                    'selection' => (string) ($outcome['name'] ?? $selection),
+                    'matchId' => $outrightId,
+                ]);
+            }
+        }
+
+        // Stash a minimal snapshot so receipts / settlement audits can
+        // reconstruct what the user saw at placement without re-fetching
+        // the (eventually overwritten) outrights row.
+        // homeTeam/awayTeam mirror match-bet shape so descriptionForSelections
+        // and the My Bets renderer don't print "Match vs ". For an outright,
+        // there's no second team — we put the event name in homeTeam and the
+        // picked outcome in awayTeam so the description reads as
+        // "NFL Super Bowl Winner vs Los Angeles Rams | OUTRIGHTS | ...".
+        $eventName = (string) ($outright['eventName'] ?? '');
+        $snapshot = [
+            'id' => (string) ($outright['id'] ?? $outrightId),
+            'sportKey' => (string) ($outright['sportKey'] ?? ''),
+            'eventId' => (string) ($outright['eventId'] ?? ''),
+            'eventName' => $eventName,
+            'commenceTime' => $outright['commenceTime'] ?? null,
+            'status' => 'open',
+            'homeTeam' => $eventName,
+            'awayTeam' => (string) ($outcome['name'] ?? $selection),
+        ];
+
+        return [
+            // Reuse `matchId` as the source-row pointer so the existing
+            // betselections.j_match_id index still locates rows; the
+            // separate `outrightId` field is the canonical futures pointer
+            // for OutrightSettlementService.
+            'matchId' => $outrightId,
+            'outrightId' => $outrightId,
+            'selection' => (string) ($outcome['name'] ?? $selection),
+            'odds' => $officialOdds,
+            'oddsAmerican' => $officialAmericanInt,
+            'marketType' => 'outrights',
+            'point' => null,
+            'matchSnapshot' => $snapshot,
+            'isOutright' => true,
+        ];
+    }
+
     private function validateSelection(string $matchId, string $selection, mixed $odds, string $type, float $boughtPoints = 0.0): array
     {
         if (preg_match('/^[a-f0-9]{24}$/i', $matchId) !== 1) {
@@ -2044,8 +2185,14 @@ final class BetsController
 
     private function selectionForInsert(array $selection): array
     {
+        $isOutright = ($selection['marketType'] ?? '') === 'outrights' || !empty($selection['isOutright']);
         return [
             'matchId' => SqlRepository::id((string) $selection['matchId']),
+            // Mirror matchId into outrightId for outright legs so
+            // OutrightSettlementService can lookup via the indexed
+            // j_outright_id column (idx_betselections_outright_status).
+            // Null on non-outright legs — keeps the index sparse.
+            'outrightId' => $isOutright ? SqlRepository::id((string) ($selection['outrightId'] ?? $selection['matchId'])) : null,
             'selection' => $selection['selection'],
             'odds' => (float) $selection['odds'],
             'oddsAmerican' => isset($selection['oddsAmerican']) ? (int) $selection['oddsAmerican'] : null,

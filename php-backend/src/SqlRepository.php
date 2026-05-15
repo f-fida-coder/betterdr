@@ -1543,6 +1543,7 @@ KEY `idx_updated_at` (`updated_at`)
                 'j_market_type' => "ALTER TABLE `{$table}` ADD COLUMN `j_market_type` VARCHAR(64) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(`doc`, _utf8mb4'$.marketType'))) STORED",
                 'j_bet_type' => "ALTER TABLE `{$table}` ADD COLUMN `j_bet_type` VARCHAR(64) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(`doc`, _utf8mb4'$.betType'))) STORED",
                 'j_selection_order' => "ALTER TABLE `{$table}` ADD COLUMN `j_selection_order` INT GENERATED ALWAYS AS (CAST(COALESCE(NULLIF(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(`doc`, _utf8mb4'$.selectionOrder')), _utf8mb4''), _utf8mb4'null'), _utf8mb4'0') AS SIGNED)) STORED",
+                'j_outright_id' => "ALTER TABLE `{$table}` ADD COLUMN `j_outright_id` VARCHAR(64) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(`doc`, _utf8mb4'$.outrightId'))) STORED",
             ];
             foreach ($columns as $column => $sql) {
                 if (!$this->columnExists($table, $column)) {
@@ -1559,6 +1560,7 @@ KEY `idx_updated_at` (`updated_at`)
                 'idx_betselections_status' => "ALTER TABLE `{$table}` ADD KEY `idx_betselections_status` (`j_status`)",
                 'idx_betselections_match_status' => "ALTER TABLE `{$table}` ADD KEY `idx_betselections_match_status` (`j_match_id`, `j_status`)",
                 'idx_betselections_bet_order' => "ALTER TABLE `{$table}` ADD KEY `idx_betselections_bet_order` (`j_bet_id`, `j_selection_order`)",
+                'idx_betselections_outright_status' => "ALTER TABLE `{$table}` ADD KEY `idx_betselections_outright_status` (`j_outright_id`, `j_status`)",
             ];
             foreach ($indexes as $index => $sql) {
                 if (!$this->indexExists($table, $index)) {
@@ -1615,6 +1617,62 @@ KEY `idx_updated_at` (`updated_at`)
                 }
             }
 
+            return;
+        }
+
+        if ($collection === 'participants') {
+            $columns = [
+                'j_sport_key' => "ALTER TABLE `{$table}` ADD COLUMN `j_sport_key` VARCHAR(128) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(`doc`, _utf8mb4'$.sportKey'))) STORED",
+                'j_participant_id' => "ALTER TABLE `{$table}` ADD COLUMN `j_participant_id` VARCHAR(128) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(`doc`, _utf8mb4'$.participantId'))) STORED",
+                'j_full_name' => "ALTER TABLE `{$table}` ADD COLUMN `j_full_name` VARCHAR(255) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(`doc`, _utf8mb4'$.fullName'))) STORED",
+                'j_type' => "ALTER TABLE `{$table}` ADD COLUMN `j_type` VARCHAR(32) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(`doc`, _utf8mb4'$.type'))) STORED",
+            ];
+            foreach ($columns as $column => $sql) {
+                if (!$this->columnExists($table, $column)) {
+                    $this->pdo->exec($sql);
+                    self::$columnExistsCache[$table . '.' . $column] = true;
+                }
+            }
+            $indexes = [
+                'idx_participants_sport_key' => "ALTER TABLE `{$table}` ADD KEY `idx_participants_sport_key` (`j_sport_key`)",
+                'idx_participants_sport_pid' => "ALTER TABLE `{$table}` ADD KEY `idx_participants_sport_pid` (`j_sport_key`, `j_participant_id`)",
+                'idx_participants_full_name' => "ALTER TABLE `{$table}` ADD KEY `idx_participants_full_name` (`j_full_name`)",
+            ];
+            foreach ($indexes as $index => $sql) {
+                if (!$this->indexExists($table, $index)) {
+                    $this->pdo->exec($sql);
+                    self::$indexExistsCache[$table . '.' . $index] = true;
+                }
+            }
+            return;
+        }
+
+        if ($collection === 'outrights') {
+            $columns = [
+                'j_sport_key' => "ALTER TABLE `{$table}` ADD COLUMN `j_sport_key` VARCHAR(128) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(`doc`, _utf8mb4'$.sportKey'))) STORED",
+                'j_event_id' => "ALTER TABLE `{$table}` ADD COLUMN `j_event_id` VARCHAR(128) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(`doc`, _utf8mb4'$.eventId'))) STORED",
+                'j_event_name' => "ALTER TABLE `{$table}` ADD COLUMN `j_event_name` VARCHAR(255) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(`doc`, _utf8mb4'$.eventName'))) STORED",
+                'j_status' => "ALTER TABLE `{$table}` ADD COLUMN `j_status` VARCHAR(32) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(`doc`, _utf8mb4'$.status'))) STORED",
+                'j_commence_time_dt' => "ALTER TABLE `{$table}` ADD COLUMN `j_commence_time_dt` DATETIME GENERATED ALWAYS AS (STR_TO_DATE(REPLACE(REPLACE(JSON_UNQUOTE(JSON_EXTRACT(`doc`, _utf8mb4'$.commenceTime')), _utf8mb4'T', _utf8mb4' '), _utf8mb4'Z', _utf8mb4''), _utf8mb4'%Y-%m-%d %H:%i:%s')) STORED",
+            ];
+            foreach ($columns as $column => $sql) {
+                if (!$this->columnExists($table, $column)) {
+                    $this->pdo->exec($sql);
+                    self::$columnExistsCache[$table . '.' . $column] = true;
+                }
+            }
+            $indexes = [
+                'idx_outrights_sport_key' => "ALTER TABLE `{$table}` ADD KEY `idx_outrights_sport_key` (`j_sport_key`)",
+                'idx_outrights_event_id' => "ALTER TABLE `{$table}` ADD KEY `idx_outrights_event_id` (`j_event_id`)",
+                'idx_outrights_status' => "ALTER TABLE `{$table}` ADD KEY `idx_outrights_status` (`j_status`)",
+                'idx_outrights_sport_commence' => "ALTER TABLE `{$table}` ADD KEY `idx_outrights_sport_commence` (`j_sport_key`, `j_commence_time_dt`)",
+            ];
+            foreach ($indexes as $index => $sql) {
+                if (!$this->indexExists($table, $index)) {
+                    $this->pdo->exec($sql);
+                    self::$indexExistsCache[$table . '.' . $index] = true;
+                }
+            }
             return;
         }
     }
