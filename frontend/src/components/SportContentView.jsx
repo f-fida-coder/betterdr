@@ -18,6 +18,11 @@ import {
     getMarketOutcomeByName,
     parseOddsNumber,
 } from '../utils/odds';
+import {
+    FULL_PERIOD,
+    getPeriodsForSport,
+    scanMarketsForSuffixes,
+} from '../utils/periods';
 import PropBuilderModal from './PropBuilderModal';
 import MatchDetailView from './MatchDetailView';
 import OddsAge from './OddsAge';
@@ -83,6 +88,11 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
 
     const [content, setContent] = useState({ name: '', icon: '', matches: [] });
     const [isLoading, setIsLoading] = useState(true);
+    // Period chip strip state — Game / 1H / 2H / 1Q / 2Q / 3Q / 4Q etc.
+    // Matches the mobile pattern: which markets actually exist in the
+    // current rawMatches set drives which chips render; FULL_PERIOD
+    // always renders so the user never loses the Full Game tab.
+    const [selectedPeriodId, setSelectedPeriodId] = useState('full');
     const loadGenRef = React.useRef(0);
     // Tracks whether the current scope has had a fetch resolve yet. While
     // false, we keep the loading skeleton on screen even if rawMatches
@@ -103,6 +113,36 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
         }
         return [...keys];
     }, [content.matches]);
+
+    // Period chip strip: scan rawMatches for which period suffixes the
+    // backend has actually synced (e.g. `_q1`, `_h1`). Always include the
+    // empty suffix so the Game chip never disappears. Only chips whose
+    // suffix is present render — so a sport without quarter sync doesn't
+    // show a dead Q1 chip.
+    const availableSuffixes = React.useMemo(() => {
+        const set = new Set(['']);
+        (rawMatches || []).forEach((match) => {
+            scanMarketsForSuffixes(match?.odds?.markets, set);
+            scanMarketsForSuffixes(match?.odds?.extendedMarkets, set);
+        });
+        return set;
+    }, [rawMatches]);
+
+    const periods = React.useMemo(() => {
+        const preset = getPeriodsForSport(sportId);
+        return preset.filter((p) => p.id === 'full' || availableSuffixes.has(p.suffix));
+    }, [sportId, availableSuffixes]);
+
+    // Snap back to FULL whenever the active period vanishes from the
+    // available set (e.g. sport change drops a chip we were on).
+    React.useEffect(() => {
+        if (selectedPeriodId === 'full') return;
+        if (!periods.some((p) => p.id === selectedPeriodId)) {
+            setSelectedPeriodId('full');
+        }
+    }, [selectedPeriodId, periods]);
+
+    const activePeriod = periods.find((p) => p.id === selectedPeriodId) || FULL_PERIOD;
     const { showToast } = useToast();
     const { trigger: triggerRefresh, isRefreshing, cooldownRemainingSec } = useSportOddsRefresh(visibleSportKeys, { showToast });
     // 2-second cooldown so users can't spam-click the Refresh button. The
@@ -553,9 +593,16 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
             // }
 
             const extractOdds = (match, homeName, awayName) => {
-                const h2h = getMatchMarket(match, 'h2h');
-                const spreads = getMatchMarket(match, 'spreads');
-                const totals = getMatchMarket(match, 'totals');
+                // Period-aware market lookup: suffix is '' for Full Game,
+                // '_q1' for 1Q, '_h1' for 1H, etc. extendedMarkets contains
+                // the suffixed entries; the base markets[] array holds the
+                // full-game equivalents. getMatchMarkets() folds them
+                // together, so a single getMatchMarket(`h2h_q1`) reads the
+                // right one regardless of where it lives.
+                const suffix = activePeriod.suffix || '';
+                const h2h = getMatchMarket(match, `h2h${suffix}`);
+                const spreads = getMatchMarket(match, `spreads${suffix}`);
+                const totals = getMatchMarket(match, `totals${suffix}`);
 
                 const h2hHome = getMarketOutcomeByName(h2h, homeName);
                 const h2hAway = getMarketOutcomeByName(h2h, awayName);
@@ -643,7 +690,9 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
 
         processMatches();
 
-    }, [sportId, filter, rawMatches]);
+    // activePeriod.suffix included so flipping the chip recomputes odds.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [sportId, filter, rawMatches, activePeriod.suffix]);
 
     React.useEffect(() => {
         const names = Array.from(new Set(
@@ -759,6 +808,24 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                     <button className="tab-btn" disabled>Scoreboards</button>
                 </div>
             </div>
+
+            {periods.length > 1 && (
+                <div style={periodStripStyle}>
+                    {periods.map((p) => {
+                        const isActive = p.id === selectedPeriodId;
+                        return (
+                            <button
+                                key={p.id}
+                                type="button"
+                                onClick={() => setSelectedPeriodId(p.id)}
+                                style={isActive ? periodChipActiveStyle : periodChipStyle}
+                            >
+                                {p.label}
+                            </button>
+                        );
+                    })}
+                </div>
+            )}
 
             {activeTab === 'matches' && (
                 <div className="matches-section">
@@ -1026,6 +1093,38 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
             )}
         </div>
     );
+};
+
+const periodStripStyle = {
+    display: 'flex',
+    gap: 8,
+    padding: '10px 14px',
+    background: '#fff',
+    borderBottom: '1px solid #e5e7eb',
+    overflowX: 'auto',
+    whiteSpace: 'nowrap',
+};
+
+const periodChipStyle = {
+    flexShrink: 0,
+    padding: '6px 14px',
+    minHeight: 32,
+    borderRadius: 16,
+    border: '1px solid #d1d5db',
+    background: '#fff',
+    color: '#374151',
+    fontSize: 12,
+    fontWeight: 700,
+    letterSpacing: '0.04em',
+    cursor: 'pointer',
+    textTransform: 'uppercase',
+};
+
+const periodChipActiveStyle = {
+    ...periodChipStyle,
+    background: '#ff5051',
+    borderColor: '#ff5051',
+    color: '#fff',
 };
 
 export default React.memo(SportContentView);
