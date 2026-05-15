@@ -932,6 +932,7 @@ final class OddsSyncService
         }
 
         $liveScoresBySport = [];
+        $completedScoresBySport = [];
         foreach (self::httpGetManyDetailed($scoreUrlsBySport) as $sportKey => $scoreResponse) {
             $raw = $scoreResponse['body'] ?? null;
             if (!is_string($raw) || $raw === '') {
@@ -953,6 +954,9 @@ final class OddsSyncService
                 }
                 $scoreEvent['_sportKey'] = $sportKey;
                 $liveScoresBySport[$sportKey][$externalId] = $scoreEvent;
+                if (($scoreEvent['completed'] ?? null) === true) {
+                    $completedScoresBySport[$sportKey][$externalId] = $scoreEvent;
+                }
                 $result['liveScoreEvents']++;
             }
         }
@@ -982,6 +986,7 @@ final class OddsSyncService
             $oddsUrlsBySport[$sportKey] = $apiBase . '/sports/' . rawurlencode($sportKey) . '/odds?' . http_build_query($query);
         }
 
+        $oddsProcessedExternalIds = [];
         foreach (self::httpGetManyDetailed($oddsUrlsBySport) as $sportKey => $oddsResponse) {
             $result['oddsCalls']++;
             $raw = $oddsResponse['body'] ?? null;
@@ -1012,29 +1017,65 @@ final class OddsSyncService
                 $awayTeam = (string) ($event['away_team'] ?? ($liveScoresBySport[$sportKey][$externalId]['away_team'] ?? 'Unknown Away'));
                 $mergedEvent = array_merge($event, $liveScoresBySport[$sportKey][$externalId]);
                 $statusAndScore = self::extractScoreAndStatus($mergedEvent, $homeTeam, $awayTeam);
-                $statusAndScore['status'] = 'live';
                 $doc = self::buildOddsDocument($event, $sportKey, $externalId, $homeTeam, $awayTeam, $statusAndScore);
-                $doc['status'] = 'live';
                 $doc['oddsSource'] = 'oddsapi';
+                $oddsProcessedExternalIds[$externalId] = true;
 
-                $existing = $db->findOne('matches', ['externalId' => $externalId], ['projection' => ['id' => 1, 'odds' => 1, 'status' => 1]]);
+                $existing = $db->findOne('matches', ['externalId' => $externalId], ['projection' => ['id' => 1, 'odds' => 1, 'status' => 1, 'score' => 1]]);
                 if ($existing === null) {
                     $doc['createdAt'] = SqlRepository::nowUtc();
-                    $db->insertOne('matches', $doc);
+                    $createdId = $db->insertOne('matches', $doc);
                     $result['created']++;
                     $result['perSport'][$sportKey]['created']++;
+                    if (($doc['status'] ?? '') === 'finished') {
+                        $result['finished']++;
+                        self::maybeSettleMatch($db, $createdId, 'finished');
+                    }
                 } else {
+                    $oldStatus = (string) ($existing['status'] ?? '');
+                    if ($oldStatus === 'finished') {
+                        $doc['status'] = 'finished';
+                    }
                     $existingOdds = is_array($existing['odds'] ?? null) ? $existing['odds'] : [];
                     if (isset($existingOdds['extendedMarkets']) && is_array($existingOdds['extendedMarkets'])) {
                         $doc['odds']['extendedMarkets'] = $existingOdds['extendedMarkets'];
                     }
+                    $existingScore = is_array($existing['score'] ?? null) ? $existing['score'] : [];
+                    $newScore = is_array($doc['score'] ?? null) ? $doc['score'] : [];
+                    if (self::scoreValuesDiffer($existingScore, $newScore)) {
+                        $doc['lastScoreChangedAt'] = SqlRepository::nowUtc();
+                    }
                     $db->updateOne('matches', ['id' => SqlRepository::id((string) $existing['id'])], $doc);
                     $result['updated']++;
                     $result['perSport'][$sportKey]['updated']++;
+                    if (($doc['status'] ?? '') === 'finished' || $oldStatus === 'finished') {
+                        $result['finished']++;
+                        self::maybeSettleMatch($db, (string) $existing['id'], 'finished');
+                    }
                 }
 
                 $result['perSport'][$sportKey]['withOdds']++;
                 $result['matches'][] = $doc;
+            }
+        }
+
+        // Completed games usually disappear from the odds feed immediately,
+        // which used to leave live bets waiting for the slower main sync (or
+        // the stuck-match healer). Drain completed score rows directly from
+        // the fast live score tick so tickets can settle as soon as the score
+        // API marks the event complete.
+        foreach ($completedScoresBySport as $sportKey => $scoreEvents) {
+            $result['perSport'][$sportKey] ??= ['live' => count($liveScoresBySport[$sportKey] ?? []), 'withOdds' => 0, 'created' => 0, 'updated' => 0];
+            foreach ($scoreEvents as $externalId => $scoreEvent) {
+                if (isset($oddsProcessedExternalIds[(string) $externalId])) {
+                    continue;
+                }
+                $updated = self::updateExistingMatchFromScoreEvent($db, (string) $externalId, $scoreEvent);
+                if (($updated['updated'] ?? false) === true) {
+                    $result['updated']++;
+                    $result['finished']++;
+                    $result['perSport'][$sportKey]['updated']++;
+                }
             }
         }
 
@@ -1869,9 +1910,6 @@ final class OddsSyncService
     private static function isOddsApiLiveScoreEvent(mixed $scoreEvent): bool
     {
         if (!is_array($scoreEvent)) {
-            return false;
-        }
-        if (($scoreEvent['completed'] ?? null) === true) {
             return false;
         }
         $scores = $scoreEvent['scores'] ?? null;
