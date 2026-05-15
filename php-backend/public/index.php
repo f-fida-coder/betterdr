@@ -37,7 +37,6 @@ require_once __DIR__ . '/../src/ApiQuotaGuard.php';
 require_once __DIR__ . '/../src/TeamNormalizer.php';
 require_once __DIR__ . '/../src/OddsSyncService.php';
 require_once __DIR__ . '/../src/RundownLiveService.php';
-require_once __DIR__ . '/../src/EspnScoreboardSync.php';
 require_once __DIR__ . '/../src/AuthController.php';
 require_once __DIR__ . '/../src/WalletController.php';
 require_once __DIR__ . '/../src/BetsController.php';

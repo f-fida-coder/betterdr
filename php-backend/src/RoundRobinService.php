@@ -21,8 +21,8 @@ declare(strict_types=1);
  *
  * REALTIME / NOTIFICATION POLICY (audit-confirmed 2026-05-05):
  *   - There is no per-bet realtime notification path today. RealtimeEventBus
- *     is only used for odds-feed events (OddsSyncService, EspnScoreboardSync);
- *     bet settlement reaches the client via /auth/me + getMyBets polling
+ *     is only used for odds-feed events (OddsSyncService); bet settlement
+ *     reaches the client via /auth/me + getMyBets polling
  *     and QueryCache invalidation, not push.
  *   - When/if a realtime per-bet event is added, it MUST be group-aware:
  *     check `parentGroupId` on the bet, and emit ONE event per group

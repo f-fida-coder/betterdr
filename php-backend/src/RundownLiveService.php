@@ -17,7 +17,6 @@ declare(strict_types=1);
  * Quota model (Starter $49 plan, 2M points/mo, 2 req/sec, 60s data delay):
  *   - 1 call returns all live events for a sport
  *   - Worker tick = 70s → matches the 60s data delay (no point polling faster)
- *   - Only ticks sports flagged live by ESPN meta tick (free signal)
  *   - At ~5 avg live sports × 70s cadence × 24h × 30d = ~185k calls/mo
  */
 final class RundownLiveService

@@ -914,7 +914,7 @@ const MobileContentView = ({
             const startDate = match.startTime ? new Date(match.startTime) : null;
             // Build a sportsbook-style label ("9TH INN", "3RD QTR 12:34",
             // "2ND PRD 8:42", "1ST H") from the score fields populated by
-            // EspnScoreboardSync (clock + period for in-progress games).
+            // the live odds writers (clock + period for in-progress games).
             // Format mirrors the reference book bettorjuice365 — ordinal
             // period + sport suffix, with the time clock appended for
             // sports that have one. Baseball deliberately omits the

@@ -26,7 +26,6 @@ require_once __DIR__ . '/../src/TeamNormalizer.php';
 require_once __DIR__ . '/../src/OddsSyncService.php';
 require_once __DIR__ . '/../src/RundownLiveService.php';
 require_once __DIR__ . '/../src/RealtimeEventBus.php';
-require_once __DIR__ . '/../src/EspnScoreboardSync.php';
 
 $projectRoot = dirname(__DIR__, 2);
 $phpBackendDir = dirname(__DIR__);
@@ -196,13 +195,6 @@ while (true) {
     // In hybrid mode the OddsAPI live writer skips the sports Rundown
     // is handling so the two never fight for the same match.
     $rundownSupportedSports = $rundownLiveOn ? RundownLiveService::supportedSportKeys() : [];
-    // ESPN scoreboard meta (records + broadcast strings) is fetched on a
-    // separate, slower cadence — see $espnMetaInterval below. The boolean
-    // toggle just lets ops disable the side-channel entirely if ESPN ever
-    // becomes flaky for the workload.
-    $espnMetaOn = strtolower((string) Env::get('LIVE_ODDS_ESPN_META', 'true')) === 'true';
-    $espnMetaInterval = max(60, (int) Env::get('ESPN_META_TICK_SECONDS', '300'));
-    $espnMetaNextRun = 0;
     $deadline = microtime(true) + $remaining;
     while (microtime(true) < $deadline) {
         $chunkStart = microtime(true);
@@ -248,26 +240,6 @@ while (true) {
             } catch (Throwable $e) {
                 $logWorker('error', 'oddsapi live tick failed: ' . $e->getMessage());
             }
-        }
-        if ($espnMetaOn && microtime(true) >= $espnMetaNextRun) {
-            try {
-                $repoLive = new SqlRepository($dbUri, $dbName);
-                $r = EspnScoreboardSync::tick($repoLive);
-                if (($r['updated'] ?? 0) > 0 || ($r['matched'] ?? 0) > 0 || ($r['errors'] ?? 0) > 0) {
-                    $logWorker('info', sprintf(
-                        "espn meta tick sports=%d events=%d matched=%d updated=%d errors=%d",
-                        (int) ($r['sportsTried'] ?? 0),
-                        (int) ($r['eventsSeen'] ?? 0),
-                        (int) ($r['matched'] ?? 0),
-                        (int) ($r['updated'] ?? 0),
-                        (int) ($r['errors'] ?? 0)
-                    ));
-                }
-                unset($repoLive);
-            } catch (Throwable $e) {
-                $logWorker('error', 'espn meta tick failed: ' . $e->getMessage());
-            }
-            $espnMetaNextRun = microtime(true) + $espnMetaInterval;
         }
         $chunkElapsed = microtime(true) - $chunkStart;
         $sleepFor = max(1, $liveTickSeconds - (int) round($chunkElapsed));

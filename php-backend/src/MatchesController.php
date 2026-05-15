@@ -431,8 +431,8 @@ final class MatchesController
 
     /**
      * Ensure every match row served to the frontend carries `homeTeamShort`
-     * and `awayTeamShort`. Idempotent — does nothing if the writer (OddsAPI
-     * sync or ESPN scoreboard sync) already populated them.
+     * and `awayTeamShort`. Idempotent — does nothing if the OddsAPI sync
+     * already populated them.
      *
      * @param array<string, mixed> $match
      * @return array<string, mixed>

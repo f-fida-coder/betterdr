@@ -838,7 +838,7 @@ final class DebugController
             // (ok/failed/skipped, counters, errors) lives in `lastTicks`
             // below, sourced from the tick_log table.
             $tickLast = [];
-            foreach (['oddsapi_live', 'prematch', 'espn_meta'] as $tickType) {
+            foreach (['oddsapi_live', 'prematch'] as $tickType) {
                 $entry = SharedFileCache::peek('live-tick-last', $tickType);
                 $ts = is_array($entry) && isset($entry['ts']) ? (int) $entry['ts'] : 0;
                 $tickLast[$tickType] = [

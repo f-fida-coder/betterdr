@@ -4,11 +4,9 @@ declare(strict_types=1);
 
 /**
  * Single source of truth for the short team name + record fields rendered on
- * the public odds board. The OddsAPI sync (pre-match feed) and the ESPN
- * scoreboard sync (records + broadcast metadata) push through these helpers
- * so the matches doc always carries `homeTeamShort`, `awayTeamShort`,
- * `homeTeamRecord`, `awayTeamRecord` regardless of which feed last touched
- * the row.
+ * the public odds board. The OddsAPI sync (pre-match feed) pushes through
+ * these helpers so the matches doc always carries `homeTeamShort` /
+ * `awayTeamShort` regardless of which feed last touched the row.
  */
 final class TeamNormalizer
 {
@@ -88,8 +86,8 @@ final class TeamNormalizer
      * Normalise a flat record string ("46-20" / "(46-20)" / "Record: 46-20-2")
      * into the canonical W-L (or W-L-T for tie sports) shape, or null if the
      * input doesn't parse. Lets feeds that ship a pre-formatted summary
-     * string (e.g. ESPN's `records[].summary`) hand it straight to this
-     * helper without copying the cleaning logic.
+     * string hand it straight to this helper without copying the cleaning
+     * logic.
      */
     public static function recordFromString(?string $raw, string $sportKey): ?string
     {
@@ -120,9 +118,9 @@ final class TeamNormalizer
         $globalMap = self::OVERRIDES['__GLOBAL__'];
         if (isset($globalMap[$key])) return $globalMap[$key];
 
-        // Some feeds ship the mascot directly (e.g. ESPN's `team.shortDisplayName`
-        // / `team.name`) — strongly preferred over splitting the full name
-        // (handles "Trail Blazers" / "Maple Leafs" without the override).
+        // Some feeds ship the mascot directly — strongly preferred over
+        // splitting the full name (handles "Trail Blazers" / "Maple Leafs"
+        // without the override).
         if ($mascot !== null) {
             $m = trim($mascot);
             if ($m !== '') return $m;

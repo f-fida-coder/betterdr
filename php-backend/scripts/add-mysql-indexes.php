@@ -154,7 +154,7 @@ $indexes = [
         'idx_matches_j_sport' => [
             'columns' => ['j_sport'],
             'type' => 'INDEX',
-            'description' => 'Sport-scoped queries (EspnScoreboardSync)',
+            'description' => 'Sport-scoped queries',
         ],
     ],
 ];

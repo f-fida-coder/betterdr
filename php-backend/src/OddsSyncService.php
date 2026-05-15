@@ -1573,10 +1573,7 @@ final class OddsSyncService
             'homeTeam' => $homeTeam,
             'awayTeam' => $awayTeam,
             // Short display names so the public odds board can render
-            // "Thunder" / "Suns" instead of the full city+mascot. Records
-            // come from ESPN's free scoreboard feed (OddsAPI doesn't carry
-            // them) and are merged in by EspnScoreboardSync without being
-            // touched here.
+            // "Thunder" / "Suns" instead of the full city+mascot.
             'homeTeamShort' => TeamNormalizer::shortName($homeTeam, $sportKey),
             'awayTeamShort' => TeamNormalizer::shortName($awayTeam, $sportKey),
             'startTime' => $event['commence_time'] ?? null,
