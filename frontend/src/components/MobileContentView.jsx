@@ -4,7 +4,7 @@ import useSportOddsRefresh from '../hooks/useSportOddsRefresh';
 import { syncLiveMatches, syncPrematchSport, getStoredAuthToken, getMyBets } from '../api';
 import { useToast } from '../contexts/ToastContext';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
-import { getSportKeywords, findSportItemById, sportLabelForKey } from '../data/sportsData';
+import { getSportKeywords, findSportItemById, sportLabelForKey, matchesSportKeyword } from '../data/sportsData';
 import {
     formatLineValue,
     formatOdds,
@@ -901,7 +901,10 @@ const MobileContentView = ({
                 const sport = String(match?.sport || '').toLowerCase();
                 const sportKey = String(match?.sportKey || '').toLowerCase();
                 const haystack = `${sport}|${sportKey}`;
-                if (!haystack.trim() || !sportKeywords.some((k) => haystack.includes(k))) return false;
+                // Token-boundary match (see sportsData.matchesSportKeyword)
+                // so the 'nba' keyword doesn't leak WNBA rows into the
+                // NBA filter via raw substring match.
+                if (!haystack.trim() || !sportKeywords.some((k) => matchesSportKeyword(haystack, k))) return false;
             }
             return true;
         });

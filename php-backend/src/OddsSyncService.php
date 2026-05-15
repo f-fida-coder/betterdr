@@ -136,7 +136,7 @@ final class OddsSyncService
      *
      * @return array{tier1: list<string>, tier2: list<string>, sportTier: array<string,string>, cadences: array{tier1:int,tier2:int,tier3:int}, tier3ExtendedSync: bool, tieringActive: bool}
      */
-    private static function tierConfig(): array
+    public static function tierConfig(): array
     {
         if (self::$tierCache !== null) return self::$tierCache;
 

@@ -31,6 +31,30 @@ const formatStartTime = (iso) => {
 };
 
 /**
+ * Map an odds-api sport key (e.g. `americanfootball_ncaaf_championship_winner`,
+ * `golf_masters_tournament_winner`) to the family/division it belongs to.
+ * Returned `id` is the grouping key (stable across renders); `label` and
+ * `emoji` drive the division heading the player sees.
+ */
+const sportFamilyFromKey = (sportKey) => {
+    const k = String(sportKey || '').toLowerCase();
+    if (k.startsWith('americanfootball')) return { id: 'football', label: 'FOOTBALL', emoji: '🏈' };
+    if (k.startsWith('basketball')) return { id: 'basketball', label: 'BASKETBALL', emoji: '🏀' };
+    if (k.startsWith('baseball')) return { id: 'baseball', label: 'BASEBALL', emoji: '⚾' };
+    if (k.startsWith('icehockey') || k.startsWith('hockey')) return { id: 'hockey', label: 'HOCKEY', emoji: '🏒' };
+    if (k.startsWith('soccer')) return { id: 'soccer', label: 'SOCCER', emoji: '⚽' };
+    if (k.startsWith('golf')) return { id: 'golf', label: 'GOLF', emoji: '⛳' };
+    if (k.startsWith('tennis')) return { id: 'tennis', label: 'TENNIS', emoji: '🎾' };
+    if (k.startsWith('mma') || k.startsWith('martialarts')) return { id: 'mma', label: 'MARTIAL ARTS', emoji: '🥊' };
+    if (k.startsWith('boxing')) return { id: 'boxing', label: 'BOXING', emoji: '🥊' };
+    if (k.startsWith('cricket')) return { id: 'cricket', label: 'CRICKET', emoji: '🏏' };
+    if (k.startsWith('rugbyleague') || k.startsWith('rugbyunion') || k.startsWith('rugby')) return { id: 'rugby', label: 'RUGBY', emoji: '🏉' };
+    if (k.startsWith('aussierules')) return { id: 'aussierules', label: 'AUSSIE RULES', emoji: '🏉' };
+    if (k.startsWith('lacrosse')) return { id: 'lacrosse', label: 'LACROSSE', emoji: '🥍' };
+    return { id: 'other', label: 'OTHER', emoji: '🏆' };
+};
+
+/**
  * Pick the first bookmaker's `outrights` market outcomes, sorted by price
  * (lowest decimal = strongest favorite first). Outright responses sometimes
  * also expose `outrights_lay`; we ignore those for display.
@@ -88,22 +112,42 @@ const OutrightsView = ({ sportKey = '', title = 'Futures' }) => {
         return () => { cancelled = true; };
     }, [sportKey]);
 
+    // Group rows by sport DIVISION (Football, Baseball, Basketball, …),
+    // not by raw odds-api sport key. Two NFL + NCAAF futures should sit
+    // under one "FOOTBALL" heading; NBA + WNBA under "BASKETBALL"; the
+    // three golf majors under "GOLF"; etc.
     const groups = useMemo(() => {
-        const bySport = new Map();
+        const byFamily = new Map();
         for (const row of rows) {
             const sk = row.sportKey || 'unknown';
-            if (!bySport.has(sk)) bySport.set(sk, []);
-            bySport.get(sk).push(row);
+            const family = sportFamilyFromKey(sk);
+            if (!byFamily.has(family.id)) {
+                byFamily.set(family.id, { ...family, events: [] });
+            }
+            byFamily.get(family.id).events.push(row);
         }
-        return [...bySport.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+        const ordered = [...byFamily.values()];
+        // Stable, opinionated division order — major US team sports first,
+        // then global/niche. Anything unmapped (e.g. cricket, rugby) falls
+        // to the end alphabetically.
+        const priority = ['football', 'basketball', 'baseball', 'hockey', 'soccer', 'golf', 'tennis', 'mma', 'boxing'];
+        ordered.sort((a, b) => {
+            const ai = priority.indexOf(a.id);
+            const bi = priority.indexOf(b.id);
+            if (ai === -1 && bi === -1) return a.label.localeCompare(b.label);
+            if (ai === -1) return 1;
+            if (bi === -1) return -1;
+            return ai - bi;
+        });
+        return ordered;
     }, [rows]);
 
     const subtitle = useMemo(() => {
         if (sportKey) return sportKey.replace(/_/g, ' ').toUpperCase();
-        const sportCount = groups.length;
+        const divisionCount = groups.length;
         const eventCount = rows.length;
         if (eventCount === 0) return 'Live & Upcoming';
-        return `${eventCount} market${eventCount === 1 ? '' : 's'} · ${sportCount} sport${sportCount === 1 ? '' : 's'}`;
+        return `${eventCount} market${eventCount === 1 ? '' : 's'} · ${divisionCount} division${divisionCount === 1 ? '' : 's'}`;
     }, [sportKey, groups.length, rows.length]);
 
     if (loading) {
@@ -139,17 +183,20 @@ const OutrightsView = ({ sportKey = '', title = 'Futures' }) => {
         <main className="dash-main" style={pageStyle}>
             <FuturesHeader title={title} subtitle={subtitle} />
             <div style={{ padding: '12px 12px 24px' }}>
-                {groups.map(([sk, events]) => (
-                    <section key={sk} style={{ marginBottom: 16 }}>
+                {groups.map((group) => (
+                    <section key={group.id} style={{ marginBottom: 20 }}>
                         {!sportKey && (
-                            <div style={groupLabelStyle}>{sk.replace(/_/g, ' ')}</div>
+                            <div style={divisionHeadingStyle}>
+                                <span style={{ fontSize: 16, marginRight: 8 }}>{group.emoji}</span>
+                                {group.label}
+                            </div>
                         )}
-                        {events.map((event) => {
+                        {group.events.map((event) => {
                             const outcomes = extractOutcomes(event.primaryBookmaker);
                             return (
                                 <article key={event.id || event.eventId} style={cardStyle}>
                                     <header style={cardHeaderStyle}>
-                                        <div style={cardTitleStyle}>{event.eventName || sk}</div>
+                                        <div style={cardTitleStyle}>{event.eventName || event.sportKey}</div>
                                         <div style={cardMetaStyle}>
                                             {formatStartTime(event.commenceTime)}
                                             {event.bookmakerCount > 0 && (
@@ -242,13 +289,19 @@ const futuresSubtitleStyle = {
     textTransform: 'uppercase',
 };
 
-const groupLabelStyle = {
-    fontSize: 11,
-    fontWeight: 800,
-    color: '#c2410c',
+const divisionHeadingStyle = {
+    fontSize: 13,
+    fontWeight: 900,
+    color: '#0f172a',
     textTransform: 'uppercase',
-    letterSpacing: '0.06em',
-    padding: '4px 4px 8px',
+    letterSpacing: '0.08em',
+    padding: '6px 10px',
+    marginBottom: 10,
+    background: 'linear-gradient(180deg, #fef3c7 0%, #fde68a 100%)',
+    borderLeft: '4px solid #ff5051',
+    borderRadius: 6,
+    display: 'flex',
+    alignItems: 'center',
 };
 
 const cardStyle = {

@@ -8,7 +8,7 @@ import { teaserSportGroup } from '../utils/teaserAdjustment';
 import { resolveBroadcast } from '../utils/broadcast';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { getSiteTimezone, getSiteTimezoneLabel } from '../utils/timezone';
-import { getSportKeywords, findSportItemById } from '../data/sportsData';
+import { getSportKeywords, findSportItemById, matchesSportKeyword } from '../data/sportsData';
 import {
     formatOdds,
     formatSpreadDisplay,
@@ -529,7 +529,10 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                 const sportKeyValue = String(m?.sportKey || '').toLowerCase();
                 if (!sportValue && !sportKeyValue) return false;
                 const haystack = `${sportValue}|${sportKeyValue}`;
-                return keywords.some(k => haystack.includes(k));
+                // Token-boundary match: avoids 'nba' substring-matching
+                // 'wnba' / 'basketball_wnba' and leaking WNBA into the NBA
+                // filter. See matchesSportKeyword in sportsData.js.
+                return keywords.some(k => matchesSportKeyword(haystack, k));
             });
 
             if (periodFilter) {

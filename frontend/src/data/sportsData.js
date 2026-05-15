@@ -233,6 +233,30 @@ export const getSportKeywords = (id) => {
 };
 
 /**
+ * Token-boundary check used by the match-list filter. `haystack` is
+ * `${sport}|${sportKey}` lowercased (e.g. `'wnba|basketball_wnba'`),
+ * `keyword` is one of the entries getSportKeywords() returned (e.g.
+ * `'nba'`). Naive `haystack.includes(keyword)` was wrong because
+ * `'wnba'.includes('nba')` is true — selecting NBA leaked WNBA rows
+ * into the list. This version requires the keyword to sit at a
+ * non-alphanumeric boundary (start, end, `_`, `|`, space, etc.), so
+ * `'nba'` matches `'basketball_nba'` (boundary `_`) but NOT
+ * `'basketball_wnba'` (preceded by `w`, which IS alphanumeric).
+ */
+const KEYWORD_RE_CACHE = new Map();
+export const matchesSportKeyword = (haystack, keyword) => {
+    if (!haystack || !keyword) return false;
+    const k = String(keyword).toLowerCase();
+    let re = KEYWORD_RE_CACHE.get(k);
+    if (!re) {
+        const safe = k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        re = new RegExp(`(^|[^a-z0-9])${safe}([^a-z0-9]|$)`);
+        KEYWORD_RE_CACHE.set(k, re);
+    }
+    return re.test(String(haystack).toLowerCase());
+};
+
+/**
  * Map of canonical OddsAPI sportKey → human-readable league label, derived
  * from the leaf nodes in `sportsData`. Used by the multi-sport list view to
  * print short league labels (e.g. "MLB", "NBA") in section headers above each league's matches.
