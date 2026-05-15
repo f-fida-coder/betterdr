@@ -219,8 +219,8 @@ const pageStyle = {
 
 const futuresHeaderStyle = {
     padding: '12px 14px',
-    backgroundColor: '#f97316',
-    borderBottom: '1px solid #ea580c',
+    backgroundColor: '#ff5051',
+    borderBottom: '1px solid #e63a3b',
     flexShrink: 0,
 };
 
