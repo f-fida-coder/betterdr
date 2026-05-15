@@ -620,12 +620,33 @@ const MobileContentView = ({
     // The map is keyed by raw match.sportKey so each league section can
     // render only its own period chips, filtered by the markets that
     // actually appear in THAT league's matches (not the unioned set
-    // across the whole view). Computed once per rawMatches change.
+    // across the whole view).
+    //
+    // CRITICAL: must filter rawMatches by the user's sport selection
+    // BEFORE bucketing. Otherwise, when the user is viewing only NBA,
+    // the backend's /api/matches response (which contains NBA + MLB +
+    // NHL + EPL etc.) makes perSportMeta.size > 1 → isMultiSportView
+    // is wrongly true → the top-level chip strip is suppressed AND
+    // per-league strips don't render either (single league = no
+    // league header). The user ends up with no chip strip at all on
+    // a single-sport filter.
     const perSportMeta = React.useMemo(() => {
         const map = new Map();
+        const isVirtualBucket = primarySport === 'commercial-live' || primarySport === 'up-next';
+        const keywords = isVirtualBucket || realSelected.length === 0
+            ? null
+            : [...new Set(realSelected.flatMap((id) => getSportKeywords(id)).map((k) => String(k).toLowerCase()))];
         (rawMatches || []).forEach((match) => {
             const sportKey = String(match?.sportKey || '').toLowerCase();
             if (!sportKey) return;
+            // Apply the SAME token-boundary sport filter the matches
+            // useMemo applies. Without this, perSportMeta sees every
+            // league the API returned, not just the user's selection.
+            if (keywords) {
+                const sport = String(match?.sport || '').toLowerCase();
+                const haystack = `${sport}|${sportKey}`;
+                if (!keywords.some((k) => matchesSportKeyword(haystack, k))) return;
+            }
             if (!map.has(sportKey)) {
                 map.set(sportKey, {
                     matches: [],
@@ -646,7 +667,7 @@ const MobileContentView = ({
             );
         });
         return map;
-    }, [rawMatches]);
+    }, [rawMatches, realSelected, primarySport]);
 
     // Multi-sport when 2+ distinct sportKeys have matches on screen.
     // Single-sport (or empty) takes the legacy top-of-view chip-strip
