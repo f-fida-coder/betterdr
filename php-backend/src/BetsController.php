@@ -1516,19 +1516,24 @@ final class BetsController
             // pulling up the My Bets list drains expired/finished
             // matches the user actually has stake in. Cheap when there's
             // nothing to settle (no DB writes); skipped automatically if
-            // a recent sweep already touched this user. Throttled to one
-            // sweep per user per 30 s so a fast-refresh client doesn't
-            // thrash the bets table.
+            // a recent sweep already touched this user. Throttled to 5 s
+            // to align with frontend polling frequency (matches settle
+            // within seconds of user pulling up bets).
             try {
                 $throttleNs = SportsbookCache::userBetSweepNamespace();
                 $throttleKey = 'sweep:' . $userId;
-                // 30 s TTL — long enough to absorb tab refreshes and
-                // poll loops, short enough that a finished match drains
-                // within seconds of the user pulling up their bets.
-                $recent = SharedFileCache::get($throttleNs, $throttleKey, 30);
+                // 5 s TTL — allows settlement check on every poll while
+                // preventing thrash on the bets table. When frontend polls
+                // every 5s for pending bets, this ensures near-real-time
+                // settlement feedback.
+                $recent = SharedFileCache::get($throttleNs, $throttleKey, 5);
                 if ($recent === null) {
-                    BetSettlementService::settlePendingMatchesForUser($this->db, $userId, 'on-read');
+                    // Set cache BEFORE settlement so concurrent requests within the
+                    // 5s window don't trigger duplicate settlement sweeps. If settlement
+                    // fails, the cache entry is set anyway, but this is acceptable
+                    // because settlement is idempotent and the next 5s window will retry.
                     SharedFileCache::put($throttleNs, $throttleKey, ['at' => time()]);
+                    BetSettlementService::settlePendingMatchesForUser($this->db, $userId, 'on-read');
                 }
             } catch (Throwable $sweepErr) {
                 // Fail-open: settlement issues here mustn't block the

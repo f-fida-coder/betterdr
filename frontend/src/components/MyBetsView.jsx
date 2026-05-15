@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { getMyBets, getUserFigures, getUserTransactions, getRoundRobinChildren } from '../api';
+import { getMyBets, getUserFigures, getUserTransactions, getRoundRobinChildren, regradeStuckBets } from '../api';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { formatLineValue, formatOdds } from '../utils/odds';
 import { formatSiteDateTime } from '../utils/timezone';
@@ -1177,6 +1177,13 @@ const MyBetsView = () => {
             const data = await getMyBets(token);
             setBets(Array.isArray(data) ? data : []);
             setError(null);
+            
+            // Self-healing: force regrade any stuck-pending bets whose
+            // matches are actually finished. This runs alongside the
+            // on-read settlement sweep (5s throttle) and catches bets
+            // stuck on matches that never marked 'completed' from the
+            // odds API. Errors are logged but don't block bet display.
+            void regradeStuckBets(token);
         } catch (err) {
             console.error('Failed to fetch bets:', err);
             setError('Failed to load bets.');
@@ -1194,10 +1201,14 @@ const MyBetsView = () => {
             }
         };
 
+        // Poll every 5 seconds for bet status updates. Fixed interval avoids
+        // interval recreation bugs that occurred with dependency-based recreation.
+        // 5s polling is responsive enough for both pending and settled bets;
+        // trading minor extra requests for simpler, more reliable code.
         const interval = window.setInterval(() => {
             if (document.hidden) return;
             void fetchBets({ silent: true });
-        }, 30000);
+        }, 5000);
 
         document.addEventListener('visibilitychange', handleVisibilityChange);
 

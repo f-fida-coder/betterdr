@@ -515,16 +515,37 @@ final class BetSettlementService
     {
         $now = $nowTs ?? time();
         $startTs = strtotime((string) ($match['startTime'] ?? '')) ?: 0;
-        $lastUpdatedRaw = (string) (($match['lastUpdated'] ?? '') ?: ($match['updatedAt'] ?? ''));
-        $lastUpdatedTs = $lastUpdatedRaw !== '' ? (strtotime($lastUpdatedRaw) ?: 0) : 0;
         $homeScore = self::num($match['score']['score_home'] ?? 0);
         $awayScore = self::num($match['score']['score_away'] ?? 0);
         $hasScore = ($homeScore + $awayScore) > 0;
-        $minGameSeconds = 90 * 60;   // 90 min — shortest realistic game length
-        $staleSeconds   = 30 * 60;   // 30 min since last sync touch
-        $longEnoughAgo  = $startTs > 0 && ($now - $startTs) >= $minGameSeconds;
-        $feedQuiet      = $lastUpdatedTs > 0 && ($now - $lastUpdatedTs) >= $staleSeconds;
-        return $hasScore && $longEnoughAgo && $feedQuiet;
+
+        $minGameSeconds     = 90 * 60;      // 90 min — shortest realistic game length
+        $maxGameSeconds     = 6 * 3600;     // 6 h backstop — past this any real sport is over
+        $scoreFrozenSeconds = 30 * 60;      // 30 min of zero score movement
+
+        if (!$hasScore || $startTs <= 0 || ($now - $startTs) < $minGameSeconds) {
+            return false;
+        }
+
+        // Primary signal: the score itself has not moved for the freeze
+        // window. OddsSyncService bumps lastScoreChangedAt only when the
+        // home/away values actually change, so this is robust against the
+        // upstream feed re-stamping the same final score every poll — the
+        // failure mode that left lastUpdated permanently fresh and kept
+        // bets like the KBO Landers ticket stuck pending.
+        $changedRaw = (string) ($match['lastScoreChangedAt'] ?? '');
+        $changedTs = $changedRaw !== '' ? (strtotime($changedRaw) ?: 0) : 0;
+        if ($changedTs > 0 && ($now - $changedTs) >= $scoreFrozenSeconds) {
+            return true;
+        }
+
+        // Backstop for legacy rows that never received lastScoreChangedAt
+        // (pre-tracking) or for feeds that fabricate fresh-score writes
+        // even when nothing changed: any match that started ≥ 6 h ago and
+        // has a non-zero score is finished by any measure. Combined with
+        // the $minGameSeconds + $hasScore guards above this is safe — we
+        // grade against the final score already stored in the matches row.
+        return ($now - $startTs) >= $maxGameSeconds;
     }
 
     public static function settlePendingMatches(SqlRepository $db, int $limit = 250, string $settledBy = 'system'): array
@@ -552,6 +573,7 @@ final class BetSettlementService
             'matchesSettled' => 0,
             'betsSettled' => 0,
             'errors' => 0,
+            'stuckHealed' => 0,
             'matchIds' => array_keys($matchIds),
         ];
 
@@ -575,7 +597,32 @@ final class BetSettlementService
                 // moves. SportsbookBetSupport::selectionResult was updated
                 // in lockstep so it no longer returns 'void' for expired.
                 if (!in_array($status, ['finished', 'canceled'], true)) {
-                    continue;
+                    // Stuck-match heal in the cron sweep. Mirrors the
+                    // settlePendingMatchesForUser path so background
+                    // settlement no longer requires a player to load
+                    // My Bets — without this the sweep was checking
+                    // the same stuck matches every cycle and settling
+                    // none of them, since the upstream feed keeps the
+                    // status pinned to 'live' indefinitely after the
+                    // real game ended. looksProvablyFinished is
+                    // conservative (score frozen 30 min OR started
+                    // ≥6 h ago) and settleMatch is idempotent.
+                    if (self::looksProvablyFinished($match)) {
+                        $db->updateOne('matches', ['id' => SqlRepository::id($matchId)], [
+                            'status' => 'finished',
+                            'updatedAt' => SqlRepository::nowUtc(),
+                            'autoFinishedReason' => 'stuck-pending-heal-sweep',
+                        ]);
+                        $summary['stuckHealed']++;
+                        Logger::info('auto-healed stuck match in cron sweep', [
+                            'matchId' => $matchId,
+                            'startTime' => $match['startTime'] ?? null,
+                            'lastScoreChangedAt' => $match['lastScoreChangedAt'] ?? null,
+                            'score' => $match['score'] ?? null,
+                        ], 'bets');
+                    } else {
+                        continue;
+                    }
                 }
 
                 $result = self::settleMatch($db, $matchId, null, $settledBy);

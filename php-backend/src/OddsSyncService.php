@@ -1703,6 +1703,7 @@ final class OddsSyncService
             'awayTeam' => 1,
             'startTime' => 1,
             'sport' => 1,
+            'score' => 1,
         ]]);
         if ($existing === null) {
             return ['updated' => false, 'settled' => 0];
@@ -1713,7 +1714,16 @@ final class OddsSyncService
         $statusAndScore = self::extractScoreAndStatus($scoreEvent, $homeTeam, $awayTeam);
         $now = SqlRepository::nowUtc();
 
-        $db->updateOne('matches', ['id' => SqlRepository::id((string) $existing['id'])], [
+        // Detect whether the home/away score values actually moved.
+        // BetSettlementService::looksProvablyFinished uses this to spot
+        // games where the upstream feed re-stamps the same final score
+        // every poll without ever flipping event_status to FINAL — the
+        // failure mode that left tickets stuck pending forever.
+        $existingScore = is_array($existing['score'] ?? null) ? $existing['score'] : [];
+        $newScore = is_array($statusAndScore['score'] ?? null) ? $statusAndScore['score'] : [];
+        $scoreChanged = self::scoreValuesDiffer($existingScore, $newScore);
+
+        $updateDoc = [
             'homeTeam' => $homeTeam,
             'awayTeam' => $awayTeam,
             'startTime' => $scoreEvent['commence_time'] ?? ($existing['startTime'] ?? null),
@@ -1723,7 +1733,12 @@ final class OddsSyncService
             'lastUpdated' => $now,
             'lastScoreSyncAt' => $now,
             'updatedAt' => $now,
-        ]);
+        ];
+        if ($scoreChanged) {
+            $updateDoc['lastScoreChangedAt'] = $now;
+        }
+
+        $db->updateOne('matches', ['id' => SqlRepository::id((string) $existing['id'])], $updateDoc);
 
         $settled = 0;
         if (($statusAndScore['status'] ?? '') === 'finished' || (string) ($existing['status'] ?? '') === 'finished') {
@@ -1731,6 +1746,25 @@ final class OddsSyncService
         }
 
         return ['updated' => true, 'settled' => $settled];
+    }
+
+    /**
+     * Compare two match-score arrays and report whether home/away
+     * actually differ. Used to gate `lastScoreChangedAt` writes — we
+     * only stamp a fresh changed-at when real movement happened, so
+     * BetSettlementService::looksProvablyFinished can spot games whose
+     * final score has been frozen for the freeze window.
+     *
+     * @param array<string, mixed> $a
+     * @param array<string, mixed> $b
+     */
+    private static function scoreValuesDiffer(array $a, array $b): bool
+    {
+        $aH = isset($a['score_home']) && is_numeric($a['score_home']) ? (float) $a['score_home'] : null;
+        $aA = isset($a['score_away']) && is_numeric($a['score_away']) ? (float) $a['score_away'] : null;
+        $bH = isset($b['score_home']) && is_numeric($b['score_home']) ? (float) $b['score_home'] : null;
+        $bA = isset($b['score_away']) && is_numeric($b['score_away']) ? (float) $b['score_away'] : null;
+        return $aH !== $bH || $aA !== $bA;
     }
 
     private static function maybeSettleMatch(SqlRepository $db, string $matchId, string $status): int

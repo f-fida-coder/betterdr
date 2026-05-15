@@ -873,6 +873,26 @@ export const getRoundRobinChildren = async (groupId, token) => {
     return response.json();
 };
 
+// Self-healing: force-regrade any pending bets whose matches are actually
+// finished but haven't been settled yet. Called automatically on every My Bets
+// poll to detect and immediately settle stuck-pending bets, especially when
+// the upstream odds feed never marked the match as 'completed'.
+export const regradeStuckBets = async (token) => {
+    try {
+        const response = await fetch(buildApiUrl('/bets/regrade-stuck'), {
+            method: 'POST',
+            headers: getHeaders(token),
+        });
+        // Fail-open: regrade errors shouldn't block bet display. Return empty
+        // result so caller can continue normally.
+        if (!response.ok) return { regraded: 0, errors: 0 };
+        return response.json();
+    } catch (err) {
+        console.warn('Stuck bet regrade failed (non-critical):', err);
+        return { regraded: 0, errors: 0 };
+    }
+};
+
 // Detect the browser's actual IANA zone so figures + transactions
 // bucket bets by the player's real local day, not by whatever zone
 // is (or isn't) saved on their profile. Backend validates the value
