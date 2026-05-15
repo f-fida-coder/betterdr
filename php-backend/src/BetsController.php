@@ -1322,14 +1322,6 @@ final class BetsController
                     }
                     continue;
                 }
-                if ($effective === 'expired') {
-                    // Expired matches stay pending by design — see
-                    // BetSettlementService::settlePendingMatches comments
-                    // (operator must confirm outcome before money moves).
-                    $alreadyDone[] = $mid;
-                    continue;
-                }
-
                 if (BetSettlementService::looksProvablyFinished($match, $now)) {
                     // All three signals (score posted, started long enough
                     // ago, feed has gone quiet) agree the game is over —
@@ -1348,6 +1340,14 @@ final class BetsController
                         'userId' => $userId,
                         'matchId' => $mid,
                     ], 'bets');
+                } elseif ($effective === 'expired') {
+                    // Expired matches with no provable outcome stay pending
+                    // by design — operator must confirm before money moves.
+                    // looksProvablyFinished already handled the "has score
+                    // + started long enough ago" case above, so reaching
+                    // here means the feed never recorded a score and we
+                    // can't grade safely from the cron sweep.
+                    $alreadyDone[] = $mid;
                 } else {
                     $startTs = strtotime((string) ($match['startTime'] ?? '')) ?: 0;
                     $lastUpdatedRaw = (string) (($match['lastUpdated'] ?? '') ?: ($match['updatedAt'] ?? ''));
