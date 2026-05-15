@@ -2748,16 +2748,20 @@ const refreshButtonStaleStyle = {
 const periodTabBarStyle = {
     display: 'flex',
     gap: 8,
-    padding: '12px 14px',
-    background: '#fff',
-    borderBottom: '1px solid #e5e7eb',
+    padding: '10px 14px 12px',
+    margin: '6px 0',
+    // Red background matches the sport header band (#ff5051) above so the
+    // chip strip reads as one continuous header rather than a separate
+    // white strip beneath it. Slight rounding softens the bar into a
+    // contained block instead of a flat full-bleed strip.
+    background: '#ff5051',
+    borderRadius: 8,
     overflowX: 'auto',
     WebkitOverflowScrolling: 'touch',
     position: 'sticky',
     top: 0,
     zIndex: 5,
     flexShrink: 0,
-    boxShadow: '0 1px 2px rgba(15,23,42,0.04)',
 };
 
 // Live Now sport rail — dark sportsbook-style strip with vivid color
@@ -2868,24 +2872,27 @@ const liveLeaguePillCountStyle = {
     fontVariantNumeric: 'tabular-nums',
 };
 const periodTabStyle = {
-    padding: '8px 18px',
+    padding: '7px 18px',
     border: 'none',
-    background: '#f1f5f9',
-    color: '#475569',
+    // Sit on the red bar — inactive chips are a translucent dark pill so
+    // they read as muted-but-tappable against the surrounding red, and
+    // the active chip (white background, red text) pops clearly.
+    background: 'rgba(0, 0, 0, 0.18)',
+    color: '#fff',
     fontSize: 13,
     fontWeight: 700,
     cursor: 'pointer',
     whiteSpace: 'nowrap',
     flexShrink: 0,
-    borderRadius: 999,
+    borderRadius: 0,
     letterSpacing: 0.3,
     transition: 'background-color 120ms ease, color 120ms ease, transform 120ms ease',
 };
 const periodTabActiveStyle = {
     ...periodTabStyle,
-    background: '#595959',
-    color: '#fff',
-    boxShadow: '0 4px 12px -6px rgba(89,89,89,0.4)',
+    background: '#fff',
+    color: '#ff5051',
+    boxShadow: '0 2px 6px rgba(0, 0, 0, 0.18)',
 };
 
 const dayHeaderStyle = {

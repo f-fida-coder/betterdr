@@ -1213,3 +1213,187 @@ ODDS_OUTRIGHTS_EXCLUDE=politics                                  # comma-list of
 ## 49. Commits (Day-5)
 
 (To be filled when committed — code is staged but not yet committed per the no-auto-commit rule.)
+
+---
+
+## 50. Phase 3 — FUTURES on mobile, search popup, period chips everywhere (Day-6, 2026-05-15)
+
+After Phase 2 shipped FUTURES on desktop, day-2 testing surfaced a series of mobile-only gaps plus a deeper "data is there, UI doesn't show it" problem on period chips. Closed in this batch.
+
+### 50.1 FUTURES never rendered on mobile
+
+**Symptom:** desktop FUTURES page showed leaderboards fine, but mobile tap on the sidebar FUTURES entry dropped the player on the regular match-list which then showed *"No matches with fresh odds right now"*.
+
+**Root cause:** desktop routes through [DashboardMain.jsx:95-104](frontend/src/components/DashboardMain.jsx#L95-L104), which has a `selectedItem.type === 'futures'` branch that renders `OutrightsView`. Mobile bypasses `DashboardMain` entirely — [UserDashboardShell.jsx:113](frontend/src/components/UserDashboardShell.jsx#L113) always rendered `MobileContentView` for the results state. `MobileContentView` only knows live/upcoming h2h/spread/total markets, so a futures pseudo-sport (no `sportKeys` match) fell through to the empty state.
+
+**Fix:** mirrored the desktop branch in the shell. [UserDashboardShell.jsx:117-122](frontend/src/components/UserDashboardShell.jsx#L117-L122) now detects `primarySelectedItem?.type === 'futures'` and renders `<OutrightsView sportKey={...} title={...}>` inside the existing `ErrorBoundary`, ahead of the `MobileContentView` branch. Covers both the top-level FUTURES entry (`id: 'all-futures'`, no `sportKeys` → unscoped leaderboard) and the per-sport WNBA / NBA Champ shortcuts (which pass `sportKeys[0]`).
+
+### 50.2 FUTURES UI polish — orange-tinted divisions, then red-banner like the rest of the app
+
+Initial mobile FUTURES UI was a flat list of cards keyed by raw odds-api sport key (`americanfootball_ncaaf_championship_winner` etc.) sitting on a `dash-main` background. Two rounds of feedback:
+
+1. **"FUTURES text should be orange, below white or make more good approach"** — first pass used a `#f97316` orange banner with `FUTURES` in white + a subtitle line, gradient card headers, and `#16a34a` green prices. Cards got rank badges (🥇🥈🥉 in orange shades) on the top 3 outcomes.
+2. **"match orange background to below"** then **"reaming like before but the orange color should be the color of straight text background"** — reverted page background to `#f4f5f7` slate (the standard mobile content background) and recolored the banner to `#ff5051` — the exact red the active STRAIGHT bet-mode tab uses ([mobile.css:204-207](frontend/src/mobile.css#L204-L207)). Same architectural shape as the existing per-sport mobile header strip in [MobileContentView.jsx:2666-2674](frontend/src/components/MobileContentView.jsx#L2666-L2674), so FUTURES reads as a sportsbook section, not a special-snowflake page.
+
+Then **"each of these 9 categories have to be under their division. Football under football, Baseball under baseball etc not just all on one future tab"** — replaced the per-raw-sportKey grouping with a `sportFamilyFromKey()` helper that maps an odds-api sport key (e.g. `americanfootball_nfl_super_bowl_winner`) to a family token (`{ id: 'football', label: 'FOOTBALL', emoji: '🏈' }`). Groups now render under an opinionated division order: Football → Basketball → Baseball → Hockey → Soccer → Golf → Tennis → MMA → Boxing → others (alpha). Single-sport scope (e.g. `WNBA FUTURES`) skips the division heading since there's only one family.
+
+**Files touched:** [`frontend/src/components/OutrightsView.jsx`](frontend/src/components/OutrightsView.jsx) only.
+
+### 50.3 Outrights cron — standalone CLI, no daemon required
+
+**Problem:** on prod, FUTURES tab kept returning `[]` because the `outrights` table on Hostinger was never populated. Sole population path was `OddsSyncService::updateOutrights()` inside the long-running `odds-worker.php` daemon ([odds-worker.php:124](php-backend/scripts/odds-worker.php#L124)). On Hostinger shared hosting the daemon dies between watchdog ticks; outrights never sync.
+
+**Fix:** new [`php-backend/scripts/outrights-sync.php`](php-backend/scripts/outrights-sync.php) — standalone CLI script that calls `OddsSyncService::updateOutrights($db)` once and exits. Same self-throttle (`cache/outrights-sync-state.json`, default `ODDS_OUTRIGHTS_CRON_HOURS=6`) the daemon uses, so calling it on a tight cron (every 5 min) is cheap — most ticks see "already-fresh" sports and skip the API call. Modelled on the existing [`settlement-sweep.php`](php-backend/scripts/settlement-sweep.php) pattern.
+
+Local run: `attempted=9 skipped=0 elapsedMs=6535` — full 9-sport sync against the live Odds API in ~6.5s. Cron line for Hostinger documented in the file header.
+
+### 50.4 Search-result click — pop one match, not the whole league
+
+**User ask:** "When I search Yankees and click this it just brings me to the MLB tab. Can it pop up just this Yankees game instead?"
+
+Before: [DashboardSidebar.jsx](frontend/src/components/DashboardSidebar.jsx) `handleSearchResultClick` called `onToggleSport(leaf.id)` + `onContinue()`, which switched the sidebar to MLB and navigated to the full league list. Searching "Yank" surfaced one row, but tapping it dumped you into 15+ MLB games.
+
+**Fix:** rewired the click to dispatch a `search:open-match` event with the match payload — no sidebar mutation, no navigation. [UserDashboardShell.jsx](frontend/src/components/UserDashboardShell.jsx) listens for it and renders a new lightweight popup component over whatever the player was viewing.
+
+First attempt re-used `MatchDetailView`, but that view opens directly into alt-spread / alt-total / team-totals (it assumes the basic odds are already visible on the row that triggered it — and for a search result, there IS no row). User feedback: *"i say it only show me it's odds then where i can click i will handle"* — then *"not like this like this, full with logos and good things and also i can bet"*.
+
+**Resolution:** new [`SearchMatchPopup.jsx`](frontend/src/components/SearchMatchPopup.jsx) — focused single-match sheet that renders the same shape as a regular mobile match card row: team logos via `fetchTeamBadgeUrl()` (with the standard initials data-URI fallback), rotation numbers, SPREAD / ML / TOTAL clickable cells (dispatch `betslip:add` exactly like `MobileContentView`'s `MatchCard`), plus `+ All markets` (opens `MatchDetailView`) and `P+ Player props` (opens `PropBuilderModal`) action buttons. Red banner matches the rest of the mobile sportsbook.
+
+### 50.5 Nested-modal isolation — closing inner shouldn't kill outer
+
+After 50.4, the search popup could open `MatchDetailView` / `PropBuilderModal` from its action buttons. But tapping the dim overlay of those secondary modals also closed the search popup beneath, throwing the player all the way back to the sports grid.
+
+**Root cause:** both `MatchDetailView` and `PropBuilderModal` set `onClick={onClose}` on their `position: fixed` overlay. Originally I rendered them as React children of the search popup's overlay `<div>`, so the click event bubbled through React's tree → outer overlay's `onClose` also fired → both layers dismissed.
+
+**Fix:** restructured `SearchMatchPopup` to render the two secondary modals as **siblings** of its overlay (inside a `<>` Fragment), not as children. Now a click on `MatchDetailView`'s overlay only fires *its* `onClose`; nothing bubbles back to the search popup. Tap *its* X → only the search popup closes; player lands on whatever they were viewing before search.
+
+### 50.6 LIVE NOW auto-jumps to MY BETS when player has live action
+
+**User ask:** "Also can it automatically go to my bets when you click live instead of All".
+
+Before: tapping LIVE NOW always landed on the **ALL** sub-tab. Most of the time the player tapped LIVE NOW because they wanted to watch their own bets play out — they'd then manually tap **MY BETS**.
+
+**Fix:** [MobileContentView.jsx:1194-1217](frontend/src/components/MobileContentView.jsx#L1194-L1217) — added a one-shot ref + effect that, on entry to `primarySport === 'commercial-live'` AND `myLiveOnBoardCount > 0`, sets `liveSportTab` to `'my-live'`. Anti-yank guardrails:
+
+- Snapshot at entry — does NOT react to later `myLiveOnBoardCount` changes. If a bet of yours goes live AFTER you're already browsing the All tab, you stay on All (no mid-browse rug-pull).
+- One-shot per session entry — once you manually tap **ALL**, the choice sticks.
+- Leaving live mode (`primarySport !== 'commercial-live'`) resets the ref so re-entering later re-evaluates fresh.
+- Effect waits for `orderedMatches.length > 0` to lock in, so a stale `myLiveOnBoardCount=0` from a pre-load snapshot doesn't suppress the jump.
+
+### 50.7 NBA filter leaking WNBA rows
+
+**User ask:** "I'm under NBA and it's showing WNBA".
+
+NBA sidebar entry had `sportKeys: ['basketball_nba']` and `getSportKeywords('nba')` returned `['nba', 'basketball_nba']`. Both [MobileContentView.jsx:900-905](frontend/src/components/MobileContentView.jsx#L900-L905) and [SportContentView.jsx:528-532](frontend/src/components/SportContentView.jsx#L528-L532) used a raw `haystack.includes(k)` substring test. `'wnba'.includes('nba') === true` — so every WNBA match (Mystics, Fever, Aces, Sun) passed the NBA filter.
+
+**Fix:** new `matchesSportKeyword()` helper in [`frontend/src/data/sportsData.js`](frontend/src/data/sportsData.js) — token-boundary regex that requires the keyword to sit at a non-alphanumeric boundary (start/end/`_`/`|`/space). Compiled regex cache keyed by the keyword so repeated calls are cheap.
+
+- `'basketball_nba'.matches('nba')` → ✓ (boundary `_`)
+- `'basketball_wnba'.matches('nba')` → ✗ (preceded by `w`, which IS alphanumeric)
+
+Both view files now call `keywords.some((k) => matchesSportKeyword(haystack, k))` instead of raw `.includes()`. NBA selection now shows only the 2 NBA games; WNBA games stay under WNBA.
+
+### 50.8 Period markets — root cause: prematch-tick cron + `tierConfig` visibility
+
+**User ask:** "still doesn't have the halves and quarter bets, does api offer if offer so why we don't do or what's wrong".
+
+Two real bugs surfaced once I manually fired the prematch-tick endpoint (`POST /api/internal/oddsapi-prematch-tick`):
+
+1. **The cron wasn't running on prod at all.** Manual fire updated 104 matches and settled 7 stuck bets. Without this cron the daemon's death takes the extended-market sync down with it.
+2. **`OddsSyncService::tierConfig()` was `private`** but the prematch-tick handler at [DebugController.php:372](php-backend/src/DebugController.php#L372) calls it for the tier-3 cutout. Every tick threw `Call to private method OddsSyncService::tierConfig() from scope DebugController` and the extended-market sync block aborted before fetching anything. So even on days when the daemon DID run, period markets never populated because the visibility error killed them.
+
+**Fixes:**
+- `OddsSyncService::tierConfig()` → `public static` ([OddsSyncService.php:139](php-backend/src/OddsSyncService.php#L139)). Trivial visibility flip but it unlocks the extended-sync path.
+- New [`php-backend/scripts/prematch-tick.sh`](php-backend/scripts/prematch-tick.sh) — shell wrapper that reads `INTERNAL_TICK_SECRET` from `.env` and curls the HTTP endpoint. **Then discovered Hostinger PHP-FPM kills HTTP requests >60s**, and once extended sync started doing real work each tick took ~3 min → curl(28) timeout, sync left half-done.
+- New [`php-backend/scripts/prematch-tick.php`](php-backend/scripts/prematch-tick.php) — CLI version that runs the full tick (base-odds rotation + extended-market sync + settlement sweep) directly. CLI has no HTTP timeout. Shares the same `prematch-rotation` cursor in SharedFileCache, so the HTTP path and the CLI path advance the same rotation. Local run: `sports=8 updated=81 errors=0 extended=ok:8 settled=0 elapsedMs=179817`.
+
+Cron line (use the PHP version, not the shell wrapper):
+```
+*/5 * * * * /opt/alt/php82/usr/bin/php /home/USER/domains/.../php-backend/scripts/prematch-tick.php >> /home/USER/.../logs/prematch-tick.log 2>&1
+```
+
+After cron landed, first prod tick: `prematch-tick ok sports=5 updated=104 errors=0 extended=ok:8 settled=7 elapsedMs=165966 perSport={americanfootball_nfl:75, baseball_mlb:15, basketball_nba:2, icehockey_nhl:2, soccer_epl:10}`. Period markets present in `/api/matches` response from that point.
+
+### 50.9 Desktop period chip strip (didn't exist before)
+
+The period chip strip lived only in `MobileContentView`. Desktop `SportContentView` had no period-switch UI at all — the data was there, the player just couldn't see it. After 50.8 was deployed, the user verified period markets were now in `/api/matches` but still couldn't switch to 1Q / 2Q etc. on desktop.
+
+**Fix:**
+- Extracted the period catalog + `scanMarketsForSuffixes` regex into a new shared util at [`frontend/src/utils/periods.js`](frontend/src/utils/periods.js). Exports `FULL_PERIOD`, `BASKETBALL_PERIODS`, `FOOTBALL_PERIODS`, `BASEBALL_PERIODS`, `HOCKEY_PERIODS`, `SOCCER_PERIODS`, `getPeriodsForSport(sportId)`, `getPeriodsForSportKey(odds-api key)`, `getPeriodsForSports(realSelected, fallback)`. Single source of truth so mobile + desktop can't drift.
+- [`SportContentView.jsx`](frontend/src/components/SportContentView.jsx): added `selectedPeriodId` state, `availableSuffixes` memo (same scan logic), `periods` memo that filters the sport preset by available suffixes, auto-snap-to-Game when the active chip vanishes, chip strip render below the red content header, and `extractOdds` now uses `getMatchMarket(match, 'h2h' + suffix)` etc. so the displayed odds switch when the user taps a chip.
+- Effect deps include `activePeriod.suffix` so flipping the chip recomputes the visible odds.
+- Strip renders only when `periods.length > 1`, so tennis / golf / MMA / boxing / cricket (preset = `[FULL_PERIOD]`) auto-hide the strip rather than showing a dead one-chip row.
+
+Auto-adapts per sport with no per-sport wiring: NBA / NCAA-Basketball / NFL / NCAA-Football → Game · 1H · 2H · 1Q · 2Q · 3Q · 4Q; MLB → Game · F1 · F3 · F5 · F7; NHL → Game · P1 · P2 · P3; Soccer → Game · 1H; everything else → strip hidden.
+
+### 50.10 Mobile chip strip — `perSportMeta` was unfiltered
+
+**Symptom:** desktop chip strip rendered immediately after 50.9 deployed. Mobile *with the same data, same code path for the strip itself* still showed nothing.
+
+**Root cause:** mobile has a `perSportMeta` map keyed by `match.sportKey`, used to decide whether to render a single top-level strip or per-league inline strips. It was built from raw `rawMatches` straight out of [`useMatches`](frontend/src/hooks/useMatches.js), which is the entire `/api/matches?status=live-upcoming` response — 104 matches across NBA + MLB + NHL + EPL + cricket + … Even when the user filtered to NBA via sidebar checkboxes, `perSportMeta.size = 5+` because the raw payload still contained every sport. That made `isMultiSportView = true`, which suppressed the top chip strip. The per-league fallback chip strip was supposed to render in that mode, but only when `showLeagueHeaders` is true — and on a single-sport selection there's only one league visible so `showLeagueHeaders` was false. Net: zero chip strip on screen for a single-sport mobile selection.
+
+**Fix:** [MobileContentView.jsx:619-671](frontend/src/components/MobileContentView.jsx#L619-L671) — `perSportMeta` now pre-filters `rawMatches` with the SAME `matchesSportKeyword` token-boundary filter the visible-matches useMemo applies, BEFORE bucketing. Single-sport selection now yields a single-bucket map → `isMultiSportView = false` → top chip strip renders correctly. Multi-sport selection (e.g. NBA + NHL checked) still produces a multi-bucket map → per-league strips render under each league's section header as before.
+
+### 50.11 Service-worker cache trap (during testing, not a code fix)
+
+Repeated symptom while iterating: code changes deployed, prod API confirmed serving new data, but the user's browser kept showing the old behavior. Caused by [`frontend/public/sw.js`](frontend/public/sw.js) — the site's offline service worker — aggressively caching the JS bundles, including the `index.html` that points at them. Even Hostinger auto-deploys couldn't propagate to a browser that had cached the prior `sw.js`'s asset map.
+
+**Workaround for testing:** DevTools → Application → Storage → **Clear site data** (which also unregisters the SW). Hard refresh. Incognito works too as a clean baseline.
+
+Not patched yet — the SW does provide offline caching benefits in steady state. If this becomes a pattern, the next move is to ship a self-destructing `sw.js` once (claim clients, delete caches, call `self.registration.unregister()`) which would purge every visitor's SW in a single deploy.
+
+### Files touched (Day-6)
+
+**Backend:**
+- [`php-backend/src/OddsSyncService.php`](php-backend/src/OddsSyncService.php) — `tierConfig()` private → public.
+- [`php-backend/scripts/outrights-sync.php`](php-backend/scripts/outrights-sync.php) — NEW standalone outrights cron.
+- [`php-backend/scripts/prematch-tick.sh`](php-backend/scripts/prematch-tick.sh) — NEW HTTP wrapper (kept as fallback; the .php is the recommended cron command).
+- [`php-backend/scripts/prematch-tick.php`](php-backend/scripts/prematch-tick.php) — NEW CLI rotation+extended+settlement runner.
+
+**Frontend:**
+- [`frontend/src/components/UserDashboardShell.jsx`](frontend/src/components/UserDashboardShell.jsx) — mobile FUTURES routing, `search:open-match` listener, `<SearchMatchPopup>` mount.
+- [`frontend/src/components/OutrightsView.jsx`](frontend/src/components/OutrightsView.jsx) — red banner, division grouping, rank badges, cleaner card chrome.
+- [`frontend/src/components/SearchMatchPopup.jsx`](frontend/src/components/SearchMatchPopup.jsx) — NEW. Focused single-match sheet for search results.
+- [`frontend/src/components/DashboardSidebar.jsx`](frontend/src/components/DashboardSidebar.jsx) — `handleSearchResultClick` dispatches `search:open-match` instead of navigating.
+- [`frontend/src/components/MobileContentView.jsx`](frontend/src/components/MobileContentView.jsx) — LIVE NOW auto-jump, `matchesSportKeyword`-based filter, `perSportMeta` selection pre-filter.
+- [`frontend/src/components/SportContentView.jsx`](frontend/src/components/SportContentView.jsx) — `matchesSportKeyword`-based filter, period chip strip + period-aware `extractOdds`.
+- [`frontend/src/data/sportsData.js`](frontend/src/data/sportsData.js) — NEW `matchesSportKeyword()` token-boundary helper.
+- [`frontend/src/utils/periods.js`](frontend/src/utils/periods.js) — NEW shared period catalog + `scanMarketsForSuffixes`.
+
+### 51. Hostinger cron lineup (Day-6 final state)
+
+Four crons make the site self-healing on Hostinger shared hosting (where the long-running `odds-worker.php` daemon dies unpredictably):
+
+| Cron | Cadence | Job |
+|---|---|---|
+| `odds-worker-watchdog.sh` | `* * * * *` | Restart the daemon if `pgrep` shows it's not running. Best-effort. |
+| `settlement-sweep.php` | `*/5 * * * *` | Grade games that flipped to finished. Idempotent vs. the prematch-tick's own sweep. |
+| `outrights-sync.php` | `*/5 * * * *` | Pull futures/championship markets. Self-throttles per `ODDS_OUTRIGHTS_CRON_HOURS` (default 6h). |
+| `prematch-tick.php` | `*/5 * * * *` | Base-odds rotation + **extended markets (h2h_q1 / spreads_h1 / totals_p2 / props)** + settlement sweep. |
+
+All four use the same `/home/USER/domains/SITE/public_html/php-backend/scripts/...` path pattern. Logs land in `php-backend/logs/<name>.log` next to each script.
+
+### 52. How to verify (Day-6)
+
+1. **Mobile FUTURES** — tap the sidebar FUTURES entry on a 430px-wide mobile viewport. Should render the leaderboard view (red banner + division headings + rank badges), not "No matches with fresh odds right now".
+2. **Search popup** — type 2+ chars in the sidebar search, tap a result. A focused single-match sheet should appear over the current view (red header + team logos + rotation numbers + clickable Spread/ML/Total cells + `+ All markets` + `P+ Player props`). Tapping `+ All markets` opens `MatchDetailView`. Closing it lands you back on the search popup (not all the way out).
+3. **LIVE NOW → MY BETS** — with at least one of your pending bets on a currently-live game, tap LIVE NOW. Should land on the MY BETS sub-tab. Tap ALL once — choice should stick for the rest of the session.
+4. **NBA filter** — tap NBA in the sidebar. Should show only NBA games. WNBA games (Mystics / Fever / Aces / Sun) should NOT appear.
+5. **Period chips, desktop** — on NBA, the red content header should be followed by a chip strip: `Game · 1H · 2H · 1Q · 2Q · 3Q · 4Q`. Tap 1Q → odds switch to first-quarter spread/ML/total lines.
+6. **Period chips, mobile** — same as desktop on a 430px viewport.
+7. **MLB period chips** — should be `Game · F1 · F3 · F5 · F7` on both desktop and mobile.
+8. **NHL period chips** — `Game · P1 · P2 · P3`. Soccer → `Game · 1H`. Tennis / golf / MMA / boxing / cricket → no strip (correct).
+9. **prematch-tick log** — `tail -n 1 php-backend/logs/prematch-tick.log` should show a recent line ending with `extended=ok:N` (not `extended=err:...`).
+10. **Service worker after deploy** — if the new behavior doesn't show after a few minutes, DevTools → Application → Clear site data, then hard refresh. The site's `sw.js` caches the bundle map aggressively.
+
+### 53. Commits (Day-6)
+
+| SHA | Title |
+|---|---|
+| `09856090` | `sportsbook: futures cron + mobile FUTURES UI polish` |
+| `f8236c50` | `sportsbook: search-result popup + LIVE NOW auto-jump to MY BETS` |
+| `fb76e149` | `sportsbook: prematch-tick wrapper + WNBA filter + futures division grouping` |
+| `cf53947a` | `sportsbook: CLI prematch-tick.php — bypasses Hostinger's 60s HTTP cap` |
+| `fe733094` | `sportsbook: desktop period chip strip (Game / 1H / 2H / 1Q / 2Q / …)` |
+| `d76ae838` | `sportsbook: mobile chip strip — filter perSportMeta by selection` |
+

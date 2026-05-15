@@ -1099,8 +1099,13 @@ const periodStripStyle = {
     display: 'flex',
     gap: 8,
     padding: '10px 14px',
-    background: '#fff',
-    borderBottom: '1px solid #e5e7eb',
+    margin: '6px 0',
+    // Red bar that flows visually out of the red content header above —
+    // chips sit on it as one continuous band rather than a separate
+    // white strip. Slight rounding softens the bar into a contained
+    // block instead of a flat full-bleed strip.
+    background: '#ff5051',
+    borderRadius: 8,
     overflowX: 'auto',
     whiteSpace: 'nowrap',
 };
@@ -1109,10 +1114,10 @@ const periodChipStyle = {
     flexShrink: 0,
     padding: '6px 14px',
     minHeight: 32,
-    borderRadius: 16,
-    border: '1px solid #d1d5db',
-    background: '#fff',
-    color: '#374151',
+    borderRadius: 0,
+    border: 'none',
+    background: 'rgba(0, 0, 0, 0.18)',
+    color: '#fff',
     fontSize: 12,
     fontWeight: 700,
     letterSpacing: '0.04em',
@@ -1122,9 +1127,9 @@ const periodChipStyle = {
 
 const periodChipActiveStyle = {
     ...periodChipStyle,
-    background: '#ff5051',
-    borderColor: '#ff5051',
-    color: '#fff',
+    background: '#fff',
+    color: '#ff5051',
+    boxShadow: '0 2px 6px rgba(0, 0, 0, 0.18)',
 };
 
 export default React.memo(SportContentView);
