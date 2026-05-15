@@ -511,6 +511,30 @@ final class BetSettlementService
      * the on-read settlement sweep and the manual /api/bets/regrade-stuck
      * endpoint so the heal criteria are identical in both paths.
      */
+    /**
+     * Decide whether a stuck match is worth pinging ESPN about.
+     *
+     * Only matches that have been alive long enough for the actual game
+     * to have ended (≥ minGameSeconds since start). Skips matches that
+     * already have a score — looksProvablyFinished would have handled
+     * those. Skips obviously-pre-game rows so we don't burn ESPN quota
+     * on tomorrow's slate.
+     *
+     * @param array<string,mixed> $match
+     */
+    private static function shouldTryFallbackScore(array $match, ?int $nowTs = null): bool
+    {
+        $now = $nowTs ?? time();
+        $startTs = strtotime((string) ($match['startTime'] ?? '')) ?: 0;
+        if ($startTs <= 0) return false;
+        $minGameSeconds = 90 * 60; // shortest realistic game length
+        if (($now - $startTs) < $minGameSeconds) return false;
+        $homeScore = self::num($match['score']['score_home'] ?? 0);
+        $awayScore = self::num($match['score']['score_away'] ?? 0);
+        if (($homeScore + $awayScore) > 0) return false;
+        return true;
+    }
+
     public static function looksProvablyFinished(array $match, ?int $nowTs = null): bool
     {
         $now = $nowTs ?? time();
@@ -620,6 +644,20 @@ final class BetSettlementService
                             'lastScoreChangedAt' => $match['lastScoreChangedAt'] ?? null,
                             'score' => $match['score'] ?? null,
                         ], 'bets');
+                    } elseif (self::shouldTryFallbackScore($match)) {
+                        // OddsAPI's /scores feed never published a final for
+                        // this match (KBO and similar international leagues
+                        // are the common offenders). Try ESPN as a backup
+                        // before giving up — if it returns a score, the
+                        // match row gets status='finished' + score populated,
+                        // and we proceed to settle on the same tick.
+                        if (FallbackScoreService::tryHealMatch($db, $match)) {
+                            $match = $db->findOne('matches', ['id' => SqlRepository::id($matchId)]) ?? $match;
+                            $summary['stuckHealed']++;
+                            $summary['fallbackHealed'] = ($summary['fallbackHealed'] ?? 0) + 1;
+                        } else {
+                            continue;
+                        }
                     } else {
                         continue;
                     }

@@ -41,6 +41,15 @@ final class BetsController
             $this->regradeStuckBets();
             return true;
         }
+        // Admin-only inbox of long-stuck pending bets — the operator-
+        // facing list of tickets the auto-settle paths couldn't grade
+        // safely (no score recorded, feed went quiet, etc.). The list
+        // is grouped by matchId so one home/away/void decision settles
+        // every affected player at once.
+        if ($path === '/api/bets/admin/stuck' && $method === 'GET') {
+            $this->getStuckBetsInbox();
+            return true;
+        }
         // GET /api/bets/group/{24-hex}/children — lazy-loaded child
         // parlays for a Round Robin group. The group row in getMyBets
         // returns just metadata (sizes, parlayCount, totals) so the
@@ -1375,6 +1384,134 @@ final class BetsController
             ]);
         } catch (Throwable $e) {
             Response::json(['message' => $e->getMessage() ?: 'Error regrading stuck bets'], 500);
+        }
+    }
+
+    /**
+     * Admin-only inbox of stuck pending tickets the auto-settle paths
+     * couldn't grade. Returns one row per match (not per bet) since the
+     * settle decision is per-match — one home/away/void choice cascades
+     * to every affected player.
+     *
+     * Default threshold: matches that started ≥ HOURS hours ago (env
+     * STUCK_BET_INBOX_HOURS, default 6). Query param ?hours=N overrides.
+     */
+    private function getStuckBetsInbox(): void
+    {
+        try {
+            $actor = $this->protect();
+            if ($actor === null) {
+                return;
+            }
+            if ((string) ($actor['role'] ?? '') !== 'admin') {
+                Response::json(['message' => 'Admin role required'], 403);
+                return;
+            }
+
+            $defaultHours = (int) Env::get('STUCK_BET_INBOX_HOURS', '6');
+            $hours = isset($_GET['hours']) && is_numeric($_GET['hours'])
+                ? max(1, (int) $_GET['hours'])
+                : max(1, $defaultHours);
+
+            $pendingSelections = $this->db->findMany('betselections', ['status' => 'pending'], [
+                'projection' => ['matchId' => 1, 'betId' => 1, 'selection' => 1, 'marketType' => 1],
+                'limit' => 2000,
+            ]);
+            if ($pendingSelections === []) {
+                Response::json(['hours' => $hours, 'matches' => []]);
+                return;
+            }
+
+            $betIdsByMatch = [];
+            $selectionsByMatch = [];
+            foreach ($pendingSelections as $sel) {
+                $mid = (string) ($sel['matchId'] ?? '');
+                $bid = (string) ($sel['betId'] ?? '');
+                if ($mid === '' || $bid === '') continue;
+                if (preg_match('/^[a-f0-9]{24}$/i', $mid) !== 1) continue;
+                if (preg_match('/^[a-f0-9]{24}$/i', $bid) !== 1) continue;
+                $betIdsByMatch[$mid][$bid] = true;
+                $selectionsByMatch[$mid][] = $sel;
+            }
+
+            $now = time();
+            $cutoffTs = $now - ($hours * 3600);
+            $out = [];
+
+            foreach ($betIdsByMatch as $mid => $betIdSet) {
+                $match = $this->db->findOne('matches', ['id' => SqlRepository::id($mid)]);
+                if ($match === null) continue;
+
+                $startTs = strtotime((string) ($match['startTime'] ?? '')) ?: 0;
+                if ($startTs <= 0 || $startTs > $cutoffTs) {
+                    continue;
+                }
+
+                $eff = SportsMatchStatus::effectiveStatus($match, $now);
+                $score = is_array($match['score'] ?? null) ? $match['score'] : [];
+                $sh = is_numeric($score['score_home'] ?? null) ? (float) $score['score_home'] : null;
+                $sa = is_numeric($score['score_away'] ?? null) ? (float) $score['score_away'] : null;
+                $lastScoreChanged = (string) ($match['lastScoreChangedAt'] ?? '');
+                $probablyFinished = BetSettlementService::looksProvablyFinished($match, $now);
+
+                $bets = [];
+                $riskTotal = 0.0;
+                foreach (array_keys($betIdSet) as $bid) {
+                    $bet = $this->db->findOne('bets', ['id' => SqlRepository::id($bid)], [
+                        'projection' => ['id' => 1, 'userId' => 1, 'amount' => 1, 'riskAmount' => 1, 'potentialPayout' => 1, 'type' => 1],
+                    ]);
+                    if ($bet === null) continue;
+                    $uid = (string) ($bet['userId'] ?? '');
+                    $user = $uid !== '' ? $this->db->findOne('users', ['id' => SqlRepository::id($uid)], ['projection' => ['username' => 1]]) : null;
+                    $risk = (float) ($bet['riskAmount'] ?? $bet['amount'] ?? 0);
+                    $riskTotal += $risk;
+                    $bets[] = [
+                        'betId' => $bid,
+                        'userId' => $uid,
+                        'username' => (string) ($user['username'] ?? ''),
+                        'risk' => $risk,
+                        'toWin' => max(0, (float) ($bet['potentialPayout'] ?? 0) - $risk),
+                        'type' => (string) ($bet['type'] ?? 'straight'),
+                    ];
+                }
+
+                $marketTypes = [];
+                foreach ($selectionsByMatch[$mid] ?? [] as $sel) {
+                    $mt = strtolower((string) ($sel['marketType'] ?? ''));
+                    if ($mt !== '') $marketTypes[$mt] = true;
+                }
+                $h2hOnly = array_keys($marketTypes) === array_filter(array_keys($marketTypes), static fn($m) => in_array($m, ['h2h', 'moneyline', 'ml'], true));
+
+                $out[] = [
+                    'matchId' => $mid,
+                    'homeTeam' => (string) ($match['homeTeam'] ?? ''),
+                    'awayTeam' => (string) ($match['awayTeam'] ?? ''),
+                    'sport' => (string) ($match['sport'] ?? ($match['sportKey'] ?? '')),
+                    'startTime' => (string) ($match['startTime'] ?? ''),
+                    'ageHours' => round(($now - $startTs) / 3600, 1),
+                    'rawStatus' => (string) ($match['status'] ?? ''),
+                    'effectiveStatus' => $eff,
+                    'scoreHome' => $sh,
+                    'scoreAway' => $sa,
+                    'lastScoreChangedAt' => $lastScoreChanged,
+                    'looksProvablyFinished' => $probablyFinished,
+                    'h2hOnly' => $h2hOnly,
+                    'marketTypes' => array_keys($marketTypes),
+                    'bets' => $bets,
+                    'totalRisk' => round($riskTotal, 2),
+                    'betCount' => count($bets),
+                ];
+            }
+
+            usort($out, static fn($a, $b) => ($b['ageHours'] ?? 0) <=> ($a['ageHours'] ?? 0));
+
+            Response::json([
+                'hours' => $hours,
+                'matches' => $out,
+                'matchCount' => count($out),
+            ]);
+        } catch (Throwable $e) {
+            Response::json(['message' => $e->getMessage() ?: 'Error loading stuck-bet inbox'], 500);
         }
     }
 

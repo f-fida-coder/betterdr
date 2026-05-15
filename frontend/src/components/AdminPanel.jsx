@@ -25,6 +25,7 @@ const IPTrackerView = lazy(() => import('./admin-views/IPTrackerView'));
 const TransactionsHistoryView = lazy(() => import('./admin-views/TransactionsHistoryView'));
 const DeletedWagersView = lazy(() => import('./admin-views/DeletedWagersView'));
 const GamesEventsView = lazy(() => import('./admin-views/GamesEventsView'));
+const StuckBetsView = lazy(() => import('./admin-views/StuckBetsView'));
 const SportsBookLinksView = lazy(() => import('./admin-views/SportsBookLinksView'));
 const BetTickerView = lazy(() => import('./admin-views/BetTickerView'));
 const TicketWriterView = lazy(() => import('./admin-views/TicketWriterView'));
@@ -293,6 +294,8 @@ function AdminPanel({ onExit, role = 'admin' }) {
         return renderLazyView(<DeletedWagersView />, 'Loading deleted wagers...');
       case 'games-events':
         return renderLazyView(<GamesEventsView />, 'Loading games and events...');
+      case 'stuck-bets':
+        return renderLazyView(<StuckBetsView />, 'Loading stuck bets…');
       case 'sportsbook-links':
         return renderLazyView(<SportsBookLinksView />, 'Loading sportsbook links...');
       case 'bet-ticker':

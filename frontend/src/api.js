@@ -1756,6 +1756,18 @@ export const getSettleEligibility = async (matchId, token) => {
     return response.json();
 };
 
+export const getStuckBetsInbox = async (token, hours) => {
+    const params = (hours && Number.isFinite(Number(hours))) ? { hours: String(hours) } : {};
+    const response = await fetch(buildApiUrl('/bets/admin/stuck', params), {
+        headers: getHeaders(token)
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || 'Failed to load stuck bets');
+    }
+    return response.json();
+};
+
 export const getAgentPerformance = async (params, token) => {
     const query = new URLSearchParams(params).toString();
     const response = await fetch(buildApiUrl('/admin/agent-performance', query ? Object.fromEntries(new URLSearchParams(query)) : {}), {
