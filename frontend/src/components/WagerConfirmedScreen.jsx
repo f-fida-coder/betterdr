@@ -1,6 +1,7 @@
 import React from 'react';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { formatOdds, formatLineValue } from '../utils/odds';
+import { getSiteTimezone, getSiteTimezoneLabel } from '../utils/timezone';
 
 // 2dp w/ thousands separator. Mirrors the bet-review modal's formatAmount
 // so the post-placement Risk/Win tiles match exactly. Integer rounding
@@ -19,14 +20,16 @@ const fmtTimestamp = (value) => {
     if (!value) return '';
     const d = new Date(value);
     if (Number.isNaN(d.getTime())) return '';
-    return d.toLocaleString(undefined, {
+    const tz = getSiteTimezone();
+    const formatted = d.toLocaleString('en-US', {
+        timeZone: tz,
         month: 'short',
         day: 'numeric',
         year: 'numeric',
         hour: '2-digit',
         minute: '2-digit',
-        timeZoneName: 'short',
     });
+    return `${formatted} ${getSiteTimezoneLabel(tz)}`;
 };
 
 const lineSuffix = (leg) => {
@@ -48,13 +51,15 @@ const matchStartTime = (leg) => {
     if (!iso) return '';
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return '';
-    return d.toLocaleString(undefined, {
+    const tz = getSiteTimezone();
+    const formatted = d.toLocaleString('en-US', {
+        timeZone: tz,
         month: 'short',
         day: 'numeric',
         hour: '2-digit',
         minute: '2-digit',
-        timeZoneName: 'short',
     });
+    return `${formatted} ${getSiteTimezoneLabel(tz)}`;
 };
 
 /**

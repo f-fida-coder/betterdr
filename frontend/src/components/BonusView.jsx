@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import '../bonus.css';
 import { getBalance, getWalletTransactions, requestDeposit, requestWithdrawal } from '../api';
 import { isWagerTransaction } from '../utils/transactionPresentation';
+import { formatSiteDateTime } from '../utils/timezone';
 
 const TABS = [
     { id: 'deposits', label: 'Deposits', icon: 'fa-solid fa-arrow-down' },
@@ -362,7 +363,7 @@ const BonusView = () => {
                                         <span className="caps">{tx.type}</span>
                                         <span>{money(tx.amount)}</span>
                                         <span className={`status ${tx.status}`}>{tx.status}</span>
-                                        <span>{new Date(tx.createdAt).toLocaleString()}</span>
+                                        <span>{formatSiteDateTime(tx.createdAt)}</span>
                                         <span>{tx.description || '-'}</span>
                                     </div>
                                 ))}

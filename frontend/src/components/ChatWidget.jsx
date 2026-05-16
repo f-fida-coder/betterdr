@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { getMyMessages, createMessage } from '../api';
+import { formatSiteTime } from '../utils/timezone';
 
 const ChatWidget = () => {
     const [isOpen, setIsOpen] = useState(false);
@@ -147,7 +148,7 @@ const ChatWidget = () => {
                                     {msg.text}
                                 </div>
                                 <div style={{ fontSize: '10px', color: '#aaa', marginTop: '5px', textAlign: msg.sender === 'user' ? 'right' : 'left' }}>
-                                    {msg.createdAt ? new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                                    {msg.createdAt ? formatSiteTime(msg.createdAt) : ''}
                                 </div>
                             </div>
                         ))}

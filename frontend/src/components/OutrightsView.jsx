@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { formatOdds } from '../utils/odds';
 import { getOutrights } from '../api';
+import { getSiteTimezone } from '../utils/timezone';
 
 const dispatchAddToSlip = (event, outcome) => {
     // Reuses the existing 'betslip:add' event the slip already listens to.
@@ -27,7 +28,7 @@ const formatStartTime = (iso) => {
     if (!iso) return '';
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return '';
-    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+    return d.toLocaleDateString('en-US', { timeZone: getSiteTimezone(), month: 'short', day: 'numeric', year: 'numeric' });
 };
 
 /**

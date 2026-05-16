@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createMessage, getMyMessages, getSupportFaqs } from '../api';
 import useNetworkStatus from '../hooks/useNetworkStatus';
+import { formatSiteDateTime } from '../utils/timezone';
 import '../support.css';
 
 const SUPPORT_DRAFT_STORAGE_KEY = 'support-ticket-draft-v1';
@@ -290,7 +291,7 @@ const SupportView = () => {
                                         >
                                             <div>
                                                 <strong>{message.subject}</strong>
-                                                <p>{new Date(message.createdAt).toLocaleString()}</p>
+                                                <p>{formatSiteDateTime(message.createdAt)}</p>
                                             </div>
                                             <span className={`status ${statusLabel(message).toLowerCase()}`}>{statusLabel(message)}</span>
                                         </button>
@@ -309,7 +310,7 @@ const SupportView = () => {
                             <div className="thread-content">
                                 <div className="thread-main-message">
                                     <div className="thread-meta">
-                                        <span>{new Date(activeThread.createdAt).toLocaleString()}</span>
+                                        <span>{formatSiteDateTime(activeThread.createdAt)}</span>
                                         <span className={`status ${statusLabel(activeThread).toLowerCase()}`}>{statusLabel(activeThread)}</span>
                                     </div>
                                     <h3>{activeThread.subject}</h3>
@@ -320,7 +321,7 @@ const SupportView = () => {
                                     {(activeThread.replies || []).map((reply, idx) => (
                                         <div className="reply-item" key={`${activeThread.id}-reply-${idx}`}>
                                             <div className="thread-meta">
-                                                <span>{new Date(reply.createdAt).toLocaleString()}</span>
+                                                <span>{formatSiteDateTime(reply.createdAt)}</span>
                                                 <span>Support</span>
                                             </div>
                                             <p>{reply.message}</p>

@@ -9,6 +9,7 @@ import {
     placeCasinoBet,
     getCasinoBetHistory
 } from '../api';
+import { formatSiteDateTime } from '../utils/timezone';
 
 const LOCAL_GAME_META = {
     baccarat: {
@@ -1236,7 +1237,7 @@ const CasinoView = () => {
                             )}
                             {historyRows.map((row) => (
                                 <tr key={row.roundId || row.id}>
-                                    <td>{row.createdAt ? new Date(row.createdAt).toLocaleString() : '—'}</td>
+                                    <td>{row.createdAt ? formatSiteDateTime(row.createdAt) : '—'}</td>
                                     <td title={row.roundId || row.id || ''}>{formatRoundId(row.roundId || row.id)}</td>
                                     <td>{formatGameLabel(row.game)}</td>
                                     <td>

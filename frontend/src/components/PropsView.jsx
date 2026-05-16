@@ -4,6 +4,7 @@ import useMatches from '../hooks/useMatches';
 import { getMyBets } from '../api';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
 import { formatLineValue, formatOdds } from '../utils/odds';
+import { formatSiteTime } from '../utils/timezone';
 
 const PropsView = () => {
     const { oddsFormat } = useOddsFormat();
@@ -334,7 +335,7 @@ const formatStartTime = (startTime) => {
     if (!startTime) return 'Live';
     const date = new Date(startTime);
     if (Number.isNaN(date.getTime())) return 'Live';
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' });
+    return formatSiteTime(date);
 };
 
 export default PropsView;

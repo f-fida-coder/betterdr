@@ -6,6 +6,7 @@ import PersonalizeSidebar from './PersonalizeSidebar';
 import AccountPanel from './AccountPanel';
 import { setMyBetsInitialFilter } from './myBetsState';
 import { useOddsFormat } from '../contexts/OddsFormatContext';
+import { getSiteTimezone, getSiteTimezoneLabel } from '../utils/timezone';
 
 const buildRefreshRequestId = () => {
     if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -396,7 +397,9 @@ const DashboardHeader = ({ username, userId = null, balance, pendingBalance, ava
         if (Number.isNaN(dt.getTime())) {
             return 'No realtime event yet';
         }
-        return `Last update ${dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
+        const tz = getSiteTimezone();
+        const t = dt.toLocaleTimeString('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+        return `Last update ${t} ${getSiteTimezoneLabel(tz)}`;
     }, [lastRealtimeEventAt]);
 
     return (

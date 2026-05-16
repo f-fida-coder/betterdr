@@ -9,6 +9,7 @@ import {
     getMarketOutcomeByKeyword,
 } from '../utils/odds';
 import { fetchTeamBadgeUrl, createFallbackTeamLogoDataUri } from '../utils/teamLogos';
+import { getSiteTimezone, getSiteTimezoneLabel } from '../utils/timezone';
 import MatchDetailView from './MatchDetailView';
 import PropBuilderModal from './PropBuilderModal';
 
@@ -37,10 +38,13 @@ const SearchMatchPopup = ({ match, onClose }) => {
         if (!iso) return '';
         const d = new Date(iso);
         if (Number.isNaN(d.getTime())) return '';
-        return d.toLocaleString(undefined, {
+        const tz = getSiteTimezone();
+        const formatted = d.toLocaleString('en-US', {
+            timeZone: tz,
             month: 'short', day: 'numeric',
             hour: 'numeric', minute: '2-digit',
         });
+        return `${formatted} ${getSiteTimezoneLabel(tz)}`;
     }, [match]);
 
     const odds = useMemo(() => {
