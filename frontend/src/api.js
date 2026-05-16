@@ -59,7 +59,7 @@ const getBaseUrl = () => {
 export const API_URL = getBaseUrl();
 const isPathStyleApi = API_URL.includes('?path=');
 
-const buildApiUrl = (path = '', params = null) => {
+export const buildApiUrl = (path = '', params = null) => {
     const normalizedPath = path ? (path.startsWith('/') ? path : `/${path}`) : '';
     const queryString =
         params && Object.keys(params).length > 0

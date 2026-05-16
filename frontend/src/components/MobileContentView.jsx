@@ -1062,6 +1062,13 @@ const MobileContentView = ({
                         : activePeriod.suffix,
                 ),
                 isLive,
+                // True when the row LOOKS live but the backend has flagged
+                // odds as stale / suspended. MatchCard reads this to swap
+                // the red "Live" pill for a gray "Suspended" one so the
+                // user isn't staring at a red LIVE indicator next to an
+                // "Updated 39m ago" label. Computed once here so the slip
+                // and other consumers can read a single flag.
+                isLiveStale: isLive && match.isBettable === false,
                 liveStatusLabel,
                 // Baseball-only: structured live situation (half/inning/
                 // outs/bases). Null for every other sport, and null for
@@ -1088,8 +1095,13 @@ const MobileContentView = ({
                 dayKey: dayKeyOf(startDate),
                 dayLabel: dayLabelOf(startDate),
                 // Carried through so the MatchCard can render "Updated N min ago"
-                // without having to reach into rawMatch.
-                lastOddsSyncAt: match.lastOddsSyncAt || match.lastUpdated || null,
+                // without having to reach into rawMatch. ONLY lastOddsSyncAt
+                // — never falling back to lastUpdated, because the live
+                // score-only writer at OddsSyncService::updateExistingMatchFromScoreEvent
+                // bumps lastUpdated but NOT lastOddsSyncAt. A fallback there
+                // would lie about odds freshness on a row whose score was
+                // just refreshed but whose odds are minutes old.
+                lastOddsSyncAt: match.lastOddsSyncAt || null,
             };
         });
 
@@ -2306,15 +2318,21 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
             }}>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0, overflow: 'hidden' }}>
                     {match.isLive ? (
-                        <>
+                        // Stale-live: swap the red Live pill for a gray
+                        // Suspended pill, and drop the period/clock label
+                        // (which is computed from the same potentially
+                        // stale feed). The score numbers stay visible —
+                        // the player wants to see the score even when
+                        // betting is suspended.
+                        match.isLiveStale ? (
                             <span
-                                aria-label="Live"
-                                title="Live"
+                                aria-label="Betting suspended"
+                                title={match.bettingBlockedReason || 'Odds are stale — betting suspended'}
                                 style={{
                                     display: 'inline-flex',
                                     alignItems: 'center',
                                     gap: 4,
-                                    background: '#ef4444',
+                                    background: '#5a5a5a',
                                     color: '#fff',
                                     fontSize: 9,
                                     fontWeight: 800,
@@ -2325,33 +2343,56 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                                     lineHeight: 1,
                                 }}
                             >
-                                <span
-                                    style={{
-                                        display: 'inline-block',
-                                        width: 6,
-                                        height: 6,
-                                        borderRadius: 999,
-                                        background: '#fff',
-                                    }}
-                                />
-                                Live
+                                Suspended
                             </span>
-                            {match.baseballSituation ? (
-                                <BaseballSituationBadge situation={match.baseballSituation} />
-                            ) : (
-                                match.liveStatusLabel && (
-                                    <span style={{
-                                        fontSize: 11,
-                                        fontWeight: 700,
-                                        color: '#ef4444',
-                                        letterSpacing: 0.2,
-                                        fontVariantNumeric: 'tabular-nums',
-                                    }}>
-                                        {match.liveStatusLabel}
-                                    </span>
-                                )
-                            )}
-                        </>
+                        ) : (
+                            <>
+                                <span
+                                    aria-label="Live"
+                                    title="Live"
+                                    style={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: 4,
+                                        background: '#ef4444',
+                                        color: '#fff',
+                                        fontSize: 9,
+                                        fontWeight: 800,
+                                        letterSpacing: 0.5,
+                                        padding: '2px 6px',
+                                        borderRadius: 4,
+                                        textTransform: 'uppercase',
+                                        lineHeight: 1,
+                                    }}
+                                >
+                                    <span
+                                        style={{
+                                            display: 'inline-block',
+                                            width: 6,
+                                            height: 6,
+                                            borderRadius: 999,
+                                            background: '#fff',
+                                        }}
+                                    />
+                                    Live
+                                </span>
+                                {match.baseballSituation ? (
+                                    <BaseballSituationBadge situation={match.baseballSituation} />
+                                ) : (
+                                    match.liveStatusLabel && (
+                                        <span style={{
+                                            fontSize: 11,
+                                            fontWeight: 700,
+                                            color: '#ef4444',
+                                            letterSpacing: 0.2,
+                                            fontVariantNumeric: 'tabular-nums',
+                                        }}>
+                                            {match.liveStatusLabel}
+                                        </span>
+                                    )
+                                )}
+                            </>
+                        )
                     ) : (
                         <span style={matchTimeStyle}>{match.timeDisplay || match.time}</span>
                     )}

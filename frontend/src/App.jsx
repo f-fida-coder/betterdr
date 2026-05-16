@@ -23,6 +23,7 @@ import { useToast } from './contexts/ToastContext';
 import { OddsFormatProvider } from './contexts/OddsFormatContext';
 import { normalizeOddsFormat, readStoredOddsFormat, writeStoredOddsFormat } from './utils/odds';
 import useWebSocket from './hooks/useWebSocket';
+import useLiveSyncPoll from './hooks/useLiveSyncPoll';
 import useNetworkStatus from './hooks/useNetworkStatus';
 import NetworkStatusBanner from './components/NetworkStatusBanner';
 import './index.css';
@@ -139,6 +140,13 @@ function AppInner() {
       channel !== 'odds:sync'
       && channel !== 'odds:sync:error'
       && channel !== 'odds:sport:sync'
+      // Phase 2 added a scores-only channel — fires when the fast
+      // scores tick (~20s) updates the score on a row without
+      // touching odds. We still want to refetch the matches payload
+      // so the player sees the new score; the row's lastOddsSyncAt
+      // is intentionally NOT advanced by this channel, so the
+      // bet-ability gate stays honest.
+      && channel !== 'odds:sport:score'
     ) {
       return;
     }
@@ -188,6 +196,22 @@ function AppInner() {
     channel: '*',
     onMessage: handleRealtimeMessage,
     enabled: isLoggedIn,
+  });
+
+  // Hostinger-compatible push-feel fallback: when the WebSocket isn't
+  // available (production — port 5001 is blocked, no persistent socket),
+  // poll /api/sync/recent every ~3.5s for fresh events from the worker's
+  // event log. This is the path most production users actually traverse.
+  // We only enable it when the WebSocket isn't connected, so localhost
+  // dev (which gets a real WS) doesn't double-fire refetches.
+  //
+  // Each request is a tiny file-read on the backend — no DB, no upstream
+  // API, no long-poll. It's safe for shared PHP-FPM hosts and turns the
+  // ~15s polling window in useMatches into a ~3-4s effective push
+  // window for new data.
+  useLiveSyncPoll({
+    enabled: isLoggedIn && !realtimeConnected,
+    intervalMs: 3500,
   });
 
   const seedSessionState = useCallback(({ token: nextToken = '', user: nextUser = null, role: nextRole = '' } = {}) => {

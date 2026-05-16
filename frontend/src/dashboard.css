@@ -3761,6 +3761,12 @@ body.dashboard-mode {
     color: #fff;
 }
 
+.match-status.suspended {
+    background: #5a5a5a;
+    color: #fff;
+    border: 1px solid #888;
+}
+
 .match-card.match-card-closed {
     opacity: 0.7;
 }

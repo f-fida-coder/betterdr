@@ -7,6 +7,16 @@ final class OddsSyncService
 {
     private static array $apiCache = [];
     private static ?array $tierCache = null;
+    /**
+     * Per-sport "last force-fetched at" epoch seconds, populated by
+     * `sweepStarvedLiveMatches`. Lives for the duration of one worker
+     * process so a sport with a permanently-stuck row can't trigger an
+     * /odds call on every sweep tick. Reset on worker restart, which
+     * is the natural scale we care about.
+     *
+     * @var array<string, int>
+     */
+    private static array $lastStarvedSweepAt = [];
     private const CACHE_TTL_SECONDS = 1800; // 30 minutes
     private const EVENT_PROPS_TTL_SECONDS = 300; // 5 minutes per-event refresh threshold
     private const EVENT_PROPS_MAX_CONCURRENT = 8; // curl_multi fan-out per batch
@@ -1087,6 +1097,443 @@ final class OddsSyncService
                 RealtimeEventBus::publish('odds:sport:sync', [
                     'sport_key' => $sportKey,
                     'source' => 'oddsapi-live',
+                    'time' => gmdate(DATE_ATOM),
+                ]);
+            }
+        }
+
+        $result['ok'] = true;
+        return $result;
+    }
+
+    /**
+     * Lightweight scores-only sweep — polls OddsAPI's `/scores` endpoint
+     * and applies the result to existing matches WITHOUT touching odds.
+     *
+     * Runs on a faster cadence than `syncLiveOdds` (typically every 15-20s
+     * vs the 70s full-sync cadence) so the SCORE the player sees on the
+     * board tracks the actual game while bookmaker prices stay on the
+     * slower cadence imposed by upstream cache. `LIVE_SCORES_TICK_SECONDS`
+     * in env controls the worker's cadence; this method itself is
+     * stateless and may be called at any interval.
+     *
+     * Invariants — these are load-bearing, do not relax without revisiting
+     * the [MatchesController live-upcoming filter]:
+     *
+     *   - NEVER writes `lastOddsSyncAt`. That field is the canonical
+     *     "odds were fresh as of" timestamp; the live-upcoming gate uses
+     *     it to decide bet-ability. Stamping it here would lie about
+     *     odds freshness on a row whose score just refreshed but whose
+     *     price is minutes stale. `updateExistingMatchFromScoreEvent`
+     *     already honours this invariant — we just don't override it.
+     *
+     *   - Does NOT create new rows. Match creation is the prematch
+     *     cycle's job; if a /scores event references an externalId we
+     *     don't have yet, we skip it and let the next full sync pick
+     *     it up. This keeps the fast tick predictable: nothing it does
+     *     can balloon table size or wedge a brand-new row with stale
+     *     odds in the public list.
+     *
+     *   - Per-sport DB-gated via `sportsWithActiveMatches()`. Outside
+     *     of a sport's game hours, this method makes zero upstream
+     *     calls for that sport. At quiet hours total quota burn drops
+     *     to near zero — a sport with no scheduled-or-live match in
+     *     the [-3h, +30min] window is silently skipped.
+     *
+     * @param list<string> $excludeSportKeys Hybrid-mode pass-through:
+     *        the worker passes Rundown's sport set so OddsAPI never
+     *        fights Rundown for the same row. Same shape as
+     *        `syncLiveOdds`.
+     *
+     * @return array{ok:bool,sportsChecked:int,sportsPolled:int,
+     *               scoreEvents:int,updated:int,finished:int,settled:int,errors:int}
+     */
+    public static function syncLiveScoresOnly(SqlRepository $db, array $excludeSportKeys = []): array
+    {
+        $apiKey = (string) Env::get('ODDS_API_KEY', '');
+        $sportsApiEnabled = strtolower((string) Env::get('SPORTS_API_ENABLED', 'true')) === 'true';
+        $excludeSet = [];
+        foreach ($excludeSportKeys as $k) {
+            $excludeSet[strtolower(trim((string) $k))] = true;
+        }
+        $result = [
+            'ok' => false,
+            'sportsChecked' => 0,
+            'sportsPolled' => 0,
+            'scoreEvents' => 0,
+            'updated' => 0,
+            'finished' => 0,
+            'settled' => 0,
+            'errors' => 0,
+        ];
+
+        if (!$sportsApiEnabled || $apiKey === '') {
+            return $result;
+        }
+
+        $apiBase = 'https://api.the-odds-api.com/v4';
+        $sports = self::resolveSportsListForLive($apiKey, $apiBase);
+        if ($excludeSet !== []) {
+            $sports = array_values(array_filter($sports, static function (string $s) use ($excludeSet): bool {
+                return !isset($excludeSet[strtolower($s)]);
+            }));
+        }
+        $result['sportsChecked'] = count($sports);
+        if ($sports === []) {
+            $result['ok'] = true;
+            return $result;
+        }
+
+        $activeSports = self::sportsWithActiveMatches($db, $sports);
+        $result['sportsPolled'] = count($activeSports);
+        if ($activeSports === []) {
+            $result['ok'] = true;
+            return $result;
+        }
+
+        $scoreUrlsBySport = [];
+        foreach ($activeSports as $sportKey) {
+            $scoreQuery = [
+                'apiKey' => $apiKey,
+                'dateFormat' => 'iso',
+                'daysFrom' => self::scoresDaysFrom(),
+            ];
+            $scoreUrlsBySport[$sportKey] = $apiBase . '/sports/' . rawurlencode($sportKey) . '/scores?' . http_build_query($scoreQuery);
+        }
+
+        $touchedSports = [];
+        foreach (self::httpGetManyDetailed($scoreUrlsBySport) as $sportKey => $scoreResponse) {
+            $raw = $scoreResponse['body'] ?? null;
+            if (!is_string($raw) || $raw === '') {
+                $result['errors']++;
+                continue;
+            }
+            $scoreRows = json_decode($raw, true);
+            if (!is_array($scoreRows)) {
+                $result['errors']++;
+                continue;
+            }
+            foreach ($scoreRows as $scoreEvent) {
+                if (!self::isOddsApiLiveScoreEvent($scoreEvent)) {
+                    continue;
+                }
+                $externalId = (string) ($scoreEvent['id'] ?? '');
+                if ($externalId === '') {
+                    continue;
+                }
+                $scoreEvent['_sportKey'] = $sportKey;
+                $result['scoreEvents']++;
+                try {
+                    $updated = self::updateExistingMatchFromScoreEvent($db, $externalId, $scoreEvent);
+                } catch (Throwable $e) {
+                    $result['errors']++;
+                    continue;
+                }
+                if (($updated['updated'] ?? false) === true) {
+                    $result['updated']++;
+                    if (($scoreEvent['completed'] ?? null) === true) {
+                        $result['finished']++;
+                    }
+                    $result['settled'] += (int) ($updated['settled'] ?? 0);
+                    $touchedSports[$sportKey] = true;
+                }
+            }
+        }
+
+        if ($result['updated'] > 0) {
+            SportsbookCache::invalidatePublicMatchCaches();
+        }
+
+        if (class_exists('RealtimeEventBus') && $touchedSports !== []) {
+            foreach (array_keys($touchedSports) as $sportKey) {
+                RealtimeEventBus::publish('odds:sport:score', [
+                    'sport_key' => $sportKey,
+                    'source' => 'oddsapi-scores-only',
+                    'time' => gmdate(DATE_ATOM),
+                ]);
+            }
+        }
+
+        $result['ok'] = true;
+        return $result;
+    }
+
+    /**
+     * Filter a candidate sport-key list down to the subset that has at
+     * least one match in the DB whose start time is in the active window
+     * (currently [-3h, +30min]) AND whose status is scheduled or live.
+     *
+     * The [-3h, +30min] window covers:
+     *   * games about to kick off (so the row promotes to live cleanly)
+     *   * in-progress games (the obvious case)
+     *   * games that just ended (so /scores marks them completed → we
+     *     settle tickets via the next iteration of the worker)
+     *
+     * Sports with no row in this window are silently dropped, saving
+     * the /scores quota call for them entirely. This is the single
+     * biggest quota saver in the fast tick.
+     *
+     * @param list<string> $sportKeys
+     * @return list<string>
+     */
+    private static function sportsWithActiveMatches(SqlRepository $db, array $sportKeys): array
+    {
+        if ($sportKeys === []) {
+            return [];
+        }
+        $now = time();
+        $windowStart = gmdate(DATE_ATOM, $now - 3 * 3600);
+        $windowEnd   = gmdate(DATE_ATOM, $now + 30 * 60);
+        $rows = $db->findMany('matches', [
+            'sportKey' => ['$in' => $sportKeys],
+            'startTime' => ['$gte' => $windowStart, '$lte' => $windowEnd],
+            'status' => ['$in' => ['scheduled', 'live']],
+        ], ['projection' => ['sportKey' => 1]]);
+        $hit = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $k = (string) ($row['sportKey'] ?? '');
+            if ($k !== '') {
+                $hit[$k] = true;
+            }
+        }
+        return array_keys($hit);
+    }
+
+    /**
+     * Safety-net sweep: find matches that SHOULD have fresh live odds
+     * but don't, and force-refresh their sport's /odds endpoint.
+     *
+     * Even with Phase 2's per-sport scores tick + the tier-based prematch
+     * sync, a sport can fall through both safety nets:
+     *
+     *   * Its tier may have just ticked < 90s ago but tier scheduling
+     *     drifts (worker runtime, sleep granularity), pushing the *next*
+     *     tick past the 90s freshness window. Rows briefly age out and
+     *     flicker in and out of Live Now.
+     *   * OddsAPI's /scores endpoint may have flipped a match to live
+     *     in our DB without /odds having caught up yet, so the row
+     *     auto-promotes to "effectively live" without ever getting
+     *     bet-able odds.
+     *   * A sport simply not in any active tier (legacy data, edge-case
+     *     leagues) can sit forever with stale odds.
+     *
+     * The sweep is the safety net for all three. Cheap when the system
+     * is healthy (DB query returns zero rows → zero upstream calls);
+     * expensive only when something is wrong, in which case we WANT to
+     * spend quota fixing it.
+     *
+     * Quota guards:
+     *   * Per-sport cooldown (`STARVED_SWEEP_COOLDOWN_SECONDS`, default
+     *     60s) — a sport that was just force-fetched is skipped on
+     *     subsequent sweeps until the cooldown elapses. Marks the
+     *     cooldown BEFORE the HTTP call so a failure doesn't trigger
+     *     an immediate retry storm.
+     *   * Max sports per tick (`STARVED_SWEEP_MAX_SPORTS_PER_TICK`,
+     *     default 5) — caps the per-sweep blast radius so a major
+     *     outage (50 sports all stale) can't blow through the entire
+     *     quota in one tick.
+     *
+     * The sweep updates ONLY the odds-related fields on each row
+     * (`odds`, `oddsSource`, `lastOddsSyncAt`, `lastUpdated`,
+     * `updatedAt`) and preserves the existing `score`, `status`, and
+     * `extendedMarkets`. The full live sync still owns score+status
+     * updates; the sweep is purely about price freshness.
+     *
+     * @param list<string> $excludeSportKeys Hybrid-mode pass-through
+     *        (Rundown-handled sports are skipped here).
+     * @return array{ok:bool,starvedMatches:int,starvedSports:int,
+     *               sportsSwept:int,sportsCooldownSkipped:int,
+     *               sportsOverflowSkipped:int,oddsCalls:int,
+     *               updated:int,errors:int}
+     */
+    public static function sweepStarvedLiveMatches(SqlRepository $db, array $excludeSportKeys = []): array
+    {
+        $result = [
+            'ok' => false,
+            'starvedMatches' => 0,
+            'starvedSports' => 0,
+            'sportsSwept' => 0,
+            'sportsCooldownSkipped' => 0,
+            'sportsOverflowSkipped' => 0,
+            'oddsCalls' => 0,
+            'updated' => 0,
+            'errors' => 0,
+        ];
+
+        $apiKey = (string) Env::get('ODDS_API_KEY', '');
+        $sportsApiEnabled = strtolower((string) Env::get('SPORTS_API_ENABLED', 'true')) === 'true';
+        if (!$sportsApiEnabled || $apiKey === '') {
+            return $result;
+        }
+
+        $excludeSet = [];
+        foreach ($excludeSportKeys as $k) {
+            $excludeSet[strtolower(trim((string) $k))] = true;
+        }
+
+        $now = time();
+        $staleSeconds = max(60, (int) Env::get('STARVED_SWEEP_AGE_THRESHOLD_SECONDS', '90'));
+        $staleCutoffIso = gmdate(DATE_ATOM, $now - $staleSeconds);
+        // 6h back covers regulation finish + overtime + extra-time
+        // scenarios; we don't want to keep force-fetching yesterday's
+        // matches that genuinely finished.
+        $kickoffStartIso = gmdate(DATE_ATOM, $now - 6 * 3600);
+        $kickoffEndIso   = gmdate(DATE_ATOM, $now);
+
+        $rows = $db->findMany('matches', [
+            'status' => ['$in' => ['scheduled', 'live']],
+            'startTime' => ['$gte' => $kickoffStartIso, '$lte' => $kickoffEndIso],
+            'lastOddsSyncAt' => ['$lt' => $staleCutoffIso],
+        ], ['projection' => ['sportKey' => 1, 'lastOddsSyncAt' => 1]]);
+
+        $starvedSportKeys = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $key = strtolower((string) ($row['sportKey'] ?? ''));
+            if ($key === '' || isset($excludeSet[$key])) {
+                continue;
+            }
+            $starvedSportKeys[$key] = ($starvedSportKeys[$key] ?? 0) + 1;
+        }
+        $result['starvedMatches'] = count($rows);
+        $result['starvedSports'] = count($starvedSportKeys);
+        if ($starvedSportKeys === []) {
+            $result['ok'] = true;
+            return $result;
+        }
+
+        // Sort sports by how many starved rows each has, descending —
+        // when we have to cap by max-per-tick, the worst-affected
+        // sports get refreshed first.
+        arsort($starvedSportKeys, SORT_NUMERIC);
+
+        $cooldownSeconds = max(30, (int) Env::get('STARVED_SWEEP_COOLDOWN_SECONDS', '60'));
+        $cooldownCutoff = $now - $cooldownSeconds;
+        $candidates = [];
+        foreach (array_keys($starvedSportKeys) as $key) {
+            $lastForce = self::$lastStarvedSweepAt[$key] ?? 0;
+            if ($lastForce >= $cooldownCutoff) {
+                $result['sportsCooldownSkipped']++;
+                continue;
+            }
+            $candidates[] = $key;
+        }
+
+        $maxPerTick = max(1, (int) Env::get('STARVED_SWEEP_MAX_SPORTS_PER_TICK', '5'));
+        if (count($candidates) > $maxPerTick) {
+            $result['sportsOverflowSkipped'] = count($candidates) - $maxPerTick;
+            $candidates = array_slice($candidates, 0, $maxPerTick);
+        }
+
+        if ($candidates === []) {
+            $result['ok'] = true;
+            return $result;
+        }
+
+        $apiBase = 'https://api.the-odds-api.com/v4';
+        $regions = (string) Env::get('ODDS_API_REGIONS', 'us');
+        $markets = (string) Env::get('ODDS_API_MARKETS', 'h2h,spreads,totals');
+        $oddsFormat = (string) Env::get('ODDS_API_ODDS_FORMAT', 'decimal');
+        $bookmakers = (string) Env::get('ODDS_API_BOOKMAKERS', '');
+
+        $oddsUrlsBySport = [];
+        foreach ($candidates as $sportKey) {
+            $query = [
+                'apiKey' => $apiKey,
+                'regions' => $regions,
+                'markets' => $markets,
+                'oddsFormat' => $oddsFormat,
+            ];
+            if ($bookmakers !== '') {
+                $query['bookmakers'] = $bookmakers;
+            }
+            $oddsUrlsBySport[$sportKey] = $apiBase . '/sports/' . rawurlencode($sportKey) . '/odds?' . http_build_query($query);
+            // Mark cooldown BEFORE the call so a failure doesn't allow
+            // an immediate retry on the next sweep tick — the cooldown
+            // is a circuit-breaker, not a success counter.
+            self::$lastStarvedSweepAt[$sportKey] = $now;
+        }
+
+        $nowUtc = SqlRepository::nowUtc();
+        $touchedSports = [];
+        foreach (self::httpGetManyDetailed($oddsUrlsBySport) as $sportKey => $oddsResponse) {
+            $result['oddsCalls']++;
+            $result['sportsSwept']++;
+            $raw = $oddsResponse['body'] ?? null;
+            if (!is_string($raw) || $raw === '') {
+                $result['errors']++;
+                continue;
+            }
+            $events = json_decode($raw, true);
+            if (!is_array($events)) {
+                $result['errors']++;
+                continue;
+            }
+
+            foreach ($events as $event) {
+                if (!is_array($event)) {
+                    continue;
+                }
+                $externalId = (string) ($event['id'] ?? '');
+                if ($externalId === '') {
+                    continue;
+                }
+                $bookmakerList = $event['bookmakers'] ?? null;
+                if (!is_array($bookmakerList) || count($bookmakerList) === 0) {
+                    // No bookmaker data — skip, otherwise we'd write
+                    // an empty `odds.markets` over real prices. The
+                    // next full sweep will retry.
+                    continue;
+                }
+
+                $existing = $db->findOne('matches', ['externalId' => $externalId], [
+                    'projection' => ['id' => 1, 'odds' => 1],
+                ]);
+                if ($existing === null) {
+                    // Row not in DB — sweep doesn't create rows, that's
+                    // the prematch tick's job. The next full sync will
+                    // catch it.
+                    continue;
+                }
+
+                $newOdds = self::pickPrimaryBookmakerOdds($bookmakerList);
+                $existingOdds = is_array($existing['odds'] ?? null) ? $existing['odds'] : [];
+
+                // Preserve extendedMarkets (alt lines / period markets /
+                // player props) — the sweep fetches only the core
+                // markets list, so blindly overwriting `odds` would
+                // wipe everything Phase 3a built up.
+                if (isset($existingOdds['extendedMarkets']) && is_array($existingOdds['extendedMarkets'])) {
+                    $newOdds['extendedMarkets'] = $existingOdds['extendedMarkets'];
+                }
+
+                $updateDoc = [
+                    'odds' => $newOdds,
+                    'oddsSource' => 'oddsapi',
+                    'lastOddsSyncAt' => $nowUtc,
+                    'lastUpdated' => $nowUtc,
+                    'updatedAt' => $nowUtc,
+                ];
+                $db->updateOne('matches', ['id' => SqlRepository::id((string) $existing['id'])], $updateDoc);
+                $result['updated']++;
+                $touchedSports[$sportKey] = true;
+            }
+        }
+
+        if ($result['updated'] > 0) {
+            SportsbookCache::invalidatePublicMatchCaches();
+        }
+
+        if (class_exists('RealtimeEventBus') && $touchedSports !== []) {
+            foreach (array_keys($touchedSports) as $sportKey) {
+                RealtimeEventBus::publish('odds:sport:sync', [
+                    'sport_key' => $sportKey,
+                    'source' => 'oddsapi-starved-sweep',
                     'time' => gmdate(DATE_ATOM),
                 ]);
             }

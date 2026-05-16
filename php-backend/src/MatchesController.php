@@ -419,16 +419,44 @@ final class MatchesController
                 $f = RundownLiveService::freshnessFor($match);
                 $match['oddsAgeSeconds'] = $f['ageSeconds'];
                 $match['oddsDelayed'] = $f['delayed'];
+                $match['oddsStale'] = $f['stale'];
+                if ($f['stale'] && ($match['isBettable'] ?? false) === true) {
+                    $match['isBettable'] = false;
+                    $match['isStale'] = true;
+                    $match['bettingBlockedReason'] = 'Live odds are stale ('
+                        . $f['ageSeconds'] . 's old). Betting is temporarily suspended.';
+                }
                 return $match;
             }, $annotated);
-        } elseif ($desiredStatus === 'live-upcoming') {
-            // Default landing view. Drop rows whose odds are stale outright
-            // — pre-match window is PREMATCH_FRESHNESS_SECONDS_DEFAULT (300s
-            // by default), live window is the per-sport live freshness
-            // value (default 90s). We previously kept stale rows with an
-            // `oddsStale: true` flag so the UI could render a "betting
-            // suspended" badge, but the product call is to hide stale
-            // matches entirely so the user only sees bet-able odds.
+        } elseif ($desiredStatus === 'live-upcoming' || $defaultPublicView) {
+            // Default landing view ("Sports - Live & Upcoming") and any
+            // request that omits the status filter share the same gate:
+            // the row's odds must be fresh enough to bet on.
+            //
+            // Freshness is read from `lastOddsSyncAt` ONLY — NEVER
+            // `lastUpdated` or `updatedAt`. The score-only writer at
+            // OddsSyncService::updateExistingMatchFromScoreEvent
+            // intentionally bumps lastUpdated/lastScoreSyncAt without
+            // touching lastOddsSyncAt, so any code that falls back to
+            // those fields would treat a score-fresh / odds-stale row
+            // as bet-able. That is the regression that produced the
+            // "LIVE · 39m ago" badge in the wild.
+            //
+            // Window selection:
+            //   * status='live' OR (status='scheduled' AND kickoff has
+            //     passed)  →  live cadence (per-sport, default 90s).
+            //     A scheduled row whose kickoff is in the past is
+            //     "effectively live" — frontend will label it LIVE,
+            //     so we must hold it to the live freshness window.
+            //   * status='scheduled' AND kickoff still in the future
+            //     →  pre-match cadence (PREMATCH_FRESHNESS_SECONDS_DEFAULT,
+            //     default 300s).
+            //
+            // The old code applied the 300s window to ALL scheduled
+            // rows regardless of whether kickoff had passed, which is
+            // how a 2-3 minute old "scheduled" row could survive long
+            // after the auto-promote frontend logic had already flipped
+            // it to LIVE.
             $now = time();
             $prematchMaxAge = max(60, (int) Env::get('PREMATCH_FRESHNESS_SECONDS_DEFAULT', '300'));
             $annotated = array_values(array_filter($annotated, static function (array $match) use ($now, $prematchMaxAge): bool {
@@ -437,7 +465,11 @@ final class MatchesController
                 $last = (string) ($match['lastOddsSyncAt'] ?? '');
                 $lastTs = $last !== '' ? strtotime($last) : false;
                 if ($lastTs === false) return false;
-                if ($matchStatus === 'live') {
+                $startTime = (string) ($match['startTime'] ?? '');
+                $startTs = $startTime !== '' ? strtotime($startTime) : false;
+                $kickoffPassed = $startTs !== false && $startTs <= $now;
+                $isEffectivelyLive = $matchStatus === 'live' || $kickoffPassed;
+                if ($isEffectivelyLive) {
                     $sportKey = (string) ($match['sportKey'] ?? '');
                     $maxAge = self::liveFreshnessSecondsForSport($sportKey);
                 } else {
@@ -445,18 +477,42 @@ final class MatchesController
                 }
                 return ($now - $lastTs) <= $maxAge;
             }));
+            // Decorate every surviving row with freshness so the UI can
+            // render a truthful badge and so the placement endpoint
+            // double-checks bettability. Mirrors the decoration already
+            // applied to the strict-'live' branch above.
+            $annotated = array_map(static function (array $match): array {
+                $f = RundownLiveService::freshnessFor($match);
+                $match['oddsAgeSeconds'] = $f['ageSeconds'];
+                $match['oddsDelayed'] = $f['delayed'];
+                $match['oddsStale'] = $f['stale'];
+                // Defence-in-depth: if odds crossed the hard-stale
+                // threshold, suspend betting on the row regardless of
+                // what bettingAvailability decided upstream. Bet
+                // placement re-runs availability server-side, so this
+                // keeps the public match payload internally consistent.
+                if ($f['stale'] && ($match['isBettable'] ?? false) === true) {
+                    $match['isBettable'] = false;
+                    $match['isStale'] = true;
+                    $match['bettingBlockedReason'] = 'Live odds are stale ('
+                        . $f['ageSeconds'] . 's old). Betting is temporarily suspended.';
+                }
+                return $match;
+            }, $annotated);
         } elseif ($desiredStatus !== '' && $desiredStatus !== 'all' && !isset($dbFilter['status'])) {
             $annotated = array_values(array_filter($annotated, static function (array $match) use ($desiredStatus): bool {
                 return strtolower((string) ($match['status'] ?? '')) === $desiredStatus;
             }));
         } elseif ($active === 'true') {
             $annotated = array_values(array_filter($annotated, static fn (array $match): bool => strtolower((string) ($match['status'] ?? '')) === 'live'));
-        } elseif ($defaultPublicView && !isset($dbFilter['status'])) {
-            $annotated = array_values(array_filter($annotated, static function (array $match): bool {
-                $matchStatus = strtolower((string) ($match['status'] ?? ''));
-                return in_array($matchStatus, ['scheduled', 'live'], true);
-            }));
         }
+        // (The previous `defaultPublicView && !isset($dbFilter['status'])`
+        // branch was dead code: the dbFilter is always populated for the
+        // default public view a few dozen lines up, so the !isset guard
+        // never passed. Its intent — gate the public landing to
+        // scheduled+live rows — is now handled by folding $defaultPublicView
+        // into the live-upcoming branch, which applies the real freshness
+        // filter on top.)
 
         // Hide pre-match rows whose commence_time has passed but which never
         // got promoted to status='live' (so they don't sit in upcoming-style

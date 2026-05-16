@@ -27,21 +27,23 @@ const LIVE_EMPTY_RETRY_DELAYS_MS = [4000, 9000];
 // screen, keep showing the last-known rows for this long instead of
 // wiping the board to empty. Covers the case where the backend's 90s
 // live-freshness gate (or the prematch 300s gate) transiently filters
-// all rows out because the worker missed a tick — the periodic mount-
-// sync will normally refresh `lastOddsSyncAt` and bring rows back well
-// within this window. If the grace period elapses with no rows, we
-// accept the empty state.
+// all rows out because the worker missed a tick — Phase 3's
+// starvation sweep refreshes `lastOddsSyncAt` and brings rows back
+// within ~30s, so a short grace is enough.
 //
-// Bumped from 60s → 180s after operator report that odds were
-// disappearing from screen after ~2-3 min. The freshness gates plus a
-// missed sync cycle can leave the response empty for that long before
-// the next successful tick lands; a 180s grace covers it cleanly.
-//
-// Originally applied to status=live/active only. Extended to ALL
-// status filters because the same transient-empty flash hits the
-// default 'live-upcoming' board too — most users never tap the LIVE
-// NOW pill so they only see the bug in the default view.
-const EMPTY_GRACE_MS = 180000;
+// Split by view: live/active/live-upcoming uses a TIGHT grace (30s) so
+// stale rows don't pin the board for minutes. Pre-match views use a
+// looser 180s grace because pre-match rows can legitimately go empty
+// for longer windows (no games today on a given sport).
+const EMPTY_GRACE_LIVE_MS = 30000;
+const EMPTY_GRACE_OTHER_MS = 180000;
+// Maximum age of a stickied row's `lastOddsSyncAt` before we let it
+// fall off the merged list. Matches the backend live-freshness gate
+// (LIVE_FRESHNESS_SECONDS_DEFAULT = 90s) — a row the backend filter
+// dropped because its odds aged out must not be revived by the sticky
+// merge, otherwise the user sees a "10m ago LIVE" lie while the screen
+// is on. Bet placement re-validates server-side regardless.
+const STICKY_MAX_AGE_MS = 90000;
 // No-op cache: same Map surface (.get/.set/.delete/.size) so the rest of
 // the file is unchanged, but every read returns undefined so we always
 // refetch from the backend.
@@ -230,20 +232,25 @@ export default function useMatches(options = {}) {
                 // live, 300s for prematch) can briefly filter every row
                 // out when the sync worker misses a tick. Without this
                 // guard the UI flashes empty (odds disappear) and re-
-                // fills once the worker catches up — the operator-
-                // reported "odds vanish after 2-3 mins" bug.
+                // fills once the worker catches up.
                 //
-                // Applied to ALL status filters now, not just
-                // live/active: the default 'live-upcoming' board hits
-                // the same transient-empty flash and is what most users
-                // actually see. Keep previous rows on screen for
-                // EMPTY_GRACE_MS (180s) across any empty response.
+                // Live-bearing views (live / active / live-upcoming) use
+                // a tight 30s grace — Phase 3's starvation sweep heals
+                // freshness within ~30s, and a longer grace pins stale
+                // data on the screen. Pre-match views use a looser 180s
+                // grace because they can legitimately stay empty for
+                // longer (no game on for a sport today).
                 if (normalizedNext.length === 0 && Array.isArray(prev) && prev.length > 0) {
                     const now = Date.now();
                     if (liveEmptyGraceStartRef.current === 0) {
                         liveEmptyGraceStartRef.current = now;
                     }
-                    if (now - liveEmptyGraceStartRef.current < EMPTY_GRACE_MS) {
+                    const isLiveBearingView = statusFilter === 'live'
+                        || statusFilter === 'active'
+                        || statusFilter === 'live-upcoming'
+                        || statusFilter === 'active-upcoming';
+                    const graceMs = isLiveBearingView ? EMPTY_GRACE_LIVE_MS : EMPTY_GRACE_OTHER_MS;
+                    if (now - liveEmptyGraceStartRef.current < graceMs) {
                         return prev;
                     }
                     liveEmptyGraceStartRef.current = 0;
@@ -252,32 +259,41 @@ export default function useMatches(options = {}) {
                 if (normalizedNext.length > 0) liveEmptyGraceStartRef.current = 0;
 
                 // STICKY MERGE: keep prev rows that the new response
-                // dropped. The backend freshness gates (90s live / 300s
-                // prematch) drop a row when its lastOddsSyncAt exceeds
-                // the threshold; that's intentional server-side but
-                // operator-reported as a "glitch" on screen — odds
-                // shown one second, gone the next, back again on the
-                // next tick. Once a row has been displayed in this
-                // session, keep it visible.
+                // dropped — but ONLY rows whose own freshness signal is
+                // still good. The original sticky merge masked transient
+                // worker hiccups (row drops, comes back next tick) but
+                // also kept genuinely-stale rows visible long after the
+                // backend filter dropped them, producing the "10m ago
+                // LIVE" badge while the screen was open. Phase 3's
+                // starvation sweep makes transient stale-drops rare, so
+                // the cure can be milder than the disease: we sticky
+                // ONLY rows that themselves still have fresh odds.
                 //
                 // Rows whose ids reappear in the new response are
                 // REPLACED by the fresh version, so live odds still
-                // tick. Stickied rows keep their last-known values
-                // until either a fresh response brings them back or
-                // the user navigates scope (which reseeds from
-                // lastKnownByScope and drops stickies).
+                // tick. Stickied rows must satisfy STICKY_MAX_AGE_MS
+                // on `lastOddsSyncAt`; aged-out rows fall off, matching
+                // the backend's 90s live-freshness gate. Without
+                // lastOddsSyncAt we can't verify, so we drop.
                 //
-                // Bet placement validates freshness server-side at
-                // place-time, so showing a sticky stale row can't
-                // open a money-safety hole.
+                // Bet placement re-validates freshness server-side at
+                // place-time, so the sticky-stale risk was never a
+                // money hole, but the UX lie (showing odds the user
+                // can't actually bet on) was its own problem.
                 const nextById = new Map();
                 normalizedNext.forEach((m) => {
                     const id = m && (m.id ?? m._id ?? m.externalId);
                     if (id != null) nextById.set(String(id), m);
                 });
+                const stickyCutoffNow = Date.now();
                 const sticky = (Array.isArray(prev) ? prev : []).filter((m) => {
                     const id = m && (m.id ?? m._id ?? m.externalId);
-                    return id != null && !nextById.has(String(id));
+                    if (id == null || nextById.has(String(id))) return false;
+                    const lastSync = m?.lastOddsSyncAt;
+                    if (!lastSync) return false;
+                    const parsed = new Date(lastSync).getTime();
+                    if (!Number.isFinite(parsed)) return false;
+                    return (stickyCutoffNow - parsed) <= STICKY_MAX_AGE_MS;
                 });
                 const merged = sticky.length === 0 ? normalizedNext : [...normalizedNext, ...sticky];
                 const prevFingerprint = buildMatchesFingerprint(prev);
@@ -527,10 +543,21 @@ export default function useMatches(options = {}) {
         // local cache) so we always exercise the network and pick up odds
         // changes from the worker / on-demand refreshes by other clients.
         // Pauses when tab hidden, fires immediately on becoming visible.
-        // Poll cadence: live/active views stay at 15s (odds change fast);
-        // all other views use 60s to halve background DB load.
+        //
+        // Live-bearing views (live / active / live-upcoming / active-upcoming)
+        // poll at the live cadence (15s) — these views contain in-progress
+        // games where odds + scores move fast. The default landing
+        // "Sports - Live & Upcoming" is live-upcoming, so most users
+        // benefit from the faster cadence; bumping it from 60s to 15s
+        // shortens the worst-case "stale on screen" window 4x without
+        // changing what each user actually sees per refresh.
+        // Pure pre-match views (status=upcoming/scheduled) stay at 60s.
         // When tab hidden: continues at 120s to keep data reasonably fresh.
-        const pollIntervalMs = (statusFilter === 'live' || statusFilter === 'active') ? AUTO_POLL_LIVE_MS : AUTO_POLL_OTHER_MS;
+        const isLiveBearingView = statusFilter === 'live'
+            || statusFilter === 'active'
+            || statusFilter === 'live-upcoming'
+            || statusFilter === 'active-upcoming';
+        const pollIntervalMs = isLiveBearingView ? AUTO_POLL_LIVE_MS : AUTO_POLL_OTHER_MS;
         const hiddenPollIntervalMs = 120000; // 2min when tab is hidden
         let pollTimer = null;
         let currentPollMs = pollIntervalMs;

@@ -40,6 +40,10 @@ final class DebugController
             $this->userPrematchSync((string) $m[1]);
             return true;
         }
+        if ($method === 'GET' && $path === '/api/sync/recent') {
+            $this->syncRecentEvents();
+            return true;
+        }
         if ($method === 'GET' && preg_match('#^/api/debug/events/([a-z][a-z0-9_]{1,79})$#', $path, $m) === 1) {
             $this->oddsApiEvents((string) $m[1]);
             return true;
@@ -604,6 +608,174 @@ final class DebugController
             header('X-Sync-Throttled: 1');
         }
         Response::json(self::currentPrematchRows($this->db, $sportKey));
+    }
+
+    /**
+     * Lightweight events tail — returns recent entries from the
+     * RealtimeEventBus log file so a polling client can detect "the
+     * worker wrote new data" within a couple of seconds without doing
+     * the heavy /api/matches refetch on every poll.
+     *
+     * Designed for sub-3s polling: each request is a small file read
+     * (no DB, no upstream calls) and returns immediately — there is
+     * NO long-polling here, since shared PHP-FPM hosts can't tolerate
+     * many held connections. Clients sit on a normal short-poll loop
+     * and use the events returned to decide when to refetch /api/matches.
+     *
+     * Query params:
+     *   * since: byte offset cursor from a previous response (default 0
+     *     for first call → starts from current EOF so we don't replay
+     *     the whole log on every fresh mount). The very first response
+     *     advertises the current EOF as `cursor` so the next call
+     *     starts from there.
+     *   * channels: comma-separated channels to filter on (default:
+     *     odds:sport:sync,odds:sport:score). Empty = no filter.
+     *   * sports: comma-separated sport keys to filter on. Empty = no
+     *     filter.
+     *   * limit: cap on events returned per response (default 25, max
+     *     100). Prevents a slow client from receiving a huge backlog
+     *     after a long disconnect.
+     *
+     * Response:
+     *   {
+     *     "cursor": "1234567",             // byte offset for next call
+     *     "events": [
+     *       { "channel": "...", "payload": {...}, "timestamp": "..." }
+     *     ]
+     *   }
+     *
+     * Auth: open (same as /api/matches — anonymous-bettable views are
+     * publicly readable). Cheap enough that no rate limiting is
+     * strictly required, but we cap response size to bound abuse.
+     */
+    private function syncRecentEvents(): void
+    {
+        $sinceRaw = (string) Http::query('since', '');
+        $channelsRaw = (string) Http::query('channels', 'odds:sport:sync,odds:sport:score');
+        $sportsRaw = (string) Http::query('sports', '');
+        $limit = max(1, min(100, (int) Http::query('limit', '25')));
+
+        $channelFilter = [];
+        foreach (explode(',', $channelsRaw) as $c) {
+            $c = trim($c);
+            if ($c !== '') {
+                $channelFilter[$c] = true;
+            }
+        }
+        $sportFilter = [];
+        foreach (explode(',', $sportsRaw) as $s) {
+            $s = strtolower(trim($s));
+            if ($s !== '') {
+                $sportFilter[$s] = true;
+            }
+        }
+
+        $path = RealtimeEventBus::eventLogPath();
+        if (!is_file($path)) {
+            Response::json(['cursor' => '0', 'events' => []]);
+            return;
+        }
+
+        $size = @filesize($path);
+        if (!is_int($size)) {
+            Response::json(['cursor' => '0', 'events' => []]);
+            return;
+        }
+
+        // First call (`since` blank): start from current EOF so the
+        // client doesn't replay the entire backlog. Subsequent calls
+        // pass the cursor we returned last time.
+        $sinceOffset = is_numeric($sinceRaw) ? max(0, (int) $sinceRaw) : -1;
+        if ($sinceOffset === -1) {
+            Response::json(['cursor' => (string) $size, 'events' => []]);
+            return;
+        }
+
+        // File rotated since the client last polled (the log shrunk).
+        // Reset to start so we don't skip events at the tail of the
+        // new file. Worst case the client sees the first events twice
+        // — they're idempotent refetch triggers, not commands.
+        if ($sinceOffset > $size) {
+            $sinceOffset = 0;
+        }
+
+        if ($sinceOffset >= $size) {
+            // No new bytes since last poll.
+            Response::json(['cursor' => (string) $size, 'events' => []]);
+            return;
+        }
+
+        $handle = @fopen($path, 'rb');
+        if ($handle === false) {
+            Response::json(['cursor' => (string) $size, 'events' => []]);
+            return;
+        }
+
+        $events = [];
+        $newCursor = $sinceOffset;
+        try {
+            @fseek($handle, $sinceOffset);
+            // Cap how much we read in one response so a long-disconnected
+            // client can't flood us with megabytes of backlog. 256KB is
+            // ~1000 typical events — plenty for a normal catch-up.
+            $maxReadBytes = 262144;
+            $buf = @fread($handle, $maxReadBytes);
+            if (!is_string($buf) || $buf === '') {
+                Response::json(['cursor' => (string) $size, 'events' => []]);
+                return;
+            }
+            // Track the byte position of each line so cursor can advance
+            // EXACTLY past whichever lines we processed — never past
+            // lines we skipped due to the limit cap, which would lose
+            // events on the next poll.
+            $bytesProcessed = 0;
+            $lines = explode("\n", $buf);
+            $lineCount = count($lines);
+            foreach ($lines as $i => $line) {
+                // Last entry of explode() is the trailing partial line
+                // (if any) or '' (if buf ends in \n). Either way, don't
+                // count it toward processed bytes — wait for next poll
+                // to read it completely.
+                $isTrailing = ($i === $lineCount - 1);
+                if ($isTrailing) {
+                    break;
+                }
+                $bytesProcessed += strlen($line) + 1; // +1 for the \n
+                if ($line === '') continue;
+                $row = json_decode($line, true);
+                if (!is_array($row)) continue;
+                $channel = (string) ($row['channel'] ?? '');
+                if ($channelFilter !== [] && !isset($channelFilter[$channel])) continue;
+                $payload = is_array($row['payload'] ?? null) ? $row['payload'] : [];
+                if ($sportFilter !== []) {
+                    $sk = strtolower((string) ($payload['sport_key'] ?? ''));
+                    if ($sk === '' || !isset($sportFilter[$sk])) continue;
+                }
+                $events[] = [
+                    'channel' => $channel,
+                    'payload' => $payload,
+                    'timestamp' => (string) ($row['timestamp'] ?? ''),
+                ];
+                if (count($events) >= $limit) {
+                    // Advance cursor only past this line; the rest of
+                    // the buffer is left for the next poll.
+                    $newCursor = $sinceOffset + $bytesProcessed;
+                    break;
+                }
+            }
+            // Didn't hit the limit — cursor advances past every complete
+            // line we read.
+            if (count($events) < $limit) {
+                $newCursor = $sinceOffset + $bytesProcessed;
+            }
+        } finally {
+            @fclose($handle);
+        }
+
+        Response::json([
+            'cursor' => (string) $newCursor,
+            'events' => $events,
+        ]);
     }
 
     /**

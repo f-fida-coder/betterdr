@@ -691,7 +691,23 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                     score1: displayScore1,
                     score2: displayScore2,
                     period: match.score?.period, // e.g. 'Q1', '2nd Half'
-                    status: (match.status === 'live' || (match.score && (String(match.score.event_status || '').toUpperCase().includes('IN_PROGRESS') || String(match.score.event_status || '').toUpperCase().includes('LIVE')))) ? 'LIVE' : 'SCHEDULED',
+                    // LIVE badge is the truth-test the user reads at a
+                    // glance. It must reflect BOTH "this row is in-progress"
+                    // AND "the odds you're seeing are fresh enough to bet
+                    // on". When the backend has flagged the row as
+                    // not-bettable (isBettable=false from a stale odds
+                    // sweep, manual suspension, or sport-wide circuit
+                    // breaker), we render SUSPENDED so the player isn't
+                    // looking at a misleading green LIVE chip while the
+                    // bet buttons are disabled. SCHEDULED stays the
+                    // default for pre-kickoff rows.
+                    status: (() => {
+                        const liveByBackend = match.status === 'live';
+                        const eventStatus = String(match.score?.event_status || '').toUpperCase();
+                        const liveByEvent = eventStatus.includes('IN_PROGRESS') || eventStatus.includes('LIVE');
+                        if (!liveByBackend && !liveByEvent) return 'SCHEDULED';
+                        return match.isBettable === false ? 'SUSPENDED' : 'LIVE';
+                    })(),
                     odds: extractOdds(match, homeName, awayName),
                     rawMatch: match // Keep raw for betting
                 };
@@ -906,7 +922,7 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                     <div className="match-time">
                                         <span className="time">{match.time}</span>
                                         <span className="date">{match.date}</span>
-                                        <OddsAge timestamp={match.rawMatch?.lastOddsSyncAt || match.rawMatch?.lastUpdated} live={(match.status || '').toString().toUpperCase() === 'LIVE' || (match.rawMatch?.status || '').toString().toLowerCase() === 'live'} style={{ marginLeft: 8 }} />
+                                        <OddsAge timestamp={match.rawMatch?.lastOddsSyncAt} live={(match.status || '').toString().toUpperCase() === 'LIVE' || (match.rawMatch?.status || '').toString().toLowerCase() === 'live'} style={{ marginLeft: 8 }} />
                                     </div>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                         <button
@@ -963,7 +979,12 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                         >
                                             P+
                                         </button>
-                                        <span className={`match-status ${match.status === 'LIVE' ? 'live' : ''}`}>{match.status}</span>
+                                        <span
+                                            className={`match-status ${match.status === 'LIVE' ? 'live' : (match.status === 'SUSPENDED' ? 'suspended' : '')}`}
+                                            title={match.status === 'SUSPENDED' ? (match.rawMatch?.bettingBlockedReason || 'Odds are stale — betting suspended') : undefined}
+                                        >
+                                            {match.status}
+                                        </span>
                                     </div>
                                 </div>
 
