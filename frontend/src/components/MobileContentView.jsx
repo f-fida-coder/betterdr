@@ -2244,6 +2244,19 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
         ? (match.bettingBlockedReason || 'Betting is temporarily unavailable for this event.')
         : null;
     const isSelected = (marketType, selection) => selectedKeys.has(`${match.id}|${marketType}|${selection}`);
+    // 1st-inning totals at 0.5 IS the NRFI/YRFI market — relabel chips so bettors
+    // recognise it. Selection name stays "Over"/"Under" for settlement (totals
+    // resolution in SportsbookBetSupport::selectionResult matches on substring
+    // "over"; "YRFI"/"NRFI" would both fall through to the Under branch).
+    const isNrfiContext = Number(match?.odds?.totalPoint) === 0.5
+        && String(match?.sportKey || match?.sport || '').toLowerCase().startsWith('baseball');
+    const totalsMarketLabel = isNrfiContext ? 'NRFI/YRFI' : 'Total';
+    const totalsOverDisplay = isNrfiContext
+        ? 'YRFI'
+        : (match.odds.totalPoint === null ? '—' : `O ${formatLineValue(teaserPreview.total(match.odds.totalPoint, 'Over'))}`);
+    const totalsUnderDisplay = isNrfiContext
+        ? 'NRFI'
+        : (match.odds.totalPoint === null ? '—' : `U ${formatLineValue(teaserPreview.total(match.odds.totalPoint, 'Under'))}`);
     const addIfAllowed = (...args) => {
         if (blocked) return;
         // Inject isLive + sportKey once per card so every odds-button
@@ -2472,12 +2485,12 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                     <OddsCell
                         disabled={blocked || match.odds.totalOverPrice === null}
                         selected={isSelected('totals', 'Over') && !blocked}
-                        main={match.odds.totalPoint === null ? '—' : `O ${formatLineValue(teaserPreview.total(match.odds.totalPoint, 'Over'))}`}
+                        main={totalsOverDisplay}
                         juice={formatOdds(match.odds.totalOverPrice, oddsFormat)}
                         title={teaserPoints > 0 && match.odds.totalPoint !== null
                             ? `Was O ${formatLineValue(match.odds.totalPoint)} (teaser −${teaserPoints})`
                             : undefined}
-                        onClick={() => addIfAllowed(match.id, 'Over', 'totals', match.odds.totalOverPrice, matchName, 'Total', match.odds.totalPoint)}
+                        onClick={() => addIfAllowed(match.id, 'Over', 'totals', match.odds.totalOverPrice, matchName, totalsMarketLabel, match.odds.totalPoint)}
                     />
                 )}
 
@@ -2596,12 +2609,12 @@ const MatchCard = React.memo(({ match, oddsFormat, onAddToSlip, selectedKeys, vi
                     <OddsCell
                         disabled={blocked || match.odds.totalUnderPrice === null}
                         selected={isSelected('totals', 'Under') && !blocked}
-                        main={match.odds.totalPoint === null ? '—' : `U ${formatLineValue(teaserPreview.total(match.odds.totalPoint, 'Under'))}`}
+                        main={totalsUnderDisplay}
                         juice={formatOdds(match.odds.totalUnderPrice, oddsFormat)}
                         title={teaserPoints > 0 && match.odds.totalPoint !== null
                             ? `Was U ${formatLineValue(match.odds.totalPoint)} (teaser +${teaserPoints})`
                             : undefined}
-                        onClick={() => addIfAllowed(match.id, 'Under', 'totals', match.odds.totalUnderPrice, matchName, 'Total', match.odds.totalPoint)}
+                        onClick={() => addIfAllowed(match.id, 'Under', 'totals', match.odds.totalUnderPrice, matchName, totalsMarketLabel, match.odds.totalPoint)}
                     />
                 )}
             </div>
@@ -2768,11 +2781,12 @@ const sportSubtitleStyle = { fontSize: '11px', color: 'rgba(255,255,255,0.85)', 
 const emptyStateStyle = { textAlign: 'center', padding: '60px 20px', color: '#bbb' };
 
 const refreshButtonStyle = {
-    border: '1px solid #d1d5db',
+    border: 'none',
     background: '#fff',
-    color: '#475569',
+    color: '#ff5051',
+    boxShadow: '0 2px 6px rgba(0, 0, 0, 0.18)',
     fontSize: '11px',
-    fontWeight: 600,
+    fontWeight: 700,
     padding: '6px 10px',
     cursor: 'pointer',
     whiteSpace: 'nowrap',

@@ -1094,27 +1094,41 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                                                     </div>
                                                 </div>
                                             )}
-                                            {showTotals && (
+                                            {showTotals && (() => {
+                                                // 1st-inning total at 0.5 IS the NRFI/YRFI market — relabel so bettors
+                                                // recognise it. Selection name stays "Over"/"Under" for settlement
+                                                // (SportsbookBetSupport::selectionResult matches on substring "over").
+                                                const isNrfi = Number(match.odds.total.point) === 0.5
+                                                    && String(match.rawMatch?.sportKey || '').toLowerCase().startsWith('baseball');
+                                                const totalLabel = isNrfi ? 'NRFI / YRFI' : 'Total';
+                                                const overLabel = isNrfi
+                                                    ? `YRFI (${formatOdds(match.odds.total.overOdds, oddsFormat)})`
+                                                    : formatTotalDisplay('O', match.odds.total.point, match.odds.total.overOdds, oddsFormat);
+                                                const underLabel = isNrfi
+                                                    ? `NRFI (${formatOdds(match.odds.total.underOdds, oddsFormat)})`
+                                                    : formatTotalDisplay('U', match.odds.total.point, match.odds.total.underOdds, oddsFormat);
+                                                return (
                                                 <div className="odds-cell">
-                                                    <span className="odds-label">Total</span>
+                                                    <span className="odds-label">{totalLabel}</span>
                                                     <div className="odds-values-group">
                                                         {renderOddsButton({
-                                                            label: formatTotalDisplay('O', match.odds.total.point, match.odds.total.overOdds, oddsFormat),
-                                                            onClick: () => handleAddToSlip(match.id, 'Over', 'totals', match.odds.total.overOdds, `${match.team1.name} vs ${match.team2.name}`, 'Total', match.odds.total.point, { isLive: match.status === 'LIVE' }),
+                                                            label: overLabel,
+                                                            onClick: () => handleAddToSlip(match.id, 'Over', 'totals', match.odds.total.overOdds, `${match.team1.name} vs ${match.team2.name}`, totalLabel, match.odds.total.point, { isLive: match.status === 'LIVE' }),
                                                             available: match.odds.total.point !== null && hasValidOdds(match.odds.total.overOdds),
                                                             disabled: match.rawMatch?.isBettable === false,
                                                             reason: match.rawMatch?.bettingBlockedReason || 'Betting unavailable',
                                                         })}
                                                         {renderOddsButton({
-                                                            label: formatTotalDisplay('U', match.odds.total.point, match.odds.total.underOdds, oddsFormat),
-                                                            onClick: () => handleAddToSlip(match.id, 'Under', 'totals', match.odds.total.underOdds, `${match.team1.name} vs ${match.team2.name}`, 'Total', match.odds.total.point, { isLive: match.status === 'LIVE' }),
+                                                            label: underLabel,
+                                                            onClick: () => handleAddToSlip(match.id, 'Under', 'totals', match.odds.total.underOdds, `${match.team1.name} vs ${match.team2.name}`, totalLabel, match.odds.total.point, { isLive: match.status === 'LIVE' }),
                                                             available: match.odds.total.point !== null && hasValidOdds(match.odds.total.underOdds),
                                                             disabled: match.rawMatch?.isBettable === false,
                                                             reason: match.rawMatch?.bettingBlockedReason || 'Betting unavailable',
                                                         })}
                                                     </div>
                                                 </div>
-                                            )}
+                                                );
+                                            })()}
                                         </div>
                                     </div>
                                 )}
