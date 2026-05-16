@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import useMatches from '../hooks/useMatches';
 import useSportOddsRefresh from '../hooks/useSportOddsRefresh';
 import { syncLiveMatches, syncPrematchSport, getStoredAuthToken } from '../api';
@@ -94,6 +94,18 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
     // always renders so the user never loses the Full Game tab.
     const [selectedPeriodId, setSelectedPeriodId] = useState('full');
     const loadGenRef = React.useRef(0);
+
+    // Bump on Account → Preferences → Timezone change so every visible
+    // match-time/date label re-renders with the new zone without a page
+    // reload. The render of `time`/`date` is derived from getSiteTimezone()
+    // inside processMatches, but processMatches doesn't otherwise depend
+    // on the stored zone, so we need this trigger.
+    const [tzTick, setTzTick] = useState(0);
+    useEffect(() => {
+        const handler = () => setTzTick((n) => n + 1);
+        window.addEventListener('siteTimezone:change', handler);
+        return () => window.removeEventListener('siteTimezone:change', handler);
+    }, []);
     // Tracks whether the current scope has had a fetch resolve yet. While
     // false, we keep the loading skeleton on screen even if rawMatches
     // happens to be empty — otherwise the user briefly sees "No matches"
@@ -638,10 +650,21 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                 let displayScore1 = match.score?.score_home ?? 0;
                 let displayScore2 = match.score?.score_away ?? 0;
 
+                const siteTz = getSiteTimezone();
+                const siteTzLabel = getSiteTimezoneLabel(siteTz);
                 return {
                     id: match.id || match.externalId,
-                    time: match.startTime ? new Date(match.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' }) : '',
-                    date: match.startTime ? new Date(match.startTime).toLocaleDateString() : '',
+                    // Render in the site timezone (Account → Preferences →
+                    // Timezone) instead of the browser's local zone. Without
+                    // the timeZone option toLocaleTimeString falls back to
+                    // navigator locale, which produces "10:00 AM GMT+5" for
+                    // a player in Pakistan even when the account is set to ET.
+                    time: match.startTime
+                        ? `${new Date(match.startTime).toLocaleTimeString('en-US', { timeZone: siteTz, hour: '2-digit', minute: '2-digit', hour12: true })} ${siteTzLabel}`
+                        : '',
+                    date: match.startTime
+                        ? new Date(match.startTime).toLocaleDateString('en-US', { timeZone: siteTz, month: 'numeric', day: 'numeric', year: 'numeric' })
+                        : '',
                     // Broadcast row above the match-header. Resolved client-side
                     // so we can keep the chip palette in one place; raw string
                     // comes from ESPN's scoreboard side-channel via the
@@ -691,8 +714,10 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
         processMatches();
 
     // activePeriod.suffix included so flipping the chip recomputes odds.
+    // tzTick included so the next Account → Preferences → Timezone change
+    // re-runs processMatches and refreshes every visible `time`/`date` label.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [sportId, filter, rawMatches, activePeriod.suffix]);
+    }, [sportId, filter, rawMatches, activePeriod.suffix, tzTick]);
 
     React.useEffect(() => {
         const names = Array.from(new Set(
