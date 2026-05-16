@@ -646,9 +646,10 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                 const homeName = match.homeTeam || match.home_team || '';
                 const awayName = match.awayTeam || match.away_team || '';
 
-                // Determine score to show based on period filter
-                let displayScore1 = match.score?.score_home ?? 0;
-                let displayScore2 = match.score?.score_away ?? 0;
+                // Convention in this component: team1 = away (rendered left), team2 = home (rendered right).
+                // Score variables MUST follow the same pairing — odds handlers below depend on this.
+                let awayScore = match.score?.score_away ?? 0;
+                let homeScore = match.score?.score_home ?? 0;
 
                 const siteTz = getSiteTimezone();
                 const siteTzLabel = getSiteTimezoneLabel(siteTz);
@@ -688,8 +689,8 @@ const SportContentView = ({ sportId, selectedItems = [], filter = null, status =
                         record: match.homeTeamRecord || '',
                         abbr: homeName.substring(0, 3).toUpperCase(),
                     },
-                    score1: displayScore1,
-                    score2: displayScore2,
+                    score1: awayScore,
+                    score2: homeScore,
                     period: match.score?.period, // e.g. 'Q1', '2nd Half'
                     // LIVE badge is the truth-test the user reads at a
                     // glance. It must reflect BOTH "this row is in-progress"
