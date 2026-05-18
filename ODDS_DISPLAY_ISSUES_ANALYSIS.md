@@ -16,7 +16,7 @@
 | Component | Interval | Behavior |
 |-----------|----------|----------|
 | **Main Worker** (`odds-worker.php`) | `ODDS_CRON_MINUTES` (default **10 minutes**) | Calls `OddsSyncService::updateMatches()` |
-| **Live Tick** | `RUNDOWN_LIVE_TICK_SECONDS` (default **10 seconds**) | Interleaved: syncs live match odds within main loop |
+| **Live Tick** | `LIVE_FULL_TICK_SECONDS` (default **10 seconds**) | Interleaved: syncs live match odds within main loop |
 | **Database** | On update | Writes match docs to `matches` collection |
 | **Cache Invalidation** | On sync success | Clears `sportsbookCache` public snapshot |
 

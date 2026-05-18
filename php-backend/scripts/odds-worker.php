@@ -24,7 +24,6 @@ require_once __DIR__ . '/../src/OddsMarketCatalog.php';
 require_once __DIR__ . '/../src/ApiQuotaGuard.php';
 require_once __DIR__ . '/../src/TeamNormalizer.php';
 require_once __DIR__ . '/../src/OddsSyncService.php';
-require_once __DIR__ . '/../src/RundownLiveService.php';
 require_once __DIR__ . '/../src/RealtimeEventBus.php';
 
 $projectRoot = dirname(__DIR__, 2);
@@ -69,7 +68,7 @@ if ($dbName === '') {
 // Worker updates DB every 90 seconds (1.5 minutes) by default.
 // This ensures live odds are never >90s stale and reduces gaps between
 // updates. Set ODDS_CRON_MINUTES in .env to override (e.g. '5' = 5 min).
-// For sub-20s Live Now syncs, this combines with RUNDOWN_LIVE_TICK_SECONDS.
+// For sub-20s Live Now syncs, this combines with LIVE_FULL_TICK_SECONDS.
 $minutes = max(0.5, (float) Env::get('ODDS_CRON_MINUTES', '1.5'));
 $intervalSeconds = max(30, (int) round($minutes * 60));
 
@@ -213,11 +212,10 @@ while (true) {
     // than the main worker's per-tier cadence.
     //
     //   * FULL sweep (`syncLiveOdds`): /scores + /odds for every sport
-    //     with a live event. Heavy — runs at RUNDOWN_LIVE_TICK_SECONDS
-    //     (default 70s) which matches OddsAPI's roughly-30-60s upstream
-    //     cache plus a safety margin. This is the only path that
-    //     refreshes the bookmaker PRICE on a live row, so it owns
-    //     `lastOddsSyncAt`.
+    //     with a live event. Heavy — runs at LIVE_FULL_TICK_SECONDS
+    //     (default 10s) which is comfortably ahead of OddsAPI's upstream
+    //     cache. This is the only path that refreshes the bookmaker
+    //     PRICE on a live row, so it owns `lastOddsSyncAt`.
     //
     //   * SCORES-ONLY sweep (`syncLiveScoresOnly`): just /scores, and
     //     only for sports that have a scheduled-or-live match in the
@@ -232,7 +230,7 @@ while (true) {
     // OddsSyncService::updateMatches call earlier in this loop.
     $elapsed = (int) max(0, round(microtime(true) - $started));
     $remaining = max(1, $intervalSeconds - $elapsed);
-    $fullLiveTickSeconds = max(5, (int) Env::get('RUNDOWN_LIVE_TICK_SECONDS', '10'));
+    $fullLiveTickSeconds = max(5, (int) Env::get('LIVE_FULL_TICK_SECONDS', '10'));
     // Fast scores cadence. Clamped so it can never run slower than the
     // full sweep (defeats the purpose) and never faster than 5s (would
     // pummel /scores with no actual data movement to show for it,
@@ -245,23 +243,10 @@ while (true) {
     // returns zero rows and no upstream calls are made. Set to 0 to
     // disable the sweep entirely (not recommended outside debugging).
     $starvedSweepTickSeconds = max(0, (int) Env::get('STARVED_SWEEP_TICK_SECONDS', '30'));
-    // Live-odds source toggle. Hybrid mode:
-    //   RUNDOWN_LIVE_ENABLED=true  → Rundown handles the sports it
-    //     covers (NBA, NFL, MLB, NHL, top soccer leagues, IPL, etc.),
-    //     OddsAPI live writer fills the gaps (tennis, boxing,
-    //     euroleague, cricket ODI, plus anything else not in Rundown's
-    //     /sports list). Each writer filters by sport so they never
-    //     update the same matches row.
-    //   RUNDOWN_LIVE_ENABLED=false → OddsAPI writes ALL live odds
-    //     (legacy behaviour, unchanged).
-    $rundownLiveOn = strtolower((string) Env::get('RUNDOWN_LIVE_ENABLED', 'false')) === 'true'
-        && (string) Env::get('RUNDOWN_API_KEY', '') !== '';
+    // Live-odds source: OddsAPI writes ALL live odds.
     $oddsApiLiveOn = strtolower((string) Env::get('LIVE_ODDS_ODDSAPI', 'true')) === 'true'
         && strtolower((string) Env::get('SPORTS_API_ENABLED', 'true')) === 'true'
         && (string) Env::get('ODDS_API_KEY', '') !== '';
-    // In hybrid mode the OddsAPI live writer skips the sports Rundown
-    // is handling so the two never fight for the same match.
-    $rundownSupportedSports = $rundownLiveOn ? RundownLiveService::supportedSportKeys() : [];
     $deadline = microtime(true) + $remaining;
     // Track when the FULL sweep last ran so we can do a full pass on the
     // very first chunk after entering the inner loop, then space subsequent
@@ -281,42 +266,18 @@ while (true) {
 
         if ($doFullSweep) {
             $lastFullSweepAt = $chunkStart;
-            if ($rundownLiveOn) {
-                try {
-                    $repoLive = new SqlRepository($dbUri, $dbName);
-                    $r = RundownLiveService::syncLiveOdds($repoLive);
-                    if (($r['updated'] ?? 0) > 0 || ($r['errors'] ?? 0) > 0 || ($r['liveEvents'] ?? 0) > 0) {
-                        $logWorker('info', sprintf(
-                            "rundown live tick sports=%d live=%d calls=%d updated=%d skipped=%d errors=%d",
-                            (int) ($r['sportsChecked'] ?? 0),
-                            (int) ($r['liveEvents'] ?? 0),
-                            (int) ($r['oddsCalls'] ?? 0),
-                            (int) ($r['updated'] ?? 0),
-                            (int) ($r['skipped'] ?? 0),
-                            (int) ($r['errors'] ?? 0)
-                        ));
-                    }
-                    unset($repoLive);
-                } catch (Throwable $e) {
-                    $logWorker('error', 'rundown live tick failed: ' . $e->getMessage());
-                }
-            }
             if ($oddsApiLiveOn) {
                 try {
                     $repoLive = new SqlRepository($dbUri, $dbName);
-                    // Hybrid mode: pass Rundown's covered sports so OddsAPI
-                    // skips them. Plain mode ($rundownSupportedSports = []):
-                    // OddsAPI handles everything as before.
-                    $r = OddsSyncService::syncLiveOdds($repoLive, $rundownSupportedSports);
+                    $r = OddsSyncService::syncLiveOdds($repoLive);
                     if (($r['updated'] ?? 0) > 0 || ($r['created'] ?? 0) > 0 || ($r['errors'] ?? 0) > 0 || ($r['liveScoreEvents'] ?? 0) > 0) {
                         $logWorker('info', sprintf(
-                            "oddsapi live tick sports=%d live=%d withOdds=%d changed=%d errors=%d mode=%s",
+                            "oddsapi live tick sports=%d live=%d withOdds=%d changed=%d errors=%d",
                             (int) ($r['sportsChecked'] ?? 0),
                             (int) ($r['liveScoreEvents'] ?? 0),
                             count((array) ($r['matches'] ?? [])),
                             (int) ($r['updated'] ?? 0) + (int) ($r['created'] ?? 0),
-                            (int) ($r['errors'] ?? 0),
-                            $rundownLiveOn ? 'hybrid-gap-fill' : 'standalone'
+                            (int) ($r['errors'] ?? 0)
                         ));
                     }
                     unset($repoLive);
@@ -334,7 +295,7 @@ while (true) {
             // odds-truth signal.
             try {
                 $repoScores = new SqlRepository($dbUri, $dbName);
-                $r = OddsSyncService::syncLiveScoresOnly($repoScores, $rundownSupportedSports);
+                $r = OddsSyncService::syncLiveScoresOnly($repoScores);
                 if (($r['updated'] ?? 0) > 0 || ($r['errors'] ?? 0) > 0 || ($r['finished'] ?? 0) > 0) {
                     $logWorker('info', sprintf(
                         "oddsapi scores tick polled=%d/%d events=%d updated=%d finished=%d settled=%d errors=%d",
@@ -363,7 +324,7 @@ while (true) {
             $lastStarvedSweepAt = $chunkStart;
             try {
                 $repoSweep = new SqlRepository($dbUri, $dbName);
-                $s = OddsSyncService::sweepStarvedLiveMatches($repoSweep, $rundownSupportedSports);
+                $s = OddsSyncService::sweepStarvedLiveMatches($repoSweep);
                 // Only log when there was actually starvation to talk
                 // about — a clean zero-row sweep adds noise without
                 // signal. The `starved > 0` line is the signal that

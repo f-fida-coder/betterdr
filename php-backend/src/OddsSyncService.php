@@ -888,20 +888,10 @@ final class OddsSyncService
      *
      * @return array{ok:bool,sportsChecked:int,liveScoreEvents:int,liveSports:int,oddsCalls:int,created:int,updated:int,finished:int,errors:int,matches:list<array<string,mixed>>,perSport:array<string,array<string,int>>}
      */
-    /**
-     * @param list<string> $excludeSportKeys When the hybrid live-odds mode
-     *        is on (RUNDOWN_LIVE_ENABLED=true), the worker passes the set
-     *        of sport keys Rundown is handling. We skip those here so the
-     *        two writers never fight over the same matches row.
-     */
-    public static function syncLiveOdds(SqlRepository $db, array $excludeSportKeys = []): array
+    public static function syncLiveOdds(SqlRepository $db): array
     {
         $apiKey = (string) Env::get('ODDS_API_KEY', '');
         $sportsApiEnabled = strtolower((string) Env::get('SPORTS_API_ENABLED', 'true')) === 'true';
-        $excludeSet = [];
-        foreach ($excludeSportKeys as $k) {
-            $excludeSet[strtolower(trim((string) $k))] = true;
-        }
         $result = [
             'ok' => false,
             'sportsChecked' => 0,
@@ -923,11 +913,6 @@ final class OddsSyncService
 
         $apiBase = 'https://api.the-odds-api.com/v4';
         $sports = self::resolveSportsListForLive($apiKey, $apiBase);
-        if ($excludeSet !== []) {
-            $sports = array_values(array_filter($sports, static function (string $s) use ($excludeSet): bool {
-                return !isset($excludeSet[strtolower($s)]);
-            }));
-        }
         $result['sportsChecked'] = count($sports);
         if ($sports === []) {
             $result['ok'] = true;
@@ -1140,22 +1125,13 @@ final class OddsSyncService
      *     to near zero — a sport with no scheduled-or-live match in
      *     the [-3h, +30min] window is silently skipped.
      *
-     * @param list<string> $excludeSportKeys Hybrid-mode pass-through:
-     *        the worker passes Rundown's sport set so OddsAPI never
-     *        fights Rundown for the same row. Same shape as
-     *        `syncLiveOdds`.
-     *
      * @return array{ok:bool,sportsChecked:int,sportsPolled:int,
      *               scoreEvents:int,updated:int,finished:int,settled:int,errors:int}
      */
-    public static function syncLiveScoresOnly(SqlRepository $db, array $excludeSportKeys = []): array
+    public static function syncLiveScoresOnly(SqlRepository $db): array
     {
         $apiKey = (string) Env::get('ODDS_API_KEY', '');
         $sportsApiEnabled = strtolower((string) Env::get('SPORTS_API_ENABLED', 'true')) === 'true';
-        $excludeSet = [];
-        foreach ($excludeSportKeys as $k) {
-            $excludeSet[strtolower(trim((string) $k))] = true;
-        }
         $result = [
             'ok' => false,
             'sportsChecked' => 0,
@@ -1173,11 +1149,6 @@ final class OddsSyncService
 
         $apiBase = 'https://api.the-odds-api.com/v4';
         $sports = self::resolveSportsListForLive($apiKey, $apiBase);
-        if ($excludeSet !== []) {
-            $sports = array_values(array_filter($sports, static function (string $s) use ($excludeSet): bool {
-                return !isset($excludeSet[strtolower($s)]);
-            }));
-        }
         $result['sportsChecked'] = count($sports);
         if ($sports === []) {
             $result['ok'] = true;
@@ -1342,14 +1313,12 @@ final class OddsSyncService
      * `extendedMarkets`. The full live sync still owns score+status
      * updates; the sweep is purely about price freshness.
      *
-     * @param list<string> $excludeSportKeys Hybrid-mode pass-through
-     *        (Rundown-handled sports are skipped here).
      * @return array{ok:bool,starvedMatches:int,starvedSports:int,
      *               sportsSwept:int,sportsCooldownSkipped:int,
      *               sportsOverflowSkipped:int,oddsCalls:int,
      *               updated:int,errors:int}
      */
-    public static function sweepStarvedLiveMatches(SqlRepository $db, array $excludeSportKeys = []): array
+    public static function sweepStarvedLiveMatches(SqlRepository $db): array
     {
         $result = [
             'ok' => false,
@@ -1367,11 +1336,6 @@ final class OddsSyncService
         $sportsApiEnabled = strtolower((string) Env::get('SPORTS_API_ENABLED', 'true')) === 'true';
         if (!$sportsApiEnabled || $apiKey === '') {
             return $result;
-        }
-
-        $excludeSet = [];
-        foreach ($excludeSportKeys as $k) {
-            $excludeSet[strtolower(trim((string) $k))] = true;
         }
 
         $now = time();
@@ -1395,7 +1359,7 @@ final class OddsSyncService
                 continue;
             }
             $key = strtolower((string) ($row['sportKey'] ?? ''));
-            if ($key === '' || isset($excludeSet[$key])) {
+            if ($key === '') {
                 continue;
             }
             $starvedSportKeys[$key] = ($starvedSportKeys[$key] ?? 0) + 1;
@@ -1892,8 +1856,8 @@ final class OddsSyncService
         }
 
         return [
-            'markets' => $markets,
-            'playerProps' => $playerProps,
+            'markets' => self::normalizeMarketPricesToDecimal($markets),
+            'playerProps' => self::normalizeMarketPricesToDecimal($playerProps),
             'quota' => $quota,
         ];
     }
@@ -2108,7 +2072,7 @@ final class OddsSyncService
                 $book = $byKey[$key];
                 return [
                     'bookmaker' => isset($book['title']) ? (string) $book['title'] : null,
-                    'markets' => $book['markets'],
+                    'markets' => self::normalizeMarketPricesToDecimal(is_array($book['markets']) ? $book['markets'] : []),
                 ];
             }
         }
@@ -2116,7 +2080,7 @@ final class OddsSyncService
         if ($firstNonEmpty !== null) {
             return [
                 'bookmaker' => isset($firstNonEmpty['title']) ? (string) $firstNonEmpty['title'] : null,
-                'markets' => $firstNonEmpty['markets'],
+                'markets' => self::normalizeMarketPricesToDecimal(is_array($firstNonEmpty['markets']) ? $firstNonEmpty['markets'] : []),
             ];
         }
 
@@ -2128,6 +2092,52 @@ final class OddsSyncService
             'bookmaker' => is_array($fallback) && isset($fallback['title']) ? (string) $fallback['title'] : null,
             'markets' => [],
         ];
+    }
+
+    /**
+     * Convert American-integer outcome prices to decimal with 6-decimal
+     * precision so the rest of the system (which stores and reasons
+     * about decimal odds) keeps working unchanged when the upstream
+     * is requested in American format. Round-trip safe — e.g.
+     * -245 → 1.408163 → frontend `decimalToAmerican` → -245.
+     *
+     * Idempotent: outcomes already in decimal form (|price| < 100) are
+     * left untouched, so the helper is safe to call on any markets
+     * payload regardless of upstream format.
+     *
+     * @param array<int, mixed> $markets
+     * @return array<int, mixed>
+     */
+    private static function normalizeMarketPricesToDecimal(array $markets): array
+    {
+        foreach ($markets as &$market) {
+            if (!is_array($market) || !isset($market['outcomes']) || !is_array($market['outcomes'])) {
+                continue;
+            }
+            foreach ($market['outcomes'] as &$outcome) {
+                if (!is_array($outcome) || !array_key_exists('price', $outcome) || !is_numeric($outcome['price'])) {
+                    continue;
+                }
+                $num = (float) $outcome['price'];
+                // Decimal odds are always in [1.0, 100). American odds
+                // are integers with |x| >= 100. Magnitude split keeps
+                // this helper idempotent on already-decimal payloads.
+                if (abs($num) < 100.0) {
+                    continue;
+                }
+                $american = (int) round($num);
+                if ($american === 0) {
+                    continue;
+                }
+                $decimal = $american > 0
+                    ? 1.0 + ($american / 100.0)
+                    : 1.0 + (100.0 / abs($american));
+                $outcome['price'] = round($decimal, 6);
+            }
+            unset($outcome);
+        }
+        unset($market);
+        return $markets;
     }
 
     /**

@@ -209,7 +209,7 @@ final class AuthController
                 'viewOnly' => false,
                 'unlimitedBalance' => false,
                 'dashboardLayout' => 'tiles',
-                'settings' => ['oddsFormat' => 'decimal'],
+                'settings' => ['oddsFormat' => 'american'],
                 'agentBillingStatus' => 'paid',
                 'createdAt' => $now,
                 'updatedAt' => $now,

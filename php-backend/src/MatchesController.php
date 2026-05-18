@@ -379,21 +379,11 @@ final class MatchesController
                 if ($lastTs === false) return false;
 
                 if ($status === 'live') {
-                    // Canonical path: live odds may come from OddsAPI OR
-                    // Rundown depending on RUNDOWN_LIVE_ENABLED. Both
-                    // sources write to the same matches row with the
-                    // `oddsSource` tag — accept either.
+                    // Canonical path: live odds come from OddsAPI. Rows
+                    // tagged with any other `oddsSource` are dropped.
                     $src = strtolower((string) ($match['oddsSource'] ?? ''));
-                    if ($src !== 'oddsapi' && $src !== 'rundown') return false;
+                    if ($src !== 'oddsapi') return false;
                     $maxAge = self::liveFreshnessSecondsForSport($sportKey);
-                    // Rundown Starter plan has a 60s data delay on top of
-                    // our 70s tick — allow more headroom before filtering
-                    // the row as stale, otherwise rows briefly disappear
-                    // between ticks. Hard cap remains 180s (handled below
-                    // via oddsStale flag).
-                    if ($src === 'rundown') {
-                        $maxAge = max($maxAge, 150);
-                    }
                     return ($now - $lastTs) <= $maxAge;
                 }
 
@@ -412,11 +402,11 @@ final class MatchesController
             }));
             // Decorate each surviving live row with freshness metadata so
             // the UI can show a "delayed" badge for rows whose last sync
-            // is older than RundownLiveService::STALE_SOFT_SECONDS. Rows
-            // older than STALE_HARD_SECONDS were already filtered out by
-            // the loop above — they never reach the player.
+            // is older than the soft-stale threshold. Hard-stale rows
+            // were already filtered out by the loop above — they never
+            // reach the player.
             $annotated = array_map(static function (array $match): array {
-                $f = RundownLiveService::freshnessFor($match);
+                $f = self::freshnessFor($match);
                 $match['oddsAgeSeconds'] = $f['ageSeconds'];
                 $match['oddsDelayed'] = $f['delayed'];
                 $match['oddsStale'] = $f['stale'];
@@ -482,7 +472,7 @@ final class MatchesController
             // double-checks bettability. Mirrors the decoration already
             // applied to the strict-'live' branch above.
             $annotated = array_map(static function (array $match): array {
-                $f = RundownLiveService::freshnessFor($match);
+                $f = self::freshnessFor($match);
                 $match['oddsAgeSeconds'] = $f['ageSeconds'];
                 $match['oddsDelayed'] = $f['delayed'];
                 $match['oddsStale'] = $f['stale'];
@@ -1463,9 +1453,7 @@ final class MatchesController
      *   1. LIVE_FRESHNESS_SECONDS_<UPPERCASED_SPORT_KEY>  (e.g.
      *      LIVE_FRESHNESS_SECONDS_CRICKET_IPL)
      *   2. LIVE_FRESHNESS_SECONDS_DEFAULT
-     *   3. RUNDOWN_LIVE_FRESHNESS_SECONDS  (legacy fallback — earlier
-     *      releases used this single knob; respected for back-compat)
-     *   4. Hard default 90s
+     *   3. Hard default 90s
      *
      * Sport keys with non-alnum characters (dots, dashes) are normalized to
      * underscores so the env name is always a valid identifier.
@@ -1480,9 +1468,33 @@ final class MatchesController
         }
         $default = (int) Env::get('LIVE_FRESHNESS_SECONDS_DEFAULT', '0');
         if ($default > 0) return $default;
-        $legacy = (int) Env::get('RUNDOWN_LIVE_FRESHNESS_SECONDS', '0');
-        if ($legacy > 0) return $legacy;
         return $hard;
+    }
+
+    /** Soft-stale threshold — UI shows a "delayed" badge past this age. */
+    public const ODDS_STALE_SOFT_SECONDS = 90;
+
+    /** Hard-stale threshold — betting is suspended on the match past this age. */
+    public const ODDS_STALE_HARD_SECONDS = 180;
+
+    /**
+     * Live-odds freshness for a single match row, computed from
+     * `lastOddsSyncAt`. Used to decorate the public match payload so
+     * the UI can render a truthful "delayed" badge and so bet placement
+     * suspends rows whose prices crossed the hard-stale threshold.
+     *
+     * @param array<string,mixed> $match
+     * @return array{ageSeconds:int,delayed:bool,stale:bool}
+     */
+    public static function freshnessFor(array $match): array
+    {
+        $last = (string) ($match['lastOddsSyncAt'] ?? '');
+        $ageSeconds = $last === '' ? PHP_INT_MAX : max(0, time() - strtotime($last));
+        return [
+            'ageSeconds' => $ageSeconds,
+            'delayed' => $ageSeconds >= self::ODDS_STALE_SOFT_SECONDS,
+            'stale' => $ageSeconds >= self::ODDS_STALE_HARD_SECONDS,
+        ];
     }
 
     private function isTruthy(mixed $value): bool

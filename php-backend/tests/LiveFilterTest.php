@@ -108,7 +108,7 @@ TestRunner::run('live filter — status=live but odds stale (>90s)', function ()
 TestRunner::run('live filter — status=live but oddsSource != oddsapi', function (): void {
     $now = time();
     $filter = liveFilterStub($now, 300, 90);
-    $m = liveFixture(['oddsSource' => 'rundown']);
+    $m = liveFixture(['oddsSource' => 'unknown']);
     TestRunner::assertFalse($filter($m), 'non-oddsapi live row dropped');
 });
 

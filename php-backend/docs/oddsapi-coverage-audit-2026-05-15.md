@@ -211,7 +211,7 @@ OddsAPI `/odds` response shape:
 
 Synthetic / derived stored fields (not from OddsAPI):
 - `homeTeamShort`, `awayTeamShort` — TeamNormalizer output [:1577]
-- `oddsSource` — `'oddsapi'` or `'rundown'` [:1583]
+- `oddsSource` — `'oddsapi'` (only source) [:1583]
 - `status`, `score.period`, `score.event_status` — computed [:1940-1956]
 - Timestamps: `lastUpdated`, `lastOddsSyncAt`, `lastScoreSyncAt`, `lastPropsSyncAt`, `updatedAt`, `createdAt`
 
@@ -226,7 +226,7 @@ Synthetic / derived stored fields (not from OddsAPI):
 # SECTION G — Cron / Quota Analysis
 
 Worker entry: [scripts/odds-worker.php]. Inner loop ticks the live sync sub-interval
-(`RUNDOWN_LIVE_TICK_SECONDS`) repeatedly between outer tier cycles.
+(`LIVE_FULL_TICK_SECONDS`) repeatedly between outer tier cycles.
 
 | Job | Sport scope | Markets | Effective Interval | Est. Requests/Day |
 |---|---|---|---|---|
@@ -249,8 +249,6 @@ heavily dominated by the live tick and per-event sync.
   request bursts that exceed the guard get queued/dropped depending on path.
 - OddsAPI response headers `x-requests-remaining` / `x-requests-used` are parsed
   and logged [reported per cron-quota agent] but **not used as a backoff signal**.
-- `RUNDOWN_LIVE_ENABLED=false` [root .env:19] means we are NOT offloading live to
-  Rundown right now — every live event hits OddsAPI directly.
 
 ---
 
