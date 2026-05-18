@@ -1676,31 +1676,24 @@ const MobileContentView = ({
                 currentLeagueKey = leagueKey;
                 currentDayKey = null;
                 const leagueLabel = sportLabelForKey(leagueKey) || (match.sport || leagueKey);
+                // Per-league period chips ride inline on the SAME red row
+                // as the league label (multi-sport only). Each section's
+                // own periods (Q1–Q4 for NBA, F1/F3/F5/F7 for MLB, etc.)
+                // sit on the right of that section's red header bar, so
+                // the band reads as a single sportsbook-style strip
+                // instead of stacking two separate red rows.
+                const periods = isMultiSportView
+                    ? (perSportMeta.get(leagueKey)?.periods ?? [])
+                    : [];
                 entries.push({
                     type: 'league',
                     id: `league-${leagueKey}`,
+                    sportKey: leagueKey,
                     label: periodSuffixLabel
                         ? `${leagueLabel} ${periodSuffixLabel}`.trim()
                         : leagueLabel,
+                    periods: periods.length > 1 ? periods : null,
                 });
-                // Per-league period chip strip — multi-sport only. Renders
-                // immediately under the league header so each section's
-                // own periods (Q1–Q4 for NBA, F1/F3/F5/F7 for MLB, etc.)
-                // sit above that section's match list, not just the
-                // first-selected sport's chips at the top of the view.
-                // Skipped in single-sport mode so the legacy top-strip
-                // stays the only strip on screen.
-                if (isMultiSportView) {
-                    const meta = perSportMeta.get(leagueKey);
-                    if (meta && meta.periods.length > 1) {
-                        entries.push({
-                            type: 'periodStrip',
-                            id: `period-strip-${leagueKey}`,
-                            sportKey: leagueKey,
-                            periods: meta.periods,
-                        });
-                    }
-                }
             }
             if (!suppressDayDividers && match.dayKey && match.dayKey !== currentDayKey) {
                 currentDayKey = match.dayKey;
@@ -1998,32 +1991,36 @@ const MobileContentView = ({
                         return <div key={entry.id} style={dayHeaderStyle}>{entry.label}</div>;
                     }
                     if (entry.type === 'league') {
-                        return <div key={entry.id} style={leagueHeaderStyle}>{entry.label}</div>;
-                    }
-                    if (entry.type === 'periodStrip') {
-                        // Per-league chip strip; only injected in
-                        // multi-sport view. Reads its selected period
-                        // from `periodBySport` keyed by sportKey so
-                        // NBA-Q1 + MLB-Full coexist without clobbering.
+                        // Single red row: league label on the left,
+                        // per-sport period chips on the right. Reads
+                        // its selected period from `periodBySport`
+                        // keyed by sportKey so NBA-Q1 and MLB-F1 coexist
+                        // without clobbering. Falls back to label-only
+                        // when the sport has no useful period split.
                         const activeIdForSport = periodBySport[entry.sportKey] || 'full';
                         return (
-                            <div key={entry.id} style={periodTabBarStyle}>
-                                {entry.periods.map((p) => {
-                                    const isActive = p.id === activeIdForSport;
-                                    return (
-                                        <button
-                                            key={p.id}
-                                            type="button"
-                                            onClick={() => setPeriodBySport((prev) => ({
-                                                ...prev,
-                                                [entry.sportKey]: p.id,
-                                            }))}
-                                            style={isActive ? periodTabActiveStyle : periodTabStyle}
-                                        >
-                                            {p.label}
-                                        </button>
-                                    );
-                                })}
+                            <div key={entry.id} style={leagueHeaderStyle}>
+                                <span style={leagueHeaderLabelStyle}>{entry.label}</span>
+                                {entry.periods && (
+                                    <div style={leagueHeaderPeriodsStyle}>
+                                        {entry.periods.map((p) => {
+                                            const isActive = p.id === activeIdForSport;
+                                            return (
+                                                <button
+                                                    key={p.id}
+                                                    type="button"
+                                                    onClick={() => setPeriodBySport((prev) => ({
+                                                        ...prev,
+                                                        [entry.sportKey]: p.id,
+                                                    }))}
+                                                    style={isActive ? periodTabActiveStyle : periodTabStyle}
+                                                >
+                                                    {p.label}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                )}
                             </div>
                         );
                     }
@@ -2961,13 +2958,36 @@ const dayHeaderStyle = {
 };
 
 const leagueHeaderStyle = {
-    padding: '8px 16px',
+    display: 'flex',
+    alignItems: 'stretch',
+    gap: 10,
+    padding: '6px 10px 6px 14px',
     background: '#ff5051',
     color: '#fff',
+    position: 'sticky',
+    top: 0,
+    zIndex: 5,
+    flexShrink: 0,
+    minHeight: 40,
+};
+const leagueHeaderLabelStyle = {
+    display: 'flex',
+    alignItems: 'center',
     fontSize: '12px',
-    fontWeight: 700,
-    letterSpacing: '0.4px',
+    fontWeight: 800,
+    letterSpacing: '0.6px',
     textTransform: 'uppercase',
+    flexShrink: 0,
+    paddingRight: 4,
+};
+const leagueHeaderPeriodsStyle = {
+    display: 'flex',
+    gap: 6,
+    overflowX: 'auto',
+    WebkitOverflowScrolling: 'touch',
+    flex: 1,
+    minWidth: 0,
+    alignItems: 'center',
 };
 
 const matchCardStyle = {
