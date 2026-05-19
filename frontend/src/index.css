@@ -1003,16 +1003,13 @@ body::after {
     grid-template-columns: 1fr;
   }
 
-  .dash-sidebar {
-    position: static !important;
-    height: auto !important;
-    width: 100% !important;
-    margin-top: 0 !important;
-    transform: none !important;
-
-    background: transparent !important;
-
-  }
+  /* `.dash-sidebar` override removed — was forcing the dashboard sidebar
+     to position:static; width:100% !important from 769–1200px. At
+     1025–1200px the desktop top bar and bet-mode/REFRESH/CONTINUE row
+     are still visible (`.desktop-only` only hides at ≤1024px), but the
+     forced full-width sidebar pushed DashboardMain off-screen, so
+     clicking Continue had no visible effect. dashboard.css already
+     handles the responsive sidebar correctly per breakpoint. */
 
   .desktop-feedback-trigger {
     display: none !important;
