@@ -549,7 +549,13 @@ function AppInner() {
   }, []);
 
   const handleContinue = useCallback(() => {
+    // Mobile (≤768): drives MobileContentView via mobileViewState='results'.
+    // Tablet (769–1024): CSS overlays the sidebar full-width on top of
+    // DashboardMain; without closing it here the user sees no change after
+    // Continue because the overlaid sidebar still covers the results.
+    // Desktop (>1024): sidebar isn't overlaid, so this is a no-op.
     setMobileResultsActive(true);
+    setMobileSidebarOpen(false);
   }, []);
 
   // Go back from results to selection menu, preserving current sport selection
