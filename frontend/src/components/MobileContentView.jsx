@@ -1424,7 +1424,7 @@ const MobileContentView = ({
     const minutesAgo = Math.max(0, Math.floor(ageMs / 60000));
     const ageLabel = ageMs < 60000 ? 'Just updated' : `Updated ${minutesAgo}m ago`;
 
-    const handleAddToSlip = (matchId, selection, marketType, odds, matchName, marketLabel = marketType, line = null, meta = {}) => {
+    const handleAddToSlip = React.useCallback((matchId, selection, marketType, odds, matchName, marketLabel = marketType, line = null, meta = {}) => {
         const parsedOdds = parseOddsNumber(odds);
         if (!matchId || !selection || parsedOdds === null) return;
         const parsedLine = Number(line);
@@ -1449,7 +1449,7 @@ const MobileContentView = ({
                 sportKey: String(meta?.sportKey || '').toLowerCase(),
             },
         }));
-    };
+    }, []);
 
     // When the user has 2+ real sports selected via the sidebar checkboxes,
     // group matches by league inside the match list and emit a section
@@ -2973,12 +2973,16 @@ const leagueHeaderStyle = {
 const leagueHeaderLabelStyle = {
     display: 'flex',
     alignItems: 'center',
-    fontSize: '12px',
+    justifyContent: 'center',
+    fontSize: 13,
     fontWeight: 800,
-    letterSpacing: '0.6px',
+    letterSpacing: 0.6,
     textTransform: 'uppercase',
     flexShrink: 0,
-    paddingRight: 4,
+    padding: '7px 18px',
+    background: '#fff',
+    color: '#ff5051',
+    boxShadow: '0 2px 6px rgba(0, 0, 0, 0.18)',
 };
 const leagueHeaderPeriodsStyle = {
     display: 'flex',

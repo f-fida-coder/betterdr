@@ -1,13 +1,65 @@
-import React, { useEffect, useState } from 'react';
+import React, { useSyncExternalStore } from 'react';
 
 const TICK_MS = 30 * 1000;
 
+// Single shared timer for every <OddsAge /> instance. Previously each instance
+// owned its own setInterval — with ~200 match cards mounted on the live board
+// that meant 200 independent timers, 200 setState calls per tick, and no
+// batching between them. One module-level store + useSyncExternalStore gives
+// React 18 a single tick to batch all renders.
+let listeners = new Set();
+let intervalId = null;
+let visibilityBound = false;
+let currentNow = Date.now();
+
+function startTimer() {
+    if (intervalId !== null) return;
+    intervalId = window.setInterval(() => {
+        if (document.hidden) return;
+        currentNow = Date.now();
+        listeners.forEach((l) => l());
+    }, TICK_MS);
+}
+
+function stopTimer() {
+    if (intervalId === null) return;
+    window.clearInterval(intervalId);
+    intervalId = null;
+}
+
+function ensureVisibilityBinding() {
+    if (visibilityBound) return;
+    visibilityBound = true;
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) {
+            stopTimer();
+        } else if (listeners.size > 0) {
+            // Bump the clock on resume so consumers don't keep showing
+            // a 5-minute-old label until the next tick fires.
+            currentNow = Date.now();
+            listeners.forEach((l) => l());
+            startTimer();
+        }
+    });
+}
+
+function subscribe(callback) {
+    listeners.add(callback);
+    ensureVisibilityBinding();
+    startTimer();
+    return () => {
+        listeners.delete(callback);
+        if (listeners.size === 0) stopTimer();
+    };
+}
+
+function getSnapshot() {
+    return currentNow;
+}
+
 /**
  * Displays "Updated N min ago" derived client-side from a match's odds-sync
- * timestamp. Refreshes label once per 30s without triggering a parent re-render.
- *
- * Stale rows are dropped server-side now, so this component only renders the
- * relative time — no STALE / OUTDATED badge, no server-side `stale` prop.
+ * timestamp. Refreshes label once per 30s via a shared clock.
  *
  * Props:
  *   - timestamp: ISO string (e.g. match.lastOddsSyncAt). Omitted/invalid → renders nothing.
@@ -15,14 +67,7 @@ const TICK_MS = 30 * 1000;
  *   - className, style: pass-through for layout integration.
  */
 const OddsAge = ({ timestamp, live = false, className, style: extraStyle }) => {
-    const [nowTick, setNowTick] = useState(() => Date.now());
-
-    useEffect(() => {
-        const id = window.setInterval(() => {
-            if (!document.hidden) setNowTick(Date.now());
-        }, TICK_MS);
-        return () => window.clearInterval(id);
-    }, []);
+    const nowTick = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 
     if (!timestamp) return null;
     const ts = new Date(timestamp).getTime();

@@ -34,7 +34,7 @@ import { buildApiUrl as _internalBuildApiUrl } from '../api';
 export default function useLiveSyncPoll({
     enabled = true,
     intervalMs = 3500,
-    channels = 'odds:sport:sync,odds:sport:score,odds:sync',
+    channels = 'odds:sport:sync,odds:sport:score,odds:sync,bet:settled',
 } = {}) {
     const cursorRef = useRef('');
     const inFlightRef = useRef(false);
@@ -79,6 +79,23 @@ export default function useLiveSyncPoll({
         const dispatchEventForChannel = (evt) => {
             if (!evt || typeof window === 'undefined') return;
             const channel = String(evt.channel || '');
+
+            // bet:settled has its own consumer (MyBetsView). It's an
+            // infrequent, user-scoped event — not subject to the matches
+            // debounce window, so it always dispatches and never gets
+            // collapsed with an unrelated odds tick.
+            if (channel === 'bet:settled') {
+                window.dispatchEvent(new CustomEvent('bets:refresh', {
+                    detail: {
+                        reason: 'live-sync-poll',
+                        userId: evt.payload?.userId ?? null,
+                        betId: evt.payload?.betId ?? null,
+                        status: evt.payload?.status ?? null,
+                    },
+                }));
+                return;
+            }
+
             const sportKey = (evt.payload && (evt.payload.sport_key || evt.payload.sportKey)) || null;
             // 1.2s dispatch debounce — same shape as the WebSocket
             // handler in App.jsx. Bursty events (a worker cycle
@@ -123,10 +140,14 @@ export default function useLiveSyncPoll({
                     cursorRef.current = data.cursor;
                 }
                 if (data && Array.isArray(data.events) && data.events.length > 0) {
-                    // Dispatch once for the batch — the per-event
-                    // debounce inside dispatchEventForChannel already
-                    // collapses bursts to a single refetch.
-                    dispatchEventForChannel(data.events[0]);
+                    // Per-event dispatch so user-scoped channels (bet:settled)
+                    // aren't dropped just because an odds:sport:sync arrived
+                    // earlier in the same batch. dispatchEventForChannel applies
+                    // the matches-debounce internally to odds events; bet
+                    // events bypass it.
+                    for (const evt of data.events) {
+                        dispatchEventForChannel(evt);
+                    }
                 }
                 backoffRef.current = 0;
             } catch (e) {

@@ -374,6 +374,25 @@ final class BetSettlementService
                     $results['settledBetIds'][] = $betId;
                     $db->commit();
 
+                    // Realtime push so the player's open My Bets list flips
+                    // pending → won/lost/void without waiting for the 5s
+                    // poll. Fired AFTER commit so a failed broadcast can
+                    // never roll back the money-touching write. Pattern
+                    // mirrors OutrightSettlementService::publish.
+                    if (class_exists('RealtimeEventBus')) {
+                        try {
+                            RealtimeEventBus::publish('bet:settled', [
+                                'userId' => $userId,
+                                'betId' => $betId,
+                                'status' => $ticketStatus,
+                                'source' => 'match',
+                                'time' => $now,
+                            ]);
+                        } catch (Throwable $_) {
+                            // Best-effort: bet is durable, polling fallback covers gaps.
+                        }
+                    }
+
                     // If this child belongs to a Round Robin group,
                     // recompute the group's aggregate status so the
                     // user's grouped view (won/lost/partial/void)

@@ -130,6 +130,25 @@ function AppInner() {
     }
 
     const channel = String(message.channel || '').trim();
+
+    // bet:settled is fanned out from BetSettlementService /
+    // OutrightSettlementService after a per-ticket commit. The MyBets
+    // listener subscribes to a `bets:refresh` window event; this dispatch
+    // is the WS path, useLiveSyncPoll's poll is the REST fallback.
+    if (channel === 'bet:settled') {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('bets:refresh', {
+          detail: {
+            reason: 'realtime',
+            userId: message.payload?.userId ?? null,
+            betId: message.payload?.betId ?? null,
+            status: message.payload?.status ?? null,
+          },
+        }));
+      }
+      return;
+    }
+
     // odds:sync is the worker's full-cycle aggregate event; odds:sport:sync
     // fires from syncSingleSport for an individual sport (carries sportKey
     // in payload so subscribers can target). Both arrive AFTER the backend

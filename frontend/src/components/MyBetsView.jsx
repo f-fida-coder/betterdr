@@ -1201,20 +1201,34 @@ const MyBetsView = () => {
             }
         };
 
-        // Poll every 5 seconds for bet status updates. Fixed interval avoids
-        // interval recreation bugs that occurred with dependency-based recreation.
-        // 5s polling is responsive enough for both pending and settled bets;
-        // trading minor extra requests for simpler, more reliable code.
+        // Primary refresh path: react to `bets:refresh` window events
+        // dispatched by App.jsx (when the WS delivers a `bet:settled`
+        // push) or by useLiveSyncPoll (the REST-fallback poll). Settlement
+        // is a low-frequency, per-user event, so this is event-driven
+        // rather than polled — 5s polling at 500 concurrent users during
+        // a live game was 100 req/s/min/user. Stale tolerance is now
+        // capped by the safety-net poll below (30s) instead.
+        const handleBetsRefresh = () => {
+            if (document.hidden) return;
+            void fetchBets({ silent: true });
+        };
+
+        // Safety-net poll: covers a missed push (WS drop + REST poll
+        // backoff colliding, or a published event arriving before the
+        // page subscribed). 30s is generous; the typical case is the
+        // event-driven path above firing within ~1s of settlement.
         const interval = window.setInterval(() => {
             if (document.hidden) return;
             void fetchBets({ silent: true });
-        }, 5000);
+        }, 30000);
 
         document.addEventListener('visibilitychange', handleVisibilityChange);
+        window.addEventListener('bets:refresh', handleBetsRefresh);
 
         return () => {
             window.clearInterval(interval);
             document.removeEventListener('visibilitychange', handleVisibilityChange);
+            window.removeEventListener('bets:refresh', handleBetsRefresh);
         };
     }, []);
 
