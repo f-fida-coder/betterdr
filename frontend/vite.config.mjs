@@ -121,9 +121,6 @@ export default defineConfig({
             if (id.includes('react-router') || id.includes('@tanstack/react-query')) {
               return 'vendor-routing';
             }
-            if (id.includes('recharts') || id.includes('chart.js')) {
-              return 'vendor-charts';
-            }
             return 'vendor-common';
           }
           
