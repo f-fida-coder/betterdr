@@ -348,6 +348,14 @@ while (true) {
             }
         }
 
+        // Flush any Logger buffer accumulated during this chunk so log
+        // tails are responsive — without this the buffered lines from
+        // OddsSyncService et al would sit in memory until either the
+        // 64KB threshold trips or the worker exits.
+        if (class_exists('Logger')) {
+            Logger::flush();
+        }
+
         $chunkElapsed = microtime(true) - $chunkStart;
         $sleepFor = max(1, $scoresTickSeconds - (int) round($chunkElapsed));
         $remainingToDeadline = $deadline - microtime(true);

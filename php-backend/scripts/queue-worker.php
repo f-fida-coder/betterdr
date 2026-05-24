@@ -154,6 +154,13 @@ while (!$shouldStop) {
         fwrite(STDERR, sprintf("[worker] OK job=%s duration_ms=%d\n",
             $job['job'] ?? '?', $duration));
     }
+
+    // Flush per-job so a long-running worker surfaces its Logger lines
+    // promptly instead of holding them until the 64KB threshold trips
+    // or the process exits.
+    if (class_exists('Logger')) {
+        Logger::flush();
+    }
 }
 
 fwrite(STDERR, sprintf("[worker] shutdown processed=%d uptime_s=%d\n",

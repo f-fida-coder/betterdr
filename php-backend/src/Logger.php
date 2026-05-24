@@ -37,6 +37,19 @@ final class Logger
     /** @var string Unique ID for this request lifecycle */
     private static string $requestId = '';
 
+    // Per-process write buffer. Each request typically emits 1-3 log lines
+    // (request summary + a handful of info/warning calls); buffering them
+    // in memory and flushing once at shutdown collapses N synchronous
+    // fopen/fwrite/fclose cycles into one. At 88 MB of access logs in
+    // ~3 weeks and 5-10 fwrites per request, this drops a meaningful
+    // amount of lock contention and syscall overhead off the hot path.
+    // Long-running scripts (workers, CLI) should call Logger::flush()
+    // between iterations to bound memory and surface logs promptly.
+    /** @var array<string, string> channel => concatenated lines */
+    private static array $buffer = [];
+    private static bool $shutdownRegistered = false;
+    private const BUFFER_FLUSH_THRESHOLD_BYTES = 65536;
+
     // ── Public API ────────────────────────────────────────────────────────────
 
     public static function info(string $message, array $context = [], string $channel = 'api'): void
@@ -122,14 +135,6 @@ final class Logger
     private static function write(string $level, string $message, array $context, string $channel): void
     {
         try {
-            $logDir = self::resolveLogDir();
-            if (!is_dir($logDir)) {
-                @mkdir($logDir, 0775, true);
-            }
-
-            $file = self::CHANNEL_FILES[$channel] ?? self::DEFAULT_FILE;
-            $path = $logDir . '/' . $file;
-
             $entry = [
                 'time'      => gmdate('Y-m-d\TH:i:s\Z'),
                 'level'     => $level,
@@ -141,25 +146,84 @@ final class Logger
                 $entry['context'] = self::sanitize($context, self::MAX_CONTEXT_DEPTH);
             }
 
-            // FILE_APPEND on Linux/ext4 is atomic for small writes, so we
-            // attempt a non-blocking lock first. If the lock is taken by
-            // another worker, fall back to lockless append — losing one log
-            // line is far better than stalling the HTTP response under 20k
-            // concurrent requests.
-            $handle = @fopen($path, 'a');
-            if ($handle !== false) {
-                $line = json_encode($entry, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . "\n";
+            $line = json_encode($entry, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            if (!is_string($line) || $line === '') {
+                return;
+            }
+            $line .= "\n";
+
+            if (!isset(self::$buffer[$channel])) {
+                self::$buffer[$channel] = '';
+            }
+            self::$buffer[$channel] .= $line;
+
+            // Register one shutdown flush per process so request lifecycles
+            // (and CLI scripts that don't manually flush) emit on exit.
+            if (!self::$shutdownRegistered) {
+                self::$shutdownRegistered = true;
+                register_shutdown_function([self::class, 'flush']);
+            }
+
+            // Safety net for long-running processes (workers, smoke scripts)
+            // that emit many log lines without ever returning to a shutdown
+            // boundary. 64 KB ≈ 200-500 log lines depending on context size.
+            if (strlen(self::$buffer[$channel]) >= self::BUFFER_FLUSH_THRESHOLD_BYTES) {
+                self::flush();
+            }
+        } catch (Throwable $ignored) {
+            // Logging must never crash the application.
+        }
+    }
+
+    /**
+     * Flush buffered log lines to disk. Called automatically at shutdown,
+     * but long-running scripts should call this between iterations to bound
+     * memory and surface logs promptly.
+     */
+    public static function flush(): void
+    {
+        if (self::$buffer === []) {
+            return;
+        }
+        try {
+            $logDir = self::resolveLogDir();
+            if (!is_dir($logDir)) {
+                @mkdir($logDir, 0775, true);
+            }
+
+            foreach (self::$buffer as $channel => $combined) {
+                if ($combined === '') {
+                    continue;
+                }
+                $file = self::CHANNEL_FILES[$channel] ?? self::DEFAULT_FILE;
+                $path = $logDir . '/' . $file;
+
+                // Single fwrite per channel per flush — way cheaper than
+                // one fwrite per log call. FILE_APPEND-style atomicity for
+                // small writes still holds on Linux/ext4 for combined
+                // buffers up to ~PIPE_BUF (4 KB); larger combined writes
+                // may interleave with another process's writes, which is
+                // acceptable since each line is still a complete JSON
+                // object delimited by \n.
+                $handle = @fopen($path, 'a');
+                if ($handle === false) {
+                    continue;
+                }
                 if (@flock($handle, LOCK_EX | LOCK_NB)) {
-                    @fwrite($handle, $line);
+                    @fwrite($handle, $combined);
                     @flock($handle, LOCK_UN);
                 } else {
-                    // Lock contention — write without lock (atomic on Linux for small payloads)
-                    @fwrite($handle, $line);
+                    // Lock contention — fall back to lockless write rather
+                    // than block the request. One log line per worker may
+                    // interleave; cheaper than stalling.
+                    @fwrite($handle, $combined);
                 }
                 @fclose($handle);
             }
         } catch (Throwable $ignored) {
-            // Logging must never crash the application.
+            // Flush failure must never crash the application.
+        } finally {
+            self::$buffer = [];
         }
     }
 
