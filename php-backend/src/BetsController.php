@@ -1295,8 +1295,21 @@ final class BetsController
             $regraded = [];
             $notDone = [];
 
-            foreach (array_keys($matchIds) as $mid) {
-                $match = $this->db->findOne('matches', ['id' => SqlRepository::id($mid)]);
+            // Batch-fetch matches once instead of one findOne per match — a
+            // user with 50 pending bets across 50 matches would otherwise
+            // fire 50 sequential queries.
+            $allMids = array_keys($matchIds);
+            $matchById = [];
+            if ($allMids !== []) {
+                $matchObjectIds = array_map(static fn(string $id) => SqlRepository::id($id), $allMids);
+                $matchDocs = $this->db->findMany('matches', ['id' => ['$in' => $matchObjectIds]]);
+                foreach ($matchDocs as $md) {
+                    $matchById[(string) ($md['id'] ?? '')] = $md;
+                }
+            }
+
+            foreach ($allMids as $mid) {
+                $match = $matchById[$mid] ?? null;
                 if ($match === null) continue;
                 $effective = SportsMatchStatus::effectiveStatus($match, $now);
                 if (in_array($effective, ['finished', 'canceled'], true)) {
@@ -1438,8 +1451,55 @@ final class BetsController
             $cutoffTs = $now - ($hours * 3600);
             $out = [];
 
+            // Batch-fetch matches, bets, and users once instead of per-row
+            // findOne calls inside the nested loop. Previous behavior was
+            // 1 + N + (N * M) queries (N = matches, M = bets per match);
+            // 50 matches × 10 bets = 501 queries vs. 3 with batching.
+            $allMids = array_keys($betIdsByMatch);
+            $matchById = [];
+            if ($allMids !== []) {
+                $matchObjectIds = array_map(static fn(string $id) => SqlRepository::id($id), $allMids);
+                $matchDocs = $this->db->findMany('matches', ['id' => ['$in' => $matchObjectIds]]);
+                foreach ($matchDocs as $md) {
+                    $matchById[(string) ($md['id'] ?? '')] = $md;
+                }
+            }
+
+            $allBetIds = [];
+            foreach ($betIdsByMatch as $betIdSet) {
+                foreach (array_keys($betIdSet) as $bid) {
+                    $allBetIds[$bid] = true;
+                }
+            }
+            $betById = [];
+            $userIdsNeeded = [];
+            if ($allBetIds !== []) {
+                $betObjectIds = array_map(static fn(string $id) => SqlRepository::id($id), array_keys($allBetIds));
+                $betDocs = $this->db->findMany('bets', ['id' => ['$in' => $betObjectIds]], [
+                    'projection' => ['id' => 1, 'userId' => 1, 'amount' => 1, 'riskAmount' => 1, 'potentialPayout' => 1, 'type' => 1],
+                ]);
+                foreach ($betDocs as $bd) {
+                    $betById[(string) ($bd['id'] ?? '')] = $bd;
+                    $uid = (string) ($bd['userId'] ?? '');
+                    if ($uid !== '') {
+                        $userIdsNeeded[$uid] = true;
+                    }
+                }
+            }
+
+            $userById = [];
+            if ($userIdsNeeded !== []) {
+                $userObjectIds = array_map(static fn(string $id) => SqlRepository::id($id), array_keys($userIdsNeeded));
+                $userDocs = $this->db->findMany('users', ['id' => ['$in' => $userObjectIds]], [
+                    'projection' => ['id' => 1, 'username' => 1],
+                ]);
+                foreach ($userDocs as $ud) {
+                    $userById[(string) ($ud['id'] ?? '')] = $ud;
+                }
+            }
+
             foreach ($betIdsByMatch as $mid => $betIdSet) {
-                $match = $this->db->findOne('matches', ['id' => SqlRepository::id($mid)]);
+                $match = $matchById[$mid] ?? null;
                 if ($match === null) continue;
 
                 $startTs = strtotime((string) ($match['startTime'] ?? '')) ?: 0;
@@ -1457,12 +1517,10 @@ final class BetsController
                 $bets = [];
                 $riskTotal = 0.0;
                 foreach (array_keys($betIdSet) as $bid) {
-                    $bet = $this->db->findOne('bets', ['id' => SqlRepository::id($bid)], [
-                        'projection' => ['id' => 1, 'userId' => 1, 'amount' => 1, 'riskAmount' => 1, 'potentialPayout' => 1, 'type' => 1],
-                    ]);
+                    $bet = $betById[$bid] ?? null;
                     if ($bet === null) continue;
                     $uid = (string) ($bet['userId'] ?? '');
-                    $user = $uid !== '' ? $this->db->findOne('users', ['id' => SqlRepository::id($uid)], ['projection' => ['username' => 1]]) : null;
+                    $user = $uid !== '' ? ($userById[$uid] ?? null) : null;
                     $risk = (float) ($bet['riskAmount'] ?? $bet['amount'] ?? 0);
                     $riskTotal += $risk;
                     $bets[] = [

@@ -6,13 +6,22 @@
  *
  * Run: node scripts/subset-fontawesome.mjs
  */
-import { readFileSync, writeFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 const ROOT = new URL('..', import.meta.url).pathname;
 const SRC_CSS = join(ROOT, 'node_modules/@fortawesome/fontawesome-free/css/all.min.css');
 const OUT_CSS = join(ROOT, 'public/fonts/fontawesome/all.min.css');
 const SCAN_DIR = join(ROOT, 'src');
+
+// `npm run build` calls this; the prod machine may not have
+// @fortawesome/fontawesome-free installed (it's not in package.json — we ship
+// the pre-subsetted CSS in public/). In that case, no-op so the build proceeds
+// using the committed subset.
+if (!existsSync(SRC_CSS)) {
+  console.log('subset-fontawesome: source CSS not present (skipping); shipping committed public/fonts/fontawesome/all.min.css');
+  process.exit(0);
+}
 
 // Walk src/ and collect every fa-XXX class referenced.
 const ICON_RE = /\bfa-([a-z0-9][a-z0-9-]*)\b/g;
@@ -96,6 +105,20 @@ let result = out.join('');
 // PageSpeed targets, and shipping the .ttf files would add ~700 KB.
 // Pattern: ,url(../webfonts/...ttf) format("truetype")
 result = result.replace(/,url\([^)]+\.ttf\)\s*format\("truetype"\)/g, '');
+
+// Strip @font-faces + brand glyph rules we don't ship — the brand woff2 (117 KB,
+// only used for 4 payment-method icons, replaced by inline SVG in BrandIcon.jsx)
+// and the v4-compat woff2 (5 KB, only needed if code uses pre-FA6 class names,
+// which it doesn't). Together this drops ~122 KB of font assets from first paint.
+// Re-running this script must NOT reintroduce them, hence these strips.
+result = result.replace(/:host,:root\{--fa-style-family-brands:[^}]+\}/g, ''); // brand root vars
+result = result.replace(/@font-face\{[^}]*fa-brands-400\.woff2[^}]*\}/g, '');
+result = result.replace(/@font-face\{[^}]*fa-v4compatibility\.woff2[^}]*\}/g, '');
+result = result.replace(/\.fa-brands,\.fab\{font-weight:400\}/g, '');
+result = result.replace(/\.fa-cc-visa:before\{content:"\\f1f0"\}/g, '');
+result = result.replace(/\.fa-apple:before\{content:"\\f179"\}/g, '');
+result = result.replace(/\.fa-bitcoin:before\{content:"\\f379"\}/g, '');
+result = result.replace(/\.fa-ethereum:before\{content:"\\f42e"\}/g, '');
 
 writeFileSync(OUT_CSS, result);
 

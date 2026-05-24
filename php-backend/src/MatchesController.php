@@ -98,35 +98,58 @@ final class MatchesController
                 Response::json(['error' => 'invalid_sport_key'], 400);
                 return;
             }
-            $filter = ['status' => 'open'];
-            if ($sportKey !== '') {
-                $filter['sportKey'] = $sportKey;
-            }
-            $rows = $this->db->findMany('outrights', $filter, ['limit' => 500]);
-            // Strip the heavy `bookmakers` field out of the list view; clients
-            // can fetch a single outright with full bookmaker data via
-            // /api/outrights/{id} (added later if needed).
-            $light = array_map(static function (array $row): array {
-                $books = is_array($row['bookmakers'] ?? null) ? $row['bookmakers'] : [];
-                $primary = null;
-                foreach ($books as $b) {
-                    if (is_array($b) && is_array($b['markets'] ?? null)) {
-                        $primary = $b;
-                        break;
-                    }
+
+            // Server-side cache to absorb sidebar-mount fan-out. The HTTP
+            // cache header still helps repeat clients, but every cold PHP-FPM
+            // hit otherwise re-runs the findMany + array_map on the outrights
+            // table. Outrights change on the order of minutes (futures move
+            // slowly compared to live odds), so 20 s is a generous freshness
+            // budget that still avoids stampedes on popular markets.
+            $cacheTtl = $this->envInt('SPORTSBOOK_OUTRIGHTS_CACHE_TTL_SECONDS', 20);
+            $cacheKey = 'outrights:' . ($sportKey !== '' ? $sportKey : '_all');
+            $loader = function () use ($sportKey): array {
+                $filter = ['status' => 'open'];
+                if ($sportKey !== '') {
+                    $filter['sportKey'] = $sportKey;
                 }
-                return [
-                    'id' => $row['id'] ?? null,
-                    'sportKey' => $row['sportKey'] ?? null,
-                    'eventId' => $row['eventId'] ?? null,
-                    'eventName' => $row['eventName'] ?? null,
-                    'commenceTime' => $row['commenceTime'] ?? null,
-                    'status' => $row['status'] ?? 'open',
-                    'lastUpdated' => $row['lastUpdated'] ?? null,
-                    'primaryBookmaker' => $primary,
-                    'bookmakerCount' => count($books),
-                ];
-            }, $rows);
+                $rows = $this->db->findMany('outrights', $filter, ['limit' => 500]);
+                // Strip the heavy `bookmakers` field out of the list view; clients
+                // can fetch a single outright with full bookmaker data via
+                // /api/outrights/{id} (added later if needed).
+                return array_map(static function (array $row): array {
+                    $books = is_array($row['bookmakers'] ?? null) ? $row['bookmakers'] : [];
+                    $primary = null;
+                    foreach ($books as $b) {
+                        if (is_array($b) && is_array($b['markets'] ?? null)) {
+                            $primary = $b;
+                            break;
+                        }
+                    }
+                    return [
+                        'id' => $row['id'] ?? null,
+                        'sportKey' => $row['sportKey'] ?? null,
+                        'eventId' => $row['eventId'] ?? null,
+                        'eventName' => $row['eventName'] ?? null,
+                        'commenceTime' => $row['commenceTime'] ?? null,
+                        'status' => $row['status'] ?? 'open',
+                        'lastUpdated' => $row['lastUpdated'] ?? null,
+                        'primaryBookmaker' => $primary,
+                        'bookmakerCount' => count($books),
+                    ];
+                }, $rows);
+            };
+
+            if ($cacheTtl <= 0) {
+                $light = $loader();
+            } else {
+                $light = SharedFileCache::remember(
+                    SportsbookCache::outrightsListNamespace(),
+                    $cacheKey,
+                    $cacheTtl,
+                    $loader
+                );
+            }
+
             Response::json($light, 200, 'public, max-age=30, stale-while-revalidate=60');
         } catch (Throwable $e) {
             Logger::exception($e, 'listOutrights failed');
@@ -143,17 +166,33 @@ final class MatchesController
     private function listOutrightSports(): void
     {
         try {
-            $rows = $this->db->findMany('outrights', ['status' => 'open'], ['projection' => ['sportKey' => 1, 'eventName' => 1], 'limit' => 1000]);
-            $bySport = [];
-            foreach ($rows as $r) {
-                $sk = (string) ($r['sportKey'] ?? '');
-                if ($sk === '') continue;
-                $bySport[$sk] = ($bySport[$sk] ?? 0) + 1;
+            $cacheTtl = $this->envInt('SPORTSBOOK_OUTRIGHTS_SPORTS_CACHE_TTL_SECONDS', 60);
+            $loader = function (): array {
+                $rows = $this->db->findMany('outrights', ['status' => 'open'], ['projection' => ['sportKey' => 1, 'eventName' => 1], 'limit' => 1000]);
+                $bySport = [];
+                foreach ($rows as $r) {
+                    $sk = (string) ($r['sportKey'] ?? '');
+                    if ($sk === '') continue;
+                    $bySport[$sk] = ($bySport[$sk] ?? 0) + 1;
+                }
+                $out = [];
+                foreach ($bySport as $sportKey => $count) {
+                    $out[] = ['sportKey' => $sportKey, 'count' => $count];
+                }
+                return $out;
+            };
+
+            if ($cacheTtl <= 0) {
+                $out = $loader();
+            } else {
+                $out = SharedFileCache::remember(
+                    SportsbookCache::outrightsSportsNamespace(),
+                    'all',
+                    $cacheTtl,
+                    $loader
+                );
             }
-            $out = [];
-            foreach ($bySport as $sportKey => $count) {
-                $out[] = ['sportKey' => $sportKey, 'count' => $count];
-            }
+
             Response::json($out, 200, 'public, max-age=60, stale-while-revalidate=120');
         } catch (Throwable $e) {
             Logger::exception($e, 'listOutrightSports failed');

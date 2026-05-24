@@ -3,6 +3,7 @@ import '../bonus.css';
 import { getBalance, getWalletTransactions, requestDeposit, requestWithdrawal } from '../api';
 import { isWagerTransaction } from '../utils/transactionPresentation';
 import { formatSiteDateTime } from '../utils/timezone';
+import BrandIcon, { BRAND_ICON_NAMES } from './BrandIcon';
 
 const TABS = [
     { id: 'deposits', label: 'Deposits', icon: 'fa-solid fa-arrow-down' },
@@ -12,18 +13,24 @@ const TABS = [
 ];
 
 const DEPOSIT_METHODS = [
-    { id: 'mastercard_visa', label: 'Mastercard / Visa', eta: 'Instant', fee: 'Low fee', icon: 'fa-brands fa-cc-visa' },
-    { id: 'apple_pay', label: 'Apple Pay', eta: 'Instant', fee: 'No extra fee', icon: 'fa-brands fa-apple' },
-    { id: 'bitcoin', label: 'Bitcoin', eta: '10-30 min', fee: 'Network fee', icon: 'fa-brands fa-bitcoin' },
-    { id: 'ethereum', label: 'Ethereum', eta: '5-20 min', fee: 'Network fee', icon: 'fa-brands fa-ethereum' },
+    { id: 'mastercard_visa', label: 'Mastercard / Visa', eta: 'Instant', fee: 'Low fee', icon: 'visa' },
+    { id: 'apple_pay', label: 'Apple Pay', eta: 'Instant', fee: 'No extra fee', icon: 'apple' },
+    { id: 'bitcoin', label: 'Bitcoin', eta: '10-30 min', fee: 'Network fee', icon: 'bitcoin' },
+    { id: 'ethereum', label: 'Ethereum', eta: '5-20 min', fee: 'Network fee', icon: 'ethereum' },
     { id: 'bank_transfer', label: 'Bank Transfer', eta: '1-3 days', fee: 'No fee', icon: 'fa-solid fa-building-columns' }
 ];
 
 const WITHDRAW_METHODS = [
     { id: 'bank_transfer', label: 'Bank Transfer', eta: '1-3 days', icon: 'fa-solid fa-building-columns' },
     { id: 'crypto', label: 'Crypto Wallet', eta: '15-60 min', icon: 'fa-solid fa-wallet' },
-    { id: 'card_refund', label: 'Card Refund', eta: '1-5 days', icon: 'fa-brands fa-cc-visa' }
+    { id: 'card_refund', label: 'Card Refund', eta: '1-5 days', icon: 'visa' }
 ];
+
+const MethodIcon = ({ icon }) => (
+    BRAND_ICON_NAMES.includes(icon)
+        ? <BrandIcon name={icon} />
+        : <i className={icon} />
+);
 
 const QUICK_AMOUNTS = [25, 50, 100, 250, 500, 1000];
 
@@ -229,7 +236,7 @@ const BonusView = () => {
                                             onClick={() => setDepositMethod(method.id)}
                                         >
                                             <div className="method-head">
-                                                <i className={method.icon}></i>
+                                                <MethodIcon icon={method.icon} />
                                                 <strong>{method.label}</strong>
                                             </div>
                                             <div className="method-meta">
@@ -284,7 +291,7 @@ const BonusView = () => {
                                             onClick={() => setWithdrawMethod(method.id)}
                                         >
                                             <div className="method-head">
-                                                <i className={method.icon}></i>
+                                                <MethodIcon icon={method.icon} />
                                                 <strong>{method.label}</strong>
                                             </div>
                                             <div className="method-meta">

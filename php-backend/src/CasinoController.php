@@ -398,44 +398,71 @@ final class CasinoController
             $limit = min(100, max(1, (int) ($_GET['limit'] ?? 48)));
             $skip = ($page - 1) * $limit;
 
-            $query = [];
-            if (!$includeAll) {
-                $query['status'] = 'active';
-            }
-            if ($category !== '' && $category !== 'lobby') {
-                $query['category'] = $this->normalizeCategory($category);
-            }
-            if ($search !== '') {
-                $query['$or'] = [
-                    ['name' => ['$regex' => $search, '$options' => 'i']],
-                    ['tags' => ['$regex' => $search, '$options' => 'i']],
-                    ['provider' => ['$regex' => $search, '$options' => 'i']],
+            $compute = function () use ($category, $search, $featured, $includeAll, $page, $limit, $skip): array {
+                $query = [];
+                if (!$includeAll) {
+                    $query['status'] = 'active';
+                }
+                if ($category !== '' && $category !== 'lobby') {
+                    $query['category'] = $this->normalizeCategory($category);
+                }
+                if ($search !== '') {
+                    $query['$or'] = [
+                        ['name' => ['$regex' => $search, '$options' => 'i']],
+                        ['tags' => ['$regex' => $search, '$options' => 'i']],
+                        ['provider' => ['$regex' => $search, '$options' => 'i']],
+                    ];
+                }
+                if ($featured) {
+                    $query['isFeatured'] = true;
+                }
+                $allGames = $this->db->findMany('casinogames', $query, [
+                    'sort' => ['sortOrder' => 1, 'name' => 1],
+                ]);
+                $games = array_values(array_filter(
+                    $allGames,
+                    fn(array $game): bool => !in_array(strtolower((string) ($game['slug'] ?? '')), self::REMOVED_GAME_SLUGS, true)
+                ));
+                $total = count($games);
+                $games = array_slice($games, $skip, $limit);
+
+                $publicGames = array_map(fn ($g) => $this->toPublicGame($g), $games);
+
+                return [
+                    'games' => $publicGames,
+                    'pagination' => [
+                        'page' => $page,
+                        'limit' => $limit,
+                        'total' => $total,
+                        'pages' => max(1, (int) ceil($total / max(1, $limit))),
+                    ],
                 ];
-            }
-            if ($featured) {
-                $query['isFeatured'] = true;
-            }
-            $allGames = $this->db->findMany('casinogames', $query, [
-                'sort' => ['sortOrder' => 1, 'name' => 1],
-            ]);
-            $games = array_values(array_filter(
-                $allGames,
-                fn(array $game): bool => !in_array(strtolower((string) ($game['slug'] ?? '')), self::REMOVED_GAME_SLUGS, true)
-            ));
-            $total = count($games);
-            $games = array_slice($games, $skip, $limit);
+            };
 
-            $publicGames = array_map(fn ($g) => $this->toPublicGame($g), $games);
+            // Cache the common sidebar/lobby case. Bypass when search is set
+            // (cardinality of search strings would blow up the cache) or when
+            // an admin asks for `all=true` (different payload than user view).
+            // Casino game catalog changes only when admin syncs new games, so
+            // 30 s is a generous freshness budget.
+            $isCacheable = $search === '' && !$includeAll;
+            if ($isCacheable) {
+                $cacheTtl = (int) (getenv('CASINO_GAMES_CACHE_TTL_SECONDS') ?: 30);
+                if ($cacheTtl > 0) {
+                    $cacheKey = 'games:' . $category . ':f' . ($featured ? '1' : '0') . ':p' . $page . ':l' . $limit;
+                    $payload = SharedFileCache::remember(
+                        SportsbookCache::casinoGamesNamespace(),
+                        $cacheKey,
+                        $cacheTtl,
+                        $compute
+                    );
+                } else {
+                    $payload = $compute();
+                }
+            } else {
+                $payload = $compute();
+            }
 
-            Response::json([
-                'games' => $publicGames,
-                'pagination' => [
-                    'page' => $page,
-                    'limit' => $limit,
-                    'total' => $total,
-                    'pages' => max(1, (int) ceil($total / max(1, $limit))),
-                ],
-            ]);
+            Response::json($payload);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error fetching casino games'], 500);
         }
@@ -450,37 +477,56 @@ final class CasinoController
             }
 
             $this->ensureCasinoSeeded();
-            $activeGames = $this->db->findMany('casinogames', [
-                'status' => 'active',
-            ]);
-            $activeGames = array_values(array_filter(
-                $activeGames,
-                fn(array $game): bool => !in_array(strtolower((string) ($game['slug'] ?? '')), self::REMOVED_GAME_SLUGS, true)
-            ));
 
-            $counts = [
-                'table_games' => 0,
-                'slots' => 0,
-                'video_poker' => 0,
-                'specialty_games' => 0,
-            ];
-            foreach ($activeGames as $game) {
-                $cat = (string) ($game['category'] ?? 'lobby');
-                if (isset($counts[$cat])) {
-                    $counts[$cat]++;
+            $compute = function (): array {
+                $activeGames = $this->db->findMany('casinogames', [
+                    'status' => 'active',
+                ]);
+                $activeGames = array_values(array_filter(
+                    $activeGames,
+                    fn(array $game): bool => !in_array(strtolower((string) ($game['slug'] ?? '')), self::REMOVED_GAME_SLUGS, true)
+                ));
+
+                $counts = [
+                    'table_games' => 0,
+                    'slots' => 0,
+                    'video_poker' => 0,
+                    'specialty_games' => 0,
+                ];
+                foreach ($activeGames as $game) {
+                    $cat = (string) ($game['category'] ?? 'lobby');
+                    if (isset($counts[$cat])) {
+                        $counts[$cat]++;
+                    }
                 }
+
+                $total = array_sum($counts);
+                return [
+                    'categories' => [
+                        ['id' => 'lobby', 'label' => 'Lobby', 'count' => $total],
+                        ['id' => 'table_games', 'label' => 'Table Games', 'count' => $counts['table_games']],
+                        ['id' => 'slots', 'label' => 'Slots', 'count' => $counts['slots']],
+                        ['id' => 'video_poker', 'label' => 'Video Poker', 'count' => $counts['video_poker']],
+                        ['id' => 'specialty_games', 'label' => 'Specialty Games', 'count' => $counts['specialty_games']],
+                    ],
+                ];
+            };
+
+            // Same response for every authenticated user. Catalog changes
+            // only on admin sync, so a 60 s cache is conservative.
+            $cacheTtl = (int) (getenv('CASINO_CATEGORIES_CACHE_TTL_SECONDS') ?: 60);
+            if ($cacheTtl > 0) {
+                $payload = SharedFileCache::remember(
+                    SportsbookCache::casinoCategoriesNamespace(),
+                    'all',
+                    $cacheTtl,
+                    $compute
+                );
+            } else {
+                $payload = $compute();
             }
 
-            $total = array_sum($counts);
-            Response::json([
-                'categories' => [
-                    ['id' => 'lobby', 'label' => 'Lobby', 'count' => $total],
-                    ['id' => 'table_games', 'label' => 'Table Games', 'count' => $counts['table_games']],
-                    ['id' => 'slots', 'label' => 'Slots', 'count' => $counts['slots']],
-                    ['id' => 'video_poker', 'label' => 'Video Poker', 'count' => $counts['video_poker']],
-                    ['id' => 'specialty_games', 'label' => 'Specialty Games', 'count' => $counts['specialty_games']],
-                ],
-            ]);
+            Response::json($payload);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error fetching casino categories'], 500);
         }
@@ -653,6 +699,7 @@ final class CasinoController
 
             $id = $this->db->insertOne('casinogames', $doc);
             $created = $this->db->findOne('casinogames', ['id' => SqlRepository::id($id)]);
+            SportsbookCache::invalidateCasinoCaches();
             Response::json($this->toPublicGame($created ?? array_merge($doc, ['id' => $id])), 201);
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error creating casino game'], 500);
@@ -713,6 +760,7 @@ final class CasinoController
 
             $this->db->updateOne('casinogames', ['id' => SqlRepository::id($id)], $updates);
             $updated = $this->db->findOne('casinogames', ['id' => SqlRepository::id($id)]);
+            SportsbookCache::invalidateCasinoCaches();
             Response::json($this->toPublicGame($updated ?? array_merge($existing, $updates)));
         } catch (Throwable $e) {
             Response::json(['message' => 'Server error updating casino game'], 500);
@@ -842,6 +890,10 @@ final class CasinoController
                     $matched++;
                     $modified++;
                 }
+            }
+
+            if ($inserted > 0 || $modified > 0) {
+                SportsbookCache::invalidateCasinoCaches();
             }
 
             Response::json([

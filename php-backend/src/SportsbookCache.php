@@ -20,6 +20,10 @@ final class SportsbookCache
     // the sweep from thrashing when a client hammers /api/bets/my-bets
     // (auto-refresh, multiple tabs, etc.).
     private const USER_BET_SWEEP_NAMESPACE = 'sportsbook-user-bet-sweep';
+    private const OUTRIGHTS_LIST_NAMESPACE = 'sportsbook-outrights-list';
+    private const OUTRIGHTS_SPORTS_NAMESPACE = 'sportsbook-outrights-sports';
+    private const CASINO_GAMES_NAMESPACE = 'casino-games-list';
+    private const CASINO_CATEGORIES_NAMESPACE = 'casino-categories';
 
     public static function publicMatchesNamespace(): string
     {
@@ -49,6 +53,32 @@ final class SportsbookCache
     public static function userBetSweepNamespace(): string
     {
         return self::USER_BET_SWEEP_NAMESPACE;
+    }
+
+    public static function outrightsListNamespace(): string
+    {
+        return self::OUTRIGHTS_LIST_NAMESPACE;
+    }
+
+    public static function outrightsSportsNamespace(): string
+    {
+        return self::OUTRIGHTS_SPORTS_NAMESPACE;
+    }
+
+    public static function casinoGamesNamespace(): string
+    {
+        return self::CASINO_GAMES_NAMESPACE;
+    }
+
+    public static function casinoCategoriesNamespace(): string
+    {
+        return self::CASINO_CATEGORIES_NAMESPACE;
+    }
+
+    public static function invalidateCasinoCaches(): void
+    {
+        SharedFileCache::forgetNamespace(self::CASINO_GAMES_NAMESPACE);
+        SharedFileCache::forgetNamespace(self::CASINO_CATEGORIES_NAMESPACE);
     }
 
     public static function publicMatchesKey(string $status, string $active): string
